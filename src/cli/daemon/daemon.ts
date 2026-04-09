@@ -3,7 +3,7 @@ import { type DaemonConfig, loadDaemonConfig } from "./config.js";
 import { createHealthServer } from "./health.js";
 import { buildPrompt } from "./prompt.js";
 import { createBackend, detectVersion } from "./agent/index.js";
-import { type Task, type TaskResult, type AgentMessage, fromApiTask } from "./types.js";
+import { type Task, type TaskResult, fromApiTask } from "./types.js";
 import { loadCLIConfigForProfile } from "../lib/config.js";
 import { log } from "../lib/logger.js";
 import { mkdirSync } from "fs";
@@ -111,36 +111,6 @@ export async function startDaemon(
     `Daemon started — ${allRuntimeIds.length} runtime(s) across ${workspaces.length} workspace(s)`,
   );
 
-  let heartbeatTimer: NodeJS.Timeout;
-  let pollTimer: NodeJS.Timeout;
-
-  const shutdown = async () => {
-    log.info("Shutting down...");
-    clearInterval(heartbeatTimer);
-    clearInterval(pollTimer);
-    const timeout = setTimeout(() => process.exit(1), 5000);
-    try {
-      await client.deregister(allRuntimeIds);
-    } catch {
-      // best-effort deregister
-    }
-    clearTimeout(timeout);
-    health.server.close();
-    process.exit(0);
-  };
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
-
-  heartbeatTimer = setInterval(async () => {
-    for (const rid of allRuntimeIds) {
-      try {
-        await client.heartbeat(rid);
-      } catch (e) {
-        log.debug("Heartbeat failed", e);
-      }
-    }
-  }, config.heartbeatInterval);
-
   const activeTasks = new Set<string>();
 
   const poll = async () => {
@@ -164,7 +134,33 @@ export async function startDaemon(
     }
   };
 
-  pollTimer = setInterval(poll, config.pollInterval);
+  const heartbeatTimer = setInterval(async () => {
+    for (const rid of allRuntimeIds) {
+      try {
+        await client.heartbeat(rid);
+      } catch (e) {
+        log.debug("Heartbeat failed", e);
+      }
+    }
+  }, config.heartbeatInterval);
+  const pollTimer = setInterval(poll, config.pollInterval);
+
+  const shutdown = async () => {
+    log.info("Shutting down...");
+    clearInterval(heartbeatTimer);
+    clearInterval(pollTimer);
+    const timeout = setTimeout(() => process.exit(1), 5000);
+    try {
+      await client.deregister(allRuntimeIds);
+    } catch {
+      // best-effort deregister
+    }
+    clearTimeout(timeout);
+    health.server.close();
+    process.exit(0);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
   await poll();
 }
 

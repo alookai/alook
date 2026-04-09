@@ -22,10 +22,11 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm tsc --noEmit -p src/web/tsconfig.json
       - run: pnpm tsc -b src/shared
+      - run: pnpm tsc --noEmit -p src/web/tsconfig.json
       - run: pnpm tsc --noEmit -p src/cli/tsconfig.json
       - run: cd src/web && pnpm eslint
+      - run: cd src/cli && pnpm eslint
 
   test:
     name: Tests

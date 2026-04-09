@@ -2,7 +2,7 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 
 export function startHealthServer(port: number = 19514): Server {
   const startTime = Date.now();
-  let runtimeCount = 0;
+  const runtimeCount = 0;
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     if (req.url === "/health") {

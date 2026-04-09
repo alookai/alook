@@ -28,8 +28,11 @@ test-unit: ## Run unit tests only (no DB required)
 test: test-unit test-integration ## Run all tests
 
 typecheck: ## TypeScript type check
+	pnpm tsc -b src/shared
 	pnpm tsc --noEmit -p src/web/tsconfig.json
 	pnpm tsc --noEmit -p src/cli/tsconfig.json
+	cd src/web && pnpm eslint
+	cd src/cli && pnpm eslint
 
 test-integration: ## Run integration tests (requires PostgreSQL)
 	bash scripts/setup-test-db.sh

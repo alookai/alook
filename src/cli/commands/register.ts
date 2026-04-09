@@ -1,9 +1,6 @@
 import { Command } from "commander";
 import { APIClient } from "../lib/client.js";
-import {
-  loadCLIConfigForProfile,
-  saveCLIConfigForProfile,
-} from "../lib/config.js";
+import { saveCLIConfigForProfile } from "../lib/config.js";
 
 interface MeResponse {
   id: string;
