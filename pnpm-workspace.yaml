@@ -1,2 +1,6 @@
 packages:
-  - "src/*"
+  - "src/shared"
+  - "src/cli"
+  - "src/web"
+  - "src/email-worker"
+  - "src/ws-do"

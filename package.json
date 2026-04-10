@@ -3,12 +3,36 @@
   "private": true,
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit -p src/web/tsconfig.json && tsc --noEmit -p src/cli/tsconfig.json"
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "dev": "turbo run dev --filter='!@alook/cli'",
+    "clean": "rm -rf node_modules src/*/node_modules src/*/dist src/*/.turbo .turbo src/web/.next src/web/.open-next src/*/.wrangler",
+    "clean:builds": "rm -rf src/*/dist src/web/.next src/web/.open-next .turbo src/*/.turbo",
+    "reinstall": "pnpm run clean && pnpm install",
+    "typecheck": "turbo run typecheck",
+    "dev:web": "pnpm --filter @alook/web dev",
+    "dev:cli": "pnpm --filter @alook/cli dev",
+    "dev:email": "pnpm --filter @alook/email-worker dev",
+    "dev:send": "node -e \"const a=process.argv.slice(1);const[f,t,s='Test',b='Hello from dev']=a;if(!f||!t){console.error('Usage: pnpm dev:send <from> <to> [subject] [body]');process.exit(1)}fetch('http://localhost:8788/simulate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:f,to:t,subject:s,body:b})}).then(r=>r.json()).then(console.log).catch(e=>console.error('Email worker not running?',e.message))\"",
+    "test:shared": "pnpm --filter @alook/shared test",
+    "test:cli": "pnpm --filter @alook/cli test",
+    "test:web": "pnpm --filter @alook/web test",
+    "db:migrate": "pnpm --filter @alook/web exec wrangler d1 migrations apply alook-app --local",
+    "db:reset": "rm -rf src/web/.wrangler/state && pnpm run db:migrate",
+    "test:all": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^5.0.0",
-    "vitest": "^3.0.0",
-    "zod": "^3.25.76"
+    "turbo": "latest",
+    "typescript": "latest",
+    "vitest": "^4.1.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "msw",
+      "sharp",
+      "unrs-resolver",
+      "workerd"
+    ]
   }
 }
