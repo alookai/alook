@@ -1,0 +1,46 @@
+name = "alook-web"
+main = ".open-next/worker.js"
+compatibility_date = "2026-04-09"
+compatibility_flags = ["nodejs_compat"]
+
+# OpenNext required bindings
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+[[services]]
+binding = "WORKER_SELF_REFERENCE"
+service = "alook-web"
+
+# OpenNext internal cache
+[[r2_buckets]]
+binding = "NEXT_INC_CACHE_R2_BUCKET"
+bucket_name = "alook-next-cache"
+
+[[d1_databases]]
+binding = "NEXT_TAG_CACHE_D1"
+database_id = "FILL_AFTER_CREATE"
+database_name = "alook-next-tags"
+
+[[durable_objects.bindings]]
+name = "NEXT_CACHE_DO_QUEUE"
+class_name = "DOQueueHandler"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["DOQueueHandler"]
+
+# App bindings
+[[d1_databases]]
+binding = "DB"
+database_id = "FILL_AFTER_CREATE"
+database_name = "alook-app"
+
+[[r2_buckets]]
+binding = "EMAIL_BUCKET"
+bucket_name = "alook-emails"
+
+# WS Durable Object is in a separate worker — access via Service Binding
+[[services]]
+binding = "WS_DO_WORKER"
+service = "alook-ws-do"

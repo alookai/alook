@@ -1,14 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
-  transpilePackages: ["@alook/shared"],
-  async rewrites() {
-    return [
-      { source: "/health", destination: "/api/health" },
-      { source: "/auth/:path*", destination: "/api/auth/:path*" },
-    ];
-  },
+	/* config options here */
 };
 
 export default nextConfig;
+
+// Enable calling `getCloudflareContext()` in `next dev`.
+// See https://opennext.js.org/cloudflare/bindings#local-access-to-bindings.
+import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
+initOpenNextCloudflareForDev();
