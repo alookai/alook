@@ -333,9 +333,9 @@ export function DashboardNavbar() {
                                       </div>
                                       <p className="text-[11px] text-muted-foreground tabular-nums">
                                         Last seen{" "}
-                                        {new Date(
+                                        {runtime.last_seen_at ? new Date(
                                           runtime.last_seen_at
-                                        ).toLocaleString()}
+                                        ).toLocaleString() : "Never"}
                                       </p>
                                     </div>
                                   ))}

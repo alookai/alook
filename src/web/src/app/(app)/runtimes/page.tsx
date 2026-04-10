@@ -297,9 +297,9 @@ export default function RuntimesPage() {
                               ) : null}
                             </p>
                             <p className="text-xs text-muted-foreground tabular-nums">
-                              {new Date(
+                              {runtime.last_seen_at ? new Date(
                                 runtime.last_seen_at
-                              ).toLocaleString()}
+                              ).toLocaleString() : "Never"}
                             </p>
                           </div>
                           <Badge

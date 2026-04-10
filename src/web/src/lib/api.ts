@@ -55,7 +55,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     let serverError: string | undefined;
     let details: string[] | undefined;
     try {
-      const body = await res.json();
+      const body = (await res.json()) as { error?: string; details?: string[] };
       serverError = body.error;
       details = body.details;
     } catch {

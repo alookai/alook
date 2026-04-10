@@ -29,7 +29,7 @@ export default function SignUpPage() {
       { onError: (ctx) => setError(ctx.error.message) },
     )
     if (error) {
-      setError(error.message)
+      setError(error.message ?? "")
     } else {
       window.location.href = "/home"
       return

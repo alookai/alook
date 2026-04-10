@@ -30,7 +30,7 @@ export default function SignInPage() {
       { onError: (ctx) => setError(ctx.error.message) },
     )
     if (error) {
-      setError(error.message)
+      setError(error.message ?? "")
     } else {
       window.location.href = "/home"
       return

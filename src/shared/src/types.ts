@@ -50,6 +50,7 @@ export interface Conversation {
   agent_id: string;
   title: string;
   created_at: string;
+  message_count?: number;
 }
 
 export interface Message {
@@ -118,4 +119,10 @@ export interface CreateAgentRequest {
   runtime_id: string;
   runtime_config?: Record<string, unknown>;
   max_concurrent_tasks?: number;
+}
+
+/** Generic WebSocket message envelope used by broadcast and WS hooks. */
+export interface WsMessage {
+  type: string;
+  [key: string]: unknown;
 }

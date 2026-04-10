@@ -12,6 +12,7 @@ export type {
   MachineToken,
   LoginResponse,
   CreateAgentRequest,
+  WsMessage,
 } from "./types";
 
 // API types

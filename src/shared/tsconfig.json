@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler",
-    "declaration": true, "outDir": "./dist", "rootDir": "./src", "strict": true
+    "declaration": true, "outDir": "./dist", "rootDir": "./src", "strict": true, "skipLibCheck": true,
+    "types": ["@cloudflare/workers-types"]
   },
   "include": ["src"]
 }

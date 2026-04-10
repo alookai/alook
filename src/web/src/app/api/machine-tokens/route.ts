@@ -27,7 +27,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   let name = "default";
   try {
-    const body = await req.json();
+    const body = (await req.json()) as { name?: string };
     if (body.name && typeof body.name === "string" && body.name.trim()) {
       name = body.name.trim();
     }

@@ -157,6 +157,7 @@ export default function ChatPage() {
       conversation_id: conversationId,
       role: "user",
       content,
+      task_id: null,
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, optimistic]);
