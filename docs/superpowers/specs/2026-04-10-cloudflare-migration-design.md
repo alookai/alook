@@ -1,7 +1,7 @@
 # Cloudflare Edge Migration — Design Spec
 
 > Migrate Alook from Node.js + PostgreSQL to Cloudflare Workers + D1 + R2 + Durable Objects.
-> Scope: Phases 0–2 (backend only). Frontend deferred.
+> Scope: Phases 0–3 (backend + frontend). Phase 4 (integration/deployment) deferred.
 
 ---
 
@@ -26,8 +26,9 @@ Files from spec-plans that match the migration docs are copied as-is (configs, u
 | 2a | Web Service — D1 + Better Auth + OpenNext + API routes + middleware + services | Hybrid: copy auth/config from spec-plans, rewrite API routes from main for D1 |
 | 2b | Email Worker — Cloudflare Worker for inbound email | Rewrite: Drizzle via shared, read-only D1, notify web service for writes |
 | 2c | WS-DO — Durable Objects for browser notifications | Copy + adapt: update token validation to session-only via shared queries |
+| 3 | Frontend — pages, components, contexts, CSS, client hooks | Copy from main, adapt auth (JWT->Better Auth), add WS hooks from spec-plans |
 
-**Out of scope:** Phase 3 (frontend pages/components), Phase 4 (integration/CLI/deployment).
+**Out of scope:** Phase 4 (integration/CLI/deployment).
 
 ## Key Divergences (spec-plans vs migration docs)
 
@@ -154,12 +155,6 @@ Exit: `@alook/shared` builds. Exports `createDb`, `schema`, `queries`, all types
 - D1 migration SQL file (`migrations/0001_schema.sql`)
 - `drizzle.config.ts` pointing to `@alook/shared` schema
 
-### Not included (deferred to Phase 3)
-- Frontend pages (`app/(app)/*`, `app/(auth)/*`)
-- React components (`components/*`)
-- Context providers (`contexts/*`)
-- Client-side hooks (`use-ws.ts`, `use-user-ws.ts`)
-
 Exit: Web service compiles. API routes resolve against shared imports. D1 migration applies.
 
 ---
@@ -202,6 +197,65 @@ Exit: WS-DO compiles.
 
 ---
 
+## Phase 3 — Frontend (Pages + Components)
+
+**Copy from main**, adapt auth references (JWT -> Better Auth), add WebSocket hooks from spec-plans.
+
+### Copy from main (adapt imports)
+
+**Layouts:**
+- `app/layout.tsx` — root layout (fonts, ThemeProvider, ToasterProvider)
+- `app/(app)/layout.tsx` — app shell (auth guard, sidebar, AgentProvider)
+
+**Pages:**
+- `app/page.tsx` — root redirect (session check -> `/home` or `/sign-in`)
+- `app/(app)/home/page.tsx` — redirect to first agent
+- `app/(app)/agents/page.tsx` — redirect to `/home`
+- `app/(app)/agents/[id]/page.tsx` — agent detail
+- `app/(app)/agents/new/page.tsx` — create agent form
+- `app/(app)/chat/[id]/page.tsx` — chat UI
+- `app/(app)/runtimes/page.tsx` — machine/runtime list
+
+**Auth pages (rewrite for Better Auth):**
+- `app/(auth)/sign-in/page.tsx` — email/password + OAuth (replaces main's `app/login/page.tsx` OTP flow)
+- `app/(auth)/sign-up/page.tsx` — registration (new, Better Auth)
+
+**Components (copy as-is):**
+- `components/app-sidebar.tsx` — narrow sidebar with agent list (update signOut to Better Auth)
+- `components/agent-edit-form.tsx` — agent create/edit form
+- `components/runtime-select.tsx` — runtime picker
+- `components/dashboard-navbar.tsx`, `components/gradient-background.tsx`, `components/logo.tsx`
+- `components/theme-provider.tsx`, `components/theme-toggle.tsx`, `components/toaster-provider.tsx`
+- `components/ui/*` — all UI primitives (button, input, textarea, label, badge, card, dialog, confirm-dialog, select, sheet, scroll-area, separator, avatar)
+- Remove `components/ui/input-otp.tsx` (OTP no longer needed)
+
+**Context:**
+- `contexts/agent-context.tsx` — global agent/runtime state (update API calls for new auth)
+
+**CSS:**
+- `app/globals.css`
+
+### Add from spec-plans (new)
+- `src/lib/use-ws.ts` — agent WebSocket hook
+- `src/lib/use-user-ws.ts` — user WebSocket hook
+- `src/hooks/use-mobile.ts` — if exists in spec-plans
+
+### Adaptation notes
+
+| Main pattern | Target change |
+|-------------|---------------|
+| `import { verifyJWT } from "@/lib/auth/jwt"` | Remove — server pages use `getSession()` from `@/lib/session` |
+| localStorage JWT token | Better Auth session cookie (automatic) |
+| `apiFetch` with Bearer JWT header | `apiFetch` with cookie auth (remove Authorization header for browser) |
+| `useSession` (custom) | `useSession` from `better-auth/react` via `@/lib/auth-client` |
+| `signOut` (clear localStorage) | `signOut` from `better-auth/react` |
+| `/login` route | `/sign-in` and `/sign-up` routes |
+| No WebSocket | Add `useUserWs` hook for real-time notifications |
+
+Exit: Frontend pages render. Auth flow works with Better Auth. WebSocket hooks available.
+
+---
+
 ## Execution Plan
 
 ```
@@ -210,6 +264,7 @@ Phase 1 ──── single agent, careful migration of schema + queries
 Phase 2a ─┐
 Phase 2b ─┼─ 3 parallel subagents
 Phase 2c ─┘
+Phase 3 ──── single agent (depends on 2a + 2c)
 ```
 
 Commits at natural stopping points. No strict granularity.
