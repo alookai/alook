@@ -8,5 +8,6 @@ dist/
 .next/
 .open-next/
 temp/
+docs/
 .DS_Store
 plans/
