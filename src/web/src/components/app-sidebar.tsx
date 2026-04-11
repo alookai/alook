@@ -5,8 +5,8 @@ import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
-import { Monitor, LogOut, Plus, Loader2, LayoutGrid } from "lucide-react";
-import { signOut } from "@/lib/auth-client";
+import { Monitor, Plus, Loader2, LayoutGrid, LogOut } from "lucide-react";
+import { NavUser } from "@/components/nav-user";
 
 export function AppSidebar() {
   const router = useRouter();
@@ -105,16 +105,7 @@ export function AppSidebar() {
           <LayoutGrid className="size-4" />
         </button>
 
-        <button
-          type="button"
-          title="Sign out"
-          onClick={async () => {
-            await signOut();
-          }}
-          className="flex items-center justify-center size-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors duration-200 cursor-pointer"
-        >
-          <LogOut className="size-4" />
-        </button>
+        <NavUser />
       </div>
     </nav>
   );
