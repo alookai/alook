@@ -4,7 +4,7 @@ compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
 
 [dev]
-port = 8788
+port = 8787
 
 [[d1_databases]]
 binding = "DB"
