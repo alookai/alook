@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries } from "@alook/shared"
+import { createDb, queries, isValidHandle } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
@@ -32,6 +32,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     runtime_id?: string;
     runtime_config?: unknown;
     max_concurrent_tasks?: number;
+    email_handle?: string;
   };
   try {
     body = await req.json();
@@ -51,6 +52,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   let maxConcurrentTasks = body.max_concurrent_tasks || 0;
   if (maxConcurrentTasks <= 0) maxConcurrentTasks = 6;
+
+  const emailHandle = typeof body.email_handle === "string" ? body.email_handle.trim().toLowerCase() : "";
+  if (emailHandle) {
+    if (!isValidHandle(emailHandle)) {
+      return writeError("email_handle must be 4+ alphanumeric/dash characters", 400);
+    }
+    const existing = await queries.agent.getAgentByHandle(db, emailHandle);
+    if (existing) {
+      return writeError("Handle already taken", 409);
+    }
+  }
 
   const runtime = await queries.runtime.getAgentRuntimeForWorkspace(
     db,
@@ -72,6 +84,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     visibility: "private",
     maxConcurrentTasks,
     ownerId: ctx.userId,
+    emailHandle: emailHandle || null,
   });
 
   if (runtime.status === "online") {
