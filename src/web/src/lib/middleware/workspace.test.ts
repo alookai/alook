@@ -47,7 +47,7 @@ describe("withWorkspaceMember", () => {
     expect(result).toEqual({ workspaceId: "w-header" });
   });
 
-  it("returns workspaceId from auth context (machine token has workspaceId)", async () => {
+  it("returns workspaceId from auth context (machine token)", async () => {
     mockGetMember.mockResolvedValue({ id: "m1" });
 
     const req = new NextRequest("http://localhost/api/test");
