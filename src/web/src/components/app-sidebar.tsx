@@ -23,11 +23,11 @@ export function AppSidebar() {
 
   // Detect active agent from ?agent= param or /w/[slug]/agents/[id] route
   const urlAgentId = searchParams.get("agent");
-  const pathnameAgentMatch = pathname.match(/^\/w\/[^/]+\/agents\/([^/]+)$/);
+  const pathnameAgentMatch = pathname.match(/^\/w\/[^/]+\/agents\/([^/]+)/);
   const activeAgentId = urlAgentId ?? pathnameAgentMatch?.[1] ?? null;
 
   const handleAgentClick = (agentId: string) => {
-    router.push(`${prefix}/agents/${agentId}`);
+    router.push(`${prefix}/agents/${agentId}/chat`);
   };
 
   return (
