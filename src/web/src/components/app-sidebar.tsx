@@ -5,7 +5,7 @@ import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
-import { Monitor, Plus, Loader2, LayoutGrid, LogOut } from "lucide-react";
+import { Settings2, Plus, Loader2, LayoutGrid } from "lucide-react";
 import { NavUser } from "@/components/nav-user";
 
 export function AppSidebar() {
@@ -32,6 +32,11 @@ export function AppSidebar() {
 
   return (
     <nav className="flex h-full w-14 flex-col items-center py-2 gap-0.5">
+      {/* Logo */}
+      <div className="mb-1 pb-2 border-b border-border/50">
+        <Logo size="sm" iconOnly />
+      </div>
+
       {/* Agent avatars */}
       <div className="flex flex-1 w-full flex-col items-center gap-1.5 overflow-y-auto py-1 scrollbar-none">
         {loading ? (
@@ -79,10 +84,6 @@ export function AppSidebar() {
 
       {/* Bottom section */}
       <div className="flex flex-col items-center gap-1 pt-2 border-t border-border/50 mt-1">
-        <div className="mb-1">
-          <Logo size="sm" iconOnly />
-        </div>
-
         <button
           type="button"
           title="Runtimes"
@@ -93,7 +94,7 @@ export function AppSidebar() {
             isRuntimes && "bg-accent text-foreground"
           )}
         >
-          <Monitor className="size-4" />
+          <Settings2 className="size-4" />
         </button>
 
         <button
