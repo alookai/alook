@@ -5,7 +5,7 @@ import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
-import { Monitor, LogOut, Plus, Loader2 } from "lucide-react";
+import { Monitor, LogOut, Plus, Loader2, LayoutGrid } from "lucide-react";
 import { signOut } from "@/lib/auth-client";
 
 export function AppSidebar() {
@@ -94,6 +94,15 @@ export function AppSidebar() {
           )}
         >
           <Monitor className="size-4" />
+        </button>
+
+        <button
+          type="button"
+          title="Workspaces"
+          onClick={() => router.push("/workspaces")}
+          className="flex items-center justify-center size-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors duration-200 cursor-pointer"
+        >
+          <LayoutGrid className="size-4" />
         </button>
 
         <button
