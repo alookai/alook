@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
+import { useWorkspace } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -25,6 +26,7 @@ export default function ChatPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { slug, workspaceId } = useWorkspace();
   const conversationId = params.id as string;
   const { agents, runtimes, handleDeleteAgent, handleUpdateAgent } =
     useAgentContext();
@@ -65,20 +67,20 @@ export default function ChatPage() {
     async function load() {
       try {
         const [conv, msgs] = await Promise.all([
-          getConversation(conversationId),
-          listMessages(conversationId),
+          getConversation(conversationId, workspaceId),
+          listMessages(conversationId, workspaceId),
         ]);
         setConversation(conv);
         setMessages(msgs);
       } catch {
         toast.error("Conversation not found");
-        router.push("/home");
+        router.push(`/w/${slug}/home`);
       } finally {
         setLoading(false);
       }
     }
     load();
-  }, [conversationId, router]);
+  }, [conversationId, router, workspaceId, slug]);
 
   useEffect(() => {
     scrollToBottom();
@@ -94,8 +96,8 @@ export default function ChatPage() {
       pollRef.current = setInterval(async () => {
         try {
           const [task, tmsgs] = await Promise.all([
-            getTask(taskId),
-            getTaskMessages(taskId, lastSeqRef.current || undefined),
+            getTask(taskId, workspaceId),
+            getTaskMessages(taskId, workspaceId, lastSeqRef.current || undefined),
           ]);
 
           pollFailures.current = 0;
@@ -115,7 +117,7 @@ export default function ChatPage() {
             pollRef.current = null;
 
             try {
-              const updatedMessages = await listMessages(conversationId);
+              const updatedMessages = await listMessages(conversationId, workspaceId);
               setMessages(updatedMessages);
             } catch {
               toast.error("Failed to refresh messages");
@@ -136,7 +138,7 @@ export default function ChatPage() {
         }
       }, 1000);
     },
-    [conversationId]
+    [conversationId, workspaceId]
   );
 
   useEffect(() => {
@@ -163,7 +165,7 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, optimistic]);
 
     try {
-      const { message, task } = await sendMessage(conversationId, content);
+      const { message, task } = await sendMessage(conversationId, content, workspaceId);
       setMessages((prev) =>
         prev.map((m) => (m.id === optimistic.id ? message : m))
       );
@@ -219,7 +221,7 @@ export default function ChatPage() {
               "text-sm font-medium truncate",
               agentId && "cursor-pointer hover:opacity-70 transition-opacity duration-200"
             )}
-            onClick={() => agentId && router.push(`/agents/${agentId}`)}
+            onClick={() => agentId && router.push(`/w/${slug}/agents/${agentId}`)}
           >
             {agent?.name || "Agent"}
           </h1>
@@ -427,7 +429,7 @@ export default function ChatPage() {
             setDeleting(true);
             try {
               const ok = await handleDeleteAgent(agent.id);
-              if (ok) router.push("/home");
+              if (ok) router.push(`/w/${slug}/home`);
             } finally {
               setDeleting(false);
               setConfirmOpen(false);

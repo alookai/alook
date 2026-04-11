@@ -3,12 +3,14 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
+import { useWorkspace } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
 import { Loader2 } from "lucide-react";
 
 export default function HomePage() {
   const router = useRouter();
   const { agents, runtimes, loading } = useAgentContext();
+  const { slug } = useWorkspace();
   const redirectedRef = useRef(false);
 
   // Auto-redirect to first agent's detail page
@@ -19,8 +21,8 @@ export default function HomePage() {
     redirectedRef.current = true;
     const sorted = [...agents].sort((a, b) => a.name.localeCompare(b.name));
     const first = sorted[0];
-    router.replace(`/agents/${first.id}`);
-  }, [agents, loading, router]);
+    router.replace(`/w/${slug}/agents/${first.id}`);
+  }, [agents, loading, router, slug]);
 
   if (loading) {
     return (
@@ -51,7 +53,7 @@ export default function HomePage() {
             <Button
               size="sm"
               className="mt-4"
-              onClick={() => router.push("/agents/new")}
+              onClick={() => router.push(`/w/${slug}/agents/new`)}
             >
               Create Agent
             </Button>
@@ -62,7 +64,7 @@ export default function HomePage() {
             <Button
               size="sm"
               className="mt-4"
-              onClick={() => router.push("/runtimes")}
+              onClick={() => router.push(`/w/${slug}/runtimes`)}
             >
               Connect Machine
             </Button>

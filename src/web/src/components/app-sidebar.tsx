@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
+import { useWorkspace } from "@/contexts/workspace-context";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 import { Monitor, LogOut, Plus, Loader2 } from "lucide-react";
@@ -12,19 +13,21 @@ export function AppSidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { agents, loading } = useAgentContext();
+  const { slug } = useWorkspace();
 
   const sorted = [...agents].sort((a, b) => a.name.localeCompare(b.name));
 
-  const isRuntimes = pathname === "/runtimes";
-  const isCreateAgent = pathname === "/agents/new";
+  const prefix = `/w/${slug}`;
+  const isRuntimes = pathname === `${prefix}/runtimes`;
+  const isCreateAgent = pathname === `${prefix}/agents/new`;
 
-  // Detect active agent from ?agent= param or /agents/[id] route
+  // Detect active agent from ?agent= param or /w/[slug]/agents/[id] route
   const urlAgentId = searchParams.get("agent");
-  const pathnameAgentMatch = pathname.match(/^\/agents\/([^/]+)$/);
+  const pathnameAgentMatch = pathname.match(/^\/w\/[^/]+\/agents\/([^/]+)$/);
   const activeAgentId = urlAgentId ?? pathnameAgentMatch?.[1] ?? null;
 
   const handleAgentClick = (agentId: string) => {
-    router.push(`/agents/${agentId}`);
+    router.push(`${prefix}/agents/${agentId}`);
   };
 
   return (
@@ -61,7 +64,7 @@ export function AppSidebar() {
         <button
           type="button"
           title="New agent"
-          onClick={() => router.push("/agents/new")}
+          onClick={() => router.push(`${prefix}/agents/new`)}
           className={cn(
             "flex shrink-0 items-center justify-center size-10 rounded-xl transition-colors duration-200 cursor-pointer",
             "border border-dashed border-foreground/15 text-muted-foreground",
@@ -83,7 +86,7 @@ export function AppSidebar() {
         <button
           type="button"
           title="Runtimes"
-          onClick={() => router.push("/runtimes")}
+          onClick={() => router.push(`${prefix}/runtimes`)}
           className={cn(
             "flex items-center justify-center size-10 rounded-xl transition-colors duration-200 cursor-pointer",
             "text-muted-foreground hover:text-foreground hover:bg-accent",

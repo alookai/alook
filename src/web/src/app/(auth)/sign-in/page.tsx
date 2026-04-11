@@ -64,7 +64,7 @@ function OTPSignIn() {
         setError(error.message ?? "Invalid code")
         setCode("")
       } else {
-        window.location.href = "/home"
+        window.location.href = "/workspaces"
         return
       }
     } catch {
@@ -151,7 +151,7 @@ function OTPSignIn() {
           variant="outline"
           type="button"
           onClick={() =>
-            signIn.social({ provider: "github", callbackURL: "/home" })
+            signIn.social({ provider: "github", callbackURL: "/workspaces" })
           }
         >
           <SiGithub className="size-4" />
@@ -161,7 +161,7 @@ function OTPSignIn() {
           variant="outline"
           type="button"
           onClick={() =>
-            signIn.social({ provider: "google", callbackURL: "/home" })
+            signIn.social({ provider: "google", callbackURL: "/workspaces" })
           }
         >
           <SiGoogle className="size-4" />
@@ -189,7 +189,7 @@ function PasswordSignIn() {
     if (error) {
       setError(error.message ?? "")
     } else {
-      window.location.href = "/home"
+      window.location.href = "/workspaces"
       return
     }
     setLoading(false)
@@ -239,7 +239,7 @@ function PasswordSignIn() {
             variant="outline"
             type="button"
             onClick={() =>
-              signIn.social({ provider: "github", callbackURL: "/home" })
+              signIn.social({ provider: "github", callbackURL: "/workspaces" })
             }
           >
             <SiGithub className="size-4" />
@@ -249,7 +249,7 @@ function PasswordSignIn() {
             variant="outline"
             type="button"
             onClick={() =>
-              signIn.social({ provider: "google", callbackURL: "/home" })
+              signIn.social({ provider: "google", callbackURL: "/workspaces" })
             }
           >
             <SiGoogle className="size-4" />

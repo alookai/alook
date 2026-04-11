@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
+import { useWorkspace } from "@/contexts/workspace-context";
 import { AgentEditForm } from "@/components/agent-edit-form";
 
 export default function CreateAgentPage() {
   const router = useRouter();
+  const { slug } = useWorkspace();
   const {
     runtimes,
     handleCreateAgent,
@@ -41,9 +43,9 @@ export default function CreateAgentPage() {
             if (agent) {
               const conversationId = await chatWithAgent(agent.id);
               if (conversationId) {
-                router.push(`/chat/${conversationId}?agent=${agent.id}`);
+                router.push(`/w/${slug}/chat/${conversationId}?agent=${agent.id}`);
               } else {
-                router.push("/home");
+                router.push(`/w/${slug}/home`);
               }
             }
             return !!agent;

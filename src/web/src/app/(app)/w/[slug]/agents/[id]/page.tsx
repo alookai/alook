@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
+import { useWorkspace } from "@/contexts/workspace-context";
 import { listAgentConversations, deleteConversation } from "@/lib/api";
 import type { Conversation } from "@alook/shared";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ function formatDate(dateStr: string): string {
 export default function AgentDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { slug, workspaceId } = useWorkspace();
   const agentId = params.id as string;
   const {
     agents,
@@ -67,14 +69,14 @@ export default function AgentDetailPage() {
 
   const loadConversations = useCallback(async () => {
     try {
-      const convs = await listAgentConversations(agentId);
+      const convs = await listAgentConversations(agentId, workspaceId);
       setConversations(convs);
     } catch {
       toast.error("Failed to load sessions");
     } finally {
       setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, workspaceId]);
 
   useEffect(() => {
     loadConversations();
@@ -85,7 +87,7 @@ export default function AgentDetailPage() {
     try {
       const conversationId = await chatWithAgent(agentId);
       if (conversationId) {
-        router.push(`/chat/${conversationId}?agent=${agentId}`);
+        router.push(`/w/${slug}/chat/${conversationId}?agent=${agentId}`);
       }
     } finally {
       setCreating(false);
@@ -96,7 +98,7 @@ export default function AgentDetailPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await deleteConversation(deleteTarget.id);
+      await deleteConversation(deleteTarget.id, workspaceId);
       setConversations((prev) =>
         prev.filter((c) => c.id !== deleteTarget.id)
       );
@@ -243,12 +245,12 @@ export default function AgentDetailPage() {
                     role="button"
                     tabIndex={0}
                     onClick={() =>
-                      router.push(`/chat/${conv.id}?agent=${agentId}`)
+                      router.push(`/w/${slug}/chat/${conv.id}?agent=${agentId}`)
                     }
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
-                        router.push(`/chat/${conv.id}?agent=${agentId}`);
+                        router.push(`/w/${slug}/chat/${conv.id}?agent=${agentId}`);
                       }
                     }}
                     className="group w-full text-left rounded-lg border border-border/50 bg-background/50 px-4 py-3 transition-colors duration-200 hover:bg-accent/50 cursor-pointer"
@@ -317,7 +319,7 @@ export default function AgentDetailPage() {
             setAgentDeleting(true);
             try {
               const ok = await handleDeleteAgent(agent.id);
-              if (ok) router.push("/home");
+              if (ok) router.push(`/w/${slug}/home`);
             } finally {
               setAgentDeleting(false);
               setAgentConfirmOpen(false);
