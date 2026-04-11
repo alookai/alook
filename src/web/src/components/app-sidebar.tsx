@@ -52,6 +52,18 @@ export function AppSidebar() {
         >
           <SunMoon className="size-4" />
         </button>
+        <button
+          type="button"
+          title="Runtimes"
+          onClick={() => router.push(`${prefix}/runtimes`)}
+          className={cn(
+            "flex items-center justify-center size-10 rounded-xl transition-colors duration-200 cursor-pointer",
+            "text-muted-foreground hover:text-foreground hover:bg-accent",
+            isRuntimes && "bg-accent text-foreground"
+          )}
+        >
+          <Monitor className="size-4" />
+        </button>
       </div>
 
       {/* Agent avatars */}
@@ -101,19 +113,6 @@ export function AppSidebar() {
 
       {/* Bottom section */}
       <div className="flex flex-col items-center gap-1 pt-2 border-t border-border/50 mt-1">
-        <button
-          type="button"
-          title="Runtimes"
-          onClick={() => router.push(`${prefix}/runtimes`)}
-          className={cn(
-            "flex items-center justify-center size-10 rounded-xl transition-colors duration-200 cursor-pointer",
-            "text-muted-foreground hover:text-foreground hover:bg-accent",
-            isRuntimes && "bg-accent text-foreground"
-          )}
-        >
-          <Monitor className="size-4" />
-        </button>
-
         <button
           type="button"
           title="Workspaces"
