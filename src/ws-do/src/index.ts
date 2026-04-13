@@ -9,7 +9,7 @@ export default {
       const userId = userBroadcast[1]
       const doId = env.WS_DO.idFromName("user:" + userId)
       const stub = env.WS_DO.get(doId)
-      return stub.fetch(new Request("http://internal/broadcast", { method: "POST", body: request.body }))
+      return stub.fetch(new Request("http://internal/broadcast", { method: "POST", body: request.body, duplex: "half" } as RequestInit))
     }
 
     const userId = url.searchParams.get("userId")
