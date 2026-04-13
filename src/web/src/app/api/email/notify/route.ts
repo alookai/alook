@@ -3,6 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { createDb, queries } from "@alook/shared"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { TaskService } from "@/lib/services/task"
+import { broadcastToUser } from "@/lib/broadcast"
 
 export async function POST(req: NextRequest) {
   const { env } = getCloudflareContext()
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
       })
       const taskService = new TaskService(db)
       await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, `New email from ${body.from}: ${body.subject}`)
+      broadcastToUser(agent.ownerId!, { type: "email.received", agentId: agent.id }).catch(() => {})
     }
   }
 
