@@ -6,5 +6,5 @@ export default async function AgentDetailPage({
   params: Promise<{ slug: string; id: string }>;
 }) {
   const { slug, id } = await params;
-  redirect(`/w/${slug}/agents/${id}/chat`);
+  redirect(`/w/${slug}/agents/${id}/email`);
 }
