@@ -144,7 +144,7 @@ export default function AgentEmailPage() {
             title={!agent?.email_handle ? "Configure an email handle in agent settings to send emails" : "Compose new email"}
           >
             <Plus className="size-3.5" />
-            Compose
+            New Email
           </Button>
         </div>
         <nav className="flex flex-col gap-0.5 px-2">
