@@ -68,17 +68,13 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
               </Button>
             ) : (
               <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs text-muted-foreground h-7 gap-1 px-2"
-                  asChild
+                <Link
+                  href={`/w/${slug}/agents/${agentId}/chat`}
+                  className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
                 >
-                  <Link href={`/w/${slug}/agents/${agentId}/chat`}>
-                    <MessageSquare className="size-3" />
-                    Chat
-                  </Link>
-                </Button>
+                  <MessageSquare className="size-3" />
+                  Chat
+                </Link>
                 <Button
                   variant="ghost"
                   size="sm"
