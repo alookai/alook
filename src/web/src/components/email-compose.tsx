@@ -20,6 +20,7 @@ export function EmailCompose({ fromAddress, onSend, onDiscard }: EmailComposePro
   const [sending, setSending] = useState(false);
 
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [
       StarterKit,
       Placeholder.configure({ placeholder: "Write your email..." }),

@@ -29,7 +29,7 @@ export function AppSidebar() {
   const activeAgentId = urlAgentId ?? pathnameAgentMatch?.[1] ?? null;
 
   const handleAgentClick = (agentId: string) => {
-    router.push(`${prefix}/agents/${agentId}/chat`);
+    router.push(`${prefix}/agents/${agentId}`);
   };
 
   return (

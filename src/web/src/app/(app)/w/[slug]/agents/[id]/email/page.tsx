@@ -72,7 +72,6 @@ export default function AgentEmailPage() {
     loadEmails(direction);
   }, [folder, loadEmails]);
 
-  // Re-fetch when a new email arrives for this agent
   useEffect(() => {
     return subscribeWs((msg) => {
       if (msg.type === "email.received" && msg.agentId === agentId) {
@@ -132,184 +131,187 @@ export default function AgentEmailPage() {
 
   const fromAddress = agent?.email_handle ? `${agent.email_handle}@alook.ai` : "";
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center flex-1">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {/* Toolbar: folder tabs + compose button */}
-      <div className="flex items-center justify-between border-b border-border/40 px-4 py-1.5">
-        <div className="flex items-center gap-0.5">
+    <div className="flex flex-1 min-h-0">
+      {/* Column 1: Folder sidebar */}
+      <div className="flex w-[180px] shrink-0 flex-col border-r border-border/40">
+        <div className="p-2">
           <Button
-            variant={folder === "inbox" ? "secondary" : "ghost"}
             size="sm"
-            className="text-xs h-7 gap-1 px-2"
-            onClick={() => setFolder("inbox")}
+            className="w-full text-xs h-8 gap-1.5"
+            onClick={() => { setComposing(true); setSelectedId(null); }}
+            disabled={!agent?.email_handle}
+            title={!agent?.email_handle ? "Configure an email handle in agent settings to send emails" : "Compose new email"}
           >
-            <Inbox className="size-3" />
-            Inbox
-          </Button>
-          <Button
-            variant={folder === "sent" ? "secondary" : "ghost"}
-            size="sm"
-            className="text-xs h-7 gap-1 px-2"
-            onClick={() => setFolder("sent")}
-          >
-            <Send className="size-3" />
-            Sent
+            <Plus className="size-3.5" />
+            Compose
           </Button>
         </div>
-        <Button
-          size="sm"
-          className="text-xs h-7 gap-1 px-2"
-          onClick={() => { setComposing(true); setSelectedId(null); }}
-          disabled={!agent?.email_handle}
-          title={!agent?.email_handle ? "Configure an email handle in agent settings to send emails" : "Compose new email"}
-        >
-          <Plus className="size-3" />
-          Compose
-        </Button>
+        <nav className="flex flex-col gap-0.5 px-2">
+          <button
+            type="button"
+            onClick={() => setFolder("inbox")}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
+              folder === "inbox"
+                ? "bg-accent text-foreground font-medium"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            )}
+          >
+            <Inbox className="size-4 shrink-0" />
+            Inbox
+          </button>
+          <button
+            type="button"
+            onClick={() => setFolder("sent")}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
+              folder === "sent"
+                ? "bg-accent text-foreground font-medium"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            )}
+          >
+            <Send className="size-4 shrink-0" />
+            Sent
+          </button>
+        </nav>
       </div>
 
-      {/* Main area: list + detail/compose */}
-      <div className="flex flex-1 min-h-0">
-        {/* Email list panel */}
-        <div className="w-2/5 min-w-[240px] max-w-[400px] border-r border-border/40 overflow-y-auto">
-          {emails.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full animate-[fade-up_400ms_ease-out_both]">
-              <Mail className="size-8 text-muted-foreground/40 mb-3" />
-              <p className="text-sm text-muted-foreground">
-                {folder === "inbox" ? "No emails received yet." : "No emails sent yet."}
-              </p>
-            </div>
-          ) : (
-            emails.map((email) => (
-              <button
-                key={email.id}
-                type="button"
-                onClick={() => handleSelect(email.id)}
-                className={cn(
-                  "w-full text-left px-4 py-3 border-b border-border/30 transition-colors duration-150 cursor-pointer",
-                  selectedId === email.id
-                    ? "bg-accent/60"
-                    : "hover:bg-accent/30"
-                )}
-              >
-                <div className="flex items-center justify-between gap-2 mb-0.5">
-                  <p className="text-sm font-medium truncate">
-                    {folder === "inbox" ? email.from_email : email.to_email}
-                  </p>
-                  <span className="text-[10px] text-muted-foreground shrink-0">
-                    {relativeTime(email.created_at)}
-                  </span>
-                </div>
-                <p className="text-sm truncate text-muted-foreground">
-                  {email.subject || "(no subject)"}
+      {/* Column 2: Email list */}
+      <div className="w-[300px] shrink-0 border-r border-border/40 overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : emails.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full animate-[fade-up_400ms_ease-out_both]">
+            <Mail className="size-8 text-muted-foreground/40 mb-3" />
+            <p className="text-sm text-muted-foreground">
+              {folder === "inbox" ? "No emails received yet." : "No emails sent yet."}
+            </p>
+          </div>
+        ) : (
+          emails.map((email) => (
+            <button
+              key={email.id}
+              type="button"
+              onClick={() => handleSelect(email.id)}
+              className={cn(
+                "w-full text-left px-4 py-3 border-b border-border/30 transition-colors duration-150 cursor-pointer",
+                selectedId === email.id
+                  ? "bg-accent/60"
+                  : "hover:bg-accent/30"
+              )}
+            >
+              <div className="flex items-center justify-between gap-2 mb-0.5">
+                <p className="text-sm font-medium truncate">
+                  {folder === "inbox" ? email.from_email : email.to_email}
                 </p>
-                {folder === "inbox" && (
-                  <div className="mt-1">
-                    {email.is_whitelisted ? (
-                      <Badge className="text-[10px] h-4 px-1">triggered</Badge>
-                    ) : (
-                      <Badge variant="secondary" className="text-[10px] h-4 px-1">
-                        forwarded
-                      </Badge>
-                    )}
-                  </div>
-                )}
-              </button>
-            ))
-          )}
-        </div>
-
-        {/* Right panel: detail or compose */}
-        <div className="flex-1 overflow-y-auto flex flex-col">
-          {composing ? (
-            <EmailCompose
-              fromAddress={fromAddress}
-              onSend={handleSend}
-              onDiscard={() => setComposing(false)}
-            />
-          ) : !selected ? (
-            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-              Select an email to view
-            </div>
-          ) : (
-            <div className="flex flex-col h-full">
-              {/* Detail toolbar */}
-              <div className="flex items-center justify-end border-b border-border/40 px-4 py-1.5">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs text-muted-foreground h-7 px-2 hover:text-destructive"
-                  onClick={() => {
-                    setDeleteTarget(selected.id);
-                    setDeleteConfirmOpen(true);
-                  }}
-                >
-                  <Trash2 className="size-3 mr-1" />
-                  Delete
-                </Button>
+                <span className="text-[10px] text-muted-foreground shrink-0">
+                  {relativeTime(email.created_at)}
+                </span>
               </div>
-
-              {/* Email detail */}
-              <div className="p-5 max-w-2xl">
-                <h2 className="text-lg font-medium mb-1">
-                  {selected.subject || "(no subject)"}
-                </h2>
-                {folder === "inbox" && (
-                  <div className="flex items-center gap-2 mb-4">
-                    {selected.is_whitelisted ? (
-                      <Badge className="text-[10px] h-4 px-1">triggered</Badge>
-                    ) : (
-                      <Badge variant="secondary" className="text-[10px] h-4 px-1">
-                        forwarded
-                      </Badge>
-                    )}
-                  </div>
-                )}
-                <div className="text-sm text-muted-foreground space-y-0.5 mb-5">
-                  <p>
-                    <span className="font-medium text-foreground">From:</span>{" "}
-                    {selected.from_email}
-                  </p>
-                  <p>
-                    <span className="font-medium text-foreground">To:</span>{" "}
-                    {selected.to_email}
-                  </p>
-                  <p>
-                    <span className="font-medium text-foreground">
-                      {folder === "inbox" ? "Received:" : "Sent:"}
-                    </span>{" "}
-                    {new Date(selected.created_at).toLocaleString()}
-                  </p>
-                </div>
-
-                <div className="rounded-lg border border-border/50 bg-background/50 p-4">
-                  {bodyLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                    </div>
-                  ) : selected.direction === "outbound" && selected.html_body ? (
-                    <div
-                      className="prose prose-sm max-w-none"
-                      dangerouslySetInnerHTML={{ __html: selected.html_body }}
-                    />
+              <p className="text-sm truncate text-muted-foreground">
+                {email.subject || "(no subject)"}
+              </p>
+              {folder === "inbox" && (
+                <div className="mt-1">
+                  {email.is_whitelisted ? (
+                    <Badge className="text-[10px] h-4 px-1">triggered</Badge>
                   ) : (
-                    <pre className="text-sm whitespace-pre-wrap font-mono leading-relaxed">
-                      {body}
-                    </pre>
+                    <Badge variant="secondary" className="text-[10px] h-4 px-1">
+                      forwarded
+                    </Badge>
                   )}
                 </div>
+              )}
+            </button>
+          ))
+        )}
+      </div>
+
+      {/* Column 3: Reading pane */}
+      <div className="flex-1 overflow-y-auto flex flex-col min-w-0">
+        {composing ? (
+          <EmailCompose
+            fromAddress={fromAddress}
+            onSend={handleSend}
+            onDiscard={() => setComposing(false)}
+          />
+        ) : !selected ? (
+          <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+            Select an email to view
+          </div>
+        ) : (
+          <div className="flex flex-col h-full">
+            {/* Detail toolbar */}
+            <div className="flex items-center justify-end border-b border-border/40 px-4 py-1.5">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs text-muted-foreground h-7 px-2 hover:text-destructive"
+                onClick={() => {
+                  setDeleteTarget(selected.id);
+                  setDeleteConfirmOpen(true);
+                }}
+              >
+                <Trash2 className="size-3 mr-1" />
+                Delete
+              </Button>
+            </div>
+
+            {/* Email detail */}
+            <div className="p-5 max-w-2xl">
+              <h2 className="text-lg font-medium mb-1">
+                {selected.subject || "(no subject)"}
+              </h2>
+              {folder === "inbox" && (
+                <div className="flex items-center gap-2 mb-4">
+                  {selected.is_whitelisted ? (
+                    <Badge className="text-[10px] h-4 px-1">triggered</Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-[10px] h-4 px-1">
+                      forwarded
+                    </Badge>
+                  )}
+                </div>
+              )}
+              <div className="text-sm text-muted-foreground space-y-0.5 mb-5">
+                <p>
+                  <span className="font-medium text-foreground">From:</span>{" "}
+                  {selected.from_email}
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">To:</span>{" "}
+                  {selected.to_email}
+                </p>
+                <p>
+                  <span className="font-medium text-foreground">
+                    {folder === "inbox" ? "Received:" : "Sent:"}
+                  </span>{" "}
+                  {new Date(selected.created_at).toLocaleString()}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border/50 bg-background/50 p-4">
+                {bodyLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  </div>
+                ) : selected.direction === "outbound" && selected.html_body ? (
+                  <div
+                    className="prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{ __html: selected.html_body }}
+                  />
+                ) : (
+                  <pre className="text-sm whitespace-pre-wrap font-mono leading-relaxed">
+                    {body}
+                  </pre>
+                )}
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Delete confirmation dialog */}

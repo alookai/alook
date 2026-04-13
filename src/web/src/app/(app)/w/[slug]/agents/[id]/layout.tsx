@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
@@ -9,13 +9,15 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AgentEditForm } from "@/components/agent-edit-form";
 import { cn } from "@/lib/utils";
-import { MessageSquare, Pencil, Trash2, X } from "lucide-react";
+import { Mail, MessageSquare, Pencil, Trash2, X } from "lucide-react";
 
 export default function AgentDetailLayout({ children }: { children: ReactNode }) {
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname();
   const { slug } = useWorkspace();
   const agentId = params.id as string;
+  const isOnChat = pathname.includes(`/agents/${agentId}/chat`);
   const { agents, runtimes, handleDeleteAgent, handleUpdateAgent } = useAgentContext();
 
   const agent = agents.find((a) => a.id === agentId);
@@ -68,13 +70,23 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
               </Button>
             ) : (
               <>
-                <Link
-                  href={`/w/${slug}/agents/${agentId}/chat`}
-                  className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
-                >
-                  <MessageSquare className="size-3" />
-                  Chat
-                </Link>
+                {isOnChat ? (
+                  <Link
+                    href={`/w/${slug}/agents/${agentId}/email`}
+                    className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
+                  >
+                    <Mail className="size-3" />
+                    Email
+                  </Link>
+                ) : (
+                  <Link
+                    href={`/w/${slug}/agents/${agentId}/chat`}
+                    className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
+                  >
+                    <MessageSquare className="size-3" />
+                    Chat
+                  </Link>
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
