@@ -53,7 +53,10 @@ export function EmailCompose({
     immediatelyRender: false,
     content: initialBody || undefined,
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        link: false,
+        underline: false,
+      }),
       Placeholder.configure({ placeholder: "Write your email..." }),
       Underline,
       Link.configure({
