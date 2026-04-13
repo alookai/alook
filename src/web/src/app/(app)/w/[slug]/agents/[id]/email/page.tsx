@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
 import { listEmails, getEmailBody, deleteEmail, sendEmail } from "@/lib/api";
-import type { Email } from "@alook/shared";
+import type { Email, EmailAttachment } from "@alook/shared";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -13,7 +13,7 @@ import { EmailCompose } from "@/components/email-compose";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2, Mail, Inbox, Send, Plus, Trash2 } from "lucide-react";
+import { Loader2, Mail, Inbox, Send, Plus, Trash2, Paperclip, File as FileIcon } from "lucide-react";
 
 type Folder = "inbox" | "sent";
 
@@ -117,9 +117,9 @@ export default function AgentEmailPage() {
     }
   };
 
-  const handleSend = async (to: string, subject: string, htmlBody: string): Promise<boolean> => {
+  const handleSend = async (to: string, subject: string, htmlBody: string, attachments: EmailAttachment[]): Promise<boolean> => {
     try {
-      await sendEmail(agentId, to, subject, htmlBody, workspaceId);
+      await sendEmail(agentId, to, subject, htmlBody, workspaceId, attachments.length > 0 ? attachments : undefined);
       toast.success("Email sent");
       setComposing(false);
       setFolder("sent");
@@ -319,6 +319,29 @@ export default function AgentEmailPage() {
                   </pre>
                 )}
               </div>
+
+              {selected.attachments && selected.attachments.length > 0 && (
+                <div className="mt-4">
+                  <div className="flex items-center gap-1.5 mb-2 text-xs text-muted-foreground">
+                    <Paperclip className="size-3" />
+                    {selected.attachments.length} attachment{selected.attachments.length > 1 ? "s" : ""}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selected.attachments.map((att) => (
+                      <div
+                        key={att.key}
+                        className="flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/50 px-2.5 py-1.5 text-xs"
+                      >
+                        <FileIcon className="size-3 text-muted-foreground shrink-0" />
+                        <span className="truncate max-w-[180px]">{att.filename}</span>
+                        <span className="text-muted-foreground shrink-0">
+                          {att.size < 1024 ? `${att.size} B` : att.size < 1024 * 1024 ? `${(att.size / 1024).toFixed(1)} KB` : `${(att.size / (1024 * 1024)).toFixed(1)} MB`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

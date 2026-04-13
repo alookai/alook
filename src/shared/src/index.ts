@@ -11,6 +11,7 @@ export type {
   TaskMessage,
   MachineToken,
   Email,
+  EmailAttachment,
   LoginResponse,
   CreateAgentRequest,
   WsMessage,

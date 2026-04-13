@@ -4,7 +4,7 @@ import type { Database } from "../index";
 
 export async function createEmail(
   db: Database,
-  data: { agentId: string; fromEmail: string; toEmail: string; subject: string; r2Key: string; isWhitelisted: boolean; forwarded: boolean; direction?: string; htmlBody?: string }
+  data: { agentId: string; fromEmail: string; toEmail: string; subject: string; r2Key: string; isWhitelisted: boolean; forwarded: boolean; direction?: string; htmlBody?: string; attachments?: string }
 ) {
   const rows = await db.insert(emails).values(data).returning();
   return rows[0]!;

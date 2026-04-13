@@ -193,16 +193,35 @@ export const getEmailBody = async (id: string, workspaceId: string): Promise<str
 export const deleteEmail = (id: string, workspaceId: string) =>
   apiFetch<void>(`/api/email/${id}${wsQuery(workspaceId)}`, { method: "DELETE" });
 
+export const uploadEmailAttachment = async (
+  file: File,
+  workspaceId: string,
+): Promise<{ key: string; filename: string; size: number; contentType: string }> => {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`/api/email/upload${wsQuery(workspaceId)}`, {
+    method: "POST",
+    credentials: "include",
+    body: fd,
+  });
+  if (!res.ok) {
+    const msg = await res.text().catch(() => "Upload failed");
+    throw new ApiError(msg, res.status);
+  }
+  return res.json();
+};
+
 export const sendEmail = (
   agentId: string,
   to: string,
   subject: string,
   htmlBody: string,
   workspaceId: string,
+  attachments?: { key: string; filename: string; size: number; contentType: string }[],
 ) =>
   apiFetch<Email>(`/api/email/send${wsQuery(workspaceId)}`, {
     method: "POST",
-    body: JSON.stringify({ agentId, to, subject, htmlBody }),
+    body: JSON.stringify({ agentId, to, subject, htmlBody, attachments }),
   });
 
 // Auth (Better Auth — redirect helpers only, actual auth via Better Auth client)
