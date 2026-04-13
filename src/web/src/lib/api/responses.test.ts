@@ -8,6 +8,7 @@ import {
   messageToResponse,
   runtimeToResponse,
   machineTokenToResponse,
+  emailToResponse,
 } from "./responses";
 
 const ts = new Date("2024-06-01T12:00:00.456Z");
@@ -370,5 +371,62 @@ describe("all response mappers strip milliseconds from timestamps", () => {
     const res = machineTokenToResponse({ id: "mt1", name: "T", lastUsedAt: ts, createdAt: ts });
     expect(res.created_at).toBe(tsFormatted);
     expect(res.last_used_at).toBe(tsFormatted);
+  });
+});
+
+describe("emailToResponse", () => {
+  it("maps DB fields to API response format", () => {
+    const res = emailToResponse({
+      id: "e1",
+      agentId: "a1",
+      fromEmail: "alice@example.com",
+      toEmail: "agent@alook.ai",
+      subject: "Hello",
+      r2Key: "emails/abc/raw",
+      isWhitelisted: 1,
+      forwarded: 0,
+      direction: "inbound",
+      htmlBody: "<p>Hi</p>",
+      attachments: "[]",
+      createdAt: ts,
+    });
+    expect(res.id).toBe("e1");
+    expect(res.agent_id).toBe("a1");
+    expect(res.from_email).toBe("alice@example.com");
+    expect(res.is_whitelisted).toBe(true);
+    expect(res.forwarded).toBe(false);
+    expect(res.direction).toBe("inbound");
+    expect(res.attachments).toEqual([]);
+    expect(res.created_at).toBe(tsFormatted);
+  });
+
+  it("parses attachments JSON string", () => {
+    const attachments = [{ key: "k1", filename: "f.pdf", size: 100, contentType: "application/pdf" }];
+    const res = emailToResponse({
+      id: "e2",
+      agentId: "a1",
+      fromEmail: "a@b.com",
+      toEmail: "c@d.com",
+      subject: "S",
+      r2Key: "r",
+      isWhitelisted: 0,
+      forwarded: 0,
+      direction: "outbound",
+      htmlBody: "",
+      attachments: JSON.stringify(attachments),
+      createdAt: ts,
+    });
+    expect(res.attachments).toEqual(attachments);
+    expect(res.attachments[0].filename).toBe("f.pdf");
+  });
+
+  it("defaults to empty array when attachments is null/empty", () => {
+    const res = emailToResponse({
+      id: "e3", agentId: "a1", fromEmail: "a@b.com", toEmail: "c@d.com",
+      subject: "S", r2Key: "r", isWhitelisted: 0, forwarded: 0,
+      direction: "inbound", htmlBody: "", attachments: "",
+      createdAt: ts,
+    });
+    expect(res.attachments).toEqual([]);
   });
 });
