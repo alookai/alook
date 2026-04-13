@@ -19,6 +19,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const agent = await queries.agent.getAgentInWorkspace(db, agentId, ws.workspaceId);
   if (!agent) return writeError("agent not found in workspace", 404);
 
-  const emails = await queries.email.getEmailsByAgent(db, agentId);
-  return writeJSON(emails.map(emailToResponse));
+  const direction = req.nextUrl.searchParams.get("direction");
+  const emailList = direction
+    ? await queries.email.getEmailsByDirection(db, agentId, direction)
+    : await queries.email.getEmailsByAgent(db, agentId);
+
+  return writeJSON(emailList.map(emailToResponse));
 });
