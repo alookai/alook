@@ -48,7 +48,7 @@ async function collectMessages(
   return collected;
 }
 
-const { CodexBackend, extractThreadID, nilIfEmpty } = await import("../codex.js");
+const { CodexBackend, extractThreadID } = await import("../codex.js");
 
 function getMock() {
   return currentMockProc!;
@@ -104,18 +104,6 @@ describe("extractThreadID", () => {
   });
 });
 
-describe("nilIfEmpty", () => {
-  it("returns undefined for empty/null", () => {
-    expect(nilIfEmpty("")).toBeUndefined();
-    expect(nilIfEmpty(null)).toBeUndefined();
-    expect(nilIfEmpty(undefined)).toBeUndefined();
-  });
-
-  it("returns string when non-empty", () => {
-    expect(nilIfEmpty("hello")).toBe("hello");
-  });
-});
-
 describe("CodexBackend", () => {
   let backend: InstanceType<typeof CodexBackend>;
 
@@ -161,10 +149,9 @@ describe("CodexBackend", () => {
     await session.result;
   });
 
-  it("thread/start includes correct params (no prompt)", async () => {
+  it("thread/start includes correct params without developerInstructions", async () => {
     const session = backend.execute("hello", {
       cwd: "/tmp",
-      systemPrompt: "You are helpful",
       model: "gpt-4",
     });
     const mock = getMock();
@@ -180,9 +167,8 @@ describe("CodexBackend", () => {
     expect(parsed.params.sandbox).toBe("workspace-write");
     expect(parsed.params.persistExtendedHistory).toBe(true);
     expect(parsed.params.experimentalRawEvents).toBe(false);
-    expect(parsed.params.developerInstructions).toBe("You are helpful");
+    expect(parsed.params.developerInstructions).toBeUndefined();
     expect(parsed.params.model).toBe("gpt-4");
-    expect(parsed.params.instructions).toBeUndefined();
 
     mock.proc.emit("close", 1);
     await session.result;

@@ -6,7 +6,7 @@ describe("parseEmailHandle", () => {
 })
 describe("toAlookAddress", () => { it("appends domain", () => expect(toAlookAddress("jarvis")).toBe("jarvis@alook.ai")) })
 describe("isValidHandle", () => {
-  it("accepts 4+ alphanum+dash", () => { expect(isValidHandle("jarvis")).toBe(true); expect(isValidHandle("my-bot")).toBe(true) })
-  it("rejects <4", () => expect(isValidHandle("abc")).toBe(false))
+  it("accepts 3+ alphanum+dash", () => { expect(isValidHandle("jarvis")).toBe(true); expect(isValidHandle("my-bot")).toBe(true); expect(isValidHandle("abc")).toBe(true) })
+  it("rejects <3", () => expect(isValidHandle("ab")).toBe(false))
   it("rejects spaces/underscores", () => { expect(isValidHandle("my agent")).toBe(false); expect(isValidHandle("my_bot")).toBe(false) })
 })

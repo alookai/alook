@@ -8,6 +8,7 @@ import { useWorkspace } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AgentEditForm } from "@/components/agent-edit-form";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { Mail, MessageSquare, Pencil, Trash2, X } from "lucide-react";
 
@@ -34,7 +35,7 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
       {/* Top navbar */}
       <div className="flex items-center justify-between border-b border-border/50 px-5 py-2.5">
         <div className="flex items-center gap-2 min-w-0">
-          {agent && (
+          {agent ? (
             <Link
               href={`/w/${slug}/runtimes`}
               title={isOnline ? "Runtime online" : "Runtime offline"}
@@ -46,17 +47,23 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
                 )}
               />
             </Link>
+          ) : (
+            <Skeleton className="size-2 rounded-full shrink-0" />
           )}
-          <Link
-            href={`/w/${slug}/agents/${agentId}/email`}
-            onClick={() => setEditing(false)}
-            className="text-sm font-medium truncate hover:text-foreground/80 transition-colors"
-          >
-            {agent?.name || "Agent"}
-          </Link>
+          {agent ? (
+            <Link
+              href={`/w/${slug}/agents/${agentId}/email`}
+              onClick={() => setEditing(false)}
+              className="text-sm font-medium truncate hover:text-foreground/80 transition-colors"
+            >
+              {agent.name}
+            </Link>
+          ) : (
+            <Skeleton className="h-3.5 w-24" />
+          )}
           {editing && <span className="text-xs text-muted-foreground">/ Settings</span>}
         </div>
-        {agent && (
+        {agent ? (
           <div className="flex items-center gap-0.5 shrink-0">
             {editing ? (
               <Button
@@ -108,6 +115,8 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
               </>
             )}
           </div>
+        ) : (
+          <div className="h-7 shrink-0" />
         )}
       </div>
 

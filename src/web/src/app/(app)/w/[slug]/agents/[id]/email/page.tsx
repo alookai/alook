@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmailCompose } from "@/components/email-compose";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2, Mail, Inbox, Send, Plus, Trash2 } from "lucide-react";
 
 type Folder = "inbox" | "sent";
@@ -180,9 +181,18 @@ export default function AgentEmailPage() {
       {/* Column 2: Email list */}
       <div className="w-[300px] shrink-0 border-r border-border/40 overflow-y-auto">
         {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
-          </div>
+          <>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="px-4 py-3 border-b border-border/30">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <Skeleton className="h-3.5 w-32" />
+                  <Skeleton className="h-2.5 w-10" />
+                </div>
+                <Skeleton className="h-3.5 w-48 mb-1.5" />
+                <Skeleton className="h-4 w-16 rounded-full" />
+              </div>
+            ))}
+          </>
         ) : emails.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full animate-[fade-up_400ms_ease-out_both]">
             <Mail className="size-8 text-muted-foreground/40 mb-3" />

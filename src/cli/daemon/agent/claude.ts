@@ -25,9 +25,6 @@ export class ClaudeBackend implements AgentBackend {
     if (options.maxTurns) {
       args.push("--max-turns", String(options.maxTurns));
     }
-    if (options.systemPrompt) {
-      args.push("--append-system-prompt", options.systemPrompt);
-    }
     if (options.resumeSessionId) {
       args.push("--resume", options.resumeSessionId);
     }
@@ -35,7 +32,7 @@ export class ClaudeBackend implements AgentBackend {
     const proc = spawn(this.cliPath, args, {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env },
+      env: { ...process.env, ...options.env },
     });
 
     let timedOut = false;

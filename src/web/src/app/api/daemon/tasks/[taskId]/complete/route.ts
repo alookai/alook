@@ -22,15 +22,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const result = JSON.stringify(body);
   const sessionId = body.session_id || "";
-  const workDir = body.work_dir || "";
 
   const taskService = new TaskService(db);
   try {
     const task = await taskService.completeTask(
       taskId,
       result,
-      sessionId,
-      workDir
+      sessionId
     );
     broadcastToUser(ctx.userId, { type: "task.updated", taskId, status: "completed" }).catch(() => {});
     return writeJSON(taskToResponse(task));

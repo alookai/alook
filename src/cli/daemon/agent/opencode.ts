@@ -14,9 +14,6 @@ export class OpenCodeBackend implements AgentBackend {
     if (options.model) {
       args.push("--model", options.model);
     }
-    if (options.systemPrompt) {
-      args.push("--prompt", options.systemPrompt);
-    }
     if (options.resumeSessionId) {
       args.push("--session", options.resumeSessionId);
     }
@@ -27,7 +24,7 @@ export class OpenCodeBackend implements AgentBackend {
     const proc = spawn(this.cliPath, args, {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, OPENCODE_PERMISSION: '{"*":"allow"}' },
+      env: { ...process.env, ...options.env, OPENCODE_PERMISSION: '{"*":"allow"}' },
     });
 
     let timedOut = false;

@@ -128,6 +128,7 @@ export function taskMessageToResponse(m: any) {
     seq: m.seq,
     type: m.type,
     tool: m.tool,
+    call_id: m.callId || "",
     content: m.content,
     output: m.output,
   };

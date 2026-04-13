@@ -201,17 +201,18 @@ describe("OpenCodeBackend", () => {
     expect(env.OPENCODE_PERMISSION).toBe('{"*":"allow"}');
   });
 
-  it("uses --prompt for systemPrompt and user prompt as positional arg", () => {
-    backend.execute("do things", { cwd: "/tmp", systemPrompt: "You are helpful" });
+  it("merges execenv vars into spawn env and OPENCODE_PERMISSION wins", () => {
+    backend.execute("hello", {
+      cwd: "/tmp",
+      env: { ALOOK_WORKSPACE_ID: "ws1", OPENCODE_PERMISSION: "should-be-overridden" },
+    });
     expect(lastSpawnArgs).toBeTruthy();
-    const args = lastSpawnArgs!.args;
-    const promptIdx = args.indexOf("--prompt");
-    expect(promptIdx).toBeGreaterThan(-1);
-    expect(args[promptIdx + 1]).toBe("You are helpful");
-    expect(args[args.length - 1]).toBe("do things");
+    const env = lastSpawnArgs!.opts.env as Record<string, string>;
+    expect(env.ALOOK_WORKSPACE_ID).toBe("ws1");
+    expect(env.OPENCODE_PERMISSION).toBe('{"*":"allow"}');
   });
 
-  it("without systemPrompt, no --prompt flag, user prompt is positional", () => {
+  it("does not pass --prompt flag, user prompt is positional", () => {
     backend.execute("do things", { cwd: "/tmp" });
     expect(lastSpawnArgs).toBeTruthy();
     const args = lastSpawnArgs!.args;

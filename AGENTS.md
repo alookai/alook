@@ -9,6 +9,10 @@ Alook's main purpose is to make the cli agent always on, and give it a email add
 - `src/email-worker`: inbound email Cloudflare Worker
 - `src/ws-do`: WebSocket Durable Object worker
 
+## MUST
+- run `pnpm typecheck`, `pnpm test`, `pnpm test:e2e` as the final check when you think the code is ready.
+
+
 ## Plan-driven Development
 - You must make a markdown plan at `plans/` before you implement any my request, otherwise I will reject your implementation.
 - The `plans/` directory is gitignored — plans are kept locally and do not need to be committed or included in PRs.

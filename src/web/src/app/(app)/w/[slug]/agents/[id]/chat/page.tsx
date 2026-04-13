@@ -9,7 +9,8 @@ import type { Conversation } from "@alook/shared";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
-import { Plus, Loader2, Trash2 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Plus, Loader2, Trash2, MessageSquare } from "lucide-react";
 
 function relativeTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -94,6 +95,82 @@ export default function AgentChatPage() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="flex-1 overflow-y-auto px-5">
+        <div className="mx-auto max-w-2xl py-6">
+          {/* Skeleton sessions header */}
+          <div className="flex items-center justify-between mb-4">
+            <Skeleton className="h-3.5 w-16" />
+            <Skeleton className="h-7 w-[106px] rounded-md" />
+          </div>
+          {/* Skeleton session rows */}
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="rounded-lg border border-border/50 bg-background/50 px-4 py-3"
+              >
+                <Skeleton className="h-4 w-48 mb-1.5" />
+                <Skeleton className="h-3 w-32" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (conversations.length === 0) {
+    return (
+      <>
+        <div className="flex flex-col flex-1">
+          <div className="px-5">
+            <div className="mx-auto max-w-2xl pt-6">
+              {/* Sessions header */}
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Sessions
+                </h2>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={handleNewSession}
+                  disabled={creating}
+                >
+                  {creating ? (
+                    <Loader2 className="size-3 animate-spin" />
+                  ) : (
+                    <Plus className="size-3" />
+                  )}
+                  New Session
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col items-center justify-center flex-1 animate-[fade-up_400ms_ease-out_both]">
+            <MessageSquare className="size-8 text-muted-foreground mb-3" />
+            <p className="text-sm text-muted-foreground">No sessions yet.</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              Start a new session to begin chatting with this agent.
+            </p>
+          </div>
+        </div>
+
+        <ConfirmDialog
+          open={!!deleteTarget}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+          title="Delete session"
+          description={`This will permanently delete "${deleteTarget?.title || "Untitled"}" and all its messages.`}
+          loading={deleting}
+          onConfirm={handleDeleteConversation}
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <div className="flex-1 overflow-y-auto px-5">
@@ -125,23 +202,8 @@ export default function AgentChatPage() {
             </Button>
           </div>
 
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : conversations.length === 0 ? (
-            /* Empty state */
-            <div className="text-center py-20 animate-[fade-up_400ms_ease-out_both]">
-              <p className="text-sm text-muted-foreground">
-                No sessions yet.
-              </p>
-              <p className="text-xs text-muted-foreground/60 mt-1">
-                Start a new session to begin chatting with this agent.
-              </p>
-            </div>
-          ) : (
-            /* Session rows */
-            <div className="space-y-2">
+          {/* Session rows */}
+          <div className="space-y-2">
               {conversations.map((conv) => (
                 <div
                   key={conv.id}
@@ -192,8 +254,7 @@ export default function AgentChatPage() {
                   </div>
                 </div>
               ))}
-            </div>
-          )}
+          </div>
         </div>
       </div>
 

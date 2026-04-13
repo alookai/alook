@@ -86,8 +86,7 @@ export class TaskService {
   async completeTask(
     taskId: string,
     result: string,
-    sessionId: string,
-    workDir: string
+    sessionId: string
   ) {
     let parsed: unknown;
     try {
@@ -99,7 +98,6 @@ export class TaskService {
     const task = await taskQueries.completeTask(this.db, taskId, {
       result: parsed,
       sessionId: sessionId || null,
-      workDir: workDir || null,
     });
 
     if (!task) {

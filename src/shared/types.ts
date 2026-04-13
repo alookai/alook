@@ -80,7 +80,6 @@ export interface AgentTask {
   agent?: TaskAgentData;
   created_at: string;
   prior_session_id?: string;
-  prior_work_dir?: string;
 }
 
 export interface TaskAgentData {

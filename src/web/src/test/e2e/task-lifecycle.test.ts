@@ -120,7 +120,6 @@ describe("task lifecycle", () => {
         body: JSON.stringify({
           output: "All tests passed",
           session_id: "sess_test_123",
-          work_dir: "/tmp/e2e",
         }),
       },
     )

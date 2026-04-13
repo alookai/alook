@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { TaskStream } from "@/components/task-stream";
 import {
   getConversation,
   listMessages,
@@ -16,6 +16,7 @@ import type { Conversation, Message, TaskMessage } from "@alook/shared";
 import type { Task } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowUp, Loader2 } from "lucide-react";
 import { Streamdown } from "streamdown";
 
@@ -105,8 +106,7 @@ export default function AgentChatDetailPage() {
             } catch {
               toast.error("Failed to refresh messages");
             }
-            setActiveTask(null);
-            setTaskMessages([]);
+            setActiveTask(task);
           }
         } catch {
           pollFailures.current += 1;
@@ -175,9 +175,40 @@ export default function AgentChatDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
+      <>
+        <div className="flex-1 overflow-y-auto px-5">
+          <div className="mx-auto max-w-2xl py-6 space-y-4">
+            {/* Skeleton user message */}
+            <div className="flex justify-end">
+              <Skeleton className="h-10 w-48 rounded-lg" />
+            </div>
+            {/* Skeleton assistant message */}
+            <div className="flex justify-start">
+              <div className="space-y-2 px-1 py-1">
+                <Skeleton className="h-4 w-72" />
+                <Skeleton className="h-4 w-56" />
+                <Skeleton className="h-4 w-64" />
+              </div>
+            </div>
+            {/* Another pair */}
+            <div className="flex justify-end">
+              <Skeleton className="h-10 w-36 rounded-lg" />
+            </div>
+            <div className="flex justify-start">
+              <div className="space-y-2 px-1 py-1">
+                <Skeleton className="h-4 w-64" />
+                <Skeleton className="h-4 w-48" />
+              </div>
+            </div>
+          </div>
+        </div>
+        {/* Skeleton input area */}
+        <div className="px-5 py-3">
+          <div className="mx-auto max-w-2xl">
+            <Skeleton className="h-[72px] w-full rounded-xl" />
+          </div>
+        </div>
+      </>
     );
   }
 
@@ -192,7 +223,16 @@ export default function AgentChatDetailPage() {
   return (
     <>
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-5" ref={scrollRef}>
+      <div
+        className="flex-1 overflow-y-auto px-5 thin-scrollbar"
+        ref={scrollRef}
+        onClick={(e) => {
+          const btn = (e.target as HTMLElement).closest(
+            '[data-streamdown="code-block-actions"] button'
+          );
+          if (btn) toast.success("Copied to clipboard");
+        }}
+      >
         <div className="mx-auto max-w-2xl py-6 space-y-4">
           {messages.length === 0 && !activeTask && (
             <p className="text-center text-muted-foreground py-20 text-sm">
@@ -201,73 +241,39 @@ export default function AgentChatDetailPage() {
           )}
 
           {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              {msg.role === "user" ? (
-                <div className="max-w-[80%] rounded-lg px-4 py-2 bg-primary text-primary-foreground whitespace-pre-wrap">
-                  {msg.content}
-                </div>
-              ) : (
-                <div className="markdown max-w-full px-1 py-1 text-base text-foreground">
-                  <Streamdown>{msg.content}</Streamdown>
-                </div>
+            <React.Fragment key={msg.id}>
+              {/* Show trace before the assistant message it produced */}
+              {activeTask && msg.role === "assistant" && msg.task_id === activeTask.id && taskMessages.length > 0 && (
+                <TaskStream
+                  task={activeTask}
+                  messages={taskMessages}
+                  connectionLost={connectionLost}
+                  hideText
+                />
               )}
-            </div>
+              <div
+                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                {msg.role === "user" ? (
+                  <div className="max-w-[80%] rounded-lg px-4 py-2 bg-primary text-primary-foreground whitespace-pre-wrap">
+                    {msg.content}
+                  </div>
+                ) : (
+                  <div className="markdown max-w-full px-1 py-1 text-base text-foreground">
+                    <Streamdown controls={{ code: { copy: true, download: false } }}>{msg.content}</Streamdown>
+                  </div>
+                )}
+              </div>
+            </React.Fragment>
           ))}
 
-          {activeTask && (
-            <div className="rounded-lg border bg-muted/50 p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary">
-                  {activeTask.status === "running"
-                    ? "Agent working..."
-                    : activeTask.status}
-                </Badge>
-              </div>
-              {taskMessages.length > 0 && (
-                <div className="mt-2 max-h-60 overflow-y-auto rounded-lg bg-muted/30 p-3 font-mono text-xs space-y-1">
-                  {taskMessages.map((tm) => (
-                    <div key={tm.id} className="text-muted-foreground">
-                      {tm.type === "tool-use" && (
-                        <span className="text-primary">
-                          [tool] {tm.tool}
-                        </span>
-                      )}
-                      {tm.type === "tool-result" && (
-                        <span className="text-accent-foreground">
-                          [result] {tm.output || tm.content}
-                        </span>
-                      )}
-                      {tm.type === "text" && <span>{tm.content}</span>}
-                      {tm.type === "thinking" && (
-                        <span className="italic opacity-60">
-                          {tm.content}
-                        </span>
-                      )}
-                      {!["tool-use", "tool-result", "text", "thinking"].includes(
-                        tm.type
-                      ) && (
-                        <span>
-                          [{tm.type}] {tm.content}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {activeTask.status === "failed" && activeTask.error && (
-                <p className="text-sm text-destructive">
-                  {activeTask.error}
-                </p>
-              )}
-              {connectionLost && (
-                <p className="text-xs text-muted-foreground animate-pulse">
-                  Connection lost — retrying...
-                </p>
-              )}
-            </div>
+          {/* Show trace while task is in progress (no assistant message yet) */}
+          {activeTask && activeTask.status !== "completed" && activeTask.status !== "failed" && (
+            <TaskStream
+              task={activeTask}
+              messages={taskMessages}
+              connectionLost={connectionLost}
+            />
           )}
         </div>
       </div>
@@ -279,7 +285,7 @@ export default function AgentChatDetailPage() {
             className={cn(
               "relative flex flex-col rounded-xl border bg-background/60 transition-colors duration-200",
               "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
-              (sending || !!activeTask) && "opacity-50"
+              (sending || (!!activeTask && activeTask.status !== "completed" && activeTask.status !== "failed")) && "opacity-50"
             )}
           >
             <textarea
@@ -288,7 +294,7 @@ export default function AgentChatDetailPage() {
               onKeyDown={handleKeyDown}
               placeholder="Type a message..."
               rows={1}
-              disabled={sending || !!activeTask}
+              disabled={sending || (!!activeTask && activeTask.status !== "completed" && activeTask.status !== "failed")}
               className={cn(
                 "field-sizing-content w-full resize-none bg-transparent px-3.5 pt-2.5 text-base outline-none",
                 "placeholder:text-muted-foreground disabled:cursor-not-allowed",
@@ -299,7 +305,7 @@ export default function AgentChatDetailPage() {
               <Button
                 size="icon-sm"
                 onClick={handleSend}
-                disabled={!input.trim() || sending || !!activeTask}
+                disabled={!input.trim() || sending || (!!activeTask && activeTask.status !== "completed" && activeTask.status !== "failed")}
                 className={cn(
                   "rounded-lg transition-opacity duration-200",
                   !input.trim() && "opacity-40"

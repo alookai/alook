@@ -88,7 +88,7 @@ describe("POST /api/daemon/runtimes/[runtimeId]/tasks/claim", () => {
       instructions: "be helpful",
       runtimeConfig: { model: "gpt-4" },
     };
-    const fakeSession = { sessionId: "sess1", workDir: "/tmp/work" };
+    const fakeSession = { sessionId: "sess1" };
 
     mockClaimTaskForRuntime.mockResolvedValue(fakeTask);
     mockGetAgent.mockResolvedValue(fakeAgent);
@@ -126,7 +126,6 @@ describe("POST /api/daemon/runtimes/[runtimeId]/tasks/claim", () => {
       runtime_config: { model: "gpt-4" },
     });
     expect(body.task.prior_session_id).toBe("sess1");
-    expect(body.task.prior_work_dir).toBe("/tmp/work");
     expect(mockGetAgent).toHaveBeenCalledWith({}, "a1");
     expect(mockGetLastTaskSession).toHaveBeenCalledWith({}, "a1", "conv1");
   });

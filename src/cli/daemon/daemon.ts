@@ -4,10 +4,11 @@ import { createHealthServer } from "./health.js";
 import { buildPrompt } from "./prompt.js";
 import { createBackend, detectVersion } from "./agent/index.js";
 import { type Task, type TaskResult, fromApiTask } from "./types.js";
+import { prepare } from "./execenv/index.js";
 import { loadCLIConfigForProfile } from "../lib/config.js";
 import { log } from "../lib/logger.js";
 import { cmdPrefix } from "../lib/env.js";
-import { mkdirSync } from "fs";
+import { createWriteStream } from "fs";
 import { join } from "path";
 import { execSync } from "child_process";
 
@@ -187,11 +188,9 @@ async function handleTask(
       const body: {
         output: string;
         session_id?: string;
-        work_dir?: string;
         branch_name?: string;
       } = { output: result.comment };
       if (result.sessionId) body.session_id = result.sessionId;
-      if (result.workDir) body.work_dir = result.workDir;
       if (result.branchName) body.branch_name = result.branchName;
       await client.completeTask(task.id, body);
       log.info(`Task ${task.id} completed`);
@@ -230,20 +229,18 @@ async function runTask(
 
   const backend = createBackend(provider, cliPath);
 
-  let prompt = buildPrompt(task);
-  if (task.agent?.instructions) {
-    prompt = task.agent.instructions + "\n\n" + prompt;
-  }
+  const prompt = buildPrompt(task);
 
-  const workDir = task.priorWorkDir
-    ? task.priorWorkDir
-    : join(config.workspacesRoot, task.workspaceId, task.agentId, "workdir");
-  mkdirSync(workDir, { recursive: true });
+  const { workDir, logFile, env } = prepare(
+    { workspacesRoot: config.workspacesRoot },
+    task,
+    provider,
+  );
 
   const session = backend.execute(prompt, {
     cwd: workDir,
     model: model || undefined,
-    systemPrompt: task.agent?.instructions,
+    env,
     timeout: config.agentTimeout,
     resumeSessionId: task.priorSessionId,
   });
@@ -252,6 +249,7 @@ async function runTask(
     seq: number;
     type: string;
     tool?: string;
+    call_id?: string;
     content?: string;
     input?: Record<string, unknown>;
     output?: string;
@@ -272,6 +270,22 @@ async function runTask(
 
   const flushTimer = setInterval(flushMessages, FLUSH_INTERVAL_MS);
 
+  // Log capture — append JSONL to agent.log (best-effort)
+  let logStream: ReturnType<typeof createWriteStream> | undefined;
+  try {
+    logStream = createWriteStream(logFile, { flags: "a" });
+    logStream.write(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        type: "text",
+        role: "user",
+        content: prompt,
+      }) + "\n",
+    );
+  } catch {
+    logStream = undefined;
+  }
+
   try {
     for await (const msg of session.messages) {
       seq++;
@@ -279,10 +293,25 @@ async function runTask(
         seq,
         type: msg.type,
         tool: msg.tool,
+        call_id: msg.callId,
         content: msg.content,
         input: msg.input,
         output: msg.output,
       });
+
+      if (logStream) {
+        try {
+          logStream.write(
+            JSON.stringify({
+              ts: new Date().toISOString(),
+              role: "assistant",
+              ...msg,
+            }) + "\n",
+          );
+        } catch {
+          // skip logging on write failure
+        }
+      }
 
       if (pendingMessages.length >= BATCH_SIZE) {
         await flushMessages();
@@ -292,6 +321,7 @@ async function runTask(
     await flushMessages();
   } finally {
     clearInterval(flushTimer);
+    logStream?.end();
   }
 
   const result = await session.result;
@@ -299,6 +329,5 @@ async function runTask(
     status: result.status === "completed" ? "completed" : "failed",
     comment: result.output || result.error,
     sessionId: result.sessionId,
-    workDir,
   };
 }

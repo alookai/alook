@@ -62,6 +62,24 @@ vi.mock("child_process", () => ({
 
 vi.mock("fs", () => ({
   mkdirSync: vi.fn(),
+  createWriteStream: vi.fn(() => ({
+    write: vi.fn(),
+    end: vi.fn(),
+  })),
+}));
+
+vi.mock("./execenv/index.js", () => ({
+  prepare: vi.fn(() => ({
+    workDir: "/tmp/ws/ws1/agent1/workdir",
+    logFile: "/tmp/ws/ws1/agent1/agent.log",
+    env: {
+      ALOOK_WORKSPACE_ID: "ws1",
+      ALOOK_AGENT_ID: "agent1",
+      ALOOK_TASK_ID: "t1",
+      ALOOK_CONVERSATION_ID: "c1",
+      ALOOK_HEALTH_PORT: "19514",
+    },
+  })),
 }));
 
 // Capture signal handlers and prevent actual process.exit

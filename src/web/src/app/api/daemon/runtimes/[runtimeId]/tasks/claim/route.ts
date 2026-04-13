@@ -39,7 +39,6 @@ export const POST = withAuth(async (_req, ctx) => {
           }
         : null,
       prior_session_id: priorSession?.sessionId ?? null,
-      prior_work_dir: priorSession?.workDir ?? null,
     },
   });
 });

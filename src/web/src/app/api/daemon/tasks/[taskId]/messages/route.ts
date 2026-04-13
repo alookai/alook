@@ -42,6 +42,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       seq: m.seq,
       type: m.type,
       tool: m.tool || "",
+      callId: m.call_id || "",
       content: m.content || "",
       input: m.input,
       output: m.output || "",

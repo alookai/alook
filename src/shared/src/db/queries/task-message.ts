@@ -9,6 +9,7 @@ export async function createTaskMessage(
     seq: number;
     type: string;
     tool: string;
+    callId?: string;
     content: string;
     input?: unknown;
     output: string;
@@ -21,6 +22,7 @@ export async function createTaskMessage(
       seq: data.seq,
       type: data.type,
       tool: data.tool,
+      callId: data.callId || "",
       content: data.content,
       input: data.input ?? null,
       output: data.output,

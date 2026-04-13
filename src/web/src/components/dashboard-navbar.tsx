@@ -44,7 +44,7 @@ function OnboardingSteps({
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast("Copied to clipboard");
+    toast.success("Copied to clipboard");
   };
 
   return (
@@ -98,7 +98,7 @@ function OnboardingSteps({
                 navigator.clipboard.writeText(
                   `${CLI_CMD} register --token ${generatedToken}`
                 );
-                toast("Copied to clipboard");
+                toast.success("Copied to clipboard");
               }}
               className="w-full"
             >
@@ -208,7 +208,7 @@ export function DashboardNavbar() {
   const handleCopyToken = async () => {
     await navigator.clipboard.writeText(generatedToken);
     setTokenCopied(true);
-    toast("Copied to clipboard");
+    toast.success("Copied to clipboard");
   };
 
   return (

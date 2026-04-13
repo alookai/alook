@@ -29,7 +29,6 @@ export const ClaimedTaskRowSchema = z.object({
   result: z.unknown().nullable(),
   context: z.unknown().nullable(),
   sessionId: z.string().nullable(),
-  workDir: z.string().nullable(),
   createdAt: z.coerce.date(),
   dispatchedAt: z.coerce.date().nullable(),
   startedAt: z.coerce.date().nullable(),
@@ -78,7 +77,6 @@ export type TaskApiBase = z.infer<typeof TaskApiBaseSchema>;
 export const TaskApiSchema = TaskApiBaseSchema.extend({
   agent: TaskAgentDataApiSchema.nullable().optional(),
   prior_session_id: z.string().nullable().optional(),
-  prior_work_dir: z.string().nullable().optional(),
 });
 export type TaskApi = z.infer<typeof TaskApiSchema>;
 
@@ -137,7 +135,6 @@ export type HeartbeatRequest = z.infer<typeof HeartbeatRequestSchema>;
 export const CompleteTaskRequestSchema = z.object({
   output: z.string().optional(),
   session_id: z.string().optional(),
-  work_dir: z.string().optional(),
   branch_name: z.string().optional(),
 });
 export type CompleteTaskRequest = z.infer<typeof CompleteTaskRequestSchema>;

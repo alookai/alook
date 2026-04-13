@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/sheet";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2, Monitor, Plus } from "lucide-react";
 import type { Runtime } from "@/lib/api";
 import { CLI_CMD } from "@/lib/utils";
@@ -45,7 +46,7 @@ function ConnectMachineSteps({
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast("Copied to clipboard");
+    toast.success("Copied to clipboard");
   };
 
   return (
@@ -89,7 +90,7 @@ function ConnectMachineSteps({
                 navigator.clipboard.writeText(
                   `${CLI_CMD} register --token ${generatedToken}`
                 );
-                toast("Copied to clipboard");
+                toast.success("Copied to clipboard");
               }}
               className="w-full"
             >
@@ -208,9 +209,41 @@ export default function RuntimesPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
+      <>
+        {/* Skeleton title bar */}
+        <div className="flex items-center justify-between border-b border-border/50 px-5 py-2.5">
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-3 w-52" />
+          </div>
+          <Skeleton className="h-8 w-[116px] rounded-md" />
+        </div>
+        {/* Skeleton card grid */}
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div
+                key={i}
+                className="rounded-xl border border-border/50 bg-card p-4 space-y-3"
+              >
+                <div className="flex items-center gap-2">
+                  <Skeleton className="size-4 rounded" />
+                  <Skeleton className="h-4 w-28" />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <Skeleton className="h-3 w-20" />
+                      <Skeleton className="h-3 w-28" />
+                    </div>
+                    <Skeleton className="h-5 w-14 rounded-full" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </>
     );
   }
 

@@ -9,7 +9,6 @@ export interface Task {
   priority: number;
   agent?: TaskAgentData;
   priorSessionId?: string;
-  priorWorkDir?: string;
   repos?: RepoData[];
   createdAt: string;
 }
@@ -30,7 +29,6 @@ export interface TaskResult {
   comment: string;
   branchName?: string;
   sessionId?: string;
-  workDir?: string;
 }
 
 export interface RuntimeInfo {
@@ -70,7 +68,7 @@ export interface AgentResult {
 export interface ExecOptions {
   cwd: string;
   model?: string;
-  systemPrompt?: string;
+  env?: Record<string, string>;
   maxTurns?: number;
   timeout?: number;
   resumeSessionId?: string;
@@ -91,7 +89,6 @@ export function fromApiTask(api: import("@alook/shared").TaskApi): Task {
       ? { name: api.agent.name, instructions: api.agent.instructions }
       : undefined,
     priorSessionId: api.prior_session_id ?? undefined,
-    priorWorkDir: api.prior_work_dir ?? undefined,
     repos: undefined,
     createdAt: api.created_at,
   };

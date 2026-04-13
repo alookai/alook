@@ -39,11 +39,6 @@ export function extractThreadID(response: unknown): string {
   return "";
 }
 
-/** Return undefined if the string is empty/null, otherwise the string. */
-export function nilIfEmpty(s: string | undefined | null): string | undefined {
-  return s ? s : undefined;
-}
-
 export class CodexBackend implements AgentBackend {
   name = "codex";
 
@@ -53,7 +48,7 @@ export class CodexBackend implements AgentBackend {
     const proc = spawn(this.cliPath, ["app-server", "--listen", "stdio://"], {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env },
+      env: { ...process.env, ...options.env },
     });
 
     let timedOut = false;
@@ -429,9 +424,6 @@ export class CodexBackend implements AgentBackend {
             threadResponse = await sendRpc("thread/resume", {
               threadId: options.resumeSessionId,
               ...(options.model ? { model: options.model } : {}),
-              ...(nilIfEmpty(options.systemPrompt)
-                ? { developerInstructions: options.systemPrompt }
-                : {}),
             });
             sessionId = options.resumeSessionId;
           } else {
@@ -442,9 +434,6 @@ export class CodexBackend implements AgentBackend {
               persistExtendedHistory: true,
               experimentalRawEvents: false,
             };
-            if (nilIfEmpty(options.systemPrompt)) {
-              threadParams.developerInstructions = options.systemPrompt;
-            }
             if (options.model) {
               threadParams.model = options.model;
             }

@@ -58,7 +58,7 @@ export function AgentEditForm({
   const effectiveHandle = emailHandle || derivedHandle;
   const handleError =
     effectiveHandle && !isValidHandle(effectiveHandle)
-      ? "Must be 4+ characters, letters/numbers/hyphens only"
+      ? "Must be 3+ characters, letters/numbers/hyphens only"
       : "";
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -133,11 +133,25 @@ export function AgentEditForm({
 
         <div className="space-y-1.5">
           <Label htmlFor="agent-runtime">Runtime</Label>
-          <RuntimeSelect
-            value={runtimeId}
-            onValueChange={setRuntimeId}
-            runtimes={runtimes}
-          />
+          {agent ? (
+            <p className="text-sm text-muted-foreground">
+              {(() => {
+                const rt = runtimes.find((r) => r.id === agent.runtime_id);
+                if (!rt) return "Unknown runtime";
+                const machine =
+                  (typeof rt.device_info === "string" ? rt.device_info : "") ||
+                  rt.name ||
+                  "";
+                return machine ? `${rt.provider} (${machine})` : rt.provider;
+              })()}
+            </p>
+          ) : (
+            <RuntimeSelect
+              value={runtimeId}
+              onValueChange={setRuntimeId}
+              runtimes={runtimes}
+            />
+          )}
         </div>
 
         <div className="flex items-center gap-2 pt-2">

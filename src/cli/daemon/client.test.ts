@@ -28,7 +28,6 @@ describe("DaemonClient claimTask schema validation", () => {
         created_at: "2024-01-01T00:00:00Z",
         agent: { instructions: "help", name: "bot", runtime_config: {} },
         prior_session_id: "sess-0",
-        prior_work_dir: "/tmp",
       },
     };
 
@@ -185,7 +184,6 @@ function validApiTask(): TaskApi {
     created_at: "2024-01-01T00:00:00Z",
     agent: { instructions: "help", name: "bot", runtime_config: {} },
     prior_session_id: "sess-0",
-    prior_work_dir: "/tmp/old",
   };
 }
 
@@ -203,7 +201,6 @@ describe("fromApiTask", () => {
     expect(task.agent?.name).toBe("bot");
     expect(task.agent?.instructions).toBe("help");
     expect(task.priorSessionId).toBe("sess-0");
-    expect(task.priorWorkDir).toBe("/tmp/old");
     expect(task.createdAt).toBe("2024-01-01T00:00:00Z");
   });
 

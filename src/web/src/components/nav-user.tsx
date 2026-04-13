@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -12,14 +13,22 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { LogOut, User } from "lucide-react";
 
 export function NavUser() {
   const { data: session } = useSession();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const user = session?.user;
-  if (!user) return null;
+  if (!mounted || !user) return <Skeleton className="size-10 rounded-xl" />;
+
+  const firstLetter = (user.name || user.email || "?").charAt(0).toUpperCase();
 
   const initials = (user.name ?? user.email ?? "?")
     .split(/[\s@]/)
@@ -38,7 +47,7 @@ export function NavUser() {
           />
         }
       >
-        <LogOut className="size-4" />
+        <User className="size-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent
         className="min-w-52 rounded-lg"
@@ -49,12 +58,9 @@ export function NavUser() {
         <DropdownMenuGroup>
           <DropdownMenuLabel className="p-0 font-normal">
             <div className="flex items-center gap-2 px-2 py-1.5 text-left text-sm">
-              <Avatar className="size-7">
-                {user.image && (
-                  <AvatarImage src={user.image} alt={user.name ?? ""} />
-                )}
-                <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-              </Avatar>
+              <div className="flex items-center justify-center size-7 rounded-full bg-primary text-primary-foreground text-xs font-medium shrink-0">
+                {firstLetter}
+              </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">
                   {user.name ?? "User"}

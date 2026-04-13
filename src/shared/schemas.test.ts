@@ -49,7 +49,6 @@ function validRow() {
     result: null,
     context: { foo: "bar" },
     sessionId: "sess-1",
-    workDir: "/tmp/work",
     createdAt: "2024-01-01T00:00:00Z",
     dispatchedAt: "2024-01-01T00:01:00Z",
     startedAt: null,
@@ -65,7 +64,6 @@ describe("ClaimedTaskRowSchema", () => {
     expect(parsed.id).toBe("t1");
     expect(parsed.context).toEqual({ foo: "bar" });
     expect(parsed.sessionId).toBe("sess-1");
-    expect(parsed.workDir).toBe("/tmp/work");
   });
 
   it("coerces string timestamps to Date objects", () => {
@@ -128,17 +126,15 @@ describe("TaskApiBaseSchema", () => {
 // ---------------------------------------------------------------------------
 
 describe("TaskApiSchema", () => {
-  it("accepts optional agent, prior_session_id, prior_work_dir", () => {
+  it("accepts optional agent and prior_session_id", () => {
     const input = {
       ...validTaskApiBase(),
       agent: { instructions: "be helpful", name: "bot", runtime_config: {} },
       prior_session_id: "sess-0",
-      prior_work_dir: "/tmp/old",
     };
     const parsed = TaskApiSchema.parse(input);
     expect(parsed.agent?.name).toBe("bot");
     expect(parsed.prior_session_id).toBe("sess-0");
-    expect(parsed.prior_work_dir).toBe("/tmp/old");
   });
 });
 

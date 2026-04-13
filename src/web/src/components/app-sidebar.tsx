@@ -5,7 +5,8 @@ import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
-import { Monitor, SunMoon, Plus, Loader2, LayoutGrid } from "lucide-react";
+import { Monitor, SunMoon, Plus, LayoutGrid } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useTheme } from "next-themes";
 import { NavUser } from "@/components/nav-user";
 
@@ -51,9 +52,7 @@ export function AppSidebar() {
       {/* Agent avatars */}
       <div className="flex flex-1 w-full flex-col items-center gap-1.5 overflow-y-auto py-1 scrollbar-none">
         {loading ? (
-          <div className="flex items-center justify-center size-10">
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
-          </div>
+          <Skeleton className="size-10 rounded-xl" />
         ) : (
           sorted.map((agent) => {
             const isActive = activeAgentId === agent.id;

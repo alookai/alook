@@ -108,7 +108,7 @@ export async function startTask(db: Database, id: string) {
 export async function completeTask(
   db: Database,
   id: string,
-  data: { result: unknown; sessionId: string | null; workDir: string | null }
+  data: { result: unknown; sessionId: string | null }
 ) {
   const rows = await db
     .update(agentTaskQueue)
@@ -117,7 +117,6 @@ export async function completeTask(
       completedAt: new Date().toISOString(),
       result: data.result,
       sessionId: data.sessionId,
-      workDir: data.workDir,
     })
     .where(
       and(eq(agentTaskQueue.id, id), eq(agentTaskQueue.status, "running"))
@@ -152,7 +151,6 @@ export async function getLastTaskSession(
   const rows = await db
     .select({
       sessionId: agentTaskQueue.sessionId,
-      workDir: agentTaskQueue.workDir,
     })
     .from(agentTaskQueue)
     .where(

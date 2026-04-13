@@ -79,7 +79,6 @@ export class DaemonClient {
     body: {
       output: string;
       session_id?: string;
-      work_dir?: string;
       branch_name?: string;
     },
   ) {
@@ -102,6 +101,7 @@ export class DaemonClient {
       seq: number;
       type: string;
       tool?: string;
+      call_id?: string;
       content?: string;
       input?: Record<string, unknown>;
       output?: string;
