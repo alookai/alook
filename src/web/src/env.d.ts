@@ -3,6 +3,7 @@ declare namespace Cloudflare {
     DB: D1Database
     EMAIL_BUCKET: R2Bucket
     WS_DO_WORKER: Fetcher
+    SEND_EMAIL: SendEmail
     NEXT_INC_CACHE_R2_BUCKET: R2Bucket
     NEXT_TAG_CACHE_D1: D1Database
     NEXT_CACHE_DO_QUEUE: DurableObjectNamespace
