@@ -19,10 +19,17 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const agent = await queries.agent.getAgentInWorkspace(db, agentId, ws.workspaceId);
   if (!agent) return writeError("agent not found in workspace", 404);
 
-  const direction = req.nextUrl.searchParams.get("direction");
-  const emailList = direction
-    ? await queries.email.getEmailsByDirection(db, agentId, direction)
-    : await queries.email.getEmailsByAgent(db, agentId);
+  const folder = req.nextUrl.searchParams.get("folder");
+  const agentEmail = agent.emailHandle ? `${agent.emailHandle}@alook.ai` : "";
+
+  let emailList;
+  if (folder === "inbox" && agentEmail) {
+    emailList = await queries.email.getInboxEmails(db, agentId, agentEmail);
+  } else if (folder === "sent" && agentEmail) {
+    emailList = await queries.email.getSentEmails(db, agentId, agentEmail);
+  } else {
+    emailList = await queries.email.getEmailsByAgent(db, agentId);
+  }
 
   return writeJSON(emailList.map(emailToResponse));
 });

@@ -4,7 +4,7 @@ import type { Database } from "../index";
 
 export async function createEmail(
   db: Database,
-  data: { agentId: string; fromEmail: string; toEmail: string; subject: string; r2Key: string; isWhitelisted: boolean; forwarded: boolean; direction?: string; htmlBody?: string; attachments?: string }
+  data: { agentId: string; fromEmail: string; toEmail: string; subject: string; r2Key: string; isWhitelisted: boolean; forwarded: boolean; htmlBody?: string; attachments?: string }
 ) {
   const rows = await db.insert(emails).values(data).returning();
   return rows[0]!;
@@ -19,9 +19,15 @@ export async function getEmailsByAgent(db: Database, agentId: string) {
   return db.select().from(emails).where(eq(emails.agentId, agentId)).orderBy(desc(emails.createdAt));
 }
 
-export async function getEmailsByDirection(db: Database, agentId: string, direction: string) {
+export async function getInboxEmails(db: Database, agentId: string, agentEmail: string) {
   return db.select().from(emails)
-    .where(and(eq(emails.agentId, agentId), eq(emails.direction, direction)))
+    .where(and(eq(emails.agentId, agentId), eq(emails.toEmail, agentEmail)))
+    .orderBy(desc(emails.createdAt));
+}
+
+export async function getSentEmails(db: Database, agentId: string, agentEmail: string) {
+  return db.select().from(emails)
+    .where(and(eq(emails.agentId, agentId), eq(emails.fromEmail, agentEmail)))
     .orderBy(desc(emails.createdAt));
 }
 

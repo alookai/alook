@@ -64,7 +64,7 @@ describe("POST /api/email/send", () => {
     mockGetAgentInWorkspace.mockResolvedValue({ id: "a1", emailHandle: "test-agent" });
     mockCreateEmail.mockResolvedValue({
       id: "e1", agentId: "a1", fromEmail: "test-agent@alook.ai",
-      toEmail: "user@example.com", subject: "Hello", direction: "outbound",
+      toEmail: "user@example.com", subject: "Hello",
     });
     mockR2Put.mockResolvedValue(undefined);
     mockSendEmailSend.mockResolvedValue({ messageId: "msg1" });

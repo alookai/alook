@@ -2,8 +2,12 @@ import { describe, it, expect } from "vitest";
 import * as emailQueries from "../../src/db/queries/email";
 
 describe("email query module exports", () => {
-  it("exports getEmailsByDirection", () => {
-    expect(typeof emailQueries.getEmailsByDirection).toBe("function");
+  it("exports getInboxEmails", () => {
+    expect(typeof emailQueries.getInboxEmails).toBe("function");
+  });
+
+  it("exports getSentEmails", () => {
+    expect(typeof emailQueries.getSentEmails).toBe("function");
   });
 
   it("exports deleteEmail", () => {

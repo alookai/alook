@@ -131,7 +131,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     r2Key,
     isWhitelisted: false,
     forwarded: false,
-    direction: "outbound",
     htmlBody: body.htmlBody || "",
     attachments: JSON.stringify(attachments),
   });

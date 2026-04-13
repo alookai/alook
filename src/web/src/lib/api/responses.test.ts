@@ -385,7 +385,7 @@ describe("emailToResponse", () => {
       r2Key: "emails/abc/raw",
       isWhitelisted: 1,
       forwarded: 0,
-      direction: "inbound",
+
       htmlBody: "<p>Hi</p>",
       attachments: "[]",
       createdAt: ts,
@@ -395,7 +395,7 @@ describe("emailToResponse", () => {
     expect(res.from_email).toBe("alice@example.com");
     expect(res.is_whitelisted).toBe(true);
     expect(res.forwarded).toBe(false);
-    expect(res.direction).toBe("inbound");
+
     expect(res.attachments).toEqual([]);
     expect(res.created_at).toBe(tsFormatted);
   });
@@ -411,7 +411,7 @@ describe("emailToResponse", () => {
       r2Key: "r",
       isWhitelisted: 0,
       forwarded: 0,
-      direction: "outbound",
+
       htmlBody: "",
       attachments: JSON.stringify(attachments),
       createdAt: ts,
@@ -424,7 +424,7 @@ describe("emailToResponse", () => {
     const res = emailToResponse({
       id: "e3", agentId: "a1", fromEmail: "a@b.com", toEmail: "c@d.com",
       subject: "S", r2Key: "r", isWhitelisted: 0, forwarded: 0,
-      direction: "inbound", htmlBody: "", attachments: "",
+      htmlBody: "", attachments: "",
       createdAt: ts,
     });
     expect(res.attachments).toEqual([]);

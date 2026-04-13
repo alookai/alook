@@ -187,7 +187,6 @@ CREATE TABLE IF NOT EXISTS emails (
   r2_key TEXT NOT NULL,
   is_whitelisted INTEGER NOT NULL DEFAULT 0,
   forwarded INTEGER NOT NULL DEFAULT 0,
-  direction TEXT NOT NULL DEFAULT 'inbound',
   html_body TEXT NOT NULL DEFAULT '',
   attachments TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

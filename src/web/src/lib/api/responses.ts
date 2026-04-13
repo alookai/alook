@@ -57,7 +57,6 @@ export function emailToResponse(e: any) {
     r2_key: e.r2Key,
     is_whitelisted: !!e.isWhitelisted,
     forwarded: !!e.forwarded,
-    direction: e.direction ?? "inbound",
     html_body: e.htmlBody ?? "",
     attachments: JSON.parse(e.attachments || "[]"),
     created_at: formatTimestamp(e.createdAt),

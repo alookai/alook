@@ -177,8 +177,8 @@ export const getTaskMessages = (id: string, workspaceId: string, since?: number)
   );
 
 // Emails
-export const listEmails = (agentId: string, workspaceId: string, direction?: string) =>
-  apiFetch<Email[]>(`/api/email${wsQuery(workspaceId, { agentId, ...(direction ? { direction } : {}) })}`);
+export const listEmails = (agentId: string, workspaceId: string, folder?: string) =>
+  apiFetch<Email[]>(`/api/email${wsQuery(workspaceId, { agentId, ...(folder ? { folder } : {}) })}`);
 
 export const getEmail = (id: string, workspaceId: string) =>
   apiFetch<Email>(`/api/email/${id}${wsQuery(workspaceId)}`);

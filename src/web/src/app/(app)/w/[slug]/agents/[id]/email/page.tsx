@@ -69,18 +69,16 @@ export default function AgentEmailPage() {
   }, [agentId, workspaceId]);
 
   useEffect(() => {
-    const direction = folder === "inbox" ? "inbound" : "outbound";
     setSelectedId(null);
     setBody(null);
     setComposing(false);
-    loadEmails(direction);
+    loadEmails(folder);
   }, [folder, loadEmails]);
 
   useEffect(() => {
     return subscribeWs((msg) => {
       if (msg.type === "email.received" && msg.agentId === agentId) {
-        const direction = folder === "inbox" ? "inbound" : "outbound";
-        loadEmails(direction);
+        loadEmails(folder);
       }
     });
   }, [subscribeWs, agentId, folder, loadEmails]);
@@ -347,7 +345,7 @@ export default function AgentEmailPage() {
                   <div className="flex items-center justify-center py-8">
                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
                   </div>
-                ) : selected.direction === "outbound" && selected.html_body ? (
+                ) : selected.from_email === fromAddress && selected.html_body ? (
                   <div
                     className="prose prose-sm max-w-none"
                     dangerouslySetInnerHTML={{ __html: selected.html_body }}
