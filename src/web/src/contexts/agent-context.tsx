@@ -90,6 +90,8 @@ export function AgentProvider({
         case "runtime.registered":
         case "runtime.status":
         case "runtime.deleted":
+        case "task.updated":
+        case "email.received":
           reload();
           break;
       }
