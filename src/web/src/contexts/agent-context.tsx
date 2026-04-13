@@ -29,11 +29,14 @@ import type {
 } from "@alook/shared";
 import { useUserWs } from "@/lib/use-user-ws";
 
+type WsSubscriber = (msg: WsMessage) => void;
+
 interface AgentContextValue {
   agents: Agent[];
   runtimes: Runtime[];
   loading: boolean;
   reload: () => Promise<void>;
+  subscribeWs: (fn: WsSubscriber) => () => void;
   handleCreateAgent: (req: CreateAgentRequest) => Promise<Agent | null>;
   handleUpdateAgent: (id: string, req: UpdateAgentRequest) => Promise<boolean>;
   handleDeleteAgent: (id: string) => Promise<boolean>;
@@ -62,6 +65,12 @@ export function AgentProvider({
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
   const [loading, setLoading] = useState(true);
   const loadedRef = useRef(false);
+  const subscribersRef = useRef(new Set<WsSubscriber>());
+
+  const subscribeWs = useCallback((fn: WsSubscriber) => {
+    subscribersRef.current.add(fn);
+    return () => { subscribersRef.current.delete(fn); };
+  }, []);
 
   const reload = useCallback(async () => {
     try {
@@ -86,12 +95,14 @@ export function AgentProvider({
   // Listen for real-time WS events
   const handleWsMessage = useCallback(
     (msg: WsMessage) => {
+      // Dispatch to all subscribers so child components can react
+      for (const fn of subscribersRef.current) fn(msg);
+
+      // AgentProvider only reloads agents/runtimes for runtime events
       switch (msg.type) {
         case "runtime.registered":
         case "runtime.status":
         case "runtime.deleted":
-        case "task.updated":
-        case "email.received":
           reload();
           break;
       }
@@ -203,6 +214,7 @@ export function AgentProvider({
         runtimes,
         loading,
         reload,
+        subscribeWs,
         handleCreateAgent,
         handleUpdateAgent,
         handleDeleteAgent,

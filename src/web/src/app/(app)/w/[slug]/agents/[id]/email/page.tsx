@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
+import { useAgentContext } from "@/contexts/agent-context";
 import { listEmails, getEmailBody } from "@/lib/api";
 import type { Email } from "@alook/shared";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,7 @@ export default function AgentEmailPage() {
   const params = useParams();
   const agentId = params.id as string;
   const { workspaceId } = useWorkspace();
+  const { subscribeWs } = useAgentContext();
 
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +53,15 @@ export default function AgentEmailPage() {
   useEffect(() => {
     loadEmails();
   }, [loadEmails]);
+
+  // Re-fetch when a new email arrives for this agent
+  useEffect(() => {
+    return subscribeWs((msg) => {
+      if (msg.type === "email.received" && msg.agentId === agentId) {
+        loadEmails();
+      }
+    });
+  }, [subscribeWs, agentId, loadEmails]);
 
   const handleSelect = async (emailId: string) => {
     setSelectedId(emailId);
