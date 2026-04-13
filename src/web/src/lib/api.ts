@@ -190,6 +190,21 @@ export const getEmailBody = async (id: string, workspaceId: string): Promise<str
   return res.text();
 };
 
+export const deleteEmail = (id: string, workspaceId: string) =>
+  apiFetch<void>(`/api/email/${id}${wsQuery(workspaceId)}`, { method: "DELETE" });
+
+export const sendEmail = (
+  agentId: string,
+  to: string,
+  subject: string,
+  htmlBody: string,
+  workspaceId: string,
+) =>
+  apiFetch<Email>(`/api/email/send${wsQuery(workspaceId)}`, {
+    method: "POST",
+    body: JSON.stringify({ agentId, to, subject, htmlBody }),
+  });
+
 // Auth (Better Auth — redirect helpers only, actual auth via Better Auth client)
 export const signOut = async () => {
   if (typeof window !== "undefined") {
