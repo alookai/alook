@@ -135,8 +135,11 @@ export interface CreateAgentRequest {
   email_handle?: string;
 }
 
-/** Generic WebSocket message envelope used by broadcast and WS hooks. */
-export interface WsMessage {
-  type: string;
-  [key: string]: unknown;
-}
+/** WebSocket event types — single source of truth for the WS protocol. */
+export type WsMessage =
+  | { type: "runtime.registered"; daemonId: string; hostname: string }
+  | { type: "runtime.status"; runtimeId: string; status: string }
+  | { type: "runtime.status"; runtimeIds: string[]; status: string }
+  | { type: "runtime.deleted"; daemonId: string }
+  | { type: "task.updated"; taskId: string; status: string }
+  | { type: "email.received"; agentId: string }
