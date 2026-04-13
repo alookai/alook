@@ -245,18 +245,18 @@ export default function AgentEmailPage() {
         ) : (
           <div className="flex flex-col h-full">
             {/* Detail toolbar */}
-            <div className="flex items-center justify-end border-b border-border/40 px-4 py-1.5">
+            <div className="flex items-center justify-start border-b border-border/40 px-4 py-1.5">
               <Button
                 variant="ghost"
-                size="sm"
-                className="text-xs text-muted-foreground h-7 px-2 hover:text-destructive"
+                size="icon"
+                className="size-7 text-muted-foreground/60 hover:text-destructive"
+                title="Delete"
                 onClick={() => {
                   setDeleteTarget(selected.id);
                   setDeleteConfirmOpen(true);
                 }}
               >
-                <Trash2 className="size-3 mr-1" />
-                Delete
+                <Trash2 className="size-3.5" />
               </Button>
             </div>
 
