@@ -2,7 +2,17 @@
   "name": "@alook/ws-do",
   "version": "0.0.1",
   "private": true,
-  "scripts": { "dev": "wrangler dev --persist-to ../web/.wrangler/state", "deploy": "wrangler deploy" },
+  "scripts": {
+    "dev": "wrangler dev --persist-to ../web/.wrangler/state",
+    "deploy": "wrangler deploy",
+    "test": "vitest run --passWithNoTests"
+  },
   "dependencies": { "@alook/shared": "workspace:*" },
-  "devDependencies": { "wrangler": "latest", "typescript": "latest", "@cloudflare/workers-types": "latest", "@types/node": "latest" }
+  "devDependencies": {
+    "wrangler": "latest",
+    "typescript": "latest",
+    "@cloudflare/workers-types": "latest",
+    "@types/node": "latest",
+    "vitest": "^4.1.3"
+  }
 }

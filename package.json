@@ -14,6 +14,7 @@
     "dev:web": "pnpm --filter @alook/web dev",
     "dev:cli": "ALOOK_SERVER_URL=http://localhost:3000 ALOOK_PROJECT_ROOT=$PWD pnpm --filter @alook/cli dev",
     "dev:email": "pnpm --filter @alook/email-worker dev",
+    "dev:ws": "pnpm --filter @alook/ws-do dev",
     "dev:send": "node -e \"const a=process.argv.slice(1);const[f,t,s='Test',b='Hello from dev']=a;if(!f||!t){console.error('Usage: pnpm dev:send <from> <to> [subject] [body]');process.exit(1)}fetch('http://localhost:8787/simulate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:f,to:t,subject:s,body:b})}).then(r=>r.json()).then(console.log).catch(e=>console.error('Email worker not running?',e.message))\"",
     "test:shared": "pnpm --filter @alook/shared test",
     "test:cli": "pnpm --filter @alook/cli test",
