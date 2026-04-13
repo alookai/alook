@@ -6,6 +6,7 @@ import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { taskToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { FailTaskRequestSchema } from "@alook/shared";
+import { broadcastToUser } from "@/lib/broadcast";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
@@ -22,6 +23,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const taskService = new TaskService(db);
   try {
     const task = await taskService.failTask(taskId, body.error);
+    broadcastToUser(ctx.userId, { type: "task.updated", taskId, status: "failed" }).catch(() => {});
     return writeJSON(taskToResponse(task));
   } catch (e: unknown) {
     return writeError(e instanceof Error ? e.message : "Unknown error", 400);

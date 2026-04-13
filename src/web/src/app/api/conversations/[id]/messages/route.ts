@@ -7,6 +7,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import { messageToResponse, taskToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { log } from "@/lib/logger";
+import { broadcastToUser } from "@/lib/broadcast";
 
 function truncateTitle(text: string, maxLen = 50): string {
   const trimmed = text.replace(/\s+/g, " ").trim();
@@ -84,6 +85,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       ws.workspaceId,
       content
     );
+    broadcastToUser(ctx.userId, { type: "task.updated", taskId: task.id, status: "queued" }).catch(() => {});
     return writeJSON(
       { message: messageToResponse(message), task: taskToResponse(task) },
       201
