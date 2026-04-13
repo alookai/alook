@@ -117,6 +117,8 @@ export interface Email {
   r2_key: string;
   is_whitelisted: boolean;
   forwarded: boolean;
+  direction: "inbound" | "outbound";
+  html_body: string;
   created_at: string;
 }
 

@@ -249,6 +249,8 @@ export const emails = sqliteTable("emails", {
   r2Key: text("r2_key").notNull(),
   isWhitelisted: integer("is_whitelisted", { mode: "boolean" }).notNull().default(false),
   forwarded: integer("forwarded", { mode: "boolean" }).notNull().default(false),
+  direction: text("direction").notNull().default("inbound"),
+  htmlBody: text("html_body").notNull().default(""),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
