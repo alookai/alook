@@ -8,9 +8,8 @@ import { useWorkspace } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AgentEditForm } from "@/components/agent-edit-form";
-import { AgentDetailSidebar } from "@/components/agent-detail-sidebar";
 import { cn } from "@/lib/utils";
-import { Pencil, Trash2, X } from "lucide-react";
+import { MessageSquare, Pencil, Trash2, X } from "lucide-react";
 
 export default function AgentDetailLayout({ children }: { children: ReactNode }) {
   const params = useParams();
@@ -47,7 +46,7 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
             </Link>
           )}
           <Link
-            href={`/w/${slug}/agents/${agentId}/chat`}
+            href={`/w/${slug}/agents/${agentId}/email`}
             onClick={() => setEditing(false)}
             className="text-sm font-medium truncate hover:text-foreground/80 transition-colors"
           >
@@ -73,6 +72,17 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
                   variant="ghost"
                   size="sm"
                   className="text-xs text-muted-foreground h-7 gap-1 px-2"
+                  asChild
+                >
+                  <Link href={`/w/${slug}/agents/${agentId}/chat`}>
+                    <MessageSquare className="size-3" />
+                    Chat
+                  </Link>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-muted-foreground h-7 gap-1 px-2"
                   onClick={() => setEditing(true)}
                 >
                   <Pencil className="size-3" />
@@ -93,7 +103,7 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
         )}
       </div>
 
-      {/* Content: edit form OR sidebar + children */}
+      {/* Content: edit form OR full-width children */}
       {editing && agent ? (
         <AgentEditForm
           agent={agent}
@@ -112,10 +122,7 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
           }}
         />
       ) : (
-        <div className="flex flex-1 min-h-0">
-          <AgentDetailSidebar agentId={agentId} />
-          <div className="flex-1 min-w-0 overflow-hidden flex flex-col">{children}</div>
-        </div>
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">{children}</div>
       )}
 
       {/* Delete agent confirmation */}
