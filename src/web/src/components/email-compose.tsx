@@ -73,7 +73,7 @@ export function EmailCompose({
     ],
     editorProps: {
       attributes: {
-        class: "prose prose-sm max-w-none focus:outline-none min-h-[200px] px-4 py-3",
+        class: "text-sm max-w-none focus:outline-none min-h-[200px] px-4 py-3",
       },
     },
   });
