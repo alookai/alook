@@ -4,12 +4,17 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
-import { listEmails, getEmailBody } from "@/lib/api";
+import { listEmails, getEmailBody, deleteEmail, sendEmail } from "@/lib/api";
 import type { Email } from "@alook/shared";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EmailCompose } from "@/components/email-compose";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Loader2, Mail } from "lucide-react";
+import { Loader2, Mail, Inbox, Send, Plus, Trash2 } from "lucide-react";
+
+type Folder = "inbox" | "sent";
 
 function relativeTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -29,19 +34,28 @@ export default function AgentEmailPage() {
   const params = useParams();
   const agentId = params.id as string;
   const { workspaceId } = useWorkspace();
-  const { subscribeWs } = useAgentContext();
+  const { agents, subscribeWs } = useAgentContext();
 
+  const agent = agents.find((a) => a.id === agentId);
+
+  const [folder, setFolder] = useState<Folder>("inbox");
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [body, setBody] = useState<string | null>(null);
   const [bodyLoading, setBodyLoading] = useState(false);
+  const [composing, setComposing] = useState(false);
+
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const selected = emails.find((e) => e.id === selectedId) ?? null;
 
-  const loadEmails = useCallback(async () => {
+  const loadEmails = useCallback(async (dir: string) => {
+    setLoading(true);
     try {
-      const data = await listEmails(agentId, workspaceId);
+      const data = await listEmails(agentId, workspaceId, dir);
       setEmails(data);
     } catch {
       toast.error("Failed to load emails");
@@ -51,19 +65,25 @@ export default function AgentEmailPage() {
   }, [agentId, workspaceId]);
 
   useEffect(() => {
-    loadEmails();
-  }, [loadEmails]);
+    const direction = folder === "inbox" ? "inbound" : "outbound";
+    setSelectedId(null);
+    setBody(null);
+    setComposing(false);
+    loadEmails(direction);
+  }, [folder, loadEmails]);
 
   // Re-fetch when a new email arrives for this agent
   useEffect(() => {
     return subscribeWs((msg) => {
       if (msg.type === "email.received" && msg.agentId === agentId) {
-        loadEmails();
+        const direction = folder === "inbox" ? "inbound" : "outbound";
+        loadEmails(direction);
       }
     });
-  }, [subscribeWs, agentId, loadEmails]);
+  }, [subscribeWs, agentId, folder, loadEmails]);
 
   const handleSelect = async (emailId: string) => {
+    setComposing(false);
     setSelectedId(emailId);
     setBody(null);
     setBodyLoading(true);
@@ -77,6 +97,41 @@ export default function AgentEmailPage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteEmail(deleteTarget, workspaceId);
+      setEmails((prev) => prev.filter((e) => e.id !== deleteTarget));
+      if (selectedId === deleteTarget) {
+        setSelectedId(null);
+        setBody(null);
+      }
+      toast.success("Email deleted");
+    } catch {
+      toast.error("Failed to delete email");
+    } finally {
+      setDeleting(false);
+      setDeleteConfirmOpen(false);
+      setDeleteTarget(null);
+    }
+  };
+
+  const handleSend = async (to: string, subject: string, htmlBody: string): Promise<boolean> => {
+    try {
+      await sendEmail(agentId, to, subject, htmlBody, workspaceId);
+      toast.success("Email sent");
+      setComposing(false);
+      setFolder("sent");
+      return true;
+    } catch {
+      toast.error("Failed to send email");
+      return false;
+    }
+  };
+
+  const fromAddress = agent?.email_handle ? `${agent.email_handle}@alook.ai` : "";
+
   if (loading) {
     return (
       <div className="flex items-center justify-center flex-1">
@@ -85,107 +140,187 @@ export default function AgentEmailPage() {
     );
   }
 
-  if (emails.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center flex-1 animate-[fade-up_400ms_ease-out_both]">
-        <Mail className="size-8 text-muted-foreground/40 mb-3" />
-        <p className="text-sm text-muted-foreground">No emails yet.</p>
-        <p className="text-xs text-muted-foreground/60 mt-1">
-          Emails sent to this agent will appear here.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-1 min-h-0">
-      {/* Email list panel */}
-      <div className="w-2/5 min-w-[240px] max-w-[400px] border-r border-border/40 overflow-y-auto">
-        {emails.map((email) => (
-          <button
-            key={email.id}
-            type="button"
-            onClick={() => handleSelect(email.id)}
-            className={cn(
-              "w-full text-left px-4 py-3 border-b border-border/30 transition-colors duration-150 cursor-pointer",
-              selectedId === email.id
-                ? "bg-accent/60"
-                : "hover:bg-accent/30"
-            )}
+    <div className="flex flex-col flex-1 min-h-0">
+      {/* Toolbar: folder tabs + compose button */}
+      <div className="flex items-center justify-between border-b border-border/40 px-4 py-1.5">
+        <div className="flex items-center gap-0.5">
+          <Button
+            variant={folder === "inbox" ? "secondary" : "ghost"}
+            size="sm"
+            className="text-xs h-7 gap-1 px-2"
+            onClick={() => setFolder("inbox")}
           >
-            <div className="flex items-center justify-between gap-2 mb-0.5">
-              <p className="text-sm font-medium truncate">
-                {email.from_email}
-              </p>
-              <span className="text-[10px] text-muted-foreground shrink-0">
-                {relativeTime(email.created_at)}
-              </span>
-            </div>
-            <p className="text-sm truncate">
-              {email.subject || "(no subject)"}
-            </p>
-            <div className="mt-1">
-              {email.is_whitelisted ? (
-                <Badge className="text-[10px] h-4 px-1">triggered</Badge>
-              ) : (
-                <Badge variant="secondary" className="text-[10px] h-4 px-1">
-                  forwarded
-                </Badge>
-              )}
-            </div>
-          </button>
-        ))}
+            <Inbox className="size-3" />
+            Inbox
+          </Button>
+          <Button
+            variant={folder === "sent" ? "secondary" : "ghost"}
+            size="sm"
+            className="text-xs h-7 gap-1 px-2"
+            onClick={() => setFolder("sent")}
+          >
+            <Send className="size-3" />
+            Sent
+          </Button>
+        </div>
+        <Button
+          size="sm"
+          className="text-xs h-7 gap-1 px-2"
+          onClick={() => { setComposing(true); setSelectedId(null); }}
+          disabled={!agent?.email_handle}
+          title={!agent?.email_handle ? "Configure an email handle in agent settings to send emails" : "Compose new email"}
+        >
+          <Plus className="size-3" />
+          Compose
+        </Button>
       </div>
 
-      {/* Email detail panel */}
-      <div className="flex-1 overflow-y-auto">
-        {!selected ? (
-          <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            Select an email to view
-          </div>
-        ) : (
-          <div className="p-5 max-w-2xl">
-            <h2 className="text-lg font-medium mb-1">
-              {selected.subject || "(no subject)"}
-            </h2>
-            <div className="flex items-center gap-2 mb-4">
-              {selected.is_whitelisted ? (
-                <Badge className="text-[10px] h-4 px-1">triggered</Badge>
-              ) : (
-                <Badge variant="secondary" className="text-[10px] h-4 px-1">
-                  forwarded
-                </Badge>
-              )}
-            </div>
-            <div className="text-sm text-muted-foreground space-y-0.5 mb-5">
-              <p>
-                <span className="font-medium text-foreground">From:</span>{" "}
-                {selected.from_email}
-              </p>
-              <p>
-                <span className="font-medium text-foreground">To:</span>{" "}
-                {selected.to_email}
-              </p>
-              <p>
-                <span className="font-medium text-foreground">Received:</span>{" "}
-                {new Date(selected.created_at).toLocaleString()}
+      {/* Main area: list + detail/compose */}
+      <div className="flex flex-1 min-h-0">
+        {/* Email list panel */}
+        <div className="w-2/5 min-w-[240px] max-w-[400px] border-r border-border/40 overflow-y-auto">
+          {emails.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full animate-[fade-up_400ms_ease-out_both]">
+              <Mail className="size-8 text-muted-foreground/40 mb-3" />
+              <p className="text-sm text-muted-foreground">
+                {folder === "inbox" ? "No emails received yet." : "No emails sent yet."}
               </p>
             </div>
-
-            <div className="rounded-lg border border-border/50 bg-background/50 p-4">
-              {bodyLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          ) : (
+            emails.map((email) => (
+              <button
+                key={email.id}
+                type="button"
+                onClick={() => handleSelect(email.id)}
+                className={cn(
+                  "w-full text-left px-4 py-3 border-b border-border/30 transition-colors duration-150 cursor-pointer",
+                  selectedId === email.id
+                    ? "bg-accent/60"
+                    : "hover:bg-accent/30"
+                )}
+              >
+                <div className="flex items-center justify-between gap-2 mb-0.5">
+                  <p className="text-sm font-medium truncate">
+                    {folder === "inbox" ? email.from_email : email.to_email}
+                  </p>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {relativeTime(email.created_at)}
+                  </span>
                 </div>
-              ) : (
-                <pre className="text-sm whitespace-pre-wrap font-mono leading-relaxed">
-                  {body}
-                </pre>
-              )}
+                <p className="text-sm truncate text-muted-foreground">
+                  {email.subject || "(no subject)"}
+                </p>
+                {folder === "inbox" && (
+                  <div className="mt-1">
+                    {email.is_whitelisted ? (
+                      <Badge className="text-[10px] h-4 px-1">triggered</Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-[10px] h-4 px-1">
+                        forwarded
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+
+        {/* Right panel: detail or compose */}
+        <div className="flex-1 overflow-y-auto flex flex-col">
+          {composing ? (
+            <EmailCompose
+              fromAddress={fromAddress}
+              onSend={handleSend}
+              onDiscard={() => setComposing(false)}
+            />
+          ) : !selected ? (
+            <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+              Select an email to view
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="flex flex-col h-full">
+              {/* Detail toolbar */}
+              <div className="flex items-center justify-end border-b border-border/40 px-4 py-1.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-muted-foreground h-7 px-2 hover:text-destructive"
+                  onClick={() => {
+                    setDeleteTarget(selected.id);
+                    setDeleteConfirmOpen(true);
+                  }}
+                >
+                  <Trash2 className="size-3 mr-1" />
+                  Delete
+                </Button>
+              </div>
+
+              {/* Email detail */}
+              <div className="p-5 max-w-2xl">
+                <h2 className="text-lg font-medium mb-1">
+                  {selected.subject || "(no subject)"}
+                </h2>
+                {folder === "inbox" && (
+                  <div className="flex items-center gap-2 mb-4">
+                    {selected.is_whitelisted ? (
+                      <Badge className="text-[10px] h-4 px-1">triggered</Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-[10px] h-4 px-1">
+                        forwarded
+                      </Badge>
+                    )}
+                  </div>
+                )}
+                <div className="text-sm text-muted-foreground space-y-0.5 mb-5">
+                  <p>
+                    <span className="font-medium text-foreground">From:</span>{" "}
+                    {selected.from_email}
+                  </p>
+                  <p>
+                    <span className="font-medium text-foreground">To:</span>{" "}
+                    {selected.to_email}
+                  </p>
+                  <p>
+                    <span className="font-medium text-foreground">
+                      {folder === "inbox" ? "Received:" : "Sent:"}
+                    </span>{" "}
+                    {new Date(selected.created_at).toLocaleString()}
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-border/50 bg-background/50 p-4">
+                  {bodyLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : selected.direction === "outbound" && selected.html_body ? (
+                    <div
+                      className="prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{ __html: selected.html_body }}
+                    />
+                  ) : (
+                    <pre className="text-sm whitespace-pre-wrap font-mono leading-relaxed">
+                      {body}
+                    </pre>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="Delete email"
+        description="This will permanently delete this email."
+        loading={deleting}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }
