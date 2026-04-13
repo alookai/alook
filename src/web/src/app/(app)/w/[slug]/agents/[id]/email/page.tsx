@@ -13,7 +13,7 @@ import { EmailCompose } from "@/components/email-compose";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2, Mail, Inbox, Send, Plus, Trash2, Paperclip, File as FileIcon } from "lucide-react";
+import { Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Paperclip, File as FileIcon } from "lucide-react";
 
 type Folder = "inbox" | "sent";
 
@@ -46,6 +46,9 @@ export default function AgentEmailPage() {
   const [body, setBody] = useState<string | null>(null);
   const [bodyLoading, setBodyLoading] = useState(false);
   const [composing, setComposing] = useState(false);
+  const [composeInitial, setComposeInitial] = useState<{
+    to?: string; subject?: string; body?: string; attachments?: EmailAttachment[];
+  }>({});
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -130,6 +133,28 @@ export default function AgentEmailPage() {
     }
   };
 
+  const handleForward = (email: Email) => {
+    const fwdSubject = email.subject.startsWith("Fwd:") ? email.subject : `Fwd: ${email.subject}`;
+    const quotedBody = [
+      `<br/><br/>`,
+      `<div style="border-left: 2px solid #ccc; padding-left: 12px; margin-left: 0; color: #666;">`,
+      `<p><strong>From:</strong> ${email.from_email}<br/>`,
+      `<strong>To:</strong> ${email.to_email}<br/>`,
+      `<strong>Date:</strong> ${new Date(email.created_at).toLocaleString()}<br/>`,
+      `<strong>Subject:</strong> ${email.subject}</p>`,
+      email.html_body ? email.html_body : `<pre>${body ?? ""}</pre>`,
+      `</div>`,
+    ].join("");
+
+    setSelectedId(null);
+    setComposeInitial({
+      subject: fwdSubject,
+      body: quotedBody,
+      attachments: email.attachments ?? [],
+    });
+    setComposing(true);
+  };
+
   const fromAddress = agent?.email_handle ? `${agent.email_handle}@alook.ai` : "";
 
   return (
@@ -140,7 +165,7 @@ export default function AgentEmailPage() {
           <Button
             size="sm"
             className="w-full text-xs h-8 gap-1.5"
-            onClick={() => { setComposing(true); setSelectedId(null); }}
+            onClick={() => { setComposeInitial({}); setComposing(true); setSelectedId(null); }}
             disabled={!agent?.email_handle}
             title={!agent?.email_handle ? "Configure an email handle in agent settings to send emails" : "Compose new email"}
           >
@@ -244,9 +269,14 @@ export default function AgentEmailPage() {
       <div className="flex-1 overflow-y-auto flex flex-col min-w-0">
         {composing ? (
           <EmailCompose
+            key={JSON.stringify(composeInitial)}
             fromAddress={fromAddress}
             onSend={handleSend}
-            onDiscard={() => setComposing(false)}
+            onDiscard={() => { setComposing(false); setComposeInitial({}); }}
+            initialTo={composeInitial.to}
+            initialSubject={composeInitial.subject}
+            initialBody={composeInitial.body}
+            initialAttachments={composeInitial.attachments}
           />
         ) : !selected ? (
           <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
@@ -255,7 +285,16 @@ export default function AgentEmailPage() {
         ) : (
           <div className="flex flex-col h-full">
             {/* Detail toolbar */}
-            <div className="flex items-center justify-start border-b border-border/40 px-4 py-1.5">
+            <div className="flex items-center gap-0.5 border-b border-border/40 px-4 py-1.5">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground/60 hover:text-foreground"
+                title="Forward"
+                onClick={() => handleForward(selected)}
+              >
+                <Forward className="size-3.5" />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
