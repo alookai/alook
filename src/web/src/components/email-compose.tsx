@@ -4,6 +4,13 @@ import { useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
+import Underline from "@tiptap/extension-underline";
+import Link from "@tiptap/extension-link";
+import TextAlign from "@tiptap/extension-text-align";
+import { TextStyle } from "@tiptap/extension-text-style";
+import { Color } from "@tiptap/extension-color";
+import Image from "@tiptap/extension-image";
+import { EmailToolbar } from "@/components/email-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, X, Loader2 } from "lucide-react";
@@ -24,6 +31,21 @@ export function EmailCompose({ fromAddress, onSend, onDiscard }: EmailComposePro
     extensions: [
       StarterKit,
       Placeholder.configure({ placeholder: "Write your email..." }),
+      Underline,
+      Link.configure({
+        autolink: true,
+        openOnClick: false,
+        linkOnPaste: true,
+      }),
+      TextAlign.configure({
+        types: ["heading", "paragraph"],
+      }),
+      TextStyle,
+      Color,
+      Image.configure({
+        inline: true,
+        allowBase64: true,
+      }),
     ],
     editorProps: {
       attributes: {
@@ -106,6 +128,8 @@ export function EmailCompose({ fromAddress, onSend, onDiscard }: EmailComposePro
           />
         </div>
       </div>
+
+      <EmailToolbar editor={editor} />
 
       <div className="flex-1 overflow-y-auto">
         <EditorContent editor={editor} />
