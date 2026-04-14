@@ -7,8 +7,8 @@ export interface Task {
   prompt: string;
   status: string;
   priority: number;
+  type: string;
   agent?: TaskAgentData;
-  priorSessionId?: string;
   repos?: RepoData[];
   createdAt: string;
 }
@@ -85,10 +85,10 @@ export function fromApiTask(api: import("@alook/shared").TaskApi): Task {
     prompt: api.prompt,
     status: api.status,
     priority: api.priority,
+    type: api.type,
     agent: api.agent
       ? { name: api.agent.name, instructions: api.agent.instructions }
       : undefined,
-    priorSessionId: api.prior_session_id ?? undefined,
     repos: undefined,
     createdAt: api.created_at,
   };

@@ -12,6 +12,7 @@ import {
   initEntry,
   updateEntry,
   createTimelineEntry,
+  findResumableSessionId,
   _todayFilename,
   _localISOString,
   _filenameForDate,
@@ -242,5 +243,183 @@ describe("timeline", () => {
     // Verify nothing changed
     const todayEntries = JSON.parse(readFileSync(join(dir, _todayFilename()), "utf-8").trimEnd());
     expect(todayEntries.steps).toEqual([]);
+  });
+
+  describe("findResumableSessionId", () => {
+    function writeEntry(filename: string, entry: ContextTimelineEntry) {
+      const filePath = join(dir, filename);
+      let existing = "";
+      try { existing = readFileSync(filePath, "utf-8"); } catch { /* new file */ }
+      writeFileSync(filePath, existing + JSON.stringify(entry) + "\n");
+    }
+
+    function makeEntry(overrides: Partial<ContextTimelineEntry>): ContextTimelineEntry {
+      return {
+        task_id: "t_1",
+        session_id: null,
+        pid: null,
+        status: "running",
+        datetime: new Date().toISOString(),
+        type: "user_dm_message",
+        prompt: "test",
+        steps: [],
+        response: null,
+        errmsg: null,
+        ...overrides,
+      };
+    }
+
+    it("returns session_id from a completed entry of matching type within 3h", () => {
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_1",
+        status: "completed",
+        session_id: "sess_abc",
+        datetime: new Date().toISOString(),
+      }));
+
+      expect(findResumableSessionId(dir, "user_dm_message")).toBe("sess_abc");
+    });
+
+    it("returns null when no entries exist", () => {
+      expect(findResumableSessionId(dir, "user_dm_message")).toBeNull();
+    });
+
+    it("returns null when no timeline files exist", () => {
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+      expect(findResumableSessionId(dir, "user_dm_message")).toBeNull();
+    });
+
+    it("returns null when the latest completed entry is older than 3h", () => {
+      const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_old",
+        status: "completed",
+        session_id: "sess_old",
+        datetime: fourHoursAgo.toISOString(),
+      }));
+
+      expect(findResumableSessionId(dir, "user_dm_message")).toBeNull();
+    });
+
+    it("returns null when session_id is null on the entry", () => {
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_nosess",
+        status: "completed",
+        session_id: null,
+        datetime: new Date().toISOString(),
+      }));
+
+      expect(findResumableSessionId(dir, "user_dm_message")).toBeNull();
+    });
+
+    it("skips failed/running entries and finds the correct completed one", () => {
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_completed",
+        status: "completed",
+        session_id: "sess_good",
+        datetime: new Date().toISOString(),
+      }));
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_running",
+        status: "running",
+        session_id: null,
+        datetime: new Date().toISOString(),
+      }));
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_failed",
+        status: "failed",
+        session_id: "sess_bad",
+        datetime: new Date().toISOString(),
+      }));
+
+      expect(findResumableSessionId(dir, "user_dm_message")).toBe("sess_good");
+    });
+
+    it("searches across midnight boundary (yesterday's file)", () => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+
+      writeEntry(_filenameForDate(yesterday), makeEntry({
+        task_id: "t_yesterday",
+        status: "completed",
+        session_id: "sess_yesterday",
+        datetime: twoHoursAgo.toISOString(),
+      }));
+
+      expect(findResumableSessionId(dir, "user_dm_message")).toBe("sess_yesterday");
+    });
+
+    it("returns the latest match, not the first one in file order", () => {
+      const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000);
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_older",
+        status: "completed",
+        session_id: "sess_older",
+        datetime: twoHoursAgo.toISOString(),
+      }));
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_newer",
+        status: "completed",
+        session_id: "sess_newer",
+        datetime: oneHourAgo.toISOString(),
+      }));
+
+      expect(findResumableSessionId(dir, "user_dm_message")).toBe("sess_newer");
+    });
+
+    it("respects custom maxAgeMs parameter", () => {
+      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_recent",
+        status: "completed",
+        session_id: "sess_recent",
+        datetime: thirtyMinAgo.toISOString(),
+      }));
+
+      // 10 minute window — entry is 30 min old, should not match
+      expect(findResumableSessionId(dir, "user_dm_message", 10 * 60 * 1000)).toBeNull();
+      // 60 minute window — entry is 30 min old, should match
+      expect(findResumableSessionId(dir, "user_dm_message", 60 * 60 * 1000)).toBe("sess_recent");
+    });
+
+    it("does not match a different task type", () => {
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_1",
+        status: "completed",
+        session_id: "sess_dm",
+        type: "user_dm_message",
+        datetime: new Date().toISOString(),
+      }));
+
+      expect(findResumableSessionId(dir, "scheduled_check")).toBeNull();
+    });
+
+    it("finds the latest entry across midnight boundary correctly", () => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const ninetyMinAgo = new Date(Date.now() - 90 * 60 * 1000);
+      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+
+      // Yesterday's entry is older but still within 3h
+      writeEntry(_filenameForDate(yesterday), makeEntry({
+        task_id: "t_yesterday",
+        status: "completed",
+        session_id: "sess_yesterday",
+        datetime: ninetyMinAgo.toISOString(),
+      }));
+      // Today's entry is newer
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_today",
+        status: "completed",
+        session_id: "sess_today",
+        datetime: thirtyMinAgo.toISOString(),
+      }));
+
+      expect(findResumableSessionId(dir, "user_dm_message")).toBe("sess_today");
+    });
   });
 });

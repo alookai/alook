@@ -44,6 +44,7 @@ function validRow() {
     workspaceId: "w1",
     conversationId: "c1",
     prompt: "do something",
+    type: "user_dm_message",
     status: "dispatched",
     priority: 5,
     result: null,
@@ -104,6 +105,7 @@ function validTaskApiBase() {
     result: null,
     error: null,
     created_at: "2024-01-01T00:00:00Z",
+    type: "user_dm_message",
   };
 }
 
@@ -126,15 +128,13 @@ describe("TaskApiBaseSchema", () => {
 // ---------------------------------------------------------------------------
 
 describe("TaskApiSchema", () => {
-  it("accepts optional agent and prior_session_id", () => {
+  it("accepts optional agent", () => {
     const input = {
       ...validTaskApiBase(),
       agent: { instructions: "be helpful", name: "bot", runtime_config: {} },
-      prior_session_id: "sess-0",
     };
     const parsed = TaskApiSchema.parse(input);
     expect(parsed.agent?.name).toBe("bot");
-    expect(parsed.prior_session_id).toBe("sess-0");
   });
 });
 

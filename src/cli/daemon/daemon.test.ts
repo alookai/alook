@@ -101,6 +101,7 @@ vi.mock("./execenv/timeline.js", () => ({
   initEntryAsync: (...args: any[]) => mockInitEntryAsync(...args),
   updateEntry: (...args: any[]) => mockUpdateEntry(...args),
   createTimelineEntry: (...args: any[]) => mockCreateTimelineEntry(...args),
+  findResumableSessionId: vi.fn(() => null),
 }));
 
 // Capture signal handlers and prevent actual process.exit
@@ -163,10 +164,10 @@ describe("daemon timeline integration", () => {
       started_at: null,
       completed_at: null,
       created_at: "2026-01-01T00:00:00Z",
+      type: "user_dm_message",
       result: null,
       error: null,
       agent: { name: "Agent 1", instructions: "be helpful" },
-      prior_session_id: null,
     };
 
     let claimed = false;

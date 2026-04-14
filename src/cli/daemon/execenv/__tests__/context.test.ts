@@ -39,48 +39,26 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe("buildInstructionContent", () => {
-  it("assembles header + agent instructions + context timeline", () => {
+  it("appends agent instructions when present", () => {
     const task = makeTask();
     const content = buildInstructionContent(task);
 
-    expect(content).toContain("# Alook Agent");
     expect(content).toContain("## Agent Instructions");
     expect(content).toContain("Be helpful and concise.");
-    expect(content).toContain("## Context Timeline");
   });
 
-  it("with task.agent undefined — omits agent instructions section", () => {
+  it("omits agent instructions section when agent is undefined", () => {
     const task = makeTask({ agent: undefined });
     const content = buildInstructionContent(task);
 
-    expect(content).toContain("# Alook Agent");
     expect(content).not.toContain("## Agent Instructions");
   });
 
-  it("with empty instructions string — omits agent instructions section", () => {
+  it("omits agent instructions section when instructions is empty", () => {
     const task = makeTask({ agent: { name: "test", instructions: "" } });
     const content = buildInstructionContent(task);
 
-    expect(content).toContain("# Alook Agent");
     expect(content).not.toContain("## Agent Instructions");
-  });
-
-  it("includes Context Timeline section with format explanation", () => {
-    const task = makeTask();
-    const content = buildInstructionContent(task);
-
-    expect(content).toContain("## Context Timeline");
-    expect(content).toContain(".context_timeline/YYYY-MM-DD.jsonl");
-    expect(content).toContain("task_id");
-    expect(content).toContain("session_id");
-    expect(content).toContain("pid");
-    expect(content).toContain("status");
-    expect(content).toContain("datetime");
-    expect(content).toContain("prompt");
-    expect(content).toContain("steps");
-    expect(content).toContain("response");
-    expect(content).toContain("errmsg");
-    expect(content).toContain("last ~20 lines");
   });
 });
 
@@ -210,7 +188,7 @@ describe("writeInstructionFileIfChanged", () => {
     expect(result).toBe(true);
     expect(existsSync(join(workDir, CANONICAL_FILE))).toBe(true);
     const content = readFileSync(join(workDir, CANONICAL_FILE), "utf-8");
-    expect(content).toContain("# Alook Agent");
+    expect(content).toContain("## Memory Management");
     expect(content).toContain("Be helpful and concise.");
   });
 

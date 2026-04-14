@@ -26,8 +26,8 @@ describe("DaemonClient claimTask schema validation", () => {
         result: null,
         error: null,
         created_at: "2024-01-01T00:00:00Z",
+        type: "user_dm_message",
         agent: { instructions: "help", name: "bot", runtime_config: {} },
-        prior_session_id: "sess-0",
       },
     };
 
@@ -69,6 +69,7 @@ function validClaimResponse() {
       result: null,
       error: null,
       created_at: "2024-01-01T00:00:00Z",
+      type: "user_dm_message",
     },
   };
 }
@@ -182,8 +183,8 @@ function validApiTask(): TaskApi {
     result: null,
     error: null,
     created_at: "2024-01-01T00:00:00Z",
+    type: "user_dm_message",
     agent: { instructions: "help", name: "bot", runtime_config: {} },
-    prior_session_id: "sess-0",
   };
 }
 
@@ -198,9 +199,9 @@ describe("fromApiTask", () => {
     expect(task.prompt).toBe("do it");
     expect(task.status).toBe("dispatched");
     expect(task.priority).toBe(1);
+    expect(task.type).toBe("user_dm_message");
     expect(task.agent?.name).toBe("bot");
     expect(task.agent?.instructions).toBe("help");
-    expect(task.priorSessionId).toBe("sess-0");
     expect(task.createdAt).toBe("2024-01-01T00:00:00Z");
   });
 

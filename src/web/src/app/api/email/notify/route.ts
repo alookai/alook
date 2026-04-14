@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       title: `Email: ${body.subject}`.slice(0, 50),
     })
     const taskService = new TaskService(db)
-    await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, `New email from ${body.from}: ${body.subject}`)
+    await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, `New email from ${body.from}: ${body.subject}`, "email_notification")
   }
 
   // Notify UI for all emails (whitelisted or not)

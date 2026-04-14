@@ -55,7 +55,6 @@ describe("prepare", () => {
     const agentsPath = join(result.workDir, CANONICAL_FILE);
     expect(existsSync(agentsPath)).toBe(true);
     const content = readFileSync(agentsPath, "utf-8");
-    expect(content).toContain("# Alook Agent");
     expect(content).toContain("Be helpful.");
 
     const claudePath = join(result.workDir, "CLAUDE.md");

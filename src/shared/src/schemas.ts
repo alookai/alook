@@ -28,6 +28,7 @@ export const ClaimedTaskRowSchema = z.object({
   priority: z.coerce.number(),
   result: z.unknown().nullable(),
   context: z.unknown().nullable(),
+  type: z.string().default("user_dm_message"),
   sessionId: z.string().nullable(),
   createdAt: z.coerce.date(),
   dispatchedAt: z.coerce.date().nullable(),
@@ -67,6 +68,7 @@ export const TaskApiBaseSchema = z.object({
   result: z.unknown().nullable(),
   error: z.string().nullable(),
   created_at: z.string(),
+  type: z.string(),
 });
 export type TaskApiBase = z.infer<typeof TaskApiBaseSchema>;
 
@@ -76,7 +78,6 @@ export type TaskApiBase = z.infer<typeof TaskApiBaseSchema>;
 
 export const TaskApiSchema = TaskApiBaseSchema.extend({
   agent: TaskAgentDataApiSchema.nullable().optional(),
-  prior_session_id: z.string().nullable().optional(),
 });
 export type TaskApi = z.infer<typeof TaskApiSchema>;
 

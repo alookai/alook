@@ -64,7 +64,7 @@ describe("POST /api/daemon/runtimes/[runtimeId]/tasks/claim", () => {
     expect(mockClaimTaskForRuntime).toHaveBeenCalledWith("rt1");
   });
 
-  it("returns task with agent data and prior_session_id always null", async () => {
+  it("returns task with agent data and type", async () => {
     const fakeTask = {
       id: "t1",
       agentId: "a1",
@@ -103,6 +103,7 @@ describe("POST /api/daemon/runtimes/[runtimeId]/tasks/claim", () => {
       result: null,
       error: null,
       created_at: fakeTask.createdAt,
+      type: "user_dm_message",
     });
 
     const res = await POST(
@@ -120,7 +121,7 @@ describe("POST /api/daemon/runtimes/[runtimeId]/tasks/claim", () => {
       name: "Agent 1",
       runtime_config: { model: "gpt-4" },
     });
-    expect(body.task.prior_session_id).toBeNull();
+    expect(body.task.type).toBe("user_dm_message");
     expect(mockGetAgent).toHaveBeenCalledWith({}, "a1", "w1");
   });
 });

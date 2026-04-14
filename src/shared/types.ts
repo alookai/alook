@@ -79,7 +79,7 @@ export interface AgentTask {
   error: string | null;
   agent?: TaskAgentData;
   created_at: string;
-  prior_session_id?: string;
+  type: string;
 }
 
 export interface TaskAgentData {

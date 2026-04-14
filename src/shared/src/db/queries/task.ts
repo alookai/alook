@@ -11,6 +11,7 @@ export async function createTask(
     workspaceId: string;
     conversationId: string;
     prompt: string;
+    type?: string;
     priority?: number;
   }
 ) {
@@ -22,6 +23,7 @@ export async function createTask(
       workspaceId: data.workspaceId,
       conversationId: data.conversationId,
       prompt: data.prompt,
+      type: data.type ?? "user_dm_message",
       priority: data.priority ?? 0,
     })
     .returning();

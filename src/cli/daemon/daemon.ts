@@ -5,7 +5,7 @@ import { buildPrompt } from "./prompt.js";
 import { createBackend, detectVersion } from "./agent/index.js";
 import { type Task, type TaskResult, fromApiTask } from "./types.js";
 import { prepare } from "./execenv/index.js";
-import { initEntryAsync, updateEntry, createTimelineEntry, localISOString } from "./execenv/timeline.js";
+import { initEntryAsync, updateEntry, createTimelineEntry, localISOString, findResumableSessionId } from "./execenv/timeline.js";
 import { loadCLIConfigForProfile } from "../lib/config.js";
 import { log } from "../lib/logger.js";
 import { cmdPrefix } from "../lib/env.js";
@@ -236,11 +236,17 @@ async function runTask(
     task,
   );
 
+  const resumeSessionId = findResumableSessionId(timelineDir, task.type) ?? undefined;
+  if (resumeSessionId) {
+    log.info(`Task ${task.id} resuming session ${resumeSessionId}`);
+  }
+
   const session = backend.execute(prompt, {
     cwd: workDir,
     model: model || undefined,
     env,
     timeout: config.agentTimeout,
+    resumeSessionId,
   });
 
   // Context timeline — wait for session ID, then write init entry

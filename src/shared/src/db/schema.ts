@@ -213,6 +213,7 @@ export const agentTaskQueue = sqliteTable(
       .notNull()
       .references(() => conversation.id),
     prompt: text("prompt").notNull(),
+    type: text("type").notNull().default("user_dm_message"),
     status: text("status").notNull().default("queued"),
     priority: integer("priority").notNull().default(0),
     result: text("result", { mode: "json" }),

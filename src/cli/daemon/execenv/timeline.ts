@@ -3,13 +3,30 @@ import { join } from "path";
 import { acquireLock, releaseLock } from "./filelock.js";
 import { log } from "../../lib/logger.js";
 
+function readJsonl(filePath: string): ContextTimelineEntry[] {
+  let content: string;
+  try {
+    content = readFileSync(filePath, "utf-8");
+  } catch {
+    return [];
+  }
+  const entries: ContextTimelineEntry[] = [];
+  for (const line of content.trimEnd().split("\n")) {
+    if (!line) continue;
+    try {
+      entries.push(JSON.parse(line));
+    } catch { /* skip malformed */ }
+  }
+  return entries;
+}
+
 export interface ContextTimelineEntry {
   task_id: string;
   session_id: string | null;
   pid: number | null;
   status: "running" | "completed" | "failed";
   datetime: string;
-  type: "user_dm_message";
+  type: string;
   prompt: string;
   steps: string[];
   response: string | null;
@@ -189,6 +206,39 @@ export function createTimelineEntry(
     response: null,
     errmsg: null,
   };
+}
+
+const DEFAULT_RESUME_MAX_AGE_MS = 3 * 60 * 60 * 1000; // 3 hours
+
+export function findResumableSessionId(
+  timelineDir: string,
+  type: string,
+  maxAgeMs: number = DEFAULT_RESUME_MAX_AGE_MS,
+): string | null {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - maxAgeMs);
+
+  const daysToScan = Math.ceil(maxAgeMs / 86_400_000) + 1;
+  const entries: ContextTimelineEntry[] = [];
+  for (const filename of recentFilenames(daysToScan)) {
+    entries.push(...readJsonl(join(timelineDir, filename)));
+  }
+
+  // Sort by datetime descending, pick the first completed match
+  entries.sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
+
+  for (const entry of entries) {
+    if (
+      entry.status === "completed" &&
+      entry.type === type &&
+      entry.session_id &&
+      new Date(entry.datetime) >= cutoff
+    ) {
+      return entry.session_id;
+    }
+  }
+
+  return null;
 }
 
 export { localISOString };

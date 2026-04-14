@@ -70,6 +70,7 @@ export function taskToResponse(t: {
   conversationId: string;
   workspaceId: string;
   prompt: string;
+  type?: string;
   status: string;
   priority: number;
   dispatchedAt: Date | string | null;
@@ -86,6 +87,7 @@ export function taskToResponse(t: {
     conversation_id: t.conversationId,
     workspace_id: t.workspaceId,
     prompt: t.prompt,
+    type: t.type ?? "user_dm_message",
     status: t.status,
     priority: t.priority,
     dispatched_at: formatTimestampNullable(t.dispatchedAt),

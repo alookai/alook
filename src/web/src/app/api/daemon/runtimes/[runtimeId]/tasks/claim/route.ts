@@ -33,7 +33,6 @@ export const POST = withAuth(async (_req, ctx) => {
             runtime_config: agent.runtimeConfig || {},
           }
         : null,
-      prior_session_id: null,
     },
   });
 });

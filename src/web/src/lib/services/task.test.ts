@@ -75,6 +75,7 @@ describe("TaskService", () => {
         workspaceId: "w1",
         conversationId: "c1",
         prompt: "do stuff",
+        type: "user_dm_message",
         priority: 0,
       });
       expect(result).toEqual({ id: "t1" });
