@@ -10,16 +10,20 @@ export function logRequest(
 ): void {
   if (path === "/health" || path === "/api/health") return;
 
+  const fields: Record<string, unknown> = {};
+  if (requestId) fields.requestId = requestId;
+  if (userId) fields.userId = userId;
+
+  const reqLog = Object.keys(fields).length > 0 ? log.child(fields) : log;
+
   const ctx: Record<string, unknown> = {
     method,
     path,
     status,
     duration: `${durationMs}ms`,
   };
-  if (requestId) ctx.request_id = requestId;
-  if (userId) ctx.user_id = userId;
 
-  if (status >= 500) log.error("http request", ctx);
-  else if (status >= 400) log.warn("http request", ctx);
-  else log.info("http request", ctx);
+  if (status >= 500) reqLog.error("http request", ctx);
+  else if (status >= 400) reqLog.warn("http request", ctx);
+  else reqLog.info("http request", ctx);
 }

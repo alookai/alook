@@ -111,6 +111,10 @@ export type { Database } from "./db/index";
 export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";
 
+// Logger
+export { Logger, createLogger } from "./logger"
+export type { LogLevel, LoggerOptions } from "./logger"
+
 // Utils
 export { parseEmailHandle, toAlookAddress, isValidHandle } from "./utils/email";
 export { isValidToken, isValidEmail } from "./utils/validation";

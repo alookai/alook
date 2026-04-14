@@ -65,12 +65,22 @@ vi.mock("cloudflare:workers", () => ({
 const mockGetValidSession = vi.fn<(db: unknown, token: string) => Promise<string | null>>()
 const mockCreateDb = vi.fn().mockReturnValue({})
 
-vi.mock("@alook/shared", () => ({
-  createDb: (d1: unknown) => mockCreateDb(d1),
-  queries: {
-    session: { getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token) },
-  },
-}))
+vi.mock("@alook/shared", () => {
+  const noopLogger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    child: () => noopLogger,
+  }
+  return {
+    createDb: (d1: unknown) => mockCreateDb(d1),
+    createLogger: () => noopLogger,
+    queries: {
+      session: { getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token) },
+    },
+  }
+})
 
 // Import after mocks
 import { WebSocketDurableObject } from "./ws-durable"

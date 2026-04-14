@@ -1,86 +1,83 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Logger } from "./logger";
 
- 
-let stdoutSpy: any;
- 
-let stderrSpy: any;
+let logSpy: ReturnType<typeof vi.spyOn>;
+let errorSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
-  stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-  stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
- 
-function parseLine(spy: any): Record<string, unknown> {
-  const raw = spy.mock.calls[0][0] as string;
-  return JSON.parse(raw);
+function parseLine(spy: ReturnType<typeof vi.spyOn>): Record<string, unknown> {
+  return JSON.parse(spy.mock.calls[0][0] as string);
 }
 
 describe("Logger", () => {
   it("outputs valid JSON with level, msg, ts fields", () => {
-    const logger = new Logger("info");
+    const logger = new Logger({ service: "web" });
     logger.info("hello");
 
-    const entry = parseLine(stdoutSpy);
+    const entry = parseLine(logSpy);
     expect(entry.level).toBe("info");
     expect(entry.msg).toBe("hello");
     expect(entry.ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 
   it("includes extra context fields in output", () => {
-    const logger = new Logger("info");
+    const logger = new Logger({ service: "web" });
     logger.info("task done", { taskId: "t1", duration: 42 });
 
-    const entry = parseLine(stdoutSpy);
+    const entry = parseLine(logSpy);
     expect(entry.taskId).toBe("t1");
     expect(entry.duration).toBe(42);
   });
 
   it("filters messages below configured level", () => {
-    const logger = new Logger("warn");
+    const logger = new Logger({ service: "web", level: "warn" });
     logger.debug("hidden");
     logger.info("hidden");
     logger.warn("visible");
     logger.error("visible");
 
-    expect(stdoutSpy).toHaveBeenCalledTimes(1);
-    expect(stderrSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("writes error to stderr, others to stdout", () => {
-    const logger = new Logger("debug");
+  it("writes error to console.error, others to console.log", () => {
+    const logger = new Logger({ service: "web", level: "debug" });
     logger.debug("d");
     logger.info("i");
     logger.warn("w");
 
-    expect(stdoutSpy).toHaveBeenCalledTimes(3);
-    expect(stderrSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledTimes(3);
+    expect(errorSpy).not.toHaveBeenCalled();
 
     logger.error("e");
-    expect(stderrSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
   it("extracts error message from Error objects", () => {
-    const logger = new Logger("error");
+    const logger = new Logger({ service: "web", level: "error" });
     logger.error("failed", { err: new Error("bad input") });
 
-    const entry = parseLine(stderrSpy);
-    expect(entry.err).toBe("bad input");
+    const entry = parseLine(errorSpy);
+    const serialized = entry.err as { message: string };
+    expect(serialized.message).toBe("bad input");
   });
 
   it("silent level suppresses all output", () => {
-    const logger = new Logger("silent");
+    const logger = new Logger({ service: "web", level: "silent" });
     logger.debug("nope");
     logger.info("nope");
     logger.warn("nope");
     logger.error("nope");
 
-    expect(stdoutSpy).not.toHaveBeenCalled();
-    expect(stderrSpy).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });

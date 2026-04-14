@@ -1,5 +1,7 @@
 import { DurableObject } from "cloudflare:workers"
-import { createDb, queries } from "@alook/shared"
+import { createDb, queries, createLogger } from "@alook/shared"
+
+const log = createLogger({ service: "ws-do" })
 
 interface ConnectionState {
   userId: string
@@ -31,6 +33,10 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       : { userId: "", authenticated: false }
     server.serializeAttachment(state)
 
+    if (preAuthUserId) {
+      log.info("websocket connected (pre-auth)", { userId: preAuthUserId })
+    }
+
     this.ctx.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair("ping", "pong")
     )
@@ -49,8 +55,13 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     const msg = parsed as { type: string; token?: string }
     if (msg.type === "auth") {
       const userId = await this.validateToken(msg.token!)
-      if (!userId) { ws.close(1008, "Unauthorized"); return }
+      if (!userId) {
+        log.warn("websocket auth failed")
+        ws.close(1008, "Unauthorized")
+        return
+      }
       ws.serializeAttachment({ userId, authenticated: true } as ConnectionState)
+      log.info("websocket authenticated", { userId })
       ws.send(JSON.stringify({ type: "auth.ok" }))
       return
     }
@@ -64,7 +75,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   async webSocketClose(): Promise<void> {}
 
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
-    console.error("WS error:", error)
+    log.error("websocket error", { err: error instanceof Error ? error : String(error) })
     try { ws.close(1011, "Internal error") } catch {}
   }
 

@@ -13,18 +13,29 @@ const mockIsWhitelisted = vi.fn<(db: unknown, agentId: unknown, workspaceId: unk
 const mockGetUser = vi.fn<(db: unknown, id: unknown) => unknown>()
 const mockCreateDb = vi.fn<(d1: unknown) => Record<string, unknown>>().mockReturnValue({})
 
-vi.mock("@alook/shared", () => ({
-  createDb: (d1: unknown) => mockCreateDb(d1),
-  parseEmailHandle: (address: string) => {
-    const domain = "@alook.ai"
-    return address.endsWith(domain) ? address.slice(0, -domain.length) : ""
-  },
-  queries: {
-    agent: { getAgentByHandle: (db: unknown, handle: unknown) => mockGetAgentByHandle(db, handle) },
-    whitelist: { isWhitelisted: (db: unknown, agentId: unknown, workspaceId: unknown, email: unknown) => mockIsWhitelisted(db, agentId, workspaceId, email) },
-    user: { getUser: (db: unknown, id: unknown) => mockGetUser(db, id) },
-  },
-}))
+vi.mock("@alook/shared", () => {
+  const noopLogger = {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    child: () => noopLogger,
+  }
+  return {
+    createDb: (d1: unknown) => mockCreateDb(d1),
+    createLogger: () => noopLogger,
+    parseEmailHandle: (address: string) => {
+      const domain = "@alook.ai"
+      return address.endsWith(domain) ? address.slice(0, -domain.length) : ""
+    },
+    DEV_WEB_URL: "http://localhost:3000",
+    queries: {
+      agent: { getAgentByHandle: (db: unknown, handle: unknown) => mockGetAgentByHandle(db, handle) },
+      whitelist: { isWhitelisted: (db: unknown, agentId: unknown, workspaceId: unknown, email: unknown) => mockIsWhitelisted(db, agentId, workspaceId, email) },
+      user: { getUser: (db: unknown, id: unknown) => mockGetUser(db, id) },
+    },
+  }
+})
 
 // Import handler after mocks are set up
 import handler from "./index"
@@ -121,7 +132,7 @@ describe("R2 storage", () => {
 
     expect(put).toHaveBeenCalledOnce()
     const [key, _body, opts] = put.mock.calls[0]
-    expect(key).toBe("emails/mock-id-1/raw")
+    expect(key).toBe("emails/mock-id-2/raw")
     expect(opts).toEqual({ httpMetadata: { contentType: "message/rfc822" } })
   })
 
@@ -151,7 +162,7 @@ describe("whitelisted path", () => {
     const body = JSON.parse(init.body)
     expect(body.agentId).toBe("agent-1")
     expect(body.workspaceId).toBe("ws-1")
-    expect(body.r2Key).toBe("emails/mock-id-1/raw")
+    expect(body.r2Key).toBe("emails/mock-id-2/raw")
     expect(body.from).toBe("owner@example.com")
     expect(body.subject).toBe("Hello")
     expect(body.isWhitelisted).toBe(true)
