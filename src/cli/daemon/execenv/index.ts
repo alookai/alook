@@ -1,6 +1,6 @@
 import { mkdirSync } from "fs";
 import { join, dirname } from "path";
-import { writeInstructionFile, cleanStaleProviderFiles } from "./context.js";
+import { writeInstructionFileIfChanged } from "./context.js";
 import type { Task } from "../types.js";
 
 export interface ExecEnvConfig {
@@ -17,7 +17,6 @@ export interface ExecEnvResult {
 export function prepare(
   config: ExecEnvConfig,
   task: Task,
-  provider: string,
 ): ExecEnvResult {
   const workDir = join(config.workspacesRoot, task.workspaceId, task.agentId, "workdir");
 
@@ -26,8 +25,7 @@ export function prepare(
   const timelineDir = join(workDir, ".context_timeline");
   mkdirSync(timelineDir, { recursive: true });
 
-  writeInstructionFile(workDir, task, provider);
-  cleanStaleProviderFiles(workDir, provider);
+  writeInstructionFileIfChanged(workDir, task);
 
   const logFile = join(
     config.workspacesRoot,
@@ -48,4 +46,4 @@ export function prepare(
   return { workDir, logFile, timelineDir, env };
 }
 
-export { buildInstructionContent, writeInstructionFile, cleanStaleProviderFiles } from "./context.js";
+export { buildInstructionContent, writeInstructionFileIfChanged, ensureSymlinks, CANONICAL_FILE } from "./context.js";

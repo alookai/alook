@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, existsSync, readFileSync, rmSync } from "fs";
+import { mkdirSync, existsSync, readFileSync, rmSync, lstatSync, readlinkSync, statSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { prepare } from "../index.js";
+import { CANONICAL_FILE } from "../context.js";
 import type { Task } from "../../types.js";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -35,40 +36,60 @@ describe("prepare", () => {
 
   it("creates workdir directory", () => {
     const task = makeTask();
-    const result = prepare({ workspacesRoot: root }, task, "claude");
+    const result = prepare({ workspacesRoot: root }, task);
 
     expect(existsSync(result.workDir)).toBe(true);
   });
 
   it("always constructs {root}/{wsId}/{agentId}/workdir", () => {
     const task = makeTask();
-    const result = prepare({ workspacesRoot: root }, task, "claude");
+    const result = prepare({ workspacesRoot: root }, task);
 
     expect(result.workDir).toBe(join(root, "ws1", "a1", "workdir"));
   });
 
-  it("on existing workdir overwrites instruction file with fresh data", () => {
-    const task1 = makeTask({ agent: { name: "a", instructions: "Old" } });
-    prepare({ workspacesRoot: root }, task1, "claude");
+  it("creates AGENTS.md and CLAUDE.md symlink", () => {
+    const task = makeTask();
+    const result = prepare({ workspacesRoot: root }, task);
 
-    const task2 = makeTask({ agent: { name: "a", instructions: "New" } });
-    const result = prepare({ workspacesRoot: root }, task2, "claude");
+    const agentsPath = join(result.workDir, CANONICAL_FILE);
+    expect(existsSync(agentsPath)).toBe(true);
+    const content = readFileSync(agentsPath, "utf-8");
+    expect(content).toContain("# Alook Agent");
+    expect(content).toContain("Be helpful.");
 
-    const content = readFileSync(join(result.workDir, "CLAUDE.md"), "utf-8");
-    expect(content).toContain("New");
-    expect(content).not.toContain("Old");
+    const claudePath = join(result.workDir, "CLAUDE.md");
+    expect(lstatSync(claudePath).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(claudePath)).toBe(CANONICAL_FILE);
+  });
+
+  it("called twice with same content — AGENTS.md mtime unchanged", () => {
+    const task = makeTask();
+    const result = prepare({ workspacesRoot: root }, task);
+
+    const agentsPath = join(result.workDir, CANONICAL_FILE);
+    const mtime1 = statSync(agentsPath).mtimeMs;
+
+    // Small delay to ensure mtime would differ if file were rewritten
+    const start = Date.now();
+    while (Date.now() - start < 50) { /* busy wait */ }
+
+    prepare({ workspacesRoot: root }, task);
+    const mtime2 = statSync(agentsPath).mtimeMs;
+
+    expect(mtime2).toBe(mtime1);
   });
 
   it("returns logFile path at {root}/{wsId}/{agentId}/agent.log", () => {
     const task = makeTask();
-    const result = prepare({ workspacesRoot: root }, task, "claude");
+    const result = prepare({ workspacesRoot: root }, task);
 
     expect(result.logFile).toBe(join(root, "ws1", "a1", "agent.log"));
   });
 
   it("creates .context_timeline/ directory inside workdir", () => {
     const task = makeTask();
-    const result = prepare({ workspacesRoot: root }, task, "claude");
+    const result = prepare({ workspacesRoot: root }, task);
 
     const timelineDir = join(result.workDir, ".context_timeline");
     expect(existsSync(timelineDir)).toBe(true);
@@ -76,14 +97,14 @@ describe("prepare", () => {
 
   it("returns timelineDir in result", () => {
     const task = makeTask();
-    const result = prepare({ workspacesRoot: root }, task, "claude");
+    const result = prepare({ workspacesRoot: root }, task);
 
     expect(result.timelineDir).toBe(join(result.workDir, ".context_timeline"));
   });
 
   it("returns env with all expected keys", () => {
     const task = makeTask();
-    const result = prepare({ workspacesRoot: root }, task, "claude");
+    const result = prepare({ workspacesRoot: root }, task);
 
     expect(result.env).toEqual({
       ALOOK_WORKSPACE_ID: "ws1",

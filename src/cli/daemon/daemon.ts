@@ -234,7 +234,6 @@ async function runTask(
   const { workDir, logFile, timelineDir, env } = prepare(
     { workspacesRoot: config.workspacesRoot },
     task,
-    provider,
   );
 
   const session = backend.execute(prompt, {
