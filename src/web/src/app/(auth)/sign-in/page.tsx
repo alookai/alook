@@ -279,7 +279,7 @@ export default function SignInPage() {
               <div className="p-6 md:p-8">
                 {isProd ? <OTPSignIn /> : <PasswordSignIn />}
               </div>
-              <div className="hidden bg-muted md:flex items-center justify-center overflow-hidden min-h-[320px]">
+              <div className="hidden bg-muted md:flex items-center justify-center overflow-clip min-h-[320px]">
                 <TypewriterVisual className="scale-[0.55] shrink-0" />
               </div>
             </CardContent>
