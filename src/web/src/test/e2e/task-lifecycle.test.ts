@@ -52,7 +52,7 @@ describe("task lifecycle", () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runtime_ids: [seed.runtimeId], max_tasks: 1 }),
+        body: JSON.stringify({ daemon_id: seed.daemonId, max_tasks: 1 }),
       },
     )
     expect(res.status).toBe(200)
@@ -151,7 +151,7 @@ describe("task lifecycle", () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runtime_ids: [seed.runtimeId], max_tasks: 1 }),
+        body: JSON.stringify({ daemon_id: seed.daemonId, max_tasks: 1 }),
       },
     )
     expect(res.status).toBe(200)
@@ -197,7 +197,7 @@ describe("task failure", () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runtime_ids: [seed.runtimeId], max_tasks: 1 }),
+        body: JSON.stringify({ daemon_id: seed.daemonId, max_tasks: 1 }),
       },
     )
     await tokenRequest(

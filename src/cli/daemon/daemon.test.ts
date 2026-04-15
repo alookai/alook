@@ -48,9 +48,9 @@ vi.mock("./agent/index.js", () => ({
 
 vi.mock("../lib/config.js", () => ({
   loadCLIConfigForProfile: vi.fn(() => ({
-    token: "al_test_token",
+    token: "",
     server_url: null,
-    watched_workspaces: [{ id: "ws1", name: "Test WS" }],
+    watched_workspaces: [{ id: "ws1", name: "Test WS", token: "al_test_token" }],
   })),
 }));
 
@@ -133,6 +133,7 @@ vi.spyOn(globalThis, "clearInterval").mockImplementation(((timer: any) => {
 }) as any);
 
 import { createBackend } from "./agent/index.js";
+import { loadCLIConfigForProfile } from "../lib/config.js";
 import { startDaemon } from "./daemon.js";
 
 describe("daemon timeline integration", () => {
@@ -250,11 +251,10 @@ describe("daemon timeline integration", () => {
     // Should have been called for each text message
     const textCalls = mockUpdateEntry.mock.calls.filter(
       (call: any[]) => {
-        // The updater is the third argument, but we check it was called for steps
         const updater = call[2];
-        const testEntry = { steps: [] as string[], response: null };
+        const testEntry = { agent_responses: [] as string[] };
         updater(testEntry);
-        return testEntry.steps.length > 0;
+        return testEntry.agent_responses.length > 0;
       }
     );
     expect(textCalls.length).toBe(2);
@@ -277,15 +277,13 @@ describe("daemon timeline integration", () => {
     const calls = mockUpdateEntry.mock.calls;
     const lastCall = calls[calls.length - 1];
     const testEntry = {
-      steps: [] as string[],
-      response: null as string | null,
+      agent_responses: [] as string[],
       session_id: null as string | null,
       pid: process.pid as number | null,
       status: "running" as string,
       errmsg: null as string | null,
     };
     lastCall[2](testEntry);
-    expect(testEntry.response).toBe("All done!");
     expect(testEntry.session_id).toBe("s3");
     expect(testEntry.pid).toBeNull();
     expect(testEntry.status).toBe("completed");
@@ -311,8 +309,7 @@ describe("daemon timeline integration", () => {
     const calls = mockUpdateEntry.mock.calls;
     const lastCall = calls[calls.length - 1];
     const testEntry = {
-      steps: [] as string[],
-      response: null as string | null,
+      agent_responses: [] as string[],
       pid: process.pid as number | null,
       status: "running" as string,
       errmsg: null as string | null,
@@ -321,7 +318,148 @@ describe("daemon timeline integration", () => {
     expect(testEntry.pid).toBeNull();
     expect(testEntry.status).toBe("failed");
     expect(testEntry.errmsg).toBe("something went wrong");
-    expect(testEntry.response).toBeNull();
+  });
+
+  it("passes workspace token to poll and task API calls", async () => {
+    setupTaskClaim();
+    setupBackend([], {
+      status: "completed",
+      output: "Done",
+      error: "",
+      durationMs: 1000,
+      sessionId: "s1",
+    });
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // poll should be called with the workspace token
+    expect(mockClientInstance.poll).toHaveBeenCalledWith(
+      "al_test_token",
+      "d1",
+      expect.any(Number),
+    );
+
+    // startTask should be called with the workspace token
+    expect((mockClientInstance as any).startTask).toHaveBeenCalledWith(
+      "al_test_token",
+      "t1",
+    );
+
+    // completeTask should be called with the workspace token
+    expect((mockClientInstance as any).completeTask).toHaveBeenCalledWith(
+      "al_test_token",
+      "t1",
+      expect.any(Object),
+    );
+  });
+});
+
+describe("daemon with multi-workspace config", () => {
+  beforeEach(() => {
+    signalHandlers.clear();
+    intervalTimers.length = 0;
+    clearedTimers.length = 0;
+    vi.clearAllMocks();
+    mockProcessExit.mockImplementation((() => {}) as any);
+
+    // Configure two workspaces
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      token: "",
+      server_url: "",
+      watched_workspaces: [
+        { id: "ws1", name: "Personal", token: "al_tok_ws1" },
+        { id: "ws2", name: "Team", token: "al_tok_ws2" },
+      ],
+    });
+
+    // Register returns different runtime IDs for each workspace
+    let registerCall = 0;
+    mockClientInstance.register.mockImplementation(async () => {
+      registerCall++;
+      return { runtimes: [{ id: `rt${registerCall}` }] };
+    });
+  });
+
+  afterEach(() => {
+    for (const t of intervalTimers) realClearInterval(t);
+  });
+
+  it("polls each workspace with its own token", async () => {
+    mockClientInstance.poll.mockResolvedValue([]);
+
+    await startDaemon();
+
+    // poll should have been called twice — once per workspace
+    expect(mockClientInstance.poll).toHaveBeenCalledTimes(2);
+    expect(mockClientInstance.poll).toHaveBeenCalledWith("al_tok_ws1", "d1", 20);
+    expect(mockClientInstance.poll).toHaveBeenCalledWith("al_tok_ws2", "d1", 20);
+  });
+
+  it("registers each workspace with its own token", async () => {
+    await startDaemon();
+
+    expect(mockClientInstance.register).toHaveBeenCalledTimes(2);
+    expect(mockClientInstance.register).toHaveBeenCalledWith(
+      "al_tok_ws1",
+      expect.objectContaining({ workspace_id: "ws1" }),
+    );
+    expect(mockClientInstance.register).toHaveBeenCalledWith(
+      "al_tok_ws2",
+      expect.objectContaining({ workspace_id: "ws2" }),
+    );
+  });
+
+  it("concurrency accounting: W1 claims reduce W2 max_tasks", async () => {
+    const fakeTask = {
+      id: "t1",
+      agent_id: "a1",
+      runtime_id: "rt1",
+      conversation_id: "c1",
+      workspace_id: "ws1",
+      prompt: "do stuff",
+      status: "dispatched",
+      priority: 0,
+      dispatched_at: null,
+      started_at: null,
+      completed_at: null,
+      created_at: "2026-01-01T00:00:00Z",
+      type: "user_dm_message",
+      result: null,
+      error: null,
+      agent: { name: "Agent 1", instructions: "be helpful" },
+    };
+
+    // W1 returns 3 tasks, W2 should get remaining (20 - 3 = 17)
+    let pollCall = 0;
+    mockClientInstance.poll.mockImplementation(async () => {
+      pollCall++;
+      if (pollCall === 1) return [fakeTask, { ...fakeTask, id: "t2" }, { ...fakeTask, id: "t3" }];
+      return [];
+    });
+
+    // Mock task handling methods so they don't fail
+    (mockClientInstance as any).startTask = vi.fn(async () => ({}));
+    (mockClientInstance as any).completeTask = vi.fn(async () => ({}));
+    (mockClientInstance as any).failTask = vi.fn(async () => ({}));
+    (mockClientInstance as any).reportMessages = vi.fn(async () => ({}));
+
+    const mockBackend = {
+      name: "claude",
+      execute: vi.fn(() => ({
+        pid: 12345,
+        messages: (async function* () {})(),
+        sessionId: Promise.resolve("s1"),
+        result: Promise.resolve({ status: "completed", output: "done", error: "", sessionId: "s1" }),
+      })),
+    };
+    vi.mocked(createBackend).mockReturnValue(mockBackend);
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // W2 should be called with max_tasks = 20 - 3 = 17
+    expect(mockClientInstance.poll).toHaveBeenCalledWith("al_tok_ws2", "d1", 17);
   });
 });
 
@@ -373,5 +511,34 @@ describe("daemon shutdown", () => {
 
     // clearInterval should have been called before deregister
     expect(deregisterCalledAt).toBe(1); // clearInterval call happened before deregister
+  });
+
+  it("deregisters each workspace with correct token on shutdown", async () => {
+    // Configure two workspaces
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      token: "",
+      server_url: "",
+      watched_workspaces: [
+        { id: "ws1", name: "Personal", token: "al_tok_ws1" },
+        { id: "ws2", name: "Team", token: "al_tok_ws2" },
+      ],
+    });
+
+    let registerCall = 0;
+    mockClientInstance.register.mockImplementation(async () => {
+      registerCall++;
+      return { runtimes: [{ id: `rt${registerCall}` }] };
+    });
+
+    await startDaemon();
+
+    // Trigger shutdown
+    const shutdownHandler = signalHandlers.get("SIGTERM");
+    expect(shutdownHandler).toBeDefined();
+    await shutdownHandler!();
+
+    // Should deregister both workspaces with their tokens
+    expect(mockClientInstance.deregister).toHaveBeenCalledWith("al_tok_ws1", "d1");
+    expect(mockClientInstance.deregister).toHaveBeenCalledWith("al_tok_ws2", "d1");
   });
 });

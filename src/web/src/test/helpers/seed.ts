@@ -6,6 +6,7 @@ export interface TestSeed {
   workspaceId: string
   memberId: string
   runtimeId: string
+  daemonId: string
   agentId: string
   /** Raw machine token (starts with al_) */
   machineToken: string
@@ -26,6 +27,7 @@ export function seedTestData(): TestSeed {
   const memberId = `mb_${nanoid()}`
   const runtimeId = `rt_${nanoid()}`
   const agentId = `ag_${nanoid()}`
+  const daemonId = `daemon_${nanoid()}`
   const machineTokenId = `mt_${nanoid()}`
   const rawToken = `al_${randomUUID().replace(/-/g, "")}`
 
@@ -35,11 +37,11 @@ export function seedTestData(): TestSeed {
   sql(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('${userId}', 'Test User', '${userId}@test.local', 1, '${now}', '${now}')`)
   sql(`INSERT INTO workspace (id, name, slug, created_at, updated_at) VALUES ('${workspaceId}', 'Test Workspace', '${slug}', '${now}', '${now}')`)
   sql(`INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES ('${memberId}', '${workspaceId}', '${userId}', 'owner', '${now}')`)
-  sql(`INSERT INTO agent_runtime (id, workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, created_at, updated_at) VALUES ('${runtimeId}', '${workspaceId}', 'daemon_${nanoid()}', 'Test Runtime', 'local', 'claude', 'online', 'test-device', '${now}', '${now}')`)
+  sql(`INSERT INTO agent_runtime (id, workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, created_at, updated_at) VALUES ('${runtimeId}', '${workspaceId}', '${daemonId}', 'Test Runtime', 'local', 'claude', 'online', 'test-device', '${now}', '${now}')`)
   sql(`INSERT INTO agent (id, workspace_id, name, runtime_id, created_at, updated_at) VALUES ('${agentId}', '${workspaceId}', 'Test Agent', '${runtimeId}', '${now}', '${now}')`)
   sql(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES ('${machineTokenId}', '${userId}', '${workspaceId}', '${rawToken}', 'test-token', 'active', '${now}')`)
 
-  return { userId, workspaceId, memberId, runtimeId, agentId, machineToken: rawToken, machineTokenId }
+  return { userId, workspaceId, memberId, runtimeId, daemonId, agentId, machineToken: rawToken, machineTokenId }
 }
 
 /**

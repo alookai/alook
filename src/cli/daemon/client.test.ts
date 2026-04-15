@@ -81,21 +81,41 @@ describe("DaemonClient.poll() with mocked fetch", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("sends correct POST body to /api/daemon/tasks/poll", async () => {
+  it("sends correct POST body with daemon_id to /api/daemon/tasks/poll", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       json: () => Promise.resolve({ tasks: [] }),
     });
 
-    const client = new DaemonClient("http://localhost:8080", "tok");
-    await client.poll(["r1", "r2"], 3);
+    const client = new DaemonClient("http://localhost:8080");
+    await client.poll("tok", "d1", 3);
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "http://localhost:8080/api/daemon/tasks/poll",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ runtime_ids: ["r1", "r2"], max_tasks: 3 }),
+        body: JSON.stringify({ daemon_id: "d1", max_tasks: 3 }),
+      }),
+    );
+  });
+
+  it("passes token in Authorization header per-call", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ tasks: [] }),
+    });
+
+    const client = new DaemonClient("http://localhost:8080");
+    await client.poll("my_token_123", "d1", 1);
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer my_token_123",
+        }),
       }),
     );
   });
@@ -107,8 +127,8 @@ describe("DaemonClient.poll() with mocked fetch", () => {
       json: () => Promise.resolve(validPollResponse()),
     });
 
-    const client = new DaemonClient("http://localhost:8080", "tok");
-    const tasks = await client.poll(["r1"], 1);
+    const client = new DaemonClient("http://localhost:8080");
+    const tasks = await client.poll("tok", "d1", 1);
     expect(tasks).toHaveLength(1);
     expect(tasks[0].id).toBe("t1");
   });
@@ -120,8 +140,8 @@ describe("DaemonClient.poll() with mocked fetch", () => {
       json: () => Promise.resolve({ tasks: [] }),
     });
 
-    const client = new DaemonClient("http://localhost:8080", "tok");
-    const tasks = await client.poll(["r1"], 1);
+    const client = new DaemonClient("http://localhost:8080");
+    const tasks = await client.poll("tok", "d1", 1);
     expect(tasks).toEqual([]);
   });
 
@@ -132,13 +152,13 @@ describe("DaemonClient.poll() with mocked fetch", () => {
       json: () => Promise.resolve({ unexpected: "data" }),
     });
 
-    const client = new DaemonClient("http://localhost:8080", "tok");
-    await expect(client.poll(["r1"], 1)).rejects.toThrow();
+    const client = new DaemonClient("http://localhost:8080");
+    await expect(client.poll("tok", "d1", 1)).rejects.toThrow();
   });
 });
 
 // ---------------------------------------------------------------------------
-// DaemonClient.register() tests (unchanged)
+// DaemonClient.register() tests
 // ---------------------------------------------------------------------------
 
 describe("DaemonClient.register() with mocked fetch", () => {
@@ -155,8 +175,8 @@ describe("DaemonClient.register() with mocked fetch", () => {
       json: () => Promise.resolve({ runtimes: [{ id: "rt1" }] }),
     });
 
-    const client = new DaemonClient("http://localhost:8080", "tok");
-    const resp = await client.register({
+    const client = new DaemonClient("http://localhost:8080");
+    const resp = await client.register("tok", {
       workspace_id: "w1",
       daemon_id: "d1",
       device_name: "mac",
@@ -164,6 +184,62 @@ describe("DaemonClient.register() with mocked fetch", () => {
       runtimes: [{ name: "claude", type: "claude", version: "1.0", status: "online" }],
     });
     expect(resp.runtimes[0].id).toBe("rt1");
+  });
+
+  it("passes token in Authorization header", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ runtimes: [{ id: "rt1" }] }),
+    });
+
+    const client = new DaemonClient("http://localhost:8080");
+    await client.register("my_ws_token", {
+      workspace_id: "w1",
+      daemon_id: "d1",
+      device_name: "mac",
+      cli_version: "1.0",
+      runtimes: [{ name: "claude", type: "claude", version: "1.0", status: "online" }],
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer my_ws_token",
+        }),
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DaemonClient.deregister() tests
+// ---------------------------------------------------------------------------
+
+describe("DaemonClient.deregister() with mocked fetch", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("sends daemon_id in body", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+    });
+
+    const client = new DaemonClient("http://localhost:8080");
+    await client.deregister("tok", "d1");
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:8080/api/daemon/deregister",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ daemon_id: "d1" }),
+      }),
+    );
   });
 });
 
@@ -173,12 +249,12 @@ describe("DaemonClient.register() with mocked fetch", () => {
 
 describe("DaemonClient removed methods", () => {
   it("does not have heartbeat method", () => {
-    const client = new DaemonClient("http://localhost:8080", "tok");
+    const client = new DaemonClient("http://localhost:8080");
     expect((client as any).heartbeat).toBeUndefined();
   });
 
   it("does not have claimTask method", () => {
-    const client = new DaemonClient("http://localhost:8080", "tok");
+    const client = new DaemonClient("http://localhost:8080");
     expect((client as any).claimTask).toBeUndefined();
   });
 });

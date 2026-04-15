@@ -72,7 +72,7 @@ describe("daemon lifecycle", () => {
     const res = await tokenRequest("/api/daemon/tasks/poll", seed.machineToken, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ runtime_ids: [registeredRuntimeId] }),
+      body: JSON.stringify({ daemon_id: daemonId }),
     })
     expect(res.status).toBe(200)
     const data = await res.json() as { tasks: unknown[] }
@@ -90,7 +90,7 @@ describe("daemon lifecycle", () => {
     const res = await fetch(`${APP_URL}/api/daemon/tasks/poll`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ runtime_ids: [registeredRuntimeId] }),
+      body: JSON.stringify({ daemon_id: daemonId }),
     })
     expect(res.status).toBe(401)
   })
@@ -99,7 +99,7 @@ describe("daemon lifecycle", () => {
     const res = await tokenRequest("/api/daemon/deregister", seed.machineToken, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ runtime_ids: [registeredRuntimeId] }),
+      body: JSON.stringify({ daemon_id: daemonId }),
     })
     expect(res.status).toBe(200)
 

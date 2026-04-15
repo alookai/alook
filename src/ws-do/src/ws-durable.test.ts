@@ -147,14 +147,14 @@ describe("WebSocketDurableObject", () => {
 
       const req = new Request("http://internal/broadcast", {
         method: "POST",
-        body: JSON.stringify({ type: "runtime.status", runtimeId: "r1", status: "online" }),
+        body: JSON.stringify({ type: "runtime.status", daemonId: "d1", workspaceId: "w1", status: "online" }),
       })
 
       const res = await durable.fetch(req)
 
       expect(res.status).toBe(200)
       expect(wsAuth.send).toHaveBeenCalledWith(
-        JSON.stringify({ type: "runtime.status", runtimeId: "r1", status: "online" })
+        JSON.stringify({ type: "runtime.status", daemonId: "d1", workspaceId: "w1", status: "online" })
       )
       expect(wsUnauth.send).not.toHaveBeenCalled()
     })

@@ -86,7 +86,7 @@ export type TaskApi = z.infer<typeof TaskApiSchema>;
 // ---------------------------------------------------------------------------
 
 export const PollRequestSchema = z.object({
-  runtime_ids: z.array(z.string().min(1)).min(1),
+  daemon_id: z.string().min(1),
   max_tasks: z.number().int().min(1).default(1),
 });
 export type PollRequest = z.infer<typeof PollRequestSchema>;
@@ -143,7 +143,7 @@ export const RegisterDaemonRequestSchema = z.object({
 export type RegisterDaemonRequest = z.infer<typeof RegisterDaemonRequestSchema>;
 
 export const DeregisterRequestSchema = z.object({
-  runtime_ids: z.array(z.string()).default([]),
+  daemon_id: z.string().min(1),
 });
 export type DeregisterRequest = z.infer<typeof DeregisterRequestSchema>;
 

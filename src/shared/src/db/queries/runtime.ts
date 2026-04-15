@@ -129,6 +129,23 @@ export async function deleteRuntimesByDaemonId(
     );
 }
 
+export async function getRuntimeIdsByDaemon(
+  db: Database,
+  daemonId: string,
+  workspaceId: string
+) {
+  const rows = await db
+    .select({ id: agentRuntime.id })
+    .from(agentRuntime)
+    .where(
+      and(
+        eq(agentRuntime.daemonId, daemonId),
+        eq(agentRuntime.workspaceId, workspaceId)
+      )
+    );
+  return rows.map((r) => r.id);
+}
+
 export async function updateRuntimesLastSeen(
   db: Database,
   ids: string[],

@@ -23,7 +23,7 @@ describe("ws-do router", () => {
       doMock.stubFetch.mockResolvedValue(new Response("ok"))
       const req = new Request("http://localhost/broadcast/user/user-123", {
         method: "POST",
-        body: JSON.stringify({ type: "runtime.status", runtimeId: "r1", status: "online" }),
+        body: JSON.stringify({ type: "runtime.status", daemonId: "d1", workspaceId: "w1", status: "online" }),
       })
 
       const res = await handler.fetch(req, env as any)

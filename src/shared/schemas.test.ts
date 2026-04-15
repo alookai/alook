@@ -158,22 +158,27 @@ describe("TaskAgentDataApiSchema", () => {
 // ---------------------------------------------------------------------------
 
 describe("PollRequestSchema", () => {
-  it("rejects empty runtime_ids array", () => {
-    expect(() => PollRequestSchema.parse({ runtime_ids: [] })).toThrow();
-  });
-
-  it("accepts valid array and defaults max_tasks to 1", () => {
-    const parsed = PollRequestSchema.parse({ runtime_ids: ["r1"] });
-    expect(parsed.runtime_ids).toEqual(["r1"]);
+  it("accepts daemon_id and defaults max_tasks to 1", () => {
+    const parsed = PollRequestSchema.parse({ daemon_id: "d1" });
+    expect(parsed.daemon_id).toBe("d1");
     expect(parsed.max_tasks).toBe(1);
   });
 
-  it("rejects max_tasks: 0", () => {
-    expect(() => PollRequestSchema.parse({ runtime_ids: ["r1"], max_tasks: 0 })).toThrow();
+  it("rejects missing daemon_id", () => {
+    expect(() => PollRequestSchema.parse({})).toThrow();
   });
 
-  it("rejects array with empty strings", () => {
-    expect(() => PollRequestSchema.parse({ runtime_ids: [""] })).toThrow();
+  it("rejects empty daemon_id", () => {
+    expect(() => PollRequestSchema.parse({ daemon_id: "" })).toThrow();
+  });
+
+  it("rejects max_tasks: 0", () => {
+    expect(() => PollRequestSchema.parse({ daemon_id: "d1", max_tasks: 0 })).toThrow();
+  });
+
+  it("rejects old-format body with runtime_ids", () => {
+    // runtime_ids is no longer recognized — daemon_id is required
+    expect(() => PollRequestSchema.parse({ runtime_ids: ["r1"] })).toThrow();
   });
 });
 
@@ -255,9 +260,17 @@ describe("DaemonRuntimeItemSchema", () => {
 // ---------------------------------------------------------------------------
 
 describe("DeregisterRequestSchema", () => {
-  it("requires runtime_ids as a string array", () => {
-    const parsed = DeregisterRequestSchema.parse({ runtime_ids: ["r1", "r2"] });
-    expect(parsed.runtime_ids).toEqual(["r1", "r2"]);
+  it("accepts daemon_id (string, min 1)", () => {
+    const parsed = DeregisterRequestSchema.parse({ daemon_id: "d1" });
+    expect(parsed.daemon_id).toBe("d1");
+  });
+
+  it("rejects missing daemon_id", () => {
+    expect(() => DeregisterRequestSchema.parse({})).toThrow();
+  });
+
+  it("rejects empty daemon_id", () => {
+    expect(() => DeregisterRequestSchema.parse({ daemon_id: "" })).toThrow();
   });
 });
 

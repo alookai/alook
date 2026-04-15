@@ -14,6 +14,7 @@ import { execSync } from "child_process";
 
 interface WorkspaceState {
   workspaceId: string;
+  token: string;
   runtimeIds: string[];
 }
 
@@ -40,20 +41,27 @@ export async function startDaemon(
   if (serverUrl) config.serverURL = serverUrl;
 
   const cliConfig = loadCLIConfigForProfile(profile);
-  if (!cliConfig.token) {
-    log.error(`Not registered. Run '${cmdPrefix()} register' first.`);
-    process.exit(1);
-  }
-  if (cliConfig.server_url) config.serverURL = cliConfig.server_url;
-
-  const client = new DaemonClient(config.serverURL, cliConfig.token);
-  const health = createHealthServer();
 
   const workspaces = cliConfig.watched_workspaces || [];
   if (workspaces.length === 0) {
     log.error("No watched workspaces configured.");
     process.exit(1);
   }
+
+  // Validate: each workspace must have its own token
+  const hasPerWorkspaceTokens = workspaces.every((ws) => !!ws.token);
+  if (!hasPerWorkspaceTokens) {
+    log.error(
+      `Config uses old format. Run '${cmdPrefix()} register --token <token>' for each workspace to upgrade.`,
+    );
+    process.exit(1);
+  }
+
+  // Use server_url from first workspace's config if available
+  if (cliConfig.server_url) config.serverURL = cliConfig.server_url;
+
+  const client = new DaemonClient(config.serverURL);
+  const health = createHealthServer();
 
   const providers: { type: string; path: string; version: string }[] = [];
   for (const [type, path] of [
@@ -87,7 +95,7 @@ export async function startDaemon(
       status: "online",
     }));
 
-    const resp = await client.register({
+    const resp = await client.register(ws.token, {
       workspace_id: ws.id,
       daemon_id: config.daemonId,
       device_name: config.deviceName,
@@ -96,7 +104,7 @@ export async function startDaemon(
     });
 
     const runtimeIds = resp.runtimes.map((r: { id: string }) => r.id);
-    workspaceStates.push({ workspaceId: ws.id, runtimeIds });
+    workspaceStates.push({ workspaceId: ws.id, token: ws.token, runtimeIds });
 
     for (let i = 0; i < runtimeIds.length; i++) {
       runtimeIndex.set(runtimeIds[i], {
@@ -115,25 +123,39 @@ export async function startDaemon(
 
   const activeTasks = new Set<string>();
 
-  const poll = async () => {
-    const remaining = config.maxConcurrentTasks - activeTasks.size;
+  // Staggered per-workspace polling
+  const pollCycle = async () => {
+    let remaining = config.maxConcurrentTasks - activeTasks.size;
     if (remaining <= 0) return;
 
-    try {
-      const tasks = await client.poll(allRuntimeIds, remaining);
-      for (const apiTask of tasks) {
-        const task = fromApiTask(apiTask);
-        activeTasks.add(task.id);
-        handleTask(client, config, runtimeIndex, task)
-          .catch((e) => log.error("Task error", e))
-          .finally(() => activeTasks.delete(task.id));
+    const N = workspaceStates.length;
+    const staggerMs = N > 1 ? Math.floor(config.pollInterval / N) : 0;
+
+    for (let i = 0; i < N; i++) {
+      if (remaining <= 0) break;
+      const ws = workspaceStates[i];
+
+      if (i > 0 && staggerMs > 0) {
+        await new Promise((r) => setTimeout(r, staggerMs));
       }
-    } catch (e) {
-      log.debug("Poll error", e);
+
+      try {
+        const tasks = await client.poll(ws.token, config.daemonId, remaining);
+        for (const apiTask of tasks) {
+          const task = fromApiTask(apiTask);
+          activeTasks.add(task.id);
+          remaining--;
+          handleTask(client, config, runtimeIndex, task, ws.token)
+            .catch((e) => log.error("Task error", e))
+            .finally(() => activeTasks.delete(task.id));
+        }
+      } catch (e) {
+        log.debug("Poll error", e);
+      }
     }
   };
 
-  const pollTimer = setInterval(poll, config.pollInterval);
+  const pollTimer = setInterval(pollCycle, config.pollInterval);
 
   const shutdown = async () => {
     log.info("Shutting down...");
@@ -141,7 +163,9 @@ export async function startDaemon(
     const shutdownMs = Number(process.env.ALOOK_SHUTDOWN_TIMEOUT_MS) || 5000;
     const timeout = setTimeout(() => process.exit(1), shutdownMs);
     try {
-      await client.deregister(allRuntimeIds);
+      for (const ws of workspaceStates) {
+        await client.deregister(ws.token, config.daemonId);
+      }
     } catch {
       // best-effort deregister
     }
@@ -151,7 +175,7 @@ export async function startDaemon(
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
-  await poll();
+  await pollCycle();
 }
 
 async function handleTask(
@@ -159,18 +183,19 @@ async function handleTask(
   config: DaemonConfig,
   runtimeIndex: Map<string, RuntimeData>,
   task: Task,
+  token: string,
 ): Promise<void> {
   log.info(`Task ${task.id} claimed agent=${task.agentId}`);
 
   try {
-    await client.startTask(task.id);
+    await client.startTask(token, task.id);
   } catch (e) {
-    await client.failTask(task.id, `start failed: ${e}`);
+    await client.failTask(token, task.id, `start failed: ${e}`);
     return;
   }
 
   try {
-    const result = await runTask(client, config, runtimeIndex, task);
+    const result = await runTask(client, config, runtimeIndex, task, token);
     if (result.status === "completed") {
       const body: {
         output: string;
@@ -179,14 +204,14 @@ async function handleTask(
       } = { output: result.comment };
       if (result.sessionId) body.session_id = result.sessionId;
       if (result.branchName) body.branch_name = result.branchName;
-      await client.completeTask(task.id, body);
+      await client.completeTask(token, task.id, body);
       log.info(`Task ${task.id} completed`);
     } else {
-      await client.failTask(task.id, result.comment);
+      await client.failTask(token, task.id, result.comment);
       log.warn(`Task ${task.id} failed — ${result.comment}`);
     }
   } catch (e) {
-    await client.failTask(task.id, `${e}`);
+    await client.failTask(token, task.id, `${e}`);
     log.error(`Task ${task.id} error`, e);
   }
 }
@@ -196,6 +221,7 @@ async function runTask(
   config: DaemonConfig,
   runtimeIndex: Map<string, RuntimeData>,
   task: Task,
+  token: string,
 ): Promise<TaskResult> {
   const runtimeData = runtimeIndex.get(task.runtimeId);
   if (!runtimeData) throw new Error(`unknown runtime: ${task.runtimeId}`);
@@ -257,7 +283,7 @@ async function runTask(
     if (pendingMessages.length === 0) return;
     const batch = pendingMessages.splice(0);
     try {
-      await client.reportMessages(task.id, batch);
+      await client.reportMessages(token, task.id, batch);
     } catch (e) {
       log.debug(`Task ${task.id} message report failed`, e);
     }

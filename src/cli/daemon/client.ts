@@ -7,19 +7,17 @@ import {
 } from "@alook/shared";
 
 export class DaemonClient {
-  constructor(
-    private baseURL: string,
-    private token: string,
-  ) {}
+  constructor(private baseURL: string) {}
 
   private async request<T>(
     method: string,
     path: string,
+    token: string,
     body?: unknown,
   ): Promise<T> {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${this.token}`,
+      Authorization: `Bearer ${token}`,
     };
     const res = await fetch(this.baseURL + path, {
       method,
@@ -31,47 +29,53 @@ export class DaemonClient {
     return res.json();
   }
 
-  async register(body: {
-    workspace_id: string;
-    daemon_id: string;
-    device_name: string;
-    cli_version: string;
-    runtimes: {
-      name: string;
-      type: string;
-      version: string;
-      status: string;
-    }[];
-  }): Promise<RegisterResponse> {
+  async register(
+    token: string,
+    body: {
+      workspace_id: string;
+      daemon_id: string;
+      device_name: string;
+      cli_version: string;
+      runtimes: {
+        name: string;
+        type: string;
+        version: string;
+        status: string;
+      }[];
+    },
+  ): Promise<RegisterResponse> {
     const raw = await this.request<unknown>(
       "POST",
       "/api/daemon/register",
+      token,
       body,
     );
     return RegisterResponseSchema.parse(raw);
   }
 
-  deregister(runtimeIds: string[]) {
-    return this.request("POST", "/api/daemon/deregister", {
-      runtime_ids: runtimeIds,
+  deregister(token: string, daemonId: string) {
+    return this.request("POST", "/api/daemon/deregister", token, {
+      daemon_id: daemonId,
     });
   }
 
-  async poll(runtimeIds: string[], maxTasks: number): Promise<TaskApi[]> {
+  async poll(token: string, daemonId: string, maxTasks: number): Promise<TaskApi[]> {
     const raw = await this.request<unknown>(
       "POST",
       "/api/daemon/tasks/poll",
-      { runtime_ids: runtimeIds, max_tasks: maxTasks },
+      token,
+      { daemon_id: daemonId, max_tasks: maxTasks },
     );
     const resp: PollResponse = PollResponseSchema.parse(raw);
     return resp.tasks;
   }
 
-  startTask(taskId: string) {
-    return this.request("POST", `/api/daemon/tasks/${taskId}/start`);
+  startTask(token: string, taskId: string) {
+    return this.request("POST", `/api/daemon/tasks/${taskId}/start`, token);
   }
 
   completeTask(
+    token: string,
     taskId: string,
     body: {
       output: string;
@@ -82,17 +86,19 @@ export class DaemonClient {
     return this.request(
       "POST",
       `/api/daemon/tasks/${taskId}/complete`,
+      token,
       body,
     );
   }
 
-  failTask(taskId: string, error: string) {
-    return this.request("POST", `/api/daemon/tasks/${taskId}/fail`, {
+  failTask(token: string, taskId: string, error: string) {
+    return this.request("POST", `/api/daemon/tasks/${taskId}/fail`, token, {
       error,
     });
   }
 
   reportMessages(
+    token: string,
     taskId: string,
     messages: {
       seq: number;
@@ -107,6 +113,7 @@ export class DaemonClient {
     return this.request(
       "POST",
       `/api/daemon/tasks/${taskId}/messages`,
+      token,
       { messages },
     );
   }

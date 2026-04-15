@@ -92,6 +92,23 @@ export function AgentProvider({
     reload();
   }, [reload]);
 
+  // Debounced reload for runtime.status events
+  const statusDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedReload = useCallback(() => {
+    if (statusDebounceRef.current) clearTimeout(statusDebounceRef.current);
+    statusDebounceRef.current = setTimeout(() => {
+      statusDebounceRef.current = null;
+      reload();
+    }, 300);
+  }, [reload]);
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (statusDebounceRef.current) clearTimeout(statusDebounceRef.current);
+    };
+  }, []);
+
   // Listen for real-time WS events
   const handleWsMessage = useCallback(
     (msg: WsMessage) => {
@@ -101,13 +118,17 @@ export function AgentProvider({
       // AgentProvider only reloads agents/runtimes for runtime events
       switch (msg.type) {
         case "runtime.registered":
-        case "runtime.status":
         case "runtime.deleted":
           reload();
           break;
+        case "runtime.status":
+          // Filter by workspaceId — ignore messages from other workspaces
+          if (msg.workspaceId !== workspaceId) break;
+          debouncedReload();
+          break;
       }
     },
-    [reload]
+    [reload, debouncedReload, workspaceId]
   );
   useUserWs(handleWsMessage);
 

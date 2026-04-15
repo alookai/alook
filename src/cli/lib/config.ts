@@ -6,6 +6,7 @@ import { isDev } from "./env.js";
 interface WatchedWorkspace {
   id: string;
   name: string;
+  token: string;
 }
 
 interface ProfileConfig {

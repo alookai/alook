@@ -18,14 +18,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("Forbidden: machine token required", 403);
   }
 
-  for (const id of body.runtime_ids) {
-    const runtime = await queries.runtime.getAgentRuntimeForWorkspace(
-      db,
-      id,
-      ctx.workspaceId
-    );
-    if (!runtime) continue;
+  // Look up all runtimes by (daemonId, workspaceId)
+  const runtimeIds = await queries.runtime.getRuntimeIdsByDaemon(
+    db,
+    body.daemon_id,
+    ctx.workspaceId,
+  );
 
+  for (const id of runtimeIds) {
     try {
       await queries.runtime.setAgentRuntimeOffline(db, id);
     } catch (e) {
@@ -33,11 +33,15 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
-  broadcastToUser(ctx.userId, {
-    type: "runtime.status",
-    runtimeIds: body.runtime_ids,
-    status: "offline",
-  }).catch(() => {});
+  // Single broadcast at daemon level
+  if (runtimeIds.length > 0) {
+    broadcastToUser(ctx.userId, {
+      type: "runtime.status",
+      daemonId: body.daemon_id,
+      workspaceId: ctx.workspaceId,
+      status: "offline",
+    }).catch(() => {});
+  }
 
   return writeJSON({ status: "ok" });
 });

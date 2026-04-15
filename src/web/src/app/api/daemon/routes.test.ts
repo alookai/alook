@@ -241,6 +241,7 @@ describe("daemon route body validation", () => {
           createDb: vi.fn(() => ({})),
           queries: {
             runtime: {
+              getRuntimeIdsByDaemon: vi.fn().mockResolvedValue(["r1"]),
               updateRuntimesLastSeen: vi.fn().mockResolvedValue(["r1"]),
             },
             agent: {
@@ -264,15 +265,7 @@ describe("daemon route body validation", () => {
       return (await import("./tasks/poll/route")).POST;
     }
 
-    it("returns 400 when runtime_ids is empty array", async () => {
-      const POST = await loadPoll();
-      const res = await POST(
-        postReq("http://localhost/api/daemon/tasks/poll", { runtime_ids: [] })
-      );
-      expect(res.status).toBe(400);
-    });
-
-    it("returns 400 when runtime_ids is missing", async () => {
+    it("returns 400 when daemon_id is missing", async () => {
       const POST = await loadPoll();
       const res = await POST(
         postReq("http://localhost/api/daemon/tasks/poll", {})
@@ -280,18 +273,26 @@ describe("daemon route body validation", () => {
       expect(res.status).toBe(400);
     });
 
-    it("returns 400 when max_tasks is 0", async () => {
+    it("returns 400 when daemon_id is empty string", async () => {
       const POST = await loadPoll();
       const res = await POST(
-        postReq("http://localhost/api/daemon/tasks/poll", { runtime_ids: ["r1"], max_tasks: 0 })
+        postReq("http://localhost/api/daemon/tasks/poll", { daemon_id: "" })
       );
       expect(res.status).toBe(400);
     });
 
-    it("returns 400 when runtime_ids contains empty strings", async () => {
+    it("returns 400 when max_tasks is 0", async () => {
       const POST = await loadPoll();
       const res = await POST(
-        postReq("http://localhost/api/daemon/tasks/poll", { runtime_ids: [""] })
+        postReq("http://localhost/api/daemon/tasks/poll", { daemon_id: "d1", max_tasks: 0 })
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects old-format body with runtime_ids", async () => {
+      const POST = await loadPoll();
+      const res = await POST(
+        postReq("http://localhost/api/daemon/tasks/poll", { runtime_ids: ["r1"] })
       );
       expect(res.status).toBe(400);
     });
@@ -326,21 +327,32 @@ describe("daemon route body validation", () => {
           createDb: vi.fn(() => ({})),
           queries: {
             runtime: {
-              getAgentRuntimeForWorkspace: vi.fn().mockResolvedValue({ id: "rt1" }),
+              getRuntimeIdsByDaemon: vi.fn().mockResolvedValue(["rt1"]),
               setAgentRuntimeOffline: vi.fn(),
             },
           },
         };
       });
+      vi.doMock("@/lib/broadcast", () => ({
+        broadcastToUser: vi.fn().mockResolvedValue(undefined),
+      }));
 
       return (await import("./deregister/route")).POST;
     }
 
-    it("returns 400 when runtime_ids contains non-strings", async () => {
+    it("returns 400 when daemon_id is missing", async () => {
+      const POST = await loadDeregister();
+      const res = await POST(
+        postReq("http://localhost/api/daemon/deregister", {})
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 when daemon_id is empty", async () => {
       const POST = await loadDeregister();
       const res = await POST(
         postReq("http://localhost/api/daemon/deregister", {
-          runtime_ids: [123, true],
+          daemon_id: "",
         })
       );
       expect(res.status).toBe(400);

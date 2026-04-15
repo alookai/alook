@@ -20,38 +20,48 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("Forbidden: machine token required", 403);
   }
 
-  // 1. Liveness: bulk-update last_seen_at for all runtime IDs
-  const updatedIds = await queries.runtime.updateRuntimesLastSeen(
+  // 1. Resolve runtime IDs from daemon_id + workspaceId
+  const runtimeIds = await queries.runtime.getRuntimeIdsByDaemon(
     db,
-    body.runtime_ids,
-    ctx.workspaceId
+    body.daemon_id,
+    ctx.workspaceId,
   );
 
-  if (updatedIds.length < body.runtime_ids.length) {
+  if (runtimeIds.length === 0) {
+    return writeJSON({ tasks: [] });
+  }
+
+  // 2. Liveness: bulk-update last_seen_at for all runtime IDs
+  const updatedIds = await queries.runtime.updateRuntimesLastSeen(
+    db,
+    runtimeIds,
+    ctx.workspaceId,
+  );
+
+  if (updatedIds.length < runtimeIds.length) {
     log.warn("Some runtime IDs not found in workspace", {
-      expected: body.runtime_ids.length,
+      expected: runtimeIds.length,
       updated: updatedIds.length,
     });
   }
 
-  // Broadcast runtime status only for verified IDs
-  for (const rid of updatedIds) {
-    broadcastToUser(ctx.userId, {
-      type: "runtime.status",
-      runtimeId: rid,
-      status: "online",
-    }).catch(() => {});
-  }
+  // Single broadcast at daemon level
+  broadcastToUser(ctx.userId, {
+    type: "runtime.status",
+    daemonId: body.daemon_id,
+    workspaceId: ctx.workspaceId,
+    status: "online",
+  }).catch(() => {});
 
-  // 2. Housekeeping: sweep stale state
+  // 3. Housekeeping: sweep stale state
   await sweepStaleState(db, ctx.workspaceId);
 
-  // 3. Task claiming
+  // 4. Task claiming
   const taskService = new TaskService(db);
   const claimed = await taskService.claimTasksForRuntimes(
-    body.runtime_ids,
+    runtimeIds,
     body.max_tasks,
-    ctx.workspaceId!
+    ctx.workspaceId!,
   );
 
   const tasks = [];

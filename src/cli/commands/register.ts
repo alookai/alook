@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { execSync } from "child_process";
 import { hostname } from "os";
 import { APIClient } from "../lib/client.js";
-import { saveCLIConfigForProfile } from "../lib/config.js";
+import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
 import { cmdPrefix } from "../lib/env.js";
 
 interface MeResponse {
@@ -141,10 +141,20 @@ export function registerCommand(): Command {
         process.exit(1);
       }
 
+      // Load existing config to preserve other workspaces
+      const existing = loadCLIConfigForProfile(profile);
+      const watched = existing.watched_workspaces || [];
+      const idx = watched.findIndex((w) => w.id === ws.id);
+      if (idx >= 0) {
+        watched[idx] = { id: ws.id, name: ws.name, token };
+      } else {
+        watched.push({ id: ws.id, name: ws.name, token });
+      }
+
       saveCLIConfigForProfile(profile, {
-        token,
+        token: "",
         server_url: serverUrl,
-        watched_workspaces: [{ id: ws.id, name: ws.name }],
+        watched_workspaces: watched,
       });
 
       console.log(`\nRegistered as ${me.email}`);
