@@ -7,8 +7,6 @@ export type {
   Machine,
   Conversation,
   Message,
-  AgentTask,
-  TaskAgentData,
   TaskMessage,
   MachineToken,
   Email,

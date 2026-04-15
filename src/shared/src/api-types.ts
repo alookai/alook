@@ -5,10 +5,10 @@ import type {
   AgentRuntime,
   Conversation,
   Message,
-  AgentTask,
   TaskMessage,
   MachineToken,
 } from "./types";
+import type { TaskApi } from "./schemas";
 
 export interface ApiResponse<T> {
   data: T;
@@ -39,8 +39,8 @@ export type GetConversationResponse = ApiResponse<Conversation>;
 
 export type ListMessagesResponse = ApiListResponse<Message>;
 
-export type ListTasksResponse = ApiListResponse<AgentTask>;
-export type GetTaskResponse = ApiResponse<AgentTask>;
+export type ListTasksResponse = ApiListResponse<TaskApi>;
+export type GetTaskResponse = ApiResponse<TaskApi>;
 
 export type ListTaskMessagesResponse = ApiListResponse<TaskMessage>;
 

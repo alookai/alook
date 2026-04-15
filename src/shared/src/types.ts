@@ -63,32 +63,6 @@ export interface Message {
   created_at: string;
 }
 
-/** @deprecated Use TaskApiSchema from schemas.ts for runtime validation. */
-export interface AgentTask {
-  id: string;
-  agent_id: string;
-  runtime_id: string;
-  conversation_id: string;
-  workspace_id: string;
-  prompt: string;
-  status: string;
-  priority: number;
-  dispatched_at: string | null;
-  started_at: string | null;
-  completed_at: string | null;
-  result: unknown;
-  error: string | null;
-  agent?: TaskAgentData;
-  created_at: string;
-  type: string;
-}
-
-export interface TaskAgentData {
-  id: string;
-  name: string;
-  instructions: string;
-}
-
 export interface TaskMessage {
   id: string;
   task_id: string;

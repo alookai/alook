@@ -7,7 +7,7 @@ import type {
   Email,
   LoginResponse,
   Message,
-  AgentTask,
+  TaskApi,
   TaskMessage,
   User,
   Workspace,
@@ -16,7 +16,7 @@ import { ApiError } from "@/lib/errors";
 
 // Re-export AgentRuntime as Runtime for convenience
 export type Runtime = AgentRuntime;
-export type Task = AgentTask;
+export type Task = TaskApi;
 
 const API_BASE = "";
 
