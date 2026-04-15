@@ -48,7 +48,6 @@ jobs:
     env:
       BETTER_AUTH_SECRET: ci-e2e-secret
       BETTER_AUTH_URL: http://localhost:3000
-      NEXTJS_ENV: development
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -59,7 +58,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Create .dev.vars for local bindings
-        run: printf 'BETTER_AUTH_SECRET=ci-e2e-secret\nBETTER_AUTH_URL=http://localhost:3000\nNEXTJS_ENV=development\n' > src/web/.dev.vars
+        run: printf 'BETTER_AUTH_SECRET=ci-e2e-secret\nBETTER_AUTH_URL=http://localhost:3000\nAUTH_MODE=password\n' > src/web/.dev.vars
       - run: pnpm run db:migrate
       - name: Start dev server
         run: |

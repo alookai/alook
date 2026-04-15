@@ -2,7 +2,7 @@ import { betterAuth } from "better-auth"
 import { emailOTP } from "better-auth/plugins"
 import { getOtpSubject, renderOtpEmail } from "./email-templates"
 
-const isProduction = (env: Env) => env.NEXTJS_ENV === "production"
+const isOtp = (env: Env) => env.AUTH_MODE === "otp"
 
 export function createAuth(env: Env) {
   return betterAuth({
@@ -10,7 +10,7 @@ export function createAuth(env: Env) {
     database: env.DB,
     secret: env.BETTER_AUTH_SECRET,
     emailAndPassword: {
-      enabled: !isProduction(env),
+      enabled: !isOtp(env),
       requireEmailVerification: false,
     },
     socialProviders: {
@@ -23,7 +23,7 @@ export function createAuth(env: Env) {
         clientSecret: env.GOOGLE_CLIENT_SECRET,
       },
     },
-    plugins: isProduction(env)
+    plugins: isOtp(env)
       ? [
           emailOTP({
             async sendVerificationOTP({ email, otp, type }) {

@@ -18,6 +18,6 @@ GITHUB_CLIENT_SECRET=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 
-# Override wrangler.toml's NEXTJS_ENV=production for local dev
-# This enables password auth and disables email OTP locally
-NEXTJS_ENV=development
+# Override wrangler.toml's AUTH_MODE=otp for local dev
+# "password" enables email+password auth, "otp" enables email OTP
+AUTH_MODE=password
