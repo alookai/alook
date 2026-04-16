@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { createDb, queries } from "@alook/shared";
+import { createDb, queries, DEV_EMAIL_WORKER_URL } from "@alook/shared";
 import type { EmailAttachment } from "@alook/shared";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
@@ -42,20 +42,32 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const attachments = body.attachments ?? [];
 
   // Delegate sending + R2 archival to the email worker
-  const emailRes = await cfEnv.EMAIL_WORKER.fetch("http://internal/send/agent", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      agentId: body.agentId,
-      workspaceId: ws.workspaceId,
-      to: body.to,
-      subject: body.subject,
-      htmlBody: body.htmlBody || "",
-      attachmentKeys: attachments.length > 0
-        ? attachments.map((a) => ({ key: a.key, filename: a.filename, contentType: a.contentType }))
-        : undefined,
-    }),
+  const emailPayload = JSON.stringify({
+    agentId: body.agentId,
+    workspaceId: ws.workspaceId,
+    to: body.to,
+    subject: body.subject,
+    htmlBody: body.htmlBody || "",
+    attachmentKeys: attachments.length > 0
+      ? attachments.map((a) => ({ key: a.key, filename: a.filename, contentType: a.contentType }))
+      : undefined,
   });
+
+  let emailRes: Response;
+  try {
+    emailRes = await cfEnv.EMAIL_WORKER.fetch("http://internal/send/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: emailPayload,
+    });
+  } catch {
+    // Service binding not connected — fall back to direct URL (local dev)
+    emailRes = await fetch(`${DEV_EMAIL_WORKER_URL}/send/agent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: emailPayload,
+    });
+  }
 
   if (!emailRes.ok) {
     const errBody = await emailRes.text();

@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth"
 import { emailOTP } from "better-auth/plugins"
-import { createLogger } from "@alook/shared"
+import { createLogger, DEV_EMAIL_WORKER_URL } from "@alook/shared"
 import { getOtpSubject, renderOtpEmail } from "./email-templates"
 
 const isProd = process.env.NODE_ENV === "production"
@@ -31,15 +31,22 @@ export function createAuth(env: Env) {
             async sendVerificationOTP({ email, otp, type }) {
               log.info("sending OTP email", { to: email, type })
               try {
-                const res = await env.EMAIL_WORKER.fetch("http://internal/send/otp", {
+                const otpPayload = JSON.stringify({
+                  to: email,
+                  subject: getOtpSubject(type),
+                  html: renderOtpEmail(otp, type),
+                })
+                const fetchOpts = {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    to: email,
-                    subject: getOtpSubject(type),
-                    html: renderOtpEmail(otp, type),
-                  }),
-                })
+                  body: otpPayload,
+                }
+                let res: Response
+                try {
+                  res = await env.EMAIL_WORKER.fetch("http://internal/send/otp", fetchOpts)
+                } catch {
+                  res = await fetch(`${DEV_EMAIL_WORKER_URL}/send/otp`, fetchOpts)
+                }
                 if (!res.ok) {
                   const errBody = await res.text()
                   throw new Error(`EMAIL_WORKER /send/otp failed: ${res.status} ${errBody}`)

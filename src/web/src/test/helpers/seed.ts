@@ -8,6 +8,7 @@ export interface TestSeed {
   runtimeId: string
   daemonId: string
   agentId: string
+  agentEmailHandle: string
   /** Raw machine token (starts with al_) */
   machineToken: string
   machineTokenId: string
@@ -30,6 +31,8 @@ export function seedTestData(): TestSeed {
   const daemonId = `daemon_${nanoid()}`
   const machineTokenId = `mt_${nanoid()}`
   const rawToken = `al_${randomUUID().replace(/-/g, "")}`
+  const emailHandle = `e2e-${nanoid()}`
+  const whitelistId = `wl_${nanoid()}`
 
   const now = new Date().toISOString()
   const slug = `test-${nanoid()}`
@@ -39,10 +42,11 @@ export function seedTestData(): TestSeed {
   sql(`INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES ('${memberId}', '${workspaceId}', '${userId}', 'owner', '${now}')`)
   sql(`INSERT INTO machine (daemon_id, workspace_id, device_info, last_seen_at, created_at, updated_at) VALUES ('${daemonId}', '${workspaceId}', 'test-device', '${now}', '${now}', '${now}')`)
   sql(`INSERT INTO agent_runtime (id, workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, created_at, updated_at) VALUES ('${runtimeId}', '${workspaceId}', '${daemonId}', 'Test Runtime', 'local', 'claude', 'online', 'test-device', '${now}', '${now}')`)
-  sql(`INSERT INTO agent (id, workspace_id, name, runtime_id, created_at, updated_at) VALUES ('${agentId}', '${workspaceId}', 'Test Agent', '${runtimeId}', '${now}', '${now}')`)
+  sql(`INSERT INTO agent (id, workspace_id, name, runtime_id, email_handle, owner_id, created_at, updated_at) VALUES ('${agentId}', '${workspaceId}', 'Test Agent', '${runtimeId}', '${emailHandle}', '${userId}', '${now}', '${now}')`)
   sql(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES ('${machineTokenId}', '${userId}', '${workspaceId}', '${rawToken}', 'test-token', 'active', '${now}')`)
+  sql(`INSERT INTO agent_whitelist (id, agent_id, workspace_id, email, created_at) VALUES ('${whitelistId}', '${agentId}', '${workspaceId}', '${userId}@test.local', '${now}')`)
 
-  return { userId, workspaceId, memberId, runtimeId, daemonId, agentId, machineToken: rawToken, machineTokenId }
+  return { userId, workspaceId, memberId, runtimeId, daemonId, agentId, agentEmailHandle: emailHandle, machineToken: rawToken, machineTokenId }
 }
 
 /**

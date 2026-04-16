@@ -42,4 +42,4 @@ export const AGENT_HANDLE_MIN_LENGTH = 4;
 // Local dev URLs (used for service-binding fallbacks)
 export const DEV_WEB_URL = process.env.ALOOK_SERVER_URL || "http://localhost:3000";
 export const DEV_WS_DO_URL = process.env.DEV_WS_DO_URL || "http://localhost:8789";
-export const DEV_EMAIL_WORKER_URL = process.env.DEV_EMAIL_WORKER_URL || "http://localhost:8788";
+export const DEV_EMAIL_WORKER_URL = process.env.DEV_EMAIL_WORKER_URL || "http://localhost:8787";

@@ -60,8 +60,9 @@ jobs:
       - name: Create .dev.vars for local bindings
         run: printf 'BETTER_AUTH_SECRET=ci-e2e-secret\nBETTER_AUTH_URL=http://localhost:3000\n' > src/web/.dev.vars
       - run: pnpm run db:migrate
-      - name: Start dev server
+      - name: Start dev servers
         run: |
+          pnpm --filter @alook/email-worker dev &
           pnpm --filter @alook/web dev &
           until curl -sf http://localhost:3000/api/health; do sleep 2; done
       - run: pnpm test:e2e
