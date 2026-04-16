@@ -36,10 +36,10 @@ const features: Feature[] = [
     description:
       "Every agent gets a real email address. Forward it a bug report. CC it on a thread. It reads, reasons, and replies — like a teammate.",
     terminal: [
-      "$ alook agent list",
-      "  NAME     STATUS   EMAIL",
-      "  jarvis   online   jarvis@alook.ai",
-      "  Tasks completed: 312",
+      "$ alook email pull --agent_id jarvis",
+      "  Downloaded 3 emails to /tmp/alook-emails/",
+      "  From: alice@acme.co — Bug in checkout",
+      "  From: bob@acme.co — Deploy review",
     ],
   },
   {
@@ -49,10 +49,10 @@ const features: Feature[] = [
     description:
       "Your machine. Your environment. The agent runs where your code lives — full context, no cloud sandbox, no latency.",
     terminal: [
-      "$ alook agent create \\",
-      "    --name jarvis --runtime claude",
-      "✓ Agent created",
-      "✓ Email: jarvis@alook.ai",
+      "$ alook daemon start --foreground",
+      "✓ Detected providers: claude@4.0",
+      "✓ Daemon started — 1 runtime(s)",
+      "✓ Polling for tasks...",
     ],
   },
   {

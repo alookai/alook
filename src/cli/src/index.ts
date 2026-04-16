@@ -2,7 +2,6 @@
 import { Command } from "commander";
 import { registerCommand } from "../commands/register.js";
 import { statusCommand } from "../commands/status.js";
-import { agentCommand } from "../commands/agent.js";
 import { daemonCommand } from "../commands/daemon.js";
 import { configCommand } from "../commands/config.js";
 import { emailCommand } from "../commands/email.js";
@@ -18,7 +17,6 @@ program
 
 program.addCommand(registerCommand());
 program.addCommand(statusCommand());
-program.addCommand(agentCommand());
 program.addCommand(daemonCommand());
 program.addCommand(emailCommand());
 program.addCommand(configCommand());
