@@ -34,60 +34,6 @@ async function notifyWeb(env: EmailEnv, payload: Record<string, unknown>, traceI
 }
 
 export default {
-  async fetch(request: Request, env: EmailEnv): Promise<Response> {
-    const traceId = request.headers.get("X-Trace-Id") ?? nanoid(12)
-    const reqLog = log.child({ traceId })
-    const url = new URL(request.url)
-
-    if (url.pathname !== "/simulate" || request.method !== "POST") {
-      return new Response("POST /simulate to send a test email", { status: 404 })
-    }
-
-    const body = await request.json() as { from: string; to: string; subject?: string; body?: string }
-    if (!body.from || !body.to) {
-      return new Response("from and to required", { status: 400 })
-    }
-
-    reqLog.info("simulating email", { from: body.from, to: body.to })
-
-    const raw = [
-      `From: ${body.from}`,
-      `To: ${body.to}`,
-      `Subject: ${body.subject ?? "(test)"}`,
-      `Date: ${new Date().toUTCString()}`,
-      "",
-      body.body ?? "",
-    ].join("\r\n")
-
-    const rawStream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode(raw))
-        controller.close()
-      },
-    })
-
-    const headers = new Headers()
-    headers.set("subject", body.subject ?? "(test)")
-
-    const fakeMessage = {
-      from: body.from,
-      to: body.to,
-      raw: rawStream,
-      headers,
-      setReject(reason: string) { reqLog.warn("rejected", { reason }) },
-      forward(_to: string) { reqLog.info("forwarded", { forwardTo: _to }); return Promise.resolve() },
-    } as unknown as ForwardableEmailMessage
-
-    try {
-      await this.email(fakeMessage, env)
-      return Response.json({ ok: true })
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e)
-      reqLog.error("simulate error", { err: msg })
-      return Response.json({ error: msg }, { status: 500 })
-    }
-  },
-
   async email(message: ForwardableEmailMessage, env: EmailEnv): Promise<void> {
     const traceId = nanoid(12)
     const emailLog = log.child({ traceId, from: message.from, to: message.to })
