@@ -24,3 +24,6 @@ bucket_name = "alook-emails"
 [[services]]
 binding = "WEB_SERVICE"
 service = "alook-web"
+
+[[send_email]]
+name = "SEND_EMAIL"
