@@ -57,6 +57,3 @@ service = "alook-ws-do"
 binding = "EMAIL_WORKER"
 service = "alook-email-worker"
 
-# Outbound email sending via Cloudflare Email Routing
-[[send_email]]
-name = "SEND_EMAIL"
