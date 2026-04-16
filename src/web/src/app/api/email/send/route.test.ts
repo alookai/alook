@@ -3,19 +3,13 @@ import { NextRequest } from "next/server";
 
 const mockGetAgent = vi.fn();
 const mockCreateEmail = vi.fn();
-const mockR2Put = vi.fn();
-const mockR2Get = vi.fn();
-const mockSendEmailSend = vi.fn();
+const mockEmailWorkerFetch = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({
     env: {
       DB: {},
-      EMAIL_BUCKET: {
-        put: (...args: unknown[]) => mockR2Put(...args),
-        get: (...args: unknown[]) => mockR2Get(...args),
-      },
-      SEND_EMAIL: { send: (...args: unknown[]) => mockSendEmailSend(...args) },
+      EMAIL_WORKER: { fetch: (...args: unknown[]) => mockEmailWorkerFetch(...args) },
     },
   })),
 }));
@@ -60,14 +54,15 @@ import { POST } from "./route";
 describe("POST /api/email/send", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("sends an email and returns the created record", async () => {
+  it("sends email via EMAIL_WORKER and returns the created record", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent" });
+    mockEmailWorkerFetch.mockResolvedValue(
+      Response.json({ ok: true, r2Key: "emails/abc/raw" }),
+    );
     mockCreateEmail.mockResolvedValue({
       id: "e1", agentId: "a1", fromEmail: "test-agent@alook.ai",
       toEmail: "user@example.com", subject: "Hello",
     });
-    mockR2Put.mockResolvedValue(undefined);
-    mockSendEmailSend.mockResolvedValue({ messageId: "msg1" });
 
     const req = new NextRequest("http://localhost/api/email/send?workspace_id=ws1", {
       method: "POST",
@@ -81,24 +76,31 @@ describe("POST /api/email/send", () => {
 
     const res = await POST(req, {} as any);
     expect(res.status).toBe(200);
-    expect(mockSendEmailSend).toHaveBeenCalled();
-    expect(mockR2Put).toHaveBeenCalled();
-    expect(mockCreateEmail).toHaveBeenCalled();
 
-    // Verify single-part message (no boundary)
-    const r2Content = mockR2Put.mock.calls[0]![1] as string;
-    expect(r2Content).toContain("Content-Type: text/html; charset=utf-8");
-    expect(r2Content).not.toContain("multipart");
+    // Verify EMAIL_WORKER was called
+    expect(mockEmailWorkerFetch).toHaveBeenCalledOnce();
+    const [url, init] = mockEmailWorkerFetch.mock.calls[0];
+    expect(url).toBe("http://internal/send/agent");
+    expect(init.method).toBe("POST");
+    const fetchBody = JSON.parse(init.body);
+    expect(fetchBody.agentId).toBe("a1");
+    expect(fetchBody.to).toBe("user@example.com");
+    expect(fetchBody.subject).toBe("Hello");
+    expect(fetchBody.htmlBody).toBe("<p>Hi there</p>");
+    expect(fetchBody.attachmentKeys).toBeUndefined();
+
+    // Verify DB record created with r2Key from email worker
+    expect(mockCreateEmail).toHaveBeenCalledOnce();
+    const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+    expect(createArgs.r2Key).toBe("emails/abc/raw");
   });
 
-  it("sends email with attachments as MIME multipart/mixed", async () => {
+  it("sends email with attachments via EMAIL_WORKER", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent" });
+    mockEmailWorkerFetch.mockResolvedValue(
+      Response.json({ ok: true, r2Key: "emails/def/raw" }),
+    );
     mockCreateEmail.mockResolvedValue({ id: "e1" });
-    mockR2Put.mockResolvedValue(undefined);
-    mockSendEmailSend.mockResolvedValue({ messageId: "msg1" });
-    mockR2Get.mockResolvedValue({
-      arrayBuffer: () => Promise.resolve(new TextEncoder().encode("file content").buffer),
-    });
 
     const attachments = [
       { key: "emails/drafts/x/doc.txt", filename: "doc.txt", size: 12, contentType: "text/plain" },
@@ -118,39 +120,35 @@ describe("POST /api/email/send", () => {
     const res = await POST(req, {} as any);
     expect(res.status).toBe(200);
 
-    // Verify MIME multipart message stored in R2
-    const r2Content = mockR2Put.mock.calls[0]![1] as string;
-    expect(r2Content).toContain("multipart/mixed");
-    expect(r2Content).toContain("Content-Disposition: attachment; filename=\"doc.txt\"");
-    expect(r2Content).toContain("Content-Transfer-Encoding: base64");
+    // Verify attachmentKeys sent to email worker
+    const fetchBody = JSON.parse(mockEmailWorkerFetch.mock.calls[0][1].body);
+    expect(fetchBody.attachmentKeys).toEqual([
+      { key: "emails/drafts/x/doc.txt", filename: "doc.txt", contentType: "text/plain" },
+    ]);
 
-    // Verify attachments passed to createEmail
+    // Verify full attachments stored in DB record
     const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
     expect(createArgs.attachments).toBe(JSON.stringify(attachments));
   });
 
-  it("skips missing R2 attachments gracefully", async () => {
+  it("returns error when EMAIL_WORKER fails", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent" });
-    mockCreateEmail.mockResolvedValue({ id: "e1" });
-    mockR2Put.mockResolvedValue(undefined);
-    mockSendEmailSend.mockResolvedValue({ messageId: "msg1" });
-    mockR2Get.mockResolvedValue(null); // R2 object not found
+    mockEmailWorkerFetch.mockResolvedValue(
+      new Response(JSON.stringify({ error: "agent not found" }), { status: 404 }),
+    );
 
     const req = new NextRequest("http://localhost/api/email/send?workspace_id=ws1", {
       method: "POST",
       body: JSON.stringify({
         agentId: "a1",
         to: "user@example.com",
-        subject: "Missing attachment",
-        htmlBody: "<p>Oops</p>",
-        attachments: [
-          { key: "emails/drafts/gone/file.pdf", filename: "file.pdf", size: 100, contentType: "application/pdf" },
-        ],
+        subject: "Hello",
+        htmlBody: "<p>Hi</p>",
       }),
     });
 
     const res = await POST(req, {} as any);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(404);
   });
 
   it("returns 400 when agent has no emailHandle", async () => {
