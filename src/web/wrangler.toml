@@ -53,6 +53,10 @@ bucket_name = "alook-emails"
 binding = "WS_DO_WORKER"
 service = "alook-ws-do"
 
+[[services]]
+binding = "EMAIL_WORKER"
+service = "alook-email-worker"
+
 # Outbound email sending via Cloudflare Email Routing
 [[send_email]]
 name = "SEND_EMAIL"
