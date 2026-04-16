@@ -31,12 +31,19 @@ export function createAuth(env: Env) {
             async sendVerificationOTP({ email, otp, type }) {
               log.info("sending OTP email", { to: email, type })
               try {
-                await env.SEND_EMAIL.send({
-                  from: "no-reply@alook.ai",
-                  to: email,
-                  subject: getOtpSubject(type),
-                  html: renderOtpEmail(otp, type),
+                const res = await env.EMAIL_WORKER.fetch("http://internal/send/otp", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    to: email,
+                    subject: getOtpSubject(type),
+                    html: renderOtpEmail(otp, type),
+                  }),
                 })
+                if (!res.ok) {
+                  const errBody = await res.text()
+                  throw new Error(`EMAIL_WORKER /send/otp failed: ${res.status} ${errBody}`)
+                }
                 log.info("OTP email sent", { to: email, type })
               } catch (err) {
                 log.error("OTP email failed", { to: email, type, err })
