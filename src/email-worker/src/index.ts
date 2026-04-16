@@ -107,35 +107,35 @@ export default {
     const htmlBody = body.htmlBody ?? ""
     const attachmentKeys = body.attachmentKeys ?? []
 
-    // Fetch attachment content from R2 and build CF EmailAttachment[]
-    const cfAttachments: { disposition: "attachment"; filename: string; type: string; content: ArrayBuffer }[] = []
+    // Fetch attachment content from R2 and convert to base64
+    const attachments: { disposition: "attachment"; filename: string; type: string; content: string }[] = []
     for (const att of attachmentKeys) {
       const obj = await env.EMAIL_BUCKET.get(att.key)
       if (!obj) continue
       const buf = await obj.arrayBuffer()
-      cfAttachments.push({
+      attachments.push({
         disposition: "attachment" as const,
         filename: att.filename,
         type: att.contentType,
-        content: buf,
+        content: arrayBufferToBase64(buf),
       })
     }
 
-    // Send via CF builder overload
+    // Send via CF builder overload (content as base64 string per CF docs)
     const sendPayload: Record<string, unknown> = {
       from: fromAddress,
       to: body.to,
       subject: body.subject,
       html: htmlBody,
     }
-    if (cfAttachments.length > 0) {
-      sendPayload.attachments = cfAttachments
+    if (attachments.length > 0) {
+      sendPayload.attachments = attachments
     }
     await env.SEND_EMAIL.send(sendPayload as any)
 
     // Build raw MIME for R2 archival
     let rawMime: string
-    if (cfAttachments.length === 0) {
+    if (attachments.length === 0) {
       rawMime = [
         `From: ${fromAddress}`,
         `To: ${body.to}`,
@@ -162,8 +162,7 @@ export default {
         "",
         htmlBody,
       ]
-      for (const att of cfAttachments) {
-        const b64 = arrayBufferToBase64(att.content)
+      for (const att of attachments) {
         parts.push(
           [
             `--${boundary}`,
@@ -171,7 +170,7 @@ export default {
             `Content-Disposition: attachment; filename="${att.filename}"`,
             `Content-Transfer-Encoding: base64`,
             "",
-            b64.match(/.{1,76}/g)?.join("\r\n") ?? b64,
+            att.content.match(/.{1,76}/g)?.join("\r\n") ?? att.content,
           ].join("\r\n")
         )
       }

@@ -428,12 +428,14 @@ describe("POST /send/agent", () => {
 
     expect(res.status).toBe(200)
 
-    // Verify SEND_EMAIL.send includes attachments
+    // Verify SEND_EMAIL.send includes attachments with base64 content string
     const sendArg = send.mock.calls[0][0]
     expect(sendArg.attachments).toHaveLength(1)
     expect(sendArg.attachments[0].filename).toBe("doc.txt")
     expect(sendArg.attachments[0].type).toBe("text/plain")
     expect(sendArg.attachments[0].disposition).toBe("attachment")
+    expect(typeof sendArg.attachments[0].content).toBe("string")
+    expect(sendArg.attachments[0].content).toBe(btoa("file content"))
 
     // Verify R2 MIME archive contains attachment
     const storedMime = put.mock.calls[0][1] as string
