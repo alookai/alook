@@ -72,6 +72,16 @@ CREATE TABLE IF NOT EXISTS member (
   UNIQUE(workspace_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS machine (
+  daemon_id    TEXT NOT NULL,
+  workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+  device_info  TEXT NOT NULL DEFAULT '',
+  last_seen_at TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (workspace_id, daemon_id)
+);
+
 CREATE TABLE IF NOT EXISTS agent_runtime (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
@@ -147,6 +157,7 @@ CREATE TABLE IF NOT EXISTS agent_task_queue (
   workspace_id TEXT NOT NULL REFERENCES workspace(id),
   conversation_id TEXT NOT NULL REFERENCES conversation(id),
   prompt TEXT NOT NULL,
+  type TEXT NOT NULL DEFAULT 'user_dm_message',
   status TEXT NOT NULL DEFAULT 'queued',
   priority INTEGER NOT NULL DEFAULT 0,
   result TEXT,
@@ -159,10 +170,6 @@ CREATE TABLE IF NOT EXISTS agent_task_queue (
   error TEXT,
   FOREIGN KEY (agent_id, workspace_id) REFERENCES agent(id, workspace_id) ON DELETE CASCADE
 );
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_one_pending_per_conversation
-  ON agent_task_queue(conversation_id)
-  WHERE status IN ('queued', 'dispatched');
 
 CREATE INDEX IF NOT EXISTS idx_task_queue_pending
   ON agent_task_queue(agent_id, status)
@@ -195,6 +202,7 @@ CREATE TABLE IF NOT EXISTS emails (
   forwarded INTEGER NOT NULL DEFAULT 0,
   html_body TEXT NOT NULL DEFAULT '',
   attachments TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'unread',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (agent_id, workspace_id) REFERENCES agent(id, workspace_id) ON DELETE CASCADE
 );
