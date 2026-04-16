@@ -7,12 +7,14 @@
     "deploy": "wrangler deploy",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": { "@alook/shared": "workspace:*" },
+  "dependencies": {
+    "@alook/shared": "workspace:*"
+  },
   "devDependencies": {
-    "wrangler": "^4.82.2",
-    "typescript": "^6.0.2",
     "@cloudflare/workers-types": "^4.20260414.1",
     "@types/node": "^25.6.0",
-    "vitest": "^4.1.4"
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4",
+    "wrangler": "^4.83.0"
   }
 }

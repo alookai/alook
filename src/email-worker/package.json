@@ -2,7 +2,21 @@
   "name": "@alook/email-worker",
   "version": "0.0.1",
   "private": true,
-  "scripts": { "dev": "wrangler dev --persist-to ../web/.wrangler/state", "deploy": "wrangler deploy", "test": "vitest run", "typecheck": "tsc --noEmit" },
-  "dependencies": { "@alook/shared": "workspace:*", "nanoid": "^5.1.7" },
-  "devDependencies": { "vitest": "^4.1.4", "wrangler": "^4.82.2", "typescript": "^6.0.2", "@cloudflare/workers-types": "^4.20260414.1", "@types/node": "^25.6.0" }
+  "scripts": {
+    "dev": "wrangler dev --persist-to ../web/.wrangler/state",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@alook/shared": "workspace:*",
+    "nanoid": "^5.1.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260414.1",
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4",
+    "wrangler": "^4.83.0"
+  }
 }
