@@ -7,6 +7,7 @@ interface EmailEnv {
   DB: D1Database
   EMAIL_BUCKET: R2Bucket
   WEB_SERVICE: Fetcher
+  SEND_EMAIL: SendEmail
 }
 
 async function notifyWeb(env: EmailEnv, payload: Record<string, unknown>, traceId: string) {
@@ -34,6 +35,37 @@ async function notifyWeb(env: EmailEnv, payload: Record<string, unknown>, traceI
 }
 
 export default {
+  async fetch(request: Request, env: EmailEnv): Promise<Response> {
+    const url = new URL(request.url)
+
+    if (request.method !== "POST") {
+      return Response.json({ error: "method not allowed" }, { status: 405 })
+    }
+
+    if (url.pathname === "/send/otp") {
+      return this.handleSendOtp(request, env)
+    }
+
+    return Response.json({ error: "not found" }, { status: 404 })
+  },
+
+  async handleSendOtp(request: Request, env: EmailEnv): Promise<Response> {
+    const body = await request.json() as { to?: string; subject?: string; html?: string }
+
+    if (!body.to || !body.subject) {
+      return Response.json({ error: "to and subject are required" }, { status: 400 })
+    }
+
+    await env.SEND_EMAIL.send({
+      from: "no-reply@alook.ai",
+      to: body.to,
+      subject: body.subject,
+      html: body.html ?? "",
+    })
+
+    return Response.json({ ok: true })
+  },
+
   async email(message: ForwardableEmailMessage, env: EmailEnv): Promise<void> {
     const traceId = nanoid(12)
     const emailLog = log.child({ traceId, from: message.from, to: message.to })

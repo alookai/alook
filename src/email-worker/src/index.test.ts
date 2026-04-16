@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { createMockR2, createMockFetcher, createMockMessage } from "./__mocks__/cf"
+import { createMockR2, createMockFetcher, createMockMessage, createMockSendEmail } from "./__mocks__/cf"
 
 // Mock nanoid to return predictable IDs
 let nanoidCounter = 0
@@ -71,6 +71,7 @@ function setup(overrides?: {
 
   const { bucket, put } = createMockR2()
   const { fetcher, fetch: wsFetch } = createMockFetcher()
+  const { sendEmail } = createMockSendEmail()
   const { message, setReject, forward, rawText } = createMockMessage(
     overrides?.messageOpts ?? {
       from: "owner@example.com",
@@ -80,7 +81,7 @@ function setup(overrides?: {
     }
   )
 
-  const env = { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher }
+  const env = { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail }
 
   return { env, message, put, wsFetch, setReject, forward, rawText }
 }
@@ -274,5 +275,64 @@ describe("non-whitelisted path", () => {
     await handler.email(message, env)
 
     expect(mockGetUser).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Group 5: POST /send/otp ───
+
+describe("POST /send/otp", () => {
+  function makeOtpRequest(body: Record<string, unknown>) {
+    return new Request("http://localhost/send/otp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  }
+
+  function otpEnv() {
+    const { bucket } = createMockR2()
+    const { fetcher } = createMockFetcher()
+    const { sendEmail, send } = createMockSendEmail()
+    return {
+      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail },
+      send,
+    }
+  }
+
+  it("sends OTP email via SEND_EMAIL binding", async () => {
+    const { env, send } = otpEnv()
+    const res = await handler.fetch(
+      makeOtpRequest({ to: "user@example.com", subject: "Your code", html: "<p>123456</p>" }),
+      env,
+    )
+
+    expect(res.status).toBe(200)
+    const json = await res.json() as { ok: boolean }
+    expect(json.ok).toBe(true)
+    expect(send).toHaveBeenCalledOnce()
+    expect(send).toHaveBeenCalledWith({
+      from: "no-reply@alook.ai",
+      to: "user@example.com",
+      subject: "Your code",
+      html: "<p>123456</p>",
+    })
+  })
+
+  it("returns 400 when 'to' is missing", async () => {
+    const { env } = otpEnv()
+    const res = await handler.fetch(
+      makeOtpRequest({ subject: "code", html: "<p>x</p>" }),
+      env,
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it("returns 400 when 'subject' is missing", async () => {
+    const { env } = otpEnv()
+    const res = await handler.fetch(
+      makeOtpRequest({ to: "user@example.com", html: "<p>x</p>" }),
+      env,
+    )
+    expect(res.status).toBe(400)
   })
 })
