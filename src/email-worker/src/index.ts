@@ -10,6 +10,15 @@ interface EmailEnv {
   SEND_EMAIL: SendEmail
 }
 
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ""
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]!)
+  }
+  return btoa(binary)
+}
+
 async function notifyWeb(env: EmailEnv, payload: Record<string, unknown>, traceId: string) {
   const body = JSON.stringify(payload)
   const headers: Record<string, string> = {
@@ -46,6 +55,10 @@ export default {
       return this.handleSendOtp(request, env)
     }
 
+    if (url.pathname === "/send/agent") {
+      return this.handleSendAgent(request, env)
+    }
+
     return Response.json({ error: "not found" }, { status: 404 })
   },
 
@@ -64,6 +77,116 @@ export default {
     })
 
     return Response.json({ ok: true })
+  },
+
+  async handleSendAgent(request: Request, env: EmailEnv): Promise<Response> {
+    const body = await request.json() as {
+      agentId?: string
+      workspaceId?: string
+      to?: string
+      subject?: string
+      htmlBody?: string
+      attachmentKeys?: { key: string; filename: string; contentType: string }[]
+    }
+
+    if (!body.agentId || !body.workspaceId || !body.to || !body.subject) {
+      return Response.json({ error: "agentId, workspaceId, to, and subject are required" }, { status: 400 })
+    }
+
+    const db = createDb(env.DB)
+    const agent = await queries.agent.getAgent(db, body.agentId, body.workspaceId)
+    if (!agent) {
+      return Response.json({ error: "agent not found in workspace" }, { status: 404 })
+    }
+
+    if (!agent.emailHandle) {
+      return Response.json({ error: "agent has no email handle configured" }, { status: 400 })
+    }
+
+    const fromAddress = `${agent.emailHandle}@alook.ai`
+    const htmlBody = body.htmlBody ?? ""
+    const attachmentKeys = body.attachmentKeys ?? []
+
+    // Fetch attachment content from R2 and build CF EmailAttachment[]
+    const cfAttachments: { disposition: "attachment"; filename: string; type: string; content: ArrayBuffer }[] = []
+    for (const att of attachmentKeys) {
+      const obj = await env.EMAIL_BUCKET.get(att.key)
+      if (!obj) continue
+      const buf = await obj.arrayBuffer()
+      cfAttachments.push({
+        disposition: "attachment" as const,
+        filename: att.filename,
+        type: att.contentType,
+        content: buf,
+      })
+    }
+
+    // Send via CF builder overload
+    const sendPayload: Record<string, unknown> = {
+      from: fromAddress,
+      to: body.to,
+      subject: body.subject,
+      html: htmlBody,
+    }
+    if (cfAttachments.length > 0) {
+      sendPayload.attachments = cfAttachments
+    }
+    await env.SEND_EMAIL.send(sendPayload as any)
+
+    // Build raw MIME for R2 archival
+    let rawMime: string
+    if (cfAttachments.length === 0) {
+      rawMime = [
+        `From: ${fromAddress}`,
+        `To: ${body.to}`,
+        `Subject: ${body.subject}`,
+        `Date: ${new Date().toUTCString()}`,
+        `MIME-Version: 1.0`,
+        `Content-Type: text/html; charset=utf-8`,
+        "",
+        htmlBody,
+      ].join("\r\n")
+    } else {
+      const boundary = `----=_Part_${nanoid(16)}`
+      const parts = [
+        `From: ${fromAddress}`,
+        `To: ${body.to}`,
+        `Subject: ${body.subject}`,
+        `Date: ${new Date().toUTCString()}`,
+        `MIME-Version: 1.0`,
+        `Content-Type: multipart/mixed; boundary="${boundary}"`,
+        "",
+        `--${boundary}`,
+        `Content-Type: text/html; charset=utf-8`,
+        `Content-Transfer-Encoding: 7bit`,
+        "",
+        htmlBody,
+      ]
+      for (const att of cfAttachments) {
+        const b64 = arrayBufferToBase64(att.content)
+        parts.push(
+          [
+            `--${boundary}`,
+            `Content-Type: ${att.type}; name="${att.filename}"`,
+            `Content-Disposition: attachment; filename="${att.filename}"`,
+            `Content-Transfer-Encoding: base64`,
+            "",
+            b64.match(/.{1,76}/g)?.join("\r\n") ?? b64,
+          ].join("\r\n")
+        )
+      }
+      parts.push(`--${boundary}--`)
+      rawMime = parts.join("\r\n")
+    }
+
+    // Store MIME archive in R2
+    const r2Id = nanoid()
+    const r2Key = `emails/${r2Id}/raw`
+    await env.EMAIL_BUCKET.put(r2Key, rawMime, {
+      httpMetadata: { contentType: "message/rfc822" },
+    })
+
+    return Response.json({ ok: true, r2Key })
   },
 
   async email(message: ForwardableEmailMessage, env: EmailEnv): Promise<void> {

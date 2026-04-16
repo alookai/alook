@@ -9,6 +9,7 @@ vi.mock("nanoid", () => ({
 
 // Mock @alook/shared at module level — the handler never touches Drizzle
 const mockGetAgentByHandle = vi.fn<(db: unknown, handle: unknown) => unknown>()
+const mockGetAgent = vi.fn<(db: unknown, id: unknown, workspaceId: unknown) => unknown>()
 const mockIsWhitelisted = vi.fn<(db: unknown, agentId: unknown, workspaceId: unknown, email: unknown) => unknown>()
 const mockGetUser = vi.fn<(db: unknown, id: unknown) => unknown>()
 const mockCreateDb = vi.fn<(d1: unknown) => Record<string, unknown>>().mockReturnValue({})
@@ -30,7 +31,10 @@ vi.mock("@alook/shared", () => {
     },
     DEV_WEB_URL: "http://localhost:3000",
     queries: {
-      agent: { getAgentByHandle: (db: unknown, handle: unknown) => mockGetAgentByHandle(db, handle) },
+      agent: {
+        getAgentByHandle: (db: unknown, handle: unknown) => mockGetAgentByHandle(db, handle),
+        getAgent: (db: unknown, id: unknown, workspaceId: unknown) => mockGetAgent(db, id, workspaceId),
+      },
       whitelist: { isWhitelisted: (db: unknown, agentId: unknown, workspaceId: unknown, email: unknown) => mockIsWhitelisted(db, agentId, workspaceId, email) },
       user: { getUser: (db: unknown, id: unknown) => mockGetUser(db, id) },
     },
@@ -334,5 +338,181 @@ describe("POST /send/otp", () => {
       env,
     )
     expect(res.status).toBe(400)
+  })
+})
+
+// ─── Group 6: POST /send/agent ───
+
+describe("POST /send/agent", () => {
+  function makeAgentSendRequest(body: Record<string, unknown>) {
+    return new Request("http://localhost/send/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  }
+
+  function agentSendEnv() {
+    const { bucket, put } = createMockR2()
+    const { fetcher } = createMockFetcher()
+    const { sendEmail, send } = createMockSendEmail()
+    return {
+      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail },
+      send,
+      put,
+      bucket,
+    }
+  }
+
+  it("sends agent email and stores MIME archive in R2", async () => {
+    mockGetAgent.mockResolvedValue({ id: "agent-1", workspaceId: "ws-1", emailHandle: "jarvis" })
+    const { env, send, put } = agentSendEnv()
+
+    const res = await handler.fetch(
+      makeAgentSendRequest({
+        agentId: "agent-1",
+        workspaceId: "ws-1",
+        to: "user@example.com",
+        subject: "Hello",
+        htmlBody: "<p>Hi there</p>",
+      }),
+      env,
+    )
+
+    expect(res.status).toBe(200)
+    const json = await res.json() as { ok: boolean; r2Key: string }
+    expect(json.ok).toBe(true)
+    expect(json.r2Key).toMatch(/^emails\/mock-id-\d+\/raw$/)
+
+    // Verify SEND_EMAIL.send was called with builder
+    expect(send).toHaveBeenCalledOnce()
+    const sendArg = send.mock.calls[0][0]
+    expect(sendArg.from).toBe("jarvis@alook.ai")
+    expect(sendArg.to).toBe("user@example.com")
+    expect(sendArg.subject).toBe("Hello")
+    expect(sendArg.html).toBe("<p>Hi there</p>")
+
+    // Verify R2 archive
+    expect(put).toHaveBeenCalledOnce()
+    const [key, body, opts] = put.mock.calls[0]
+    expect(key).toMatch(/^emails\/mock-id-\d+\/raw$/)
+    expect(opts).toEqual({ httpMetadata: { contentType: "message/rfc822" } })
+    expect(body).toContain("From: jarvis@alook.ai")
+    expect(body).toContain("To: user@example.com")
+    expect(body).toContain("Subject: Hello")
+    expect(body).toContain("Content-Type: text/html; charset=utf-8")
+  })
+
+  it("sends agent email with attachments from R2", async () => {
+    mockGetAgent.mockResolvedValue({ id: "agent-1", workspaceId: "ws-1", emailHandle: "jarvis" })
+    const { env, send, put, bucket } = agentSendEnv()
+
+    const fileContent = new TextEncoder().encode("file content")
+    ;(bucket as any).get = vi.fn().mockResolvedValue({
+      arrayBuffer: () => Promise.resolve(fileContent.buffer),
+    })
+
+    const res = await handler.fetch(
+      makeAgentSendRequest({
+        agentId: "agent-1",
+        workspaceId: "ws-1",
+        to: "user@example.com",
+        subject: "With attachment",
+        htmlBody: "<p>See attached</p>",
+        attachmentKeys: [
+          { key: "emails/drafts/x/doc.txt", filename: "doc.txt", contentType: "text/plain" },
+        ],
+      }),
+      env,
+    )
+
+    expect(res.status).toBe(200)
+
+    // Verify SEND_EMAIL.send includes attachments
+    const sendArg = send.mock.calls[0][0]
+    expect(sendArg.attachments).toHaveLength(1)
+    expect(sendArg.attachments[0].filename).toBe("doc.txt")
+    expect(sendArg.attachments[0].type).toBe("text/plain")
+    expect(sendArg.attachments[0].disposition).toBe("attachment")
+
+    // Verify R2 MIME archive contains attachment
+    const storedMime = put.mock.calls[0][1] as string
+    expect(storedMime).toContain("multipart/mixed")
+    expect(storedMime).toContain('Content-Disposition: attachment; filename="doc.txt"')
+    expect(storedMime).toContain("Content-Transfer-Encoding: base64")
+  })
+
+  it("returns 404 when agent not found in workspace", async () => {
+    mockGetAgent.mockResolvedValue(null)
+    const { env } = agentSendEnv()
+
+    const res = await handler.fetch(
+      makeAgentSendRequest({
+        agentId: "agent-1",
+        workspaceId: "ws-1",
+        to: "user@example.com",
+        subject: "Hello",
+        htmlBody: "<p>Hi</p>",
+      }),
+      env,
+    )
+
+    expect(res.status).toBe(404)
+  })
+
+  it("returns 400 when agent has no email handle", async () => {
+    mockGetAgent.mockResolvedValue({ id: "agent-1", workspaceId: "ws-1", emailHandle: "" })
+    const { env } = agentSendEnv()
+
+    const res = await handler.fetch(
+      makeAgentSendRequest({
+        agentId: "agent-1",
+        workspaceId: "ws-1",
+        to: "user@example.com",
+        subject: "Hello",
+        htmlBody: "<p>Hi</p>",
+      }),
+      env,
+    )
+
+    expect(res.status).toBe(400)
+  })
+
+  it("returns 400 when required fields are missing", async () => {
+    const { env } = agentSendEnv()
+
+    const res = await handler.fetch(
+      makeAgentSendRequest({ agentId: "agent-1" }),
+      env,
+    )
+
+    expect(res.status).toBe(400)
+  })
+})
+
+// ─── Group 7: fetch() routing ───
+
+describe("fetch() routing", () => {
+  function routingEnv() {
+    const { bucket } = createMockR2()
+    const { fetcher } = createMockFetcher()
+    const { sendEmail } = createMockSendEmail()
+    return { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail }
+  }
+
+  it("returns 404 for unknown paths", async () => {
+    const res = await handler.fetch(
+      new Request("http://localhost/unknown", { method: "POST" }),
+      routingEnv(),
+    )
+    expect(res.status).toBe(404)
+  })
+
+  it("returns 405 for non-POST methods", async () => {
+    const res = await handler.fetch(
+      new Request("http://localhost/send/otp", { method: "GET" }),
+      routingEnv(),
+    )
+    expect(res.status).toBe(405)
   })
 })
