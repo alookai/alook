@@ -14,6 +14,13 @@ export function createMockFetcher() {
   return { fetcher: { fetch } as unknown as Fetcher, fetch }
 }
 
+// --- SendEmail Mock ---
+
+export function createMockSendEmail() {
+  const send = vi.fn().mockResolvedValue({ messageId: "mock-msg-id" })
+  return { sendEmail: { send } as unknown as SendEmail, send }
+}
+
 // --- ForwardableEmailMessage Mock ---
 
 export interface MockMessageOpts {
