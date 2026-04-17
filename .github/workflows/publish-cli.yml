@@ -1,0 +1,59 @@
+name: Publish CLI
+
+on:
+  push:
+    tags: ["cli/v*"]
+
+concurrency:
+  group: publish-cli-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @alook/cli to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - name: Validate tag
+        run: |
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^cli/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match cli/vX.Y.Z[-prerelease]"
+            exit 1
+          fi
+          echo "VERSION=${GITHUB_REF_NAME#cli/v}" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - name: Upgrade npm for Trusted Publishers
+        run: npm install -g npm@latest
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Set CLI package version
+        working-directory: src/cli
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Build CLI bundle
+        run: pnpm -C src/cli run build
+
+      - name: Publish to npm (OIDC + provenance)
+        working-directory: src/cli
+        run: npm publish --provenance --access public
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes --title "CLI v$VERSION"
