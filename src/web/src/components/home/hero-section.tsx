@@ -60,7 +60,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
       ScrollTrigger.create({
         trigger: sectionRef.current,
         start: "top top",
-        end: () => `+=${window.innerWidth < 640 ? 10 : 25}%`,
+        end: () => `+=${window.innerWidth < 640 ? 10 : 15}%`,
         pin: true,
         pinSpacing: true,
         snap: {
