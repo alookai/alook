@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { readFileSync, writeFileSync, chmodSync, copyFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const entry = resolve("dist/index.js");
@@ -9,3 +9,8 @@ if (!src.startsWith(shebang)) {
 }
 chmodSync(entry, 0o755);
 console.log("prepared", entry);
+
+const rootLicense = resolve("../../LICENSE");
+const packageLicense = resolve("LICENSE");
+copyFileSync(rootLicense, packageLicense);
+console.log("copied", rootLicense, "->", packageLicense);
