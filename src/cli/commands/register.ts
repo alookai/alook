@@ -4,7 +4,6 @@ import { hostname } from "os";
 import { APIClient } from "../lib/client.js";
 import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
 import { cmdPrefix } from "../lib/env.js";
-import { ensureInstalled } from "../lib/installer.js";
 
 interface MeResponse {
   id: string;
@@ -56,7 +55,6 @@ export function registerCommand(): Command {
     .requiredOption("--token <token>", "API token (starts with al_)")
     .option("--server <url>", "Server URL")
     .option("--profile <name>", "Profile name")
-    .option("--no-install", "Skip auto-install/update of @alook/cli")
     .action(async (opts, command) => {
       const token: string = opts.token;
       const profile: string | undefined =
@@ -175,9 +173,6 @@ export function registerCommand(): Command {
       console.log(`\nRegistered as ${me.email}`);
       console.log(`Workspace: ${ws.name} (${ws.id})`);
       console.log(`Runtimes: ${activateResp.runtimes.map((r) => r.provider).join(", ")}`);
-
-      await ensureInstalled({ skip: opts.install === false });
-
       console.log();
       console.log(
         `Run '${cmdPrefix()} daemon start --foreground' to start the daemon.`,
