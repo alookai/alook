@@ -1,17 +1,9 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import Autoplay from "embla-carousel-autoplay";
-import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  CarouselPrevious,
-  CarouselNext,
-} from "@/components/ui/carousel";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -26,77 +18,87 @@ interface Feature {
 const features: Feature[] = [
   {
     number: "I",
-    title: "The Daemon",
-    spec: "PROCESS: PERSISTENT / UPTIME: CONTINUOUS",
+    title: "Email",
+    spec: "PROTOCOL: SMTP / FORMAT: RFC 5322",
     description:
-      "A daemon on your machine — always listening, always ready. Close your laptop. The agent stays on, polling for work, executing autonomously.",
+      "Every colleague needs an inbox. Your agent gets a real email address — forward it a bug report, CC it on a thread. It reads, reasons, and replies.",
     terminal: [
-      "$ alook daemon start --foreground",
-      "✓ Runtime detected: claude@1.0.0",
-      "✓ Daemon running — 1 agent online",
-      "  Uptime: 72h 14m | Tasks: 847",
+      "█████████████████████████",
+      "█                       █",
+      "█                       █",
+      "█                       █",
+      "█     ░                 █",
+      "█     ▒▓░               █",
+      "█     ▓██▓░             █",
+      "█     █████▓▒░          █",
+      "█     ▓██████████▓▒░    █",
+      "█████████████████████████",
     ],
   },
   {
     number: "II",
-    title: "The Address",
-    spec: "PROTOCOL: SMTP / FORMAT: RFC 5322",
+    title: "Calendar",
+    spec: "SCHEDULING: AUTONOMOUS / SYNC: REAL-TIME",
     description:
-      "Every agent gets a real email address. Forward it a bug report. CC it on a thread. It reads, reasons, and replies — like a teammate.",
+      "Your colleague manages its own schedule. It knows when to work, when to follow up, and when to wait — time-aware, not just task-aware.",
     terminal: [
-      "$ alook email pull --agent_id jarvis",
-      "  Downloaded 3 emails to /tmp/alook-emails/",
-      "  From: alice@acme.co — Bug in checkout",
-      "  From: bob@acme.co — Deploy review",
+      "█████████████████████",
+      "█░░░█░░░█░░░█░░░█░░░█",
+      "█████████████████████",
+      "█▒▒▒█░░░█░░░█░░░█░░░█",
+      "█████████████████████",
+      "█▓▓▓█▒▒▒█░░░█░░░█░░░█",
+      "█████████████████████",
+      "█████▓▓▓█▒▒▒█░░░█░░░█",
+      "█████████████████████",
     ],
   },
   {
     number: "III",
-    title: "The Runtime",
-    spec: "ENGINE: CLAUDE, CODEX / ENV: LOCAL",
+    title: "Always-On",
+    spec: "PROCESS: PERSISTENT / UPTIME: CONTINUOUS",
     description:
-      "Your machine. Your environment. The agent runs where your code lives — full context, no cloud sandbox, no latency.",
+      "Your colleague never sleeps. A persistent daemon on your machine keeps agents always-on — polling for work, executing tasks, even while you're away.",
     terminal: [
-      "$ alook daemon start --foreground",
-      "✓ Detected providers: claude@4.0",
-      "✓ Daemon started — 1 runtime(s)",
-      "✓ Polling for tasks...",
+      "░░░░░░░░░░░░░░░░░░░░░░░░",
+      "░░░░░░░░░░░░░░░░░░░░░░░░",
+      "░░░░░░░░░▒░░░░░░░░░░░░░░",
+      "░░░░░░░░▒▓▒░░░░░░░░░░░░░",
+      "░░░░░░░▒▓█▓▒░░░░░░░░░░░░",
+      "▒▒▒▒▒▒▓█████▓▒░░░▒░░░░░░",
+      "░░░░░░░▒▓█▓▒░░░▒▓█▓▒░░░░",
+      "░░░░░░░░▒▓▒░░░░░▒▓▒░░░░░",
+      "░░░░░░░░░▒░░░░░░░▒░░░░░░",
+      "░░░░░░░░░░░░░░░░░░░░░░░░",
     ],
   },
   {
     number: "IV",
-    title: "The Stream",
-    spec: "TRANSPORT: WEBSOCKET / LATENCY: <50MS",
+    title: "Long-Term Memory",
+    spec: "STORAGE: LOCAL / PERSISTENCE: INDEFINITE",
     description:
-      "Watch the agent think in real time. Or don't — check back in the morning. Results arrive by email. You choose the cadence.",
+      "Your colleague remembers everything. Context from past conversations, decisions, and preferences — all stored locally, building up over time.",
     terminal: [
-      "  [stream] jarvis processing...",
-      "  > reading src/api/auth.ts",
-      "  > found issue on line 42",
-      "  [done] reply sent to inbox",
-    ],
-  },
-  {
-    number: "V",
-    title: "The Workspace",
-    spec: "ISOLATION: PER-PROJECT / LIMIT: NONE",
-    description:
-      "Organize agents by project, team, or client. Isolated environments, unified control from one terminal.",
-    terminal: [
-      "$ alook config show",
-      "  Workspaces: 3",
-      "  production  → 2 agents",
-      "  staging     → 1 agent",
+      "                         ",
+      "  ░  ▒░  ▓▒░  █▓▒░  ▓▒░ ",
+      " ▒░  ▓▒░  █▓▒░  ▓▒░  █▓▒",
+      "▓▒░  █▓▒░  ▓▒░  █▓▒░  ▓▒",
+      "█▓▒░  ▓▒░  █▓▒░  ▓▒░  █▓",
+      "▓▓▒░░▓▓▒░░▓▓▒░░▓▓▒░░▓▓▒░",
+      "███▓▒███▓▒███▓▒███▓▒███▓▒",
+      "█████████████████████████",
+      "█████████████████████████",
+      "█████████████████████████",
     ],
   },
 ];
 
 export function FeatureShowcase() {
-  const mobileRef = useRef<HTMLDivElement>(null);
+  const sectionRef = useRef<HTMLDivElement>(null);
 
   useGSAP(
     () => {
-      const panels = gsap.utils.toArray<HTMLElement>(".feature-panel-mobile");
+      const panels = gsap.utils.toArray<HTMLElement>(".feature-row");
       panels.forEach((panel) => {
         gsap.from(panel, {
           y: 40,
@@ -111,58 +113,29 @@ export function FeatureShowcase() {
         });
       });
     },
-    { scope: mobileRef }
+    { scope: sectionRef }
   );
 
   return (
     <section
+      ref={sectionRef}
       className="relative overflow-hidden py-24"
       style={{ backgroundColor: "var(--landing-bg)" }}
     >
-      {/* Mobile: vertical stacked panels with scroll fade-in */}
-      <div ref={mobileRef} className="flex flex-col gap-16 px-6 lg:hidden">
-        {features.map((feature) => (
-          <div key={feature.number} className="feature-panel-mobile">
-            <FeaturePanel feature={feature} />
-          </div>
+      <div className="mx-auto flex max-w-5xl flex-col gap-24 px-6 lg:gap-32 lg:px-12">
+        {features.map((feature, i) => (
+          <FeaturePanel key={feature.number} feature={feature} reversed={i % 2 === 1} />
         ))}
-      </div>
-
-      {/* Desktop: Embla carousel */}
-      <div className="hidden lg:block">
-        <Carousel
-          opts={{ align: "center", loop: true }}
-          plugins={[Autoplay({ delay: 4000, stopOnInteraction: false })]}
-          className="mx-auto w-full max-w-6xl px-12"
-        >
-          <CarouselContent className="-ml-8">
-            {features.map((feature) => (
-              <CarouselItem key={feature.number} className="pl-8">
-                <div className="flex min-h-[420px] items-center">
-                  <FeaturePanel feature={feature} />
-                </div>
-              </CarouselItem>
-            ))}
-          </CarouselContent>
-          <CarouselPrevious
-            className="border-none bg-transparent hover:bg-transparent"
-            style={{ color: "var(--landing-text-muted)" }}
-          />
-          <CarouselNext
-            className="border-none bg-transparent hover:bg-transparent"
-            style={{ color: "var(--landing-text-muted)" }}
-          />
-        </Carousel>
       </div>
     </section>
   );
 }
 
-function FeaturePanel({ feature }: { feature: Feature }) {
+function FeaturePanel({ feature, reversed }: { feature: Feature; reversed: boolean }) {
   return (
-    <div className="mx-auto grid w-full max-w-5xl grid-cols-1 items-center gap-8 px-6 lg:grid-cols-2 lg:gap-16 lg:px-12">
+    <div className={`feature-row grid w-full grid-cols-1 items-center gap-8 lg:grid-cols-2 lg:gap-16 ${reversed ? "lg:[direction:rtl]" : ""}`}>
       {/* Text side */}
-      <div className="panel-text">
+      <div className={`panel-text ${reversed ? "lg:[direction:ltr]" : ""}`}>
         <div className="mb-2 flex items-center gap-3">
           <span
             className="text-3xl"
@@ -207,7 +180,7 @@ function FeaturePanel({ feature }: { feature: Feature }) {
 
       {/* CRT terminal */}
       <div
-        className="panel-crt rounded-lg p-2"
+        className={`panel-crt rounded-lg p-2 ${reversed ? "lg:[direction:ltr]" : ""}`}
         style={{
           backgroundColor: "oklch(0.82 0.02 75)",
           boxShadow:
@@ -238,25 +211,82 @@ function FeaturePanel({ feature }: { feature: Feature }) {
                 "radial-gradient(ellipse at center, transparent 60%, oklch(0.04 0.003 55 / 50%) 100%)",
             }}
           />
-          {/* Terminal lines */}
-          <div className="relative z-20 space-y-1">
-            {feature.terminal.map((line, i) => (
-              <div
-                key={i}
-                className="text-sm leading-relaxed"
-                style={{
-                  fontFamily: "var(--font-crt)",
-                  color: "var(--landing-phosphor)",
-                  textShadow: "0 0 8px oklch(0.75 0.18 80 / 40%)",
-                  opacity: line.startsWith("  ") ? 0.65 : 0.85,
-                }}
-              >
-                {line}
-              </div>
-            ))}
+          {/* ASCII art */}
+          <div className="relative z-20 flex items-center justify-center min-h-[140px]">
+            <AnimatedArt lines={feature.terminal} />
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+const DENSITY = [" ", "░", "▒", "▓", "█"];
+
+function AnimatedArt({ lines }: { lines: string[] }) {
+  const preRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    if (!preRef.current) return;
+    if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const text = lines.join("\n");
+    const chars = [...text];
+    const meta = chars.map((c, i) => {
+      const level = DENSITY.indexOf(c);
+      let row = 0;
+      let col = 0;
+      for (let j = 0; j < i; j++) {
+        if (text[j] === "\n") { row++; col = 0; } else { col++; }
+      }
+      return { orig: c, level, row, col };
+    });
+
+    let frame = 0;
+    let animId: number;
+    let visible = false;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => { visible = entry.isIntersecting; },
+      { threshold: 0.1 }
+    );
+    observer.observe(preRef.current);
+
+    const animate = () => {
+      if (visible) {
+        frame++;
+        if (frame % 2 === 0) {
+          const buf: string[] = [];
+          for (let i = 0; i < meta.length; i++) {
+            const m = meta[i];
+            if (m.level <= 0) { buf.push(m.orig); continue; }
+            const wave = Math.sin(frame * 0.015 + m.row * 0.45 + m.col * 0.1);
+            const shifted = Math.max(1, Math.min(4, m.level + Math.round(wave)));
+            buf.push(DENSITY[shifted]);
+          }
+          if (preRef.current) preRef.current.textContent = buf.join("");
+        }
+      }
+      animId = requestAnimationFrame(animate);
+    };
+
+    animId = requestAnimationFrame(animate);
+    return () => { cancelAnimationFrame(animId); observer.disconnect(); };
+  }, [lines]);
+
+  return (
+    <pre
+      ref={preRef}
+      className="text-[13px]"
+      style={{
+        fontFamily: "'Menlo', 'Consolas', 'DejaVu Sans Mono', monospace",
+        color: "var(--landing-phosphor)",
+        textShadow: "0 0 8px oklch(0.75 0.18 80 / 40%)",
+        opacity: 0.8,
+        lineHeight: 1.35,
+      }}
+    >
+      {lines.join("\n")}
+    </pre>
   );
 }

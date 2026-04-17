@@ -17,71 +17,119 @@ export interface TypewriterEmail {
   body: string;
 }
 
-/** Clean, professional emails — default for the homepage. */
+/** Clean, professional emails — default for the homepage. First email is shown on load, rest are randomly picked. */
 export const EMAILS_DEFAULT: TypewriterEmail[] = [
   {
     from: "jarvis@alook.ai",
-    to: "you@company.com",
-    subject: "Re: Deploy the hotfix to staging",
-    body: "Done. Pulled feat/fix-session-token, all 47 tests passing. Deployed to staging \u2014 verified the login flow manually. It\u2019s live now.",
+    to: "you@email.com",
+    subject: "Happy Birthday!",
+    body: "Happy birthday! I remembered \u2014 April 17th, just like last year. I also remember you love The Grand Budapest Hotel and Interstellar. Maybe tonight\u2019s a good night for a rewatch? Hope your day is wonderful.",
+  },
+  {
+    from: "you@email.com",
+    to: "jarvis@alook.ai",
+    subject: "Organize my meeting notes from this week",
+    body: "Hey Jarvis, I dumped all my meeting notes into /docs/notes. Can you sort them by project, pull out the action items, and put together a summary? Also flag anything that looks time-sensitive.",
   },
   {
     from: "jarvis@alook.ai",
-    to: "you@company.com",
-    subject: "Re: Check API health",
-    body: "All endpoints responding. p99 latency at 42ms, error rate 0.01%. The alerting threshold is 200ms so we\u2019re well within range.",
+    to: "you@email.com",
+    subject: "Your morning briefing \u2014 Apr 17",
+    body: "Good morning. Overnight: CI passed on main, two PRs merged, no alerts. Today: standup at 10am, design review at 2pm. I\u2019ve already rebased your feature branch and run the linter \u2014 you\u2019re clear to start coding.",
   },
   {
     from: "jarvis@alook.ai",
-    to: "you@company.com",
-    subject: "Re: Summarize today\u2019s PRs",
-    body: "3 PRs merged: auth token rotation (#412), rate limiter fix (#415), dashboard chart update (#418). One open review from Sarah on #420.",
+    to: "you@email.com",
+    subject: "Re: Are you there?",
+    body: "Always. I\u2019ve been here since 3am \u2014 cleared your inbox, triaged two bug reports, and queued up your deploy for when you\u2019re ready. Go grab your coffee. I\u2019ll be right here when you get back.",
+  },
+  {
+    from: "you@email.com",
+    to: "jarvis@alook.ai",
+    subject: "Can you refactor the auth middleware?",
+    body: "The session handling in src/middleware/auth.ts is getting messy. Can you break it into smaller functions, add proper error types, and make sure the tests still pass? Don\u2019t change the public API.",
   },
   {
     from: "jarvis@alook.ai",
-    to: "design@company.com",
-    subject: "Re: Update the landing page copy",
-    body: "Replaced the hero tagline and updated the feature descriptions. Pushed to feat/landing-copy. Preview link is live \u2014 check staging.",
+    to: "you@email.com",
+    subject: "Weekly recap \u2014 Apr 14\u201317",
+    body: "This week: 12 PRs merged, 3 bugs closed, test coverage up to 86%. You spent most of your time on the calendar feature. Reminder: you mentioned wanting to revisit the caching strategy \u2014 want me to draft a proposal?",
+  },
+  {
+    from: "you@email.com",
+    to: "jarvis@alook.ai",
+    subject: "Research vector DB options for memory",
+    body: "I\u2019m thinking about adding semantic search to the memory system. Can you compare pgvector, Qdrant, and Turbopuffer? Focus on local-first setups, latency, and how they\u2019d integrate with our SQLite stack.",
   },
   {
     from: "jarvis@alook.ai",
-    to: "you@company.com",
-    subject: "Re: Run the test suite",
-    body: "Full suite passed: 847 tests, 0 failures. Coverage at 84.2%, up from 83.1% last run. No flaky tests detected this time.",
+    to: "you@email.com",
+    subject: "Heads up \u2014 CI failed on main",
+    body: "Build broke 20 minutes ago. The failing test is calendar-month-grid.test.ts \u2014 looks like an off-by-one in the week boundary logic from your last commit. I\u2019ve got a fix ready. Want me to push it?",
+  },
+  {
+    from: "you@email.com",
+    to: "jarvis@alook.ai",
+    subject: "Prep for tomorrow\u2019s demo",
+    body: "We\u2019re demoing to the team tomorrow at 2pm. Can you make sure staging is up to date, seed it with realistic test data, and write up a short script for the walkthrough? Keep it under 5 minutes.",
   },
 ];
 
-/** All-emoji variant — playful, visual, good for sign-in and casual pages. */
+/** All-emoji variant — playful, visual, good for sign-in and casual pages. First email is shown on load, rest are randomly picked. */
 export const EMAILS_PLAYFUL: TypewriterEmail[] = [
   {
     from: "🤖@alook.ai",
     to: "🧑‍💻@company.com",
-    subject: "Re: 🚀 Deploy hotfix → staging",
-    body: "✅ 🔀 feat/fix-session-token 🧪 47/47 ✅ 🚢 staging 🔐 login flow 👀✅ 🟢 live now!",
+    subject: "🎂 Happy Birthday!",
+    body: "🎉 Apr 17! 🧠 remembered! 🎬 Grand Budapest Hotel 🚀 Interstellar 🍿 rewatch tonight? 💛🥳",
+  },
+  {
+    from: "🧑‍💻@company.com",
+    to: "🤖@alook.ai",
+    subject: "📝 Organize my meeting notes",
+    body: "📂 /docs/notes → 🗂️ sort by project ✅ action items 🔍 flag ⏰ time-sensitive 🫡",
   },
   {
     from: "🤖@alook.ai",
     to: "🧑‍💻@company.com",
-    subject: "Re: 🏥 Check API health",
-    body: "📡 all endpoints 🟢 ⏱️ p99 42ms 📉 err 0.01% 🎯 threshold 200ms ✨ ~~~~ healthy ~~~~",
+    subject: "☀️ Morning briefing — Apr 17",
+    body: "🟢 CI ✅ 🔀 2 PRs merged 🔕 no alerts 📅 standup 10am 🎨 design 2pm 🔄 rebased ✨ ready!",
   },
   {
     from: "🤖@alook.ai",
     to: "🧑‍💻@company.com",
-    subject: "Re: 📋 Summarize today's PRs",
-    body: "🔀 #412 🔐✅ 🔀 #415 🚦✅ 🔀 #418 📊✅ 👀 #420 ← Sarah 🫡",
+    subject: "Re: 👋 Are you there?",
+    body: "💛 always here! 🌙 3am → 📬 inbox clear 🐛🐛 triaged 🚀 deploy queued ☕ go grab coffee 🫶",
   },
   {
-    from: "🤖@alook.ai",
-    to: "🎨@company.com",
-    subject: "Re: ✏️ Update landing page copy",
-    body: "📝 hero tagline ✅ 📄 feature descriptions ✅ 🔀 feat/landing-copy 🔗 staging 🟢 >>> 👍 <<<",
+    from: "🧑‍💻@company.com",
+    to: "🤖@alook.ai",
+    subject: "🔧 Refactor auth middleware",
+    body: "🗂️ src/middleware/auth.ts 🧹 split → small fns ✅ error types 🧪 tests pass 🚫 no API change",
   },
   {
     from: "🤖@alook.ai",
     to: "🧑‍💻@company.com",
-    subject: "Re: 🧪 Run the test suite",
-    body: "🧪 847 tests 🟢 0 💥 📈 84.2% ⬆️ 83.1% 🎉 no flakes! (╯°□°)╯︵ 🐛🐛🐛",
+    subject: "📊 Weekly recap — Apr 14–17",
+    body: "🔀 12 PRs ✅ 🐛 3 closed 📈 86% coverage 📅 calendar focus 💡 caching proposal? 🫡",
+  },
+  {
+    from: "🧑‍💻@company.com",
+    to: "🤖@alook.ai",
+    subject: "🔍 Research vector DBs",
+    body: "🧠 semantic search → pgvector vs Qdrant vs Turbopuffer 🏠 local-first ⚡ latency 🔗 SQLite compat",
+  },
+  {
+    from: "🤖@alook.ai",
+    to: "🧑‍💻@company.com",
+    subject: "🚨 CI failed on main",
+    body: "💥 20min ago 🧪 calendar-month-grid.test.ts 🐛 off-by-one week boundary 🔧 fix ready → push? 🫡",
+  },
+  {
+    from: "🧑‍💻@company.com",
+    to: "🤖@alook.ai",
+    subject: "🎬 Prep tomorrow's demo",
+    body: "📅 2pm demo 🚀 staging up-to-date 🌱 seed test data 📝 walkthrough script ⏱️ under 5min",
   },
 ];
 
@@ -132,6 +180,7 @@ export function TypewriterVisual({
   const containerRef = useRef<HTMLDivElement>(null);
   const paperTlRef = useRef<gsap.core.Timeline | null>(null);
   const isAnimatingRef = useRef(false);
+  const seenRef = useRef<Set<number>>(new Set([0]));
   const [emailIndex, setEmailIndex] = useState(0);
 
   const handleMouseMove = useCallback(
@@ -222,8 +271,15 @@ export function TypewriterVisual({
       duration: 0.4,
       ease: "power2.in",
       onComplete: () => {
-        setEmailIndex((prev) => {
-          const next = (prev + 1) % emails.length;
+        setEmailIndex(() => {
+          const unseen = Array.from({ length: emails.length }, (_, i) => i)
+            .filter((i) => !seenRef.current.has(i));
+          if (unseen.length === 0) {
+            seenRef.current = new Set();
+          }
+          const pool = unseen.length > 0 ? unseen : Array.from({ length: emails.length }, (_, i) => i);
+          const next = pool[Math.floor(Math.random() * pool.length)];
+          seenRef.current.add(next);
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
               playPaperFeed();
@@ -346,7 +402,7 @@ export function TypewriterVisual({
                         className="tw-email-body"
                         style={{
                           fontFamily: "var(--font-crt)",
-                          color: "oklch(0.15 0.01 55)",
+                          color: "oklch(0.45 0.01 55)",
                           fontSize: "17px",
                           lineHeight: 1.6,
                         }}

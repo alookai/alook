@@ -133,7 +133,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
               color: "var(--landing-text-muted)",
             }}
           >
-            Personal Computing Division
+            Your Personal Colleague
           </span>
         </div>
 
@@ -147,11 +147,11 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
               style={{
                 fontFamily: "var(--font-crt)",
                 color: "var(--landing-text)",
-                fontSize: "28px",
+                fontSize: "clamp(32px, 4vw, 44px)",
                 letterSpacing: "-0.01em",
               }}
             >
-              Your next colleague has an email address.
+              Your next colleague lives on your machine.
             </h1>
             <p
               ref={sublineRef}
@@ -159,11 +159,11 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
               style={{
                 fontFamily: "var(--font-crt)",
                 color: "var(--landing-text-muted)",
-                fontSize: "14px",
+                fontSize: "clamp(16px, 2vw, 20px)",
               }}
             >
-              Not a chatbox. Not a browser tab. A digital colleague running on
-              your machine — with its own inbox.
+              A digital colleague with its own email, calendar, and memory —
+              powered by your local agents.
             </p>
           </div>
 
@@ -178,14 +178,14 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         {/* Specs */}
         <div className="hero-specs mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
           {[
-            "SMTP-Driven",
-            "Always-On Daemon",
-            "Claude / Codex Runtime",
-            "Cloudflare Edge",
+            "Email",
+            "Calendar",
+            "Always-On",
+            "Long-Term Memory",
           ].map((spec) => (
             <span
               key={spec}
-              className="text-xs uppercase tracking-[0.15em]"
+              className="text-sm uppercase tracking-[0.15em] font-bold"
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-text-muted)",
