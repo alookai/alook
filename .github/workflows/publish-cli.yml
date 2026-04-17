@@ -13,7 +13,6 @@ jobs:
     name: Publish @alook/cli to npm
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: npm-publish
     permissions:
       id-token: write
       contents: write
