@@ -44,4 +44,4 @@ Run `alook <command> --help` for subcommand options.
 
 ## License
 
-Apache-2.0 — see [LICENSE](./LICENSE).
+Apache-2.0 — see [LICENSE](../../LICENSE).
