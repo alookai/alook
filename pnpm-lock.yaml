@@ -23,9 +23,6 @@ importers:
 
   src/cli:
     dependencies:
-      '@alook/shared':
-        specifier: workspace:*
-        version: link:../shared
       citty:
         specifier: ^0.2.2
         version: 0.2.2
