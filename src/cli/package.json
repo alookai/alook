@@ -12,13 +12,24 @@
   "bugs": {
     "url": "https://github.com/alookai/alook/issues"
   },
-  "keywords": ["alook", "cli", "ai", "agent", "daemon", "email"],
+  "keywords": [
+    "alook",
+    "cli",
+    "ai",
+    "agent",
+    "daemon",
+    "email"
+  ],
   "type": "module",
   "bin": {
-    "alook": "./dist/index.js"
+    "alook": "dist/index.js"
   },
   "main": "./dist/index.js",
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=20"
   },
