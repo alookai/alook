@@ -23,27 +23,6 @@ Use tags like `cli/v0.2.0-beta.1` or `cli/v1.0.0-rc.1`. The npm `latest` dist-ta
 
 If you want a `next` dist-tag, pass `--tag next` to the publish step (requires editing the workflow).
 
-## First publish (bootstrap, one-time)
-
-Before Trusted Publishers can be configured on npmjs.com, the package has to exist. The first publish is manual:
-
-```bash
-cd src/cli
-pnpm run build
-npm login                          # or export an automation token
-npm publish --access public        # no --provenance for bootstrap
-```
-
-Then on npmjs.com → **@alook/cli** → **Settings** → **Trusted Publishers** → add a GitHub Actions publisher with:
-
-- Repository: `alookai/alook`
-- Workflow filename: `publish-cli.yml`
-- Environment: `npm-publish`
-
-Also create the `npm-publish` environment in **GitHub → Settings → Environments** (required-reviewer protection optional).
-
-After that, all subsequent releases go through the tag workflow.
-
 ## Rolling back
 
 Within 72h of publishing, you can unpublish a specific version:
