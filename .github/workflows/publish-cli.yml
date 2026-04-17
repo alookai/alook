@@ -38,7 +38,11 @@ jobs:
           cache: pnpm
 
       - name: Upgrade npm for Trusted Publishers
-        run: npm install -g npm@latest
+        # Install into a separate prefix so the running npm doesn't overwrite
+        # its own node_modules mid-install (npm/cli#7657).
+        run: |
+          npm install -g --prefix="$RUNNER_TEMP/npm-new" npm@latest
+          echo "$RUNNER_TEMP/npm-new/bin" >> "$GITHUB_PATH"
 
       - run: pnpm install --frozen-lockfile
 
