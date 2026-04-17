@@ -17,8 +17,8 @@ describe("isDev", () => {
 });
 
 describe("cmdPrefix", () => {
-  it("returns 'alook' in production", () => {
-    expect(cmdPrefix()).toBe("alook");
+  it("returns 'npx @alook/cli' in production", () => {
+    expect(cmdPrefix()).toBe("npx @alook/cli");
   });
 
   it("returns 'pnpm dev:cli' in dev", () => {

@@ -3,5 +3,5 @@ export function isDev(): boolean {
 }
 
 export function cmdPrefix(): string {
-  return isDev() ? "pnpm dev:cli" : "alook";
+  return isDev() ? "pnpm dev:cli" : "npx @alook/cli";
 }
