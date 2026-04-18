@@ -25,10 +25,6 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
       )
         return;
 
-      const sloganSplit = SplitText.create(headingRef.current, {
-        type: "words, chars",
-      });
-
       const entranceTl = gsap.timeline({ delay: 0.3 });
 
       entranceTl
@@ -38,16 +34,12 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           duration: 0.5,
           ease: "power3.out",
         })
-        .from(
-          sloganSplit.chars,
-          { opacity: 0, duration: 0.04, stagger: 0.04, ease: "none" },
-          0.2
-        )
-        .from(sublineRef.current, { opacity: 0, duration: 0.03, ease: "none" }, "-=0.1")
+        .from(headingRef.current, { opacity: 0, duration: 0.4, ease: "power2.out" }, 0.2)
+        .from(sublineRef.current, { opacity: 0, duration: 0.3, ease: "power2.out" }, "-=0.1")
         .from(
           ".hero-specs",
           { y: 15, opacity: 0, duration: 0.5, ease: "power2.out" },
-          "+=3.5"
+          "-=0.1"
         )
         .from(
           ctaRef.current,
@@ -55,43 +47,6 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           "-=0.2"
         );
 
-      // Scroll exit — snap transition (not continuous scrub)
-      let heroVisible = true;
-      ScrollTrigger.create({
-        trigger: sectionRef.current,
-        start: "top top",
-        end: () => `+=${window.innerWidth < 640 ? 10 : 15}%`,
-        pin: true,
-        pinSpacing: true,
-        snap: {
-          snapTo: [0, 1],
-          duration: { min: 0.15, max: 0.4 },
-          delay: 0.05,
-          ease: "power2.inOut",
-        },
-        onUpdate: (self) => {
-          const shouldHide = self.progress > 0.5;
-          if (shouldHide && heroVisible) {
-            heroVisible = false;
-            gsap.to(".hero-content", {
-              y: -80,
-              opacity: 0,
-              duration: 0.4,
-              ease: "power2.inOut",
-              overwrite: true,
-            });
-          } else if (!shouldHide && !heroVisible) {
-            heroVisible = true;
-            gsap.to(".hero-content", {
-              y: 0,
-              opacity: 1,
-              duration: 0.4,
-              ease: "power2.inOut",
-              overwrite: true,
-            });
-          }
-        },
-      });
     },
     { scope: sectionRef }
   );
@@ -112,22 +67,24 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         }}
       />
 
-      <div className="hero-content relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center px-6">
+      <div className="hero-content relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center px-4 sm:px-6">
         {/* Brand */}
-        <div className="hero-brand mb-6 flex items-center gap-1.5">
-          <Image src="/alook.svg" alt="Alook" width={28} height={28} />
+        <div className="hero-brand mb-6 flex flex-col sm:flex-row items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
+            <Image src="/alook.svg" alt="Alook" width={28} height={28} />
+            <span
+              className="text-xl tracking-tight"
+              style={{
+                fontFamily: "var(--font-brand)",
+                color: "var(--landing-text)",
+                fontWeight: 700,
+              }}
+            >
+              Alook
+            </span>
+          </div>
           <span
-            className="text-xl tracking-tight"
-            style={{
-              fontFamily: "var(--font-brand)",
-              color: "var(--landing-text)",
-              fontWeight: 700,
-            }}
-          >
-            Alook
-          </span>
-          <span
-            className="ml-4 text-xs tracking-widest uppercase"
+            className="sm:ml-4 text-xs tracking-widest uppercase"
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--landing-text-muted)",
@@ -138,16 +95,16 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         </div>
 
         {/* Typewriter + Slogan wrapper */}
-        <div className="relative w-full" style={{ height: 570 }}>
+        <div className="relative w-full h-[420px] sm:h-[500px] md:h-[570px]">
           {/* Slogan — positioned at top of typewriter area */}
           <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-2">
             <h1
               ref={headingRef}
-              className="mb-1 text-center leading-[1.2]"
+              className="mb-1 text-center leading-[1.2] px-2"
               style={{
                 fontFamily: "var(--font-crt)",
                 color: "var(--landing-text)",
-                fontSize: "clamp(32px, 4vw, 44px)",
+                fontSize: "clamp(26px, 4vw, 44px)",
                 letterSpacing: "-0.01em",
               }}
             >
@@ -155,11 +112,11 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             </h1>
             <p
               ref={sublineRef}
-              className="text-center leading-relaxed whitespace-nowrap"
+              className="max-w-lg text-center leading-relaxed px-2"
               style={{
                 fontFamily: "var(--font-crt)",
                 color: "var(--landing-text-muted)",
-                fontSize: "clamp(16px, 2vw, 20px)",
+                fontSize: "clamp(14px, 2vw, 20px)",
               }}
             >
               A digital colleague with its own email, calendar, and memory —

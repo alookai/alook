@@ -167,11 +167,10 @@ function FeaturePanel({ feature, reversed }: { feature: Feature; reversed: boole
           {feature.spec}
         </div>
         <p
-          className="mt-4 max-w-md leading-relaxed"
+          className="mt-4 max-w-md leading-relaxed text-[0.8125rem] sm:text-[0.875rem]"
           style={{
             fontFamily: "var(--font-mono)",
             color: "var(--landing-text-muted)",
-            fontSize: "0.875rem",
           }}
         >
           {feature.description}
@@ -277,13 +276,14 @@ function AnimatedArt({ lines }: { lines: string[] }) {
   return (
     <pre
       ref={preRef}
-      className="text-[13px]"
+      className="text-[10px] sm:text-[13px]"
       style={{
         fontFamily: "'Menlo', 'Consolas', 'DejaVu Sans Mono', monospace",
         color: "var(--landing-phosphor)",
         textShadow: "0 0 8px oklch(0.75 0.18 80 / 40%)",
         opacity: 0.8,
         lineHeight: 1.35,
+        overflowX: "hidden",
       }}
     >
       {lines.join("\n")}

@@ -24,13 +24,18 @@ import { TypewriterVisual, EMAILS_PLAYFUL } from "@/components/typewriter-visual
 
 const isProd = process.env.NODE_ENV === "production"
 
-function OTPSignIn() {
+function SignInForm() {
   const [email, setEmail] = useState("")
-  const [code, setCode] = useState("")
-  const [step, setStep] = useState<"email" | "code">("email")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+
+  // OTP-specific state
+  const [code, setCode] = useState("")
+  const [step, setStep] = useState<"email" | "code">("email")
   const [retryAfter, setRetryAfter] = useState<number | null>(null)
+
+  // Password-specific state
+  const [password, setPassword] = useState("")
 
   useEffect(() => {
     if (retryAfter == null) return
@@ -49,6 +54,7 @@ function OTPSignIn() {
     },
   }
 
+  // OTP handlers
   async function handleSendCode(e: React.FormEvent) {
     e.preventDefault()
     if (retryAfter != null) return
@@ -97,6 +103,29 @@ function OTPSignIn() {
     setLoading(false)
   }
 
+  // Password handler
+  async function handlePasswordSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setError("")
+    setLoading(true)
+    const { error: signInErr } = await signIn.email(
+      { email, password },
+      { onError: () => {} },
+    )
+    if (signInErr) {
+      const { error: signUpErr } = await signUp.email(
+        { name: email.split("@")[0], email, password },
+        { onError: () => {} },
+      )
+      if (signUpErr) {
+        setError(signInErr.message ?? "Invalid email or password")
+        setLoading(false)
+        return
+      }
+    }
+    window.location.href = "/workspaces?auto"
+  }
+
   const isCoolingDown = retryAfter != null
   const sendLabel = loading
     ? "Sending..."
@@ -104,24 +133,97 @@ function OTPSignIn() {
     ? `Wait ${retryAfter}s`
     : "Send Code"
 
+  const subtitle = isProd && step === "code"
+    ? "Enter the code we sent you"
+    : isProd
+    ? "Enter your email \u2014 we\u2019ll send you a verification code"
+    : undefined
+
   return (
     <FieldGroup>
+      {/* Header */}
       <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="text-2xl font-bold">Welcome back</h1>
-        <p className="text-balance text-muted-foreground">
-          {step === "email"
-            ? "We\u2019ll send a verification code to your inbox"
-            : "Enter the code we sent you"}
-        </p>
+        <h1 className="text-2xl font-bold">Sign in</h1>
+        <p className="text-sm text-muted-foreground">or create an account to get started</p>
+        {subtitle && (
+          <p className="text-balance text-muted-foreground">{subtitle}</p>
+        )}
       </div>
+
+      {/* Error */}
       {isCoolingDown && (
         <FieldError>
           Too many requests. Try again in {retryAfter}s.
         </FieldError>
       )}
       {error && !isCoolingDown && <FieldError>{error}</FieldError>}
-      {step === "email" ? (
-        <form onSubmit={handleSendCode}>
+
+      {/* Credential form */}
+      {isProd ? (
+        step === "email" ? (
+          <form onSubmit={handleSendCode}>
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="email">Email</FieldLabel>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </Field>
+              <Field>
+                <Button
+                  type="submit"
+                  disabled={loading || isCoolingDown}
+                  className="w-full"
+                >
+                  {sendLabel}
+                </Button>
+              </Field>
+            </FieldGroup>
+          </form>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground text-center">
+              We sent a code to <strong>{email}</strong>
+            </p>
+            <div className="flex justify-center">
+              <InputOTP
+                maxLength={6}
+                value={code}
+                onChange={handleVerifyCode}
+                disabled={loading}
+                autoFocus
+              >
+                <InputOTPGroup>
+                  <InputOTPSlot index={0} />
+                  <InputOTPSlot index={1} />
+                  <InputOTPSlot index={2} />
+                  <InputOTPSlot index={3} />
+                  <InputOTPSlot index={4} />
+                  <InputOTPSlot index={5} />
+                </InputOTPGroup>
+              </InputOTP>
+            </div>
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                setStep("email")
+                setCode("")
+                setError("")
+              }}
+            >
+              Use a different email
+            </Button>
+          </>
+        )
+      ) : (
+        <form onSubmit={handlePasswordSubmit}>
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="email">Email</FieldLabel>
@@ -132,56 +234,28 @@ function OTPSignIn() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                autoFocus
               />
             </Field>
             <Field>
-              <Button
-                type="submit"
-                disabled={loading || isCoolingDown}
-                className="w-full"
-              >
-                {sendLabel}
+              <FieldLabel htmlFor="password">Password</FieldLabel>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </Field>
+            <Field>
+              <Button type="submit" disabled={loading} className="w-full">
+                {loading ? "Signing in..." : "Sign in"}
               </Button>
             </Field>
           </FieldGroup>
         </form>
-      ) : (
-        <>
-          <p className="text-sm text-muted-foreground text-center">
-            We sent a code to <strong>{email}</strong>
-          </p>
-          <div className="flex justify-center">
-            <InputOTP
-              maxLength={6}
-              value={code}
-              onChange={handleVerifyCode}
-              disabled={loading}
-              autoFocus
-            >
-              <InputOTPGroup>
-                <InputOTPSlot index={0} />
-                <InputOTPSlot index={1} />
-                <InputOTPSlot index={2} />
-                <InputOTPSlot index={3} />
-                <InputOTPSlot index={4} />
-                <InputOTPSlot index={5} />
-              </InputOTPGroup>
-            </InputOTP>
-          </div>
-          <Button
-            variant="ghost"
-            className="w-full"
-            onClick={() => {
-              setStep("email")
-              setCode("")
-              setError("")
-            }}
-          >
-            Use a different email
-          </Button>
-        </>
       )}
+
+      {/* Social login */}
       <FieldSeparator className="*:data-[slot=field-separator-content]:bg-card">
         Or continue with
       </FieldSeparator>
@@ -211,101 +285,6 @@ function OTPSignIn() {
   )
 }
 
-function PasswordSignIn() {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState("")
-  const [loading, setLoading] = useState(false)
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError("")
-    setLoading(true)
-    const { error: signInErr } = await signIn.email(
-      { email, password },
-      { onError: () => {} },
-    )
-    if (signInErr) {
-      // Sign-in failed — try auto sign-up
-      const { error: signUpErr } = await signUp.email(
-        { name: email.split("@")[0], email, password },
-        { onError: () => {} },
-      )
-      if (signUpErr) {
-        setError(signInErr.message ?? "Invalid email or password")
-        setLoading(false)
-        return
-      }
-    }
-    window.location.href = "/workspaces?auto"
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <FieldGroup>
-        <div className="flex flex-col items-center gap-2 text-center">
-          <h1 className="text-2xl font-bold">Welcome back</h1>
-          <p className="text-balance text-muted-foreground">
-            Sign in or create an account to get started
-          </p>
-        </div>
-        {error && <FieldError>{error}</FieldError>}
-        <Field>
-          <FieldLabel htmlFor="email">Email</FieldLabel>
-          <Input
-            id="email"
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="password">Password</FieldLabel>
-          <Input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </Field>
-        <Field>
-          <Button type="submit" disabled={loading} className="w-full">
-            {loading ? "Signing in..." : "Sign in"}
-          </Button>
-        </Field>
-        <FieldSeparator className="*:data-[slot=field-separator-content]:bg-card">
-          Or continue with
-        </FieldSeparator>
-        <Field className="grid grid-cols-2 gap-4">
-          <Button
-            variant="outline"
-            type="button"
-            onClick={() =>
-              signIn.social({ provider: "github", callbackURL: "/workspaces?auto" })
-            }
-          >
-            <SiGithub className="size-4" />
-            GitHub
-          </Button>
-          <Button
-            variant="outline"
-            type="button"
-            onClick={() =>
-              signIn.social({ provider: "google", callbackURL: "/workspaces?auto" })
-            }
-          >
-            <SiGoogle className="size-4" />
-            Google
-          </Button>
-        </Field>
-      </FieldGroup>
-    </form>
-  )
-}
-
 export default function SignInPage() {
   return (
     <div className="relative flex min-h-svh flex-col items-center justify-center p-6 md:p-10">
@@ -315,10 +294,10 @@ export default function SignInPage() {
           <Card className="overflow-hidden p-0">
             <CardContent className="grid p-0 md:grid-cols-2">
               <div className="p-6 md:p-8 md:min-h-105 flex flex-col justify-center">
-                {isProd ? <OTPSignIn /> : <PasswordSignIn />}
+                <SignInForm />
               </div>
               <div className="hidden bg-muted md:flex items-center justify-center overflow-visible min-h-80 pt-24">
-                <TypewriterVisual className="scale-[0.55] shrink-0" emails={EMAILS_PLAYFUL} blobScale={2.5} blobBottom="30%" />
+                <TypewriterVisual className="scale-[0.65] shrink-0" emails={EMAILS_PLAYFUL} blobScale={2.5} blobBottom="30%" />
               </div>
             </CardContent>
           </Card>

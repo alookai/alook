@@ -175,7 +175,7 @@
   align-items: center;
   justify-content: flex-end;
   overflow: visible;
-  zoom: 0.88; /* scale outside 3D context — keeps text crisp */
+  zoom: 0.78;
 }
 
 .typewriter-blob {
@@ -537,12 +537,39 @@
 
 
 /* ── Responsive ── */
+@media (max-width: 1024px) {
+  .typewriter-visual {
+    zoom: 0.7;
+  }
+}
+
 @media (max-width: 640px) {
+  .typewriter-visual {
+    zoom: 0.85;
+  }
   .typewriter-scene {
-    transform: scale(0.8) !important;
+    transform: scale(0.85) !important;
   }
   .tw-paper {
     padding: 16px 18px 24px;
+  }
+  .tw-email-headers {
+    font-size: 12px !important;
+  }
+  .tw-email-body {
+    font-size: 13px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .typewriter-scene {
+    transform: scale(0.72) !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .typewriter-scene {
+    transform: scale(0.62) !important;
   }
 }
 
