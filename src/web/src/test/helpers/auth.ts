@@ -1,4 +1,24 @@
 const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
+const MAX_RETRIES = 3
+const RETRY_DELAY_MS = 300
+
+async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fetch(url, init)
+    } catch (e) {
+      const isRetryable =
+        e instanceof TypeError &&
+        (e.message.includes("fetch failed") || e.message.includes("socket"))
+      if (attempt < MAX_RETRIES && isRetryable) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt))
+        continue
+      }
+      throw e
+    }
+  }
+  throw new Error("unreachable")
+}
 
 /**
  * Sign up a new user via Better Auth.
@@ -38,7 +58,7 @@ export async function sessionRequest(
   cookie: string,
   opts: RequestInit = {},
 ): Promise<Response> {
-  return fetch(`${APP_URL}${path}`, {
+  return fetchWithRetry(`${APP_URL}${path}`, {
     ...opts,
     headers: {
       ...(opts.headers ?? {}),
@@ -55,7 +75,7 @@ export async function tokenRequest(
   token: string,
   opts: RequestInit = {},
 ): Promise<Response> {
-  return fetch(`${APP_URL}${path}`, {
+  return fetchWithRetry(`${APP_URL}${path}`, {
     ...opts,
     headers: {
       ...(opts.headers ?? {}),
