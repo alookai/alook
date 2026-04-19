@@ -3,6 +3,8 @@ import { NextRequest } from "next/server";
 
 const mockGetRuntimeIdsByDaemon = vi.fn();
 const mockUpsertMachine = vi.fn();
+const mockGetMachineByDaemon = vi.fn();
+const mockClearPendingUpdateVersion = vi.fn();
 const mockGetAgent = vi.fn();
 const mockClaimTasksForRuntimes = vi.fn();
 const mockSweepStaleState = vi.fn();
@@ -23,6 +25,8 @@ vi.mock("@alook/shared", async () => {
       },
       machine: {
         upsertMachine: (...args: unknown[]) => mockUpsertMachine(...args),
+        getMachineByDaemon: (...args: unknown[]) => mockGetMachineByDaemon(...args),
+        clearPendingUpdateVersion: (...args: unknown[]) => mockClearPendingUpdateVersion(...args),
       },
       agent: {
         getAgent: (...args: unknown[]) => mockGetAgent(...args),
@@ -87,7 +91,10 @@ function postReq(body: unknown) {
 }
 
 describe("POST /api/daemon/tasks/poll", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetMachineByDaemon.mockResolvedValue(null);
+  });
 
   it("returns evicted: true and skips heartbeat when daemon has no runtimes", async () => {
     mockGetRuntimeIdsByDaemon.mockResolvedValue([]);
@@ -250,5 +257,84 @@ describe("POST /api/daemon/tasks/poll", () => {
     const res = await POST(postReq({ daemon_id: "d1" }));
     expect(res.status).toBe(200);
     expect(mockClaimTasksForRuntimes).toHaveBeenCalled();
+  });
+
+  it("returns pending_update when pendingUpdateVersion is set and cli_version is older", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetMachineByDaemon.mockResolvedValue({ pendingUpdateVersion: "1.0.0" });
+
+    const res = await POST(postReq({ daemon_id: "d1", cli_version: "0.5.0" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.pending_update).toEqual({ version: "1.0.0" });
+  });
+
+  it("does not return pending_update when pendingUpdateVersion is not set", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetMachineByDaemon.mockResolvedValue({ pendingUpdateVersion: null });
+
+    const res = await POST(postReq({ daemon_id: "d1", cli_version: "0.5.0" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.pending_update).toBeUndefined();
+  });
+
+  it("auto-clears pendingUpdateVersion when cli_version >= pending version", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetMachineByDaemon.mockResolvedValue({ pendingUpdateVersion: "1.0.0" });
+    mockClearPendingUpdateVersion.mockResolvedValue(undefined);
+
+    const res = await POST(postReq({ daemon_id: "d1", cli_version: "1.0.0" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.pending_update).toBeUndefined();
+    expect(mockClearPendingUpdateVersion).toHaveBeenCalledWith({}, "d1");
+  });
+
+  it("does not attach pending_update when cli_version is missing (backward compat)", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetMachineByDaemon.mockResolvedValue({ pendingUpdateVersion: "1.0.0" });
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.pending_update).toBeUndefined();
+    expect(mockClearPendingUpdateVersion).not.toHaveBeenCalled();
+  });
+
+  it("poll without pending_update works unchanged", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetMachineByDaemon.mockResolvedValue(null);
+
+    const res = await POST(postReq({ daemon_id: "d1", cli_version: "0.5.0" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.tasks).toEqual([]);
+    expect(body.pending_update).toBeUndefined();
   });
 });

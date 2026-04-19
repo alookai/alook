@@ -25,8 +25,11 @@ import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Monitor, Plus } from "lucide-react";
 import type { AgentRuntime as Runtime } from "@alook/shared";
+import { semverGte } from "@alook/shared";
 import { CLI_CMD } from "@/lib/utils";
 import { ProviderLogo } from "@/components/provider-logo";
+import { triggerRuntimeUpdate, fetchLatestCliVersion } from "@/lib/api";
+import { Loader2 } from "lucide-react";
 
 function ConnectMachineSteps({
   generatedToken,
@@ -140,11 +143,20 @@ export default function RuntimesPage() {
   const [generatedToken, setGeneratedToken] = useState("");
   const [generatingToken, setGeneratingToken] = useState(false);
 
+  const [latestCliVersion, setLatestCliVersion] = useState<string | null>(null);
+  const [updatingDaemons, setUpdatingDaemons] = useState<Set<string>>(new Set());
+
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmTitle, setConfirmTitle] = useState("");
   const [confirmDescription, setConfirmDescription] = useState("");
   const [confirmLoading, setConfirmLoading] = useState(false);
   const confirmAction = useRef<(() => Promise<void>) | null>(null);
+
+  useEffect(() => {
+    fetchLatestCliVersion()
+      .then((data) => setLatestCliVersion(data.version))
+      .catch(() => {});
+  }, []);
 
   // Auto-open "New machine" sheet when navigated with ?connect
   useEffect(() => {
@@ -198,23 +210,40 @@ export default function RuntimesPage() {
     }
   }, [handleGenerateToken]);
 
+  const handleUpdate = async (runtimeId: string, daemonId: string) => {
+    setUpdatingDaemons((prev) => new Set(prev).add(daemonId));
+    try {
+      await triggerRuntimeUpdate(runtimeId, workspaceId);
+      toast.success("Update triggered");
+    } catch {
+      toast.error("Failed to trigger update");
+      setUpdatingDaemons((prev) => {
+        const next = new Set(prev);
+        next.delete(daemonId);
+        return next;
+      });
+    }
+  };
+
   // Group runtimes by machine
   const machines = new Map<
     string,
-    { deviceInfo: string; name: string; status: string; lastSeenAt: string | null; runtimes: Runtime[] }
+    { deviceInfo: string; name: string; status: string; lastSeenAt: string | null; pendingUpdateVersion: string | null; cliVersion: string | null; runtimes: Runtime[] }
   >();
   for (const rt of runtimes) {
     const key = rt.daemon_id || rt.id;
     if (!machines.has(key)) {
+      const meta = rt.metadata as Record<string, unknown> | null;
       machines.set(key, {
         deviceInfo: typeof rt.device_info === "string" ? rt.device_info : "",
         name: rt.name || "",
         status: rt.status,
         lastSeenAt: rt.last_seen_at,
+        pendingUpdateVersion: rt.pending_update_version ?? null,
+        cliVersion: (meta?.cli_version as string) ?? null,
         runtimes: [],
       });
     }
-    // Use first runtime's status (all share the same machine status)
     machines.get(key)!.runtimes.push(rt);
   }
 
@@ -329,6 +358,31 @@ export default function RuntimesPage() {
                       </Badge>
                     </div>
                     <CardAction>
+                      {(() => {
+                        const isUpdating = !!machine.pendingUpdateVersion || updatingDaemons.has(daemonId);
+                        const needsUpdate = latestCliVersion && machine.cliVersion && !semverGte(machine.cliVersion, latestCliVersion);
+                        if (isUpdating) {
+                          return (
+                            <Button variant="ghost" size="sm" disabled className="text-xs h-6 px-2">
+                              <Loader2 className="size-3 animate-spin mr-1" />
+                              Updating...
+                            </Button>
+                          );
+                        }
+                        if (needsUpdate) {
+                          return (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-xs h-6 px-2"
+                              onClick={() => handleUpdate(machine.runtimes[0].id, daemonId)}
+                            >
+                              Update
+                            </Button>
+                          );
+                        }
+                        return null;
+                      })()}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -349,11 +403,16 @@ export default function RuntimesPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2.5">
-                      <p className="text-xs text-muted-foreground tabular-nums">
-                        {machine.lastSeenAt ? new Date(
-                          machine.lastSeenAt
-                        ).toLocaleString() : "Never seen"}
-                      </p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
+                        <span>
+                          {machine.lastSeenAt ? new Date(
+                            machine.lastSeenAt
+                          ).toLocaleString() : "Never seen"}
+                        </span>
+                        {machine.cliVersion && (
+                          <span className="text-muted-foreground/60">v{machine.cliVersion}</span>
+                        )}
+                      </div>
                       <div className="flex flex-wrap gap-1.5">
                         {machine.runtimes.map((runtime) => (
                           <Badge

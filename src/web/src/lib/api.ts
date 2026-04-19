@@ -130,6 +130,15 @@ export const deleteMachine = (daemonId: string, workspaceId: string) =>
     { method: "DELETE" }
   );
 
+export const triggerRuntimeUpdate = (runtimeId: string, workspaceId: string) =>
+  apiFetch<{ pending_update_version: string }>(
+    `/api/runtimes/${runtimeId}/update${wsQuery(workspaceId)}`,
+    { method: "POST" }
+  );
+
+export const fetchLatestCliVersion = () =>
+  apiFetch<{ version: string }>("/api/cli/latest-version");
+
 // Conversations
 export const listConversations = (workspaceId: string) =>
   apiFetch<Conversation[]>(`/api/conversations${wsQuery(workspaceId)}`);

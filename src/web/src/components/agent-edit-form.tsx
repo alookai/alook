@@ -315,7 +315,7 @@ function WhitelistTrigger({ agentId }: { agentId: string }) {
           <p className="text-xs text-muted-foreground">
             {whitelist.length > 0
               ? `${whitelist.length} email${whitelist.length !== 1 ? "s" : ""} whitelisted`
-              : "All inbound emails will be forwarded"}
+              : "All inbound emails will be rejected"}
           </p>
         </div>
         <ChevronRightIcon className="size-4 text-muted-foreground" />
@@ -371,7 +371,7 @@ function WhitelistTrigger({ agentId }: { agentId: string }) {
               </div>
             ) : whitelist.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4 text-center">
-                No allowed senders — all inbound emails will be forwarded.
+                No allowed senders — all inbound emails will be rejected.
               </p>
             ) : (
               <div className="space-y-1.5">

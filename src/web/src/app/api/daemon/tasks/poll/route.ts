@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { createDb, queries, PollRequestSchema } from "@alook/shared";
+import { createDb, queries, PollRequestSchema, semverGte } from "@alook/shared";
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { taskToResponse } from "@/lib/api/responses";
@@ -91,5 +91,20 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     });
   }
 
-  return writeJSON({ tasks });
+  // 5. Pending update check
+  const machineRow = await queries.machine.getMachineByDaemon(
+    db,
+    body.daemon_id,
+    ctx.workspaceId,
+  );
+  let pendingUpdate: { version: string } | undefined;
+  if (machineRow?.pendingUpdateVersion && body.cli_version) {
+    if (semverGte(body.cli_version, machineRow.pendingUpdateVersion)) {
+      await queries.machine.clearPendingUpdateVersion(db, body.daemon_id);
+    } else {
+      pendingUpdate = { version: machineRow.pendingUpdateVersion };
+    }
+  }
+
+  return writeJSON({ tasks, ...(pendingUpdate && { pending_update: pendingUpdate }) });
 });

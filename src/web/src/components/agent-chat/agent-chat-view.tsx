@@ -19,7 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowUp, Loader2 } from "lucide-react";
 import { Streamdown } from "streamdown";
 
-const MESSAGE_LIMIT = 10;
+const MESSAGE_LIMIT = 20;
 
 /** Sort messages by (created_at, id) ascending — guarantees chronological order. */
 export function sortMessages(msgs: Message[]): Message[] {
@@ -98,6 +98,7 @@ export function AgentChatView() {
     }
   }, [loading, messages.length]);
 
+
   const loadOlderMessages = useCallback(async () => {
     if (!conversation || loadingMoreRef.current || !hasMore) return;
     const oldest = messages[0];
@@ -139,6 +140,19 @@ export function AgentChatView() {
       setLoadingMore(false);
     }
   }, [conversation, workspaceId, messages, hasMore]);
+
+  // Auto-load older messages when content doesn't overflow (scroll can't trigger)
+  useEffect(() => {
+    if (loading || !hasMore || loadingMoreRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const raf = requestAnimationFrame(() => {
+      if (el.scrollHeight <= el.clientHeight) {
+        loadOlderMessages();
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [loading, hasMore, messages.length, loadOlderMessages]);
 
   // Detect scroll to top for loading more
   const handleScroll = useCallback(() => {

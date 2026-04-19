@@ -7,6 +7,7 @@ import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.
 import { log } from "../lib/logger.js";
 import { cmdPrefix } from "../lib/env.js";
 import { acquireDaemonPid, releaseDaemonPid } from "./pidfile.js";
+import { handleCliUpdate, isUpdating } from "./update-handler.js";
 import { existsSync, mkdirSync, openSync, closeSync, renameSync, readdirSync, statSync, unlinkSync } from "fs";
 import { execSync, spawn, type ChildProcess } from "child_process";
 import { fileURLToPath } from "url";
@@ -265,11 +266,20 @@ export async function startDaemon(
       }
 
       try {
-        const { tasks: apiTasks, evicted } = await client.poll(ws.token, config.daemonId, remaining);
+        const { tasks: apiTasks, evicted, pending_update } = await client.poll(
+          ws.token,
+          config.daemonId,
+          remaining,
+          config.cliVersion,
+        );
 
         if (evicted) {
           evictedIds.push(ws.workspaceId);
           continue;
+        }
+
+        if (pending_update && !isUpdating()) {
+          handleCliUpdate(pending_update.version, () => requestRestart());
         }
 
         for (const apiTask of apiTasks) {
@@ -301,13 +311,22 @@ export async function startDaemon(
   const pollTimer = setInterval(pollCycle, config.pollInterval);
 
   let shuttingDown = false;
+  let restartRequested = false;
+
+  const requestRestart = () => {
+    restartRequested = true;
+    shutdown();
+  };
+
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log.info("Shutting down...");
+    log.info(restartRequested ? "Restarting..." : "Shutting down...");
     clearInterval(pollTimer);
-    const shutdownMs = Number(process.env.ALOOK_SHUTDOWN_TIMEOUT_MS) || 5000;
+
+    const shutdownMs = restartRequested ? 30000 : (Number(process.env.ALOOK_SHUTDOWN_TIMEOUT_MS) || 5000);
     const timeout = setTimeout(() => process.exit(1), shutdownMs);
+
     try {
       for (const ws of workspaceStates) {
         await client.deregister(ws.token, config.daemonId);
@@ -315,10 +334,23 @@ export async function startDaemon(
     } catch {
       // best-effort deregister
     }
-    clearTimeout(timeout);
+
     releaseDaemonPid(profile);
-    health.server.close();
-    process.exit(0);
+    health.server.close(() => {
+      if (restartRequested) {
+        const args = ["daemon", "start", "--foreground"];
+        if (profile) args.push("--profile", profile);
+        if (serverUrl) args.push("--server", serverUrl);
+        const child = spawn("alook", args, {
+          detached: true,
+          stdio: ["ignore", "ignore", "ignore"],
+        });
+        child.unref();
+        log.info(`Spawned new daemon (pid=${child.pid})`);
+      }
+      clearTimeout(timeout);
+      process.exit(0);
+    });
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);

@@ -42,7 +42,7 @@ vi.mock("./config.js", () => ({
 vi.mock("./health.js", () => ({
   createHealthServer: vi.fn(() => ({
     setRuntimeCount: vi.fn(),
-    server: { close: vi.fn() },
+    server: { close: vi.fn((cb?: () => void) => { if (cb) cb(); }) },
   })),
 }));
 
@@ -61,6 +61,11 @@ vi.mock("../lib/config.js", () => ({
 vi.mock("./pidfile.js", () => ({
   acquireDaemonPid: vi.fn(() => true),
   releaseDaemonPid: vi.fn(),
+}));
+
+vi.mock("./update-handler.js", () => ({
+  handleCliUpdate: vi.fn(),
+  isUpdating: vi.fn(() => false),
 }));
 
 // Track spawned children
@@ -165,6 +170,7 @@ vi.spyOn(globalThis, "clearInterval").mockImplementation(((timer: any) => {
 import { spawn } from "child_process";
 import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
 import { releaseDaemonPid } from "./pidfile.js";
+import { handleCliUpdate } from "./update-handler.js";
 import { startDaemon, spawnSessionRunner, pruneSessionRunnerLogs } from "./daemon.js";
 
 const mockReleaseDaemonPid = vi.mocked(releaseDaemonPid);
@@ -405,8 +411,8 @@ describe("daemon with multi-workspace config", () => {
     await startDaemon();
 
     expect(mockClientInstance.poll).toHaveBeenCalledTimes(2);
-    expect(mockClientInstance.poll).toHaveBeenCalledWith("al_tok_ws1", "d1", 20);
-    expect(mockClientInstance.poll).toHaveBeenCalledWith("al_tok_ws2", "d1", 20);
+    expect(mockClientInstance.poll).toHaveBeenCalledWith("al_tok_ws1", "d1", 20, "0.1.0");
+    expect(mockClientInstance.poll).toHaveBeenCalledWith("al_tok_ws2", "d1", 20, "0.1.0");
   });
 
   it("registers each workspace with its own token", async () => {
@@ -455,7 +461,7 @@ describe("daemon with multi-workspace config", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     // W2 should be called with max_tasks = 20 - 3 = 17
-    expect(mockClientInstance.poll).toHaveBeenCalledWith("al_tok_ws2", "d1", 17);
+    expect(mockClientInstance.poll).toHaveBeenCalledWith("al_tok_ws2", "d1", 17, "0.1.0");
   });
 
   it("multi-workspace: passes correct token per workspace into session runner", async () => {
@@ -1159,5 +1165,51 @@ describe("daemon workspace eviction", () => {
     // ws2 should be evicted from in-memory state (only ws1 polled in future)
     // Verify by checking the saveCLIConfigForProfile was attempted
     expect(saveCLIConfigForProfile).toHaveBeenCalled();
+  });
+});
+
+describe("daemon restart via update", () => {
+  it("handleCliUpdate is called when pending_update is in poll response", async () => {
+    vi.clearAllMocks();
+    mockProcessExit.mockImplementation((() => {}) as any);
+
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      server_url: "",
+      watched_workspaces: [{ id: "ws1", name: "Test WS", token: "al_test_token" }],
+    });
+    mockClientInstance.register.mockResolvedValue({ runtimes: [{ id: "rt1" }] });
+
+    mockClientInstance.poll.mockResolvedValue({
+      tasks: [],
+      evicted: false,
+      pending_update: { version: "2.0.0" },
+    });
+
+    await startDaemon();
+
+    expect(handleCliUpdate).toHaveBeenCalledWith("2.0.0", expect.any(Function));
+  });
+
+  it("handleCliUpdate is not called when isUpdating returns true", async () => {
+    vi.clearAllMocks();
+    mockProcessExit.mockImplementation((() => {}) as any);
+    const { isUpdating } = await import("./update-handler.js");
+    vi.mocked(isUpdating).mockReturnValue(true);
+
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      server_url: "",
+      watched_workspaces: [{ id: "ws1", name: "Test WS", token: "al_test_token" }],
+    });
+    mockClientInstance.register.mockResolvedValue({ runtimes: [{ id: "rt1" }] });
+    mockClientInstance.poll.mockResolvedValue({
+      tasks: [],
+      evicted: false,
+      pending_update: { version: "2.0.0" },
+    });
+
+    await startDaemon();
+
+    expect(handleCliUpdate).not.toHaveBeenCalled();
+    vi.mocked(isUpdating).mockReturnValue(false);
   });
 });

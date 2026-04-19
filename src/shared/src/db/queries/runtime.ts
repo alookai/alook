@@ -58,6 +58,7 @@ export async function listAgentRuntimes(db: Database, workspaceId: string) {
       createdAt: agentRuntime.createdAt,
       updatedAt: agentRuntime.updatedAt,
       machineLastSeenAt: machine.lastSeenAt,
+      pendingUpdateVersion: machine.pendingUpdateVersion,
     })
     .from(agentRuntime)
     .leftJoin(

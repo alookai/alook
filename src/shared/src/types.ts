@@ -41,6 +41,7 @@ export interface AgentRuntime {
   status: string;
   device_info: string;
   metadata: Record<string, unknown>;
+  pending_update_version?: string | null;
   last_seen_at: string | null;
   created_at: string;
   updated_at: string;

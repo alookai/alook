@@ -58,15 +58,24 @@ export class DaemonClient {
     });
   }
 
-  async poll(token: string, daemonId: string, maxTasks: number): Promise<{ tasks: TaskApi[], evicted: boolean }> {
+  async poll(
+    token: string,
+    daemonId: string,
+    maxTasks: number,
+    cliVersion?: string,
+  ): Promise<{ tasks: TaskApi[]; evicted: boolean; pending_update?: { version: string } }> {
     const raw = await this.request<unknown>(
       "POST",
       "/api/daemon/tasks/poll",
       token,
-      { daemon_id: daemonId, max_tasks: maxTasks },
+      { daemon_id: daemonId, max_tasks: maxTasks, ...(cliVersion && { cli_version: cliVersion }) },
     );
     const resp: PollResponse = PollResponseSchema.parse(raw);
-    return { tasks: resp.tasks, evicted: resp.evicted ?? false };
+    return {
+      tasks: resp.tasks,
+      evicted: resp.evicted ?? false,
+      pending_update: resp.pending_update,
+    };
   }
 
   startTask(token: string, taskId: string) {

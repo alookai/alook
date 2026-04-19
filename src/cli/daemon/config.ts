@@ -1,6 +1,7 @@
 import { hostname } from "os";
 import { join } from "path";
 import { configDir } from "../lib/config.js";
+import { getCurrentVersion } from "../lib/version.js";
 
 export function pidFilePath(profile?: string): string {
   const name = profile ? `daemon_${profile}.pid` : "daemon.pid";
@@ -106,7 +107,7 @@ export function loadDaemonConfig(profile?: string): DaemonConfig {
     deviceName: process.env.ALOOK_DAEMON_DEVICE_NAME || h,
     runtimeName: process.env.ALOOK_AGENT_RUNTIME_NAME || "Local Agent",
     workspacesRoot,
-    cliVersion: "0.1.0",
+    cliVersion: getCurrentVersion(),
   };
 }
 

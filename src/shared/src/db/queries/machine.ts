@@ -98,3 +98,26 @@ export async function deleteMachine(
       and(eq(machine.daemonId, daemonId), eq(machine.workspaceId, workspaceId))
     );
 }
+
+export async function setPendingUpdateVersion(
+  db: Database,
+  daemonId: string,
+  version: string
+) {
+  const now = new Date().toISOString();
+  await db
+    .update(machine)
+    .set({ pendingUpdateVersion: version, updatedAt: now })
+    .where(eq(machine.daemonId, daemonId));
+}
+
+export async function clearPendingUpdateVersion(
+  db: Database,
+  daemonId: string
+) {
+  const now = new Date().toISOString();
+  await db
+    .update(machine)
+    .set({ pendingUpdateVersion: null, updatedAt: now })
+    .where(eq(machine.daemonId, daemonId));
+}

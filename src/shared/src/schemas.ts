@@ -91,12 +91,14 @@ export type TaskApi = z.infer<typeof TaskApiSchema>;
 export const PollRequestSchema = z.object({
   daemon_id: z.string().min(1),
   max_tasks: z.number().int().min(1).default(1),
+  cli_version: z.string().optional(),
 });
 export type PollRequest = z.infer<typeof PollRequestSchema>;
 
 export const PollResponseSchema = z.object({
   tasks: z.array(TaskApiSchema),
   evicted: z.boolean().optional(),
+  pending_update: z.object({ version: z.string() }).optional(),
 });
 export type PollResponse = z.infer<typeof PollResponseSchema>;
 

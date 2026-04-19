@@ -160,6 +160,7 @@ export function runtimeToResponse(rt: any) {
     status: isOnline(lastSeenStr) ? "online" : "offline",
     device_info: rt.deviceInfo,
     metadata,
+    pending_update_version: rt.pendingUpdateVersion ?? null,
     last_seen_at: formatTimestampNullable(machineLastSeenAt),
     created_at: formatTimestamp(rt.createdAt),
     updated_at: formatTimestamp(rt.updatedAt),

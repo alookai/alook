@@ -8,24 +8,10 @@ export function GradientBackground() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[oklch(0.94_0.02_250)] dark:bg-transparent"
+      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[oklch(0.90_0.12_55)] dark:bg-transparent"
     >
-      {/* Blob 1 — warm amber, top-left drift */}
-      <div className="gradient-blob gradient-blob-1" />
-      {/* Blob 2 — cool periwinkle, bottom-right drift */}
-      <div className="gradient-blob gradient-blob-2" />
-      {/* Blob 3 — cream rose, top-right → center */}
-      <div className="gradient-blob gradient-blob-3" />
-      {/* Blob 4 — warm sand, bottom-left → center */}
-      <div className="gradient-blob gradient-blob-4" />
-      {/* Blob 5 — warm amber, center-left */}
-      <div className="gradient-blob gradient-blob-5" />
-      {/* Blob 6 — cool periwinkle, center */}
-      <div className="gradient-blob gradient-blob-6" />
-      {/* Blob 7 — cream rose, center-right */}
-      <div className="gradient-blob gradient-blob-7" />
       {/* Noise texture overlay */}
-      <svg className="absolute inset-0 w-full h-full opacity-[0.25] mix-blend-multiply dark:mix-blend-overlay pointer-events-none">
+      <svg className="absolute inset-0 hidden w-full h-full opacity-[0.25] mix-blend-multiply pointer-events-none dark:block dark:mix-blend-overlay">
         <filter id={filterId}>
           <feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="4" stitchTiles="stitch" />
           <feComponentTransfer>
