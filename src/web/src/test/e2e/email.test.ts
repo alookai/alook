@@ -356,25 +356,7 @@ describe("email thread", () => {
     expect(thread[0].message_id).toBe(parentMsgId)
   })
 
-  it("GET /api/email/[id]/thread returns empty array for root email", async () => {
-    const agentEmail = `${seed.agentEmailHandle}@alook.ai`
-    const now = new Date().toISOString()
-    const rootId = `er_${randomUUID().slice(0, 12)}`
-    const rootMsgId = `<root-${randomUUID()}@e2e.test>`
-
-    sql(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", created_at) VALUES ('${rootId}', '${seed.agentId}', '${seed.workspaceId}', 'sender@test.com', '${agentEmail}', 'Root email', 'emails/fake3/raw', 1, 0, '${rootMsgId}', '', '', '${now}')`)
-
-    const res = await tokenRequest(
-      `/api/email/${rootId}/thread?workspace_id=${seed.workspaceId}`,
-      seed.machineToken,
-    )
-    expect(res.status).toBe(200)
-
-    const thread = await res.json() as unknown[]
-    expect(thread).toHaveLength(0)
-  })
-
-  it("GET /api/email/[id]/thread is bounded by depth limit", async () => {
+  it("GET /api/email/[id]/thread walks chain and returns empty for root", async () => {
     const agentEmail = `${seed.agentEmailHandle}@alook.ai`
     const now = new Date().toISOString()
 
@@ -403,5 +385,14 @@ describe("email thread", () => {
     const thread = await res.json() as { id: string }[]
     expect(thread.length).toBe(4)
     expect(thread[0].id).toBe(ids[0])
+
+    // Root email (ids[0]) has no in_reply_to — thread should be empty
+    const rootRes = await tokenRequest(
+      `/api/email/${ids[0]}/thread?workspace_id=${seed.workspaceId}`,
+      seed.machineToken,
+    )
+    expect(rootRes.status).toBe(200)
+    const rootThread = await rootRes.json() as unknown[]
+    expect(rootThread).toHaveLength(0)
   })
 })
