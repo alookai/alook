@@ -158,6 +158,200 @@ describe("task lifecycle", () => {
   })
 })
 
+describe("context_key resume contract", () => {
+  let conv2Id: string
+  let task2Id: string
+
+  it("same conversation produces same context_key (DM resume)", async () => {
+    // Complete the first task from the main beforeAll
+    // (already completed above in the lifecycle tests)
+
+    // Send another message in the SAME conversation
+    const msgRes = await tokenRequest(
+      `/api/conversations/${conversationId}/messages?workspace_id=${seed.workspaceId}`,
+      seed.machineToken,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "Second message same conv" }),
+      },
+    )
+    const msgData = await msgRes.json() as { task?: { id: string } | null }
+    expect(msgData.task).toBeTruthy()
+    task2Id = msgData.task!.id
+
+    // Poll to claim
+    const pollRes = await tokenRequest(
+      `/api/daemon/tasks/poll`,
+      seed.machineToken,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ daemon_id: seed.daemonId, max_tasks: 1 }),
+      },
+    )
+    const pollData = await pollRes.json() as { tasks: Array<Record<string, unknown>> }
+    expect(pollData.tasks).toHaveLength(1)
+    // Same conversation → same context_key
+    expect(pollData.tasks[0].context_key).toBe(`dm:${conversationId}`)
+
+    // Clean up: start + complete this task
+    await tokenRequest(`/api/daemon/tasks/${task2Id}/start`, seed.machineToken, { method: "POST" })
+    await tokenRequest(`/api/daemon/tasks/${task2Id}/complete`, seed.machineToken, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ output: "done", session_id: "sess_2" }),
+    })
+  })
+
+  it("different conversation produces different context_key (DM reset)", async () => {
+    // Create a NEW conversation (simulates reset)
+    const convRes = await tokenRequest(
+      `/api/conversations?workspace_id=${seed.workspaceId}`,
+      seed.machineToken,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: seed.agentId }),
+      },
+    )
+    const convData = await convRes.json() as { id: string }
+    conv2Id = convData.id
+
+    const msgRes = await tokenRequest(
+      `/api/conversations/${conv2Id}/messages?workspace_id=${seed.workspaceId}`,
+      seed.machineToken,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "Message in new conv" }),
+      },
+    )
+    const msgData = await msgRes.json() as { task?: { id: string } | null }
+    expect(msgData.task).toBeTruthy()
+
+    const pollRes = await tokenRequest(
+      `/api/daemon/tasks/poll`,
+      seed.machineToken,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ daemon_id: seed.daemonId, max_tasks: 1 }),
+      },
+    )
+    const pollData = await pollRes.json() as { tasks: Array<Record<string, unknown>> }
+    expect(pollData.tasks).toHaveLength(1)
+    // Different conversation → different context_key
+    expect(pollData.tasks[0].context_key).toBe(`dm:${conv2Id}`)
+    expect(pollData.tasks[0].context_key).not.toBe(`dm:${conversationId}`)
+
+    // Clean up
+    const tid = pollData.tasks[0].id as string
+    await tokenRequest(`/api/daemon/tasks/${tid}/start`, seed.machineToken, { method: "POST" })
+    await tokenRequest(`/api/daemon/tasks/${tid}/complete`, seed.machineToken, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ output: "done", session_id: "sess_3" }),
+    })
+  })
+
+  it("email notify with same thread root produces same context_key", async () => {
+    const threadRoot = `<root-${Date.now()}@e2e.test>`
+
+    // First email in thread
+    const res1 = await tokenRequest(
+      `/api/email/notify?workspace_id=${seed.workspaceId}`,
+      seed.machineToken,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: seed.agentId,
+          workspaceId: seed.workspaceId,
+          r2Key: "emails/fake1/raw",
+          from: `${seed.userId}@test.local`,
+          subject: "Thread email 1",
+          isWhitelisted: true,
+          messageId: threadRoot,
+          inReplyTo: "",
+          references: "",
+        }),
+      },
+    )
+    expect(res1.status).toBe(200)
+
+    // Poll to get first task
+    const poll1 = await tokenRequest(
+      `/api/daemon/tasks/poll`,
+      seed.machineToken,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ daemon_id: seed.daemonId, max_tasks: 1 }),
+      },
+    )
+    const poll1Data = await poll1.json() as { tasks: Array<Record<string, unknown>> }
+    expect(poll1Data.tasks).toHaveLength(1)
+    const emailKey1 = poll1Data.tasks[0].context_key as string
+    expect(emailKey1).toBe(`email:${threadRoot}`)
+
+    // Complete it
+    const tid1 = poll1Data.tasks[0].id as string
+    await tokenRequest(`/api/daemon/tasks/${tid1}/start`, seed.machineToken, { method: "POST" })
+    await tokenRequest(`/api/daemon/tasks/${tid1}/complete`, seed.machineToken, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ output: "replied", session_id: "sess_email_1" }),
+    })
+
+    // Second email in same thread (references contains thread root)
+    const res2 = await tokenRequest(
+      `/api/email/notify?workspace_id=${seed.workspaceId}`,
+      seed.machineToken,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: seed.agentId,
+          workspaceId: seed.workspaceId,
+          r2Key: "emails/fake2/raw",
+          from: `${seed.userId}@test.local`,
+          subject: "Re: Thread email 1",
+          isWhitelisted: true,
+          messageId: `<reply-${Date.now()}@e2e.test>`,
+          inReplyTo: threadRoot,
+          references: `${threadRoot} <reply-${Date.now()}@e2e.test>`,
+        }),
+      },
+    )
+    expect(res2.status).toBe(200)
+
+    // Poll second task
+    const poll2 = await tokenRequest(
+      `/api/daemon/tasks/poll`,
+      seed.machineToken,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ daemon_id: seed.daemonId, max_tasks: 1 }),
+      },
+    )
+    const poll2Data = await poll2.json() as { tasks: Array<Record<string, unknown>> }
+    expect(poll2Data.tasks).toHaveLength(1)
+    // Same thread root → same context_key
+    expect(poll2Data.tasks[0].context_key).toBe(emailKey1)
+
+    // Clean up
+    const tid2 = poll2Data.tasks[0].id as string
+    await tokenRequest(`/api/daemon/tasks/${tid2}/start`, seed.machineToken, { method: "POST" })
+    await tokenRequest(`/api/daemon/tasks/${tid2}/complete`, seed.machineToken, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ output: "replied again", session_id: "sess_email_2" }),
+    })
+  })
+})
+
 describe("task failure", () => {
   let failTaskId: string
 
