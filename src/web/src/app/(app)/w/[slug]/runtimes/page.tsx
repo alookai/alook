@@ -466,7 +466,7 @@ export default function RuntimesPage() {
           }
         }}
       >
-        <SheetContent className="data-[side=right]:inset-y-2 data-[side=right]:right-2 data-[side=right]:h-auto data-[side=right]:rounded-xl data-[side=right]:border data-[side=right]:border-l">
+        <SheetContent className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border">
           <SheetHeader>
             <SheetTitle>Connect a machine</SheetTitle>
             <SheetDescription>

@@ -322,7 +322,7 @@ function WhitelistTrigger({ agentId }: { agentId: string }) {
       </SheetTrigger>
       <SheetContent
         side="right"
-        className="data-[side=right]:inset-y-2 data-[side=right]:right-2 data-[side=right]:h-auto data-[side=right]:rounded-xl data-[side=right]:border data-[side=right]:border-l"
+        className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border"
       >
         <SheetTitle className="sr-only">Allowed Senders</SheetTitle>
         <SheetBody className="px-8 pt-10 pb-6">

@@ -73,7 +73,7 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
         side="right"
         showCloseButton={false}
         style={{ width: `min(${width}px, 100vw)`, maxWidth: "none" }}
-        className="data-[side=right]:max-sm:inset-y-0 data-[side=right]:max-sm:right-0 data-[side=right]:max-sm:rounded-none data-[side=right]:max-sm:border-l data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border"
+        className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border"
       >
         <div
           onPointerDown={onPointerDown}
