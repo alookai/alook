@@ -10,7 +10,14 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AgentEditForm } from "@/components/agent-edit-form";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { CalendarDays, Mail, MessageSquare, Pencil, Trash2, X } from "lucide-react";
+import { CalendarDays, Mail, MessageSquare, MoreHorizontal, Pencil, Trash2, X } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { fetchModelOptions } from "@/lib/api";
 
 export default function AgentDetailLayout({ children }: { children: ReactNode }) {
@@ -87,48 +94,100 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
               </Button>
             ) : (
               <>
-                {isOnEmail ? (
+                {/* Desktop: inline buttons */}
+                <div className="hidden sm:flex items-center gap-0.5">
+                  {isOnEmail ? (
+                    <Link
+                      href={`/w/${slug}/agents/${agentId}`}
+                      className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
+                    >
+                      <MessageSquare className="size-3" />
+                      Chat
+                    </Link>
+                  ) : (
+                    <Link
+                      href={`/w/${slug}/agents/${agentId}/email`}
+                      className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
+                    >
+                      <Mail className="size-3" />
+                      Email
+                    </Link>
+                  )}
                   <Link
-                    href={`/w/${slug}/agents/${agentId}`}
+                    href={`/w/${slug}/calendar?agents=${agentId}`}
                     className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
                   >
-                    <MessageSquare className="size-3" />
-                    Chat
+                    <CalendarDays className="size-3" />
+                    Calendar
                   </Link>
-                ) : (
-                  <Link
-                    href={`/w/${slug}/agents/${agentId}/email`}
-                    className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground h-7 gap-1 px-2"
+                    onClick={() => setEditing(true)}
                   >
-                    <Mail className="size-3" />
-                    Email
-                  </Link>
-                )}
-                <Link
-                  href={`/w/${slug}/calendar?agents=${agentId}`}
-                  className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
-                >
-                  <CalendarDays className="size-3" />
-                  Calendar
-                </Link>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs text-muted-foreground h-7 gap-1 px-2"
-                  onClick={() => setEditing(true)}
-                >
-                  <Pencil className="size-3" />
-                  Edit
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs text-muted-foreground h-7 px-2 hover:text-destructive"
-                  onClick={() => setAgentConfirmOpen(true)}
-                >
-                  <Trash2 className="size-3" />
-                  Remove
-                </Button>
+                    <Pencil className="size-3" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground h-7 px-2 hover:text-destructive"
+                    onClick={() => setAgentConfirmOpen(true)}
+                  >
+                    <Trash2 className="size-3" />
+                    Remove
+                  </Button>
+                </div>
+
+                {/* Mobile: collapsed dropdown */}
+                <div className="sm:hidden">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={<Button variant="ghost" size="icon-sm" className="text-muted-foreground" />}
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" sideOffset={6}>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          router.push(
+                            isOnEmail
+                              ? `/w/${slug}/agents/${agentId}`
+                              : `/w/${slug}/agents/${agentId}/email`
+                          )
+                        }
+                      >
+                        {isOnEmail ? (
+                          <><MessageSquare className="size-3.5" /> Chat</>
+                        ) : (
+                          <><Mail className="size-3.5" /> Email</>
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() =>
+                          router.push(`/w/${slug}/calendar?agents=${agentId}`)
+                        }
+                      >
+                        <CalendarDays className="size-3.5" />
+                        Calendar
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => setEditing(true)}>
+                        <Pencil className="size-3.5" />
+                        Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => setAgentConfirmOpen(true)}
+                      >
+                        <Trash2 className="size-3.5" />
+                        Remove
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </>
             )}
           </div>
