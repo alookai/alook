@@ -8,7 +8,7 @@ export function GradientBackground() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[oklch(0.90_0.12_55)] dark:bg-transparent"
+      className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[oklch(0.93_0.015_80)] dark:bg-transparent"
     >
       {/* Noise texture overlay */}
       <svg className="absolute inset-0 hidden w-full h-full opacity-[0.25] mix-blend-multiply pointer-events-none dark:block dark:mix-blend-overlay">
