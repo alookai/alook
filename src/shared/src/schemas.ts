@@ -30,6 +30,7 @@ export const ClaimedTaskRowSchema = z.object({
   result: z.unknown().nullable(),
   context: z.unknown().nullable(),
   type: z.string().default(TASK_TYPES.USER_DM_MESSAGE),
+  contextKey: z.string().nullable().optional(),
   sessionId: z.string().nullable(),
   createdAt: z.coerce.date(),
   dispatchedAt: z.coerce.date().nullable(),
@@ -72,6 +73,7 @@ export const TaskApiBaseSchema = z.object({
   error: z.string().nullable(),
   created_at: z.string(),
   type: z.string(),
+  context_key: z.string().nullable().optional(),
 });
 export type TaskApiBase = z.infer<typeof TaskApiBaseSchema>;
 

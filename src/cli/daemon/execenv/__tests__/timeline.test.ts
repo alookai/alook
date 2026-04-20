@@ -14,6 +14,7 @@ import {
   updateEntry,
   createTimelineEntry,
   findResumableSessionId,
+  findResumableSessionByContextKey,
   _todayFilename,
   _localISOString,
   _filenameForDate,
@@ -253,7 +254,7 @@ describe("timeline", () => {
     function makeEntry(overrides: Partial<ContextTimelineEntry>): ContextTimelineEntry {
       return {
         task_id: "t_1",
-        conversation_id: null,
+        context_key: null,
         session_id: null,
         pid: null,
         status: "running",
@@ -489,70 +490,143 @@ describe("timeline", () => {
       expect(findResumableSessionId(dir, "user_dm_message", "codex")).toBe("sess_codex");
     });
 
-    it("createTimelineEntry includes conversation_id when provided", () => {
-      const entry = createTimelineEntry("t_c1", "test", "user_dm_message", "sess_1", 1234, "claude", "conv_abc");
-      expect(entry.conversation_id).toBe("conv_abc");
+    it("createTimelineEntry includes context_key when provided", () => {
+      const entry = createTimelineEntry("t_c1", "test", "user_dm_message", "sess_1", 1234, "claude", "dm:conv_abc");
+      expect(entry.context_key).toBe("dm:conv_abc");
     });
 
-    it("createTimelineEntry sets conversation_id to null when not provided", () => {
+    it("createTimelineEntry sets context_key to null when not provided", () => {
       const entry = createTimelineEntry("t_c2", "test", "user_dm_message");
-      expect(entry.conversation_id).toBeNull();
+      expect(entry.context_key).toBeNull();
     });
+  });
 
-    it("filters by conversationId when provided", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_conv1",
-        status: "completed",
-        session_id: "sess_conv1",
-        conversation_id: "conv_1",
+  describe("findResumableSessionByContextKey", () => {
+    function writeEntry(filename: string, entry: ContextTimelineEntry) {
+      const filePath = join(dir, filename);
+      let existing = "";
+      try { existing = readFileSync(filePath, "utf-8"); } catch { /* new file */ }
+      writeFileSync(filePath, existing + JSON.stringify(entry) + "\n");
+    }
+
+    function makeEntry(overrides: Partial<ContextTimelineEntry>): ContextTimelineEntry {
+      return {
+        task_id: "t_1",
+        context_key: null,
+        session_id: null,
+        pid: null,
+        status: "running",
         datetime: new Date().toISOString(),
-      }));
+        type: "user_dm_message",
+        prompt: "test",
+        agent_responses: [],
+        errmsg: null,
+        provider: "claude",
+        ...overrides,
+      };
+    }
+
+    it("returns session_id from a completed entry matching context_key", () => {
       writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_conv2",
+        task_id: "t_1",
         status: "completed",
-        session_id: "sess_conv2",
-        conversation_id: "conv_2",
-        datetime: new Date().toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "claude", undefined, "conv_1")).toBe("sess_conv1");
-      expect(findResumableSessionId(dir, "user_dm_message", "claude", undefined, "conv_2")).toBe("sess_conv2");
-    });
-
-    it("returns null when conversationId doesn't match any entry", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_conv1",
-        status: "completed",
-        session_id: "sess_conv1",
-        conversation_id: "conv_1",
-        datetime: new Date().toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "claude", undefined, "conv_other")).toBeNull();
-    });
-
-    it("ignores conversationId filter when not provided (backward compat)", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_conv1",
-        status: "completed",
-        session_id: "sess_conv1",
-        conversation_id: "conv_1",
+        session_id: "sess_abc",
+        context_key: "dm:conv_1",
         datetime: new Date().toISOString(),
       }));
 
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBe("sess_conv1");
+      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "claude")).toBe("sess_abc");
     });
 
-    it("matches entries with null conversation_id when conversationId filter not provided", () => {
+    it("returns null when context_key does not match", () => {
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_1",
+        status: "completed",
+        session_id: "sess_abc",
+        context_key: "dm:conv_1",
+        datetime: new Date().toISOString(),
+      }));
+
+      expect(findResumableSessionByContextKey(dir, "dm:conv_2", "claude")).toBeNull();
+    });
+
+    it("returns null when no entries exist", () => {
+      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "claude")).toBeNull();
+    });
+
+    it("uses 3h max age for dm: context keys", () => {
+      const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
       writeEntry(_todayFilename(), makeEntry({
         task_id: "t_old",
         status: "completed",
         session_id: "sess_old",
-        conversation_id: null,
+        context_key: "dm:conv_1",
+        datetime: fourHoursAgo.toISOString(),
+      }));
+
+      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "claude")).toBeNull();
+    });
+
+    it("uses 48h max age for email: context keys", () => {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_email",
+        status: "completed",
+        session_id: "sess_email",
+        context_key: "email:<thread@mail.com>",
+        datetime: twentyFourHoursAgo.toISOString(),
+      }));
+
+      expect(findResumableSessionByContextKey(dir, "email:<thread@mail.com>", "claude")).toBe("sess_email");
+    });
+
+    it("email: context key expires after 48h", () => {
+      const fiftyHoursAgo = new Date(Date.now() - 50 * 60 * 60 * 1000);
+      writeEntry(_filenameForDate(fiftyHoursAgo), makeEntry({
+        task_id: "t_email_old",
+        status: "completed",
+        session_id: "sess_email_old",
+        context_key: "email:<thread@mail.com>",
+        datetime: fiftyHoursAgo.toISOString(),
+      }));
+
+      expect(findResumableSessionByContextKey(dir, "email:<thread@mail.com>", "claude")).toBeNull();
+    });
+
+    it("filters by provider", () => {
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_1",
+        status: "completed",
+        session_id: "sess_claude",
+        context_key: "dm:conv_1",
+        provider: "claude",
         datetime: new Date().toISOString(),
       }));
 
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBe("sess_old");
+      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "codex")).toBeNull();
+      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "claude")).toBe("sess_claude");
+    });
+
+    it("returns the latest matching entry", () => {
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000);
+
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_older",
+        status: "completed",
+        session_id: "sess_older",
+        context_key: "dm:conv_1",
+        datetime: twoHoursAgo.toISOString(),
+      }));
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_newer",
+        status: "completed",
+        session_id: "sess_newer",
+        context_key: "dm:conv_1",
+        datetime: oneHourAgo.toISOString(),
+      }));
+
+      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "claude")).toBe("sess_newer");
     });
   });
 });

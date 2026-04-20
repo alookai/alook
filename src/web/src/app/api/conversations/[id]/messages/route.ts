@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries } from "@alook/shared"
+import { createDb, queries, TASK_TYPES, buildContextKey } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
@@ -83,13 +83,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // Auto-title: conditional WHERE title = '' ensures only the first message sets it
   queries.conversation.updateConversationTitle(db, id, truncateTitle(content)).catch(() => {});
 
+  const contextKey = buildContextKey(TASK_TYPES.USER_DM_MESSAGE, { conversationId: id });
   const taskService = new TaskService(db);
   try {
     const task = await taskService.enqueueTask(
       conversation.agentId,
       id,
       ws.workspaceId,
-      content
+      content,
+      TASK_TYPES.USER_DM_MESSAGE,
+      { contextKey },
     );
     broadcastToUser(ctx.userId, { type: "task.updated", taskId: task.id, status: "queued" }).catch(() => {});
     return writeJSON(

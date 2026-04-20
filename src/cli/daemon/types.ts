@@ -8,6 +8,7 @@ export interface Task {
   status: string;
   priority: number;
   type: string;
+  contextKey?: string | null;
   agent?: TaskAgentData;
   repos?: RepoData[];
   createdAt: string;
@@ -101,6 +102,7 @@ export function fromApiTask(api: import("@alook/shared").TaskApi): Task {
     status: api.status,
     priority: api.priority,
     type: api.type,
+    contextKey: api.context_key ?? null,
     agent: api.agent
       ? { name: api.agent.name, instructions: api.agent.instructions, emailHandle: api.agent.email_handle ?? undefined, userEmail: api.agent.user_email ?? undefined, runtimeConfig: api.agent.runtime_config ?? undefined }
       : undefined,

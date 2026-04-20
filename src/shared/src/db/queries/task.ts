@@ -13,6 +13,7 @@ export async function createTask(
     conversationId: string;
     prompt: string;
     type?: string;
+    contextKey?: string | null;
     priority?: number;
   }
 ) {
@@ -25,6 +26,7 @@ export async function createTask(
       conversationId: data.conversationId,
       prompt: data.prompt,
       type: data.type ?? TASK_TYPES.USER_DM_MESSAGE,
+      contextKey: data.contextKey ?? null,
       priority: data.priority ?? 0,
     })
     .returning();

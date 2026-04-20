@@ -15,12 +15,11 @@ import {
   updateEntry,
   createTimelineEntry,
   localISOString,
-  findResumableSessionId,
+  findResumableSessionByContextKey,
 } from "./execenv/timeline.js";
 import { buildPrompt } from "./prompt.js";
 import { log } from "../lib/logger.js";
 import type { SessionRunnerInput } from "./types.js";
-import { TASK_TYPES } from "@alook/shared";
 
 export async function runSession(input: SessionRunnerInput): Promise<void> {
   const { task, provider, cliPath, model, serverURL, token, workspacesRoot, agentTimeout } = input;
@@ -34,12 +33,11 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     task,
   );
 
-  const resumeSessionId =
-    task.type === TASK_TYPES.USER_DM_MESSAGE
-      ? findResumableSessionId(timelineDir, task.type, provider, undefined, task.conversationId) ?? undefined
-      : undefined;
+  const resumeSessionId = task.contextKey
+    ? findResumableSessionByContextKey(timelineDir, task.contextKey, provider) ?? undefined
+    : undefined;
   if (resumeSessionId) {
-    log.info(`Task ${task.id} resuming session ${resumeSessionId}`);
+    log.info(`Task ${task.id} resuming session ${resumeSessionId} (context_key: ${task.contextKey})`);
   }
 
   const session = backend.execute(prompt, {
@@ -57,7 +55,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
   const earlySessionId = await session.sessionId;
   await initEntryAsync(
     timelineDir,
-    createTimelineEntry(task.id, task.prompt, task.type, earlySessionId, process.pid, provider, task.conversationId),
+    createTimelineEntry(task.id, task.prompt, task.type, earlySessionId, process.pid, provider, task.contextKey),
   );
 
   // Message batching

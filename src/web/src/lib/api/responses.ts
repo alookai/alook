@@ -75,6 +75,7 @@ export function taskToResponse(t: {
   workspaceId: string;
   prompt: string;
   type?: string;
+  contextKey?: string | null;
   status: string;
   priority: number;
   dispatchedAt: Date | string | null;
@@ -92,6 +93,7 @@ export function taskToResponse(t: {
     workspace_id: t.workspaceId,
     prompt: t.prompt,
     type: t.type ?? TASK_TYPES.USER_DM_MESSAGE,
+    context_key: t.contextKey ?? null,
     status: t.status,
     priority: t.priority,
     dispatched_at: formatTimestampNullable(t.dispatchedAt),

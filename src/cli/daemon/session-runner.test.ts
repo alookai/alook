@@ -38,10 +38,10 @@ const mockCreateTimelineEntry = vi.fn(
     sessionId?: string,
     pid?: number,
     provider?: string,
-    conversationId?: string,
+    contextKey?: string | null,
   ) => ({
     task_id: taskId,
-    conversation_id: conversationId || null,
+    context_key: contextKey ?? null,
     session_id: sessionId || null,
     pid: pid ?? null,
     status: "running",
@@ -53,12 +53,12 @@ const mockCreateTimelineEntry = vi.fn(
     provider: provider || null,
   }),
 );
-const mockFindResumableSessionId = vi.fn(() => null);
+const mockFindResumableSessionByContextKey = vi.fn(() => null);
 vi.mock("./execenv/timeline.js", () => ({
   initEntryAsync: (...args: any[]) => mockInitEntryAsync(...args),
   updateEntry: (...args: any[]) => mockUpdateEntry(...args),
   createTimelineEntry: (...args: any[]) => mockCreateTimelineEntry(...args),
-  findResumableSessionId: (...args: any[]) => mockFindResumableSessionId(...args),
+  findResumableSessionByContextKey: (...args: any[]) => mockFindResumableSessionByContextKey(...args),
   localISOString: () => "2026-04-16T10:00:00-05:00",
 }));
 
@@ -98,6 +98,7 @@ function makeInput(overrides?: Partial<SessionRunnerInput>): SessionRunnerInput 
       status: "dispatched",
       priority: 0,
       type: "user_dm_message",
+      contextKey: "dm:c1",
       createdAt: "2026-01-01T00:00:00Z",
     },
     provider: "claude",
@@ -215,7 +216,7 @@ describe("session-runner runSession", () => {
       "sess-1",
       process.pid,
       "claude",
-      "c1",
+      "dm:c1",
     );
     expect(mockInitEntryAsync).toHaveBeenCalledWith(
       "/tmp/ws/ws1/agent1/workdir/.context_timeline",
@@ -326,8 +327,8 @@ describe("session-runner runSession", () => {
     expect(totalReported).toBe(25);
   });
 
-  it("uses findResumableSessionId and passes to backend for user_dm_message tasks", async () => {
-    mockFindResumableSessionId.mockReturnValueOnce("prev-session-123");
+  it("uses findResumableSessionByContextKey and passes to backend for user_dm_message tasks", async () => {
+    mockFindResumableSessionByContextKey.mockReturnValueOnce("prev-session-123");
 
     setupBackend([], {
       status: "completed",
@@ -339,12 +340,10 @@ describe("session-runner runSession", () => {
 
     await runSession(makeInput());
 
-    expect(mockFindResumableSessionId).toHaveBeenCalledWith(
+    expect(mockFindResumableSessionByContextKey).toHaveBeenCalledWith(
       "/tmp/ws/ws1/agent1/workdir/.context_timeline",
-      "user_dm_message",
+      "dm:c1",
       "claude",
-      undefined,
-      "c1",
     );
     expect(mockBackendExecute).toHaveBeenCalledWith(
       expect.any(String),
@@ -352,7 +351,7 @@ describe("session-runner runSession", () => {
     );
   });
 
-  it("skips findResumableSessionId entirely for calendar_event tasks (always fresh session)", async () => {
+  it("skips findResumableSessionByContextKey for calendar_event tasks (no contextKey)", async () => {
     setupBackend([], {
       status: "completed",
       output: "Done",
@@ -378,7 +377,7 @@ describe("session-runner runSession", () => {
       }),
     );
 
-    expect(mockFindResumableSessionId).not.toHaveBeenCalled();
+    expect(mockFindResumableSessionByContextKey).not.toHaveBeenCalled();
     expect(mockBackendExecute).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({ resumeSessionId: undefined }),
@@ -581,11 +580,11 @@ describe("session-runner runSession", () => {
       "sess-1",
       process.pid,
       "codex",
-      "c1",
+      "dm:c1",
     );
   });
 
-  it("passes provider to findResumableSessionId", async () => {
+  it("passes provider to findResumableSessionByContextKey", async () => {
     setupBackend([], {
       status: "completed",
       output: "Done",
@@ -596,17 +595,15 @@ describe("session-runner runSession", () => {
 
     await runSession(makeInput({ provider: "codex" }));
 
-    expect(mockFindResumableSessionId).toHaveBeenCalledWith(
+    expect(mockFindResumableSessionByContextKey).toHaveBeenCalledWith(
       "/tmp/ws/ws1/agent1/workdir/.context_timeline",
-      "user_dm_message",
+      "dm:c1",
       "codex",
-      undefined,
-      "c1",
     );
   });
 
-  it("session resume works when findResumableSessionId returns a session for matching provider", async () => {
-    mockFindResumableSessionId.mockReturnValueOnce("prev-sess-codex");
+  it("session resume works when findResumableSessionByContextKey returns a session for matching provider", async () => {
+    mockFindResumableSessionByContextKey.mockReturnValueOnce("prev-sess-codex");
 
     setupBackend([], {
       status: "completed",
@@ -625,7 +622,7 @@ describe("session-runner runSession", () => {
   });
 
   it("session starts fresh when provider has no matching prior entry", async () => {
-    mockFindResumableSessionId.mockReturnValueOnce(null);
+    mockFindResumableSessionByContextKey.mockReturnValueOnce(null);
 
     setupBackend([], {
       status: "completed",
@@ -637,12 +634,10 @@ describe("session-runner runSession", () => {
 
     await runSession(makeInput({ provider: "opencode" }));
 
-    expect(mockFindResumableSessionId).toHaveBeenCalledWith(
+    expect(mockFindResumableSessionByContextKey).toHaveBeenCalledWith(
       "/tmp/ws/ws1/agent1/workdir/.context_timeline",
-      "user_dm_message",
+      "dm:c1",
       "opencode",
-      undefined,
-      "c1",
     );
     expect(mockBackendExecute).toHaveBeenCalledWith(
       expect.any(String),

@@ -22,7 +22,7 @@ function readJsonl(filePath: string): ContextTimelineEntry[] {
 
 export interface ContextTimelineEntry {
   task_id: string;
-  conversation_id: string | null;
+  context_key: string | null;
   session_id: string | null;
   pid: number | null;
   status: "running" | "completed" | "failed" | "killed";
@@ -196,11 +196,11 @@ export function createTimelineEntry(
   sessionId?: string,
   pid?: number,
   provider?: string,
-  conversationId?: string,
+  contextKey?: string | null,
 ): ContextTimelineEntry {
   return {
     task_id: taskId,
-    conversation_id: conversationId || null,
+    context_key: contextKey ?? null,
     session_id: sessionId || null,
     pid: pid ?? null,
     status: "running",
@@ -220,7 +220,6 @@ export function findResumableSessionId(
   type: string,
   provider: string,
   maxAgeMs: number = DEFAULT_RESUME_MAX_AGE_MS,
-  conversationId?: string,
 ): string | null {
   const now = new Date();
   const cutoff = new Date(now.getTime() - maxAgeMs);
@@ -240,13 +239,44 @@ export function findResumableSessionId(
       entry.type === type &&
       entry.provider === provider &&
       entry.session_id &&
-      new Date(entry.datetime) >= cutoff &&
-      (!conversationId || entry.conversation_id === conversationId)
+      new Date(entry.datetime) >= cutoff
     ) {
       return entry.session_id;
     }
   }
 
+  return null;
+}
+
+const EMAIL_RESUME_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+
+export function findResumableSessionByContextKey(
+  timelineDir: string,
+  contextKey: string,
+  provider: string,
+): string | null {
+  const maxAgeMs = contextKey.startsWith("email:")
+    ? EMAIL_RESUME_MAX_AGE_MS
+    : DEFAULT_RESUME_MAX_AGE_MS;
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - maxAgeMs);
+  const daysToScan = Math.ceil(maxAgeMs / 86_400_000) + 1;
+  const entries: ContextTimelineEntry[] = [];
+  for (const filename of recentFilenames(daysToScan)) {
+    entries.push(...readJsonl(join(timelineDir, filename)));
+  }
+  entries.sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
+  for (const entry of entries) {
+    if (
+      entry.status === "completed" &&
+      entry.context_key === contextKey &&
+      entry.provider === provider &&
+      entry.session_id &&
+      new Date(entry.datetime) >= cutoff
+    ) {
+      return entry.session_id;
+    }
+  }
   return null;
 }
 

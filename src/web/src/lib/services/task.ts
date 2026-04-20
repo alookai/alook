@@ -15,6 +15,7 @@ export class TaskService {
     workspaceId: string,
     prompt: string,
     type: string = TASK_TYPES.USER_DM_MESSAGE,
+    opts?: { contextKey?: string | null },
   ) {
     const agent = await agentQueries.getAgent(this.db, agentId, workspaceId);
     if (!agent) {
@@ -31,6 +32,7 @@ export class TaskService {
       conversationId,
       prompt,
       type,
+      contextKey: opts?.contextKey ?? null,
       priority: 0,
     });
   }

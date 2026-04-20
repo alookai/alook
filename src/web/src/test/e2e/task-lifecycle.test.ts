@@ -61,6 +61,7 @@ describe("task lifecycle", () => {
     expect(data.tasks[0].id).toBe(taskId)
     expect(data.tasks[0].status).toBe("dispatched")
     expect(data.tasks[0].prompt).toBe("Run the e2e tests")
+    expect(data.tasks[0].context_key).toBe(`dm:${conversationId}`)
     // Poll response includes agent data
     expect(data.tasks[0].agent).toBeTruthy()
     const agent = data.tasks[0].agent as Record<string, unknown>
