@@ -11,6 +11,7 @@ export type {
   MachineToken,
   Email,
   EmailAttachment,
+  Artifact,
   LoginResponse,
   CreateAgentRequest,
   CalendarEvent,

@@ -1,6 +1,7 @@
 import type {
   Agent,
   AgentRuntime,
+  Artifact,
   CalendarEvent,
   Conversation,
   CreateAgentRequest,
@@ -329,6 +330,17 @@ export const removeWhitelistEmail = (agentId: string, whitelistId: string, works
   apiFetch<void>(`/api/agents/${agentId}/whitelist/${whitelistId}${wsQuery(workspaceId)}`, {
     method: "DELETE",
   });
+
+// Artifacts
+export const listArtifacts = (conversationId: string, workspaceId: string) =>
+  apiFetch<Artifact[]>(`/api/artifacts${wsQuery(workspaceId, { conversation_id: conversationId })}`);
+
+export const getArtifactContent = async (id: string, workspaceId: string): Promise<string> => {
+  const params = new URLSearchParams({ workspace_id: workspaceId });
+  const res = await fetch(`/api/artifacts/${id}/content?${params}`, { credentials: "include" });
+  if (!res.ok) return "(content not available)";
+  return res.text();
+};
 
 // Auth (Better Auth — redirect helpers only, actual auth via Better Auth client)
 export const signOut = async () => {

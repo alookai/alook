@@ -328,6 +328,32 @@ export const calendarEvent = sqliteTable(
   ]
 );
 
+export const artifact = sqliteTable(
+  "artifact",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "art_" + nanoid()),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").notNull(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    contentType: text("content_type").notNull().default("application/octet-stream"),
+    size: integer("size").notNull(),
+    r2Key: text("r2_key").notNull(),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_artifact_conversation").on(t.conversationId),
+    foreignKey({
+      columns: [t.agentId, t.workspaceId],
+      foreignColumns: [agent.id, agent.workspaceId],
+    }).onDelete("cascade"),
+  ]
+);
+
 export const machineToken = sqliteTable(
   "machine_token",
   {

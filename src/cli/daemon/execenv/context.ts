@@ -112,6 +112,14 @@ To reply to an email, add '--in-reply-to <EMAIL_ID>' to the send command. This s
 `;
   }
 
+  content += `\n### Artifacts
+Upload files for your owner to review in the app.
+- Your current conversation id is available via env var: $ALOOK_CONVERSATION_ID
+- Run 'npx @alook/cli sync upload-artifact --agent_id ${task.agentId} --conversation_id $ALOOK_CONVERSATION_ID --file <PATH>'
+- Use this after generating plans, reports, or any file the owner should review.
+---
+`;
+
   content += `\n### Calendar
 You have your own calendar to setup daily routines and reminders.
 Schedule future tasks for yourself. At the scheduled time, a new task is dispatched to you with the event as the prompt (task type 'calendar_event').

@@ -8,6 +8,7 @@ import { emailCommand } from "../commands/email.js";
 import { calendarCommand } from "../commands/calendar.js";
 import { versionCommand } from "../commands/version.js";
 import { updateCommand } from "../commands/update.js";
+import { syncCommand } from "../commands/sync.js";
 
 const program = new Command();
 
@@ -25,5 +26,6 @@ program.addCommand(calendarCommand());
 program.addCommand(configCommand());
 program.addCommand(versionCommand());
 program.addCommand(updateCommand());
+program.addCommand(syncCommand());
 
 program.parse();

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
@@ -13,13 +13,16 @@ import {
   getTaskMessages,
   getActiveTask,
   deleteConversation,
+  listArtifacts,
 } from "@/lib/api";
-import type { Conversation, Message, TaskApi as Task, TaskMessage, WsMessage } from "@alook/shared";
+import type { Artifact, Conversation, Message, TaskApi as Task, TaskMessage, WsMessage } from "@alook/shared";
 import { useAgentContext } from "@/contexts/agent-context";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowUp, Loader2, RotateCcw } from "lucide-react";
+import { ArrowUp, Box, FileText, Loader2, RotateCcw } from "lucide-react";
+import { ArtifactSheet, formatSize } from "@/components/agent-chat/artifact-sheet";
+import { isPreviewable, getArtifactUrl } from "@/components/artifact-content-renderer";
 import {
   Dialog,
   DialogContent,
@@ -49,6 +52,42 @@ export function mergeMessages(existing: Message[], incoming: Message[]): Message
   return sortMessages([...merged.values()]);
 }
 
+type TimelineItem =
+  | { kind: "message"; data: Message }
+  | { kind: "artifact"; data: Artifact };
+
+function buildTimeline(messages: Message[], artifacts: Artifact[]): TimelineItem[] {
+  const items: TimelineItem[] = [
+    ...messages.map((m): TimelineItem => ({ kind: "message", data: m })),
+    ...artifacts.map((a): TimelineItem => ({ kind: "artifact", data: a })),
+  ];
+  return items.sort((a, b) => {
+    const cmp = a.data.created_at.localeCompare(b.data.created_at);
+    if (cmp !== 0) return cmp;
+    if (a.kind !== b.kind) return a.kind === "message" ? -1 : 1;
+    return a.data.id.localeCompare(b.data.id);
+  });
+}
+
+function ArtifactCard({ artifact, onClick }: { artifact: Artifact; onClick: (a: Artifact) => void }) {
+  return (
+    <button
+      onClick={() => onClick(artifact)}
+      className={cn(
+        "flex items-center gap-3 w-full max-w-sm rounded-lg border border-border/60 bg-muted/30",
+        "px-3.5 py-2.5 text-left transition-colors duration-150",
+        "hover:bg-muted/60 hover:border-border"
+      )}
+    >
+      <FileText className="size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">{artifact.filename}</p>
+        <p className="text-xs text-muted-foreground">{formatSize(artifact.size)}</p>
+      </div>
+    </button>
+  );
+}
+
 export function AgentChatView() {
   const params = useParams();
   const { workspaceId } = useWorkspace();
@@ -68,6 +107,20 @@ export function AgentChatView() {
   const [connectionLost, setConnectionLost] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const [artifactSheetOpen, setArtifactSheetOpen] = useState(false);
+  const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
+
+  const timeline = useMemo(() => buildTimeline(messages, artifacts), [messages, artifacts]);
+
+  const handleArtifactClick = useCallback((artifact: Artifact) => {
+    if (isPreviewable(artifact)) {
+      setSelectedArtifact(artifact);
+      setArtifactSheetOpen(true);
+    } else {
+      window.open(getArtifactUrl(artifact.id, workspaceId, true), "_blank");
+    }
+  }, [workspaceId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -103,8 +156,12 @@ export function AgentChatView() {
       try {
         const conv = await getOrCreateAgentConversation(agentId, workspaceId);
         setConversation(conv);
-        const msgs = await listMessages(conv.id, workspaceId, { limit: MESSAGE_LIMIT });
+        const [msgs, arts] = await Promise.all([
+          listMessages(conv.id, workspaceId, { limit: MESSAGE_LIMIT }),
+          listArtifacts(conv.id, workspaceId),
+        ]);
         setMessages(msgs);
+        setArtifacts(arts);
         setHasMore(msgs.length >= MESSAGE_LIMIT);
 
         // Recover active task (e.g. after page refresh)
@@ -305,8 +362,14 @@ export function AgentChatView() {
           lastSeqRef.current = Math.max(...incoming.map((m) => m.seq), lastSeqRef.current);
         }
       }
+      if (msg.type === "artifact.uploaded" && msg.conversationId === conversation?.id) {
+        setArtifacts((prev) => {
+          if (prev.some((a) => a.id === msg.artifact.id)) return prev;
+          return [...prev, msg.artifact];
+        });
+      }
     });
-  }, [subscribeWs]);
+  }, [subscribeWs, conversation?.id]);
 
   const handleSend = async () => {
     const content = input.trim();
@@ -365,6 +428,7 @@ export function AgentChatView() {
       setMessages([]);
       setActiveTask(null);
       setTaskMessages([]);
+      setArtifacts([]);
       lastSeqRef.current = 0;
       setConnectionLost(false);
       setHasMore(false);
@@ -470,7 +534,18 @@ export function AgentChatView() {
             </p>
           )}
 
-          {messages.map((msg) => {
+          {timeline.map((item) => {
+            if (item.kind === "artifact") {
+              return (
+                <ArtifactCard
+                  key={`artifact-${item.data.id}`}
+                  artifact={item.data}
+                  onClick={handleArtifactClick}
+                />
+              );
+            }
+
+            const msg = item.data;
             const hasTaskStream =
               activeTask &&
               msg.role === "assistant" &&
@@ -479,7 +554,6 @@ export function AgentChatView() {
 
             return (
               <React.Fragment key={msg.id}>
-                {/* Show full trace (including text) for completed tasks */}
                 {hasTaskStream && (
                   <TaskStream
                     task={activeTask}
@@ -517,7 +591,7 @@ export function AgentChatView() {
 
       {/* Input */}
       <div className="px-5 py-3">
-        <div className="mx-auto max-w-2xl">
+        <div className="mx-auto max-w-2xl relative">
           <div
             className={cn(
               "relative flex flex-col rounded-xl border bg-background/60 transition-colors duration-200",
@@ -539,20 +613,36 @@ export function AgentChatView() {
               )}
             />
             <div className="flex items-center justify-between px-2 pb-2 pt-0.5">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={handleReset}
-                disabled={resetting || !conversation || messages.length === 0}
-                className="rounded-lg text-muted-foreground/60 hover:text-foreground transition-colors duration-200"
-                title="New conversation"
-              >
-                {resetting ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <RotateCcw className="size-3.5" />
-                )}
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={handleReset}
+                  disabled={resetting || !conversation || messages.length === 0}
+                  className="rounded-lg text-muted-foreground/60 hover:text-foreground transition-colors duration-200"
+                  title="New conversation"
+                >
+                  {resetting ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="size-3.5" />
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setArtifactSheetOpen(true)}
+                  className="relative rounded-lg text-muted-foreground/60 hover:text-foreground transition-colors duration-200"
+                  title="View artifacts"
+                >
+                  <Box className="size-3.5" />
+                  {artifacts.length > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[9px] font-medium text-primary-foreground">
+                      {artifacts.length}
+                    </span>
+                  )}
+                </Button>
+              </div>
               <Button
                 size="icon-sm"
                 onClick={handleSend}
@@ -614,6 +704,17 @@ export function AgentChatView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ArtifactSheet
+        open={artifactSheetOpen}
+        onOpenChange={(v) => {
+          setArtifactSheetOpen(v);
+          if (!v) setSelectedArtifact(null);
+        }}
+        artifacts={artifacts}
+        workspaceId={workspaceId}
+        initialArtifact={selectedArtifact}
+      />
     </>
   );
 }

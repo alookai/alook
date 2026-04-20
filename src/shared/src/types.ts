@@ -138,6 +138,16 @@ export interface Email {
   created_at: string;
 }
 
+export interface Artifact {
+  id: string;
+  conversation_id: string;
+  agent_id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  created_at: string;
+}
+
 export interface LoginResponse {
   token: string;
   user: User;
@@ -161,3 +171,4 @@ export type WsMessage =
   | { type: "task.updated"; taskId: string; status: string }
   | { type: "task.messages"; taskId: string; messages: TaskMessage[] }
   | { type: "email.received"; agentId: string }
+  | { type: "artifact.uploaded"; conversationId: string; artifact: Artifact }

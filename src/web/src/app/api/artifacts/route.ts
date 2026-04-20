@@ -1,0 +1,27 @@
+import { NextRequest } from "next/server";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { createDb, queries } from "@alook/shared";
+import { withAuth } from "@/lib/middleware/auth";
+import { withWorkspaceMember } from "@/lib/middleware/workspace";
+import { writeJSON, writeError } from "@/lib/middleware/helpers";
+
+export const GET = withAuth(async (req: NextRequest, ctx) => {
+  const ws = await withWorkspaceMember(req, ctx);
+  if (ws instanceof Response) return ws;
+
+  const conversationId = req.nextUrl.searchParams.get("conversation_id");
+  if (!conversationId) {
+    return writeError("conversation_id is required", 400);
+  }
+
+  const { env } = getCloudflareContext();
+  const db = createDb((env as Env).DB);
+
+  const rows = await queries.artifact.listArtifactsByConversation(
+    db,
+    conversationId,
+    ws.workspaceId
+  );
+
+  return writeJSON(rows.map(queries.artifact.artifactToResponse));
+});
