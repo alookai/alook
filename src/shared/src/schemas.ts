@@ -386,6 +386,7 @@ export const SendEmailRequestSchema = z.object({
   references: z.string().optional(),
   attachments: z.array(EmailAttachmentSchema).optional(),
   customAccountId: z.string().optional(),
+  from: z.string().email().optional(),
 });
 export type SendEmailRequest = z.infer<typeof SendEmailRequestSchema>;
 

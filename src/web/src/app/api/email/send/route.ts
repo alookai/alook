@@ -20,10 +20,23 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const agent = await queries.agent.getAgent(db, body.agentId, ws.workspaceId);
   if (!agent) return writeError("agent not found in workspace", 404);
 
-  const customAccountId = body.customAccountId;
+  let customAccountId = body.customAccountId;
   let fromAddress: string;
 
-  if (customAccountId) {
+  if (body.from && !customAccountId) {
+    const alookAddr = agent.emailHandle ? `${agent.emailHandle}@alook.ai` : null;
+    if (body.from === alookAddr) {
+      fromAddress = alookAddr;
+    } else {
+      const accounts = await queries.emailAccount.getEmailAccountsByAgent(db, body.agentId, ws.workspaceId);
+      const match = accounts.find((a) => a.emailAddress === body.from);
+      if (!match) {
+        return writeError(`email address '${body.from}' is not configured for this agent`, 400);
+      }
+      customAccountId = match.id;
+      fromAddress = match.emailAddress;
+    }
+  } else if (customAccountId) {
     const account = await queries.emailAccount.getEmailAccount(db, customAccountId, ws.workspaceId);
     if (!account || account.agentId !== body.agentId) {
       return writeError("custom email account not found", 404);

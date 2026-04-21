@@ -262,6 +262,7 @@ export function emailCommand(): Command {
     .requiredOption("--to <addr>", "Recipient email address")
     .requiredOption("--subject <s>", "Subject line")
     .requiredOption("--body-file <path>", "Path to HTML body file")
+    .option("--from <addr>", "Send from a specific email address (custom mailbox)")
     .option("--in-reply-to <emailId>", "Email ID to reply to (sets threading headers)")
     .option(
       "--attachment <path>",
@@ -349,6 +350,7 @@ export function emailCommand(): Command {
           htmlBody,
           attachments,
           ...(inReplyTo ? { inReplyTo, references } : {}),
+          ...(opts.from ? { from: opts.from } : {}),
         });
         console.log(`Sent email to ${res.to_email} (id: ${res.id})`);
       } catch (err) {
