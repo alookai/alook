@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
 import { CFImap } from "cf-imap"
 import { nanoid } from "nanoid"
-import { createDb, queries, decrypt, createLogger } from "@alook/shared"
+import { createDb, queries, createLogger } from "@alook/shared"
+import { decrypt } from "@alook/shared/crypto"
 import type { EmailEnv } from "./types"
 
 const log = createLogger({ service: "imap-poller" })

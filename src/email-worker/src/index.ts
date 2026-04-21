@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid"
-import { createDb, queries, parseEmailHandle, decrypt, DEV_WEB_URL, createLogger } from "@alook/shared"
+import { createDb, queries, parseEmailHandle, DEV_WEB_URL, createLogger } from "@alook/shared"
+import { decrypt } from "@alook/shared/crypto"
 import { WorkerMailer } from "worker-mailer"
 import type { EmailEnv } from "./types"
 

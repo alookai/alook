@@ -17,6 +17,12 @@ vi.mock("worker-mailer", () => ({
   WorkerMailer: { send: (...args: any[]) => mockWorkerMailerSend(...args) },
 }))
 
+// Mock @alook/shared/crypto (separate subpath export, not in barrel)
+vi.mock("@alook/shared/crypto", () => ({
+  encrypt: (val: string) => `encrypted:${val}`,
+  decrypt: (val: string) => `decrypted:${val}`,
+}))
+
 // Mock nanoid to return predictable IDs
 let nanoidCounter = 0
 vi.mock("nanoid", () => ({
@@ -47,7 +53,6 @@ vi.mock("@alook/shared", () => {
       return address.endsWith(domain) ? address.slice(0, -domain.length) : ""
     },
     DEV_WEB_URL: "http://localhost:3000",
-    decrypt: (val: string) => `decrypted:${val}`,
     queries: {
       agent: {
         getAgentByHandle: (db: unknown, handle: unknown) => mockGetAgentByHandle(db, handle),

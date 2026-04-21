@@ -39,6 +39,12 @@ vi.mock("nanoid", () => ({
   nanoid: (len?: number) => `mock-${++nanoidCounter}`,
 }))
 
+// Mock @alook/shared/crypto
+vi.mock("@alook/shared/crypto", () => ({
+  encrypt: (val: string) => `encrypted:${val}`,
+  decrypt: (val: string) => `decrypted:${val}`,
+}))
+
 // Mock @alook/shared
 const mockGetEmailAccount = vi.fn()
 const mockUpdateEmailAccount = vi.fn()
@@ -56,7 +62,6 @@ vi.mock("@alook/shared", () => {
     createDb: () => ({}),
     createLogger: () => noopLogger,
     DEV_WEB_URL: "http://localhost:3000",
-    decrypt: (val: string) => `decrypted:${val}`,
     queries: {
       emailAccount: {
         getEmailAccount: (...args: any[]) => mockGetEmailAccount(...args),

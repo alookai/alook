@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, encrypt, UpdateEmailAccountSchema, DEV_EMAIL_WORKER_URL } from "@alook/shared"
+import { createDb, queries, UpdateEmailAccountSchema, DEV_EMAIL_WORKER_URL } from "@alook/shared"
+import { encrypt } from "@alook/shared/crypto"
 import { withAuth } from "@/lib/middleware/auth"
 import { withWorkspaceMember } from "@/lib/middleware/workspace"
 import { writeJSON, writeError, parseBody, formatTimestamp, formatTimestampNullable } from "@/lib/middleware/helpers"

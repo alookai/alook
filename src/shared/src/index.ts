@@ -164,5 +164,4 @@ export { parseEmailHandle, toAlookAddress, isValidHandle } from "./utils/email";
 export { isValidToken, isValidEmail } from "./utils/validation";
 export { isOnline, formatStatus } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
-export { encrypt, decrypt } from "./utils/crypto";
 export { semverGte } from "./semver";

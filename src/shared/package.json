@@ -2,7 +2,7 @@
   "name": "@alook/shared",
   "version": "0.0.1",
   "private": true,
-  "exports": { ".": "./src/index.ts" },
+  "exports": { ".": "./src/index.ts", "./crypto": "./src/utils/crypto.ts" },
   "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
