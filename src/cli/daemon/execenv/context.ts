@@ -104,17 +104,17 @@ Before starting to process an email, mark it as read:
 
 #### Sending a new email
 Write the HTML body to a file first, then send it. The body is forwarded as-is (HTML).
-- Run 'npx @alook/cli email send --agent_id ${task.agentId} --to <ADDRESS> --subject "<SUBJECT>" --body-file <PATH_TO_HTML>'
+- Run 'npx @alook/cli email send --agent_id ${task.agentId} --workspace ${task.workspaceId} --to <ADDRESS> --subject "<SUBJECT>" --body-file <PATH_TO_HTML>'
 - To send from a specific mailbox, add '--from <YOUR_EMAIL_ADDRESS>'. Without '--from', the default Alook address is used.
 - Attach files with '--attachment <PATH>' — repeat the flag for multiple attachments. Each file is uploaded before sending.
-- Example: 'npx @alook/cli email send --agent_id ${task.agentId} --to foo@bar.com --subject "Weekly report" --body-file /tmp/body.html --from alice@company.com --attachment /tmp/report.pdf'
+- Example: 'npx @alook/cli email send --agent_id ${task.agentId} --workspace ${task.workspaceId} --to foo@bar.com --subject "Weekly report" --body-file /tmp/body.html --from alice@company.com --attachment /tmp/report.pdf'
 
 #### Replying to an email
 To reply to an email, add '--in-reply-to <EMAIL_ID>' to the send command. This sets the correct email threading headers so the recipient's email client groups the reply into the same conversation thread.
 - Use 'Re: <original subject>' as the subject.
 - Quote the original email body in your reply (wrap it in a blockquote).
 - The <EMAIL_ID> is the Alook email id from metadata.json (not the message_id header).
-- Example: 'npx @alook/cli email send --agent_id ${task.agentId} --to sender@example.com --subject "Re: Bug report" --body-file /tmp/reply.html --in-reply-to <EMAIL_ID>'
+- Example: 'npx @alook/cli email send --agent_id ${task.agentId} --workspace ${task.workspaceId} --to sender@example.com --subject "Re: Bug report" --body-file /tmp/reply.html --in-reply-to <EMAIL_ID>'
 ---
 `;
   }
