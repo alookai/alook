@@ -150,13 +150,10 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange }: Props) {
   const { fields, applyPreset, buildData } = useEmailFields();
 
   useEffect(() => {
-    if (!isCreateMode || !open) {
-      onDataChange?.(null);
-      return;
-    }
+    if (!isCreateMode) return;
     onDataChange?.(buildData());
   }, [
-    isCreateMode, open,
+    isCreateMode,
     fields.emailAddress, fields.displayName,
     fields.imapHost, fields.imapPort, fields.imapUsername, fields.imapPassword,
     fields.smtpHost, fields.smtpPort, fields.smtpUsername, fields.smtpPassword,
