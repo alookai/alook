@@ -4,15 +4,15 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
-import { listEmails, getEmailBody, getEmailThread, deleteEmail, sendEmail } from "@/lib/api";
-import type { Email, EmailAttachment } from "@alook/shared";
+import { listEmails, getEmailBody, getEmailThread, deleteEmail, sendEmail, listEmailAccounts } from "@/lib/api";
+import type { Email, EmailAttachment, AgentEmailAccount } from "@alook/shared";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmailCompose } from "@/components/email-compose";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldX } from "lucide-react";
+import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldX, ChevronDown } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ResizablePanels } from "@/components/ui/resizable-panels";
 import { EmailBodyFrame } from "@/components/email-body-frame";
@@ -62,6 +62,20 @@ export default function AgentEmailPage() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  const [emailAccounts, setEmailAccounts] = useState<AgentEmailAccount[]>([]);
+  const [mailboxOpen, setMailboxOpen] = useState(false);
+
+  type Mailbox = { type: "alook"; address: string } | { type: "custom"; address: string; accountId: string };
+  const alookAddress = agent?.email_handle ? `${agent.email_handle}@alook.ai` : "";
+  const mailboxes: Mailbox[] = [
+    ...(alookAddress ? [{ type: "alook" as const, address: alookAddress }] : []),
+    ...emailAccounts.map((a) => ({ type: "custom" as const, address: a.email_address, accountId: a.id })),
+  ];
+  const [activeMailboxIdx, setActiveMailboxIdx] = useState(0);
+  const activeMailbox = mailboxes[activeMailboxIdx] ?? mailboxes[0] ?? null;
+  const activeAddress = activeMailbox?.address ?? "";
+  const activeAccountId = activeMailbox?.type === "custom" ? activeMailbox.accountId : undefined;
+
   const selected = emails.find((e) => e.id === selectedId) ?? null;
 
   const loadEmails = useCallback(async (dir: string) => {
@@ -74,6 +88,10 @@ export default function AgentEmailPage() {
     } finally {
       setLoading(false);
     }
+  }, [agentId, workspaceId]);
+
+  useEffect(() => {
+    listEmailAccounts(agentId, workspaceId).then(setEmailAccounts).catch(() => {});
   }, [agentId, workspaceId]);
 
   useEffect(() => {
@@ -151,7 +169,7 @@ export default function AgentEmailPage() {
 
   const handleSend = async (to: string, subject: string, htmlBody: string, attachments: EmailAttachment[], threading?: { inReplyTo?: string; references?: string }): Promise<boolean> => {
     try {
-      await sendEmail(agentId, to, subject, htmlBody, workspaceId, attachments.length > 0 ? attachments : undefined, threading);
+      await sendEmail(agentId, to, subject, htmlBody, workspaceId, attachments.length > 0 ? attachments : undefined, threading, activeAccountId);
       toast.success("Email sent");
       setComposing(false);
       setFolder("sent");
@@ -203,13 +221,12 @@ export default function AgentEmailPage() {
     setComposing(true);
   };
 
-  const fromAddress = agent?.email_handle ? `${agent.email_handle}@alook.ai` : "";
   const [copied, setCopied] = useState(false);
 
   const handleCopyAddress = async () => {
-    if (!fromAddress) return;
+    if (!activeAddress) return;
     try {
-      await navigator.clipboard.writeText(fromAddress);
+      await navigator.clipboard.writeText(activeAddress);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -219,23 +236,59 @@ export default function AgentEmailPage() {
 
   const sidebarContent = (
     <div className="flex h-full flex-col">
-      {fromAddress ? (
-        <button
-          type="button"
-          onClick={handleCopyAddress}
-          className="group flex items-center gap-1.5 px-3 pt-3 pb-1 text-left cursor-pointer"
-          title="Click to copy"
-        >
-          <span className="text-xs text-muted-foreground truncate">{fromAddress}</span>
-          {copied ? (
-            <Check className="size-2.5 text-green-500 shrink-0" />
+      {mailboxes.length > 0 ? (
+        <div className="px-3 pt-3 pb-1 relative">
+          {mailboxes.length === 1 ? (
+            <button
+              type="button"
+              onClick={handleCopyAddress}
+              className="group flex items-center gap-1.5 text-left cursor-pointer w-full"
+              title="Click to copy"
+            >
+              <span className="text-xs text-muted-foreground truncate">{activeAddress}</span>
+              {copied ? (
+                <Check className="size-2.5 text-green-500 shrink-0" />
+              ) : (
+                <Copy className="size-2.5 text-muted-foreground/0 group-hover:text-muted-foreground/60 shrink-0 transition-colors" />
+              )}
+            </button>
           ) : (
-            <Copy className="size-2.5 text-muted-foreground/0 group-hover:text-muted-foreground/60 shrink-0 transition-colors" />
+            <>
+              <button
+                type="button"
+                onClick={() => setMailboxOpen(!mailboxOpen)}
+                className="flex items-center gap-1 text-left cursor-pointer w-full"
+              >
+                <span className="text-xs text-muted-foreground truncate">{activeAddress}</span>
+                <ChevronDown className="size-2.5 text-muted-foreground shrink-0" />
+              </button>
+              {mailboxOpen && (
+                <div className="absolute left-2 right-2 top-full mt-0.5 z-10 rounded-lg border border-border bg-popover shadow-md py-1">
+                  {mailboxes.map((mb, i) => (
+                    <button
+                      key={mb.address}
+                      type="button"
+                      onClick={() => { setActiveMailboxIdx(i); setMailboxOpen(false); }}
+                      className={cn(
+                        "flex items-center gap-2 w-full px-2.5 py-1.5 text-left text-xs transition-colors",
+                        i === activeMailboxIdx ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50"
+                      )}
+                    >
+                      <Mail className="size-3 shrink-0" />
+                      <span className="truncate">{mb.address}</span>
+                      {mb.type === "custom" && (
+                        <span className="text-[9px] text-muted-foreground/60 shrink-0">IMAP</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
-        </button>
+        </div>
       ) : (
         <div className="px-3 pt-3 pb-1">
-          <p className="text-xs text-muted-foreground/60">No email handle configured</p>
+          <p className="text-xs text-muted-foreground/60">No email configured</p>
         </div>
       )}
       <div className="p-2">
@@ -243,8 +296,8 @@ export default function AgentEmailPage() {
           size="sm"
           className="w-full justify-start text-xs h-8 gap-1.5"
           onClick={() => { setComposeInitial({}); setComposing(true); setSelectedId(null); }}
-          disabled={!agent?.email_handle}
-          title={!agent?.email_handle ? "Configure an email handle in agent settings to send emails" : "Compose new email"}
+          disabled={mailboxes.length === 0}
+          title={mailboxes.length === 0 ? "Configure an email in agent settings to send emails" : "Compose new email"}
         >
           <Plus className="size-3.5" />
           New Email
@@ -351,7 +404,7 @@ export default function AgentEmailPage() {
       {composing ? (
         <EmailCompose
           key={JSON.stringify(composeInitial)}
-          fromAddress={fromAddress}
+          fromAddress={activeAddress}
           onSend={handleSend}
           onDiscard={() => { setComposing(false); setComposeInitial({}); }}
           initialTo={composeInitial.to}
@@ -578,7 +631,7 @@ export default function AgentEmailPage() {
             size="icon-sm"
             variant="ghost"
             onClick={() => { setComposeInitial({}); setComposing(true); setSelectedId(null); }}
-            disabled={!agent?.email_handle}
+            disabled={mailboxes.length === 0}
           >
             <Plus className="size-4" />
           </Button>

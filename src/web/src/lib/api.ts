@@ -310,10 +310,11 @@ export const sendEmail = (
   workspaceId: string,
   attachments?: { key: string; filename: string; size: number; contentType: string }[],
   threading?: { inReplyTo?: string; references?: string },
+  customAccountId?: string,
 ) =>
   apiFetch<Email>(`/api/email/send${wsQuery(workspaceId)}`, {
     method: "POST",
-    body: JSON.stringify({ agentId, to, subject, htmlBody, attachments, ...threading }),
+    body: JSON.stringify({ agentId, to, subject, htmlBody, attachments, ...threading, customAccountId }),
   });
 
 // Calendar events
