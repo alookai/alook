@@ -31,6 +31,9 @@ vi.mock("@alook/shared", async () => {
       agent: {
         getAgent: (...args: unknown[]) => mockGetAgent(...args),
       },
+      emailAccount: {
+        getEmailAccountsByAgent: vi.fn().mockResolvedValue([]),
+      },
     },
   };
 });
@@ -168,6 +171,7 @@ describe("POST /api/daemon/tasks/poll", () => {
       name: "Bot",
       runtime_config: { model: "gpt-4" },
       email_handle: null,
+      email_addresses: [],
       user_email: "u@t.com",
     });
   });

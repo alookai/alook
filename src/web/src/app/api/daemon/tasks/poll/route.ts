@@ -77,6 +77,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const tasks = [];
   for (const task of claimed) {
     const agent = await queries.agent.getAgent(db, task.agentId, task.workspaceId);
+    let emailAddresses: string[] = [];
+    if (agent) {
+      if (agent.emailHandle) emailAddresses.push(`${agent.emailHandle}@alook.ai`);
+      const customAccounts = await queries.emailAccount.getEmailAccountsByAgent(db, agent.id, task.workspaceId);
+      for (const acc of customAccounts) {
+        if (acc.status === "active") emailAddresses.push(acc.emailAddress);
+      }
+    }
     tasks.push({
       ...taskToResponse(task),
       agent: agent
@@ -85,6 +93,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
             name: agent.name,
             runtime_config: agent.runtimeConfig || {},
             email_handle: agent.emailHandle || null,
+            email_addresses: emailAddresses,
             user_email: ctx.email || null,
           }
         : null,
