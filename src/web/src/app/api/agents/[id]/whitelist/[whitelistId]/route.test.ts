@@ -6,6 +6,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockRemoveWhitelist = vi.fn();
 
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
 vi.mock("@alook/shared", () => ({
   createDb: vi.fn(() => ({})),
   queries: {

@@ -44,6 +44,7 @@ describe("POST /api/daemon/deregister", () => {
 
     vi.doMock("@opennextjs/cloudflare", () => mocks["@opennextjs/cloudflare"]);
     vi.doMock("@alook/shared", mocks["@alook/shared"]);
+    vi.doMock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
     vi.doMock("@/lib/broadcast", () => mocks["@/lib/broadcast"]);
     vi.doMock("@/lib/middleware/auth", () => ({
       withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {

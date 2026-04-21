@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { createDb, queries, PollRequestSchema, semverGte } from "@alook/shared";
+import { queries, PollRequestSchema, semverGte } from "@alook/shared";
+import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { taskToResponse } from "@/lib/api/responses";
@@ -12,7 +13,7 @@ import { log } from "@/lib/logger";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext();
-  const db = createDb((env as Env).DB);
+  const db = getDb((env as Env).DB);
 
   const [body, err] = await parseBody(req, PollRequestSchema);
   if (err) return err;

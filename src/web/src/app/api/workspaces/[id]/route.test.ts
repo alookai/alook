@@ -7,6 +7,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockGetWorkspace = vi.fn();
 
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
 vi.mock("@alook/shared", () => ({
   createDb: vi.fn(() => ({})),
   queries: {

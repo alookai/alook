@@ -8,6 +8,8 @@ const mockGetConversation = vi.fn();
 const mockGetAgent = vi.fn();
 const mockCreateTask = vi.fn();
 
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
 vi.mock("@alook/shared", () => ({
   queries: {
     task: {

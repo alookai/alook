@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, DEV_EMAIL_WORKER_URL } from "@alook/shared"
+import { queries, DEV_EMAIL_WORKER_URL } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { withWorkspaceMember } from "@/lib/middleware/workspace"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -10,7 +11,7 @@ export const POST = withAuth(async (req, ctx) => {
 
   const { env } = getCloudflareContext()
   const cfEnv = env as Env
-  const db = createDb(cfEnv.DB)
+  const db = getDb(cfEnv.DB)
 
   const agentId = ctx.params?.id
   const accountId = ctx.params?.accountId

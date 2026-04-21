@@ -1,13 +1,14 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, TASK_TYPES, buildContextKey, extractThreadId, EmailNotifyRequestSchema } from "@alook/shared"
+import { queries, TASK_TYPES, buildContextKey, extractThreadId, EmailNotifyRequestSchema } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { writeJSON, parseBody } from "@/lib/middleware/helpers"
 import { TaskService } from "@/lib/services/task"
 import { broadcastToUser } from "@/lib/broadcast"
 
 export async function POST(req: NextRequest) {
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const [body, valErr] = await parseBody(req, EmailNotifyRequestSchema);
   if (valErr) return valErr;

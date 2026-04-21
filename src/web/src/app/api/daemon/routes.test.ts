@@ -34,6 +34,7 @@ function baseMocks() {
 function applyBase() {
   const m = baseMocks();
   vi.doMock("@opennextjs/cloudflare", m["@opennextjs/cloudflare"]);
+  vi.doMock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
   vi.doMock("@/lib/middleware/auth", m["@/lib/middleware/auth"]);
   vi.doMock("@/lib/middleware/helpers", m["@/lib/middleware/helpers"]);
   vi.doMock("@/lib/logger", m["@/lib/logger"]);

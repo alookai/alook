@@ -8,6 +8,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
 const mockListAgentRuntimes = vi.fn();
 const mockSweepStaleState = vi.fn();
 
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
 vi.mock("@alook/shared", () => ({
   createDb: vi.fn(() => ({})),
   queries: {

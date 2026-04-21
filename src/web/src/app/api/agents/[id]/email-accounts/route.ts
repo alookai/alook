@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, CreateEmailAccountSchema, DEV_EMAIL_WORKER_URL } from "@alook/shared"
+import { queries, CreateEmailAccountSchema, DEV_EMAIL_WORKER_URL } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { encrypt } from "@alook/shared/crypto"
 import { withAuth } from "@/lib/middleware/auth"
 import { withWorkspaceMember } from "@/lib/middleware/workspace"
@@ -32,7 +33,7 @@ export const GET = withAuth(async (req, ctx) => {
   if (ws instanceof Response) return ws
 
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const agentId = ctx.params?.id
   if (!agentId) return writeError("agent id is required", 400)
@@ -50,7 +51,7 @@ export const POST = withAuth(async (req, ctx) => {
 
   const { env } = getCloudflareContext()
   const cfEnv = env as Env
-  const db = createDb(cfEnv.DB)
+  const db = getDb(cfEnv.DB)
 
   const agentId = ctx.params?.id
   if (!agentId) return writeError("agent id is required", 400)

@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { createDb, queries, UpdateEmailStatusRequestSchema } from "@alook/shared";
+import { queries, UpdateEmailStatusRequestSchema } from "@alook/shared";
+import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -10,7 +11,7 @@ export const GET = withAuth(async (req, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext();
-  const db = createDb((env as Env).DB);
+  const db = getDb((env as Env).DB);
 
   const id = ctx.params?.id;
   if (!id) return writeError("email id is required", 400);
@@ -26,7 +27,7 @@ export const DELETE = withAuth(async (req, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext();
-  const db = createDb((env as Env).DB);
+  const db = getDb((env as Env).DB);
 
   const id = ctx.params?.id;
   if (!id) return writeError("email id is required", 400);
@@ -44,7 +45,7 @@ export const PATCH = withAuth(async (req, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext();
-  const db = createDb((env as Env).DB);
+  const db = getDb((env as Env).DB);
 
   const id = ctx.params?.id;
   if (!id) return writeError("email id is required", 400);

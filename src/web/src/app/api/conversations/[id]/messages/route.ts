@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, TASK_TYPES, buildContextKey, CreateMessageRequestSchema } from "@alook/shared"
+import { queries, TASK_TYPES, buildContextKey, CreateMessageRequestSchema } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { nanoid } from "nanoid";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
@@ -31,7 +32,7 @@ export const GET = withAuth(async (req, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const id = ctx.params?.id;
   if (!id) {
@@ -58,7 +59,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
   const bucket = (env as Env).EMAIL_BUCKET;
 
   const id = ctx.params?.id;

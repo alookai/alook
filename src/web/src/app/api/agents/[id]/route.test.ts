@@ -9,6 +9,8 @@ const mockDeleteAgent = vi.fn();
 const mockUpdateAgent = vi.fn();
 const mockGetAgentRuntimeForWorkspace = vi.fn();
 
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   return {

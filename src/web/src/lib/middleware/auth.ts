@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries } from "@alook/shared"
+import { queries } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
 
 export interface AuthContext {
@@ -33,7 +34,7 @@ export function withAuth(handler: AuthenticatedHandler) {
       const raw = authHeader.slice(7)
       if (raw.startsWith("al_")) {
         try {
-          const db = createDb(cloudflareEnv.DB)
+          const db = getDb(cloudflareEnv.DB)
           const mt = await queries.machineToken.getMachineTokenByToken(db, raw)
           if (!mt) {
             return NextResponse.json({ error: "invalid token" }, { status: 401 })

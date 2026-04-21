@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, isUniqueConstraintError, CreateWorkspaceRequestSchema } from "@alook/shared"
+import { queries, isUniqueConstraintError, CreateWorkspaceRequestSchema } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { nanoid } from "nanoid"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -8,7 +9,7 @@ import { workspaceToResponse } from "@/lib/api/responses";
 
 export const GET = withAuth(async (_req, ctx) => {
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const workspaces = await queries.workspace.listWorkspaces(db, ctx.userId);
   return writeJSON(workspaces.map(workspaceToResponse));
@@ -16,7 +17,7 @@ export const GET = withAuth(async (_req, ctx) => {
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const [body, valErr] = await parseBody(req, CreateWorkspaceRequestSchema);
   if (valErr) return valErr;

@@ -12,6 +12,8 @@ const mockTaskToResponse = vi.fn((t: any) => ({ id: t.id, status: t.status }));
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }));
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   const noop = () => {};
