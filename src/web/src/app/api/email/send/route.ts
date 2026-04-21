@@ -37,8 +37,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       fromAddress = match.emailAddress;
     }
   } else if (customAccountId) {
-    const account = await queries.emailAccount.getEmailAccount(db, customAccountId, ws.workspaceId);
-    if (!account || account.agentId !== body.agentId) {
+    const account = await queries.emailAccount.getEmailAccountScoped(db, customAccountId, body.agentId, ws.workspaceId);
+    if (!account) {
       return writeError("custom email account not found", 404);
     }
     fromAddress = account.emailAddress;

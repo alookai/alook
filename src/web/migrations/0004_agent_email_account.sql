@@ -29,3 +29,4 @@ CREATE TABLE IF NOT EXISTS agent_email_account (
 );
 
 CREATE INDEX IF NOT EXISTS idx_email_account_agent_ws ON agent_email_account(agent_id, workspace_id);
+CREATE UNIQUE INDEX IF NOT EXISTS email_account_agent_email ON agent_email_account(agent_id, email_address);

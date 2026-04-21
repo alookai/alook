@@ -34,6 +34,18 @@ export async function getEmailAccount(db: Database, id: string, workspaceId: str
   return rows[0] ?? null;
 }
 
+export async function getEmailAccountScoped(db: Database, id: string, agentId: string, workspaceId: string) {
+  const rows = await db
+    .select()
+    .from(agentEmailAccount)
+    .where(and(
+      eq(agentEmailAccount.id, id),
+      eq(agentEmailAccount.agentId, agentId),
+      eq(agentEmailAccount.workspaceId, workspaceId),
+    ));
+  return rows[0] ?? null;
+}
+
 export async function getEmailAccountById(db: Database, id: string) {
   const rows = await db
     .select()

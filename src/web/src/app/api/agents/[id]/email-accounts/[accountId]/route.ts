@@ -47,8 +47,8 @@ export const PATCH = withAuth(async (req, ctx) => {
   const accountId = ctx.params?.accountId
   if (!agentId || !accountId) return writeError("missing params", 400)
 
-  const existing = await queries.emailAccount.getEmailAccount(db, accountId, ws.workspaceId)
-  if (!existing || existing.agentId !== agentId) return writeError("not found", 404)
+  const existing = await queries.emailAccount.getEmailAccountScoped(db, accountId, agentId, ws.workspaceId)
+  if (!existing) return writeError("not found", 404)
 
   const [body, err] = await parseBody(req, UpdateEmailAccountSchema)
   if (err) return err
@@ -95,8 +95,8 @@ export const DELETE = withAuth(async (req, ctx) => {
   const accountId = ctx.params?.accountId
   if (!agentId || !accountId) return writeError("missing params", 400)
 
-  const existing = await queries.emailAccount.getEmailAccount(db, accountId, ws.workspaceId)
-  if (!existing || existing.agentId !== agentId) return writeError("not found", 404)
+  const existing = await queries.emailAccount.getEmailAccountScoped(db, accountId, agentId, ws.workspaceId)
+  if (!existing) return writeError("not found", 404)
 
   await callEmailWorker(cfEnv, `/imap/stop?accountId=${accountId}`)
 

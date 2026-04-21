@@ -388,6 +388,7 @@ export const agentEmailAccount = sqliteTable(
   },
   (t) => [
     index("idx_email_account_agent_ws").on(t.agentId, t.workspaceId),
+    unique("email_account_agent_email").on(t.agentId, t.emailAddress),
     foreignKey({
       columns: [t.agentId, t.workspaceId],
       foreignColumns: [agent.id, agent.workspaceId],
