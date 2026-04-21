@@ -254,14 +254,28 @@ export default function AgentEmailPage() {
             </button>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={() => setMailboxOpen(!mailboxOpen)}
-                className="flex items-center gap-1 text-left cursor-pointer w-full"
-              >
-                <span className="text-xs text-muted-foreground truncate">{activeAddress}</span>
-                <ChevronDown className="size-2.5 text-muted-foreground shrink-0" />
-              </button>
+              <div className="flex items-center gap-1 w-full">
+                <button
+                  type="button"
+                  onClick={() => setMailboxOpen(!mailboxOpen)}
+                  className="flex items-center gap-1 text-left cursor-pointer min-w-0 flex-1"
+                >
+                  <span className="text-xs text-muted-foreground truncate">{activeAddress}</span>
+                  <ChevronDown className="size-2.5 text-muted-foreground shrink-0" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyAddress}
+                  className="shrink-0 p-0.5"
+                  title="Copy address"
+                >
+                  {copied ? (
+                    <Check className="size-2.5 text-green-500" />
+                  ) : (
+                    <Copy className="size-2.5 text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors" />
+                  )}
+                </button>
+              </div>
               {mailboxOpen && (
                 <div className="absolute left-2 right-2 top-full mt-0.5 z-10 rounded-lg border border-border bg-popover shadow-md py-1">
                   {mailboxes.map((mb, i) => (
