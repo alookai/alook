@@ -88,6 +88,7 @@ export const member = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("member"),
+    globalInstruction: text("global_instruction").notNull().default(""),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [unique("member_workspace_user").on(t.workspaceId, t.userId)]

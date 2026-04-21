@@ -491,6 +491,16 @@ export const syncEmailAccount = (agentId: string, accountId: string, workspaceId
     method: "POST",
   });
 
+// Members
+export const getMemberMe = (workspaceId: string) =>
+  apiFetch<{ global_instruction: string }>(`/api/members/me${wsQuery(workspaceId)}`);
+
+export const updateMemberMe = (workspaceId: string, globalInstruction: string) =>
+  apiFetch<{ global_instruction: string }>(`/api/members/me${wsQuery(workspaceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ global_instruction: globalInstruction }),
+  });
+
 // Artifacts
 export const listArtifacts = (conversationId: string, workspaceId: string) =>
   apiFetch<Artifact[]>(`/api/artifacts${wsQuery(workspaceId, { conversation_id: conversationId })}`);

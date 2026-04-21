@@ -75,6 +75,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   );
 
   const tasks = [];
+  // Per-request cache: avoids duplicate DB reads when multiple agents share the same owner
+  const memberCache = new Map<string, { globalInstruction: string } | null>();
   for (const task of claimed) {
     const agent = await queries.agent.getAgent(db, task.agentId, task.workspaceId);
     let emailAddresses: string[] = [];
@@ -85,11 +87,28 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         emailAddresses.push(acc.emailAddress);
       }
     }
+
+    let instructions = agent?.instructions ?? "";
+    if (agent?.ownerId) {
+      if (!memberCache.has(agent.ownerId)) {
+        const m = await queries.member.getMemberByUserAndWorkspace(
+          db,
+          agent.ownerId,
+          task.workspaceId,
+        );
+        memberCache.set(agent.ownerId, m ? { globalInstruction: m.globalInstruction } : null);
+      }
+      const cached = memberCache.get(agent.ownerId);
+      if (cached?.globalInstruction) {
+        instructions = [cached.globalInstruction, instructions].filter(Boolean).join("\n\n");
+      }
+    }
+
     tasks.push({
       ...taskToResponse(task),
       agent: agent
         ? {
-            instructions: agent.instructions,
+            instructions,
             name: agent.name,
             runtime_config: agent.runtimeConfig || {},
             email_handle: agent.emailHandle || null,

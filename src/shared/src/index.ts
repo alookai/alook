@@ -108,6 +108,7 @@ export {
   SendEmailRequestSchema,
   UpdateEmailStatusRequestSchema,
   EmailNotifyRequestSchema,
+  UpdateMemberRequestSchema,
   CreateWorkspaceRequestSchema,
   CreateEmailAccountSchema,
   UpdateEmailAccountSchema,
@@ -137,6 +138,7 @@ export type {
   CalendarEventApi,
   AddWhitelistRequest,
   CreateEmailAccountRequest,
+  UpdateMemberRequest,
   UpdateEmailAccountRequest,
   TestEmailConnectionRequest,
 } from "./schemas";

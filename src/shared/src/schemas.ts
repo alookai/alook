@@ -470,6 +470,15 @@ export const TestEmailConnectionSchema = z.object({
 export type TestEmailConnectionRequest = z.infer<typeof TestEmailConnectionSchema>;
 
 // ---------------------------------------------------------------------------
+// Member request schemas
+// ---------------------------------------------------------------------------
+
+export const UpdateMemberRequestSchema = z.object({
+  global_instruction: z.string().max(50000).trim(),
+});
+export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequestSchema>;
+
+// ---------------------------------------------------------------------------
 // Workspace request schemas
 // ---------------------------------------------------------------------------
 
