@@ -273,14 +273,16 @@ describe("email send subcommand shape", () => {
     expect(mandatory).toContain("--body-file");
   });
 
-  it("accepts --attachment and --workspace as optional", () => {
+  it("accepts --attachment, --workspace, and --from as optional", () => {
     const opts = (send as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
     const longs = opts.map((o) => o.long);
     const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
     expect(longs).toContain("--attachment");
     expect(longs).toContain("--workspace");
+    expect(longs).toContain("--from");
     expect(mandatory).not.toContain("--attachment");
     expect(mandatory).not.toContain("--workspace");
+    expect(mandatory).not.toContain("--from");
   });
 });
 
@@ -410,6 +412,41 @@ describe("email send behavior", () => {
     expect(err.join("\n")).toContain("cannot read body file");
     expect(postMultipartMock).not.toHaveBeenCalled();
     expect(postJSONMock).not.toHaveBeenCalled();
+  });
+
+  it("passes --from to API payload when provided", async () => {
+    const bodyPath = join(SEND_TMP, "body.html");
+    writeFileSync(bodyPath, "<p>From custom</p>");
+    postJSONMock.mockResolvedValueOnce({ id: "em_3", to_email: "a@b.com" });
+
+    const { exitCode } = await runSend([
+      "--agent_id", "ag_1",
+      "--to", "a@b.com",
+      "--subject", "Custom from",
+      "--body-file", bodyPath,
+      "--from", "custom@feishu.cn",
+    ]);
+
+    expect(exitCode).toBeNull();
+    const payload = postJSONMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload.from).toBe("custom@feishu.cn");
+  });
+
+  it("omits from in payload when --from is not provided", async () => {
+    const bodyPath = join(SEND_TMP, "body.html");
+    writeFileSync(bodyPath, "<p>Default from</p>");
+    postJSONMock.mockResolvedValueOnce({ id: "em_4", to_email: "a@b.com" });
+
+    const { exitCode } = await runSend([
+      "--agent_id", "ag_1",
+      "--to", "a@b.com",
+      "--subject", "Default",
+      "--body-file", bodyPath,
+    ]);
+
+    expect(exitCode).toBeNull();
+    const payload = postJSONMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload.from).toBeUndefined();
   });
 
   it("errors when body file is empty", async () => {
