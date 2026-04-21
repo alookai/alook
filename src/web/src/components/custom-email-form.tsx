@@ -4,6 +4,13 @@ import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetTrigger,
+  SheetContent,
+  SheetTitle,
+  SheetBody,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import {
   listEmailAccounts,
@@ -12,7 +19,10 @@ import {
   syncEmailAccount,
 } from "@/lib/api";
 import type { AgentEmailAccount, CreateEmailAccountRequest } from "@alook/shared";
-import { Loader2, Mail, RefreshCw, Trash2, AlertCircle, CheckCircle2, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  Loader2, Mail, RefreshCw, Trash2, AlertCircle, CheckCircle2,
+  ChevronRight, XIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 
 const PRESETS: Record<string, { imapHost: string; imapPort: number; smtpHost: string; smtpPort: number }> = {
@@ -29,15 +39,7 @@ interface Props {
   onDataChange?: (data: CustomEmailData | null) => void;
 }
 
-export function CustomEmailForm({ agentId, workspaceId, onDataChange }: Props) {
-  const isCreateMode = !agentId;
-  const [accounts, setAccounts] = useState<AgentEmailAccount[]>([]);
-  const [loading, setLoading] = useState(!isCreateMode);
-  const [expanded, setExpanded] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
+function useEmailFields() {
   const [emailAddress, setEmailAddress] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [imapHost, setImapHost] = useState("");
@@ -49,31 +51,116 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange }: Props) {
   const [smtpUsername, setSmtpUsername] = useState("");
   const [smtpPassword, setSmtpPassword] = useState("");
 
-  const buildData = useCallback((): CustomEmailData | null => {
+  function applyPreset(name: string) {
+    const preset = PRESETS[name];
+    if (!preset) return;
+    setImapHost(preset.imapHost);
+    setImapPort(preset.imapPort);
+    setSmtpHost(preset.smtpHost);
+    setSmtpPort(preset.smtpPort);
+  }
+
+  function buildData(): CustomEmailData | null {
     if (!emailAddress || !imapHost || !imapUsername || !imapPassword || !smtpHost || !smtpUsername || !smtpPassword) {
       return null;
     }
     return {
-      emailAddress,
-      displayName,
-      imapHost,
-      imapPort,
-      imapUsername,
-      imapPassword,
-      imapTls: true,
-      smtpHost,
-      smtpPort,
-      smtpUsername,
-      smtpPassword,
-      smtpTls: 1,
+      emailAddress, displayName, imapHost, imapPort, imapUsername, imapPassword,
+      imapTls: true, smtpHost, smtpPort, smtpUsername, smtpPassword, smtpTls: 1,
       pollIntervalSeconds: 60,
     };
-  }, [emailAddress, displayName, imapHost, imapPort, imapUsername, imapPassword, smtpHost, smtpPort, smtpUsername, smtpPassword]);
+  }
+
+  const fields = {
+    emailAddress, setEmailAddress, displayName, setDisplayName,
+    imapHost, setImapHost, imapPort, setImapPort,
+    imapUsername, setImapUsername, imapPassword, setImapPassword,
+    smtpHost, setSmtpHost, smtpPort, setSmtpPort,
+    smtpUsername, setSmtpUsername, smtpPassword, setSmtpPassword,
+  };
+
+  return { fields, applyPreset, buildData };
+}
+
+function EmailFieldsForm({ fields, applyPreset }: {
+  fields: ReturnType<typeof useEmailFields>["fields"];
+  applyPreset: (name: string) => void;
+}) {
+  return (
+    <>
+      <div className="flex gap-1.5">
+        {Object.keys(PRESETS).map((name) => (
+          <Button key={name} type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2"
+            onClick={() => applyPreset(name)}>
+            {name}
+          </Button>
+        ))}
+      </div>
+
+      <div className="grid gap-3">
+        <div>
+          <Label className="text-xs">Email Address *</Label>
+          <Input placeholder="you@gmail.com" value={fields.emailAddress}
+            onChange={(e) => fields.setEmailAddress(e.target.value)} className="h-8 text-sm" />
+        </div>
+        <div>
+          <Label className="text-xs">Display Name</Label>
+          <Input placeholder="My Agent" value={fields.displayName}
+            onChange={(e) => fields.setDisplayName(e.target.value)} className="h-8 text-sm" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label className="text-xs font-medium">IMAP (Receive)</Label>
+          <Input placeholder="imap.gmail.com" value={fields.imapHost}
+            onChange={(e) => fields.setImapHost(e.target.value)} className="h-8 text-sm" />
+          <Input type="number" placeholder="993" value={fields.imapPort}
+            onChange={(e) => fields.setImapPort(Number(e.target.value))} className="h-8 text-sm" />
+          <Input placeholder="Username" value={fields.imapUsername}
+            onChange={(e) => fields.setImapUsername(e.target.value)} className="h-8 text-sm" />
+          <Input type="password" placeholder="App Password" value={fields.imapPassword}
+            onChange={(e) => fields.setImapPassword(e.target.value)} className="h-8 text-sm" />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs font-medium">SMTP (Send)</Label>
+          <Input placeholder="smtp.gmail.com" value={fields.smtpHost}
+            onChange={(e) => fields.setSmtpHost(e.target.value)} className="h-8 text-sm" />
+          <Input type="number" placeholder="587" value={fields.smtpPort}
+            onChange={(e) => fields.setSmtpPort(Number(e.target.value))} className="h-8 text-sm" />
+          <Input placeholder="Username" value={fields.smtpUsername}
+            onChange={(e) => fields.setSmtpUsername(e.target.value)} className="h-8 text-sm" />
+          <Input type="password" placeholder="App Password" value={fields.smtpPassword}
+            onChange={(e) => fields.setSmtpPassword(e.target.value)} className="h-8 text-sm" />
+        </div>
+      </div>
+    </>
+  );
+}
+
+export function CustomEmailForm({ agentId, workspaceId, onDataChange }: Props) {
+  const isCreateMode = !agentId;
+  const [open, setOpen] = useState(false);
+  const [accounts, setAccounts] = useState<AgentEmailAccount[]>([]);
+  const [loading, setLoading] = useState(!isCreateMode);
+  const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const { fields, applyPreset, buildData } = useEmailFields();
 
   useEffect(() => {
-    if (!isCreateMode) return;
-    onDataChange?.(expanded ? buildData() : null);
-  }, [isCreateMode, expanded, buildData, onDataChange]);
+    if (!isCreateMode || !open) {
+      onDataChange?.(null);
+      return;
+    }
+    onDataChange?.(buildData());
+  }, [
+    isCreateMode, open,
+    fields.emailAddress, fields.displayName,
+    fields.imapHost, fields.imapPort, fields.imapUsername, fields.imapPassword,
+    fields.smtpHost, fields.smtpPort, fields.smtpUsername, fields.smtpPassword,
+  ]);
 
   const load = useCallback(async () => {
     if (isCreateMode) return;
@@ -102,7 +189,7 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange }: Props) {
     try {
       await createEmailAccount(agentId, data, workspaceId);
       toast.success("Custom email configured");
-      setExpanded(false);
+      setOpen(false);
       await load();
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to save");
@@ -139,140 +226,120 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange }: Props) {
     }
   }
 
-  function applyPreset(name: string) {
-    const preset = PRESETS[name];
-    if (!preset) return;
-    setImapHost(preset.imapHost);
-    setImapPort(preset.imapPort);
-    setSmtpHost(preset.smtpHost);
-    setSmtpPort(preset.smtpPort);
-  }
-
-  if (loading) {
-    return (
-      <div className="space-y-2">
-        <Label className="text-xs text-muted-foreground">Custom Email</Label>
-        <div className="h-8 bg-muted/30 rounded animate-pulse" />
-      </div>
-    );
-  }
-
-  if (!isCreateMode && existing) {
-    return (
-      <div className="space-y-2">
-        <Label className="text-xs text-muted-foreground">Custom Email</Label>
-        <div className="rounded-lg border border-border/50 p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 min-w-0">
-              <Mail className="size-3.5 text-muted-foreground shrink-0" />
-              <span className="text-sm truncate">{existing.email_address}</span>
-              <span className={cn(
-                "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium",
-                existing.status === "active" ? "bg-green-500/10 text-green-600" :
-                existing.status === "error" ? "bg-red-500/10 text-red-600" :
-                "bg-yellow-500/10 text-yellow-600"
-              )}>
-                {existing.status === "active" ? <CheckCircle2 className="size-2.5" /> :
-                 existing.status === "error" ? <AlertCircle className="size-2.5" /> : null}
-                {existing.status}
-              </span>
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <Button variant="ghost" size="icon-sm" onClick={handleSync} disabled={syncing} title="Sync now">
-                <RefreshCw className={cn("size-3", syncing && "animate-spin")} />
-              </Button>
-              <Button variant="ghost" size="icon-sm" onClick={handleDelete} disabled={deleting} title="Remove"
-                className="hover:text-destructive">
-                {deleting ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
-              </Button>
-            </div>
-          </div>
-          {existing.error_message && (
-            <p className="text-xs text-red-500 break-all">{existing.error_message}</p>
-          )}
-          {existing.last_synced_at && (
-            <p className="text-[10px] text-muted-foreground">
-              Last synced: {new Date(existing.last_synced_at).toLocaleString()}
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const triggerDesc = isCreateMode
+    ? (fields.emailAddress
+      ? fields.emailAddress
+      : "Connect your own mailbox via IMAP/SMTP")
+    : loading
+      ? "Loading..."
+      : existing
+        ? existing.email_address
+        : "Connect your own mailbox via IMAP/SMTP";
 
   return (
-    <div className="space-y-2">
-      <button
-        type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger
+        render={
+          <button
+            type="button"
+            className="flex w-full items-center justify-between rounded-lg border border-border/50 bg-muted/30 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+          />
+        }
       >
-        {expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-        Custom Email (IMAP/SMTP)
-        {!expanded && emailAddress && (
-          <span className="text-muted-foreground/70 ml-1">&mdash; {emailAddress}</span>
-        )}
-      </button>
-
-      {expanded && (
-        <div className="rounded-lg border border-border/50 p-3 space-y-3">
-          <div className="flex gap-1.5">
-            {Object.keys(PRESETS).map((name) => (
-              <Button key={name} type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2"
-                onClick={() => applyPreset(name)}>
-                {name}
-              </Button>
-            ))}
-          </div>
-
-          <div className="grid gap-2">
-            <div>
-              <Label className="text-xs">Email Address *</Label>
-              <Input placeholder="you@gmail.com" value={emailAddress}
-                onChange={(e) => setEmailAddress(e.target.value)} className="h-8 text-sm" />
-            </div>
-            <div>
-              <Label className="text-xs">Display Name</Label>
-              <Input placeholder="My Agent" value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)} className="h-8 text-sm" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <Label className="text-xs font-medium">IMAP (Receive)</Label>
-              <Input placeholder="imap.gmail.com" value={imapHost}
-                onChange={(e) => setImapHost(e.target.value)} className="h-8 text-sm" />
-              <Input type="number" placeholder="993" value={imapPort}
-                onChange={(e) => setImapPort(Number(e.target.value))} className="h-8 text-sm" />
-              <Input placeholder="Username" value={imapUsername}
-                onChange={(e) => setImapUsername(e.target.value)} className="h-8 text-sm" />
-              <Input type="password" placeholder="App Password" value={imapPassword}
-                onChange={(e) => setImapPassword(e.target.value)} className="h-8 text-sm" />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-xs font-medium">SMTP (Send)</Label>
-              <Input placeholder="smtp.gmail.com" value={smtpHost}
-                onChange={(e) => setSmtpHost(e.target.value)} className="h-8 text-sm" />
-              <Input type="number" placeholder="587" value={smtpPort}
-                onChange={(e) => setSmtpPort(Number(e.target.value))} className="h-8 text-sm" />
-              <Input placeholder="Username" value={smtpUsername}
-                onChange={(e) => setSmtpUsername(e.target.value)} className="h-8 text-sm" />
-              <Input type="password" placeholder="App Password" value={smtpPassword}
-                onChange={(e) => setSmtpPassword(e.target.value)} className="h-8 text-sm" />
-            </div>
-          </div>
-
-          {!isCreateMode && (
-            <div className="flex justify-end">
-              <Button type="button" size="sm" className="h-7 text-xs" onClick={handleCreate} disabled={saving}>
-                {saving && <Loader2 className="size-3 animate-spin mr-1" />}
-                Save & Connect
-              </Button>
-            </div>
-          )}
+        <div>
+          <span className="text-sm font-medium">Custom Email</span>
+          <p className="text-xs text-muted-foreground">{triggerDesc}</p>
         </div>
-      )}
-    </div>
+        {!isCreateMode && existing ? (
+          <span className={cn(
+            "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0",
+            existing.status === "active" ? "bg-green-500/10 text-green-600" :
+            existing.status === "error" ? "bg-red-500/10 text-red-600" :
+            "bg-yellow-500/10 text-yellow-600"
+          )}>
+            {existing.status === "active" ? <CheckCircle2 className="size-2.5" /> :
+             existing.status === "error" ? <AlertCircle className="size-2.5" /> : null}
+            {existing.status}
+          </span>
+        ) : (
+          <ChevronRight className="size-4 text-muted-foreground shrink-0" />
+        )}
+      </SheetTrigger>
+      <SheetContent
+        side="right"
+        className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border"
+      >
+        <SheetTitle className="sr-only">Custom Email</SheetTitle>
+        <SheetBody className="px-8 pt-10 pb-6">
+          <div className="space-y-4">
+            <div>
+              <h2 className="font-heading text-lg font-semibold">Custom Email</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Connect your own mailbox to send and receive email as your identity.
+              </p>
+            </div>
+
+            {!isCreateMode && existing ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Mail className="size-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-sm truncate">{existing.email_address}</span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleSync}
+                      disabled={syncing}
+                      title="Sync now"
+                      className="rounded-full p-1 text-muted-foreground hover:bg-muted transition-colors"
+                    >
+                      <RefreshCw className={cn("size-3.5", syncing && "animate-spin")} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDelete}
+                      disabled={deleting}
+                      title="Remove"
+                      className="rounded-full p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                    >
+                      {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <XIcon className="size-3.5" />}
+                    </button>
+                  </div>
+                </div>
+                {existing.error_message && (
+                  <p className="text-xs text-destructive">{existing.error_message}</p>
+                )}
+                {existing.last_synced_at && (
+                  <p className="text-xs text-muted-foreground">
+                    Last synced: {new Date(existing.last_synced_at).toLocaleString()}
+                  </p>
+                )}
+                <div className="rounded-md border border-border/50 px-3 py-2 text-xs text-muted-foreground space-y-1">
+                  <div className="flex justify-between"><span>IMAP</span><span>{existing.imap_host}:{existing.imap_port}</span></div>
+                  <div className="flex justify-between"><span>SMTP</span><span>{existing.smtp_host}:{existing.smtp_port}</span></div>
+                  <div className="flex justify-between"><span>Poll interval</span><span>{existing.poll_interval_seconds}s</span></div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <EmailFieldsForm fields={fields} applyPreset={applyPreset} />
+                {!isCreateMode && (
+                  <Button type="button" size="sm" className="w-full" onClick={handleCreate} disabled={saving}>
+                    {saving && <Loader2 className="size-3 animate-spin mr-1" />}
+                    Save & Connect
+                  </Button>
+                )}
+                {isCreateMode && (
+                  <p className="text-xs text-muted-foreground">
+                    Will be connected after creating the agent.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </SheetBody>
+      </SheetContent>
+    </Sheet>
   );
 }
