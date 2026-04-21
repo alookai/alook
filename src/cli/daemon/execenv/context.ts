@@ -91,15 +91,15 @@ ${task.agent?.userEmail ? `Your owner's email address is '${task.agent.userEmail
 
 ### Emails
 ---
-Run 'npx @alook/cli email pull --agent_id ${task.agentId} --status unread' to download unread emails to '/tmp/alook-emails/'.
-Each email is saved to '/tmp/alook-emails/<emailId>/' with:
+Run 'npx @alook/cli email pull --agent_id ${task.agentId} --workspace ${task.workspaceId} --status unread' to download unread emails to '/tmp/alook-emails/${task.workspaceId}/${task.agentId}/'.
+Each email is saved to '/tmp/alook-emails/${task.workspaceId}/${task.agentId}/<emailId>/' with:
 - 'metadata.json' — sender, recipient, subject, date, status, message_id, in_reply_to, references
 - 'body.txt' — plain text body
 - 'body.html' — HTML body (if available)
 - 'attachments/' — extracted attachment files (if any)
 ---
 Before starting to process an email, mark it as read:
-- Run 'npx @alook/cli email set --agent_id ${task.agentId} --email_id <EMAIL_ID> --status read'
+- Run 'npx @alook/cli email set --agent_id ${task.agentId} --workspace ${task.workspaceId} --email_id <EMAIL_ID> --status read'
 ---
 
 #### Sending a new email
