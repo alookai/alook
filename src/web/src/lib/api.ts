@@ -1,12 +1,15 @@
 import type {
   Agent,
+  AgentEmailAccount,
   AgentRuntime,
   Artifact,
   CalendarEvent,
   Conversation,
   CreateAgentRequest,
   CreateCalendarEventRequest,
+  CreateEmailAccountRequest,
   UpdateCalendarEventRequest,
+  UpdateEmailAccountRequest,
   DeleteCalendarEventRequest,
   UpdateAgentRequest,
   Email,
@@ -236,6 +239,82 @@ export const sendMessage = async (
   return res.json() as Promise<{ message: Message; task: TaskApi }>;
 };
 
+// Buffered messages (follow-up queue)
+export const listBufferedMessages = (conversationId: string, workspaceId: string) =>
+  apiFetch<Message[]>(
+    `/api/conversations/${conversationId}/buffered-messages${wsQuery(workspaceId)}`
+  );
+
+export const createBufferedMessage = async (
+  conversationId: string,
+  content: string,
+  workspaceId: string,
+  files?: File[],
+): Promise<{ message: Message }> => {
+  if (!files || files.length === 0) {
+    return apiFetch<{ message: Message }>(
+      `/api/conversations/${conversationId}/buffered-messages${wsQuery(workspaceId)}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ content }),
+      },
+    );
+  }
+
+  const fd = new FormData();
+  fd.append("content", content);
+  for (const file of files) {
+    fd.append("file", file);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `/api/conversations/${conversationId}/buffered-messages${wsQuery(workspaceId)}`,
+      { method: "POST", credentials: "include", body: fd },
+    );
+  } catch (err) {
+    if (err instanceof TypeError) {
+      throw new ApiError("Unable to connect — check your network", 0);
+    }
+    throw err;
+  }
+
+  if (res.status === 401) {
+    if (typeof window !== "undefined") window.location.href = "/sign-in";
+    throw new ApiError("Unauthorized", 401);
+  }
+
+  if (!res.ok) {
+    let serverError: string | undefined;
+    let details: string[] | undefined;
+    try {
+      const body = (await res.json()) as { error?: string; details?: string[] };
+      serverError = body.error;
+      details = body.details;
+    } catch {
+      // non-JSON body
+    }
+    if (res.status === 429) throw new ApiError(serverError || "Maximum follow-ups reached", 429);
+    if (res.status >= 500) throw new ApiError(serverError || "Something went wrong — please try again", res.status, details);
+    throw new ApiError(serverError || "Something went wrong", res.status, details);
+  }
+
+  return res.json() as Promise<{ message: Message }>;
+};
+
+export const deleteBufferedMessage = (conversationId: string, messageId: string, workspaceId: string) =>
+  apiFetch<void>(
+    `/api/conversations/${conversationId}/buffered-messages/${messageId}${wsQuery(workspaceId)}`,
+    { method: "DELETE" },
+  );
+
+export const deleteAllBufferedMessages = (conversationId: string, workspaceId: string) =>
+  apiFetch<void>(
+    `/api/conversations/${conversationId}/buffered-messages${wsQuery(workspaceId)}`,
+    { method: "DELETE" },
+  );
+
 // Active task for conversation (recovery on page refresh)
 export const getActiveTask = (conversationId: string, workspaceId: string) =>
   apiFetch<TaskApi | undefined>(`/api/conversations/${conversationId}/active-task${wsQuery(workspaceId)}`);
@@ -250,6 +329,20 @@ export const createMachineToken = (name?: string, workspaceId?: string) =>
     }
   );
 
+// Agent active tasks
+export const listAgentActiveTaskCounts = (workspaceId: string) =>
+  apiFetch<{ counts: Record<string, number> }>(`/api/agents/active-task-counts${wsQuery(workspaceId)}`);
+
+export interface ActiveTask {
+  id: string;
+  status: string;
+  type: string;
+  created_at: string;
+}
+
+export const listAgentActiveTasks = (agentId: string, workspaceId: string) =>
+  apiFetch<{ tasks: ActiveTask[] }>(`/api/agents/${agentId}/active-tasks${wsQuery(workspaceId)}`);
+
 // Tasks (polling)
 export const getTask = (id: string, workspaceId: string) =>
   apiFetch<TaskApi>(`/api/tasks/${id}${wsQuery(workspaceId)}`);
@@ -260,8 +353,8 @@ export const getTaskMessages = (id: string, workspaceId: string, since?: number)
   );
 
 // Emails
-export const listEmails = (agentId: string, workspaceId: string, folder?: string) =>
-  apiFetch<Email[]>(`/api/email${wsQuery(workspaceId, { agentId, ...(folder ? { folder } : {}) })}`);
+export const listEmails = (agentId: string, workspaceId: string, folder?: string, address?: string) =>
+  apiFetch<Email[]>(`/api/email${wsQuery(workspaceId, { agentId, ...(folder ? { folder } : {}), ...(address ? { address } : {}) })}`);
 
 export const getEmail = (id: string, workspaceId: string) =>
   apiFetch<Email>(`/api/email/${id}${wsQuery(workspaceId)}`);
@@ -307,10 +400,11 @@ export const sendEmail = (
   workspaceId: string,
   attachments?: { key: string; filename: string; size: number; contentType: string }[],
   threading?: { inReplyTo?: string; references?: string },
+  customAccountId?: string,
 ) =>
   apiFetch<Email>(`/api/email/send${wsQuery(workspaceId)}`, {
     method: "POST",
-    body: JSON.stringify({ agentId, to, subject, htmlBody, attachments, ...threading }),
+    body: JSON.stringify({ agentId, to, subject, htmlBody, attachments, ...threading, customAccountId }),
   });
 
 // Calendar events
@@ -378,6 +472,47 @@ export const addWhitelistEmail = (agentId: string, email: string, workspaceId: s
 export const removeWhitelistEmail = (agentId: string, whitelistId: string, workspaceId: string) =>
   apiFetch<void>(`/api/agents/${agentId}/whitelist/${whitelistId}${wsQuery(workspaceId)}`, {
     method: "DELETE",
+  });
+
+// Email Accounts
+export const listEmailAccounts = (agentId: string, workspaceId: string) =>
+  apiFetch<AgentEmailAccount[]>(`/api/agents/${agentId}/email-accounts${wsQuery(workspaceId)}`);
+
+export const createEmailAccount = (agentId: string, data: CreateEmailAccountRequest, workspaceId: string) =>
+  apiFetch<AgentEmailAccount>(`/api/agents/${agentId}/email-accounts${wsQuery(workspaceId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const updateEmailAccount = (agentId: string, accountId: string, data: UpdateEmailAccountRequest, workspaceId: string) =>
+  apiFetch<AgentEmailAccount>(`/api/agents/${agentId}/email-accounts/${accountId}${wsQuery(workspaceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
+export const deleteEmailAccount = (agentId: string, accountId: string, workspaceId: string) =>
+  apiFetch<{ ok: boolean }>(`/api/agents/${agentId}/email-accounts/${accountId}${wsQuery(workspaceId)}`, {
+    method: "DELETE",
+  });
+
+export const testEmailConnection = (agentId: string, accountId: string, workspaceId: string) =>
+  apiFetch<{ imap: string; smtp: string }>(`/api/agents/${agentId}/email-accounts/${accountId}/test${wsQuery(workspaceId)}`, {
+    method: "POST",
+  });
+
+export const syncEmailAccount = (agentId: string, accountId: string, workspaceId: string) =>
+  apiFetch<{ ok: boolean }>(`/api/agents/${agentId}/email-accounts/${accountId}/sync${wsQuery(workspaceId)}`, {
+    method: "POST",
+  });
+
+// Members
+export const getMemberMe = (workspaceId: string) =>
+  apiFetch<{ global_instruction: string }>(`/api/members/me${wsQuery(workspaceId)}`);
+
+export const updateMemberMe = (workspaceId: string, globalInstruction: string) =>
+  apiFetch<{ global_instruction: string }>(`/api/members/me${wsQuery(workspaceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ global_instruction: globalInstruction }),
   });
 
 // Artifacts

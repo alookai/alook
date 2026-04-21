@@ -17,6 +17,8 @@ const mockGetAgent = vi.fn();
 const mockCreateConv = vi.fn();
 const mockCreateTask = vi.fn();
 
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared");
   return {

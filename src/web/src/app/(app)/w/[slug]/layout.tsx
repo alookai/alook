@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries } from "@alook/shared"
+import { queries } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { getSession } from "@/lib/session"
 import { WorkspaceProvider } from "@/contexts/workspace-context"
 import { AgentProvider } from "@/contexts/agent-context"
@@ -18,7 +19,7 @@ export default async function WorkspaceLayout({
 
   const { slug } = await params
   const { env } = await getCloudflareContext({ async: true })
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const ws = await queries.workspace.getWorkspaceBySlug(db, slug)
   if (!ws) redirect("/workspaces")

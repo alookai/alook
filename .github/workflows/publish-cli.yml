@@ -53,8 +53,18 @@ jobs:
       - name: Build CLI bundle
         run: pnpm -C src/cli run build
 
+      - name: Check if version already published
+        id: check_published
+        run: |
+          if npm view "@alook/cli@$VERSION" version >/dev/null 2>&1; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::@alook/cli@$VERSION already on npm — skipping publish"
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to npm (OIDC)
-        # --provenance requires a public source repo; this repo is private.
+        if: steps.check_published.outputs.already_published == 'false'
         working-directory: src/cli
         run: npm publish --access public
 

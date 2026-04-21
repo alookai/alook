@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, isValidHandle, isOnline } from "@alook/shared"
+import { queries, isValidHandle, isOnline, CreateAgentRequestSchema } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
-import { writeJSON, writeError } from "@/lib/middleware/helpers";
+import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { agentToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { sweepStaleState } from "@/lib/services/sweep";
@@ -13,7 +14,7 @@ export const GET = withAuth(async (req, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   // Sweep stale state: catches stuck tasks even when all daemons are dead
   await sweepStaleState(db, ws.workspaceId);
@@ -27,33 +28,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
-  let body: {
-    name?: string;
-    description?: string;
-    instructions?: string;
-    avatar_url?: string | null;
-    runtime_id?: string;
-    runtime_config?: unknown;
-    max_concurrent_tasks?: number;
-    email_handle?: string;
-  };
-  try {
-    body = await req.json();
-  } catch {
-    return writeError("invalid request body", 400);
-  }
+  const [body, valErr] = await parseBody(req, CreateAgentRequestSchema);
+  if (valErr) return valErr;
 
-  const name = (body.name || "").trim();
-  if (!name) {
-    return writeError("name is required", 400);
-  }
-
-  const runtimeId = body.runtime_id || "";
-  if (!runtimeId) {
-    return writeError("runtime_id is required", 400);
-  }
+  const name = body.name.trim();
+  const runtimeId = body.runtime_id;
 
   let maxConcurrentTasks = body.max_concurrent_tasks || 0;
   if (maxConcurrentTasks <= 0) maxConcurrentTasks = 6;
@@ -78,28 +59,18 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("runtime not found in workspace", 404);
   }
 
-  let sanitizedRc: Record<string, unknown> | null = null;
-  if (typeof body.runtime_config === "object" && body.runtime_config !== null && !Array.isArray(body.runtime_config)) {
-    const rc = body.runtime_config as Record<string, unknown>;
-    sanitizedRc = {};
-    if (typeof rc.model === "string" && rc.model.length <= 100) {
-      sanitizedRc.model = rc.model;
-    }
-  }
+  const rc = body.runtime_config;
+  const sanitizedRc: Record<string, unknown> | null = rc
+    ? { ...(typeof rc.model === "string" ? { model: rc.model } : {}) }
+    : null;
 
-  let avatarUrl: string | null = null;
-  if (typeof body.avatar_url === "string") {
-    if (body.avatar_url.length > 2000) {
-      return writeError("avatar_url too long", 400);
-    }
-    avatarUrl = body.avatar_url;
-  }
+  const avatarUrl = body.avatar_url ?? null;
 
   const newAgent = await queries.agent.createAgent(db, {
     workspaceId: ws.workspaceId,
     name,
-    description: body.description || "",
-    instructions: body.instructions || "",
+    description: body.description,
+    instructions: body.instructions,
     avatarUrl,
     runtimeId,
     runtimeMode: runtime.runtimeMode,

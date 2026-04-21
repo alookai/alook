@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries } from "@alook/shared"
+import { queries } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import type { AuthContext } from "./auth"
 
 export interface WorkspaceContext extends AuthContext {
@@ -31,7 +32,7 @@ export async function withWorkspaceMember(
   }
 
   const { env } = await getCloudflareContext({ async: true })
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const membership = await queries.member.getMemberByUserAndWorkspace(
     db,

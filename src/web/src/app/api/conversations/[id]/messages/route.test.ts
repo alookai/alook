@@ -12,10 +12,14 @@ const mockTaskToResponse = vi.fn((t: any) => ({ id: t.id, status: t.status }));
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }));
-vi.mock("@alook/shared", () => {
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual("@alook/shared");
   const noop = () => {};
   const log = { debug: noop, info: noop, warn: noop, error: noop, child: () => log };
   return {
+    ...actual,
     createDb: vi.fn(() => ({})),
     createLogger: () => log,
     TASK_TYPES: {
@@ -241,7 +245,8 @@ describe("POST /api/conversations/[id]/messages", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toBe("content is required");
+    expect(body.error).toBe("validation error");
+    expect(body.details).toContainEqual(expect.stringContaining("content"));
   });
 
   it("returns 404 when conversation not found", async () => {

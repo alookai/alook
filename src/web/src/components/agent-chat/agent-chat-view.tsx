@@ -14,13 +14,17 @@ import {
   getActiveTask,
   deleteConversation,
   listArtifacts,
+  listBufferedMessages,
+  createBufferedMessage,
+  deleteBufferedMessage,
 } from "@/lib/api";
 import type { Artifact, Conversation, Message, TaskApi as Task, TaskMessage, WsMessage } from "@alook/shared";
 import { useAgentContext } from "@/contexts/agent-context";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowUp, Box, FileText, Loader2, Paperclip, RotateCcw, X } from "lucide-react";
+import { ArrowUp, Box, FileText, Loader2, Mic, Paperclip, RotateCcw, X } from "lucide-react";
+import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { ArtifactSheet, formatSize } from "@/components/agent-chat/artifact-sheet";
 import { isPreviewable, getArtifactUrl } from "@/components/artifact-content-renderer";
 import {
@@ -32,6 +36,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Streamdown } from "streamdown";
+import { FollowUpBuffer } from "@/components/agent-chat/follow-up-buffer";
 
 const MESSAGE_LIMIT = 20;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -169,8 +174,14 @@ export function AgentChatView() {
   const [artifactSheetOpen, setArtifactSheetOpen] = useState(false);
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [bufferedMessages, setBufferedMessages] = useState<Message[]>([]);
 
   const pendingFilesMapRef = useRef<Map<string, File[]>>(new Map());
+
+  const handleSpeechResult = useCallback((text: string) => {
+    setInput((prev) => (prev ? prev + " " + text : text));
+  }, []);
+  const { listening, supported: speechSupported, toggle: toggleSpeech } = useSpeechRecognition(handleSpeechResult);
 
   const agentArtifacts = useMemo(() => artifacts.filter((a) => a.source === "agent"), [artifacts]);
 
@@ -187,6 +198,7 @@ export function AgentChatView() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTaskIdRef = useRef<string | null>(null);
   const lastSeqRef = useRef(0);
   const pollFailures = useRef(0);
   const initialScrollDone = useRef(false);
@@ -194,6 +206,7 @@ export function AgentChatView() {
   const isNearBottom = useRef(true);
   const startPollingRef = useRef<(taskId: string, conversationId: string, initialSeq?: number) => void>(null!);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const key = `chat-draft:${agentId}`;
@@ -203,6 +216,12 @@ export function AgentChatView() {
       localStorage.removeItem(key);
     }
   }, [input, agentId]);
+
+  useEffect(() => {
+    if (!sending) {
+      textareaRef.current?.focus();
+    }
+  }, [sending]);
 
   const scrollToBottom = useCallback(() => {
     isNearBottom.current = true;
@@ -220,9 +239,10 @@ export function AgentChatView() {
       try {
         const conv = await getOrCreateAgentConversation(agentId, workspaceId);
         setConversation(conv);
-        const [msgs, arts] = await Promise.allSettled([
+        const [msgs, arts, buffered] = await Promise.allSettled([
           listMessages(conv.id, workspaceId, { limit: MESSAGE_LIMIT }),
           listArtifacts(conv.id, workspaceId),
+          listBufferedMessages(conv.id, workspaceId),
         ]);
 
         if (msgs.status === "fulfilled") {
@@ -233,6 +253,9 @@ export function AgentChatView() {
         }
         if (arts.status === "fulfilled") {
           setArtifacts(arts.value);
+        }
+        if (buffered.status === "fulfilled") {
+          setBufferedMessages(buffered.value);
         }
 
         // Recover active task (e.g. after page refresh)
@@ -347,18 +370,25 @@ export function AgentChatView() {
       lastSeqRef.current = initialSeq ?? 0;
       pollFailures.current = 0;
       setConnectionLost(false);
+      pollTaskIdRef.current = taskId;
 
       pollRef.current = setInterval(async () => {
+        // A new poll was started (e.g. by followup.dispatched) — bail out
+        if (pollTaskIdRef.current !== taskId) return;
+
         try {
           const [task, tmsgs] = await Promise.all([
             getTask(taskId, workspaceId),
             getTaskMessages(taskId, workspaceId, lastSeqRef.current || undefined),
           ]);
 
+          // Re-check after await — a followup.dispatched may have started a new poll
+          const isStale = pollTaskIdRef.current !== taskId;
+
           pollFailures.current = 0;
           setConnectionLost(false);
 
-          if (tmsgs.length > 0) {
+          if (tmsgs.length > 0 && !isStale) {
             setTaskMessages((prev) => {
               const existingSeqs = new Set(prev.map((m) => m.seq));
               const unique = tmsgs.filter((m) => !existingSeqs.has(m.seq));
@@ -371,6 +401,14 @@ export function AgentChatView() {
           }
 
           if (task.status === "completed" || task.status === "failed") {
+            if (isStale) {
+              // Stale poll — still merge messages but don't touch activeTask or polling
+              listMessages(conversationId, workspaceId)
+                .then((latest) => setMessages((prev) => mergeMessages(prev, latest)))
+                .catch(() => {});
+              return;
+            }
+
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
 
@@ -380,7 +418,6 @@ export function AgentChatView() {
                 listMessages(conversationId, workspaceId),
                 listArtifacts(conversationId, workspaceId).catch(() => null),
               ]);
-              // Batch all state updates together so content settles in one re-render
               setMessages((prev) => mergeMessages(prev, latest));
               if (arts) setArtifacts(arts);
               setActiveTask(task);
@@ -396,10 +433,11 @@ export function AgentChatView() {
                 });
               });
             }
-          } else {
+          } else if (!isStale) {
             setActiveTask(task);
           }
         } catch {
+          if (pollTaskIdRef.current !== taskId) return;
           pollFailures.current += 1;
           if (pollFailures.current >= 3) {
             setConnectionLost(true);
@@ -446,6 +484,29 @@ export function AgentChatView() {
           if (prev.some((a) => a.id === msg.artifact.id)) return prev;
           return [...prev, msg.artifact];
         });
+      }
+      if (msg.type === "followup.dispatched" && msg.conversationId === conversation?.id) {
+        setBufferedMessages((prev) => prev.filter((m) => m.id !== msg.message.id));
+        // Fetch all messages so the completed task's agent response is included
+        listMessages(msg.conversationId, workspaceId)
+          .then((latest) => setMessages((prev) => mergeMessages(prev, latest)))
+          .catch(() => {});
+        const task = msg.task as Task;
+        setActiveTask(task);
+        setTaskMessages([]);
+        startPollingRef.current(task.id, msg.conversationId);
+      }
+      if (msg.type === "followup.created" && msg.conversationId === conversation?.id) {
+        setBufferedMessages((prev) => {
+          if (prev.some((m) => m.id === msg.message.id)) return prev;
+          return [...prev, msg.message];
+        });
+      }
+      if (msg.type === "followup.deleted" && msg.conversationId === conversation?.id) {
+        setBufferedMessages((prev) => prev.filter((m) => m.id !== msg.messageId));
+      }
+      if (msg.type === "followup.dispatch_failed" && msg.conversationId === conversation?.id) {
+        toast.error(msg.error || "Failed to dispatch follow-up");
       }
     });
   }, [subscribeWs, conversation?.id]);
@@ -532,6 +593,47 @@ export function AgentChatView() {
     setPendingFiles([]);
     setSending(true);
 
+    const taskActive = !!activeTask && activeTask.status !== "completed" && activeTask.status !== "failed";
+
+    if (taskActive) {
+      // Buffer mode: queue message for later dispatch
+      const optimisticId = `temp-${Date.now()}`;
+      const optimistic: Message = {
+        id: optimisticId,
+        conversation_id: conversation.id,
+        role: "user",
+        content,
+        task_id: null,
+        attachment_ids: null,
+        status: "buffered",
+        created_at: new Date().toISOString(),
+      };
+      setBufferedMessages((prev) => [...prev, optimistic]);
+
+      try {
+        const { message } = await createBufferedMessage(
+          conversation.id,
+          content,
+          workspaceId,
+          filesToSend.length > 0 ? filesToSend : undefined,
+        );
+        setBufferedMessages((prev) =>
+          prev.map((m) => (m.id === optimisticId ? message : m))
+        );
+      } catch (err) {
+        setBufferedMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        setInput(content);
+        setPendingFiles(filesToSend);
+        toast.error(
+          err instanceof Error ? err.message : "Failed to queue follow-up"
+        );
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
+    // Normal mode: send message and enqueue task
     const optimisticId = `temp-${Date.now()}`;
     const optimistic: Message = {
       id: optimisticId,
@@ -581,6 +683,7 @@ export function AgentChatView() {
       );
     } finally {
       setSending(false);
+      textareaRef.current?.focus();
     }
   };
 
@@ -605,6 +708,7 @@ export function AgentChatView() {
       setActiveTask(null);
       setTaskMessages([]);
       setArtifacts([]);
+      setBufferedMessages([]);
       setPendingFiles([]);
       pendingFilesMapRef.current.clear();
       lastSeqRef.current = 0;
@@ -775,6 +879,19 @@ export function AgentChatView() {
         </div>
       </div>
 
+      {/* Follow-up buffer indicator */}
+      <FollowUpBuffer
+        bufferedMessages={bufferedMessages}
+        onDelete={(messageId) => {
+          const prev = bufferedMessages;
+          setBufferedMessages((cur) => cur.filter((m) => m.id !== messageId));
+          deleteBufferedMessage(conversation.id, messageId, workspaceId).catch(() => {
+            setBufferedMessages(prev);
+            toast.error("Failed to delete follow-up");
+          });
+        }}
+      />
+
       {/* Input */}
       <div className="px-5 py-3">
         <div className="mx-auto max-w-2xl relative">
@@ -782,7 +899,7 @@ export function AgentChatView() {
             className={cn(
               "relative flex flex-col rounded-xl border bg-background/60 transition-colors duration-200",
               "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
-              (sending || isTaskActive) && "opacity-50",
+              sending && "opacity-50",
               dragging && "border-ring ring-3 ring-ring/50"
             )}
             onDragEnter={handleDragEnter}
@@ -796,12 +913,13 @@ export function AgentChatView() {
               </div>
             )}
             <textarea
+              ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type a message..."
+              placeholder={isTaskActive ? "Type a follow-up..." : "Type a message..."}
               rows={1}
-              disabled={sending || isTaskActive}
+              disabled={sending}
               className={cn(
                 "field-sizing-content w-full resize-none bg-transparent px-3.5 pt-2.5 text-base outline-none",
                 "placeholder:text-muted-foreground disabled:cursor-not-allowed",
@@ -875,16 +993,33 @@ export function AgentChatView() {
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={sending || isTaskActive}
+                  disabled={sending}
                   className="rounded-lg text-muted-foreground/60 hover:text-foreground transition-colors duration-200"
                   title="Attach files"
                 >
                   <Paperclip className="size-3.5" />
                 </Button>
+                {speechSupported && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={toggleSpeech}
+                    disabled={sending}
+                    className={cn(
+                      "rounded-lg transition-colors duration-200",
+                      listening
+                        ? "text-red-500 hover:text-red-600 bg-red-500/10"
+                        : "text-muted-foreground/60 hover:text-foreground"
+                    )}
+                    title={listening ? "Stop recording" : "Voice input"}
+                  >
+                    <Mic className={cn("size-3.5", listening && "animate-pulse")} />
+                  </Button>
+                )}
                 <Button
                   size="icon-sm"
                   onClick={handleSend}
-                  disabled={!input.trim() || sending || isTaskActive}
+                  disabled={!input.trim() || sending}
                   className={cn(
                     "rounded-lg transition-opacity duration-200",
                     !input.trim() && "opacity-40"

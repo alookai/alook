@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { createDb, queries } from "@alook/shared";
+import { queries } from "@alook/shared";
+import { getDb } from "@/lib/db"
 import { nanoid } from "nanoid";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
@@ -19,7 +20,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const { env } = getCloudflareContext();
   const bucket = (env as Env).EMAIL_BUCKET;
-  const db = createDb((env as Env).DB);
+  const db = getDb((env as Env).DB);
 
   let formData: FormData;
   try {

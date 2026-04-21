@@ -1,6 +1,6 @@
 {
   "name": "@alook/cli",
-  "version": "0.0.9",
+  "version": "0.0.14",
   "description": "Alook CLI — register and run always-on AI coding agents.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/alookai/alook#readme",

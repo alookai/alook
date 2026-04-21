@@ -1,14 +1,15 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, isUniqueConstraintError } from "@alook/shared"
+import { queries, isUniqueConstraintError, CreateWorkspaceRequestSchema } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { nanoid } from "nanoid"
 import { withAuth } from "@/lib/middleware/auth";
-import { writeJSON, writeError } from "@/lib/middleware/helpers";
+import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { workspaceToResponse } from "@/lib/api/responses";
 
 export const GET = withAuth(async (_req, ctx) => {
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const workspaces = await queries.workspace.listWorkspaces(db, ctx.userId);
   return writeJSON(workspaces.map(workspaceToResponse));
@@ -16,24 +17,13 @@ export const GET = withAuth(async (_req, ctx) => {
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
-  let body: { name?: string; slug?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return writeError("invalid request body", 400);
-  }
+  const [body, valErr] = await parseBody(req, CreateWorkspaceRequestSchema);
+  if (valErr) return valErr;
 
-  const name = (body.name || "").trim();
-  const slug = (body.slug || "").toLowerCase().trim();
-
-  if (!name) {
-    return writeError("name is required", 400);
-  }
-  if (!slug) {
-    return writeError("slug is required", 400);
-  }
+  const name = body.name.trim();
+  const slug = body.slug.toLowerCase().trim();
 
   const suffixLengths = [4, 4, 4, 8, 8, 8, 16, 16, 16];
   let candidateSlug = slug;

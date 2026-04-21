@@ -88,6 +88,7 @@ export const member = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     role: text("role").notNull().default("member"),
+    globalInstruction: text("global_instruction").notNull().default(""),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [unique("member_workspace_user").on(t.workspaceId, t.userId)]
@@ -202,17 +203,24 @@ export const conversation = sqliteTable(
   ]
 );
 
-export const message = sqliteTable("message", {
-  id: text("id").primaryKey().$defaultFn(() => nanoid()),
-  conversationId: text("conversation_id")
-    .notNull()
-    .references(() => conversation.id, { onDelete: "cascade" }),
-  role: text("role").notNull(),
-  content: text("content").notNull().default(""),
-  taskId: text("task_id"),
-  attachmentIds: text("attachment_ids"),
-  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-});
+export const message = sqliteTable(
+  "message",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    content: text("content").notNull().default(""),
+    taskId: text("task_id"),
+    attachmentIds: text("attachment_ids"),
+    status: text("status").notNull().default("active"),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_message_conversation_status").on(t.conversationId, t.status),
+  ]
+);
 
 export const agentTaskQueue = sqliteTable(
   "agent_task_queue",
@@ -246,6 +254,9 @@ export const agentTaskQueue = sqliteTable(
     index("idx_task_queue_pending")
       .on(t.agentId, t.status)
       .where(sql`status IN ('queued', 'dispatched')`),
+    index("idx_task_queue_workspace_active")
+      .on(t.workspaceId, t.status, t.agentId)
+      .where(sql`status IN ('queued', 'dispatched', 'running')`),
     foreignKey({
       columns: [t.agentId, t.workspaceId],
       foreignColumns: [agent.id, agent.workspaceId],
@@ -349,6 +360,46 @@ export const artifact = sqliteTable(
   },
   (t) => [
     index("idx_artifact_conversation").on(t.conversationId),
+    foreignKey({
+      columns: [t.agentId, t.workspaceId],
+      foreignColumns: [agent.id, agent.workspaceId],
+    }).onDelete("cascade"),
+  ]
+);
+
+export const agentEmailAccount = sqliteTable(
+  "agent_email_account",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "aea_" + nanoid()),
+    agentId: text("agent_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    emailAddress: text("email_address").notNull(),
+    displayName: text("display_name").notNull().default(""),
+
+    imapHost: text("imap_host").notNull(),
+    imapPort: integer("imap_port").notNull().default(993),
+    imapUsername: text("imap_username").notNull(),
+    imapPassword: text("imap_password").notNull(),
+    imapTls: integer("imap_tls", { mode: "boolean" }).notNull().default(true),
+
+    smtpHost: text("smtp_host").notNull(),
+    smtpPort: integer("smtp_port").notNull().default(587),
+    smtpUsername: text("smtp_username").notNull(),
+    smtpPassword: text("smtp_password").notNull(),
+    smtpTls: integer("smtp_tls").notNull().default(1),
+
+    pollIntervalSeconds: integer("poll_interval_seconds").notNull().default(60),
+    lastSyncedUid: text("last_synced_uid").notNull().default("0"),
+    lastSyncedAt: text("last_synced_at"),
+    status: text("status").notNull().default("active"),
+    errorMessage: text("error_message").notNull().default(""),
+
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+    updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_email_account_agent_ws").on(t.agentId, t.workspaceId),
+    unique("email_account_agent_email").on(t.agentId, t.emailAddress),
     foreignKey({
       columns: [t.agentId, t.workspaceId],
       foreignColumns: [agent.id, agent.workspaceId],

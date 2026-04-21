@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries } from "@alook/shared"
+import { queries } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import type { TaskMessage } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -11,7 +12,7 @@ import { log } from "@/lib/logger";
 
 export const GET = withAuth(async (_req, ctx) => {
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const taskId = ctx.params?.taskId;
   if (!taskId) {
@@ -24,7 +25,7 @@ export const GET = withAuth(async (_req, ctx) => {
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const taskId = ctx.params?.taskId;
   if (!taskId) {

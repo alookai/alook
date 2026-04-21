@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries } from "@alook/shared"
+import { queries } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, parseBody } from "@/lib/middleware/helpers";
 import { runtimeToResponse } from "@/lib/api/responses";
@@ -9,7 +10,7 @@ import { broadcastToUser } from "@/lib/broadcast";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const [body, err] = await parseBody(req, RegisterDaemonRequestSchema);
   if (err) return err;

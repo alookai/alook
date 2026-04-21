@@ -1,10 +1,11 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, TASK_TYPES, buildContextKey } from "@alook/shared"
+import { queries, TASK_TYPES, buildContextKey, CreateMessageRequestSchema } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { nanoid } from "nanoid";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
-import { writeJSON, writeError } from "@/lib/middleware/helpers";
+import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { messageToResponse, taskToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { log } from "@/lib/logger";
@@ -31,7 +32,7 @@ export const GET = withAuth(async (req, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const id = ctx.params?.id;
   if (!id) {
@@ -58,7 +59,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
   const bucket = (env as Env).EMAIL_BUCKET;
 
   const id = ctx.params?.id;
@@ -86,16 +87,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       }
     }
   } else {
-    let body: { content?: string };
-    try {
-      body = await req.json();
-    } catch {
-      return writeError("invalid request body", 400);
-    }
-    content = body.content || "";
+    const [body, valErr] = await parseBody(req, CreateMessageRequestSchema);
+    if (valErr) return valErr;
+    content = body.content;
   }
 
-  if (!content) {
+  if (isMultipart && !content) {
     return writeError("content is required", 400);
   }
 

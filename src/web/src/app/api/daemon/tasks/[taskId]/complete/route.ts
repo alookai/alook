@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { taskToResponse } from "@/lib/api/responses";
@@ -10,7 +10,7 @@ import { broadcastToUser } from "@/lib/broadcast";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const taskId = ctx.params?.taskId;
   if (!taskId) {

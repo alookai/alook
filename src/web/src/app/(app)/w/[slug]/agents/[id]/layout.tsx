@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AgentEditForm } from "@/components/agent-edit-form";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { AgentStatusBadge } from "@/components/agent-status-badge";
 import { CalendarDays, Mail, MessageSquare, MoreHorizontal, Pencil, Trash2, X } from "lucide-react";
 import { MobileSidebarLogo } from "@/components/mobile-sidebar-logo";
 import {
@@ -33,6 +33,8 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
   const agent = agents.find((a) => a.id === agentId);
   const runtime = agent ? runtimes.find((r) => r.id === agent.runtime_id) : null;
   const isOnline = runtime?.status === "online";
+  const { activeTaskCounts } = useAgentContext();
+  const taskCount = activeTaskCounts[agentId] ?? 0;
 
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -51,17 +53,11 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
         <div className="flex items-center gap-2 min-w-0">
           <MobileSidebarLogo />
           {agent ? (
-            <Link
-              href={`/w/${slug}/runtimes`}
-              title={isOnline ? "Runtime online" : "Runtime offline"}
-            >
-              <span
-                className={cn(
-                  "size-2 rounded-full shrink-0 block",
-                  isOnline ? "bg-status-online" : "bg-status-offline"
-                )}
-              />
-            </Link>
+            <AgentStatusBadge
+              isOnline={isOnline}
+              taskCount={taskCount}
+              agentId={agentId}
+            />
           ) : (
             <Skeleton className="size-2 rounded-full shrink-0" />
           )}

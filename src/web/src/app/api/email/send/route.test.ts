@@ -14,17 +14,23 @@ vi.mock("@opennextjs/cloudflare", () => ({
   })),
 }));
 
-vi.mock("@alook/shared", () => ({
-  createDb: vi.fn(() => ({})),
-  queries: {
-    email: {
-      createEmail: (...args: unknown[]) => mockCreateEmail(...args),
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual("@alook/shared");
+  return {
+    ...actual,
+    createDb: vi.fn(() => ({})),
+    queries: {
+      email: {
+        createEmail: (...args: unknown[]) => mockCreateEmail(...args),
+      },
+      agent: {
+        getAgent: (...args: unknown[]) => mockGetAgent(...args),
+      },
     },
-    agent: {
-      getAgent: (...args: unknown[]) => mockGetAgent(...args),
-    },
-  },
-}));
+  };
+});
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
@@ -37,9 +43,11 @@ vi.mock("@/lib/middleware/workspace", () => ({
   withWorkspaceMember: vi.fn(async () => ({ workspaceId: "ws1" })),
 }));
 
-vi.mock("@/lib/middleware/helpers", () => {
+vi.mock("@/lib/middleware/helpers", async () => {
   const { NextResponse } = require("next/server");
+  const actual = await vi.importActual("@/lib/middleware/helpers");
   return {
+    ...actual,
     writeJSON: (data: unknown, status = 200) => NextResponse.json(data, { status }),
     writeError: (message: string, status: number) => NextResponse.json({ error: message }, { status }),
   };

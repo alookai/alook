@@ -14,7 +14,6 @@ vi.mock("./client.js", () => {
 
 const mockPrepare = vi.fn(() => ({
   workDir: "/tmp/ws/ws1/agent1/workdir",
-  logFile: "/tmp/ws/ws1/agent1/agent.log",
   timelineDir: "/tmp/ws/ws1/agent1/workdir/.context_timeline",
   env: {
     ALOOK_WORKSPACE_ID: "ws1",
@@ -39,6 +38,7 @@ const mockCreateTimelineEntry = vi.fn(
     pid?: number,
     provider?: string,
     contextKey?: string | null,
+    detailedLog?: string | null,
   ) => ({
     task_id: taskId,
     context_key: contextKey ?? null,
@@ -51,6 +51,7 @@ const mockCreateTimelineEntry = vi.fn(
     agent_responses: [],
     errmsg: null,
     provider: provider || null,
+    detailed_log: detailedLog ?? null,
   }),
 );
 const mockFindResumableSessionByContextKey = vi.fn(() => null);
@@ -59,7 +60,6 @@ vi.mock("./execenv/timeline.js", () => ({
   updateEntry: (...args: any[]) => mockUpdateEntry(...args),
   createTimelineEntry: (...args: any[]) => mockCreateTimelineEntry(...args),
   findResumableSessionByContextKey: (...args: any[]) => mockFindResumableSessionByContextKey(...args),
-  localISOString: () => "2026-04-16T10:00:00-05:00",
 }));
 
 vi.mock("./prompt.js", () => ({
@@ -74,16 +74,14 @@ vi.mock("./agent/index.js", () => ({
   })),
 }));
 
-vi.mock("fs", () => ({
-  createWriteStream: vi.fn(() => ({
-    write: vi.fn(),
-    end: vi.fn(),
-  })),
+vi.mock("../lib/logger.js", () => ({
+  log: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
 }));
 
 import { runSession } from "./session-runner.js";
 import { createBackend } from "./agent/index.js";
 import { buildPrompt } from "./prompt.js";
+import { log as mockLog } from "../lib/logger.js";
 import type { SessionRunnerInput } from "./types.js";
 
 function makeInput(overrides?: Partial<SessionRunnerInput>): SessionRunnerInput {
@@ -218,6 +216,7 @@ describe("session-runner runSession", () => {
       process.pid,
       "claude",
       "dm:c1",
+      undefined,
     );
     expect(mockInitEntryAsync).toHaveBeenCalledWith(
       "/tmp/ws/ws1/agent1/workdir/.context_timeline",
@@ -532,37 +531,6 @@ describe("session-runner runSession", () => {
     expect(process.listenerCount("SIGTERM")).toBe(listenersBefore);
   });
 
-  it("writes agent.log JSONL", async () => {
-    const { createWriteStream } = await import("fs");
-    const mockWrite = vi.fn();
-    vi.mocked(createWriteStream).mockReturnValue({
-      write: mockWrite,
-      end: vi.fn(),
-    } as any);
-
-    setupBackend(
-      [{ type: "text", content: "hello" }],
-      {
-        status: "completed",
-        output: "Done",
-        error: "",
-        durationMs: 100,
-        sessionId: "sess-1",
-      },
-    );
-
-    await runSession(makeInput());
-
-    // First write = user prompt, second write = assistant message
-    expect(mockWrite).toHaveBeenCalledTimes(2);
-    const firstLine = JSON.parse(mockWrite.mock.calls[0][0].replace("\n", ""));
-    expect(firstLine.role).toBe("user");
-    expect(firstLine.content).toBe("do the thing");
-    const secondLine = JSON.parse(mockWrite.mock.calls[1][0].replace("\n", ""));
-    expect(secondLine.role).toBe("assistant");
-    expect(secondLine.type).toBe("text");
-  });
-
   it("passes provider to createTimelineEntry", async () => {
     setupBackend([], {
       status: "completed",
@@ -582,6 +550,7 @@ describe("session-runner runSession", () => {
       process.pid,
       "codex",
       "dm:c1",
+      undefined,
     );
   });
 
@@ -644,5 +613,198 @@ describe("session-runner runSession", () => {
       expect.any(String),
       expect.objectContaining({ resumeSessionId: undefined }),
     );
+  });
+
+  // --- Logging tests ---
+
+  describe("logging", () => {
+    it("logs task start with metadata", async () => {
+      setupBackend([], {
+        status: "completed",
+        output: "Done",
+        error: "",
+        durationMs: 1000,
+        sessionId: "sess-1",
+      });
+
+      await runSession(makeInput());
+
+      expect(mockLog.info).toHaveBeenCalledWith(
+        "starting (task=t1, type=user_dm_message, agent=a1, provider=claude, model=opus)",
+      );
+    });
+
+    it("logs agent started with PID and session ID", async () => {
+      setupBackend([], {
+        status: "completed",
+        output: "Done",
+        error: "",
+        durationMs: 1000,
+        sessionId: "sess-1",
+      });
+
+      await runSession(makeInput());
+
+      expect(mockLog.info).toHaveBeenCalledWith(
+        "agent started (pid=12345, session=sess-1)",
+      );
+    });
+
+    it("logs user prompt with role=user", async () => {
+      setupBackend([], {
+        status: "completed",
+        output: "Done",
+        error: "",
+        durationMs: 1000,
+        sessionId: "sess-1",
+      });
+
+      await runSession(makeInput());
+
+      expect(mockLog.info).toHaveBeenCalledWith(
+        JSON.stringify({ role: "user", type: "text", content: "do the thing" }),
+      );
+    });
+
+    it("logs each agent message with role=assistant", async () => {
+      const msg = { type: "text", content: "hello world" };
+      setupBackend(
+        [msg],
+        {
+          status: "completed",
+          output: "Done",
+          error: "",
+          durationMs: 1000,
+          sessionId: "sess-1",
+        },
+      );
+
+      await runSession(makeInput());
+
+      expect(mockLog.info).toHaveBeenCalledWith(
+        JSON.stringify({ role: "assistant", ...msg }),
+      );
+    });
+
+    it("logs tool-use messages with role=assistant and counts tools", async () => {
+      const messages = [
+        { type: "tool-use", tool: "Read", callId: "c1", input: { file_path: "a.ts" } },
+        { type: "tool-result", tool: "Read", callId: "c1", output: "ok" },
+        { type: "tool-use", tool: "Edit", callId: "c2", input: { file_path: "a.ts" } },
+        { type: "tool-result", tool: "Edit", callId: "c2", output: "ok" },
+      ];
+      setupBackend(messages, {
+        status: "completed",
+        output: "Done",
+        error: "",
+        durationMs: 5400,
+        sessionId: "sess-1",
+      });
+
+      await runSession(makeInput());
+
+      for (const msg of messages) {
+        expect(mockLog.info).toHaveBeenCalledWith(
+          JSON.stringify({ role: "assistant", ...msg }),
+        );
+      }
+      expect(mockLog.info).toHaveBeenCalledWith(
+        "completed (duration=5.4s, messages=4, tools=2)",
+      );
+    });
+
+    it("logs completion with duration, message count, and tool count", async () => {
+      setupBackend(
+        [
+          { type: "text", content: "thinking..." },
+          { type: "tool-use", tool: "Read", callId: "c1", input: { file_path: "a.ts" } },
+          { type: "tool-result", tool: "Read", callId: "c1", output: "ok" },
+        ],
+        {
+          status: "completed",
+          output: "Done",
+          error: "",
+          durationMs: 5400,
+          sessionId: "sess-1",
+        },
+      );
+
+      await runSession(makeInput());
+
+      expect(mockLog.info).toHaveBeenCalledWith(
+        "completed (duration=5.4s, messages=3, tools=1)",
+      );
+    });
+
+    it("logs failure with duration, message count, tool count, and error", async () => {
+      setupBackend(
+        [
+          { type: "tool-use", tool: "Bash", callId: "c1", input: { command: "exit 1" } },
+          { type: "tool-result", tool: "Bash", callId: "c1", output: "err" },
+        ],
+        {
+          status: "failed",
+          output: "",
+          error: "command failed",
+          durationMs: 1200,
+          sessionId: "sess-1",
+        },
+      );
+
+      await runSession(makeInput());
+
+      expect(mockLog.info).toHaveBeenCalledWith(
+        "failed (duration=1.2s, messages=2, tools=1) — command failed",
+      );
+    });
+
+    it("logs kill with message count and tool count", async () => {
+      const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
+
+      let resolveMessage: (() => void) | null = null;
+
+      mockBackendExecute.mockReturnValue({
+        pid: 99999,
+        messages: (async function* () {
+          yield { type: "tool-use", tool: "Read", callId: "c1", input: { file_path: "x.ts" } };
+          yield { type: "tool-result", tool: "Read", callId: "c1", output: "ok" };
+          yield { type: "text", content: "working..." };
+          await new Promise<void>((resolve) => { resolveMessage = resolve; });
+        })(),
+        sessionId: Promise.resolve("sess-kill"),
+        result: new Promise(() => {}),
+      });
+
+      const sessionPromise = runSession(makeInput());
+      await new Promise((r) => setTimeout(r, 50));
+
+      process.emit("SIGTERM", "SIGTERM");
+      if (resolveMessage) resolveMessage();
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(mockLog.info).toHaveBeenCalledWith(
+        "killed by signal (messages=3, tools=1)",
+      );
+
+      killSpy.mockRestore();
+      exitSpy.mockRestore();
+    });
+
+    it("logs 'default' when model is empty", async () => {
+      setupBackend([], {
+        status: "completed",
+        output: "Done",
+        error: "",
+        durationMs: 100,
+        sessionId: "sess-1",
+      });
+
+      await runSession(makeInput({ model: "" }));
+
+      expect(mockLog.info).toHaveBeenCalledWith(
+        expect.stringContaining("model=default"),
+      );
+    });
   });
 });

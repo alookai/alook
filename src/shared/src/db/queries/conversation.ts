@@ -3,6 +3,7 @@ import { conversation, message } from "../schema";
 import type { Database } from "../index";
 import { TASK_TYPES, type TaskType } from "../../constants";
 
+
 export async function createConversation(
   db: Database,
   data: {
@@ -68,7 +69,7 @@ export async function listConversationsByAgent(
       messageCount: count(message.id).mapWith(Number),
     })
     .from(conversation)
-    .leftJoin(message, eq(message.conversationId, conversation.id))
+    .leftJoin(message, and(eq(message.conversationId, conversation.id), eq(message.status, "active")))
     .where(
       and(
         eq(conversation.workspaceId, workspaceId),

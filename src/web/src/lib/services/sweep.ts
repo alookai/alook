@@ -20,5 +20,13 @@ export async function sweepStaleState(db: Database, workspaceId: string) {
       seen.add(key);
       await taskService.reconcileAgentStatus(r.agentId, r.workspaceId);
     }
+
+    // 3. Dispatch buffered messages for affected conversations
+    const seenConversations = new Set<string>();
+    for (const r of stale) {
+      if (seenConversations.has(r.conversationId)) continue;
+      seenConversations.add(r.conversationId);
+      await taskService.dispatchNextBufferedMessage(r.conversationId, r.workspaceId);
+    }
   }
 }

@@ -12,6 +12,7 @@ export type {
   Email,
   EmailAttachment,
   Artifact,
+  AgentEmailAccount,
   LoginResponse,
   CreateAgentRequest,
   CalendarEvent,
@@ -98,6 +99,20 @@ export {
   DeleteCalendarEventRequestSchema,
   CalendarEventApiSchema,
   AddWhitelistRequestSchema,
+  CreateAgentRequestSchema,
+  UpdateAgentRequestSchema,
+  CreateConversationRequestSchema,
+  CreateMessageRequestSchema,
+  CreateBufferedMessageRequestSchema,
+  EmailAttachmentSchema,
+  SendEmailRequestSchema,
+  UpdateEmailStatusRequestSchema,
+  EmailNotifyRequestSchema,
+  UpdateMemberRequestSchema,
+  CreateWorkspaceRequestSchema,
+  CreateEmailAccountSchema,
+  UpdateEmailAccountSchema,
+  TestEmailConnectionSchema,
 } from "./schemas";
 
 export type {
@@ -122,6 +137,10 @@ export type {
   DeleteCalendarEventRequestInput,
   CalendarEventApi,
   AddWhitelistRequest,
+  CreateEmailAccountRequest,
+  UpdateMemberRequest,
+  UpdateEmailAccountRequest,
+  TestEmailConnectionRequest,
 } from "./schemas";
 
 // Database

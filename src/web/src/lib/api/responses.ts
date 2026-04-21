@@ -123,7 +123,7 @@ export function conversationToResponse(c: any) {
 }
 
 export function messageToResponse(m: any) {
-  return {
+  const resp: any = {
     id: m.id,
     conversation_id: m.conversationId,
     role: m.role,
@@ -132,6 +132,10 @@ export function messageToResponse(m: any) {
     attachment_ids: m.attachmentIds ? JSON.parse(m.attachmentIds) : null,
     created_at: formatTimestamp(m.createdAt),
   };
+  if (m.status && m.status !== "active") {
+    resp.status = m.status;
+  }
+  return resp;
 }
 
 export function taskMessageToResponse(m: any) {

@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { createDb, queries, DEV_EMAIL_WORKER_URL } from "@alook/shared";
-import type { EmailAttachment } from "@alook/shared";
+import { queries, DEV_EMAIL_WORKER_URL, SendEmailRequestSchema } from "@alook/shared";
+import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
-import { writeJSON, writeError } from "@/lib/middleware/helpers";
+import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { emailToResponse } from "@/lib/api/responses";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -13,32 +13,41 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const { env } = getCloudflareContext();
   const cfEnv = env as Env;
-  const db = createDb(cfEnv.DB);
+  const db = getDb(cfEnv.DB);
 
-  let body: {
-    agentId: string;
-    to: string;
-    subject: string;
-    htmlBody: string;
-    inReplyTo?: string;
-    references?: string;
-    attachments?: EmailAttachment[];
-  };
-  try {
-    body = await req.json();
-  } catch {
-    return writeError("invalid request body", 400);
-  }
-
-  if (!body.agentId || !body.to || !body.subject) {
-    return writeError("agentId, to, and subject are required", 400);
-  }
+  const [body, valErr] = await parseBody(req, SendEmailRequestSchema);
+  if (valErr) return valErr;
 
   const agent = await queries.agent.getAgent(db, body.agentId, ws.workspaceId);
   if (!agent) return writeError("agent not found in workspace", 404);
 
-  if (!agent.emailHandle) {
-    return writeError("agent has no email handle configured", 400);
+  let customAccountId = body.customAccountId;
+  let fromAddress: string;
+
+  if (body.from && !customAccountId) {
+    const alookAddr = agent.emailHandle ? `${agent.emailHandle}@alook.ai` : null;
+    if (body.from === alookAddr) {
+      fromAddress = alookAddr;
+    } else {
+      const accounts = await queries.emailAccount.getEmailAccountsByAgent(db, body.agentId, ws.workspaceId);
+      const match = accounts.find((a) => a.emailAddress === body.from);
+      if (!match) {
+        return writeError(`email address '${body.from}' is not configured for this agent`, 400);
+      }
+      customAccountId = match.id;
+      fromAddress = match.emailAddress;
+    }
+  } else if (customAccountId) {
+    const account = await queries.emailAccount.getEmailAccountScoped(db, customAccountId, body.agentId, ws.workspaceId);
+    if (!account) {
+      return writeError("custom email account not found", 404);
+    }
+    fromAddress = account.emailAddress;
+  } else {
+    if (!agent.emailHandle) {
+      return writeError("agent has no email handle configured", 400);
+    }
+    fromAddress = `${agent.emailHandle}@alook.ai`;
   }
 
   const attachments = body.attachments ?? [];
@@ -52,6 +61,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     htmlBody: body.htmlBody || "",
     inReplyTo: body.inReplyTo || "",
     references: body.references || "",
+    customAccountId: customAccountId || undefined,
     attachmentKeys: attachments.length > 0
       ? attachments.map((a) => ({ key: a.key, filename: a.filename, contentType: a.contentType }))
       : undefined,
@@ -81,7 +91,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const emailResult = await emailRes.json() as { ok: boolean; r2Key: string; messageId?: string };
 
   // Create DB record
-  const fromAddress = `${agent.emailHandle}@alook.ai`;
   const email = await queries.email.createEmail(db, {
     agentId: body.agentId,
     workspaceId: ws.workspaceId,

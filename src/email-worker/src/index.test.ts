@@ -1,6 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createMockR2, createMockFetcher, createMockMessage, createMockSendEmail } from "./__mocks__/cf"
 
+// Mock cloudflare:workers (DO base class) — needed because index.ts re-exports ImapPollerDO
+vi.mock("cloudflare:workers", () => ({
+  DurableObject: class {},
+}))
+
+// Mock cf-imap — not used by index.ts directly but imported transitively
+vi.mock("cf-imap", () => ({
+  CFImap: class {},
+}))
+
+// Mock worker-mailer
+const mockWorkerMailerSend = vi.fn().mockResolvedValue(undefined)
+vi.mock("worker-mailer", () => ({
+  WorkerMailer: { send: (...args: any[]) => mockWorkerMailerSend(...args) },
+}))
+
+// Mock @alook/shared/crypto (separate subpath export, not in barrel)
+vi.mock("@alook/shared/crypto", () => ({
+  encrypt: (val: string) => `encrypted:${val}`,
+  decrypt: (val: string) => `decrypted:${val}`,
+}))
+
 // Mock nanoid to return predictable IDs
 let nanoidCounter = 0
 vi.mock("nanoid", () => ({
@@ -12,6 +34,7 @@ const mockGetAgentByHandle = vi.fn<(db: unknown, handle: unknown) => unknown>()
 const mockGetAgent = vi.fn<(db: unknown, id: unknown, workspaceId: unknown) => unknown>()
 const mockIsWhitelisted = vi.fn<(db: unknown, agentId: unknown, workspaceId: unknown, email: unknown) => unknown>()
 const mockGetUser = vi.fn<(db: unknown, id: unknown) => unknown>()
+const mockGetEmailAccount = vi.fn()
 const mockCreateDb = vi.fn<(d1: unknown) => Record<string, unknown>>().mockReturnValue({})
 
 vi.mock("@alook/shared", () => {
@@ -37,6 +60,7 @@ vi.mock("@alook/shared", () => {
       },
       whitelist: { isWhitelisted: (db: unknown, agentId: unknown, workspaceId: unknown, email: unknown) => mockIsWhitelisted(db, agentId, workspaceId, email) },
       user: { getUser: (db: unknown, id: unknown) => mockGetUser(db, id) },
+      emailAccount: { getEmailAccount: (...args: unknown[]) => mockGetEmailAccount(...args), getEmailAccountById: (...args: unknown[]) => mockGetEmailAccount(...args) },
     },
   }
 })
@@ -84,7 +108,7 @@ function setup(overrides?: {
     }
   )
 
-  const env = { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail }
+  const env = { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, ENCRYPTION_KEY: "test-secret" }
 
   return { env, message, put, wsFetch, setReject, forward, rawText }
 }
@@ -299,7 +323,7 @@ describe("POST /send/otp", () => {
     const { fetcher } = createMockFetcher()
     const { sendEmail, send } = createMockSendEmail()
     return {
-      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail },
+      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, ENCRYPTION_KEY: "test-secret" },
       send,
     }
   }
@@ -358,7 +382,7 @@ describe("POST /send/agent", () => {
     const { fetcher } = createMockFetcher()
     const { sendEmail, send } = createMockSendEmail()
     return {
-      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail },
+      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, ENCRYPTION_KEY: "test-secret" },
       send,
       put,
       bucket,
@@ -545,14 +569,144 @@ describe("POST /send/agent", () => {
   })
 })
 
-// ─── Group 7: fetch() routing ───
+// ─── Group 7: POST /send/agent with custom SMTP ───
+
+describe("POST /send/agent with custom SMTP", () => {
+  const CUSTOM_ACCOUNT = {
+    id: "aea_1",
+    agentId: "agent-1",
+    workspaceId: "ws-1",
+    emailAddress: "user@gmail.com",
+    displayName: "Custom User",
+    smtpHost: "smtp.gmail.com",
+    smtpPort: 587,
+    smtpUsername: "enc-user",
+    smtpPassword: "enc-pass",
+    smtpTls: 1,
+  }
+
+  function makeRequest(body: Record<string, unknown>) {
+    return new Request("http://localhost/send/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  }
+
+  function customSmtpEnv() {
+    const { bucket, put } = createMockR2()
+    const { fetcher } = createMockFetcher()
+    const { sendEmail, send } = createMockSendEmail()
+    return {
+      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, ENCRYPTION_KEY: "test-secret" },
+      send,
+      put,
+    }
+  }
+
+  it("sends via worker-mailer when customAccountId is provided", async () => {
+    mockGetAgent.mockResolvedValue({ id: "agent-1", workspaceId: "ws-1", emailHandle: "jarvis" })
+    mockGetEmailAccount.mockResolvedValue(CUSTOM_ACCOUNT)
+    const { env, send } = customSmtpEnv()
+
+    const res = await handler.fetch(
+      makeRequest({
+        agentId: "agent-1",
+        workspaceId: "ws-1",
+        to: "recipient@example.com",
+        subject: "Custom SMTP test",
+        htmlBody: "<p>Hello</p>",
+        customAccountId: "aea_1",
+      }),
+      env,
+    )
+
+    expect(res.status).toBe(200)
+    expect(send).not.toHaveBeenCalled()
+    expect(mockWorkerMailerSend).toHaveBeenCalledOnce()
+
+    const [smtpOpts, emailOpts] = mockWorkerMailerSend.mock.calls[0]
+    expect(smtpOpts.host).toBe("smtp.gmail.com")
+    expect(smtpOpts.port).toBe(587)
+    expect(smtpOpts.startTls).toBe(true)
+    expect(smtpOpts.credentials.username).toBe("decrypted:enc-user")
+    expect(smtpOpts.credentials.password).toBe("decrypted:enc-pass")
+    expect(emailOpts.from).toEqual({ name: "Custom User", email: "user@gmail.com" })
+    expect(emailOpts.to).toBe("recipient@example.com")
+    expect(emailOpts.subject).toBe("Custom SMTP test")
+  })
+
+  it("falls back to CF SendEmail when no customAccountId", async () => {
+    mockGetAgent.mockResolvedValue({ id: "agent-1", workspaceId: "ws-1", emailHandle: "jarvis" })
+    const { env, send } = customSmtpEnv()
+
+    const res = await handler.fetch(
+      makeRequest({
+        agentId: "agent-1",
+        workspaceId: "ws-1",
+        to: "recipient@example.com",
+        subject: "Default path",
+        htmlBody: "<p>Hi</p>",
+      }),
+      env,
+    )
+
+    expect(res.status).toBe(200)
+    expect(send).toHaveBeenCalledOnce()
+    expect(mockWorkerMailerSend).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 when customAccountId not found", async () => {
+    mockGetAgent.mockResolvedValue({ id: "agent-1", workspaceId: "ws-1", emailHandle: "jarvis" })
+    mockGetEmailAccount.mockResolvedValue(null)
+    const { env } = customSmtpEnv()
+
+    const res = await handler.fetch(
+      makeRequest({
+        agentId: "agent-1",
+        workspaceId: "ws-1",
+        to: "recipient@example.com",
+        subject: "Test",
+        customAccountId: "aea_nonexistent",
+      }),
+      env,
+    )
+
+    expect(res.status).toBe(404)
+  })
+
+  it("returns 500 when SMTP send fails", async () => {
+    mockGetAgent.mockResolvedValue({ id: "agent-1", workspaceId: "ws-1", emailHandle: "jarvis" })
+    mockGetEmailAccount.mockResolvedValue(CUSTOM_ACCOUNT)
+    mockWorkerMailerSend.mockRejectedValueOnce(new Error("SMTP auth failed"))
+    const { env } = customSmtpEnv()
+
+    const res = await handler.fetch(
+      makeRequest({
+        agentId: "agent-1",
+        workspaceId: "ws-1",
+        to: "recipient@example.com",
+        subject: "Test",
+        htmlBody: "<p>Hi</p>",
+        customAccountId: "aea_1",
+      }),
+      env,
+    )
+
+    expect(res.status).toBe(500)
+    const json = await res.json() as { error: string }
+    expect(json.error).toContain("SMTP send failed")
+  })
+})
+
+// ─── Group 8: fetch() routing ───
 
 describe("fetch() routing", () => {
   function routingEnv() {
     const { bucket } = createMockR2()
     const { fetcher } = createMockFetcher()
     const { sendEmail } = createMockSendEmail()
-    return { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail }
+    return { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, ENCRYPTION_KEY: "test-secret" }
   }
 
   it("returns 404 for unknown paths", async () => {
@@ -569,5 +723,84 @@ describe("fetch() routing", () => {
       routingEnv(),
     )
     expect(res.status).toBe(405)
+  })
+})
+
+// ─── Group 8: IMAP management routes ───
+
+describe("IMAP management routes", () => {
+  function imapEnv() {
+    const { bucket } = createMockR2()
+    const { fetcher } = createMockFetcher()
+    const { sendEmail } = createMockSendEmail()
+    const doFetch = vi.fn().mockResolvedValue(Response.json({ ok: true }))
+    const mockStub = { fetch: doFetch }
+    const mockIdFromName = vi.fn().mockReturnValue("do-id-1")
+    const mockGet = vi.fn().mockReturnValue(mockStub)
+    const imapPoller = { idFromName: mockIdFromName, get: mockGet } as unknown as DurableObjectNamespace
+    return {
+      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: imapPoller, ENCRYPTION_KEY: "test-secret" },
+      doFetch,
+      mockIdFromName,
+      mockGet,
+    }
+  }
+
+  it("POST /imap/start forwards to DO with accountId", async () => {
+    const { env, doFetch, mockIdFromName } = imapEnv()
+    const res = await handler.fetch(
+      new Request("http://localhost/imap/start?accountId=acc-1", { method: "POST" }),
+      env,
+    )
+    expect(res.status).toBe(200)
+    expect(mockIdFromName).toHaveBeenCalledWith("acc-1")
+    expect(doFetch).toHaveBeenCalledOnce()
+    const [req] = doFetch.mock.calls[0] as [Request]
+    expect(new URL(req.url).pathname).toBe("/start")
+    const body = await req.json()
+    expect(body).toEqual({ accountId: "acc-1" })
+  })
+
+  it("POST /imap/stop forwards to DO", async () => {
+    const { env, doFetch } = imapEnv()
+    const res = await handler.fetch(
+      new Request("http://localhost/imap/stop?accountId=acc-1", { method: "POST" }),
+      env,
+    )
+    expect(res.status).toBe(200)
+    const [req] = doFetch.mock.calls[0] as [Request]
+    expect(new URL(req.url).pathname).toBe("/stop")
+  })
+
+  it("POST /imap/sync forwards to DO", async () => {
+    const { env, doFetch } = imapEnv()
+    const res = await handler.fetch(
+      new Request("http://localhost/imap/sync?accountId=acc-1", { method: "POST" }),
+      env,
+    )
+    expect(res.status).toBe(200)
+    const [req] = doFetch.mock.calls[0] as [Request]
+    expect(new URL(req.url).pathname).toBe("/sync")
+  })
+
+  it("GET /imap/status forwards to DO", async () => {
+    const { env, doFetch } = imapEnv()
+    const res = await handler.fetch(
+      new Request("http://localhost/imap/status?accountId=acc-1", { method: "GET" }),
+      env,
+    )
+    expect(res.status).toBe(200)
+    const [req] = doFetch.mock.calls[0] as [Request]
+    expect(new URL(req.url).pathname).toBe("/status")
+    expect(req.method).toBe("GET")
+  })
+
+  it("returns 400 when accountId is missing", async () => {
+    const { env } = imapEnv()
+    const res = await handler.fetch(
+      new Request("http://localhost/imap/start", { method: "POST" }),
+      env,
+    )
+    expect(res.status).toBe(400)
   })
 })

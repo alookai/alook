@@ -17,6 +17,7 @@ import {
   deleteAgent,
   createMachineToken,
   deleteMachine,
+  listAgentActiveTaskCounts,
 } from "@/lib/api";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { toast } from "sonner";
@@ -35,6 +36,7 @@ interface AgentContextValue {
   agents: Agent[];
   runtimes: Runtime[];
   loading: boolean;
+  activeTaskCounts: Record<string, number>;
   reload: () => Promise<void>;
   subscribeWs: (fn: WsSubscriber) => () => void;
   handleCreateAgent: (req: CreateAgentRequest) => Promise<Agent | null>;
@@ -63,13 +65,34 @@ export function AgentProvider({
   const [agents, setAgents] = useState<Agent[]>([]);
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTaskCounts, setActiveTaskCounts] = useState<Record<string, number>>({});
   const loadedRef = useRef(false);
   const subscribersRef = useRef(new Set<WsSubscriber>());
+  const taskCountsMountedRef = useRef(true);
 
   const subscribeWs = useCallback((fn: WsSubscriber) => {
     subscribersRef.current.add(fn);
     return () => { subscribersRef.current.delete(fn); };
   }, []);
+
+  const fetchTaskCounts = useCallback(async () => {
+    try {
+      const res = await listAgentActiveTaskCounts(workspaceId);
+      if (taskCountsMountedRef.current) setActiveTaskCounts(res.counts);
+    } catch {
+      // ignore
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    taskCountsMountedRef.current = true;
+    fetchTaskCounts();
+    const id = setInterval(fetchTaskCounts, 5000);
+    return () => {
+      taskCountsMountedRef.current = false;
+      clearInterval(id);
+    };
+  }, [fetchTaskCounts]);
 
   const reload = useCallback(async () => {
     try {
@@ -129,9 +152,12 @@ export function AgentProvider({
           if (msg.workspaceId !== workspaceId) break;
           debouncedReload();
           break;
+        case "task.updated":
+          fetchTaskCounts();
+          break;
       }
     },
-    [reload, debouncedReload, workspaceId]
+    [reload, debouncedReload, fetchTaskCounts, workspaceId]
   );
   useUserWs(handleWsMessage);
 
@@ -223,6 +249,7 @@ export function AgentProvider({
         agents,
         runtimes,
         loading,
+        activeTaskCounts,
         reload,
         subscribeWs,
         handleCreateAgent,

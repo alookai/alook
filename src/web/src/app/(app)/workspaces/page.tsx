@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation"
 import { isRedirectError } from "next/dist/client/components/redirect-error"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries } from "@alook/shared"
+import { queries } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { requireSession } from "@/lib/session"
 import { WorkspaceListClient } from "./client"
 
@@ -26,7 +27,7 @@ export default async function WorkspacesPage({
 }) {
   const session = await requireSession()
   const { env } = await getCloudflareContext({ async: true })
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   let workspaces = await queries.workspace.listWorkspaces(db, session.user.id)
 

@@ -6,6 +6,7 @@ const mockUpsertMachine = vi.fn();
 const mockGetMachineByDaemon = vi.fn();
 const mockClearPendingUpdateVersion = vi.fn();
 const mockGetAgent = vi.fn();
+const mockGetMemberByUserAndWorkspace = vi.fn();
 const mockClaimTasksForRuntimes = vi.fn();
 const mockSweepStaleState = vi.fn();
 const mockBroadcastToUser = vi.fn();
@@ -13,6 +14,8 @@ const mockBroadcastToUser = vi.fn();
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }));
+
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
 vi.mock("@alook/shared", async () => {
   const real = await vi.importActual<typeof import("@alook/shared")>("@alook/shared");
@@ -30,6 +33,12 @@ vi.mock("@alook/shared", async () => {
       },
       agent: {
         getAgent: (...args: unknown[]) => mockGetAgent(...args),
+      },
+      member: {
+        getMemberByUserAndWorkspace: (...args: unknown[]) => mockGetMemberByUserAndWorkspace(...args),
+      },
+      emailAccount: {
+        getEmailAccountsByAgent: vi.fn().mockResolvedValue([]),
       },
     },
   };
@@ -168,6 +177,7 @@ describe("POST /api/daemon/tasks/poll", () => {
       name: "Bot",
       runtime_config: { model: "gpt-4" },
       email_handle: null,
+      email_addresses: [],
       user_email: "u@t.com",
     });
   });
@@ -336,5 +346,127 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(res.status).toBe(200);
     expect(body.tasks).toEqual([]);
     expect(body.pending_update).toBeUndefined();
+  });
+
+  it("concatenates global + per-agent instructions when owner has global instruction", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([
+      { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "hi", status: "dispatched" },
+    ]);
+    mockGetAgent.mockResolvedValue({
+      id: "a1",
+      ownerId: "owner1",
+      instructions: "you are a planner",
+      name: "Bot",
+      runtimeConfig: {},
+    });
+    mockGetMemberByUserAndWorkspace.mockResolvedValue({
+      globalInstruction: "speak chinese",
+    });
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.tasks[0].agent.instructions).toBe("speak chinese\n\nyou are a planner");
+    expect(mockGetMemberByUserAndWorkspace).toHaveBeenCalledWith({}, "owner1", "w1");
+  });
+
+  it("returns only agent instructions when global instruction is empty", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([
+      { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "hi", status: "dispatched" },
+    ]);
+    mockGetAgent.mockResolvedValue({
+      id: "a1",
+      ownerId: "owner1",
+      instructions: "you are a planner",
+      name: "Bot",
+      runtimeConfig: {},
+    });
+    mockGetMemberByUserAndWorkspace.mockResolvedValue({
+      globalInstruction: "",
+    });
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(body.tasks[0].agent.instructions).toBe("you are a planner");
+  });
+
+  it("falls back to agent instructions when agent has no ownerId", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([
+      { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "hi", status: "dispatched" },
+    ]);
+    mockGetAgent.mockResolvedValue({
+      id: "a1",
+      ownerId: null,
+      instructions: "just agent",
+      name: "Bot",
+      runtimeConfig: {},
+    });
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(body.tasks[0].agent.instructions).toBe("just agent");
+    expect(mockGetMemberByUserAndWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("caches member lookups by ownerId across multiple tasks", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([
+      { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "hi", status: "dispatched" },
+      { id: "t2", agentId: "a2", runtimeId: "r1", workspaceId: "w1", prompt: "yo", status: "dispatched" },
+    ]);
+    mockGetAgent
+      .mockResolvedValueOnce({ id: "a1", ownerId: "owner1", instructions: "inst1", name: "Bot1", runtimeConfig: {} })
+      .mockResolvedValueOnce({ id: "a2", ownerId: "owner1", instructions: "inst2", name: "Bot2", runtimeConfig: {} });
+    mockGetMemberByUserAndWorkspace.mockResolvedValue({ globalInstruction: "global" });
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(body.tasks[0].agent.instructions).toBe("global\n\ninst1");
+    expect(body.tasks[1].agent.instructions).toBe("global\n\ninst2");
+    expect(mockGetMemberByUserAndWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns only global instruction when agent instructions are empty", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([
+      { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "hi", status: "dispatched" },
+    ]);
+    mockGetAgent.mockResolvedValue({
+      id: "a1",
+      ownerId: "owner1",
+      instructions: "",
+      name: "Bot",
+      runtimeConfig: {},
+    });
+    mockGetMemberByUserAndWorkspace.mockResolvedValue({
+      globalInstruction: "global only",
+    });
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(body.tasks[0].agent.instructions).toBe("global only");
   });
 });

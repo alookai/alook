@@ -32,6 +32,7 @@ export interface ContextTimelineEntry {
   agent_responses: string[];
   errmsg: string | null;
   provider: string | null;
+  detailed_log: string | null;
 }
 
 function filenameForDate(date: Date): string {
@@ -197,6 +198,7 @@ export function createTimelineEntry(
   pid?: number,
   provider?: string,
   contextKey?: string | null,
+  detailedLog?: string | null,
 ): ContextTimelineEntry {
   return {
     task_id: taskId,
@@ -210,6 +212,7 @@ export function createTimelineEntry(
     agent_responses: [],
     errmsg: null,
     provider: provider ?? null,
+    detailed_log: detailedLog ?? null,
   };
 }
 

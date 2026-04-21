@@ -8,8 +8,21 @@ interface EmailBodyFrameProps {
   className?: string;
 }
 
+const SCROLLBAR_STYLES = `
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sb-thumb, rgba(0,0,0,0.15)) transparent;
+  }
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(0,0,0,0.15)); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--sb-hover, rgba(0,0,0,0.3)); }
+`;
+
 const LIGHT_STYLES = `
   html, body {
+    --sb-thumb: rgba(0,0,0,0.15);
+    --sb-hover: rgba(0,0,0,0.3);
     margin: 0;
     padding: 0;
     background: transparent;
@@ -26,6 +39,8 @@ const LIGHT_STYLES = `
 
 const DARK_STYLES = `
   html, body {
+    --sb-thumb: rgba(255,255,255,0.1);
+    --sb-hover: rgba(255,255,255,0.25);
     margin: 0;
     padding: 0;
     background: transparent;
@@ -63,7 +78,7 @@ export function buildSrcDoc(html: string, isDark: boolean): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="${isDark ? "dark" : "light"}">
-  <style>${styles}</style>
+  <style>${SCROLLBAR_STYLES}${styles}</style>
 </head>
 <body>${html}</body>
 </html>`;

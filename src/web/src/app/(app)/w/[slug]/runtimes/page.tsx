@@ -226,6 +226,21 @@ export default function RuntimesPage() {
     }
   };
 
+  // Clear updatingDaemons when runtimes reload shows update completed
+  useEffect(() => {
+    if (updatingDaemons.size === 0) return;
+    const stillUpdating = new Set<string>();
+    for (const rt of runtimes) {
+      const key = rt.daemon_id || rt.id;
+      if (updatingDaemons.has(key) && rt.pending_update_version) {
+        stillUpdating.add(key);
+      }
+    }
+    if (stillUpdating.size < updatingDaemons.size) {
+      setUpdatingDaemons(stillUpdating);
+    }
+  }, [runtimes]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Group runtimes by machine
   const machines = new Map<
     string,

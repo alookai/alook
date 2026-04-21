@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { AgentEditForm } from "@/components/agent-edit-form";
-import { fetchModelOptions } from "@/lib/api";
+import { fetchModelOptions, createEmailAccount } from "@/lib/api";
+import { toast } from "sonner";
 import { MobileSidebarLogo } from "@/components/mobile-sidebar-logo";
 
 export default function CreateAgentPage() {
   const router = useRouter();
-  const { slug } = useWorkspace();
+  const { slug, workspaceId } = useWorkspace();
   const {
     runtimes,
     handleCreateAgent,
@@ -52,6 +53,14 @@ export default function CreateAgentPage() {
               runtime_config: data.runtime_config,
             });
             if (agent) {
+              if (data.custom_email) {
+                try {
+                  await createEmailAccount(agent.id, data.custom_email, workspaceId);
+                  toast.success("Custom email connected");
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Failed to connect custom email");
+                }
+              }
               router.push(`/w/${slug}/agents/${agent.id}/chat`);
             }
             return !!agent;

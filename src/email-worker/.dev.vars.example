@@ -1,0 +1,11 @@
+# =============================================================================
+# Email Worker — Local Development Secrets
+# =============================================================================
+# Copy this file to .dev.vars and fill in your values.
+# Wrangler reads .dev.vars automatically for local dev secrets.
+# NEVER commit .dev.vars — it contains real secrets.
+# =============================================================================
+
+# Encryption key for IMAP/SMTP credentials (generate with: openssl rand -base64 32)
+# Must match ENCRYPTION_KEY in web/.dev.vars — predev script syncs this automatically.
+ENCRYPTION_KEY=

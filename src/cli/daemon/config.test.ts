@@ -35,7 +35,7 @@ describe("loadDaemonConfig defaults", () => {
 
     expect(cfg.serverURL).toBe("https://alook.ai");
     expect(cfg.pollInterval).toBe(3000);
-    expect(cfg.agentTimeout).toBe(7200000);
+    expect(cfg.agentTimeout).toBe(43200000);
     expect(cfg.maxConcurrentTasks).toBe(20);
     expect(cfg.claudePath).toBe("claude");
     expect(cfg.runtimeName).toBe("Local Agent");

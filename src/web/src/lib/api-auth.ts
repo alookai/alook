@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries } from "@alook/shared"
+import { queries } from "@alook/shared"
+import { getDb } from "@/lib/db"
 
 export async function withToken(request: Request) {
   const authHeader = request.headers.get("Authorization")
@@ -11,7 +12,7 @@ export async function withToken(request: Request) {
     return { error: new Response("Invalid token format", { status: 401 }), machineToken: null }
   }
   const { env } = await getCloudflareContext({ async: true })
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
   const mt = await queries.machineToken.getMachineTokenByToken(db, raw)
   if (!mt) {
     return { error: new Response("Token not found", { status: 401 }), machineToken: null }

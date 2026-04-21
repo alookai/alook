@@ -7,8 +7,8 @@ import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.
 import { log } from "../lib/logger.js";
 import { cmdPrefix } from "../lib/env.js";
 import { acquireDaemonPid, releaseDaemonPid } from "./pidfile.js";
-import { handleCliUpdate, isUpdating } from "./update-handler.js";
-import { existsSync, mkdirSync, openSync, closeSync, renameSync, readdirSync, statSync, unlinkSync } from "fs";
+import { handleCliUpdate, isUpdating, readUpdateMarker, clearUpdateMarker } from "./update-handler.js";
+import { existsSync, mkdirSync, openSync, closeSync, readdirSync, statSync, unlinkSync } from "fs";
 import { execSync, spawn, type ChildProcess } from "child_process";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -100,6 +100,12 @@ export async function startDaemon(
 
   const config = loadDaemonConfig(profile);
   if (serverUrl) config.serverURL = serverUrl;
+
+  const marker = readUpdateMarker(profile);
+  if (marker && marker === config.cliVersion) {
+    clearUpdateMarker(profile);
+    log.info(`Cleared update marker — now running v${config.cliVersion}`);
+  }
 
   const cliConfig = loadCLIConfigForProfile(profile);
 
@@ -292,8 +298,8 @@ export async function startDaemon(
           continue;
         }
 
-        if (pending_update && !isUpdating()) {
-          handleCliUpdate(pending_update.version, () => requestRestart());
+        if (pending_update && !isUpdating() && pending_update.version !== config.cliVersion) {
+          handleCliUpdate(pending_update.version, () => requestRestart(), profile);
         }
 
         for (const apiTask of apiTasks) {
@@ -376,12 +382,14 @@ export async function startDaemon(
 }
 
 export function spawnSessionRunner(input: SessionRunnerInput): ChildProcess {
-  const encoded = Buffer.from(JSON.stringify(input)).toString("base64");
-
   const logDir = sessionRunnerLogDir();
   mkdirSync(logDir, { recursive: true });
-  const tmpLogPath = join(logDir, `${input.task.id}.log`);
-  const fd = openSync(tmpLogPath, "a");
+
+  const logFilePath = join(logDir, `${input.task.id}.log`);
+  input.logFilePath = logFilePath;
+
+  const encoded = Buffer.from(JSON.stringify(input)).toString("base64");
+  const fd = openSync(logFilePath, "a");
 
   const child = spawn(process.execPath, [sessionRunnerPath, encoded], {
     detached: true,
@@ -389,11 +397,6 @@ export function spawnSessionRunner(input: SessionRunnerInput): ChildProcess {
   });
   child.unref();
   closeSync(fd);
-
-  if (child.pid) {
-    const pidLogPath = join(logDir, `${child.pid}.log`);
-    renameSync(tmpLogPath, pidLogPath);
-  }
 
   return child;
 }

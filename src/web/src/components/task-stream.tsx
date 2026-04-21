@@ -321,10 +321,7 @@ export function TaskStream({
               "[&::-webkit-details-marker]:hidden [&::marker]:hidden"
             )}
           >
-            <ChevronRight className="size-3 shrink-0 text-muted-foreground/60 transition-transform duration-150 group-open/stream:rotate-90" />
-            {isRunning && (
-              <span className="size-1.5 rounded-full bg-primary animate-pulse shrink-0" />
-            )}
+            <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground/60 transition-transform duration-150 group-open/stream:rotate-90", isRunning && "animate-pulse text-primary")} />
             <span><AnimatedNumber value={toolItems.length} /> {toolItems.length === 1 ? "step" : "steps"}</span>
           </summary>
           <div

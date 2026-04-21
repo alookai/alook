@@ -8,6 +8,11 @@ export function pidFilePath(profile?: string): string {
   return join(configDir(), name);
 }
 
+export function lastUpdateMarkerPath(profile?: string): string {
+  const name = profile ? `last_update_${profile}` : "last_update";
+  return join(configDir(), name);
+}
+
 export function daemonLogDir(): string {
   return join(configDir(), "daemon", "logs");
 }
@@ -99,7 +104,7 @@ export function loadDaemonConfig(profile?: string): DaemonConfig {
     pollInterval: parseDuration(
       process.env.ALOOK_DAEMON_POLL_INTERVAL || "3s",
     ),
-    agentTimeout: parseDuration(process.env.ALOOK_AGENT_TIMEOUT || "2h"),
+    agentTimeout: parseDuration(process.env.ALOOK_AGENT_TIMEOUT || "12h"),
     maxConcurrentTasks: parseInt(
       process.env.ALOOK_DAEMON_MAX_CONCURRENT_TASKS || "20",
     ),

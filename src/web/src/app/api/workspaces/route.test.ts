@@ -9,6 +9,8 @@ const mockListWorkspaces = vi.fn();
 const mockCreateWorkspace = vi.fn();
 const mockCreateMember = vi.fn();
 
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   return {
@@ -33,9 +35,11 @@ vi.mock("@/lib/middleware/auth", () => ({
   }),
 }));
 
-vi.mock("@/lib/middleware/helpers", () => {
+vi.mock("@/lib/middleware/helpers", async () => {
   const { NextResponse } = require("next/server");
+  const actual = await vi.importActual("@/lib/middleware/helpers");
   return {
+    ...actual,
     writeJSON: (data: unknown, status = 200) => NextResponse.json(data, { status }),
     writeError: (message: string, status: number) => NextResponse.json({ error: message }, { status }),
   };
@@ -101,7 +105,9 @@ describe("POST /api/workspaces", () => {
     const res = await POST(req, {} as any);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "name is required" });
+    const body = await res.json();
+    expect(body.error).toBe("validation error");
+    expect(body.details).toContainEqual(expect.stringContaining("name"));
   });
 
   it("returns 400 for missing slug", async () => {
@@ -113,7 +119,9 @@ describe("POST /api/workspaces", () => {
     const res = await POST(req, {} as any);
 
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "slug is required" });
+    const body = await res.json();
+    expect(body.error).toBe("validation error");
+    expect(body.details).toContainEqual(expect.stringContaining("slug"));
   });
 
   it("retries with suffixed slug on duplicate and returns 201", async () => {

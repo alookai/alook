@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries } from "@alook/shared"
+import { queries } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON } from "@/lib/middleware/helpers";
@@ -12,7 +13,7 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const daemonId = req.nextUrl.searchParams.get("daemon_id");
   if (!daemonId) {

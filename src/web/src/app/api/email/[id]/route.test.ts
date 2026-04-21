@@ -11,16 +11,22 @@ vi.mock("@opennextjs/cloudflare", () => ({
   })),
 }));
 
-vi.mock("@alook/shared", () => ({
-  createDb: vi.fn(() => ({})),
-  queries: {
-    email: {
-      getEmailById: (...args: unknown[]) => mockGetEmailById(...args),
-      deleteEmail: (...args: unknown[]) => mockDeleteEmail(...args),
-      updateEmailStatus: (...args: unknown[]) => mockUpdateEmailStatus(...args),
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual("@alook/shared");
+  return {
+    ...actual,
+    createDb: vi.fn(() => ({})),
+    queries: {
+      email: {
+        getEmailById: (...args: unknown[]) => mockGetEmailById(...args),
+        deleteEmail: (...args: unknown[]) => mockDeleteEmail(...args),
+        updateEmailStatus: (...args: unknown[]) => mockUpdateEmailStatus(...args),
+      },
     },
-  },
-}));
+  };
+});
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
@@ -33,9 +39,11 @@ vi.mock("@/lib/middleware/workspace", () => ({
   withWorkspaceMember: vi.fn(async () => ({ workspaceId: "ws1" })),
 }));
 
-vi.mock("@/lib/middleware/helpers", () => {
+vi.mock("@/lib/middleware/helpers", async () => {
   const { NextResponse } = require("next/server");
+  const actual = await vi.importActual("@/lib/middleware/helpers");
   return {
+    ...actual,
     writeJSON: (data: unknown, status = 200) => NextResponse.json(data, { status }),
     writeError: (message: string, status: number) => NextResponse.json({ error: message }, { status }),
   };
@@ -146,7 +154,8 @@ describe("PATCH /api/email/[id]", () => {
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toBe("invalid status");
+    expect(body.error).toBe("validation error");
+    expect(body.details).toContainEqual(expect.stringContaining("status"));
   });
 
   it("returns 400 for missing status", async () => {

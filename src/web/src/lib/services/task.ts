@@ -1,10 +1,13 @@
 import type { Database } from "@alook/shared";
-import { queries, TASK_TYPES } from "@alook/shared";
+import { queries, TASK_TYPES, buildContextKey } from "@alook/shared";
 import { log } from "@/lib/logger";
+import { broadcastToUser } from "@/lib/broadcast";
+import { messageToResponse, taskToResponse } from "@/lib/api/responses";
 
 const taskQueries = queries.task;
 const agentQueries = queries.agent;
 const messageQueries = queries.message;
+const conversationQueries = queries.conversation;
 
 export class TaskService {
   constructor(private db: Database) {}
@@ -130,6 +133,7 @@ export class TaskService {
     }
 
     await this.reconcileAgentStatus(task.agentId, task.workspaceId);
+    await this.dispatchNextBufferedMessage(task.conversationId, task.workspaceId);
     return task;
   }
 
@@ -153,6 +157,7 @@ export class TaskService {
     }
 
     await this.reconcileAgentStatus(task.agentId, task.workspaceId);
+    await this.dispatchNextBufferedMessage(task.conversationId, task.workspaceId);
     return task;
   }
 
@@ -160,5 +165,58 @@ export class TaskService {
     const running = await taskQueries.countRunningTasks(this.db, agentId, workspaceId);
     const status = running > 0 ? "working" : "idle";
     await agentQueries.updateAgentStatus(this.db, agentId, workspaceId, status);
+  }
+
+  async dispatchNextBufferedMessage(conversationId: string, workspaceId: string) {
+    const activated = await messageQueries.activateNextBufferedMessage(this.db, conversationId);
+    if (!activated) return null;
+
+    const conversation = await conversationQueries.getConversation(this.db, conversationId, workspaceId);
+    if (!conversation) {
+      log.warn("dispatchNextBufferedMessage: conversation not found", { conversationId });
+      await messageQueries.revertToBuffered(this.db, activated.id).catch((revertErr) => {
+        log.error("dispatchNextBufferedMessage: failed to revert message status", { messageId: activated.id, revertErr });
+      });
+      return null;
+    }
+
+    const userId = conversation.userId;
+
+    try {
+      const contextKey = buildContextKey(TASK_TYPES.USER_DM_MESSAGE, { conversationId });
+      const attachmentIds = activated.attachmentIds ? JSON.parse(activated.attachmentIds) as string[] : [];
+      const task = await this.enqueueTask(
+        conversation.agentId,
+        conversationId,
+        workspaceId,
+        activated.content,
+        TASK_TYPES.USER_DM_MESSAGE,
+        {
+          contextKey,
+          context: attachmentIds.length > 0 ? { attachment_ids: attachmentIds } : undefined,
+        },
+      );
+
+      broadcastToUser(userId, {
+        type: "followup.dispatched",
+        conversationId,
+        message: messageToResponse(activated),
+        task: taskToResponse(task),
+      }).catch(() => {});
+
+      return task;
+    } catch (err) {
+      log.warn("dispatchNextBufferedMessage: enqueueTask failed", { conversationId, err });
+      await messageQueries.revertToBuffered(this.db, activated.id).catch((revertErr) => {
+        log.error("dispatchNextBufferedMessage: failed to revert message status", { messageId: activated.id, revertErr });
+      });
+      broadcastToUser(userId, {
+        type: "followup.dispatch_failed",
+        conversationId,
+        messageId: activated.id,
+        error: err instanceof Error ? err.message : "Failed to dispatch follow-up",
+      }).catch(() => {});
+      return null;
+    }
   }
 }

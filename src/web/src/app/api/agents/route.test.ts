@@ -9,20 +9,26 @@ const mockCreateAgent = vi.fn();
 const mockGetAgent = vi.fn();
 const mockGetAgentRuntimeForWorkspace = vi.fn();
 
-vi.mock("@alook/shared", () => ({
-  createDb: vi.fn(() => ({})),
-  isOnline: vi.fn((t: string | null) => !!t && Date.now() - new Date(t).getTime() < 9000),
-  queries: {
-    agent: {
-      listAgents: (...args: unknown[]) => mockListAgents(...args),
-      createAgent: (...args: unknown[]) => mockCreateAgent(...args),
-      getAgent: (...args: unknown[]) => mockGetAgent(...args),
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual("@alook/shared");
+  return {
+    ...actual,
+    createDb: vi.fn(() => ({})),
+    isOnline: vi.fn((t: string | null) => !!t && Date.now() - new Date(t).getTime() < 9000),
+    queries: {
+      agent: {
+        listAgents: (...args: unknown[]) => mockListAgents(...args),
+        createAgent: (...args: unknown[]) => mockCreateAgent(...args),
+        getAgent: (...args: unknown[]) => mockGetAgent(...args),
+      },
+      runtime: {
+        getAgentRuntimeForWorkspace: (...args: unknown[]) => mockGetAgentRuntimeForWorkspace(...args),
+      },
     },
-    runtime: {
-      getAgentRuntimeForWorkspace: (...args: unknown[]) => mockGetAgentRuntimeForWorkspace(...args),
-    },
-  },
-}));
+  };
+});
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
@@ -101,7 +107,8 @@ describe("POST /api/agents", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toBe("name is required");
+    expect(body.error).toBe("validation error");
+    expect(body.details).toContainEqual(expect.stringContaining("name"));
   });
 
   it("returns 400 for missing runtime_id", async () => {
@@ -113,7 +120,8 @@ describe("POST /api/agents", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toBe("runtime_id is required");
+    expect(body.error).toBe("validation error");
+    expect(body.details).toContainEqual(expect.stringContaining("runtime_id"));
   });
 
   it("returns 404 when runtime not in workspace", async () => {

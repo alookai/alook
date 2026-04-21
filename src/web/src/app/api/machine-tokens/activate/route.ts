@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { createDb, queries, ActivateTokenRequestSchema, createLogger } from "@alook/shared";
+import { queries, ActivateTokenRequestSchema, createLogger } from "@alook/shared";
+import { getDb } from "@/lib/db"
 import { writeJSON } from "@/lib/middleware/helpers";
 import { runtimeToResponse } from "@/lib/api/responses";
 import { broadcastToUser } from "@/lib/broadcast";
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
   const { token, hostname, runtimes } = parsed.data;
 
   const { env } = await getCloudflareContext({ async: true });
-  const db = createDb((env as Env).DB);
+  const db = getDb((env as Env).DB);
 
   const mt = await queries.machineToken.getMachineTokenByToken(db, token);
   if (!mt) {

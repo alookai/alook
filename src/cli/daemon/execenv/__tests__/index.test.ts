@@ -79,13 +79,6 @@ describe("prepare", () => {
     expect(mtime2).toBe(mtime1);
   });
 
-  it("returns logFile path at {root}/{wsId}/{agentId}/agent.log", () => {
-    const task = makeTask();
-    const result = prepare({ workspacesRoot: root }, task);
-
-    expect(result.logFile).toBe(join(root, "ws1", "a1", "agent.log"));
-  });
-
   it("creates .context_timeline/ directory inside workdir", () => {
     const task = makeTask();
     const result = prepare({ workspacesRoot: root }, task);

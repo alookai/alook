@@ -11,6 +11,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }));
 
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared");
   return {

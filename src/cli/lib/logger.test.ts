@@ -32,7 +32,7 @@ describe("Logger", () => {
     logger.info("hello world");
 
     const output = stdoutSpy.mock.calls[0][0] as string;
-    expect(output).toMatch(/^\d{2}:\d{2}:\d{2} INFO  hello world\n$/);
+    expect(output).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} INFO  hello world\n$/);
   });
 
   it("writes error level to stderr", () => {

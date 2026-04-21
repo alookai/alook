@@ -8,15 +8,21 @@ const mockConversationToResponse = vi.fn((c: any) => ({ id: c.id, title: c.title
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }));
-vi.mock("@alook/shared", () => ({
-  createDb: vi.fn(() => ({})),
-  queries: {
-    conversation: {
-      listConversations: (...args: any[]) => mockListConversations(...args),
-      createConversation: (...args: any[]) => mockCreateConversation(...args),
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual("@alook/shared");
+  return {
+    ...actual,
+    createDb: vi.fn(() => ({})),
+    queries: {
+      conversation: {
+        listConversations: (...args: any[]) => mockListConversations(...args),
+        createConversation: (...args: any[]) => mockCreateConversation(...args),
+      },
     },
-  },
-}));
+  };
+});
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params;
@@ -91,7 +97,8 @@ describe("POST /api/conversations", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toBe("agent_id is required");
+    expect(body.error).toBe("validation error");
+    expect(body.details).toContainEqual(expect.stringContaining("agent_id"));
   });
 
   it("returns 400 for invalid body", async () => {

@@ -6,7 +6,6 @@
  * log capture, and server completion reporting.
  */
 
-import { createWriteStream } from "fs";
 import { mkdir, writeFile, rm } from "fs/promises";
 import path from "path";
 import { DaemonClient } from "./client.js";
@@ -16,7 +15,6 @@ import {
   initEntryAsync,
   updateEntry,
   createTimelineEntry,
-  localISOString,
   findResumableSessionByContextKey,
 } from "./execenv/timeline.js";
 import { buildPrompt } from "./prompt.js";
@@ -66,10 +64,12 @@ async function downloadAttachments(
 export async function runSession(input: SessionRunnerInput): Promise<void> {
   const { task, provider, cliPath, model, serverURL, token, workspacesRoot, agentTimeout } = input;
 
+  log.info(`starting (task=${task.id}, type=${task.type}, agent=${task.agentId}, provider=${provider}, model=${model || "default"})`);
+
   const client = new DaemonClient(serverURL);
   const backend = createBackend(provider, cliPath);
 
-  const { workDir, logFile, timelineDir, env } = prepare(
+  const { workDir, timelineDir, env } = prepare(
     { workspacesRoot },
     task,
   );
@@ -78,12 +78,14 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
   const attachmentIds = (task.context?.attachment_ids as string[]) ?? [];
   let attachments: Attachment[] | undefined;
   if (attachmentIds.length > 0) {
+    log.info(`downloading ${attachmentIds.length} attachment(s)`);
     try {
       attachments = await downloadAttachments(client, token, task.workspaceId, task.id, attachmentIds);
+      log.info(`attachments ready (${attachments.length} file(s))`);
     } catch (e) {
       await cleanupAttachments(task.id);
       const errMsg = `failed to download attachments: ${e}`;
-      log.error(`Task ${task.id} ${errMsg}`);
+      log.error(errMsg);
       await client.failTask(token, task.id, errMsg);
       return;
     }
@@ -95,7 +97,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     ? findResumableSessionByContextKey(timelineDir, task.contextKey, provider) ?? undefined
     : undefined;
   if (resumeSessionId) {
-    log.info(`Task ${task.id} resuming session ${resumeSessionId} (context_key: ${task.contextKey})`);
+    log.info(`resuming session ${resumeSessionId} (context_key: ${task.contextKey})`);
   }
 
   const session = backend.execute(prompt, {
@@ -111,9 +113,11 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
 
   // Timeline init — use process.pid (session runner PID), not the inner agent PID
   const earlySessionId = await session.sessionId;
+  log.info(`agent started (pid=${agentPid ?? "unknown"}, session=${earlySessionId})`);
+  log.info(JSON.stringify({ role: "user", type: "text", content: prompt }));
   await initEntryAsync(
     timelineDir,
-    createTimelineEntry(task.id, task.prompt, task.type, earlySessionId, process.pid, provider, task.contextKey),
+    createTimelineEntry(task.id, task.prompt, task.type, earlySessionId, process.pid, provider, task.contextKey, input.logFilePath),
   );
 
   // Message batching
@@ -127,6 +131,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     output?: string;
   }[] = [];
   let seq = 0;
+  let toolCount = 0;
   const BATCH_SIZE = Number(process.env.ALOOK_MESSAGE_BATCH_SIZE) || 20;
   const FLUSH_INTERVAL_MS = Number(process.env.ALOOK_MESSAGE_FLUSH_INTERVAL_MS) || 100;
 
@@ -136,34 +141,18 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     try {
       await client.reportMessages(token, task.id, batch);
     } catch (e) {
-      log.debug(`Task ${task.id} message report failed`, e);
+      log.debug("message report failed", e);
     }
   };
 
   const flushTimer = setInterval(flushMessages, FLUSH_INTERVAL_MS);
-
-  // Log capture — append JSONL to agent.log (best-effort)
-  let logStream: ReturnType<typeof createWriteStream> | undefined;
-  try {
-    logStream = createWriteStream(logFile, { flags: "a" });
-    logStream.write(
-      JSON.stringify({
-        ts: localISOString(),
-        type: "text",
-        role: "user",
-        content: prompt,
-      }) + "\n",
-    );
-  } catch {
-    logStream = undefined;
-  }
 
   // --- Graceful shutdown on SIGTERM/SIGINT ---
   let killed = false;
   const onKill = async () => {
     if (killed) return;
     killed = true;
-    log.info(`Task ${task.id} killed by signal`);
+    log.info(`killed by signal (messages=${seq}, tools=${toolCount})`);
 
     // 1. Kill the inner agent process
     if (agentPid) {
@@ -173,7 +162,6 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     // 2. Flush any pending messages
     clearInterval(flushTimer);
     try { await flushMessages(); } catch { /* best-effort */ }
-    logStream?.end();
 
     // 3. Cleanup attachments
     await cleanupAttachments(task.id);
@@ -209,25 +197,14 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
         output: msg.output,
       });
 
+      if (msg.type === "tool-use") toolCount++;
+      log.info(JSON.stringify({ role: "assistant", ...msg }));
+
       // Timeline — record assistant text messages
       if (msg.type === "text" && msg.content) {
         updateEntry(timelineDir, task.id, (entry) => {
           entry.agent_responses.push(msg.content!);
         });
-      }
-
-      if (logStream) {
-        try {
-          logStream.write(
-            JSON.stringify({
-              ts: localISOString(),
-              role: "assistant",
-              ...msg,
-            }) + "\n",
-          );
-        } catch {
-          // skip logging on write failure
-        }
       }
 
       if (pendingMessages.length >= BATCH_SIZE) {
@@ -238,7 +215,6 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     if (!killed) await flushMessages();
   } finally {
     clearInterval(flushTimer);
-    logStream?.end();
     process.removeListener("SIGTERM", onKill);
     process.removeListener("SIGINT", onKill);
   }
@@ -283,10 +259,12 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     if (result.sessionId) body.session_id = result.sessionId;
     // branchName is currently always undefined — forward-compat passthrough
     await client.completeTask(token, task.id, body);
-    log.info(`Task ${task.id} completed`);
+    const dur = (result.durationMs / 1000).toFixed(1);
+    log.info(`completed (duration=${dur}s, messages=${seq}, tools=${toolCount})`);
   } else {
     await client.failTask(token, task.id, result.error || "unknown error");
-    log.info(`Task ${task.id} failed — ${result.error}`);
+    const dur = (result.durationMs / 1000).toFixed(1);
+    log.info(`failed (duration=${dur}s, messages=${seq}, tools=${toolCount}) — ${result.error}`);
   }
 }
 

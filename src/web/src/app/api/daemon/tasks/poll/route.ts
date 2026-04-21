@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { createDb, queries, PollRequestSchema, semverGte } from "@alook/shared";
+import { queries, PollRequestSchema, semverGte } from "@alook/shared";
+import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { taskToResponse } from "@/lib/api/responses";
@@ -12,7 +13,7 @@ import { log } from "@/lib/logger";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext();
-  const db = createDb((env as Env).DB);
+  const db = getDb((env as Env).DB);
 
   const [body, err] = await parseBody(req, PollRequestSchema);
   if (err) return err;
@@ -75,16 +76,44 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   );
 
   const tasks = [];
+  // Per-request cache: avoids duplicate DB reads when multiple agents share the same owner
+  const memberCache = new Map<string, { globalInstruction: string } | null>();
   for (const task of claimed) {
     const agent = await queries.agent.getAgent(db, task.agentId, task.workspaceId);
+    let emailAddresses: string[] = [];
+    if (agent) {
+      if (agent.emailHandle) emailAddresses.push(`${agent.emailHandle}@alook.ai`);
+      const customAccounts = await queries.emailAccount.getEmailAccountsByAgent(db, agent.id, task.workspaceId);
+      for (const acc of customAccounts) {
+        emailAddresses.push(acc.emailAddress);
+      }
+    }
+
+    let instructions = agent?.instructions ?? "";
+    if (agent?.ownerId) {
+      if (!memberCache.has(agent.ownerId)) {
+        const m = await queries.member.getMemberByUserAndWorkspace(
+          db,
+          agent.ownerId,
+          task.workspaceId,
+        );
+        memberCache.set(agent.ownerId, m ? { globalInstruction: m.globalInstruction } : null);
+      }
+      const cached = memberCache.get(agent.ownerId);
+      if (cached?.globalInstruction) {
+        instructions = [cached.globalInstruction, instructions].filter(Boolean).join("\n\n");
+      }
+    }
+
     tasks.push({
       ...taskToResponse(task),
       agent: agent
         ? {
-            instructions: agent.instructions,
+            instructions,
             name: agent.name,
             runtime_config: agent.runtimeConfig || {},
             email_handle: agent.emailHandle || null,
+            email_addresses: emailAddresses,
             user_email: ctx.email || null,
           }
         : null,
@@ -101,6 +130,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (machineRow?.pendingUpdateVersion && body.cli_version) {
     if (semverGte(body.cli_version, machineRow.pendingUpdateVersion)) {
       await queries.machine.clearPendingUpdateVersion(db, body.daemon_id);
+      broadcastToUser(ctx.userId, {
+        type: "runtime.status",
+        daemonId: body.daemon_id,
+        workspaceId: ctx.workspaceId,
+        status: "online",
+      }).catch(() => {});
     } else {
       pendingUpdate = { version: machineRow.pendingUpdateVersion };
     }

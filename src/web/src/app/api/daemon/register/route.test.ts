@@ -54,6 +54,7 @@ describe("POST /api/daemon/register", () => {
 
     vi.doMock("@opennextjs/cloudflare", () => mocks["@opennextjs/cloudflare"]);
     vi.doMock("@alook/shared", mocks["@alook/shared"]);
+    vi.doMock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
     vi.doMock("@/lib/broadcast", () => mocks["@/lib/broadcast"]);
     vi.doMock("@/lib/api/responses", () => mocks["@/lib/api/responses"]);
     vi.doMock("@/lib/middleware/auth", () => ({

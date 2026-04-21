@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +24,7 @@ import type { AgentRuntime as Runtime } from "@alook/shared";
 import { cn } from "@/lib/utils";
 import { LockIcon, XIcon, ChevronRightIcon, PencilIcon } from "lucide-react";
 import { useWorkspace } from "@/contexts/workspace-context";
+import { CustomEmailForm, type CustomEmailData } from "@/components/custom-email-form";
 import {
   AvatarRenderer,
   AvatarGenerator,
@@ -60,6 +61,7 @@ interface AgentEditFormProps {
     avatar_url?: string | null;
     email_handle?: string;
     runtime_config?: Record<string, unknown>;
+    custom_email?: CustomEmailData;
   }) => Promise<boolean>;
   onCancel: () => void;
   saving: boolean;
@@ -78,6 +80,7 @@ export function AgentEditForm({
   submitLabel = "Save",
   savingLabel = "Saving...",
 }: AgentEditFormProps) {
+  const { workspaceId } = useWorkspace();
   const [name, setName] = useState(agent?.name ?? "");
   const [description, setDescription] = useState(agent?.description ?? "");
   const [instructions, setInstructions] = useState(agent?.instructions ?? "");
@@ -85,6 +88,8 @@ export function AgentEditForm({
     agent?.runtime_id ?? defaultRuntimeId
   );
   const [emailHandle, setEmailHandle] = useState(agent?.email_handle ?? "");
+  const [customEmailData, setCustomEmailData] = useState<CustomEmailData | null>(null);
+  const customEmailGetDataRef = useRef<(() => CustomEmailData | null) | null>(null);
   const [model, setModel] = useState(
     () => {
       const rc = agent?.runtime_config;
@@ -118,6 +123,7 @@ export function AgentEditForm({
       avatar_url: serializeAvatarConfig(avatarConfig),
       email_handle: emailHandle || derivedHandle || undefined,
       runtime_config: model ? { model } : {},
+      custom_email: customEmailGetDataRef.current?.() ?? customEmailData ?? undefined,
     });
   };
 
@@ -202,6 +208,14 @@ export function AgentEditForm({
           </div>
         )}
 
+        {!agent && (
+          <CustomEmailForm
+            workspaceId={workspaceId}
+            onDataChange={setCustomEmailData}
+            getDataRef={customEmailGetDataRef}
+          />
+        )}
+
         <div className="space-y-1.5">
           <Label htmlFor="agent-instructions">Instructions</Label>
           <Textarea
@@ -267,6 +281,13 @@ export function AgentEditForm({
               </span>
             </div>
           </div>
+        )}
+
+        {agent && (
+          <CustomEmailForm
+            agentId={agent.id}
+            workspaceId={workspaceId}
+          />
         )}
 
         <div className="flex items-center gap-2 pt-2">

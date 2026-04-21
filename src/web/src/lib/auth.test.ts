@@ -8,6 +8,8 @@ vi.mock("better-auth/plugins", () => ({
   emailOTP: vi.fn((cfg: unknown) => ({ __plugin: "emailOTP", cfg })),
 }))
 
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
 vi.mock("@alook/shared", () => ({
   createLogger: () => ({ info: vi.fn(), error: vi.fn() }),
   DEV_EMAIL_WORKER_URL: "http://localhost:0",

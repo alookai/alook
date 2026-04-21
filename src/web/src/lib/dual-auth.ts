@@ -1,5 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries } from "@alook/shared"
+import { queries } from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
 
 export async function requireAuth(request: Request) {
@@ -10,7 +11,7 @@ export async function requireAuth(request: Request) {
   if (authHeader?.startsWith("Bearer ")) {
     const raw = authHeader.slice(7)
     if (raw.startsWith("al_")) {
-      const db = createDb(cloudflareEnv.DB)
+      const db = getDb(cloudflareEnv.DB)
       const mt = await queries.machineToken.getMachineTokenByToken(db, raw)
       if (mt) {
         queries.machineToken.updateMachineTokenLastUsed(db, mt.id).catch(() => {})

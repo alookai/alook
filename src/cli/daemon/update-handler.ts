@@ -1,5 +1,7 @@
+import { readFileSync, writeFileSync, unlinkSync } from "fs";
 import { runNpmUpdate } from "../lib/update.js";
 import { log } from "../lib/logger.js";
+import { lastUpdateMarkerPath } from "./config.js";
 
 let updating = false;
 let retryCount = 0;
@@ -14,18 +16,50 @@ export function resetUpdateState(): void {
   retryCount = 0;
 }
 
+export function readUpdateMarker(profile?: string): string | null {
+  try {
+    return readFileSync(lastUpdateMarkerPath(profile), "utf-8").trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeUpdateMarker(version: string, profile?: string): void {
+  try {
+    writeFileSync(lastUpdateMarkerPath(profile), version, { mode: 0o600 });
+  } catch {
+    // best-effort
+  }
+}
+
+export function clearUpdateMarker(profile?: string): void {
+  try {
+    unlinkSync(lastUpdateMarkerPath(profile));
+  } catch {
+    // already gone
+  }
+}
+
 export async function handleCliUpdate(
   version: string,
   onSuccess: () => void,
+  profile?: string,
 ): Promise<void> {
   if (updating) return;
   if (retryCount >= MAX_RETRIES) return;
+
+  const marker = readUpdateMarker(profile);
+  if (marker === version) {
+    log.info(`Skipping update to v${version} — already attempted (marker exists)`);
+    return;
+  }
 
   updating = true;
   try {
     log.info(`Updating CLI to v${version}...`);
     const result = await runNpmUpdate(version);
     if (result.success) {
+      writeUpdateMarker(version, profile);
       log.info(`CLI updated to v${version} — restarting`);
       onSuccess();
     } else {

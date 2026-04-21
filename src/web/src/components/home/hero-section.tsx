@@ -210,7 +210,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           {isLoggedIn ? (
             <a
               href="/workspaces?auto"
-              className="hidden sm:inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
+              className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-text)",
@@ -228,7 +228,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           ) : (
             <a
               href="/sign-in"
-              className="hidden sm:inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
+              className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-text)",

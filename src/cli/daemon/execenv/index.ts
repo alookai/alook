@@ -1,5 +1,5 @@
 import { mkdirSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
 import { writeInstructionFileIfChanged } from "./context.js";
 import type { Task } from "../types.js";
 
@@ -9,7 +9,6 @@ export interface ExecEnvConfig {
 
 export interface ExecEnvResult {
   workDir: string;
-  logFile: string;
   timelineDir: string;
   env: Record<string, string>;
 }
@@ -27,14 +26,6 @@ export function prepare(
 
   writeInstructionFileIfChanged(workDir, task);
 
-  const logFile = join(
-    config.workspacesRoot,
-    task.workspaceId,
-    task.agentId,
-    "agent.log",
-  );
-  mkdirSync(dirname(logFile), { recursive: true });
-
   const env: Record<string, string> = {
     ALOOK_WORKSPACE_ID: task.workspaceId,
     ALOOK_AGENT_ID: task.agentId,
@@ -43,7 +34,7 @@ export function prepare(
     ALOOK_HEALTH_PORT: process.env.ALOOK_HEALTH_PORT || "19514",
   };
 
-  return { workDir, logFile, timelineDir, env };
+  return { workDir, timelineDir, env };
 }
 
 export { buildInstructionContent, writeInstructionFileIfChanged, ensureSymlinks, CANONICAL_FILE } from "./context.js";

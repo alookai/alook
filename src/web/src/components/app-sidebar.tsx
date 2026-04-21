@@ -5,7 +5,7 @@ import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
-import { Monitor, SunMoon, Plus, LayoutGrid, CalendarDays } from "lucide-react";
+import { Monitor, SunMoon, Plus, LayoutGrid, CalendarDays, Settings } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTheme } from "next-themes";
 import { NavUser } from "@/components/nav-user";
@@ -19,11 +19,13 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { slug } = useWorkspace();
 
   const { resolvedTheme, setTheme } = useTheme();
+  const { activeTaskCounts: taskCounts } = useAgentContext();
   const sorted = [...agents].sort((a, b) => a.name.localeCompare(b.name));
 
   const prefix = `/w/${slug}`;
   const isRuntimes = pathname === `${prefix}/runtimes`;
   const isCalendar = pathname === `${prefix}/calendar`;
+  const isSettings = pathname === `${prefix}/settings`;
   const isCreateAgent = pathname === `${prefix}/agents/new`;
 
   // Detect active agent from ?agent= param or /w/[slug]/agents/[id] route
@@ -75,6 +77,9 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                   )}>
                     {agent.name.charAt(0).toUpperCase()}
                   </span>
+                )}
+                {(taskCounts[agent.id] ?? 0) > 0 && (
+                  <span className="absolute bottom-0 right-0 size-2 rounded-full bg-status-online animate-pulse ring-2 ring-background" />
                 )}
               </button>
             );
@@ -133,6 +138,19 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           )}
         >
           <CalendarDays className="size-4" />
+        </button>
+
+        <button
+          type="button"
+          title="Settings"
+          onClick={() => { router.push(`${prefix}/settings`); onNavigate?.(); }}
+          className={cn(
+            "flex items-center justify-center size-10 rounded-xl transition-colors duration-200 cursor-pointer",
+            "text-muted-foreground hover:text-foreground hover:bg-accent",
+            isSettings && "bg-accent text-foreground"
+          )}
+        >
+          <Settings className="size-4" />
         </button>
 
         <button

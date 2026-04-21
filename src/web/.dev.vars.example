@@ -10,6 +10,9 @@
 BETTER_AUTH_SECRET=
 BETTER_AUTH_URL=http://localhost:3000
 
+# Encryption key for IMAP/SMTP credentials (generate with: openssl rand -base64 32)
+ENCRYPTION_KEY=
+
 # GitHub OAuth App (https://github.com/settings/developers)
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=

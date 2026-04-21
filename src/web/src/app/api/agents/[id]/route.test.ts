@@ -9,19 +9,25 @@ const mockDeleteAgent = vi.fn();
 const mockUpdateAgent = vi.fn();
 const mockGetAgentRuntimeForWorkspace = vi.fn();
 
-vi.mock("@alook/shared", () => ({
-  createDb: vi.fn(() => ({})),
-  queries: {
-    agent: {
-      getAgent: (...args: unknown[]) => mockGetAgent(...args),
-      deleteAgent: (...args: unknown[]) => mockDeleteAgent(...args),
-      updateAgent: (...args: unknown[]) => mockUpdateAgent(...args),
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual("@alook/shared");
+  return {
+    ...actual,
+    createDb: vi.fn(() => ({})),
+    queries: {
+      agent: {
+        getAgent: (...args: unknown[]) => mockGetAgent(...args),
+        deleteAgent: (...args: unknown[]) => mockDeleteAgent(...args),
+        updateAgent: (...args: unknown[]) => mockUpdateAgent(...args),
+      },
+      runtime: {
+        getAgentRuntimeForWorkspace: (...args: unknown[]) => mockGetAgentRuntimeForWorkspace(...args),
+      },
     },
-    runtime: {
-      getAgentRuntimeForWorkspace: (...args: unknown[]) => mockGetAgentRuntimeForWorkspace(...args),
-    },
-  },
-}));
+  };
+});
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
@@ -133,7 +139,7 @@ describe("PATCH /api/agents/[id]", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toBe("no fields to update");
+    expect(body.error).toBe("validation error");
   });
 
   it("returns 400 for invalid request body", async () => {
