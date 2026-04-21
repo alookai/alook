@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
+import { Markdown } from "@tiptap/markdown";
 import { cn } from "@/lib/utils";
 import { isEmptyHtml } from "@alook/shared";
 
@@ -11,13 +12,15 @@ export { isEmptyHtml };
 
 export interface MarkdownEditorProps {
   value: string;
-  onChange: (html: string) => void;
+  onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
   minHeight?: number | string;
   autoFocus?: boolean;
   /** `default` is framed (border + focus ring); `seamless` blends with the parent. */
   variant?: "default" | "seamless";
+  /** `html` (default) — value/onChange use HTML. `markdown` — value/onChange use Markdown text. */
+  contentType?: "html" | "markdown";
 }
 
 function normalize(html: string | null | undefined): string {
@@ -33,7 +36,10 @@ export function MarkdownEditor({
   minHeight = "9rem",
   autoFocus,
   variant = "default",
+  contentType = "html",
 }: MarkdownEditorProps) {
+  const isMd = contentType === "markdown";
+
   const minHeightStyle =
     typeof minHeight === "number" ? `${minHeight}px` : minHeight;
 
@@ -45,9 +51,11 @@ export function MarkdownEditor({
   const editor = useEditor({
     immediatelyRender: false,
     content: value || undefined,
+    ...(isMd ? { contentType: "markdown" } : {}),
     extensions: [
       StarterKit,
       Placeholder.configure({ placeholder: placeholder ?? "" }),
+      ...(isMd ? [Markdown] : []),
     ],
     editorProps: {
       attributes: {
@@ -57,17 +65,23 @@ export function MarkdownEditor({
     },
     autofocus: autoFocus ? "end" : false,
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      onChange(isMd ? editor.getMarkdown() : editor.getHTML());
     },
   });
 
   useEffect(() => {
     if (!editor) return;
-    const incoming = normalize(value);
-    const current = normalize(editor.getHTML());
-    if (incoming === current) return;
-    editor.commands.setContent(value || "", { emitUpdate: false });
-    // Only react to value changes, not editor identity.
+    if (isMd) {
+      const incoming = (value || "").trim();
+      const current = (editor.getMarkdown() || "").trim();
+      if (incoming === current) return;
+      editor.commands.setContent(value || "", { emitUpdate: false, contentType: "markdown" });
+    } else {
+      const incoming = normalize(value);
+      const current = normalize(editor.getHTML());
+      if (incoming === current) return;
+      editor.commands.setContent(value || "", { emitUpdate: false });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, editor]);
 
