@@ -384,6 +384,7 @@ export const SendEmailRequestSchema = z.object({
   inReplyTo: z.string().optional(),
   references: z.string().optional(),
   attachments: z.array(EmailAttachmentSchema).optional(),
+  customAccountId: z.string().optional(),
 });
 export type SendEmailRequest = z.infer<typeof SendEmailRequestSchema>;
 
@@ -408,6 +409,58 @@ export const EmailNotifyRequestSchema = z.object({
   references: z.string().optional().default(""),
 });
 export type EmailNotifyRequest = z.infer<typeof EmailNotifyRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// Custom Email Account schemas
+// ---------------------------------------------------------------------------
+
+export const CreateEmailAccountSchema = z.object({
+  emailAddress: z.string().email("valid email required"),
+  displayName: z.string().default(""),
+  imapHost: z.string().min(1, "IMAP host is required"),
+  imapPort: z.number().int().min(1).max(65535).default(993),
+  imapUsername: z.string().min(1, "IMAP username is required"),
+  imapPassword: z.string().min(1, "IMAP password is required"),
+  imapTls: z.boolean().default(true),
+  smtpHost: z.string().min(1, "SMTP host is required"),
+  smtpPort: z.number().int().min(1).max(65535).default(587),
+  smtpUsername: z.string().min(1, "SMTP username is required"),
+  smtpPassword: z.string().min(1, "SMTP password is required"),
+  smtpTls: z.number().int().min(0).max(2).default(1),
+  pollIntervalSeconds: z.number().int().min(30).max(3600).default(60),
+});
+export type CreateEmailAccountRequest = z.infer<typeof CreateEmailAccountSchema>;
+
+export const UpdateEmailAccountSchema = z.object({
+  emailAddress: z.string().email().optional(),
+  displayName: z.string().optional(),
+  imapHost: z.string().min(1).optional(),
+  imapPort: z.number().int().min(1).max(65535).optional(),
+  imapUsername: z.string().min(1).optional(),
+  imapPassword: z.string().min(1).optional(),
+  imapTls: z.boolean().optional(),
+  smtpHost: z.string().min(1).optional(),
+  smtpPort: z.number().int().min(1).max(65535).optional(),
+  smtpUsername: z.string().min(1).optional(),
+  smtpPassword: z.string().min(1).optional(),
+  smtpTls: z.number().int().min(0).max(2).optional(),
+  pollIntervalSeconds: z.number().int().min(30).max(3600).optional(),
+});
+export type UpdateEmailAccountRequest = z.infer<typeof UpdateEmailAccountSchema>;
+
+export const TestEmailConnectionSchema = z.object({
+  imapHost: z.string().min(1),
+  imapPort: z.number().int().min(1).max(65535).default(993),
+  imapUsername: z.string().min(1),
+  imapPassword: z.string().min(1),
+  imapTls: z.boolean().default(true),
+  smtpHost: z.string().min(1),
+  smtpPort: z.number().int().min(1).max(65535).default(587),
+  smtpUsername: z.string().min(1),
+  smtpPassword: z.string().min(1),
+  smtpTls: z.number().int().min(0).max(2).default(1),
+});
+export type TestEmailConnectionRequest = z.infer<typeof TestEmailConnectionSchema>;
 
 // ---------------------------------------------------------------------------
 // Workspace request schemas

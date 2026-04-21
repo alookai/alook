@@ -14,3 +14,4 @@ export * as email from "./queries/email";
 export * as session from "./queries/session";
 export * as calendarEvent from "./queries/calendar-event";
 export * as artifact from "./queries/artifact";
+export * as emailAccount from "./queries/email-account";

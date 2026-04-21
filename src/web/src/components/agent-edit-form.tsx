@@ -19,6 +19,7 @@ import type { AgentRuntime as Runtime } from "@alook/shared";
 import { cn } from "@/lib/utils";
 import { LockIcon, XIcon, ChevronRightIcon } from "lucide-react";
 import { useWorkspace } from "@/contexts/workspace-context";
+import { CustomEmailForm } from "@/components/custom-email-form";
 import {
   listWhitelist,
   addWhitelistEmail,
@@ -64,6 +65,7 @@ export function AgentEditForm({
   submitLabel = "Save",
   savingLabel = "Saving...",
 }: AgentEditFormProps) {
+  const { workspaceId } = useWorkspace();
   const [name, setName] = useState(agent?.name ?? "");
   const [description, setDescription] = useState(agent?.description ?? "");
   const [instructions, setInstructions] = useState(agent?.instructions ?? "");
@@ -220,6 +222,10 @@ export function AgentEditForm({
               </span>
             </div>
           </div>
+        )}
+
+        {agent && (
+          <CustomEmailForm agentId={agent.id} workspaceId={workspaceId} />
         )}
 
         <div className="flex items-center gap-2 pt-2">

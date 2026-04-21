@@ -51,12 +51,18 @@ importers:
       '@alook/shared':
         specifier: workspace:*
         version: link:../shared
+      cf-imap:
+        specifier: ^0.0.12
+        version: 0.0.12(typescript@6.0.3)
       nanoid:
         specifier: ^5.1.9
         version: 5.1.9
       postal-mime:
         specifier: ^2.7.4
         version: 2.7.4
+      worker-mailer:
+        specifier: ^1.2.1
+        version: 1.2.1
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20260418.1
@@ -2932,6 +2938,11 @@ packages:
 
   ccount@2.0.1:
     resolution: {integrity: sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==}
+
+  cf-imap@0.0.12:
+    resolution: {integrity: sha512-ZE4XWXZPV+aXZTcJKWNAgg340WEmP29SKZ+mnweZQ2q8KTcDGXT3oz5LLTXwGA2huRpI55+lBqIk4nB+nIfz4Q==}
+    peerDependencies:
+      typescript: ^5.0.0
 
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
@@ -5935,6 +5946,9 @@ packages:
   word-wrap@1.2.5:
     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
     engines: {node: '>=0.10.0'}
+
+  worker-mailer@1.2.1:
+    resolution: {integrity: sha512-gS2ei/mrpRqNs+AHmqxhT6vFPwCLw2qnz5ShmyGD0ULaU0Q9hxnFAcx9jhAip/MnD6+MjgnQu6hQQgA8mlOkVA==}
 
   workerd@1.20260415.1:
     resolution: {integrity: sha512-phyPjRnx+mQDfkhN9ENPioL1L0SdhYs4S0YmJK/xF9Oga+ykNfdSy1MHnsOj8yqnOV96zcVQMx32dJ0r3pq0jQ==}
@@ -9081,6 +9095,10 @@ snapshots:
   caniuse-lite@1.0.30001788: {}
 
   ccount@2.0.1: {}
+
+  cf-imap@0.0.12(typescript@6.0.3):
+    dependencies:
+      typescript: 6.0.3
 
   chai@6.2.2: {}
 
@@ -12638,6 +12656,8 @@ snapshots:
       stackback: 0.0.2
 
   word-wrap@1.2.5: {}
+
+  worker-mailer@1.2.1: {}
 
   workerd@1.20260415.1:
     optionalDependencies:

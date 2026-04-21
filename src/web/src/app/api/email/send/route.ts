@@ -20,8 +20,20 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const agent = await queries.agent.getAgent(db, body.agentId, ws.workspaceId);
   if (!agent) return writeError("agent not found in workspace", 404);
 
-  if (!agent.emailHandle) {
-    return writeError("agent has no email handle configured", 400);
+  const customAccountId = body.customAccountId;
+  let fromAddress: string;
+
+  if (customAccountId) {
+    const account = await queries.emailAccount.getEmailAccount(db, customAccountId, ws.workspaceId);
+    if (!account || account.agentId !== body.agentId) {
+      return writeError("custom email account not found", 404);
+    }
+    fromAddress = account.emailAddress;
+  } else {
+    if (!agent.emailHandle) {
+      return writeError("agent has no email handle configured", 400);
+    }
+    fromAddress = `${agent.emailHandle}@alook.ai`;
   }
 
   const attachments = body.attachments ?? [];
@@ -35,6 +47,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     htmlBody: body.htmlBody || "",
     inReplyTo: body.inReplyTo || "",
     references: body.references || "",
+    customAccountId: customAccountId || undefined,
     attachmentKeys: attachments.length > 0
       ? attachments.map((a) => ({ key: a.key, filename: a.filename, contentType: a.contentType }))
       : undefined,
@@ -64,7 +77,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const emailResult = await emailRes.json() as { ok: boolean; r2Key: string; messageId?: string };
 
   // Create DB record
-  const fromAddress = `${agent.emailHandle}@alook.ai`;
   const email = await queries.email.createEmail(db, {
     agentId: body.agentId,
     workspaceId: ws.workspaceId,

@@ -1,0 +1,8 @@
+# =============================================================================
+# Email Worker — Local Development Secrets
+# =============================================================================
+# Copy this file to .dev.vars and fill in your values.
+# Must match the BETTER_AUTH_SECRET used by the web worker.
+# =============================================================================
+
+BETTER_AUTH_SECRET=

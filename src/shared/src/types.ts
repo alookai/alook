@@ -139,6 +139,26 @@ export interface Email {
   created_at: string;
 }
 
+export interface AgentEmailAccount {
+  id: string;
+  agent_id: string;
+  workspace_id: string;
+  email_address: string;
+  display_name: string;
+  imap_host: string;
+  imap_port: number;
+  imap_tls: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_tls: number;
+  poll_interval_seconds: number;
+  last_synced_at: string | null;
+  status: string;
+  error_message: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Artifact {
   id: string;
   conversation_id: string;

@@ -12,6 +12,7 @@ export type {
   Email,
   EmailAttachment,
   Artifact,
+  AgentEmailAccount,
   LoginResponse,
   CreateAgentRequest,
   CalendarEvent,
@@ -107,6 +108,9 @@ export {
   UpdateEmailStatusRequestSchema,
   EmailNotifyRequestSchema,
   CreateWorkspaceRequestSchema,
+  CreateEmailAccountSchema,
+  UpdateEmailAccountSchema,
+  TestEmailConnectionSchema,
 } from "./schemas";
 
 export type {
@@ -131,6 +135,9 @@ export type {
   DeleteCalendarEventRequestInput,
   CalendarEventApi,
   AddWhitelistRequest,
+  CreateEmailAccountRequest,
+  UpdateEmailAccountRequest,
+  TestEmailConnectionRequest,
 } from "./schemas";
 
 // Database
@@ -157,4 +164,5 @@ export { parseEmailHandle, toAlookAddress, isValidHandle } from "./utils/email";
 export { isValidToken, isValidEmail } from "./utils/validation";
 export { isOnline, formatStatus } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
+export { encrypt, decrypt } from "./utils/crypto";
 export { semverGte } from "./semver";

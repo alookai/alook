@@ -1,12 +1,15 @@
 import type {
   Agent,
+  AgentEmailAccount,
   AgentRuntime,
   Artifact,
   CalendarEvent,
   Conversation,
   CreateAgentRequest,
   CreateCalendarEventRequest,
+  CreateEmailAccountRequest,
   UpdateCalendarEventRequest,
+  UpdateEmailAccountRequest,
   DeleteCalendarEventRequest,
   UpdateAgentRequest,
   Email,
@@ -378,6 +381,37 @@ export const addWhitelistEmail = (agentId: string, email: string, workspaceId: s
 export const removeWhitelistEmail = (agentId: string, whitelistId: string, workspaceId: string) =>
   apiFetch<void>(`/api/agents/${agentId}/whitelist/${whitelistId}${wsQuery(workspaceId)}`, {
     method: "DELETE",
+  });
+
+// Email Accounts
+export const listEmailAccounts = (agentId: string, workspaceId: string) =>
+  apiFetch<AgentEmailAccount[]>(`/api/agents/${agentId}/email-accounts${wsQuery(workspaceId)}`);
+
+export const createEmailAccount = (agentId: string, data: CreateEmailAccountRequest, workspaceId: string) =>
+  apiFetch<AgentEmailAccount>(`/api/agents/${agentId}/email-accounts${wsQuery(workspaceId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const updateEmailAccount = (agentId: string, accountId: string, data: UpdateEmailAccountRequest, workspaceId: string) =>
+  apiFetch<AgentEmailAccount>(`/api/agents/${agentId}/email-accounts/${accountId}${wsQuery(workspaceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
+export const deleteEmailAccount = (agentId: string, accountId: string, workspaceId: string) =>
+  apiFetch<{ ok: boolean }>(`/api/agents/${agentId}/email-accounts/${accountId}${wsQuery(workspaceId)}`, {
+    method: "DELETE",
+  });
+
+export const testEmailConnection = (agentId: string, accountId: string, workspaceId: string) =>
+  apiFetch<{ imap: string; smtp: string }>(`/api/agents/${agentId}/email-accounts/${accountId}/test${wsQuery(workspaceId)}`, {
+    method: "POST",
+  });
+
+export const syncEmailAccount = (agentId: string, accountId: string, workspaceId: string) =>
+  apiFetch<{ ok: boolean }>(`/api/agents/${agentId}/email-accounts/${accountId}/sync${wsQuery(workspaceId)}`, {
+    method: "POST",
   });
 
 // Artifacts
