@@ -7,7 +7,7 @@ import { getMemberMe, updateMemberMe } from "@/lib/api";
 import { MobileSidebarLogo } from "@/components/mobile-sidebar-logo";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const MAX_LENGTH = 50_000;
@@ -97,14 +97,12 @@ export default function SettingsPage() {
         ) : (
           <div className="mx-auto max-w-md space-y-4">
             <Label htmlFor="global-instruction">Global Instruction</Label>
-            <Textarea
-              id="global-instruction"
-              rows={10}
-              className="min-h-16"
-              placeholder="Write instructions that every agent you own will follow..."
+            <MarkdownEditor
               value={value}
-              onChange={(e) => setValue(e.target.value)}
-              maxLength={MAX_LENGTH}
+              onChange={setValue}
+              placeholder="Write instructions that every agent you own will follow..."
+              minHeight="240px"
+              contentType="markdown"
             />
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground/70">
