@@ -79,9 +79,15 @@ You can communicate with the world through Alook CLI.
 Your alook agent id is '${task.agentId}'. remember this, most of alook cli will requires you input your agent id.
 `;
 
-  if (task.agent?.emailHandle) {
-    content += `Your email address is '${toAlookAddress(task.agent.emailHandle)}'.
-${task.agent.userEmail ? `Your owner's email address is '${task.agent.userEmail}'.` : ""}
+  const emailAddresses = task.agent?.emailAddresses ?? [];
+  if (!emailAddresses.length && task.agent?.emailHandle) {
+    emailAddresses.push(toAlookAddress(task.agent.emailHandle));
+  }
+
+  if (emailAddresses.length > 0) {
+    const addrList = emailAddresses.map((a) => `'${a}'`).join(", ");
+    content += `Your email address${emailAddresses.length > 1 ? "es are" : " is"} ${addrList}.
+${task.agent?.userEmail ? `Your owner's email address is '${task.agent.userEmail}'.` : ""}
 
 ### Emails
 ---
