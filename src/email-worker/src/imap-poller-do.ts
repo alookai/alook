@@ -192,20 +192,15 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
       "X-Trace-Id": traceId,
     }
 
-    try {
-      const res = await this.env.WEB_SERVICE.fetch("http://internal/api/email/notify", {
-        method: "POST",
-        headers,
-        body,
-      })
-      if (!res.ok) throw new Error(`WEB_SERVICE responded ${res.status}`)
-    } catch {
-      const { DEV_WEB_URL } = await import("@alook/shared")
-      await fetch(`${DEV_WEB_URL}/api/email/notify`, {
-        method: "POST",
-        headers,
-        body,
-      })
-    }
+    const ws = this.env.WEB_SERVICE
+    const fetcher = ws
+      ? (path: string, init: RequestInit) => ws.fetch(`http://internal${path}`, init)
+      : async (path: string, init: RequestInit) => {
+          const { DEV_WEB_URL } = await import("@alook/shared")
+          return fetch(`${DEV_WEB_URL}${path}`, init)
+        }
+
+    const res = await fetcher("/api/email/notify", { method: "POST", headers, body })
+    if (!res.ok) throw new Error(`notifyWeb responded ${res.status}`)
   }
 }
