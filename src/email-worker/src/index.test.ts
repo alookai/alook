@@ -103,7 +103,7 @@ function setup(overrides?: {
     }
   )
 
-  const env = { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, BETTER_AUTH_SECRET: "test-secret" }
+  const env = { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, ENCRYPTION_KEY: "test-secret" }
 
   return { env, message, put, wsFetch, setReject, forward, rawText }
 }
@@ -318,7 +318,7 @@ describe("POST /send/otp", () => {
     const { fetcher } = createMockFetcher()
     const { sendEmail, send } = createMockSendEmail()
     return {
-      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, BETTER_AUTH_SECRET: "test-secret" },
+      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, ENCRYPTION_KEY: "test-secret" },
       send,
     }
   }
@@ -377,7 +377,7 @@ describe("POST /send/agent", () => {
     const { fetcher } = createMockFetcher()
     const { sendEmail, send } = createMockSendEmail()
     return {
-      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, BETTER_AUTH_SECRET: "test-secret" },
+      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, ENCRYPTION_KEY: "test-secret" },
       send,
       put,
       bucket,
@@ -593,7 +593,7 @@ describe("POST /send/agent with custom SMTP", () => {
     const { fetcher } = createMockFetcher()
     const { sendEmail, send } = createMockSendEmail()
     return {
-      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, BETTER_AUTH_SECRET: "test-secret" },
+      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, ENCRYPTION_KEY: "test-secret" },
       send,
       put,
     }
@@ -701,7 +701,7 @@ describe("fetch() routing", () => {
     const { bucket } = createMockR2()
     const { fetcher } = createMockFetcher()
     const { sendEmail } = createMockSendEmail()
-    return { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, BETTER_AUTH_SECRET: "test-secret" }
+    return { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, ENCRYPTION_KEY: "test-secret" }
   }
 
   it("returns 404 for unknown paths", async () => {
@@ -734,7 +734,7 @@ describe("IMAP management routes", () => {
     const mockGet = vi.fn().mockReturnValue(mockStub)
     const imapPoller = { idFromName: mockIdFromName, get: mockGet } as unknown as DurableObjectNamespace
     return {
-      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: imapPoller, BETTER_AUTH_SECRET: "test-secret" },
+      env: { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: imapPoller, ENCRYPTION_KEY: "test-secret" },
       doFetch,
       mockIdFromName,
       mockGet,

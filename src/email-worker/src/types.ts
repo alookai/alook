@@ -4,5 +4,5 @@ export interface EmailEnv {
   WEB_SERVICE: Fetcher
   SEND_EMAIL: SendEmail
   IMAP_POLLER: DurableObjectNamespace
-  BETTER_AUTH_SECRET: string
+  ENCRYPTION_KEY: string
 }

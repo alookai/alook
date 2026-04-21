@@ -60,7 +60,7 @@ export const POST = withAuth(async (req, ctx) => {
   const [body, err] = await parseBody(req, CreateEmailAccountSchema)
   if (err) return err
 
-  const secret = (cfEnv as any).BETTER_AUTH_SECRET as string
+  const secret = cfEnv.BETTER_AUTH_SECRET
   if (!secret) return writeError("encryption not configured", 500)
 
   const account = await queries.emailAccount.createEmailAccount(db, {

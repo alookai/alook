@@ -121,7 +121,7 @@ function createMockEnv() {
       WEB_SERVICE: { fetch: webFetch } as unknown as Fetcher,
       SEND_EMAIL: {} as SendEmail,
       IMAP_POLLER: {} as DurableObjectNamespace,
-      BETTER_AUTH_SECRET: "test-secret",
+      ENCRYPTION_KEY: "test-secret",
     },
     putR2,
     webFetch,

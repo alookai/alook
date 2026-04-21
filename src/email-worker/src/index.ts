@@ -141,7 +141,7 @@ export default {
     }
 
     if (useCustomSmtp && customAccount) {
-      const secret = env.BETTER_AUTH_SECRET
+      const secret = env.ENCRYPTION_KEY
       if (!secret) {
         return Response.json({ error: "encryption key not configured" }, { status: 500 })
       }
@@ -303,7 +303,7 @@ export default {
       return Response.json({ error: "account not found" }, { status: 404 })
     }
 
-    const secret = env.BETTER_AUTH_SECRET
+    const secret = env.ENCRYPTION_KEY
     if (!secret) {
       return Response.json({ error: "encryption key not configured" }, { status: 500 })
     }

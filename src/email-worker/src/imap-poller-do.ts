@@ -71,8 +71,8 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
     let imap: CFImap | null = null
 
     try {
-      const secret = this.env.BETTER_AUTH_SECRET
-      if (!secret) throw new Error("BETTER_AUTH_SECRET not configured")
+      const secret = this.env.ENCRYPTION_KEY
+      if (!secret) throw new Error("ENCRYPTION_KEY not configured")
 
       const imapUsername = decrypt(account.imapUsername, secret)
       const imapPassword = decrypt(account.imapPassword, secret)
