@@ -7,5 +7,5 @@
 # =============================================================================
 
 # Encryption key for IMAP/SMTP credentials (generate with: openssl rand -base64 32)
-# Must match the value used by the web worker (BETTER_AUTH_SECRET in web/.dev.vars)
+# Must match ENCRYPTION_KEY in web/.dev.vars — predev script syncs this automatically.
 ENCRYPTION_KEY=

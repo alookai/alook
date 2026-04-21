@@ -53,7 +53,7 @@ export const PATCH = withAuth(async (req, ctx) => {
   const [body, err] = await parseBody(req, UpdateEmailAccountSchema)
   if (err) return err
 
-  const secret = cfEnv.BETTER_AUTH_SECRET
+  const secret = cfEnv.ENCRYPTION_KEY
   if (!secret) return writeError("encryption not configured", 500)
 
   const data: Record<string, unknown> = {}
