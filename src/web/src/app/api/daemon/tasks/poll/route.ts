@@ -75,6 +75,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   );
 
   const tasks = [];
+  // Per-request cache: avoids duplicate DB reads when multiple agents share the same owner
   const memberCache = new Map<string, { globalInstruction: string } | null>();
   for (const task of claimed) {
     const agent = await queries.agent.getAgent(db, task.agentId, task.workspaceId);

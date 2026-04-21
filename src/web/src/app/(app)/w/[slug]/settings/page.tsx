@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { getMemberMe, updateMemberMe } from "@/lib/api";
@@ -50,6 +50,31 @@ export default function SettingsPage() {
   };
 
   const isDirty = value !== savedValue;
+  const isDirtyRef = useRef(isDirty);
+  isDirtyRef.current = isDirty;
+  const handleSaveRef = useRef(handleSave);
+  handleSaveRef.current = handleSave;
+
+  // Warn on unsaved changes when navigating away
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirtyRef.current) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
+  // Cmd+S / Ctrl+S to save
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        if (isDirtyRef.current) handleSaveRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
     <>

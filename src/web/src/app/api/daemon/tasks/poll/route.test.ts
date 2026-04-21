@@ -442,4 +442,29 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(body.tasks[1].agent.instructions).toBe("global\n\ninst2");
     expect(mockGetMemberByUserAndWorkspace).toHaveBeenCalledTimes(1);
   });
+
+  it("returns only global instruction when agent instructions are empty", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([
+      { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "hi", status: "dispatched" },
+    ]);
+    mockGetAgent.mockResolvedValue({
+      id: "a1",
+      ownerId: "owner1",
+      instructions: "",
+      name: "Bot",
+      runtimeConfig: {},
+    });
+    mockGetMemberByUserAndWorkspace.mockResolvedValue({
+      globalInstruction: "global only",
+    });
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(body.tasks[0].agent.instructions).toBe("global only");
+  });
 });
