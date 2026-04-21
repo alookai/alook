@@ -24,12 +24,19 @@ async function notifyWeb(env: EmailEnv, payload: Record<string, unknown>, traceI
     "X-Trace-Id": traceId,
   }
 
-  const fetcher = env.WEB_SERVICE
-    ? (path: string, init: RequestInit) => env.WEB_SERVICE.fetch(`http://internal${path}`, init)
-    : (path: string, init: RequestInit) => fetch(`${DEV_WEB_URL}${path}`, init)
+  const init: RequestInit = { method: "POST", headers, body }
 
-  const res = await fetcher("/api/email/notify", { method: "POST", headers, body })
-  if (!res.ok) throw new Error(`notifyWeb responded ${res.status}`)
+  try {
+    const res = await env.WEB_SERVICE.fetch("http://internal/api/email/notify", init)
+    if (!res.ok) throw new Error(`WEB_SERVICE responded ${res.status}`)
+  } catch (serviceErr) {
+    try {
+      const fallback = await fetch(`${DEV_WEB_URL}/api/email/notify`, init)
+      if (!fallback.ok) throw new Error(`fallback responded ${fallback.status}`)
+    } catch {
+      throw serviceErr instanceof Error ? serviceErr : new Error(String(serviceErr))
+    }
+  }
 }
 
 export default {
