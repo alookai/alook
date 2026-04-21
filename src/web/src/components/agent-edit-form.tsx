@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -75,6 +75,7 @@ export function AgentEditForm({
   );
   const [emailHandle, setEmailHandle] = useState(agent?.email_handle ?? "");
   const [customEmailData, setCustomEmailData] = useState<CustomEmailData | null>(null);
+  const customEmailGetDataRef = useRef<(() => CustomEmailData | null) | null>(null);
   const [model, setModel] = useState(
     () => {
       const rc = agent?.runtime_config;
@@ -103,7 +104,7 @@ export function AgentEditForm({
       runtime_id: runtimeId,
       email_handle: emailHandle || derivedHandle || undefined,
       runtime_config: model ? { model } : {},
-      custom_email: customEmailData ?? undefined,
+      custom_email: customEmailGetDataRef.current?.() ?? customEmailData ?? undefined,
     });
   };
 
@@ -164,6 +165,7 @@ export function AgentEditForm({
           <CustomEmailForm
             workspaceId={workspaceId}
             onDataChange={setCustomEmailData}
+            getDataRef={customEmailGetDataRef}
           />
         )}
 

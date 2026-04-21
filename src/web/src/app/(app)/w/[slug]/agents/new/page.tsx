@@ -6,6 +6,7 @@ import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { AgentEditForm } from "@/components/agent-edit-form";
 import { fetchModelOptions, createEmailAccount } from "@/lib/api";
+import { toast } from "sonner";
 import { MobileSidebarLogo } from "@/components/mobile-sidebar-logo";
 
 export default function CreateAgentPage() {
@@ -54,8 +55,9 @@ export default function CreateAgentPage() {
               if (data.custom_email) {
                 try {
                   await createEmailAccount(agent.id, data.custom_email, workspaceId);
-                } catch {
-                  // best-effort — agent is already created
+                  toast.success("Custom email connected");
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Failed to connect custom email");
                 }
               }
               router.push(`/w/${slug}/agents/${agent.id}/chat`);

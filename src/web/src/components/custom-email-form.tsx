@@ -37,6 +37,7 @@ interface Props {
   agentId?: string;
   workspaceId: string;
   onDataChange?: (data: CustomEmailData | null) => void;
+  getDataRef?: React.MutableRefObject<(() => CustomEmailData | null) | null>;
 }
 
 function useEmailFields() {
@@ -60,14 +61,19 @@ function useEmailFields() {
     setSmtpPort(preset.smtpPort);
   }
 
+  const effectiveImapUsername = imapUsername || emailAddress;
+  const effectiveSmtpUsername = smtpUsername || emailAddress;
+
   function buildData(): CustomEmailData | null {
-    if (!emailAddress || !imapHost || !imapUsername || !imapPassword || !smtpHost || !smtpUsername || !smtpPassword) {
+    if (!emailAddress || !imapHost || !effectiveImapUsername || !imapPassword || !smtpHost || !effectiveSmtpUsername || !smtpPassword) {
       return null;
     }
     return {
-      emailAddress, displayName, imapHost, imapPort, imapUsername, imapPassword,
-      imapTls: true, smtpHost, smtpPort, smtpUsername, smtpPassword, smtpTls: 1,
-      pollIntervalSeconds: 60,
+      emailAddress, displayName, imapHost, imapPort,
+      imapUsername: effectiveImapUsername, imapPassword,
+      imapTls: true, smtpHost, smtpPort,
+      smtpUsername: effectiveSmtpUsername, smtpPassword,
+      smtpTls: 1, pollIntervalSeconds: 60,
     };
   }
 
@@ -117,7 +123,7 @@ function EmailFieldsForm({ fields, applyPreset }: {
             onChange={(e) => fields.setImapHost(e.target.value)} className="h-8 text-sm" />
           <Input type="number" placeholder="993" value={fields.imapPort}
             onChange={(e) => fields.setImapPort(Number(e.target.value))} className="h-8 text-sm" />
-          <Input placeholder="Username" value={fields.imapUsername}
+          <Input placeholder={fields.emailAddress || "Username (defaults to email)"} value={fields.imapUsername}
             onChange={(e) => fields.setImapUsername(e.target.value)} className="h-8 text-sm" />
           <Input type="password" placeholder="App Password" value={fields.imapPassword}
             onChange={(e) => fields.setImapPassword(e.target.value)} className="h-8 text-sm" />
@@ -128,7 +134,7 @@ function EmailFieldsForm({ fields, applyPreset }: {
             onChange={(e) => fields.setSmtpHost(e.target.value)} className="h-8 text-sm" />
           <Input type="number" placeholder="587" value={fields.smtpPort}
             onChange={(e) => fields.setSmtpPort(Number(e.target.value))} className="h-8 text-sm" />
-          <Input placeholder="Username" value={fields.smtpUsername}
+          <Input placeholder={fields.emailAddress || "Username (defaults to email)"} value={fields.smtpUsername}
             onChange={(e) => fields.setSmtpUsername(e.target.value)} className="h-8 text-sm" />
           <Input type="password" placeholder="App Password" value={fields.smtpPassword}
             onChange={(e) => fields.setSmtpPassword(e.target.value)} className="h-8 text-sm" />
@@ -138,7 +144,7 @@ function EmailFieldsForm({ fields, applyPreset }: {
   );
 }
 
-export function CustomEmailForm({ agentId, workspaceId, onDataChange }: Props) {
+export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef }: Props) {
   const isCreateMode = !agentId;
   const [open, setOpen] = useState(false);
   const [accounts, setAccounts] = useState<AgentEmailAccount[]>([]);
@@ -148,6 +154,10 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange }: Props) {
   const [deleting, setDeleting] = useState(false);
 
   const { fields, applyPreset, buildData } = useEmailFields();
+
+  useEffect(() => {
+    if (getDataRef) getDataRef.current = buildData;
+  });
 
   useEffect(() => {
     if (!isCreateMode) return;
