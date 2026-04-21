@@ -26,7 +26,7 @@ interface EmailResponse {
 }
 
 const VALID_STATUSES = ["unread", "read", "archived"];
-const EMAIL_DIR = "/tmp/alook-emails";
+const EMAIL_BASE = "/tmp/alook-emails";
 
 const MIME_BY_EXT: Record<string, string> = {
   ".pdf": "application/pdf",
@@ -101,7 +101,7 @@ export function emailCommand(): Command {
 
   cmd
     .command("pull")
-    .description("Download and parse emails to /tmp/alook-emails/")
+    .description("Download and parse emails to /tmp/alook-emails/{workspaceId}/{agentId}/")
     .requiredOption("--agent_id <id>", "Agent ID")
     .option("--status <status>", "Filter by status (unread, read, archived)")
     .option("--workspace <id>", "Workspace ID")
@@ -116,6 +116,8 @@ export function emailCommand(): Command {
         );
         process.exit(1);
       }
+
+      const emailDir_base = join(EMAIL_BASE, workspaceId, opts.agent_id);
 
       try {
         let query = `/api/email?agentId=${opts.agent_id}`;
@@ -133,12 +135,12 @@ export function emailCommand(): Command {
           return;
         }
 
-        mkdirSync(EMAIL_DIR, { recursive: true });
+        mkdirSync(emailDir_base, { recursive: true });
 
         const downloadedPaths: string[] = [];
 
         for (const email of emails) {
-          const emailDir = join(EMAIL_DIR, email.id);
+          const emailDir = join(emailDir_base, email.id);
           mkdirSync(emailDir, { recursive: true });
 
           // Write metadata
@@ -215,7 +217,7 @@ export function emailCommand(): Command {
         }
 
         console.log(
-          `Downloaded ${emails.length} email${emails.length === 1 ? "" : "s"} to ${EMAIL_DIR}/`,
+          `Downloaded ${emails.length} email${emails.length === 1 ? "" : "s"} to ${emailDir_base}/`,
         );
         for (const p of downloadedPaths) {
           console.log(`  ${p}`);
