@@ -160,11 +160,12 @@ export function AgentEditForm({
           </div>
         )}
 
-        <CustomEmailForm
-          agentId={agent?.id}
-          workspaceId={workspaceId}
-          onDataChange={setCustomEmailData}
-        />
+        {!agent && (
+          <CustomEmailForm
+            workspaceId={workspaceId}
+            onDataChange={setCustomEmailData}
+          />
+        )}
 
         <div className="space-y-1.5">
           <Label htmlFor="agent-instructions">Instructions</Label>
@@ -231,6 +232,13 @@ export function AgentEditForm({
               </span>
             </div>
           </div>
+        )}
+
+        {agent && (
+          <CustomEmailForm
+            agentId={agent.id}
+            workspaceId={workspaceId}
+          />
         )}
 
         <div className="flex items-center gap-2 pt-2">
