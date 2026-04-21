@@ -82,7 +82,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       if (agent.emailHandle) emailAddresses.push(`${agent.emailHandle}@alook.ai`);
       const customAccounts = await queries.emailAccount.getEmailAccountsByAgent(db, agent.id, task.workspaceId);
       for (const acc of customAccounts) {
-        if (acc.status === "active") emailAddresses.push(acc.emailAddress);
+        emailAddresses.push(acc.emailAddress);
       }
     }
     tasks.push({
