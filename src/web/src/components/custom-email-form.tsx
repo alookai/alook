@@ -209,6 +209,9 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange }: Props) {
       >
         {expanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
         Custom Email (IMAP/SMTP)
+        {!expanded && emailAddress && (
+          <span className="text-muted-foreground/70 ml-1">&mdash; {emailAddress}</span>
+        )}
       </button>
 
       {expanded && (
