@@ -29,7 +29,7 @@ describe("buildInstructionContent email tool injection", () => {
     expect(content).toContain("npx @alook/cli set --agent_id agent-123 --email_id <EMAIL_ID> --status read");
     expect(content).toContain("/tmp/alook-emails/");
     expect(content).toContain("metadata.json");
-    expect(content).toContain("Your email address is 'myagent@alook.ai'");
+    expect(content).toContain("'myagent@alook.ai' (default, Alook platform address)");
   });
 
   it("includes send-email docs when agent has email handle", () => {
@@ -69,7 +69,7 @@ describe("buildInstructionContent email tool injection", () => {
     });
     const content = buildInstructionContent(task);
 
-    expect(content).toContain("Your email address is 'myagent@alook.ai'");
+    expect(content).toContain("'myagent@alook.ai' (default, Alook platform address)");
     expect(content).toContain("Your owner's email address is 'gus@example.com'");
   });
 
@@ -79,7 +79,7 @@ describe("buildInstructionContent email tool injection", () => {
     });
     const content = buildInstructionContent(task);
 
-    expect(content).toContain("Your email address is 'myagent@alook.ai'");
+    expect(content).toContain("'myagent@alook.ai' (default, Alook platform address)");
     expect(content).not.toContain("owner's email");
   });
 
