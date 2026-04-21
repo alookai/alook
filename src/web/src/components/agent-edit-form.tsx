@@ -19,7 +19,7 @@ import type { AgentRuntime as Runtime } from "@alook/shared";
 import { cn } from "@/lib/utils";
 import { LockIcon, XIcon, ChevronRightIcon } from "lucide-react";
 import { useWorkspace } from "@/contexts/workspace-context";
-import { CustomEmailForm } from "@/components/custom-email-form";
+import { CustomEmailForm, type CustomEmailData } from "@/components/custom-email-form";
 import {
   listWhitelist,
   addWhitelistEmail,
@@ -47,6 +47,7 @@ interface AgentEditFormProps {
     runtime_id: string;
     email_handle?: string;
     runtime_config?: Record<string, unknown>;
+    custom_email?: CustomEmailData;
   }) => Promise<boolean>;
   onCancel: () => void;
   saving: boolean;
@@ -73,6 +74,7 @@ export function AgentEditForm({
     agent?.runtime_id ?? defaultRuntimeId
   );
   const [emailHandle, setEmailHandle] = useState(agent?.email_handle ?? "");
+  const [customEmailData, setCustomEmailData] = useState<CustomEmailData | null>(null);
   const [model, setModel] = useState(
     () => {
       const rc = agent?.runtime_config;
@@ -101,6 +103,7 @@ export function AgentEditForm({
       runtime_id: runtimeId,
       email_handle: emailHandle || derivedHandle || undefined,
       runtime_config: model ? { model } : {},
+      custom_email: customEmailData ?? undefined,
     });
   };
 
@@ -156,6 +159,12 @@ export function AgentEditForm({
             </p>
           </div>
         )}
+
+        <CustomEmailForm
+          agentId={agent?.id}
+          workspaceId={workspaceId}
+          onDataChange={setCustomEmailData}
+        />
 
         <div className="space-y-1.5">
           <Label htmlFor="agent-instructions">Instructions</Label>
@@ -222,10 +231,6 @@ export function AgentEditForm({
               </span>
             </div>
           </div>
-        )}
-
-        {agent && (
-          <CustomEmailForm agentId={agent.id} workspaceId={workspaceId} />
         )}
 
         <div className="flex items-center gap-2 pt-2">

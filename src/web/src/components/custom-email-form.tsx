@@ -21,20 +21,23 @@ const PRESETS: Record<string, { imapHost: string; imapPort: number; smtpHost: st
   Yahoo: { imapHost: "imap.mail.yahoo.com", imapPort: 993, smtpHost: "smtp.mail.yahoo.com", smtpPort: 587 },
 };
 
+export type CustomEmailData = CreateEmailAccountRequest;
+
 interface Props {
-  agentId: string;
+  agentId?: string;
   workspaceId: string;
+  onDataChange?: (data: CustomEmailData | null) => void;
 }
 
-export function CustomEmailForm({ agentId, workspaceId }: Props) {
+export function CustomEmailForm({ agentId, workspaceId, onDataChange }: Props) {
+  const isCreateMode = !agentId;
   const [accounts, setAccounts] = useState<AgentEmailAccount[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!isCreateMode);
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // Form fields
   const [emailAddress, setEmailAddress] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [imapHost, setImapHost] = useState("");
@@ -46,43 +49,57 @@ export function CustomEmailForm({ agentId, workspaceId }: Props) {
   const [smtpUsername, setSmtpUsername] = useState("");
   const [smtpPassword, setSmtpPassword] = useState("");
 
+  const buildData = useCallback((): CustomEmailData | null => {
+    if (!emailAddress || !imapHost || !imapUsername || !imapPassword || !smtpHost || !smtpUsername || !smtpPassword) {
+      return null;
+    }
+    return {
+      emailAddress,
+      displayName,
+      imapHost,
+      imapPort,
+      imapUsername,
+      imapPassword,
+      imapTls: true,
+      smtpHost,
+      smtpPort,
+      smtpUsername,
+      smtpPassword,
+      smtpTls: 1,
+      pollIntervalSeconds: 60,
+    };
+  }, [emailAddress, displayName, imapHost, imapPort, imapUsername, imapPassword, smtpHost, smtpPort, smtpUsername, smtpPassword]);
+
+  useEffect(() => {
+    if (!isCreateMode) return;
+    onDataChange?.(expanded ? buildData() : null);
+  }, [isCreateMode, expanded, buildData, onDataChange]);
+
   const load = useCallback(async () => {
+    if (isCreateMode) return;
     try {
-      const list = await listEmailAccounts(agentId, workspaceId);
+      const list = await listEmailAccounts(agentId!, workspaceId);
       setAccounts(list);
     } catch {
       // silent
     } finally {
       setLoading(false);
     }
-  }, [agentId, workspaceId]);
+  }, [agentId, workspaceId, isCreateMode]);
 
   useEffect(() => { load(); }, [load]);
 
   const existing = accounts[0] ?? null;
 
   async function handleCreate() {
-    if (!emailAddress || !imapHost || !imapUsername || !imapPassword || !smtpHost || !smtpUsername || !smtpPassword) {
+    const data = buildData();
+    if (!data) {
       toast.error("Please fill in all required fields");
       return;
     }
+    if (!agentId) return;
     setSaving(true);
     try {
-      const data: CreateEmailAccountRequest = {
-        emailAddress,
-        displayName,
-        imapHost,
-        imapPort,
-        imapUsername,
-        imapPassword,
-        imapTls: true,
-        smtpHost,
-        smtpPort,
-        smtpUsername,
-        smtpPassword,
-        smtpTls: 1,
-        pollIntervalSeconds: 60,
-      };
       await createEmailAccount(agentId, data, workspaceId);
       toast.success("Custom email configured");
       setExpanded(false);
@@ -95,7 +112,7 @@ export function CustomEmailForm({ agentId, workspaceId }: Props) {
   }
 
   async function handleDelete() {
-    if (!existing) return;
+    if (!existing || !agentId) return;
     setDeleting(true);
     try {
       await deleteEmailAccount(agentId, existing.id, workspaceId);
@@ -109,7 +126,7 @@ export function CustomEmailForm({ agentId, workspaceId }: Props) {
   }
 
   async function handleSync() {
-    if (!existing) return;
+    if (!existing || !agentId) return;
     setSyncing(true);
     try {
       await syncEmailAccount(agentId, existing.id, workspaceId);
@@ -140,7 +157,7 @@ export function CustomEmailForm({ agentId, workspaceId }: Props) {
     );
   }
 
-  if (existing) {
+  if (!isCreateMode && existing) {
     return (
       <div className="space-y-2">
         <Label className="text-xs text-muted-foreground">Custom Email</Label>
@@ -198,7 +215,7 @@ export function CustomEmailForm({ agentId, workspaceId }: Props) {
         <div className="rounded-lg border border-border/50 p-3 space-y-3">
           <div className="flex gap-1.5">
             {Object.keys(PRESETS).map((name) => (
-              <Button key={name} variant="outline" size="sm" className="h-6 text-[10px] px-2"
+              <Button key={name} type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2"
                 onClick={() => applyPreset(name)}>
                 {name}
               </Button>
@@ -243,12 +260,14 @@ export function CustomEmailForm({ agentId, workspaceId }: Props) {
             </div>
           </div>
 
-          <div className="flex justify-end">
-            <Button size="sm" className="h-7 text-xs" onClick={handleCreate} disabled={saving}>
-              {saving && <Loader2 className="size-3 animate-spin mr-1" />}
-              Save & Connect
-            </Button>
-          </div>
+          {!isCreateMode && (
+            <div className="flex justify-end">
+              <Button type="button" size="sm" className="h-7 text-xs" onClick={handleCreate} disabled={saving}>
+                {saving && <Loader2 className="size-3 animate-spin mr-1" />}
+                Save & Connect
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>
