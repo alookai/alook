@@ -559,3 +559,66 @@ export const verifyCode = (email: string, code: string) =>
     method: "POST",
     body: JSON.stringify({ email, otp: code }),
   });
+
+// --- Workspace management ---
+
+export const updateWorkspace = (workspaceId: string, data: { name?: string; slug?: string }) =>
+  apiFetch<Workspace>(`/api/workspaces/${workspaceId}`, { method: "PATCH", body: JSON.stringify(data) });
+
+export const deleteWorkspace = (workspaceId: string, confirmName: string) =>
+  apiFetch<void>(`/api/workspaces/${workspaceId}`, { method: "DELETE", body: JSON.stringify({ confirm_name: confirmName }) });
+
+// --- Members ---
+
+export interface MemberEntry {
+  id: string; user_id: string; role: string; name: string; email: string; image: string | null; created_at: string;
+}
+
+export const listMembers = (workspaceId: string) =>
+  apiFetch<MemberEntry[]>(`/api/workspaces/${workspaceId}/members`);
+
+export const removeMember = (workspaceId: string, memberId: string) =>
+  apiFetch<void>(`/api/workspaces/${workspaceId}/members/${memberId}`, { method: "DELETE" });
+
+// --- Invites ---
+
+export interface InviteEntry {
+  id: string; token: string; expires_at: string; created_at: string;
+}
+
+export const listInvites = (workspaceId: string) =>
+  apiFetch<InviteEntry[]>(`/api/workspaces/${workspaceId}/invites`);
+
+export const createInvite = (workspaceId: string) =>
+  apiFetch<InviteEntry>(`/api/workspaces/${workspaceId}/invites`, { method: "POST" });
+
+export const revokeInvite = (workspaceId: string, inviteId: string) =>
+  apiFetch<void>(`/api/workspaces/${workspaceId}/invites/${inviteId}`, { method: "DELETE" });
+
+// --- Invite accept ---
+
+export interface InviteInfo {
+  workspace_name: string; workspace_id: string; invited_by: string;
+}
+
+export interface InviteAcceptResult {
+  workspace_id: string; workspace_slug: string;
+}
+
+export const getInviteInfo = (token: string) => apiFetch<InviteInfo>(`/api/invite/${token}`);
+export const acceptInvite = (token: string) => apiFetch<InviteAcceptResult>(`/api/invite/${token}`, { method: "POST" });
+
+// --- Agent access ---
+
+export interface AgentAccessEntry {
+  id: string; user_id: string; name: string; email: string; created_at: string;
+}
+
+export const listAgentAccess = (workspaceId: string, agentId: string) =>
+  apiFetch<AgentAccessEntry[]>(`/api/agents/${agentId}/access${wsQuery(workspaceId)}`);
+
+export const grantAgentAccess = (workspaceId: string, agentId: string, userId: string) =>
+  apiFetch<{ id: string; user_id: string }>(`/api/agents/${agentId}/access${wsQuery(workspaceId)}`, { method: "POST", body: JSON.stringify({ user_id: userId }) });
+
+export const revokeAgentAccess = (workspaceId: string, agentId: string, userId: string) =>
+  apiFetch<void>(`/api/agents/${agentId}/access/${userId}${wsQuery(workspaceId)}`, { method: "DELETE" });
