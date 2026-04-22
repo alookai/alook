@@ -342,7 +342,7 @@ describe("email thread", () => {
 
     // Insert child email that replies to parent
     const childId = `ec_${randomUUID().slice(0, 12)}`
-    sql(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", created_at) VALUES ('${childId}', '${seed.agentId}', '${seed.workspaceId}', '${agentEmail}', 'sender@test.com', 'Re: Thread parent', 'emails/fake2/raw', 0, 0, '${childMsgId}', '${parentMsgId}', '${parentMsgId}', '${now}')`)
+    sql(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", direction, created_at) VALUES ('${childId}', '${seed.agentId}', '${seed.workspaceId}', '${agentEmail}', 'sender@test.com', 'Re: Thread parent', 'emails/fake2/raw', 0, 0, '${childMsgId}', '${parentMsgId}', '${parentMsgId}', 'outbound', '${now}')`)
 
     const res = await tokenRequest(
       `/api/email/${childId}/thread?workspace_id=${seed.workspaceId}`,
