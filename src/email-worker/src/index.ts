@@ -127,17 +127,18 @@ export default {
     const htmlBody = body.htmlBody ?? ""
     const attachmentKeys = body.attachmentKeys ?? []
 
-    // Fetch attachment content from R2 and convert to base64
-    const attachments: { disposition: "attachment"; filename: string; type: string; content: string }[] = []
+    // Fetch attachment content from R2
+    const attachments: { disposition: "attachment"; filename: string; type: string; raw: ArrayBuffer; base64: string }[] = []
     for (const att of attachmentKeys) {
       const obj = await env.EMAIL_BUCKET.get(att.key)
       if (!obj) continue
-      const buf = await obj.arrayBuffer()
+      const raw = await obj.arrayBuffer()
       attachments.push({
         disposition: "attachment" as const,
         filename: att.filename,
         type: att.contentType,
-        content: arrayBufferToBase64(buf),
+        raw,
+        base64: arrayBufferToBase64(raw),
       })
     }
 
@@ -174,7 +175,7 @@ export default {
             headers: threadingHeaders,
             attachments: attachments.map(a => ({
               filename: a.filename,
-              content: a.content,
+              content: a.base64,
               mimeType: a.type,
             })),
           }
@@ -192,7 +193,12 @@ export default {
         html: htmlBody,
       }
       if (attachments.length > 0) {
-        sendPayload.attachments = attachments
+        sendPayload.attachments = attachments.map(a => ({
+          disposition: a.disposition,
+          filename: a.filename,
+          type: a.type,
+          content: a.raw,
+        }))
       }
       await env.SEND_EMAIL.send(sendPayload as any)
     }
@@ -242,7 +248,7 @@ export default {
             `Content-Disposition: attachment; filename="${att.filename}"`,
             `Content-Transfer-Encoding: base64`,
             "",
-            att.content.match(/.{1,76}/g)?.join("\r\n") ?? att.content,
+            att.base64.match(/.{1,76}/g)?.join("\r\n") ?? att.base64,
           ].join("\r\n")
         )
       }
