@@ -1,4 +1,4 @@
-import { eq, and, desc, or, exists } from "drizzle-orm";
+import { eq, and, desc, or, sql } from "drizzle-orm";
 import { agent, agentTaskQueue, agentAccess } from "../schema";
 import type { Database } from "../index";
 
@@ -30,15 +30,7 @@ export async function listAgents(db: Database, workspaceId: string, userId?: str
         or(
           eq(agent.visibility, "public"),
           eq(agent.ownerId, userId),
-          exists(
-            db.select({ id: agentAccess.id }).from(agentAccess).where(
-              and(
-                eq(agentAccess.agentId, agent.id),
-                eq(agentAccess.workspaceId, agent.workspaceId),
-                eq(agentAccess.userId, userId)
-              )
-            )
-          )
+          sql`EXISTS (SELECT 1 FROM agent_access WHERE agent_access.agent_id = ${agent.id} AND agent_access.workspace_id = ${agent.workspaceId} AND agent_access.user_id = ${userId})`
         )
       )
     )
