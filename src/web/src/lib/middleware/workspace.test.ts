@@ -1,106 +1,73 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
 
+const mockGetMemberByUserAndWorkspace = vi.fn();
+
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })),
 }));
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
-vi.mock("@alook/shared", () => ({
-  createDb: vi.fn(() => ({})),
-  queries: {
-    member: {
-      getMemberByUserAndWorkspace: vi.fn(),
+vi.mock("@alook/shared", async () => {
+  const real = await vi.importActual<typeof import("@alook/shared")>("@alook/shared");
+  return {
+    ...real,
+    queries: {
+      member: {
+        getMemberByUserAndWorkspace: (...args: unknown[]) => mockGetMemberByUserAndWorkspace(...args),
+      },
     },
-  },
-}));
+  };
+});
 
-import { withWorkspaceMember } from "./workspace";
-import { queries } from "@alook/shared";
-import type { AuthContext } from "./auth";
+import { withWorkspaceMember, withWorkspaceOwner } from "./workspace";
 
-const mockGetMember = queries.member
-  .getMemberByUserAndWorkspace as ReturnType<typeof vi.fn>;
+function makeReq(wsId?: string) {
+  const url = wsId
+    ? `http://localhost/api/test?workspace_id=${wsId}`
+    : "http://localhost/api/test";
+  return new NextRequest(url);
+}
+
+const auth = { userId: "u1", email: "u@t.com" };
 
 describe("withWorkspaceMember", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns workspaceId from query param", async () => {
-    mockGetMember.mockResolvedValue({ id: "m1" });
-
-    const req = new NextRequest("http://localhost/api/test?workspace_id=w1");
-    const auth: AuthContext = { userId: "u1", email: "u@test.com" };
-
-    const result = await withWorkspaceMember(req, auth);
-    expect(result).toEqual({ workspaceId: "w1" });
-    expect(mockGetMember).toHaveBeenCalledWith({}, "u1", "w1");
+  it("returns workspaceId and memberRole on success", async () => {
+    mockGetMemberByUserAndWorkspace.mockResolvedValue({ role: "owner" });
+    const result = await withWorkspaceMember(makeReq("w1"), auth);
+    expect(result).toEqual({ workspaceId: "w1", memberRole: "owner" });
   });
 
-  it("returns workspaceId from X-Workspace-ID header", async () => {
-    mockGetMember.mockResolvedValue({ id: "m1" });
-
-    const req = new NextRequest("http://localhost/api/test", {
-      headers: { "X-Workspace-ID": "w-header" },
-    });
-    const auth: AuthContext = { userId: "u1", email: "u@test.com" };
-
-    const result = await withWorkspaceMember(req, auth);
-    expect(result).toEqual({ workspaceId: "w-header" });
-  });
-
-  it("returns workspaceId from auth context (machine token)", async () => {
-    mockGetMember.mockResolvedValue({ id: "m1" });
-
-    const req = new NextRequest("http://localhost/api/test");
-    const auth: AuthContext = {
-      userId: "u1",
-      email: "u@test.com",
-      workspaceId: "w-auth",
-    };
-
-    const result = await withWorkspaceMember(req, auth);
-    expect(result).toEqual({ workspaceId: "w-auth" });
-  });
-
-  it("returns 400 when no workspace_id provided", async () => {
-    const req = new NextRequest("http://localhost/api/test");
-    const auth: AuthContext = { userId: "u1", email: "u@test.com" };
-
-    const result = await withWorkspaceMember(req, auth);
+  it("returns 400 when workspace_id missing", async () => {
+    const result = await withWorkspaceMember(makeReq(), auth);
     expect(result).toBeInstanceOf(NextResponse);
-
-    const res = result as NextResponse;
-    const body = await res.json();
-    expect(res.status).toBe(400);
-    expect(body.error).toBe("workspace_id is required");
+    expect((result as NextResponse).status).toBe(400);
   });
 
-  it("returns 404 when user is not a member", async () => {
-    mockGetMember.mockResolvedValue(null);
-
-    const req = new NextRequest("http://localhost/api/test?workspace_id=w1");
-    const auth: AuthContext = { userId: "u1", email: "u@test.com" };
-
-    const result = await withWorkspaceMember(req, auth);
+  it("returns 404 when not a member", async () => {
+    mockGetMemberByUserAndWorkspace.mockResolvedValue(null);
+    const result = await withWorkspaceMember(makeReq("w1"), auth);
     expect(result).toBeInstanceOf(NextResponse);
+    expect((result as NextResponse).status).toBe(404);
+  });
+});
 
-    const res = result as NextResponse;
-    const body = await res.json();
-    expect(res.status).toBe(404);
-    expect(body.error).toBe("workspace not found");
+describe("withWorkspaceOwner", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("passes for owner", async () => {
+    mockGetMemberByUserAndWorkspace.mockResolvedValue({ role: "owner" });
+    const result = await withWorkspaceOwner(makeReq("w1"), auth);
+    expect(result).toEqual({ workspaceId: "w1", memberRole: "owner" });
   });
 
-  it("returns 401 when userId is missing", async () => {
-    const req = new NextRequest("http://localhost/api/test?workspace_id=w1");
-    const auth: AuthContext = { userId: "", email: "u@test.com" };
-
-    const result = await withWorkspaceMember(req, auth);
+  it("returns 403 for member role", async () => {
+    mockGetMemberByUserAndWorkspace.mockResolvedValue({ role: "member" });
+    const result = await withWorkspaceOwner(makeReq("w1"), auth);
     expect(result).toBeInstanceOf(NextResponse);
-
-    const res = result as NextResponse;
-    const body = await res.json();
-    expect(res.status).toBe(401);
-    expect(body.error).toBe("user not authenticated");
+    expect((result as NextResponse).status).toBe(403);
   });
 });

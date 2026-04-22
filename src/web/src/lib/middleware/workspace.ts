@@ -6,12 +6,13 @@ import type { AuthContext } from "./auth"
 
 export interface WorkspaceContext extends AuthContext {
   workspaceId: string
+  memberRole: string
 }
 
 export async function withWorkspaceMember(
   req: NextRequest,
   auth: AuthContext
-): Promise<{ workspaceId: string } | NextResponse> {
+): Promise<{ workspaceId: string; memberRole: string } | NextResponse> {
   const workspaceId =
     req.nextUrl.searchParams.get("workspace_id") ||
     req.headers.get("X-Workspace-ID") ||
@@ -46,5 +47,22 @@ export async function withWorkspaceMember(
     )
   }
 
-  return { workspaceId }
+  return { workspaceId, memberRole: membership.role }
+}
+
+export async function withWorkspaceOwner(
+  req: NextRequest,
+  auth: AuthContext
+): Promise<{ workspaceId: string; memberRole: string } | NextResponse> {
+  const result = await withWorkspaceMember(req, auth)
+  if (result instanceof NextResponse) return result
+
+  if (result.memberRole !== "owner") {
+    return NextResponse.json(
+      { error: "owner access required" },
+      { status: 403 }
+    )
+  }
+
+  return result
 }
