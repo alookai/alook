@@ -6,9 +6,11 @@ vi.mock("cloudflare:workers", () => ({
   DurableObject: class {},
 }))
 
-// Mock cf-imap — not used by index.ts directly but imported transitively
-vi.mock("cf-imap", () => ({
-  CFImap: class {},
+// Mock imap-client — imported transitively via imap-poller-do
+vi.mock("./lib/imap-client", () => ({
+  ImapClient: class {},
+  ImapAuthError: class extends Error {},
+  ImapError: class extends Error {},
 }))
 
 // Mock worker-mailer

@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@alook/shared": "workspace:*",
-    "cf-imap": "^0.0.12",
     "nanoid": "^5.1.9",
     "postal-mime": "^2.7.4",
     "worker-mailer": "^1.2.1"

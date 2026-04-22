@@ -319,8 +319,8 @@ export default {
     const result: { imap: string; smtp: string } = { imap: "untested", smtp: "untested" }
 
     try {
-      const { CFImap } = await import("cf-imap")
-      const imapClient = new CFImap({
+      const { ImapClient } = await import("./lib/imap-client")
+      const imapClient = new ImapClient({
         host: account.imapHost,
         port: account.imapPort,
         tls: account.imapTls as unknown as boolean,
