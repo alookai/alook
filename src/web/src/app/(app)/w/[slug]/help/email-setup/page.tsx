@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { MobileSidebarLogo } from "@/components/mobile-sidebar-logo";
+import { cn } from "@/lib/utils";
 
 const PROVIDERS = [
   {
@@ -17,7 +19,7 @@ const PROVIDERS = [
     note: "Gmail no longer supports regular passwords for third-party apps. You must use an App Password.",
   },
   {
-    name: "Outlook / Microsoft 365",
+    name: "Outlook",
     imap: { host: "outlook.office365.com", port: 993 },
     smtp: { host: "smtp.office365.com", port: 587 },
     steps: [
@@ -29,7 +31,7 @@ const PROVIDERS = [
     note: "If your organization uses Microsoft 365, your admin may need to enable App Passwords or IMAP access.",
   },
   {
-    name: "Yahoo Mail",
+    name: "Yahoo",
     imap: { host: "imap.mail.yahoo.com", port: 993 },
     smtp: { host: "smtp.mail.yahoo.com", port: 587 },
     steps: [
@@ -41,7 +43,7 @@ const PROVIDERS = [
     note: null,
   },
   {
-    name: "iCloud Mail",
+    name: "iCloud",
     imap: { host: "imap.mail.me.com", port: 993 },
     smtp: { host: "smtp.mail.me.com", port: 587 },
     steps: [
@@ -54,7 +56,7 @@ const PROVIDERS = [
     note: "Two-factor authentication must be enabled on your Apple ID.",
   },
   {
-    name: "QQ Mail",
+    name: "QQ",
     imap: { host: "imap.qq.com", port: 993 },
     smtp: { host: "smtp.qq.com", port: 587 },
     steps: [
@@ -68,7 +70,7 @@ const PROVIDERS = [
     note: null,
   },
   {
-    name: "163 Mail (NetEase)",
+    name: "163",
     imap: { host: "imap.163.com", port: 993 },
     smtp: { host: "smtp.163.com", port: 465 },
     steps: [
@@ -81,7 +83,7 @@ const PROVIDERS = [
     note: "SMTP uses port 465 with SSL instead of the typical 587.",
   },
   {
-    name: "Feishu (Lark) Mail",
+    name: "Feishu",
     imap: { host: "imap.feishu.cn", port: 993 },
     smtp: { host: "smtp.feishu.cn", port: 465 },
     steps: [
@@ -94,7 +96,7 @@ const PROVIDERS = [
     note: "SMTP uses port 465 with SSL. Your organization admin must enable IMAP access.",
   },
   {
-    name: "Other Providers",
+    name: "Other",
     imap: null,
     smtp: null,
     steps: [
@@ -108,6 +110,9 @@ const PROVIDERS = [
 ];
 
 export default function EmailSetupHelpPage() {
+  const [active, setActive] = useState(0);
+  const provider = PROVIDERS[active]!;
+
   return (
     <>
       <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5 gap-3">
@@ -121,37 +126,51 @@ export default function EmailSetupHelpPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-6">
-        <div className="mx-auto max-w-2xl space-y-8">
-          {PROVIDERS.map((provider) => (
-            <section key={provider.name} className="space-y-3">
-              <h2 className="text-base font-semibold">{provider.name}</h2>
+        <div className="mx-auto max-w-2xl space-y-6">
+          <div className="flex flex-wrap gap-1.5">
+            {PROVIDERS.map((p, i) => (
+              <button
+                key={p.name}
+                type="button"
+                onClick={() => setActive(i)}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-sm transition-colors",
+                  i === active
+                    ? "bg-primary text-primary-foreground font-medium"
+                    : "bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
 
-              {provider.imap && provider.smtp && (
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="rounded-md border border-border/50 px-3 py-2 space-y-0.5">
-                    <span className="font-medium text-muted-foreground">IMAP</span>
-                    <div>{provider.imap.host}:{provider.imap.port}</div>
-                  </div>
-                  <div className="rounded-md border border-border/50 px-3 py-2 space-y-0.5">
-                    <span className="font-medium text-muted-foreground">SMTP</span>
-                    <div>{provider.smtp.host}:{provider.smtp.port}</div>
-                  </div>
+          <div className="space-y-4">
+            {provider.imap && provider.smtp && (
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="rounded-md border border-border/50 px-3 py-2 space-y-0.5">
+                  <span className="font-medium text-muted-foreground">IMAP</span>
+                  <div className="font-mono">{provider.imap.host}:{provider.imap.port}</div>
                 </div>
-              )}
+                <div className="rounded-md border border-border/50 px-3 py-2 space-y-0.5">
+                  <span className="font-medium text-muted-foreground">SMTP</span>
+                  <div className="font-mono">{provider.smtp.host}:{provider.smtp.port}</div>
+                </div>
+              </div>
+            )}
 
-              <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-                {provider.steps.map((step, i) => (
-                  <li key={i}>{step}</li>
-                ))}
-              </ol>
+            <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
+              {provider.steps.map((step, i) => (
+                <li key={i}>{step}</li>
+              ))}
+            </ol>
 
-              {provider.note && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">
-                  {provider.note}
-                </p>
-              )}
-            </section>
-          ))}
+            {provider.note && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 rounded-md bg-amber-500/5 border border-amber-500/10 px-3 py-2">
+                {provider.note}
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </>
