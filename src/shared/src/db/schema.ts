@@ -94,6 +94,50 @@ export const member = sqliteTable(
   (t) => [unique("member_workspace_user").on(t.workspaceId, t.userId)]
 );
 
+export const workspaceInvite = sqliteTable(
+  "workspace_invite",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "inv_" + nanoid()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    token: text("token").unique().notNull().$defaultFn(() => nanoid(32)),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    usedBy: text("used_by").references(() => user.id, { onDelete: "set null" }),
+    usedAt: text("used_at"),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_workspace_invite_token").on(t.token),
+    index("idx_workspace_invite_workspace").on(t.workspaceId),
+  ]
+);
+
+export const agentAccess = sqliteTable(
+  "agent_access",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    agentId: text("agent_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    unique("agent_access_agent_ws_user").on(t.agentId, t.workspaceId, t.userId),
+    index("idx_agent_access_agent_ws").on(t.agentId, t.workspaceId),
+    index("idx_agent_access_user").on(t.userId),
+    foreignKey({
+      columns: [t.agentId, t.workspaceId],
+      foreignColumns: [agent.id, agent.workspaceId],
+    }).onDelete("cascade"),
+  ]
+);
+
 export const machine = sqliteTable(
   "machine",
   {
