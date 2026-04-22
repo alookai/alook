@@ -286,7 +286,7 @@ export function findRunningPidByTaskId(
   timelineDir: string,
   taskId: string,
 ): number | null {
-  for (const filename of recentFilenames(1)) {
+  for (const filename of recentFilenames(2)) {
     const entries = readJsonl(join(timelineDir, filename));
     for (const entry of entries) {
       if (entry.task_id === taskId && entry.status === "running" && entry.pid != null) {

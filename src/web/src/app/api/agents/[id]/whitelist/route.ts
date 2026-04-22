@@ -49,12 +49,12 @@ export const POST = withAuth(async (req, ctx) => {
   const entry = await queries.whitelist.addWhitelist(db, agentId, ws.workspaceId, email);
   if (!entry) return writeError("email already whitelisted", 409);
 
-  if (agent.runtimeId && agent.emailHandle) {
+  if (agent.runtimeId && agent.emailHandle && agent.ownerId) {
     try {
       const conv = await queries.conversation.createConversation(db, {
         workspaceId: ws.workspaceId,
         agentId: agent.id,
-        userId: agent.ownerId!,
+        userId: agent.ownerId,
         title: `Welcome: ${email}`.slice(0, 50),
         type: TASK_TYPES.EMAIL_NOTIFICATION,
       });

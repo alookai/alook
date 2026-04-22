@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, inArray, notInArray, ne, count, lt } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, notInArray, ne, count, lt, sql } from "drizzle-orm";
 import { agentTaskQueue } from "../schema";
 import type { Database } from "../index";
 import { ClaimedTaskRowSchema } from "../../schemas";
@@ -385,7 +385,7 @@ export async function failStaleKillTasks(db: Database, workspaceId: string) {
         eq(agentTaskQueue.workspaceId, workspaceId),
         eq(agentTaskQueue.type, TASK_TYPES.KILL_TASK),
         inArray(agentTaskQueue.status, ["queued", "dispatched"]),
-        lt(agentTaskQueue.createdAt, threshold)
+        lt(sql`coalesce(${agentTaskQueue.dispatchedAt}, ${agentTaskQueue.createdAt})`, threshold)
       )
     )
     .returning({ id: agentTaskQueue.id });
