@@ -18,6 +18,10 @@ import {
   createMachineToken,
   deleteMachine,
   listAgentActiveTaskCounts,
+  listAgentPins,
+  pinAgent as pinAgentApi,
+  unpinAgent as unpinAgentApi,
+  type AgentPin,
 } from "@/lib/api";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { toast } from "sonner";
@@ -37,11 +41,14 @@ interface AgentContextValue {
   runtimes: Runtime[];
   loading: boolean;
   activeTaskCounts: Record<string, number>;
+  pins: Map<string, string>;
   reload: () => Promise<void>;
   subscribeWs: (fn: WsSubscriber) => () => void;
   handleCreateAgent: (req: CreateAgentRequest) => Promise<Agent | null>;
   handleUpdateAgent: (id: string, req: UpdateAgentRequest) => Promise<boolean>;
   handleDeleteAgent: (id: string) => Promise<boolean>;
+  handlePinAgent: (agentId: string) => Promise<void>;
+  handleUnpinAgent: (agentId: string) => Promise<void>;
   getFirstOnlineRuntimeId: () => string;
   handleGenerateToken: () => Promise<string | null>;
   handleDeleteMachine: (daemonId: string) => Promise<boolean>;
@@ -66,6 +73,7 @@ export function AgentProvider({
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTaskCounts, setActiveTaskCounts] = useState<Record<string, number>>({});
+  const [pins, setPins] = useState<Map<string, string>>(new Map());
   const loadedRef = useRef(false);
   const subscribersRef = useRef(new Set<WsSubscriber>());
   const taskCountsMountedRef = useRef(true);
@@ -96,12 +104,14 @@ export function AgentProvider({
 
   const reload = useCallback(async () => {
     try {
-      const [a, r] = await Promise.all([
+      const [a, r, p] = await Promise.all([
         listAgents(workspaceId),
         listRuntimes(workspaceId),
+        listAgentPins(workspaceId),
       ]);
       setAgents(a);
       setRuntimes(r);
+      setPins(new Map(p.map((pin) => [pin.agent_id, pin.created_at])));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load data");
     } finally {
@@ -209,6 +219,27 @@ export function AgentProvider({
     [reload, workspaceId]
   );
 
+  const handlePinAgent = useCallback(async (agentId: string) => {
+    setPins((prev) => new Map(prev).set(agentId, new Date().toISOString()));
+    try {
+      await pinAgentApi(workspaceId, agentId);
+    } catch {
+      setPins((prev) => { const next = new Map(prev); next.delete(agentId); return next; });
+      toast.error("Failed to pin agent");
+    }
+  }, [workspaceId]);
+
+  const handleUnpinAgent = useCallback(async (agentId: string) => {
+    const prevPins = pins;
+    setPins((prev) => { const next = new Map(prev); next.delete(agentId); return next; });
+    try {
+      await unpinAgentApi(workspaceId, agentId);
+    } catch {
+      setPins(prevPins);
+      toast.error("Failed to unpin agent");
+    }
+  }, [workspaceId, pins]);
+
   const getFirstOnlineRuntimeId = useCallback(() => {
     const first = runtimes.find((r) => r.status === "online");
     return first?.id ?? "";
@@ -250,11 +281,14 @@ export function AgentProvider({
         runtimes,
         loading,
         activeTaskCounts,
+        pins,
         reload,
         subscribeWs,
         handleCreateAgent,
         handleUpdateAgent,
         handleDeleteAgent,
+        handlePinAgent,
+        handleUnpinAgent,
         getFirstOnlineRuntimeId,
         handleGenerateToken,
         handleDeleteMachine,

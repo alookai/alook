@@ -5,21 +5,33 @@ import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
-import { Monitor, SunMoon, Plus, LayoutGrid, CalendarDays, Settings } from "lucide-react";
+import { Monitor, SunMoon, Plus, LayoutGrid, CalendarDays, Settings, PinIcon, PinOffIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useTheme } from "next-themes";
 import { NavUser } from "@/components/nav-user";
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+} from "@/components/ui/context-menu";
 
 export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { agents, loading } = useAgentContext();
+  const { agents, loading, pins, handlePinAgent, handleUnpinAgent } = useAgentContext();
   const { slug } = useWorkspace();
 
   const { resolvedTheme, setTheme } = useTheme();
   const { activeTaskCounts: taskCounts } = useAgentContext();
-  const sorted = [...agents].sort((a, b) => a.name.localeCompare(b.name));
+
+  const pinned = agents
+    .filter((a) => pins.has(a.id))
+    .sort((a, b) => (pins.get(a.id)! < pins.get(b.id)! ? -1 : 1));
+  const unpinned = agents
+    .filter((a) => !pins.has(a.id))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const prefix = `/w/${slug}`;
   const isRuntimes = pathname === `${prefix}/runtimes`;
@@ -37,6 +49,48 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     onNavigate?.();
   };
 
+  const renderAgentButton = (agent: typeof agents[number]) => {
+    const isActive = activeAgentId === agent.id;
+    const isPinned = pins.has(agent.id);
+    return (
+      <ContextMenu key={agent.id}>
+        <ContextMenuTrigger
+          render={
+            <button
+              type="button"
+              title={agent.name}
+              onClick={() => handleAgentClick(agent.id)}
+              className={cn(
+                "relative flex shrink-0 items-center justify-center size-10 rounded-xl text-sm font-medium transition-colors duration-200 cursor-pointer",
+                isActive
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-secondary text-secondary-foreground hover:bg-accent"
+              )}
+            />
+          }
+        >
+          {agent.name.charAt(0).toUpperCase()}
+          {(taskCounts[agent.id] ?? 0) > 0 && (
+            <span className="absolute bottom-0 right-0 size-2 rounded-full bg-status-online animate-pulse ring-2 ring-background" />
+          )}
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {isPinned ? (
+            <ContextMenuItem onClick={() => handleUnpinAgent(agent.id)}>
+              <PinOffIcon className="size-3.5 mr-1.5" />
+              Unpin
+            </ContextMenuItem>
+          ) : (
+            <ContextMenuItem onClick={() => handlePinAgent(agent.id)}>
+              <PinIcon className="size-3.5 mr-1.5" />
+              Pin to top
+            </ContextMenuItem>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
   return (
     <nav className="flex h-full w-14 flex-col items-center py-2 gap-0.5">
       {/* Top — logo */}
@@ -51,28 +105,13 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         {loading ? (
           <Skeleton className="size-10 rounded-xl" />
         ) : (
-          sorted.map((agent) => {
-            const isActive = activeAgentId === agent.id;
-            return (
-              <button
-                key={agent.id}
-                type="button"
-                title={agent.name}
-                onClick={() => handleAgentClick(agent.id)}
-                className={cn(
-                  "relative flex shrink-0 items-center justify-center size-10 rounded-xl text-sm font-medium transition-colors duration-200 cursor-pointer",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-secondary text-secondary-foreground hover:bg-accent"
-                )}
-              >
-                {agent.name.charAt(0).toUpperCase()}
-                {(taskCounts[agent.id] ?? 0) > 0 && (
-                  <span className="absolute bottom-0 right-0 size-2 rounded-full bg-status-online animate-pulse ring-2 ring-background" />
-                )}
-              </button>
-            );
-          })
+          <>
+            {pinned.map(renderAgentButton)}
+            {pinned.length > 0 && unpinned.length > 0 && (
+              <div className="w-6 border-t border-border/50" />
+            )}
+            {unpinned.map(renderAgentButton)}
+          </>
         )}
 
         {/* Create agent */}

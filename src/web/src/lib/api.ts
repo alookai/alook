@@ -622,3 +622,19 @@ export const grantAgentAccess = (workspaceId: string, agentId: string, userId: s
 
 export const revokeAgentAccess = (workspaceId: string, agentId: string, userId: string, removeWhitelist = false) =>
   apiFetch<void>(`/api/agents/${agentId}/access/${userId}${wsQuery(workspaceId)}${removeWhitelist ? "&remove_whitelist=true" : ""}`, { method: "DELETE" });
+
+// Agent Pins
+export interface AgentPin {
+  id: string;
+  agent_id: string;
+  created_at: string;
+}
+
+export const listAgentPins = (workspaceId: string) =>
+  apiFetch<AgentPin[]>(`/api/agents/pins${wsQuery(workspaceId)}`);
+
+export const pinAgent = (workspaceId: string, agentId: string) =>
+  apiFetch<{ pinned: boolean }>(`/api/agents/${agentId}/pin${wsQuery(workspaceId)}`, { method: "POST" });
+
+export const unpinAgent = (workspaceId: string, agentId: string) =>
+  apiFetch<void>(`/api/agents/${agentId}/pin${wsQuery(workspaceId)}`, { method: "DELETE" });

@@ -138,6 +138,27 @@ export const agentAccess = sqliteTable(
   ]
 );
 
+export const agentPin = sqliteTable(
+  "agent_pin",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    agentId: text("agent_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    unique("agent_pin_agent_ws_user").on(t.agentId, t.workspaceId, t.userId),
+    index("idx_agent_pin_ws_user").on(t.workspaceId, t.userId),
+    foreignKey({
+      columns: [t.agentId, t.workspaceId],
+      foreignColumns: [agent.id, agent.workspaceId],
+    }).onDelete("cascade"),
+  ]
+);
+
 export const machine = sqliteTable(
   "machine",
   {

@@ -17,3 +17,4 @@ export * as artifact from "./queries/artifact";
 export * as emailAccount from "./queries/email-account";
 export * as workspaceInvite from "./queries/workspace-invite";
 export * as agentAccess from "./queries/agent-access";
+export * as agentPin from "./queries/agent-pin";
