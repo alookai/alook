@@ -489,3 +489,19 @@ export const CreateWorkspaceRequestSchema = z.object({
 export type CreateWorkspaceRequest = z.infer<
   typeof CreateWorkspaceRequestSchema
 >;
+
+export const UpdateWorkspaceRequestSchema = z.object({
+  name: z.string().min(1, "name is required").max(100).trim().optional(),
+  slug: z.string().min(1, "slug is required").max(100).trim().toLowerCase().optional(),
+});
+export type UpdateWorkspaceRequest = z.infer<typeof UpdateWorkspaceRequestSchema>;
+
+export const DeleteWorkspaceRequestSchema = z.object({
+  confirm_name: z.string().min(1, "confirm_name is required"),
+});
+export type DeleteWorkspaceRequest = z.infer<typeof DeleteWorkspaceRequestSchema>;
+
+export const GrantAgentAccessRequestSchema = z.object({
+  user_id: z.string().min(1, "user_id is required"),
+});
+export type GrantAgentAccessRequest = z.infer<typeof GrantAgentAccessRequestSchema>;

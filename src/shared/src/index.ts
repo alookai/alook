@@ -113,6 +113,9 @@ export {
   CreateEmailAccountSchema,
   UpdateEmailAccountSchema,
   TestEmailConnectionSchema,
+  UpdateWorkspaceRequestSchema,
+  DeleteWorkspaceRequestSchema,
+  GrantAgentAccessRequestSchema,
 } from "./schemas";
 
 export type {
