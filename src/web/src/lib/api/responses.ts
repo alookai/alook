@@ -42,6 +42,7 @@ export function agentToResponse(a: any) {
     status: a.status,
     max_concurrent_tasks: a.maxConcurrentTasks,
     email_handle: a.emailHandle || null,
+    visibility: a.visibility ?? "private",
     created_at: formatTimestamp(a.createdAt),
     updated_at: formatTimestamp(a.updatedAt),
   };

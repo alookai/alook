@@ -92,6 +92,7 @@ export interface UpdateAgentRequest {
   runtime_config?: Record<string, unknown>;
   max_concurrent_tasks?: number;
   email_handle?: string;
+  visibility?: string;
 }
 
 export interface SendMessageRequest {

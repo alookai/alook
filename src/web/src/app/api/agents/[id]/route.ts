@@ -60,8 +60,9 @@ export const PATCH = withAuth(async (req, ctx) => {
     }
     data.runtimeConfig = sanitized;
   }
+  if (body.visibility !== undefined) data.visibility = body.visibility;
 
-  const updated = await queries.agent.updateAgent(db, id, ws.workspaceId, data as { name?: string; description?: string; instructions?: string; runtimeId?: string; runtimeConfig?: unknown }, ctx.userId);
+  const updated = await queries.agent.updateAgent(db, id, ws.workspaceId, data as { name?: string; description?: string; instructions?: string; runtimeId?: string; runtimeConfig?: unknown; visibility?: string }, ctx.userId);
   if (!updated) {
     return writeError("agent not found", 404);
   }

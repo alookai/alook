@@ -24,7 +24,13 @@ import {
   listWhitelist,
   addWhitelistEmail,
   removeWhitelistEmail,
+  listAgentAccess,
+  grantAgentAccess,
+  revokeAgentAccess,
+  listMembers,
   type WhitelistEntry,
+  type AgentAccessEntry,
+  type MemberEntry,
 } from "@/lib/api";
 
 function nameToHandle(name: string): string {
@@ -48,19 +54,13 @@ interface AgentEditFormProps {
     email_handle?: string;
     runtime_config?: Record<string, unknown>;
     custom_email?: CustomEmailData;
+    visibility?: string;
   }) => Promise<boolean>;
   onCancel: () => void;
   saving: boolean;
   submitLabel?: string;
   savingLabel?: string;
 }
-
-const TABS = [
-  { id: "general", label: "General" },
-  { id: "email", label: "Email" },
-] as const;
-
-type TabId = (typeof TABS)[number]["id"];
 
 export function AgentEditForm({
   agent,
@@ -74,7 +74,6 @@ export function AgentEditForm({
   savingLabel = "Saving...",
 }: AgentEditFormProps) {
   const { workspaceId } = useWorkspace();
-  const [activeTab, setActiveTab] = useState<TabId>("general");
   const [name, setName] = useState(agent?.name ?? "");
   const [description, setDescription] = useState(agent?.description ?? "");
   const [instructions, setInstructions] = useState(agent?.instructions ?? "");
@@ -82,6 +81,7 @@ export function AgentEditForm({
     agent?.runtime_id ?? defaultRuntimeId
   );
   const [emailHandle, setEmailHandle] = useState(agent?.email_handle ?? "");
+  const [visibility, setVisibility] = useState(agent?.visibility ?? "private");
   const [customEmailData, setCustomEmailData] = useState<CustomEmailData | null>(null);
   const customEmailGetDataRef = useRef<(() => CustomEmailData | null) | null>(null);
   const [model, setModel] = useState(
@@ -113,213 +113,342 @@ export function AgentEditForm({
       email_handle: emailHandle || derivedHandle || undefined,
       runtime_config: model ? { model } : {},
       custom_email: customEmailGetDataRef.current?.() ?? customEmailData ?? undefined,
+      visibility,
     });
   };
 
   return (
-    <div className="flex flex-1 min-h-0">
-      <nav className="w-48 shrink-0 border-r border-border/50 py-3 px-2 hidden md:block">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setActiveTab(tab.id)}
-            className={cn(
-              "w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
-              activeTab === tab.id
-                ? "bg-accent text-foreground font-medium"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
+    <div className="flex-1 overflow-y-auto px-5 py-6">
+      <form onSubmit={handleSubmit} className="mx-auto max-w-md space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-name">Name</Label>
+          <Input
+            id="agent-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="My Agent"
+            required
+          />
+        </div>
 
-      <div className="flex-1 min-w-0 flex flex-col">
-        <div className="flex items-center gap-1 border-b border-border/50 px-4 md:hidden">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "relative px-3 py-2.5 text-sm transition-colors",
-                activeTab === tab.id
-                  ? "text-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-description">Description</Label>
+          <Input
+            id="agent-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What does this agent do?"
+          />
+        </div>
+
+        {!agent && (
+          <div className="space-y-1.5">
+            <Label htmlFor="agent-handle">Email Handle</Label>
+            <div className="flex items-center gap-0">
+              <Input
+                id="agent-handle"
+                value={emailHandle}
+                onChange={(e) => setEmailHandle(e.target.value.toLowerCase())}
+                placeholder={derivedHandle || "my-agent"}
+                className="rounded-r-none"
+              />
+              <span className="inline-flex h-8 items-center rounded-r-lg border border-l-0 border-input bg-muted px-2.5 text-sm text-muted-foreground">
+                @alook.ai
+              </span>
+            </div>
+            {effectiveHandle && (
+              <p className={cn(
+                "text-xs",
+                handleError ? "text-destructive" : "text-muted-foreground"
+              )}>
+                {handleError || `${effectiveHandle}@alook.ai`}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground/70">
+              This cannot be changed after creation.
+            </p>
+          </div>
+        )}
+
+        {!agent && (
+          <CustomEmailForm
+            workspaceId={workspaceId}
+            onDataChange={setCustomEmailData}
+            getDataRef={customEmailGetDataRef}
+          />
+        )}
+
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-instructions">Instructions</Label>
+          <Textarea
+            id="agent-instructions"
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            placeholder="System prompt or instructions..."
+            rows={6}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-model">Model</Label>
+          <Input
+            id="agent-model"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder="Default (runtime model)"
+            list="agent-model-options"
+          />
+          {providerModels.length > 0 && (
+            <datalist id="agent-model-options">
+              {providerModels.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+          )}
+          <p className="text-xs text-muted-foreground/70">
+            Optional. Leave blank to use the runtime&apos;s default model.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-runtime">Runtime</Label>
+          <RuntimeSelect
+            value={runtimeId}
+            onValueChange={(newId) => {
+              const oldProvider = runtimes.find((r) => r.id === runtimeId)?.provider;
+              const newProvider = runtimes.find((r) => r.id === newId)?.provider;
+              setRuntimeId(newId);
+              if (oldProvider && oldProvider !== newProvider) {
+                setModel("");
+              }
+            }}
+            runtimes={runtimes}
+          />
+        </div>
+
+        {agent && agent.email_handle && (
+          <WhitelistTrigger agentId={agent.id} />
+        )}
+
+        {agent && (
+          <div className="space-y-4 rounded-lg border border-border/50 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-medium">Access Control</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {visibility === "public"
+                    ? "All workspace members can use this agent"
+                    : "Only authorized members can use this agent"}
+                </p>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <span className="text-xs text-muted-foreground">
+                  {visibility === "public" ? "Public" : "Private"}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={visibility === "public"}
+                  onChange={(e) => setVisibility(e.target.checked ? "public" : "private")}
+                  className="sr-only peer"
+                />
+                <div className="relative w-9 h-5 bg-muted rounded-full peer-checked:bg-primary transition-colors">
+                  <div className={cn(
+                    "absolute left-0.5 top-0.5 w-4 h-4 bg-background rounded-full transition-transform",
+                    visibility === "public" ? "translate-x-4" : "translate-x-0"
+                  )} />
+                </div>
+              </label>
+            </div>
+
+            {visibility === "private" && (
+              <AgentAccessList agentId={agent.id} />
+            )}
+          </div>
+        )}
+
+        {agent && (
+          <div className="rounded-lg border border-border/50 bg-muted/30 px-4 py-3">
+            <div className="mb-2.5 flex items-center gap-1.5">
+              <LockIcon className="size-3 text-muted-foreground/60" />
+              <span className="text-xs font-medium text-muted-foreground/60">Set at creation</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Email</span>
+              <span className="text-xs text-muted-foreground">
+                {agent.email_handle ? `${agent.email_handle}@alook.ai` : "Not configured"}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {agent && (
+          <CustomEmailForm
+            agentId={agent.id}
+            workspaceId={workspaceId}
+          />
+        )}
+
+        <div className="flex items-center gap-2 pt-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={saving || !name || !!handleError}
+          >
+            {saving ? savingLabel : submitLabel}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function AgentAccessList({ agentId }: { agentId: string }) {
+  const { workspaceId } = useWorkspace();
+  const [accessList, setAccessList] = useState<AgentAccessEntry[]>([]);
+  const [members, setMembers] = useState<MemberEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      listAgentAccess(workspaceId, agentId),
+      listMembers(workspaceId),
+    ])
+      .then(([access, memberList]) => {
+        if (!cancelled) {
+          setAccessList(access);
+          setMembers(memberList);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setError("Failed to load access list");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [workspaceId, agentId]);
+
+  const authorizedUserIds = new Set(accessList.map((e) => e.user_id));
+  const availableMembers = members.filter((m) => !authorizedUserIds.has(m.user_id));
+
+  const handleGrant = async () => {
+    if (!selectedUserId || adding) return;
+    setAdding(true);
+    setError(null);
+    try {
+      await grantAgentAccess(workspaceId, agentId, selectedUserId);
+      const member = members.find((m) => m.user_id === selectedUserId);
+      if (member) {
+        setAccessList((prev) => [
+          ...prev,
+          {
+            id: selectedUserId,
+            user_id: member.user_id,
+            name: member.name,
+            email: member.email,
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      }
+      setSelectedUserId("");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to grant access");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleRevoke = async (userId: string) => {
+    const prev = accessList;
+    setAccessList((list) => list.filter((e) => e.user_id !== userId));
+    setError(null);
+    try {
+      await revokeAgentAccess(workspaceId, agentId, userId);
+    } catch {
+      setAccessList(prev);
+      setError("Failed to revoke access");
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-2">
+        {[1, 2].map((i) => (
+          <span key={i} className="block h-8 animate-pulse rounded-md bg-muted" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {accessList.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No members have been granted access.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {accessList.map((entry) => (
+            <div
+              key={entry.user_id}
+              className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2"
             >
-              {tab.label}
-              {activeTab === tab.id && (
-                <span className="absolute inset-x-3 -bottom-px h-px bg-foreground" />
-              )}
-            </button>
+              <div className="min-w-0">
+                <p className="text-xs font-medium truncate">{entry.name || entry.email}</p>
+                {entry.name && (
+                  <p className="text-xs text-muted-foreground truncate">{entry.email}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => handleRevoke(entry.user_id)}
+                className="ml-2 shrink-0 rounded-full p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+              >
+                <XIcon className="size-3.5" />
+              </button>
+            </div>
           ))}
         </div>
-
-        <div className="flex-1 overflow-y-auto thin-scrollbar px-5 py-6">
-          <form onSubmit={handleSubmit} className="mx-auto max-w-md space-y-4">
-            {activeTab === "general" && (
-              <>
-                <div className="space-y-1.5">
-                  <Label htmlFor="agent-name">Name</Label>
-                  <Input
-                    id="agent-name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="My Agent"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="agent-description">Description</Label>
-                  <Input
-                    id="agent-description"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="What does this agent do?"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="agent-instructions">Instructions</Label>
-                  <Textarea
-                    id="agent-instructions"
-                    value={instructions}
-                    onChange={(e) => setInstructions(e.target.value)}
-                    placeholder="System prompt or instructions..."
-                    rows={6}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="agent-model">Model</Label>
-                  <Input
-                    id="agent-model"
-                    value={model}
-                    onChange={(e) => setModel(e.target.value)}
-                    placeholder="Default (runtime model)"
-                    list="agent-model-options"
-                  />
-                  {providerModels.length > 0 && (
-                    <datalist id="agent-model-options">
-                      {providerModels.map((m) => (
-                        <option key={m} value={m} />
-                      ))}
-                    </datalist>
-                  )}
-                  <p className="text-xs text-muted-foreground/70">
-                    Optional. Leave blank to use the runtime&apos;s default model.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="agent-runtime">Runtime</Label>
-                  <RuntimeSelect
-                    value={runtimeId}
-                    onValueChange={(newId) => {
-                      const oldProvider = runtimes.find((r) => r.id === runtimeId)?.provider;
-                      const newProvider = runtimes.find((r) => r.id === newId)?.provider;
-                      setRuntimeId(newId);
-                      if (oldProvider && oldProvider !== newProvider) {
-                        setModel("");
-                      }
-                    }}
-                    runtimes={runtimes}
-                  />
-                </div>
-              </>
-            )}
-
-            {activeTab === "email" && (
-              <>
-                {!agent && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="agent-handle">Email Handle</Label>
-                    <div className="flex items-center gap-0">
-                      <Input
-                        id="agent-handle"
-                        value={emailHandle}
-                        onChange={(e) => setEmailHandle(e.target.value.toLowerCase())}
-                        placeholder={derivedHandle || "my-agent"}
-                        className="rounded-r-none"
-                      />
-                      <span className="inline-flex h-8 items-center rounded-r-lg border border-l-0 border-input bg-muted px-2.5 text-sm text-muted-foreground">
-                        @alook.ai
-                      </span>
-                    </div>
-                    {effectiveHandle && (
-                      <p className={cn(
-                        "text-xs",
-                        handleError ? "text-destructive" : "text-muted-foreground"
-                      )}>
-                        {handleError || `${effectiveHandle}@alook.ai`}
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground/70">
-                      This cannot be changed after creation.
-                    </p>
-                  </div>
-                )}
-
-                {!agent && (
-                  <CustomEmailForm
-                    workspaceId={workspaceId}
-                    onDataChange={setCustomEmailData}
-                    getDataRef={customEmailGetDataRef}
-                  />
-                )}
-
-                {agent && (
-                  <div className="rounded-lg border border-border/50 bg-muted/30 px-4 py-3">
-                    <div className="mb-2.5 flex items-center gap-1.5">
-                      <LockIcon className="size-3 text-muted-foreground/60" />
-                      <span className="text-xs font-medium text-muted-foreground/60">Set at creation</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">Email</span>
-                      <span className="text-xs text-muted-foreground">
-                        {agent.email_handle ? `${agent.email_handle}@alook.ai` : "Not configured"}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {agent && agent.email_handle && (
-                  <WhitelistTrigger agentId={agent.id} />
-                )}
-
-                {agent && (
-                  <CustomEmailForm
-                    agentId={agent.id}
-                    workspaceId={workspaceId}
-                  />
-                )}
-              </>
-            )}
-
-            <div className="flex items-center gap-2 pt-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={onCancel}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={saving || !name || !!handleError}
-              >
-                {saving ? savingLabel : submitLabel}
-              </Button>
-            </div>
-          </form>
+      )}
+      {availableMembers.length > 0 && (
+        <div className="flex items-center gap-2">
+          <select
+            value={selectedUserId}
+            onChange={(e) => setSelectedUserId(e.target.value)}
+            className="flex-1 h-8 rounded-md border border-input bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <option value="">Add a member...</option>
+            {availableMembers.map((m) => (
+              <option key={m.user_id} value={m.user_id}>
+                {m.name || m.email}
+              </option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={!selectedUserId || adding}
+            onClick={handleGrant}
+          >
+            {adding ? "Adding..." : "Add"}
+          </Button>
         </div>
-      </div>
+      )}
     </div>
   );
 }

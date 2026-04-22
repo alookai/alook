@@ -332,7 +332,7 @@ describe("AgentResponse shape", () => {
     expect(Object.keys(res).sort()).toEqual([
       "created_at", "description", "email_handle", "id", "instructions", "max_concurrent_tasks",
       "name", "runtime_config", "runtime_id", "runtime_mode", "status",
-      "updated_at", "workspace_id",
+      "updated_at", "visibility", "workspace_id",
     ]);
   });
 });

@@ -334,6 +334,7 @@ export const UpdateAgentRequestSchema = z
     instructions: z.string().optional(),
     runtime_id: z.string().min(1).optional(),
     runtime_config: RuntimeConfigSchema,
+    visibility: z.enum(["public", "private"]).optional(),
   })
   .refine(
     (v) =>
@@ -341,7 +342,8 @@ export const UpdateAgentRequestSchema = z
       v.description !== undefined ||
       v.instructions !== undefined ||
       v.runtime_id !== undefined ||
-      v.runtime_config !== undefined,
+      v.runtime_config !== undefined ||
+      v.visibility !== undefined,
     { message: "at least one field is required" },
   );
 export type UpdateAgentRequest = z.infer<typeof UpdateAgentRequestSchema>;
