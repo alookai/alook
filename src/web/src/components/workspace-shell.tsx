@@ -22,7 +22,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   if (isMobile) {
     return (
       <SidebarTriggerContext.Provider value={() => setSidebarOpen(true)}>
-        <div className="flex flex-col h-screen overflow-hidden relative">
+        <div className="flex flex-col h-dvh overflow-hidden relative">
           <GradientBackground />
           <div className="flex-1 min-h-0 px-2 pb-2 pt-2">
             <main className="h-full rounded-xl bg-card/80 backdrop-blur-xl shadow-lg ring-1 ring-border/40 overflow-hidden flex flex-col">
@@ -40,7 +40,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden relative">
+    <div className="flex h-dvh overflow-hidden relative">
       <GradientBackground />
       <AppSidebar />
       <div className="flex-1 min-w-0 p-2 pl-0">
