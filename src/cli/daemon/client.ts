@@ -19,14 +19,31 @@ export class DaemonClient {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     };
-    const res = await fetch(this.baseURL + path, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-    if (res.status === 204) return undefined as T;
-    return res.json();
+    const MAX_RETRIES = 3;
+    const BASE_DELAY_MS = 500;
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch(this.baseURL + path, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        if (res.status === 204) return undefined as T;
+        return res.json();
+      } catch (e) {
+        if (e instanceof TypeError) {
+          lastError = e;
+          if (attempt < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
+            continue;
+          }
+        }
+        throw e;
+      }
+    }
+    throw lastError;
   }
 
   async register(
@@ -122,14 +139,31 @@ export class DaemonClient {
     artifactId: string,
     workspaceId: string,
   ): Promise<ArrayBuffer> {
-    const res = await fetch(
-      `${this.baseURL}/api/artifacts/${artifactId}/content?workspace_id=${encodeURIComponent(workspaceId)}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    if (!res.ok) {
-      throw new Error(`artifact download failed: HTTP ${res.status}`);
+    const MAX_RETRIES = 3;
+    const BASE_DELAY_MS = 500;
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch(
+          `${this.baseURL}/api/artifacts/${artifactId}/content?workspace_id=${encodeURIComponent(workspaceId)}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!res.ok) {
+          throw new Error(`artifact download failed: HTTP ${res.status}`);
+        }
+        return res.arrayBuffer();
+      } catch (e) {
+        if (e instanceof TypeError) {
+          lastError = e;
+          if (attempt < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, BASE_DELAY_MS * 2 ** attempt));
+            continue;
+          }
+        }
+        throw e;
+      }
     }
-    return res.arrayBuffer();
+    throw lastError;
   }
 
   reportMessages(

@@ -311,6 +311,76 @@ describe("DaemonClient.deregister() with mocked fetch", () => {
 });
 
 // ---------------------------------------------------------------------------
+// DaemonClient fetch retry tests
+// ---------------------------------------------------------------------------
+
+describe("DaemonClient retries on TypeError (network failure)", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("retries up to 3 times on TypeError then succeeds", async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ tasks: [] }),
+      });
+    globalThis.fetch = fetchMock;
+
+    const client = new DaemonClient("http://localhost:8080");
+    const result = await client.poll("tok", "d1", 1);
+
+    expect(result.tasks).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("throws TypeError after exhausting all retries", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    globalThis.fetch = fetchMock;
+
+    const client = new DaemonClient("http://localhost:8080");
+    await expect(client.poll("tok", "d1", 1)).rejects.toThrow(TypeError);
+
+    expect(fetchMock).toHaveBeenCalledTimes(4); // 1 initial + 3 retries
+  });
+
+  it("does not retry on non-TypeError errors (e.g. HTTP errors)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: () => Promise.resolve("Internal Server Error"),
+    });
+    globalThis.fetch = fetchMock;
+
+    const client = new DaemonClient("http://localhost:8080");
+    await expect(client.completeTask("tok", "t1", { output: "done" })).rejects.toThrow("HTTP 500");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries downloadArtifact on TypeError", async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)),
+      });
+    globalThis.fetch = fetchMock;
+
+    const client = new DaemonClient("http://localhost:8080");
+    const buf = await client.downloadArtifact("tok", "art1", "ws1");
+
+    expect(buf.byteLength).toBe(4);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // DaemonClient has no heartbeat() or claimTask() methods
 // ---------------------------------------------------------------------------
 
