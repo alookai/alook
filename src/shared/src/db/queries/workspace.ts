@@ -47,3 +47,17 @@ export async function createWorkspace(
     .returning();
   return rows[0]!;
 }
+
+export async function updateWorkspace(db: Database, id: string, data: { name?: string; slug?: string }) {
+  const rows = await db
+    .update(workspace)
+    .set({ ...data, updatedAt: new Date().toISOString() })
+    .where(eq(workspace.id, id))
+    .returning();
+  return rows[0] ?? null;
+}
+
+export async function deleteWorkspace(db: Database, id: string) {
+  const rows = await db.delete(workspace).where(eq(workspace.id, id)).returning();
+  return rows[0] ?? null;
+}
