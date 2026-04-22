@@ -50,6 +50,7 @@ import {
   type AgentAccessEntry,
   type MemberEntry,
 } from "@/lib/api";
+import { useAgentContext } from "@/contexts/agent-context";
 import { toast } from "sonner";
 
 function nameToHandle(name: string): string {
@@ -255,6 +256,8 @@ export function AgentEditForm({
                       runtimes={runtimes}
                     />
                   </div>
+
+                  {agent && <PinToggle agentId={agent.id} />}
                 </>
               )}
 
@@ -597,6 +600,59 @@ function AgentAccessTab({ agentId, ownerId }: { agentId: string; ownerId: string
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function PinToggle({ agentId }: { agentId: string }) {
+  const { pins, handlePinAgent, handleUnpinAgent } = useAgentContext();
+  const isPinned = pins.has(agentId);
+  const [toggling, setToggling] = useState(false);
+
+  const handleToggle = async () => {
+    setToggling(true);
+    try {
+      if (isPinned) {
+        await handleUnpinAgent(agentId);
+      } else {
+        await handlePinAgent(agentId);
+      }
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4 rounded-lg border border-border/50 p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium">Pin to Sidebar</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {isPinned ? "This agent is pinned to the top of the sidebar" : "Pin this agent to the top of the sidebar"}
+          </p>
+        </div>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <span className="text-xs text-muted-foreground">
+            {toggling ? "Saving…" : isPinned ? "Pinned" : "Unpinned"}
+          </span>
+          <input
+            type="checkbox"
+            checked={isPinned}
+            onChange={handleToggle}
+            disabled={toggling}
+            className="sr-only peer"
+          />
+          <div className="relative w-9 h-5 bg-muted rounded-full peer-checked:bg-primary transition-colors">
+            <div className={cn(
+              "absolute left-0.5 top-0.5 w-4 h-4 bg-background rounded-full transition-transform",
+              isPinned ? "translate-x-4" : "translate-x-0"
+            )} />
+          </div>
+        </label>
+      </div>
+      <p className="text-xs text-muted-foreground/70">
+        Tip: You can also right-click an agent in the sidebar to pin or unpin it.
+      </p>
     </div>
   );
 }
