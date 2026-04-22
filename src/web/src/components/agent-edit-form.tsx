@@ -261,7 +261,7 @@ export function AgentEditForm({
             </div>
 
             {visibility === "private" && (
-              <AgentAccessList agentId={agent.id} />
+              <AgentAccessList agentId={agent.id} ownerId={agent.owner_id} />
             )}
           </div>
         )}
@@ -310,7 +310,7 @@ export function AgentEditForm({
   );
 }
 
-function AgentAccessList({ agentId }: { agentId: string }) {
+function AgentAccessList({ agentId, ownerId }: { agentId: string; ownerId: string | null }) {
   const { workspaceId } = useWorkspace();
   const [accessList, setAccessList] = useState<AgentAccessEntry[]>([]);
   const [members, setMembers] = useState<MemberEntry[]>([]);
@@ -341,8 +341,9 @@ function AgentAccessList({ agentId }: { agentId: string }) {
     return () => { cancelled = true; };
   }, [workspaceId, agentId]);
 
+  const ownerMember = members.find((m) => m.user_id === ownerId);
   const authorizedUserIds = new Set(accessList.map((e) => e.user_id));
-  const availableMembers = members.filter((m) => !authorizedUserIds.has(m.user_id));
+  const availableMembers = members.filter((m) => !authorizedUserIds.has(m.user_id) && m.user_id !== ownerId);
 
   const handleGrant = async () => {
     if (!selectedUserId || adding) return;
@@ -396,34 +397,39 @@ function AgentAccessList({ agentId }: { agentId: string }) {
   return (
     <div className="space-y-3">
       {error && <p className="text-xs text-destructive">{error}</p>}
-      {accessList.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          No members have been granted access.
-        </p>
-      ) : (
-        <div className="space-y-1.5">
-          {accessList.map((entry) => (
-            <div
-              key={entry.user_id}
-              className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2"
-            >
-              <div className="min-w-0">
-                <p className="text-xs font-medium truncate">{entry.name || entry.email}</p>
-                {entry.name && (
-                  <p className="text-xs text-muted-foreground truncate">{entry.email}</p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => handleRevoke(entry.user_id)}
-                className="ml-2 shrink-0 rounded-full p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-              >
-                <XIcon className="size-3.5" />
-              </button>
+      <div className="space-y-1.5">
+        {ownerMember && (
+          <div className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-xs font-medium truncate">{ownerMember.name || ownerMember.email}</p>
+              {ownerMember.name && (
+                <p className="text-xs text-muted-foreground truncate">{ownerMember.email}</p>
+              )}
             </div>
-          ))}
-        </div>
-      )}
+            <span className="ml-2 shrink-0 text-xs text-muted-foreground">Owner</span>
+          </div>
+        )}
+        {accessList.map((entry) => (
+          <div
+            key={entry.user_id}
+            className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2"
+          >
+            <div className="min-w-0">
+              <p className="text-xs font-medium truncate">{entry.name || entry.email}</p>
+              {entry.name && (
+                <p className="text-xs text-muted-foreground truncate">{entry.email}</p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => handleRevoke(entry.user_id)}
+              className="ml-2 shrink-0 rounded-full p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+            >
+              <XIcon className="size-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
       {availableMembers.length > 0 && (
         <div className="flex items-center gap-2">
           <select

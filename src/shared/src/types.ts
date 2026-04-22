@@ -30,6 +30,7 @@ export interface Agent {
   max_concurrent_tasks: number;
   email_handle: string | null;
   visibility: string;
+  owner_id: string | null;
   created_at: string;
   updated_at: string;
 }
