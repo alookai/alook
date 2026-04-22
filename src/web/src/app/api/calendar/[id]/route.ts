@@ -56,7 +56,8 @@ export const PATCH = withAuth(async (req, ctx) => {
     const agent = await queries.agent.getAgent(
       db,
       body.agent_id,
-      ws.workspaceId
+      ws.workspaceId,
+      ctx.userId
     );
     if (!agent) return writeError("agent not found in workspace", 404);
   }

@@ -25,7 +25,7 @@ export const POST = withAuth(async (req, ctx) => {
     return writeError("agent id is required", 400);
   }
 
-  const agent = await queries.agent.getAgent(db, id, ws.workspaceId);
+  const agent = await queries.agent.getAgent(db, id, ws.workspaceId, ctx.userId);
   if (!agent) {
     return writeError("agent not found", 404);
   }

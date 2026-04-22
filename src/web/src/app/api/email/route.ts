@@ -19,7 +19,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const agentId = req.nextUrl.searchParams.get("agentId");
   if (!agentId) return writeError("agentId is required", 400);
 
-  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId);
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId);
   if (!agent) return writeError("agent not found in workspace", 404);
 
   const status = req.nextUrl.searchParams.get("status") ?? undefined;

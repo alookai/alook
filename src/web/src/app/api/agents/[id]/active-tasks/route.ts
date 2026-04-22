@@ -14,7 +14,7 @@ export const GET = withAuth(async (req, ctx) => {
   const id = ctx.params?.id;
   if (!id) return writeError("agent id is required", 400);
 
-  const agent = await queries.agent.getAgent(db, id, ws.workspaceId);
+  const agent = await queries.agent.getAgent(db, id, ws.workspaceId, ctx.userId);
   if (!agent) return writeError("agent not found", 404);
 
   const tasks = await queries.task.listActiveTasksByAgent(db, id, ws.workspaceId);

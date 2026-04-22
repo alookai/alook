@@ -38,7 +38,7 @@ export const GET = withAuth(async (req, ctx) => {
   const agentId = ctx.params?.id
   if (!agentId) return writeError("agent id is required", 400)
 
-  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId)
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId)
   if (!agent) return writeError("agent not found", 404)
 
   const accounts = await queries.emailAccount.getEmailAccountsByAgent(db, agentId, ws.workspaceId)
@@ -56,7 +56,7 @@ export const POST = withAuth(async (req, ctx) => {
   const agentId = ctx.params?.id
   if (!agentId) return writeError("agent id is required", 400)
 
-  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId)
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId)
   if (!agent) return writeError("agent not found", 404)
 
   const [body, err] = await parseBody(req, CreateEmailAccountSchema)

@@ -19,7 +19,7 @@ export const GET = withAuth(async (req, ctx) => {
   // Sweep stale state: catches stuck tasks even when all daemons are dead
   await sweepStaleState(db, ws.workspaceId);
 
-  const agents = await queries.agent.listAgents(db, ws.workspaceId);
+  const agents = await queries.agent.listAgents(db, ws.workspaceId, ctx.userId);
   return writeJSON(agents.map(agentToResponse));
 });
 
@@ -88,7 +88,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const updated = await queries.agent.getAgent(
       db,
       newAgent.id,
-      ws.workspaceId
+      ws.workspaceId,
+      ctx.userId
     );
     if (updated) return writeJSON(agentToResponse(updated), 201);
   }

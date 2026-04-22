@@ -25,7 +25,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const to = req.nextUrl.searchParams.get("to") ?? undefined;
 
   if (agentId) {
-    const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId);
+    const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId);
     if (!agent) return writeError("agent not found in workspace", 404);
   }
 
@@ -78,7 +78,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const agent = await queries.agent.getAgent(
     db,
     body.agent_id,
-    ws.workspaceId
+    ws.workspaceId,
+    ctx.userId
   );
   if (!agent) return writeError("agent not found in workspace", 404);
 

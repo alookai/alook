@@ -171,6 +171,7 @@ describe("PATCH /api/agents/[id]", () => {
       "a1",
       "w1",
       expect.objectContaining({ runtimeConfig: { model: "claude-sonnet-4-6" } }),
+      "u1",
     );
   });
 
@@ -190,6 +191,7 @@ describe("PATCH /api/agents/[id]", () => {
       "a1",
       "w1",
       expect.objectContaining({ runtimeConfig: { model: "x" } }),
+      "u1",
     );
   });
 
@@ -215,6 +217,7 @@ describe("PATCH /api/agents/[id]", () => {
       "a1",
       "w1",
       expect.objectContaining({ runtimeId: "rt1" }),
+      "u1",
     );
   });
 

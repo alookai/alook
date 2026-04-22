@@ -18,7 +18,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const [body, valErr] = await parseBody(req, SendEmailRequestSchema);
   if (valErr) return valErr;
 
-  const agent = await queries.agent.getAgent(db, body.agentId, ws.workspaceId);
+  const agent = await queries.agent.getAgent(db, body.agentId, ws.workspaceId, ctx.userId);
   if (!agent) return writeError("agent not found in workspace", 404);
 
   let customAccountId = body.customAccountId;

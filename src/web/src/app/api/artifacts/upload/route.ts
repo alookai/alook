@@ -70,7 +70,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   });
   const response = queries.artifact.artifactToResponse(row);
 
-  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId);
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId);
   if (agent?.ownerId) {
     broadcastToUser(agent.ownerId, {
       type: "artifact.uploaded",
