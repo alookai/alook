@@ -12,7 +12,7 @@ export const GET = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = await getCloudflareContext({ async: true })
+  const { env } = getCloudflareContext()
   const db = getDb((env as Env).DB)
 
   const id = ctx.params?.id;
@@ -37,7 +37,7 @@ export const DELETE = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = await getCloudflareContext({ async: true })
+  const { env } = getCloudflareContext()
   const db = getDb((env as Env).DB)
 
   const id = ctx.params?.id;
