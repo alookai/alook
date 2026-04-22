@@ -24,6 +24,15 @@ import { RuntimeSelect } from "@/components/runtime-select";
 import type { Agent } from "@alook/shared";
 import { isValidHandle } from "@alook/shared";
 import type { AgentRuntime as Runtime } from "@alook/shared";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { LockIcon, XIcon, ChevronRightIcon } from "lucide-react";
 import { useWorkspace } from "@/contexts/workspace-context";
@@ -312,6 +321,8 @@ function AgentAccessTab({ agentId, ownerId }: { agentId: string; ownerId: string
   const [error, setError] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState("");
   const [adding, setAdding] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<AgentAccessEntry | null>(null);
+  const [removeWhitelist, setRemoveWhitelist] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -389,13 +400,23 @@ function AgentAccessTab({ agentId, ownerId }: { agentId: string; ownerId: string
     }
   };
 
-  const handleRevoke = async (userId: string) => {
+  const handleRevoke = (userId: string) => {
+    const entry = accessList.find((e) => e.user_id === userId);
+    if (entry) {
+      setRevokeTarget(entry);
+      setRemoveWhitelist(true);
+    }
+  };
+
+  const confirmRevoke = async () => {
+    if (!revokeTarget) return;
     const prev = accessList;
-    setAccessList((list) => list.filter((e) => e.user_id !== userId));
+    setAccessList((list) => list.filter((e) => e.user_id !== revokeTarget.user_id));
+    setRevokeTarget(null);
     setError(null);
     try {
-      await revokeAgentAccess(workspaceId, agentId, userId);
-      toast.success("Access revoked");
+      await revokeAgentAccess(workspaceId, agentId, revokeTarget.user_id, removeWhitelist);
+      toast.success(removeWhitelist ? "Access revoked and removed from whitelist" : "Access revoked");
     } catch {
       setAccessList(prev);
       setError("Failed to revoke access");
@@ -508,6 +529,34 @@ function AgentAccessTab({ agentId, ownerId }: { agentId: string; ownerId: string
           )}
         </div>
       )}
+
+      <Dialog open={!!revokeTarget} onOpenChange={(open) => { if (!open) setRevokeTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Remove Member Access</DialogTitle>
+            <DialogDescription>
+              Remove <span className="font-medium text-foreground">{revokeTarget?.name || revokeTarget?.email}</span> from this agent?
+            </DialogDescription>
+          </DialogHeader>
+          <label className="flex items-center gap-2 cursor-pointer px-1">
+            <input
+              type="checkbox"
+              checked={removeWhitelist}
+              onChange={(e) => setRemoveWhitelist(e.target.checked)}
+              className="size-4 rounded border-border accent-primary"
+            />
+            <span className="text-sm">Also remove from email whitelist</span>
+          </label>
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" size="sm" />}>
+              Cancel
+            </DialogClose>
+            <Button size="sm" variant="destructive" onClick={confirmRevoke}>
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

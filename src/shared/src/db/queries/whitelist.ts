@@ -32,6 +32,20 @@ export async function removeWhitelist(db: Database, id: string, agentId: string,
   return rows[0] ?? null;
 }
 
+export async function removeWhitelistByEmail(db: Database, agentId: string, workspaceId: string, email: string) {
+  const rows = await db
+    .delete(agentWhitelist)
+    .where(
+      and(
+        eq(agentWhitelist.agentId, agentId),
+        eq(agentWhitelist.workspaceId, workspaceId),
+        eq(agentWhitelist.email, email),
+      )
+    )
+    .returning();
+  return rows[0] ?? null;
+}
+
 export async function isWhitelisted(db: Database, agentId: string, workspaceId: string, email: string): Promise<boolean> {
   const rows = await db
     .select({ id: agentWhitelist.id })

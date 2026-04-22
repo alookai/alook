@@ -260,7 +260,7 @@ describe("email send (outbound)", () => {
     // Create a temporary agent without emailHandle
     const tmpAgentId = `ag_tmp_${Date.now()}`
     const now = new Date().toISOString()
-    sql(`INSERT INTO agent (id, workspace_id, name, runtime_id, created_at, updated_at) VALUES ('${tmpAgentId}', '${seed.workspaceId}', 'No Handle Agent', '${seed.runtimeId}', '${now}', '${now}')`)
+    sql(`INSERT INTO agent (id, workspace_id, name, runtime_id, owner_id, created_at, updated_at) VALUES ('${tmpAgentId}', '${seed.workspaceId}', 'No Handle Agent', '${seed.runtimeId}', '${seed.userId}', '${now}', '${now}')`)
 
     try {
       const res = await tokenRequest(

@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockGetAgent = vi.fn();
+const mockListAgentAccess = vi.fn();
 const mockRevokeAgentAccess = vi.fn();
+const mockRemoveWhitelistByEmail = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })),
@@ -19,7 +21,11 @@ vi.mock("@alook/shared", async () => {
         getAgent: (...args: unknown[]) => mockGetAgent(...args),
       },
       agentAccess: {
+        listAgentAccess: (...args: unknown[]) => mockListAgentAccess(...args),
         revokeAgentAccess: (...args: unknown[]) => mockRevokeAgentAccess(...args),
+      },
+      whitelist: {
+        removeWhitelistByEmail: (...args: unknown[]) => mockRemoveWhitelistByEmail(...args),
       },
     },
   };
@@ -47,6 +53,7 @@ beforeEach(() => vi.clearAllMocks());
 describe("DELETE /api/agents/[id]/access/[userId]", () => {
   it("revokes access and returns 204", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
+    mockListAgentAccess.mockResolvedValue([{ userId: "u2", userEmail: "u2@test.com" }]);
     mockRevokeAgentAccess.mockResolvedValue({ id: "ac1", userId: "u2" });
 
     const req = new NextRequest("http://localhost/api/agents/a1/access/u2", {
@@ -61,6 +68,7 @@ describe("DELETE /api/agents/[id]/access/[userId]", () => {
 
   it("returns 404 when access record not found", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
+    mockListAgentAccess.mockResolvedValue([]);
     mockRevokeAgentAccess.mockResolvedValue(null);
 
     const req = new NextRequest("http://localhost/api/agents/a1/access/u2", {

@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const mockGetAgent = vi.fn();
 const mockListAgentAccess = vi.fn();
 const mockGrantAgentAccess = vi.fn();
+const mockAddWhitelist = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({ env: { DB: {} } })),
@@ -22,6 +23,9 @@ vi.mock("@alook/shared", async () => {
       agentAccess: {
         listAgentAccess: (...args: unknown[]) => mockListAgentAccess(...args),
         grantAgentAccess: (...args: unknown[]) => mockGrantAgentAccess(...args),
+      },
+      whitelist: {
+        addWhitelist: (...args: unknown[]) => mockAddWhitelist(...args),
       },
     },
   };
@@ -92,6 +96,8 @@ describe("POST /api/agents/[id]/access", () => {
   it("grants access and returns 201", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
     mockGrantAgentAccess.mockResolvedValue({ id: "ac1", userId: "u2" });
+    mockListAgentAccess.mockResolvedValue([{ userId: "u2", userEmail: "u2@test.com" }]);
+    mockAddWhitelist.mockResolvedValue(null);
 
     const req = new NextRequest("http://localhost/api/agents/a1/access", {
       method: "POST",

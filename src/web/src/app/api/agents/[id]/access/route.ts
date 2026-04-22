@@ -38,5 +38,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const check = await requireAgentOwner(db, id, ws.workspaceId, ctx.userId);
   if (check.error) return check.error;
   const access = await queries.agentAccess.grantAgentAccess(db, { agentId: id, workspaceId: ws.workspaceId, userId: body.user_id });
+  const accessList = await queries.agentAccess.listAgentAccess(db, id, ws.workspaceId);
+  const member = accessList.find((a: any) => a.userId === body.user_id);
+  if (member?.userEmail) {
+    await queries.whitelist.addWhitelist(db, id, ws.workspaceId, member.userEmail);
+  }
   return writeJSON({ id: access.id, user_id: access.userId }, 201);
 });

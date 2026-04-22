@@ -620,5 +620,5 @@ export const listAgentAccess = (workspaceId: string, agentId: string) =>
 export const grantAgentAccess = (workspaceId: string, agentId: string, userId: string) =>
   apiFetch<{ id: string; user_id: string }>(`/api/agents/${agentId}/access${wsQuery(workspaceId)}`, { method: "POST", body: JSON.stringify({ user_id: userId }) });
 
-export const revokeAgentAccess = (workspaceId: string, agentId: string, userId: string) =>
-  apiFetch<void>(`/api/agents/${agentId}/access/${userId}${wsQuery(workspaceId)}`, { method: "DELETE" });
+export const revokeAgentAccess = (workspaceId: string, agentId: string, userId: string, removeWhitelist = false) =>
+  apiFetch<void>(`/api/agents/${agentId}/access/${userId}${wsQuery(workspaceId)}${removeWhitelist ? "&remove_whitelist=true" : ""}`, { method: "DELETE" });

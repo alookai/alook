@@ -15,7 +15,13 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   const ag = await queries.agent.getAgent(db, agentId, ws.workspaceId);
   if (!ag) return writeError("agent not found", 404);
   if (ag.ownerId !== ctx.userId) return writeError("agent owner access required", 403);
+  const accessList = await queries.agentAccess.listAgentAccess(db, agentId, ws.workspaceId);
+  const member = accessList.find((a: any) => a.userId === targetUserId);
   const revoked = await queries.agentAccess.revokeAgentAccess(db, agentId, ws.workspaceId, targetUserId);
   if (!revoked) return writeError("access record not found", 404);
+  const removeWhitelist = new URL(req.url).searchParams.get("remove_whitelist") === "true";
+  if (removeWhitelist && member?.userEmail) {
+    await queries.whitelist.removeWhitelistByEmail(db, agentId, ws.workspaceId, member.userEmail);
+  }
   return new Response(null, { status: 204 });
 });
