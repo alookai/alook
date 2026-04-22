@@ -6,12 +6,12 @@ import { useWorkspace } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
 import { TaskStream } from "@/components/task-stream";
 import {
+  chatInit,
   getOrCreateAgentConversation,
   listMessages,
   sendMessage,
   getTask,
   getTaskMessages,
-  getActiveTask,
   deleteConversation,
   listArtifacts,
   listBufferedMessages,
@@ -233,42 +233,24 @@ export function AgentChatView() {
     }, 50);
   }, []);
 
-  // Resolve conversation (get or create) then load messages + recover active task
   useEffect(() => {
     async function load() {
       try {
-        const conv = await getOrCreateAgentConversation(agentId, workspaceId);
-        setConversation(conv);
-        const [msgs, arts, buffered] = await Promise.allSettled([
-          listMessages(conv.id, workspaceId, { limit: MESSAGE_LIMIT }),
-          listArtifacts(conv.id, workspaceId),
-          listBufferedMessages(conv.id, workspaceId),
-        ]);
+        const data = await chatInit(agentId, workspaceId);
+        setConversation(data.conversation);
+        setMessages(data.messages);
+        setHasMore(data.has_more_messages);
+        setArtifacts(data.artifacts);
+        setBufferedMessages(data.buffered_messages);
 
-        if (msgs.status === "fulfilled") {
-          setMessages(msgs.value);
-          setHasMore(msgs.value.length >= MESSAGE_LIMIT);
-        } else {
-          toast.error("Failed to load messages");
-        }
-        if (arts.status === "fulfilled") {
-          setArtifacts(arts.value);
-        }
-        if (buffered.status === "fulfilled") {
-          setBufferedMessages(buffered.value);
-        }
-
-        // Recover active task (e.g. after page refresh)
-        const task = await getActiveTask(conv.id, workspaceId);
-        if (task) {
-          setActiveTask(task);
-          const tmsgs = await getTaskMessages(task.id, workspaceId);
-          if (tmsgs.length > 0) {
-            setTaskMessages(tmsgs);
-            lastSeqRef.current = Math.max(...tmsgs.map((m) => m.seq));
+        if (data.active_task) {
+          setActiveTask(data.active_task);
+          if (data.task_messages.length > 0) {
+            setTaskMessages(data.task_messages);
+            lastSeqRef.current = Math.max(...data.task_messages.map((m) => m.seq));
           }
-          if (task.status !== "completed" && task.status !== "failed") {
-            startPollingRef.current(task.id, conv.id, lastSeqRef.current);
+          if (data.active_task.status !== "completed" && data.active_task.status !== "failed") {
+            startPollingRef.current(data.active_task.id, data.conversation.id, lastSeqRef.current);
           }
         }
       } catch {

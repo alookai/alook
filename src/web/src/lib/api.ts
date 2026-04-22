@@ -164,6 +164,21 @@ export const getOrCreateAgentConversation = (agentId: string, workspaceId: strin
     method: "POST",
   });
 
+export interface ChatInitResponse {
+  conversation: Conversation;
+  messages: Message[];
+  artifacts: Artifact[];
+  buffered_messages: Message[];
+  active_task: TaskApi | null;
+  task_messages: TaskMessage[];
+  has_more_messages: boolean;
+}
+
+export const chatInit = (agentId: string, workspaceId: string) =>
+  apiFetch<ChatInitResponse>(`/api/agents/${agentId}/chat-init${wsQuery(workspaceId)}`, {
+    method: "POST",
+  });
+
 export const deleteConversation = (id: string, workspaceId: string) =>
   apiFetch<void>(`/api/conversations/${id}${wsQuery(workspaceId)}`, { method: "DELETE" });
 
