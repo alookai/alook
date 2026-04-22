@@ -21,9 +21,10 @@ import {
 import type { AgentEmailAccount, CreateEmailAccountRequest } from "@alook/shared";
 import {
   Loader2, Mail, RefreshCw, Trash2, AlertCircle, CheckCircle2,
-  ChevronRight, XIcon,
+  ChevronRight, XIcon, CircleHelp,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useWorkspace } from "@/contexts/workspace-context";
 
 const PRESETS: Record<string, { imapHost: string; imapPort: number; smtpHost: string; smtpPort: number }> = {
   Gmail: { imapHost: "imap.gmail.com", imapPort: 993, smtpHost: "smtp.gmail.com", smtpPort: 587 },
@@ -145,6 +146,7 @@ function EmailFieldsForm({ fields, applyPreset }: {
 }
 
 export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef }: Props) {
+  const { slug } = useWorkspace();
   const isCreateMode = !agentId;
   const [open, setOpen] = useState(false);
   const [accounts, setAccounts] = useState<AgentEmailAccount[]>([]);
@@ -280,7 +282,18 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
         <SheetBody className="px-8 pt-10 pb-6">
           <div className="space-y-4">
             <div>
-              <h2 className="font-heading text-lg font-semibold">Custom Email</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="font-heading text-lg font-semibold">Custom Email</h2>
+                <a
+                  href={`/w/${slug}/help/email-setup`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                  title="How to get IMAP/SMTP credentials"
+                >
+                  <CircleHelp className="size-4" />
+                </a>
+              </div>
               <p className="text-sm text-muted-foreground mt-1">
                 Connect your own mailbox to send and receive email as your identity.
               </p>
