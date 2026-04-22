@@ -11,24 +11,29 @@ vi.mock("cloudflare:workers", () => ({
   },
 }))
 
-const { mockConnect, mockSelectFolder, mockLogout } = vi.hoisted(() => ({
-  mockConnect: vi.fn().mockResolvedValue(undefined),
-  mockSelectFolder: vi.fn().mockResolvedValue({ exists: 5 }),
-  mockLogout: vi.fn().mockResolvedValue(true),
-}))
+const { mockConnect, mockSelect, mockLogout, mockCommand, MockImapAuthError } = vi.hoisted(() => {
+  class _MockImapAuthError extends Error {
+    constructor(msg: string) { super(msg); this.name = "ImapAuthError" }
+  }
+  return {
+    mockConnect: vi.fn().mockResolvedValue(undefined),
+    mockSelect: vi.fn().mockResolvedValue({ exists: 5 }),
+    mockLogout: vi.fn().mockResolvedValue(undefined),
+    mockCommand: vi.fn<(tag: string, cmd: string) => Promise<string>>(),
+    MockImapAuthError: _MockImapAuthError,
+  }
+})
 
-const { mockWriterWrite, mockReaderRead } = vi.hoisted(() => ({
-  mockWriterWrite: vi.fn().mockResolvedValue(undefined),
-  mockReaderRead: vi.fn<() => Promise<{ value: Uint8Array; done: boolean }>>(),
-}))
-
-vi.mock("cf-imap", () => ({
-  CFImap: class {
+vi.mock("./lib/imap-client", () => ({
+  ImapClient: class {
     connect = mockConnect
-    selectFolder = mockSelectFolder
+    select = mockSelect
     logout = mockLogout
-    writer = { write: mockWriterWrite }
-    reader = { read: mockReaderRead }
+    command = mockCommand
+  },
+  ImapAuthError: MockImapAuthError,
+  ImapError: class extends Error {
+    constructor(msg: string) { super(msg); this.name = "ImapError" }
   },
 }))
 
@@ -144,19 +149,6 @@ function createDO() {
   return { durable, ctx, storage, env, putR2, webFetch, getAlarm }
 }
 
-const encoder = new TextEncoder()
-
-/** Queue raw IMAP response strings for the mock reader. */
-function queueReaderResponses(...responses: string[]) {
-  let idx = 0
-  mockReaderRead.mockImplementation(async () => {
-    if (idx < responses.length) {
-      return { value: encoder.encode(responses[idx++]), done: false }
-    }
-    return { value: new Uint8Array(), done: true }
-  })
-}
-
 function buildFetchResponse(uid: number, rawEmail: string): string {
   return `* 1 FETCH (UID ${uid} BODY[] {${rawEmail.length}}\r\n${rawEmail}\r\n)\r\nF${uid} OK UID FETCH completed\r\n`
 }
@@ -189,11 +181,10 @@ describe("alarm — normal UID-based flow", () => {
       .mockResolvedValueOnce({ from: { name: "", address: "alice@example.com" }, subject: "Hi", messageId: "<msg1>", inReplyTo: "", references: "" })
       .mockResolvedValueOnce({ from: { name: "", address: "bob@example.com" }, subject: "Hey", messageId: "<msg2>", inReplyTo: "", references: "" })
 
-    queueReaderResponses(
-      "* SEARCH 101 102\r\nS1 OK UID SEARCH completed\r\n",
-      buildFetchResponse(101, RAW_EMAIL_1),
-      buildFetchResponse(102, RAW_EMAIL_2),
-    )
+    mockCommand
+      .mockResolvedValueOnce("* SEARCH 101 102\r\nS1 OK UID SEARCH completed\r\n")
+      .mockResolvedValueOnce(buildFetchResponse(101, RAW_EMAIL_1))
+      .mockResolvedValueOnce(buildFetchResponse(102, RAW_EMAIL_2))
 
     mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT, lastSyncedUid: "100" })
     await ctx.storage.put("accountId", "aea_test1")
@@ -223,25 +214,23 @@ describe("alarm — normal UID-based flow", () => {
 
   it("uses SINCE filter for first sync (lastSyncedUid=0)", async () => {
     const { durable, ctx } = createDO()
-    queueReaderResponses("* SEARCH\r\nS1 OK UID SEARCH completed\r\n")
+    mockCommand.mockResolvedValueOnce("* SEARCH\r\nS1 OK UID SEARCH completed\r\n")
     mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT, lastSyncedUid: "0" })
 
     await ctx.storage.put("accountId", "aea_test1")
     await durable.alarm()
 
-    const writeCall = mockWriterWrite.mock.calls[0][0]
-    const cmd = new TextDecoder().decode(writeCall)
-    expect(cmd).toMatch(/S1 UID SEARCH SINCE \d{1,2}-\w{3}-\d{4}/)
+    const [tag, cmd] = mockCommand.mock.calls[0]!
+    expect(tag).toBe("S1")
+    expect(cmd).toMatch(/UID SEARCH SINCE \d{1,2}-\w{3}-\d{4}/)
   })
 
   it("filters out UIDs <= lastSyncedUid from SEARCH results", async () => {
     const { durable, ctx, putR2 } = createDO()
-    // UID SEARCH UID 101:* might return UID 100 on some servers
-    queueReaderResponses(
-      "* SEARCH 100 101 102\r\nS1 OK UID SEARCH completed\r\n",
-      buildFetchResponse(101, RAW_EMAIL_1),
-      buildFetchResponse(102, RAW_EMAIL_2),
-    )
+    mockCommand
+      .mockResolvedValueOnce("* SEARCH 100 101 102\r\nS1 OK UID SEARCH completed\r\n")
+      .mockResolvedValueOnce(buildFetchResponse(101, RAW_EMAIL_1))
+      .mockResolvedValueOnce(buildFetchResponse(102, RAW_EMAIL_2))
     mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT, lastSyncedUid: "100" })
 
     await ctx.storage.put("accountId", "aea_test1")
@@ -257,10 +246,9 @@ describe("alarm — normal UID-based flow", () => {
 describe("alarm — whitelist filtering", () => {
   it("passes isWhitelisted=true for whitelisted sender", async () => {
     const { durable, ctx, webFetch } = createDO()
-    queueReaderResponses(
-      "* SEARCH 50\r\nS1 OK UID SEARCH completed\r\n",
-      buildFetchResponse(50, RAW_EMAIL_1),
-    )
+    mockCommand
+      .mockResolvedValueOnce("* SEARCH 50\r\nS1 OK UID SEARCH completed\r\n")
+      .mockResolvedValueOnce(buildFetchResponse(50, RAW_EMAIL_1))
     mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT, lastSyncedUid: "0" })
     mockIsWhitelisted.mockResolvedValue(true)
 
@@ -273,10 +261,9 @@ describe("alarm — whitelist filtering", () => {
 
   it("passes isWhitelisted=false for non-whitelisted sender", async () => {
     const { durable, ctx, webFetch } = createDO()
-    queueReaderResponses(
-      "* SEARCH 50\r\nS1 OK UID SEARCH completed\r\n",
-      buildFetchResponse(50, RAW_EMAIL_1),
-    )
+    mockCommand
+      .mockResolvedValueOnce("* SEARCH 50\r\nS1 OK UID SEARCH completed\r\n")
+      .mockResolvedValueOnce(buildFetchResponse(50, RAW_EMAIL_1))
     mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT, lastSyncedUid: "0" })
     mockIsWhitelisted.mockResolvedValue(false)
 
@@ -309,17 +296,16 @@ describe("alarm — connection failure & backoff", () => {
 // ─── Auth failure ───
 
 describe("alarm — auth failure", () => {
-  it("stops polling on authentication error", async () => {
+  it("stops polling on authentication error from connect", async () => {
     const { durable, ctx } = createDO()
-    mockConnect.mockResolvedValueOnce(undefined)
-    mockSelectFolder.mockRejectedValueOnce(new Error("Authentication failed"))
+    mockConnect.mockRejectedValueOnce(new MockImapAuthError("IMAP A1 failed: A1 NO [AUTHENTICATIONFAILED]"))
 
     await ctx.storage.put("accountId", "aea_test1")
     await durable.alarm()
 
     expect(mockUpdateEmailAccount).toHaveBeenCalledWith(
       expect.anything(), "aea_test1", "ws_test1",
-      expect.objectContaining({ status: "error", errorMessage: expect.stringContaining("Authentication") })
+      expect.objectContaining({ status: "error", errorMessage: expect.stringContaining("AUTHENTICATIONFAILED") })
     )
     expect(ctx.storage.deleteAlarm).toHaveBeenCalled()
   })
@@ -330,7 +316,7 @@ describe("alarm — auth failure", () => {
 describe("alarm — no new emails", () => {
   it("reschedules without fetching when UID SEARCH returns empty", async () => {
     const { durable, ctx, putR2, webFetch } = createDO()
-    queueReaderResponses("* SEARCH\r\nS1 OK UID SEARCH completed\r\n")
+    mockCommand.mockResolvedValueOnce("* SEARCH\r\nS1 OK UID SEARCH completed\r\n")
     mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT, lastSyncedUid: "50" })
 
     await ctx.storage.put("accountId", "aea_test1")
@@ -346,31 +332,12 @@ describe("alarm — no new emails", () => {
   })
 })
 
-// ─── Multi-chunk and error responses ───
+// ─── IMAP command error responses ───
 
-describe("alarm — IMAP response edge cases", () => {
-  it("handles FETCH response split across multiple TCP reads", async () => {
-    const { durable, ctx, putR2 } = createDO()
-    const rawEmail = RAW_EMAIL_1
-    const fullFetch = buildFetchResponse(101, rawEmail)
-    const mid = Math.floor(fullFetch.length / 2)
-
-    queueReaderResponses(
-      "* SEARCH 101\r\nS1 OK UID SEARCH completed\r\n",
-      fullFetch.substring(0, mid),
-      fullFetch.substring(mid),
-    )
-    mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT, lastSyncedUid: "100" })
-
-    await ctx.storage.put("accountId", "aea_test1")
-    await durable.alarm()
-
-    expect(putR2).toHaveBeenCalledTimes(1)
-  })
-
+describe("alarm — IMAP command error responses", () => {
   it("throws and triggers backoff when IMAP SEARCH returns NO", async () => {
     const { durable, ctx } = createDO()
-    queueReaderResponses("S1 NO [NONEXISTENT] Mailbox not found\r\n")
+    mockCommand.mockRejectedValueOnce(new Error("IMAP S1 failed: S1 NO [NONEXISTENT] Mailbox not found"))
     mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT, lastSyncedUid: "50" })
 
     await ctx.storage.put("accountId", "aea_test1")
@@ -385,9 +352,7 @@ describe("alarm — IMAP response edge cases", () => {
 
   it("throws and triggers backoff when IMAP stream ends prematurely", async () => {
     const { durable, ctx } = createDO()
-    // Stream ends without a tagged response
-    mockReaderRead.mockResolvedValueOnce({ value: encoder.encode("* SEARCH 101\r\n"), done: false })
-    mockReaderRead.mockResolvedValueOnce({ value: new Uint8Array(), done: true })
+    mockCommand.mockRejectedValueOnce(new Error("IMAP stream ended without tagged response for S1"))
     mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT, lastSyncedUid: "100" })
 
     await ctx.storage.put("accountId", "aea_test1")
@@ -425,7 +390,7 @@ describe("fetch() routing", () => {
 
   it("POST /sync triggers immediate poll", async () => {
     const { durable, ctx } = createDO()
-    queueReaderResponses("* SEARCH\r\nS1 OK UID SEARCH completed\r\n")
+    mockCommand.mockResolvedValueOnce("* SEARCH\r\nS1 OK UID SEARCH completed\r\n")
     await ctx.storage.put("accountId", "aea_test1")
     const res = await durable.fetch(new Request("http://internal/sync", { method: "POST" }))
     expect(res.status).toBe(200)

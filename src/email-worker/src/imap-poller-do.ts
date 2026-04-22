@@ -1,9 +1,9 @@
 import { DurableObject } from "cloudflare:workers"
-import { CFImap } from "cf-imap"
 import PostalMime from "postal-mime"
 import { nanoid } from "nanoid"
 import { createDb, queries, createLogger } from "@alook/shared"
 import { decrypt } from "@alook/shared/crypto"
+import { ImapClient, ImapAuthError } from "./lib/imap-client"
 import type { EmailEnv } from "./types"
 
 const log = createLogger({ service: "imap-poller" })
@@ -71,7 +71,7 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
     }
 
     const pollLog = log.child({ accountId, agentId: account.agentId })
-    let imap: CFImap | null = null
+    let client: ImapClient | null = null
 
     try {
       const secret = this.env.ENCRYPTION_KEY
@@ -80,23 +80,16 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
       const imapUsername = decrypt(account.imapUsername, secret)
       const imapPassword = decrypt(account.imapPassword, secret)
 
-      imap = new CFImap({
+      client = new ImapClient({
         host: account.imapHost,
         port: account.imapPort,
         tls: account.imapTls as unknown as boolean,
         auth: { username: imapUsername, password: imapPassword },
       })
 
-      await imap.connect()
-      await imap.selectFolder("INBOX")
+      await client.connect()
+      await client.select("INBOX")
 
-      const encoder = new TextEncoder()
-      const writer = (imap as any).writer as WritableStreamDefaultWriter
-      const reader = (imap as any).reader as ReadableStreamDefaultReader
-
-      // UID-based search instead of SEARCH UNSEEN — catches emails
-      // regardless of \Seen flag (fixes Feishu and similar IMAP servers
-      // that auto-mark emails as read).
       const lastUid = parseInt(account.lastSyncedUid, 10) || 0
       let searchCmd: string
       if (lastUid > 0) {
@@ -108,7 +101,7 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
         searchCmd = `UID SEARCH SINCE ${since.getDate()}-${months[since.getMonth()]}-${since.getFullYear()}`
       }
 
-      const searchResp = await this.imapReadUntilTag(writer, reader, encoder, "S1", searchCmd)
+      const searchResp = await client.command("S1", searchCmd)
       const searchLine = searchResp.split("\r\n").find(l => l.startsWith("* SEARCH"))
       const uids: number[] = searchLine
         ? searchLine.replace("* SEARCH", "").trim().split(/\s+/).map(Number).filter(n => !isNaN(n) && n > lastUid)
@@ -123,7 +116,7 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
           errorMessage: "",
         })
         await this.scheduleNext(account.pollIntervalSeconds * 1000)
-        await imap.logout()
+        await client.logout()
         return
       }
 
@@ -133,7 +126,7 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
       let maxUid = lastUid
       for (const uid of batch) {
         const tag = `F${uid}`
-        const fetchResp = await this.imapReadUntilTag(writer, reader, encoder, tag, `UID FETCH ${uid} (BODY.PEEK[])`)
+        const fetchResp = await client.command(tag, `UID FETCH ${uid} (BODY.PEEK[])`)
 
         const rawEmail = this.extractEmailFromFetch(fetchResp)
         if (!rawEmail) {
@@ -182,19 +175,17 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
 
       await this.ctx.storage.put("backoffMs", 0)
       await this.scheduleNext(account.pollIntervalSeconds * 1000)
-      await imap.logout()
+      await client.logout()
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       pollLog.error("poll failed", { error: msg })
-
-      const isAuthError = /auth|login|credentials/i.test(msg)
 
       await queries.emailAccount.updateEmailAccount(db, accountId, account.workspaceId, {
         status: "error",
         errorMessage: msg.slice(0, 500),
       })
 
-      if (isAuthError) {
+      if (err instanceof ImapAuthError) {
         pollLog.warn("auth error — stopping polling, user must fix credentials")
         await this.ctx.storage.deleteAlarm()
         return
@@ -208,40 +199,8 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
       await this.ctx.storage.put("backoffMs", nextBackoff)
       await this.scheduleNext(nextBackoff)
 
-      try { await imap?.logout() } catch { /* ignore */ }
+      try { await client?.logout() } catch { /* ignore */ }
     }
-  }
-
-  private async imapReadUntilTag(
-    writer: WritableStreamDefaultWriter,
-    reader: ReadableStreamDefaultReader,
-    encoder: TextEncoder,
-    tag: string,
-    cmd: string,
-  ): Promise<string> {
-    await writer.write(encoder.encode(`${tag} ${cmd}\r\n`))
-    const decoder = new TextDecoder()
-    let buf = ""
-    const READ_TIMEOUT_MS = 15_000
-    while (true) {
-      const { value, done } = await Promise.race([
-        reader.read(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`IMAP read timeout for ${tag}`)), READ_TIMEOUT_MS)
-        ),
-      ])
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      for (const line of buf.split("\r\n")) {
-        if (line.startsWith(`${tag} OK`) || line.startsWith(`${tag} NO`) || line.startsWith(`${tag} BAD`)) {
-          if (line.startsWith(`${tag} NO`) || line.startsWith(`${tag} BAD`)) {
-            throw new Error(`IMAP ${tag} failed: ${line}`)
-          }
-          return buf
-        }
-      }
-    }
-    throw new Error(`IMAP stream ended without tagged response for ${tag}`)
   }
 
   private extractEmailFromFetch(response: string): string | null {
