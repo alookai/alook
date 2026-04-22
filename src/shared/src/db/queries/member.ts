@@ -1,5 +1,5 @@
 import { eq, and } from "drizzle-orm";
-import { member } from "../schema";
+import { member, user } from "../schema";
 import type { Database } from "../index";
 
 export async function getMemberByUserAndWorkspace(
@@ -15,7 +15,20 @@ export async function getMemberByUserAndWorkspace(
 }
 
 export async function listMembers(db: Database, workspaceId: string) {
-  return db.select().from(member).where(eq(member.workspaceId, workspaceId));
+  return db
+    .select({
+      id: member.id,
+      workspaceId: member.workspaceId,
+      userId: member.userId,
+      role: member.role,
+      createdAt: member.createdAt,
+      userName: user.name,
+      userEmail: user.email,
+      userImage: user.image,
+    })
+    .from(member)
+    .innerJoin(user, eq(member.userId, user.id))
+    .where(eq(member.workspaceId, workspaceId));
 }
 
 export async function updateMemberGlobalInstruction(
@@ -45,4 +58,12 @@ export async function createMember(
     })
     .returning();
   return rows[0]!;
+}
+
+export async function deleteMember(db: Database, memberId: string, workspaceId: string) {
+  const rows = await db
+    .delete(member)
+    .where(and(eq(member.id, memberId), eq(member.workspaceId, workspaceId)))
+    .returning();
+  return rows[0] ?? null;
 }
