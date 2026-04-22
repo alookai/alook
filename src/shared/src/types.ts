@@ -139,6 +139,7 @@ export interface Email {
   html_body: string;
   attachments: EmailAttachment[];
   status: string;
+  direction: "inbound" | "outbound";
   created_at: string;
 }
 

@@ -105,6 +105,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     references: body.references ?? "",
     htmlBody: body.htmlBody || "",
     attachments: JSON.stringify(attachments),
+    direction: "outbound",
   });
 
   return writeJSON(emailToResponse(email));

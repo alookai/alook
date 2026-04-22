@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
     messageId: body.messageId,
     inReplyTo: body.inReplyTo,
     references: body.references,
+    direction: "inbound",
   })
 
   if (body.isWhitelisted && agent && agent.runtimeId) {

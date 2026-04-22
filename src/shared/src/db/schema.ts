@@ -301,6 +301,7 @@ export const emails = sqliteTable(
     htmlBody: text("html_body").notNull().default(""),
     attachments: text("attachments").notNull().default("[]"),
     status: text("status").notNull().default("unread"),
+    direction: text("direction").notNull().default("inbound"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
