@@ -11,12 +11,13 @@ export interface WorkspaceContext extends AuthContext {
 
 export async function withWorkspaceMember(
   req: NextRequest,
-  auth: AuthContext
+  auth: AuthContext & { params?: Record<string, string> }
 ): Promise<{ workspaceId: string; memberRole: string } | NextResponse> {
   const workspaceId =
     req.nextUrl.searchParams.get("workspace_id") ||
     req.headers.get("X-Workspace-ID") ||
-    auth.workspaceId
+    auth.workspaceId ||
+    auth.params?.id
 
   if (!workspaceId) {
     return NextResponse.json(
@@ -52,7 +53,7 @@ export async function withWorkspaceMember(
 
 export async function withWorkspaceOwner(
   req: NextRequest,
-  auth: AuthContext
+  auth: AuthContext & { params?: Record<string, string> }
 ): Promise<{ workspaceId: string; memberRole: string } | NextResponse> {
   const result = await withWorkspaceMember(req, auth)
   if (result instanceof NextResponse) return result
