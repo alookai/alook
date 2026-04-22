@@ -60,6 +60,14 @@ export async function createMember(
   return rows[0]!;
 }
 
+export async function getMember(db: Database, memberId: string, workspaceId: string) {
+  const rows = await db
+    .select()
+    .from(member)
+    .where(and(eq(member.id, memberId), eq(member.workspaceId, workspaceId)));
+  return rows[0] ?? null;
+}
+
 export async function deleteMember(db: Database, memberId: string, workspaceId: string) {
   const rows = await db
     .delete(member)

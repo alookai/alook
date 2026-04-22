@@ -230,15 +230,15 @@ export function AgentProvider({
   }, [workspaceId]);
 
   const handleUnpinAgent = useCallback(async (agentId: string) => {
-    const prevPins = pins;
-    setPins((prev) => { const next = new Map(prev); next.delete(agentId); return next; });
+    let savedValue: string | undefined;
+    setPins((prev) => { savedValue = prev.get(agentId); const next = new Map(prev); next.delete(agentId); return next; });
     try {
       await unpinAgentApi(workspaceId, agentId);
     } catch {
-      setPins(prevPins);
+      if (savedValue !== undefined) setPins((prev) => new Map(prev).set(agentId, savedValue!));
       toast.error("Failed to unpin agent");
     }
-  }, [workspaceId, pins]);
+  }, [workspaceId]);
 
   const getFirstOnlineRuntimeId = useCallback(() => {
     const first = runtimes.find((r) => r.status === "online");

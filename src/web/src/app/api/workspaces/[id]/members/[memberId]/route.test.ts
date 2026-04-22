@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const mockListMembers = vi.fn();
+const mockGetMember = vi.fn();
 const mockDeleteMember = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -16,7 +16,7 @@ vi.mock("@alook/shared", async () => {
     ...real,
     queries: {
       member: {
-        listMembers: (...args: unknown[]) => mockListMembers(...args),
+        getMember: (...args: unknown[]) => mockGetMember(...args),
         deleteMember: (...args: unknown[]) => mockDeleteMember(...args),
       },
     },
@@ -48,9 +48,7 @@ describe("DELETE /api/workspaces/[id]/members/[memberId]", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("removes a member successfully", async () => {
-    mockListMembers.mockResolvedValue([
-      { id: "m2", userId: "u2", role: "member" },
-    ]);
+    mockGetMember.mockResolvedValue({ id: "m2", userId: "u2", role: "member" });
     mockDeleteMember.mockResolvedValue({ id: "m2" });
 
     const res = await DELETE(makeReq("m2"), { params: Promise.resolve({ id: "w1", memberId: "m2" }) } as any);
@@ -59,7 +57,7 @@ describe("DELETE /api/workspaces/[id]/members/[memberId]", () => {
   });
 
   it("returns 404 when member not found", async () => {
-    mockListMembers.mockResolvedValue([]);
+    mockGetMember.mockResolvedValue(null);
 
     const res = await DELETE(makeReq("m-unknown"), { params: Promise.resolve({ id: "w1", memberId: "m-unknown" }) } as any);
     expect(res.status).toBe(404);
@@ -68,9 +66,7 @@ describe("DELETE /api/workspaces/[id]/members/[memberId]", () => {
   });
 
   it("returns 400 when trying to remove yourself", async () => {
-    mockListMembers.mockResolvedValue([
-      { id: "m1", userId: "u1", role: "owner" },
-    ]);
+    mockGetMember.mockResolvedValue({ id: "m1", userId: "u1", role: "owner" });
 
     const res = await DELETE(makeReq("m1"), { params: Promise.resolve({ id: "w1", memberId: "m1" }) } as any);
     expect(res.status).toBe(400);
@@ -78,13 +74,12 @@ describe("DELETE /api/workspaces/[id]/members/[memberId]", () => {
     expect(body.error).toBe("cannot remove yourself");
   });
 
-  it("returns 404 when deleteMember returns null (race condition)", async () => {
-    mockListMembers.mockResolvedValue([
-      { id: "m2", userId: "u2", role: "member" },
-    ]);
-    mockDeleteMember.mockResolvedValue(null);
+  it("returns 403 when trying to remove an owner", async () => {
+    mockGetMember.mockResolvedValue({ id: "m3", userId: "u3", role: "owner" });
 
-    const res = await DELETE(makeReq("m2"), { params: Promise.resolve({ id: "w1", memberId: "m2" }) } as any);
-    expect(res.status).toBe(404);
+    const res = await DELETE(makeReq("m3"), { params: Promise.resolve({ id: "w1", memberId: "m3" }) } as any);
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toBe("cannot remove a workspace owner");
   });
 });

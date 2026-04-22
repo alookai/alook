@@ -38,13 +38,13 @@ export function GeneralTab() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const currentEmail = session.data?.user?.email;
+      const currentUserId = session.data?.user?.id;
       const [members, workspaces] = await Promise.all([
         listMembers(workspaceId),
         listWorkspaces(),
       ]);
 
-      const me = members.find((m) => m.email === currentEmail);
+      const me = members.find((m) => m.user_id === currentUserId);
       setMemberRole(me?.role ?? "");
 
       const ws = workspaces.find((w) => w.id === workspaceId);
@@ -59,7 +59,7 @@ export function GeneralTab() {
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, session.data?.user?.email]);
+  }, [workspaceId, session.data?.user?.id]);
 
   useEffect(() => {
     if (session.data) fetchData();
