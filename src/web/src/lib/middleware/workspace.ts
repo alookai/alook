@@ -16,8 +16,7 @@ export async function withWorkspaceMember(
   const workspaceId =
     req.nextUrl.searchParams.get("workspace_id") ||
     req.headers.get("X-Workspace-ID") ||
-    auth.workspaceId ||
-    auth.params?.id
+    auth.workspaceId
 
   if (!workspaceId) {
     return NextResponse.json(

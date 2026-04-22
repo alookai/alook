@@ -41,10 +41,10 @@ describe("withWorkspaceMember", () => {
     expect(result).toEqual({ workspaceId: "w1", memberRole: "owner" });
   });
 
-  it("resolves workspace_id from params.id when no query param", async () => {
-    mockGetMemberByUserAndWorkspace.mockResolvedValue({ role: "member" });
+  it("returns 400 when only params.id is available (not used as workspace fallback)", async () => {
     const result = await withWorkspaceMember(makeReq(), { ...auth, params: { id: "w2" } });
-    expect(result).toEqual({ workspaceId: "w2", memberRole: "member" });
+    expect(result).toBeInstanceOf(NextResponse);
+    expect((result as NextResponse).status).toBe(400);
   });
 
   it("returns 400 when workspace_id missing", async () => {

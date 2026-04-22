@@ -7,7 +7,7 @@ import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 
 async function requireAgentOwner(db: any, agentId: string, workspaceId: string, userId: string) {
-  const ag = await queries.agent.getAgent(db, agentId, workspaceId);
+  const ag = await queries.agent.getAgent(db, agentId, workspaceId, userId);
   if (!ag) return { error: writeError("agent not found", 404) };
   if (ag.ownerId !== userId) return { error: writeError("agent owner access required", 403) };
   return { agent: ag };

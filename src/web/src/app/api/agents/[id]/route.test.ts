@@ -76,6 +76,7 @@ describe("GET /api/agents/[id]", () => {
 
 describe("DELETE /api/agents/[id]", () => {
   it("returns 204 on successful deletion", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
     mockDeleteAgent.mockResolvedValue(true);
 
     const req = new NextRequest("http://localhost/api/agents/a1", { method: "DELETE" });
@@ -100,6 +101,7 @@ describe("DELETE /api/agents/[id]", () => {
 
 describe("PATCH /api/agents/[id]", () => {
   it("updates agent and returns response", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
     mockUpdateAgent.mockResolvedValue({ id: "a1", name: "Updated" });
 
     const req = new NextRequest("http://localhost/api/agents/a1", {
@@ -156,6 +158,7 @@ describe("PATCH /api/agents/[id]", () => {
   });
 
   it("accepts and persists runtime_config", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
     mockUpdateAgent.mockResolvedValue({ id: "a1", name: "Agent" });
 
     const req = new NextRequest("http://localhost/api/agents/a1", {
@@ -176,6 +179,7 @@ describe("PATCH /api/agents/[id]", () => {
   });
 
   it("runtime_config alone is a valid update", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
     mockUpdateAgent.mockResolvedValue({ id: "a1", name: "Agent" });
 
     const req = new NextRequest("http://localhost/api/agents/a1", {
@@ -196,6 +200,7 @@ describe("PATCH /api/agents/[id]", () => {
   });
 
   it("PATCH with valid runtime_id (same workspace) updates agent successfully", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
     mockGetAgentRuntimeForWorkspace.mockResolvedValue({ id: "rt1", workspaceId: "w1" });
     mockUpdateAgent.mockResolvedValue({ id: "a1", name: "Agent" });
 

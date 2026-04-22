@@ -62,6 +62,10 @@ export const PATCH = withAuth(async (req, ctx) => {
   }
   if (body.visibility !== undefined) data.visibility = body.visibility;
 
+  const existing = await queries.agent.getAgent(db, id, ws.workspaceId, ctx.userId);
+  if (!existing) return writeError("agent not found", 404);
+  if (existing.ownerId !== ctx.userId) return writeError("agent owner access required", 403);
+
   const updated = await queries.agent.updateAgent(db, id, ws.workspaceId, data as { name?: string; description?: string; instructions?: string; runtimeId?: string; runtimeConfig?: unknown; visibility?: string }, ctx.userId);
   if (!updated) {
     return writeError("agent not found", 404);
@@ -81,6 +85,10 @@ export const DELETE = withAuth(async (req, ctx) => {
   if (!id) {
     return writeError("agent id is required", 400);
   }
+
+  const existing = await queries.agent.getAgent(db, id, ws.workspaceId, ctx.userId);
+  if (!existing) return writeError("agent not found", 404);
+  if (existing.ownerId !== ctx.userId) return writeError("agent owner access required", 403);
 
   const deleted = await queries.agent.deleteAgent(db, id, ws.workspaceId, ctx.userId);
   if (!deleted) {
