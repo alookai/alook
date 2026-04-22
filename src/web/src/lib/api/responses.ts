@@ -204,3 +204,41 @@ export function calendarEventToResponse(e: any) {
     updated_at: formatTimestamp(e.updatedAt),
   };
 }
+
+export function memberToResponse(m: {
+  id: string;
+  userId: string;
+  role: string;
+  createdAt: string;
+  userName: string;
+  userEmail: string;
+  userImage: string | null;
+}) {
+  return {
+    id: m.id,
+    user_id: m.userId,
+    role: m.role,
+    name: m.userName,
+    email: m.userEmail,
+    image: m.userImage,
+    created_at: formatTimestamp(m.createdAt),
+  };
+}
+
+export function inviteToResponse(inv: {
+  id: string;
+  token: string;
+  createdBy: string;
+  usedBy: string | null;
+  expiresAt: string;
+  createdAt: string;
+}) {
+  return {
+    id: inv.id,
+    token: inv.token,
+    created_by: inv.createdBy,
+    used_by: inv.usedBy,
+    expires_at: formatTimestamp(inv.expiresAt),
+    created_at: formatTimestamp(inv.createdAt),
+  };
+}
