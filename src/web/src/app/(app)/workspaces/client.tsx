@@ -65,7 +65,7 @@ export function WorkspaceListClient({
   }
 
   return (
-    <div className="relative flex min-h-screen flex-col items-center justify-center p-6">
+    <div className="relative flex min-h-dvh flex-col items-center justify-center p-6">
       <GradientBackground />
 
       <div className="w-full max-w-md space-y-8">
