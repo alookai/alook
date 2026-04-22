@@ -102,7 +102,7 @@ export function MembersTab() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-md space-y-4">
+      <div className="space-y-4">
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-10 w-full" />
         <Skeleton className="h-10 w-full" />
@@ -114,7 +114,7 @@ export function MembersTab() {
   }
 
   return (
-    <div className="mx-auto max-w-md space-y-8">
+    <div className="space-y-8">
       {/* Pending invites — owner only */}
       {isOwner && (
         <section className="space-y-3">

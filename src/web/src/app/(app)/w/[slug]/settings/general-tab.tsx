@@ -186,7 +186,7 @@ export function GeneralTab() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-md space-y-4">
+      <div className="space-y-4">
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-40 w-full" />
       </div>
@@ -194,7 +194,7 @@ export function GeneralTab() {
   }
 
   return (
-    <div className="mx-auto max-w-md space-y-10">
+    <div className="space-y-10">
       {/* Owner-only: workspace name/slug */}
       {isOwner && (
         <section className="space-y-4">
