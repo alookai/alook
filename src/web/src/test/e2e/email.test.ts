@@ -215,16 +215,16 @@ describe("email folder: rejected", () => {
     }
   })
 
-  it("GET /api/email?folder=inbox returns only whitelisted emails", async () => {
+  it("GET /api/email?folder=inbox returns all inbound emails", async () => {
     const res = await tokenRequest(
       `/api/email?workspace_id=${seed.workspaceId}&agentId=${seed.agentId}&folder=inbox`,
       seed.machineToken,
     )
     expect(res.status).toBe(200)
 
-    const emails = await res.json() as { is_whitelisted: boolean }[]
+    const emails = await res.json() as { direction: string }[]
     for (const email of emails) {
-      expect(email.is_whitelisted).toBe(true)
+      expect(email.direction).toBe("inbound")
     }
   })
 })
