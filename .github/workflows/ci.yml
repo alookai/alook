@@ -105,4 +105,4 @@ jobs:
         run: printf 'BETTER_AUTH_SECRET=ci-lighthouse-secret\nBETTER_AUTH_URL=http://localhost:3000\n' > src/web/.dev.vars
       - name: Lighthouse CI
         working-directory: src/web
-        run: npx @lhci/cli autorun --config=lighthouserc.json
+        run: npx @lhci/cli autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs
