@@ -15,7 +15,7 @@
 		"test:watch": "vitest",
 		"test:e2e": "vitest run --config vitest.e2e.config.ts",
 		"typecheck": "tsc --noEmit",
-		"seo:check": "lhci autorun --config=lighthouserc.json"
+		"seo:check": "lhci autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs"
 	},
 	"dependencies": {
 		"@alook/shared": "workspace:*",
