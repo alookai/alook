@@ -1,0 +1,24 @@
+{
+  "ci": {
+    "collect": {
+      "url": ["http://localhost:3000/"],
+      "startServerCommand": "pnpm dev",
+      "startServerReadyPattern": "Ready in",
+      "numberOfRuns": 1,
+      "settings": {
+        "onlyCategories": ["seo", "accessibility", "best-practices"],
+        "preset": "desktop"
+      }
+    },
+    "assert": {
+      "assertions": {
+        "categories:seo": ["error", { "minScore": 0.9 }],
+        "categories:accessibility": ["warn", { "minScore": 0.8 }],
+        "categories:best-practices": ["warn", { "minScore": 0.8 }]
+      }
+    },
+    "upload": {
+      "target": "temporary-public-storage"
+    }
+  }
+}

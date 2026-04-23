@@ -14,7 +14,8 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:e2e": "vitest run --config vitest.e2e.config.ts",
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"seo:check": "lhci autorun --config=lighthouserc.json"
 	},
 	"dependencies": {
 		"@alook/shared": "workspace:*",
@@ -63,6 +64,7 @@
 		"tailwindcss": "^4",
 		"typescript": "^6.0.3",
 		"vitest": "^4.1.4",
-		"wrangler": "^4.83.0"
+		"wrangler": "^4.83.0",
+		"@lhci/cli": "^0.14.0"
 	}
 }

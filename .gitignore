@@ -18,4 +18,5 @@ plans/
 .claude/
 .impeccable.md
 .playwright-mcp/
+.lighthouseci/
 src/cli/LICENSE

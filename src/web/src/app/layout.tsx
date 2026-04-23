@@ -50,9 +50,16 @@ const literata = Literata({
 });
 
 
+const SITE_URL = "https://alook.ai";
+
 export const metadata: Metadata = {
-  title: "Alook",
-  description: "Chat with AI agents",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "Alook — Always-on AI Agents",
+    template: "%s — Alook",
+  },
+  description:
+    "Your AI agents, always on. Give them an email, let them work for you around the clock.",
   icons: {
     icon: [
       {
@@ -64,6 +71,32 @@ export const metadata: Metadata = {
         media: "(prefers-color-scheme: dark)",
       },
     ],
+  },
+  openGraph: {
+    type: "website",
+    siteName: "Alook",
+    title: "Alook — Always-on AI Agents",
+    description:
+      "Your AI agents, always on. Give them an email, let them work for you around the clock.",
+    url: SITE_URL,
+    images: [
+      {
+        url: "/api/og?title=Always-on AI Agents",
+        width: 1200,
+        height: 630,
+        alt: "Alook — Always-on AI Agents",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Alook — Always-on AI Agents",
+    description:
+      "Your AI agents, always on. Give them an email, let them work for you around the clock.",
+    images: ["/api/og?title=Always-on AI Agents"],
+  },
+  alternates: {
+    canonical: SITE_URL,
   },
 };
 
@@ -82,6 +115,26 @@ export default function RootLayout({
         <ThemeScript />
       </head>
       <body className="min-h-full flex flex-col">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebApplication",
+              name: "Alook",
+              url: SITE_URL,
+              description:
+                "Your AI agents, always on. Give them an email, let them work for you around the clock.",
+              applicationCategory: "DeveloperApplication",
+              operatingSystem: "All",
+              offers: {
+                "@type": "Offer",
+                price: "0",
+                priceCurrency: "USD",
+              },
+            }),
+          }}
+        />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <TooltipProvider>
             {children}

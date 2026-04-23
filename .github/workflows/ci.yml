@@ -83,3 +83,26 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+
+  lighthouse:
+    name: Lighthouse SEO
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BETTER_AUTH_SECRET: ci-lighthouse-secret
+      BETTER_AUTH_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Create .dev.vars
+        run: printf 'BETTER_AUTH_SECRET=ci-lighthouse-secret\nBETTER_AUTH_URL=http://localhost:3000\n' > src/web/.dev.vars
+      - name: Lighthouse CI
+        working-directory: src/web
+        run: npx @lhci/cli autorun --config=lighthouserc.json
