@@ -113,26 +113,43 @@ export default function RootLayout({
     >
       <head>
         <ThemeScript />
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
       <body className="min-h-full flex flex-col">
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              "@context": "https://schema.org",
-              "@type": "WebApplication",
-              name: "Alook",
-              url: SITE_URL,
-              description:
-                "Your AI agents, always on. Give them an email, let them work for you around the clock.",
-              applicationCategory: "DeveloperApplication",
-              operatingSystem: "All",
-              offers: {
-                "@type": "Offer",
-                price: "0",
-                priceCurrency: "USD",
+            __html: JSON.stringify([
+              {
+                "@context": "https://schema.org",
+                "@type": "WebApplication",
+                name: "Alook",
+                url: SITE_URL,
+                description:
+                  "Your AI agents, always on. Give them an email, let them work for you around the clock.",
+                applicationCategory: "DeveloperApplication",
+                operatingSystem: "All",
+                offers: {
+                  "@type": "Offer",
+                  price: "0",
+                  priceCurrency: "USD",
+                },
               },
-            }),
+              {
+                "@context": "https://schema.org",
+                "@type": "Organization",
+                name: "Alook",
+                url: SITE_URL,
+                logo: `${SITE_URL}/alook.svg`,
+                contactPoint: {
+                  "@type": "ContactPoint",
+                  email: "support@alook.ai",
+                  contactType: "customer support",
+                },
+              },
+            ]),
           }}
         />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>

@@ -1,0 +1,16 @@
+{
+  "name": "Alook — Always-on AI Agents",
+  "short_name": "Alook",
+  "description": "Your AI agents, always on. Give them an email, let them work for you around the clock.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f0e8",
+  "theme_color": "#3d3428",
+  "icons": [
+    {
+      "src": "/alook.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

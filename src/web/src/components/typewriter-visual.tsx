@@ -497,6 +497,7 @@ export function TypewriterVisual({
 
                       <div
                         className="tw-email-body"
+                        aria-hidden
                         style={{
                           fontFamily: "var(--font-crt)",
                           color: "oklch(0.45 0.01 55)",
