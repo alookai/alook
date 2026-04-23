@@ -51,12 +51,12 @@ import { DELETE } from "./route";
 beforeEach(() => vi.clearAllMocks());
 
 describe("DELETE /api/agents/[id]/access/[userId]", () => {
-  it("revokes access and returns 204", async () => {
+  it("revokes access and returns 204 without removing whitelist", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
     mockListAgentAccess.mockResolvedValue([{ userId: "u2", userEmail: "u2@test.com" }]);
     mockRevokeAgentAccess.mockResolvedValue({ id: "ac1", userId: "u2" });
 
-    const req = new NextRequest("http://localhost/api/agents/a1/access/u2", {
+    const req = new NextRequest("http://localhost/api/agents/a1/access/u2?workspace_id=w1", {
       method: "DELETE",
     });
     const ctx = { params: Promise.resolve({ id: "a1", userId: "u2" }) };
@@ -64,6 +64,38 @@ describe("DELETE /api/agents/[id]/access/[userId]", () => {
 
     expect(res.status).toBe(204);
     expect(mockRevokeAgentAccess).toHaveBeenCalledWith({}, "a1", "w1", "u2");
+    expect(mockRemoveWhitelistByEmail).not.toHaveBeenCalled();
+  });
+
+  it("also removes whitelist when remove_whitelist=true", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
+    mockListAgentAccess.mockResolvedValue([{ userId: "u2", userEmail: "u2@test.com" }]);
+    mockRevokeAgentAccess.mockResolvedValue({ id: "ac1", userId: "u2" });
+    mockRemoveWhitelistByEmail.mockResolvedValue(null);
+
+    const req = new NextRequest("http://localhost/api/agents/a1/access/u2?workspace_id=w1&remove_whitelist=true", {
+      method: "DELETE",
+    });
+    const ctx = { params: Promise.resolve({ id: "a1", userId: "u2" }) };
+    const res = await DELETE(req, ctx as any);
+
+    expect(res.status).toBe(204);
+    expect(mockRemoveWhitelistByEmail).toHaveBeenCalledWith({}, "a1", "w1", "u2@test.com");
+  });
+
+  it("does not remove whitelist when member has no email even with remove_whitelist=true", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
+    mockListAgentAccess.mockResolvedValue([{ userId: "u2" }]);
+    mockRevokeAgentAccess.mockResolvedValue({ id: "ac1", userId: "u2" });
+
+    const req = new NextRequest("http://localhost/api/agents/a1/access/u2?workspace_id=w1&remove_whitelist=true", {
+      method: "DELETE",
+    });
+    const ctx = { params: Promise.resolve({ id: "a1", userId: "u2" }) };
+    const res = await DELETE(req, ctx as any);
+
+    expect(res.status).toBe(204);
+    expect(mockRemoveWhitelistByEmail).not.toHaveBeenCalled();
   });
 
   it("returns 404 when access record not found", async () => {

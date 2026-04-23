@@ -563,10 +563,10 @@ export const verifyCode = (email: string, code: string) =>
 // --- Workspace management ---
 
 export const updateWorkspace = (workspaceId: string, data: { name?: string; slug?: string }) =>
-  apiFetch<Workspace>(`/api/workspaces/${workspaceId}`, { method: "PATCH", body: JSON.stringify(data) });
+  apiFetch<Workspace>(`/api/workspaces/${workspaceId}${wsQuery(workspaceId)}`, { method: "PATCH", body: JSON.stringify(data) });
 
 export const deleteWorkspace = (workspaceId: string, confirmName: string) =>
-  apiFetch<void>(`/api/workspaces/${workspaceId}`, { method: "DELETE", body: JSON.stringify({ confirm_name: confirmName }) });
+  apiFetch<void>(`/api/workspaces/${workspaceId}${wsQuery(workspaceId)}`, { method: "DELETE", body: JSON.stringify({ confirm_name: confirmName }) });
 
 // --- Members ---
 
@@ -575,10 +575,10 @@ export interface MemberEntry {
 }
 
 export const listMembers = (workspaceId: string) =>
-  apiFetch<MemberEntry[]>(`/api/workspaces/${workspaceId}/members`);
+  apiFetch<MemberEntry[]>(`/api/workspaces/${workspaceId}/members${wsQuery(workspaceId)}`);
 
 export const removeMember = (workspaceId: string, memberId: string) =>
-  apiFetch<void>(`/api/workspaces/${workspaceId}/members/${memberId}`, { method: "DELETE" });
+  apiFetch<void>(`/api/workspaces/${workspaceId}/members/${memberId}${wsQuery(workspaceId)}`, { method: "DELETE" });
 
 // --- Invites ---
 
@@ -587,13 +587,13 @@ export interface InviteEntry {
 }
 
 export const listInvites = (workspaceId: string) =>
-  apiFetch<InviteEntry[]>(`/api/workspaces/${workspaceId}/invites`);
+  apiFetch<InviteEntry[]>(`/api/workspaces/${workspaceId}/invites${wsQuery(workspaceId)}`);
 
 export const createInvite = (workspaceId: string) =>
-  apiFetch<InviteEntry>(`/api/workspaces/${workspaceId}/invites`, { method: "POST" });
+  apiFetch<InviteEntry>(`/api/workspaces/${workspaceId}/invites${wsQuery(workspaceId)}`, { method: "POST" });
 
 export const revokeInvite = (workspaceId: string, inviteId: string) =>
-  apiFetch<void>(`/api/workspaces/${workspaceId}/invites/${inviteId}`, { method: "DELETE" });
+  apiFetch<void>(`/api/workspaces/${workspaceId}/invites/${inviteId}${wsQuery(workspaceId)}`, { method: "DELETE" });
 
 // --- Invite accept ---
 

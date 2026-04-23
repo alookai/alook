@@ -12,12 +12,12 @@ import { EmailCompose } from "@/components/email-compose";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldX, ChevronDown } from "lucide-react";
+import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldCheck, ChevronDown } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ResizablePanels } from "@/components/ui/resizable-panels";
 import { EmailBodyFrame } from "@/components/email-body-frame";
 
-type Folder = "inbox" | "sent" | "rejected";
+type Folder = "inbox" | "sent" | "trusted";
 
 function relativeTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -346,16 +346,16 @@ export default function AgentEmailPage() {
         </button>
         <button
           type="button"
-          onClick={() => setFolder("rejected")}
+          onClick={() => setFolder("trusted")}
           className={cn(
             "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
-            folder === "rejected"
+            folder === "trusted"
               ? "bg-accent text-foreground font-medium"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
           )}
         >
-          <ShieldX className="size-4 shrink-0" />
-          Rejected
+          <ShieldCheck className="size-4 shrink-0" />
+          Trusted
         </button>
       </nav>
     </div>
@@ -380,7 +380,7 @@ export default function AgentEmailPage() {
         <div className="flex flex-col items-center justify-center h-full animate-[fade-up_400ms_ease-out_both]">
           <Mail className="size-8 text-muted-foreground mb-3" />
           <p className="text-sm text-muted-foreground">
-            {folder === "inbox" ? "No emails received yet" : folder === "sent" ? "No emails sent yet" : "No rejected emails"}
+            {folder === "inbox" ? "No emails received yet" : folder === "sent" ? "No emails sent yet" : "No emails from trusted senders"}
           </p>
         </div>
       ) : (
@@ -397,7 +397,10 @@ export default function AgentEmailPage() {
             )}
           >
             <div className="flex items-center justify-between gap-2 mb-0.5">
-              <p className="text-sm font-medium truncate">
+              <p className="text-sm font-medium truncate flex items-center gap-1.5">
+                {folder === "inbox" && email.is_whitelisted && (
+                  <span className="inline-block size-1.5 rounded-full bg-green-500 shrink-0" title="Allowed sender" />
+                )}
                 {folder === "sent" ? email.to_email : email.from_email}
               </p>
               <span className="text-xs text-muted-foreground shrink-0">
@@ -672,19 +675,23 @@ export default function AgentEmailPage() {
         )}
         <div className="flex items-center gap-1 border-b border-border/50 px-3 py-2">
           <div className="flex items-center gap-0.5 flex-1 min-w-0">
-            {(["inbox", "sent", "rejected"] as Folder[]).map((f) => (
+            {([
+              { id: "inbox" as Folder, label: "Inbox" },
+              { id: "sent" as Folder, label: "Sent" },
+              { id: "trusted" as Folder, label: "Trusted" },
+            ]).map((f) => (
               <button
-                key={f}
+                key={f.id}
                 type="button"
-                onClick={() => setFolder(f)}
+                onClick={() => setFolder(f.id)}
                 className={cn(
-                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors capitalize",
-                  folder === f
+                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
+                  folder === f.id
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                {f}
+                {f.label}
               </button>
             ))}
           </div>

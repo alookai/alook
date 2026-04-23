@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
-import { AgentEditForm } from "@/components/agent-edit-form";
+import { AgentCreateForm } from "@/components/agent-create-form";
 import { fetchModelOptions, createEmailAccount } from "@/lib/api";
 import { toast } from "sonner";
 import { MobileSidebarLogo } from "@/components/mobile-sidebar-logo";
@@ -32,13 +32,11 @@ export default function CreateAgentPage() {
         <h1 className="text-sm font-medium">Create Agent</h1>
       </div>
 
-      <AgentEditForm
+      <AgentCreateForm
         runtimes={runtimes}
         defaultRuntimeId={getFirstOnlineRuntimeId()}
         modelOptions={modelOptions}
         saving={saving}
-        submitLabel="Create"
-        savingLabel="Creating..."
         onCancel={() => router.back()}
         onSave={async (data) => {
           setSaving(true);

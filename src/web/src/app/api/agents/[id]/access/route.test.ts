@@ -79,6 +79,18 @@ describe("GET /api/agents/[id]/access", () => {
     expect(body.error).toBe("agent owner access required");
   });
 
+  it("returns 403 when agent has null ownerId", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", ownerId: null });
+
+    const req = new NextRequest("http://localhost/api/agents/a1/access");
+    const ctx = { params: Promise.resolve({ id: "a1" }) };
+    const res = await GET(req, ctx as any);
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.error).toBe("agent owner access required");
+  });
+
   it("returns 404 when agent not found", async () => {
     mockGetAgent.mockResolvedValue(null);
 
@@ -113,6 +125,23 @@ describe("POST /api/agents/[id]/access", () => {
       {},
       { agentId: "a1", workspaceId: "w1", userId: "u2" }
     );
+    expect(mockAddWhitelist).toHaveBeenCalledWith({}, "a1", "w1", "u2@test.com");
+  });
+
+  it("does not add whitelist when member has no email", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "u1" });
+    mockGrantAgentAccess.mockResolvedValue({ id: "ac1", userId: "u2" });
+    mockListAgentAccess.mockResolvedValue([{ userId: "u2", userEmail: undefined }]);
+
+    const req = new NextRequest("http://localhost/api/agents/a1/access", {
+      method: "POST",
+      body: JSON.stringify({ user_id: "u2" }),
+    });
+    const ctx = { params: Promise.resolve({ id: "a1" }) };
+    const res = await POST(req, ctx as any);
+
+    expect(res.status).toBe(201);
+    expect(mockAddWhitelist).not.toHaveBeenCalled();
   });
 
   it("returns 403 when user is not agent owner", async () => {

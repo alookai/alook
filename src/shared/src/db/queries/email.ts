@@ -26,7 +26,7 @@ export async function getEmailsByAgent(db: Database, agentId: string, workspaceI
 }
 
 export async function getInboxEmails(db: Database, agentId: string, agentEmail: string, workspaceId: string, status?: string) {
-  const conditions = [eq(emails.agentId, agentId), eq(emails.toEmail, agentEmail), eq(emails.workspaceId, workspaceId), eq(emails.isWhitelisted, true), eq(emails.direction, "inbound")];
+  const conditions = [eq(emails.agentId, agentId), eq(emails.toEmail, agentEmail), eq(emails.workspaceId, workspaceId), eq(emails.direction, "inbound")];
   if (status) conditions.push(eq(emails.status, status));
   return db.select().from(emails)
     .where(and(...conditions))
@@ -35,6 +35,14 @@ export async function getInboxEmails(db: Database, agentId: string, agentEmail: 
 
 export async function getSentEmails(db: Database, agentId: string, agentEmail: string, workspaceId: string, status?: string) {
   const conditions = [eq(emails.agentId, agentId), eq(emails.workspaceId, workspaceId), eq(emails.direction, "outbound")];
+  if (status) conditions.push(eq(emails.status, status));
+  return db.select().from(emails)
+    .where(and(...conditions))
+    .orderBy(desc(emails.createdAt));
+}
+
+export async function getTrustedEmails(db: Database, agentId: string, agentEmail: string, workspaceId: string, status?: string) {
+  const conditions = [eq(emails.agentId, agentId), eq(emails.toEmail, agentEmail), eq(emails.workspaceId, workspaceId), eq(emails.isWhitelisted, true), eq(emails.direction, "inbound")];
   if (status) conditions.push(eq(emails.status, status));
   return db.select().from(emails)
     .where(and(...conditions))
