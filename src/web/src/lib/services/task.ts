@@ -49,7 +49,12 @@ export class TaskService {
 
     const running = await taskQueries.countRunningTasks(this.db, agentId, workspaceId);
     if (running >= agent.maxConcurrentTasks) {
-      return null;
+      // At max capacity — check if a steerable replacement exists to bypass the limit
+      const steerable = await taskQueries.findSteerableReplacement(this.db, agentId, workspaceId);
+      if (!steerable) return null;
+      // Re-check excluding the predecessor being replaced
+      const runningExcluding = await taskQueries.countRunningTasks(this.db, agentId, workspaceId, steerable.predecessorId);
+      if (runningExcluding >= agent.maxConcurrentTasks) return null;
     }
 
     const task = await taskQueries.claimTask(this.db, agentId, workspaceId);
@@ -161,6 +166,21 @@ export class TaskService {
         content: `Error: ${error}`,
         taskId,
       });
+    }
+
+    await this.reconcileAgentStatus(task.agentId, task.workspaceId);
+    await this.dispatchNextBufferedMessage(task.conversationId, task.workspaceId);
+    return task;
+  }
+
+  async supersedeTask(taskId: string, workspaceId: string) {
+    const task = await taskQueries.supersedeTask(this.db, taskId, workspaceId);
+
+    if (!task) {
+      const existing = await taskQueries.getTask(this.db, taskId);
+      const status = existing?.status ?? "unknown";
+      log.warn(`supersedeTask failed: task is in '${status}' status`, { taskId });
+      throw new Error(`cannot supersede task in '${status}' status`);
     }
 
     await this.reconcileAgentStatus(task.agentId, task.workspaceId);

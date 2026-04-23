@@ -22,7 +22,19 @@ export const TaskStatus = {
   COMPLETED: "completed",
   FAILED: "failed",
   CANCELLED: "cancelled",
+  SUPERSEDED: "superseded",
 } as const;
+
+export const TERMINAL_TASK_STATUSES: readonly TaskStatusType[] = [
+  TaskStatus.COMPLETED,
+  TaskStatus.FAILED,
+  TaskStatus.CANCELLED,
+  TaskStatus.SUPERSEDED,
+] as const;
+
+export function isTerminalTaskStatus(status: string): boolean {
+  return (TERMINAL_TASK_STATUSES as readonly string[]).includes(status);
+}
 
 export type TaskStatusType = (typeof TaskStatus)[keyof typeof TaskStatus];
 

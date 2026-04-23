@@ -1,5 +1,5 @@
 import { DaemonClient } from "./client.js";
-import { type DaemonConfig, loadDaemonConfig, sessionRunnerLogDir } from "./config.js";
+import { type DaemonConfig, loadDaemonConfig, sessionRunnerLogDir, daemonLogFilePath } from "./config.js";
 import { createHealthServer } from "./health.js";
 import { detectVersion } from "./agent/index.js";
 import { type Task, type SessionRunnerInput, fromApiTask } from "./types.js";
@@ -8,7 +8,14 @@ import { log } from "../lib/logger.js";
 import { cmdPrefix } from "../lib/env.js";
 import { acquireDaemonPid, releaseDaemonPid } from "./pidfile.js";
 import { handleCliUpdate, isUpdating, readUpdateMarker, clearUpdateMarker } from "./update-handler.js";
-import { findRunningPidByTaskId } from "./execenv/timeline.js";
+import { findRunningPidByTaskId, findRunningEntryByContextKey } from "./execenv/timeline.js";
+import {
+  writeKillIntent,
+  clearKillIntent,
+  acquireSteeringLock,
+  releaseSteeringLock,
+  cleanupStaleIntents,
+} from "./execenv/steering.js";
 import { TASK_TYPES } from "@alook/shared";
 import { existsSync, mkdirSync, openSync, closeSync, readdirSync, statSync, unlinkSync } from "fs";
 import { execSync, spawn, type ChildProcess } from "child_process";
@@ -364,15 +371,20 @@ export async function startDaemon(
     releaseDaemonPid(profile);
     health.server.close(() => {
       if (restartRequested) {
-        const args = ["daemon", "start", "--foreground"];
+        const entry = process.argv[1];
+        const args = [entry, "daemon", "start", "--foreground"];
         if (profile) args.push("--profile", profile);
         if (serverUrl) args.push("--server", serverUrl);
-        const child = spawn("alook", args, {
+        const logPath = daemonLogFilePath();
+        mkdirSync(dirname(logPath), { recursive: true, mode: 0o700 });
+        const logFd = openSync(logPath, "a", 0o600);
+        const child = spawn(process.execPath, args, {
           detached: true,
-          stdio: ["ignore", "ignore", "ignore"],
+          stdio: ["ignore", logFd, logFd],
         });
         child.unref();
-        log.info(`Spawned new daemon (pid=${child.pid})`);
+        closeSync(logFd);
+        log.info(`Spawned new daemon (pid=${child.pid}), logs: ${logPath}`);
       }
       clearTimeout(timeout);
       process.exit(0);
@@ -421,10 +433,16 @@ async function handleTask(
       return;
     }
 
-    const timelineDir = join(config.workspacesRoot, task.workspaceId, task.agentId, "workdir", ".context_timeline");
+    const agentBaseDir = join(config.workspacesRoot, task.workspaceId, task.agentId, "workdir");
+    const timelineDir = join(agentBaseDir, ".context_timeline");
     const pid = findRunningPidByTaskId(timelineDir, targetTaskId);
 
     if (pid != null) {
+      writeKillIntent(agentBaseDir, {
+        reason: "cancelled",
+        targetTaskId,
+        expectedPid: pid,
+      });
       try {
         process.kill(pid, "SIGTERM");
         await client.failTask(token, task.id, "killed");
@@ -463,6 +481,67 @@ async function handleTask(
   }
 
   const provider = runtimeData.provider;
+
+  // --- Steering: supersede predecessor if same context_key + provider ---
+  if (task.contextKey) {
+    const agentBaseDir = join(config.workspacesRoot, task.workspaceId, task.agentId, "workdir");
+    cleanupStaleIntents(agentBaseDir);
+    const timelineDir = join(agentBaseDir, ".context_timeline");
+
+    const lockAcquired = acquireSteeringLock(agentBaseDir, task.contextKey);
+    if (!lockAcquired) {
+      log.warn(`Steering lock contention for context_key=${task.contextKey}, proceeding without steering`);
+    } else {
+      try {
+        const predecessor = findRunningEntryByContextKey(timelineDir, task.contextKey, provider);
+        if (predecessor && predecessor.task_id !== task.id) {
+          log.info(`Steering: task ${task.id} supersedes predecessor ${predecessor.task_id} (context_key=${task.contextKey})`);
+
+          if (predecessor.pid != null) {
+            writeKillIntent(agentBaseDir, {
+              reason: "superseded",
+              targetTaskId: predecessor.task_id,
+              expectedPid: predecessor.pid,
+              successorTaskId: task.id,
+            });
+            try {
+              process.kill(predecessor.pid, "SIGTERM");
+              log.info(`Steering: sent SIGTERM to predecessor pid=${predecessor.pid}`);
+            } catch (e: unknown) {
+              if ((e as NodeJS.ErrnoException)?.code === "ESRCH") {
+                log.info(`Steering: predecessor pid=${predecessor.pid} already exited`);
+              } else {
+                log.warn(`Steering: kill failed for pid=${predecessor.pid}`, e);
+              }
+            }
+            // Wait for predecessor to stop (poll timeline for up to 15 seconds)
+            const waitStart = Date.now();
+            const MAX_WAIT_MS = 15_000;
+            const POLL_MS = 200;
+            while (Date.now() - waitStart < MAX_WAIT_MS) {
+              const stillRunning = findRunningPidByTaskId(timelineDir, predecessor.task_id);
+              if (stillRunning == null) break;
+              await new Promise((r) => setTimeout(r, POLL_MS));
+            }
+            if (findRunningPidByTaskId(timelineDir, predecessor.task_id) != null) {
+              log.warn(`Steering: predecessor pid=${predecessor.pid} did not exit within ${MAX_WAIT_MS}ms, proceeding anyway`);
+            }
+          }
+
+          // Mark predecessor superseded server-side regardless of PID state
+          try {
+            await client.supersedeTask(token, predecessor.task_id);
+            log.info(`Steering: predecessor ${predecessor.task_id} marked superseded`);
+          } catch (e) {
+            log.warn(`Steering: failed to mark predecessor superseded server-side`, e);
+          }
+        }
+      } finally {
+        releaseSteeringLock(agentBaseDir, task.contextKey);
+      }
+    }
+  }
+
   const cliPath =
     provider === "claude"
       ? config.claudePath

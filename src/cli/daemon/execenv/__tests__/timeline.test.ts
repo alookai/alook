@@ -16,6 +16,7 @@ import {
   findResumableSessionId,
   findResumableSessionByContextKey,
   findRunningPidByTaskId,
+  findRunningEntryByContextKey,
   _todayFilename,
   _localISOString,
   _filenameForDate,
@@ -715,6 +716,225 @@ describe("timeline", () => {
       }));
 
       expect(findResumableSessionByContextKey(dir, "dm:conv_1", "claude")).toBe("sess_newer");
+    });
+  });
+
+  describe("findRunningPidByTaskId cross-day fix", () => {
+    function writeEntry(filename: string, entry: ContextTimelineEntry) {
+      const filePath = join(dir, filename);
+      let existing = "";
+      try { existing = readFileSync(filePath, "utf-8"); } catch { /* new file */ }
+      writeFileSync(filePath, existing + JSON.stringify(entry) + "\n");
+    }
+
+    function makeEntry(overrides: Partial<ContextTimelineEntry>): ContextTimelineEntry {
+      return {
+        task_id: "t_1",
+        context_key: null,
+        session_id: null,
+        pid: null,
+        status: "running",
+        datetime: new Date().toISOString(),
+        type: "user_dm_message",
+        prompt: "test",
+        agent_responses: [],
+        errmsg: null,
+        provider: "claude",
+        detailed_log: null,
+        ...overrides,
+      };
+    }
+
+    it("finds predecessor PID from yesterday's timeline file (cross-day fix)", () => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      writeEntry(_filenameForDate(yesterday), makeEntry({
+        task_id: "t_yesterday",
+        status: "running",
+        pid: 55555,
+      }));
+
+      expect(findRunningPidByTaskId(dir, "t_yesterday")).toBe(55555);
+    });
+
+    it("finds predecessor PID from 3 days ago", () => {
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      writeEntry(_filenameForDate(threeDaysAgo), makeEntry({
+        task_id: "t_old",
+        status: "running",
+        pid: 33333,
+      }));
+
+      expect(findRunningPidByTaskId(dir, "t_old")).toBe(33333);
+    });
+  });
+
+  describe("findRunningEntryByContextKey", () => {
+    function writeEntry(filename: string, entry: ContextTimelineEntry) {
+      const filePath = join(dir, filename);
+      let existing = "";
+      try { existing = readFileSync(filePath, "utf-8"); } catch { /* new file */ }
+      writeFileSync(filePath, existing + JSON.stringify(entry) + "\n");
+    }
+
+    function makeEntry(overrides: Partial<ContextTimelineEntry>): ContextTimelineEntry {
+      return {
+        task_id: "t_1",
+        context_key: null,
+        session_id: null,
+        pid: null,
+        status: "running",
+        datetime: new Date().toISOString(),
+        type: "user_dm_message",
+        prompt: "test",
+        agent_responses: [],
+        errmsg: null,
+        provider: "claude",
+        detailed_log: null,
+        ...overrides,
+      };
+    }
+
+    it("returns running entry for same context_key and provider", () => {
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_running",
+        status: "running",
+        pid: 12345,
+        context_key: "email:<thread@mail.com>",
+        provider: "claude",
+      }));
+
+      const entry = findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude");
+      expect(entry).not.toBeNull();
+      expect(entry!.task_id).toBe("t_running");
+      expect(entry!.pid).toBe(12345);
+    });
+
+    it("returns null when no running entries exist", () => {
+      expect(findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude")).toBeNull();
+    });
+
+    it("ignores non-running entries", () => {
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_done",
+        status: "completed",
+        context_key: "email:<thread@mail.com>",
+        provider: "claude",
+      }));
+
+      expect(findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude")).toBeNull();
+    });
+
+    it("ignores different provider", () => {
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_codex",
+        status: "running",
+        pid: 22222,
+        context_key: "email:<thread@mail.com>",
+        provider: "codex",
+      }));
+
+      expect(findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude")).toBeNull();
+    });
+
+    it("ignores different context_key", () => {
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_other",
+        status: "running",
+        pid: 33333,
+        context_key: "email:<other@mail.com>",
+        provider: "claude",
+      }));
+
+      expect(findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude")).toBeNull();
+    });
+
+    it("returns the newest running entry for same context_key", () => {
+      const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
+      const oneMinAgo = new Date(Date.now() - 1 * 60 * 1000);
+
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_older",
+        status: "running",
+        pid: 11111,
+        context_key: "email:<thread@mail.com>",
+        provider: "claude",
+        datetime: twoMinAgo.toISOString(),
+      }));
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_newer",
+        status: "running",
+        pid: 22222,
+        context_key: "email:<thread@mail.com>",
+        provider: "claude",
+        datetime: oneMinAgo.toISOString(),
+      }));
+
+      const entry = findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude");
+      expect(entry!.task_id).toBe("t_newer");
+    });
+
+    it("scans up to 7 days for running entries", () => {
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      writeEntry(_filenameForDate(threeDaysAgo), makeEntry({
+        task_id: "t_old_running",
+        status: "running",
+        pid: 44444,
+        context_key: "email:<thread@mail.com>",
+        provider: "claude",
+        datetime: threeDaysAgo.toISOString(),
+      }));
+
+      const entry = findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude");
+      expect(entry!.task_id).toBe("t_old_running");
+    });
+
+    it("null context_key tasks are never matched", () => {
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_null_ctx",
+        status: "running",
+        pid: 55555,
+        context_key: null,
+        provider: "claude",
+      }));
+
+      expect(findRunningEntryByContextKey(dir, "dm:conv_1", "claude")).toBeNull();
+    });
+  });
+
+  describe("superseded timeline entry status", () => {
+    it("updateEntry can set status to superseded", () => {
+      const entry = createTimelineEntry("t_sup", "test", TASK_TYPES.USER_DM_MESSAGE);
+      initEntry(dir, entry);
+
+      updateEntry(dir, "t_sup", (e) => {
+        e.pid = null;
+        e.status = "superseded";
+        e.successor_task_id = "t_new";
+        e.supersede_reason = "superseded by newer task";
+      });
+
+      const entries = readEntries();
+      expect(entries[0].status).toBe("superseded");
+      expect(entries[0].successor_task_id).toBe("t_new");
+      expect(entries[0].supersede_reason).toBe("superseded by newer task");
+    });
+
+    it("updateEntry can set status to cancelled", () => {
+      const entry = createTimelineEntry("t_can", "test", TASK_TYPES.USER_DM_MESSAGE);
+      initEntry(dir, entry);
+
+      updateEntry(dir, "t_can", (e) => {
+        e.pid = null;
+        e.status = "cancelled";
+        e.errmsg = "cancelled by user";
+      });
+
+      const entries = readEntries();
+      expect(entries[0].status).toBe("cancelled");
+      expect(entries[0].errmsg).toBe("cancelled by user");
     });
   });
 });

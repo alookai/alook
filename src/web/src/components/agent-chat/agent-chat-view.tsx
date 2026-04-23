@@ -251,7 +251,7 @@ export function AgentChatView() {
             setTaskMessages(data.task_messages);
             lastSeqRef.current = Math.max(...data.task_messages.map((m) => m.seq));
           }
-          if (!["completed", "failed", "cancelled"].includes(data.active_task.status)) {
+          if (!["completed", "failed", "cancelled", "superseded"].includes(data.active_task.status)) {
             startPollingRef.current(data.active_task.id, data.conversation.id, lastSeqRef.current);
           }
         }
@@ -384,7 +384,7 @@ export function AgentChatView() {
             );
           }
 
-          if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
+          if (task.status === "completed" || task.status === "failed" || task.status === "cancelled" || task.status === "superseded") {
             if (isStale) {
               // Stale poll — still merge messages but don't touch activeTask or polling
               listMessages(conversationId, workspaceId)
@@ -597,7 +597,7 @@ export function AgentChatView() {
     setPendingFiles([]);
     setSending(true);
 
-    const taskActive = !!activeTask && !["completed", "failed", "cancelled"].includes(activeTask.status);
+    const taskActive = !!activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
 
     if (taskActive) {
       // Buffer mode: queue message for later dispatch
@@ -745,7 +745,7 @@ export function AgentChatView() {
     }
   };
 
-  const isTaskActive = !!activeTask && !["completed", "failed", "cancelled"].includes(activeTask.status);
+  const isTaskActive = !!activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
 
   if (loading) {
     return (
@@ -873,7 +873,7 @@ export function AgentChatView() {
           })}
 
           {/* Show trace while task is in progress (no assistant message yet) */}
-          {activeTask && !["completed", "failed", "cancelled"].includes(activeTask.status) && (
+          {activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status) && (
             <TaskStream
               task={activeTask}
               messages={taskMessages}

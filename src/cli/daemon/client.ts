@@ -122,6 +122,10 @@ export class DaemonClient {
     });
   }
 
+  supersedeTask(token: string, taskId: string) {
+    return this.request("POST", `/api/daemon/tasks/${taskId}/supersede`, token);
+  }
+
   async getArtifactMeta(
     token: string,
     artifactId: string,

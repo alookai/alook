@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockClientInstance = {
   completeTask: vi.fn(async () => ({})),
   failTask: vi.fn(async () => ({})),
+  supersedeTask: vi.fn(async () => ({})),
   reportMessages: vi.fn(async () => ({})),
 };
 vi.mock("./client.js", () => {
@@ -60,6 +61,13 @@ vi.mock("./execenv/timeline.js", () => ({
   updateEntry: (...args: any[]) => mockUpdateEntry(...args),
   createTimelineEntry: (...args: any[]) => mockCreateTimelineEntry(...args),
   findResumableSessionByContextKey: (...args: any[]) => mockFindResumableSessionByContextKey(...args),
+}));
+
+const mockReadKillIntent = vi.fn(() => null);
+const mockClearKillIntent = vi.fn();
+vi.mock("./execenv/steering.js", () => ({
+  readKillIntent: (...args: any[]) => mockReadKillIntent(...args),
+  clearKillIntent: (...args: any[]) => mockClearKillIntent(...args),
 }));
 
 vi.mock("./prompt.js", () => ({
@@ -805,6 +813,143 @@ describe("session-runner runSession", () => {
       expect(mockLog.info).toHaveBeenCalledWith(
         expect.stringContaining("model=default"),
       );
+    });
+  });
+
+  describe("kill-intent handling", () => {
+    it("on SIGTERM with superseded intent: marks timeline superseded and calls supersedeTask", async () => {
+      const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
+
+      mockReadKillIntent.mockReturnValueOnce({
+        reason: "superseded",
+        targetTaskId: "t1",
+        expectedPid: process.pid,
+        successorTaskId: "t_new",
+      });
+
+      let resolveMessage: (() => void) | null = null;
+      mockBackendExecute.mockReturnValue({
+        pid: 99999,
+        messages: (async function* () {
+          yield { type: "text", content: "working..." };
+          await new Promise<void>((resolve) => { resolveMessage = resolve; });
+        })(),
+        sessionId: Promise.resolve("sess-sup"),
+        result: new Promise(() => {}),
+      });
+
+      const sessionPromise = runSession(makeInput());
+      await new Promise((r) => setTimeout(r, 50));
+
+      process.emit("SIGTERM", "SIGTERM");
+      if (resolveMessage) resolveMessage();
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Timeline should be updated to "superseded"
+      const supersedeCalls = mockUpdateEntry.mock.calls.filter((call: any[]) => {
+        const updater = call[2];
+        const entry = { pid: 1, status: "running" as string, errmsg: null as string | null, agent_responses: [] as string[], successor_task_id: null as string | null, supersede_reason: null as string | null };
+        updater(entry);
+        return entry.status === "superseded";
+      });
+      expect(supersedeCalls.length).toBe(1);
+
+      // Should call supersedeTask, not failTask
+      expect(mockClientInstance.supersedeTask).toHaveBeenCalledWith("test_token", "t1");
+      expect(mockClientInstance.failTask).not.toHaveBeenCalled();
+
+      // Should clear the intent
+      expect(mockClearKillIntent).toHaveBeenCalled();
+
+      killSpy.mockRestore();
+      exitSpy.mockRestore();
+    });
+
+    it("on SIGTERM with cancelled intent: marks timeline cancelled and calls failTask", async () => {
+      const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
+
+      mockReadKillIntent.mockReturnValueOnce({
+        reason: "cancelled",
+        targetTaskId: "t1",
+        expectedPid: process.pid,
+      });
+
+      let resolveMessage: (() => void) | null = null;
+      mockBackendExecute.mockReturnValue({
+        pid: 99999,
+        messages: (async function* () {
+          yield { type: "text", content: "working..." };
+          await new Promise<void>((resolve) => { resolveMessage = resolve; });
+        })(),
+        sessionId: Promise.resolve("sess-cancel"),
+        result: new Promise(() => {}),
+      });
+
+      const sessionPromise = runSession(makeInput());
+      await new Promise((r) => setTimeout(r, 50));
+
+      process.emit("SIGTERM", "SIGTERM");
+      if (resolveMessage) resolveMessage();
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Timeline should be updated to "cancelled" (not "killed")
+      const cancelCalls = mockUpdateEntry.mock.calls.filter((call: any[]) => {
+        const updater = call[2];
+        const entry = { pid: 1, status: "running" as string, errmsg: null as string | null, agent_responses: [] as string[] };
+        updater(entry);
+        return entry.status === "cancelled";
+      });
+      expect(cancelCalls.length).toBe(1);
+
+      // Should call failTask with "cancelled by user"
+      expect(mockClientInstance.failTask).toHaveBeenCalledWith("test_token", "t1", "cancelled by user");
+      expect(mockClientInstance.supersedeTask).not.toHaveBeenCalled();
+
+      killSpy.mockRestore();
+      exitSpy.mockRestore();
+    });
+
+    it("on SIGTERM without kill-intent file: preserves existing killed behavior", async () => {
+      const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
+
+      mockReadKillIntent.mockReturnValueOnce(null);
+
+      let resolveMessage: (() => void) | null = null;
+      mockBackendExecute.mockReturnValue({
+        pid: 99999,
+        messages: (async function* () {
+          yield { type: "text", content: "working..." };
+          await new Promise<void>((resolve) => { resolveMessage = resolve; });
+        })(),
+        sessionId: Promise.resolve("sess-kill"),
+        result: new Promise(() => {}),
+      });
+
+      const sessionPromise = runSession(makeInput());
+      await new Promise((r) => setTimeout(r, 50));
+
+      process.emit("SIGTERM", "SIGTERM");
+      if (resolveMessage) resolveMessage();
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Timeline should be updated to "killed" (original behavior)
+      const killCalls = mockUpdateEntry.mock.calls.filter((call: any[]) => {
+        const updater = call[2];
+        const entry = { pid: 1, status: "running" as string, errmsg: null as string | null, agent_responses: [] as string[] };
+        updater(entry);
+        return entry.status === "killed";
+      });
+      expect(killCalls.length).toBe(1);
+
+      // Should call failTask with "killed by signal"
+      expect(mockClientInstance.failTask).toHaveBeenCalledWith("test_token", "t1", "killed by signal");
+      expect(mockClientInstance.supersedeTask).not.toHaveBeenCalled();
+
+      killSpy.mockRestore();
+      exitSpy.mockRestore();
     });
   });
 });

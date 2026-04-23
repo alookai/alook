@@ -55,10 +55,17 @@ export async function getTaskStatus(db: Database, id: string, workspaceId?: stri
   return rows[0]?.status ?? null;
 }
 
-export async function claimTask(db: Database, agentId: string, workspaceId: string) {
-  // Step 1: Get conversations that have active (dispatched/running) tasks
-  const activeConversations = await db
-    .select({ conversationId: agentTaskQueue.conversationId })
+export async function findSteerableReplacement(
+  db: Database,
+  agentId: string,
+  workspaceId: string,
+): Promise<{ predecessorId: string; contextKey: string } | null> {
+  const activeTasks = await db
+    .select({
+      id: agentTaskQueue.id,
+      conversationId: agentTaskQueue.conversationId,
+      contextKey: agentTaskQueue.contextKey,
+    })
     .from(agentTaskQueue)
     .where(
       and(
@@ -69,9 +76,68 @@ export async function claimTask(db: Database, agentId: string, workspaceId: stri
       )
     );
 
-  const activeConvIds = activeConversations.map((r) => r.conversationId);
+  for (const active of activeTasks) {
+    if (!active.contextKey) continue;
+    const candidates = await db
+      .select({ id: agentTaskQueue.id })
+      .from(agentTaskQueue)
+      .where(
+        and(
+          eq(agentTaskQueue.agentId, agentId),
+          eq(agentTaskQueue.workspaceId, workspaceId),
+          eq(agentTaskQueue.status, "queued"),
+          eq(agentTaskQueue.conversationId, active.conversationId),
+          eq(agentTaskQueue.contextKey, active.contextKey)
+        )
+      )
+      .limit(1);
 
-  // Step 2: Find queued tasks not in those conversations
+    if (candidates.length > 0) {
+      return { predecessorId: active.id, contextKey: active.contextKey };
+    }
+  }
+  return null;
+}
+
+export async function claimTask(db: Database, agentId: string, workspaceId: string) {
+  // Step 1: Get conversations that have active (dispatched/running) tasks, with their context keys
+  const activeTasks = await db
+    .select({
+      conversationId: agentTaskQueue.conversationId,
+      contextKey: agentTaskQueue.contextKey,
+    })
+    .from(agentTaskQueue)
+    .where(
+      and(
+        eq(agentTaskQueue.agentId, agentId),
+        eq(agentTaskQueue.workspaceId, workspaceId),
+        inArray(agentTaskQueue.status, ["dispatched", "running"]),
+        ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
+      )
+    );
+
+  // Conversations fully blocked (active task with null contextKey, or any active task)
+  // Steering-eligible conversations have a non-null contextKey on the active task
+  const blockedConvIds: string[] = [];
+  const steerableConvContextKeys = new Map<string, string>(); // conversationId -> contextKey
+
+  for (const t of activeTasks) {
+    if (t.contextKey) {
+      steerableConvContextKeys.set(t.conversationId, t.contextKey);
+    } else {
+      blockedConvIds.push(t.conversationId);
+    }
+  }
+
+  // Step 2: Find queued tasks not in blocked conversations.
+  // For steerable conversations, only allow if the queued task has the same non-null contextKey.
+  const allBlockedConvIds = [...blockedConvIds];
+  // Also block steerable conversations for the general query — we'll query them separately
+  for (const convId of steerableConvContextKeys.keys()) {
+    allBlockedConvIds.push(convId);
+  }
+
+  // Try non-steerable candidates first
   const candidateQuery = db
     .select({ id: agentTaskQueue.id })
     .from(agentTaskQueue)
@@ -80,15 +146,40 @@ export async function claimTask(db: Database, agentId: string, workspaceId: stri
         eq(agentTaskQueue.agentId, agentId),
         eq(agentTaskQueue.workspaceId, workspaceId),
         eq(agentTaskQueue.status, "queued"),
-        ...(activeConvIds.length > 0
-          ? [notInArray(agentTaskQueue.conversationId, activeConvIds)]
+        ...(allBlockedConvIds.length > 0
+          ? [notInArray(agentTaskQueue.conversationId, allBlockedConvIds)]
           : [])
       )
     )
     .orderBy(desc(agentTaskQueue.priority), asc(agentTaskQueue.createdAt))
     .limit(1);
 
-  const candidates = await candidateQuery;
+  let candidates = await candidateQuery;
+
+  // If no non-steerable candidate, try steerable conversations
+  if (candidates.length === 0 && steerableConvContextKeys.size > 0) {
+    for (const [convId, activeContextKey] of steerableConvContextKeys) {
+      const steerCandidates = await db
+        .select({ id: agentTaskQueue.id })
+        .from(agentTaskQueue)
+        .where(
+          and(
+            eq(agentTaskQueue.agentId, agentId),
+            eq(agentTaskQueue.workspaceId, workspaceId),
+            eq(agentTaskQueue.status, "queued"),
+            eq(agentTaskQueue.conversationId, convId),
+            eq(agentTaskQueue.contextKey, activeContextKey)
+          )
+        )
+        .orderBy(desc(agentTaskQueue.priority), asc(agentTaskQueue.createdAt))
+        .limit(1);
+
+      if (steerCandidates.length > 0) {
+        candidates = steerCandidates;
+        break;
+      }
+    }
+  }
 
   if (candidates.length === 0) return null;
 
@@ -199,6 +290,21 @@ export async function hasPendingTaskForConversation(
   return rows.length > 0;
 }
 
+export async function supersedeTask(db: Database, id: string, workspaceId: string) {
+  const rows = await db
+    .update(agentTaskQueue)
+    .set({ status: "superseded", completedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(agentTaskQueue.id, id),
+        eq(agentTaskQueue.workspaceId, workspaceId),
+        inArray(agentTaskQueue.status, ["dispatched", "running"])
+      )
+    )
+    .returning();
+  return rows[0] ?? null;
+}
+
 export async function cancelTask(db: Database, id: string, workspaceId: string) {
   const rows = await db
     .update(agentTaskQueue)
@@ -248,18 +354,20 @@ export async function deleteTasksByConversation(
     .returning({ id: agentTaskQueue.id });
 }
 
-export async function countRunningTasks(db: Database, agentId: string, workspaceId: string) {
+export async function countRunningTasks(db: Database, agentId: string, workspaceId: string, excludeTaskId?: string) {
+  const conditions = [
+    eq(agentTaskQueue.agentId, agentId),
+    eq(agentTaskQueue.workspaceId, workspaceId),
+    inArray(agentTaskQueue.status, ["dispatched", "running"]),
+    ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK),
+  ];
+  if (excludeTaskId) {
+    conditions.push(ne(agentTaskQueue.id, excludeTaskId));
+  }
   const rows = await db
     .select({ value: count() })
     .from(agentTaskQueue)
-    .where(
-      and(
-        eq(agentTaskQueue.agentId, agentId),
-        eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.status, ["dispatched", "running"]),
-        ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
-      )
-    );
+    .where(and(...conditions));
   return Number(rows[0]?.value ?? 0);
 }
 

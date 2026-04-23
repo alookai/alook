@@ -12,6 +12,7 @@ export const TaskStatusSchema = z.enum([
   "completed",
   "failed",
   "cancelled",
+  "superseded",
 ]);
 
 // ---------------------------------------------------------------------------

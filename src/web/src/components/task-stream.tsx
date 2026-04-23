@@ -252,7 +252,7 @@ export function TaskStream({
   connectionLost?: boolean;
 }) {
   const allItems = useMemo(() => groupMessages(messages), [messages]);
-  const isRunning = task.status !== "completed" && task.status !== "failed";
+  const isRunning = task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled" && task.status !== "superseded";
 
   const toolItems = allItems.filter((i) => i.kind !== "text");
   const textItems = allItems.filter((i): i is TextItem => i.kind === "text");

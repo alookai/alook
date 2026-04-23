@@ -11,6 +11,7 @@ const mockClientInstance = {
   startTask: vi.fn(async () => ({})),
   completeTask: vi.fn(async () => ({})),
   failTask: vi.fn(async () => ({})),
+  supersedeTask: vi.fn(async () => ({})),
   reportMessages: vi.fn(async () => ({})),
 };
 vi.mock("./client.js", () => {
@@ -37,6 +38,7 @@ vi.mock("./config.js", () => ({
     cliVersion: "0.1.0",
   })),
   sessionRunnerLogDir: vi.fn(() => "/tmp/alook/daemon/session-runners"),
+  daemonLogFilePath: vi.fn(() => "/tmp/alook/daemon/logs/2026-01-01.log"),
   lastUpdateMarkerPath: vi.fn((profile?: string) =>
     profile ? `/tmp/alook/last_update_${profile}` : "/tmp/alook/last_update",
   ),
@@ -74,8 +76,23 @@ vi.mock("./update-handler.js", () => ({
 }));
 
 const mockFindRunningPidByTaskId = vi.fn();
+const mockFindRunningEntryByContextKey = vi.fn(() => null);
 vi.mock("./execenv/timeline.js", () => ({
   findRunningPidByTaskId: (...args: any[]) => mockFindRunningPidByTaskId(...args),
+  findRunningEntryByContextKey: (...args: any[]) => mockFindRunningEntryByContextKey(...args),
+}));
+
+const mockWriteKillIntent = vi.fn();
+const mockClearKillIntent = vi.fn();
+const mockAcquireSteeringLock = vi.fn(() => true);
+const mockReleaseSteeringLock = vi.fn();
+const mockCleanupStaleIntents = vi.fn();
+vi.mock("./execenv/steering.js", () => ({
+  writeKillIntent: (...args: any[]) => mockWriteKillIntent(...args),
+  clearKillIntent: (...args: any[]) => mockClearKillIntent(...args),
+  acquireSteeringLock: (...args: any[]) => mockAcquireSteeringLock(...args),
+  releaseSteeringLock: (...args: any[]) => mockReleaseSteeringLock(...args),
+  cleanupStaleIntents: (...args: any[]) => mockCleanupStaleIntents(...args),
 }));
 
 // Track spawned children
@@ -1280,6 +1297,82 @@ describe("daemon restart via update", () => {
     await startDaemon();
 
     expect(clearUpdateMarker).not.toHaveBeenCalled();
+  });
+
+});
+
+describe("daemon restart spawn", () => {
+  beforeEach(async () => {
+    signalHandlers.clear();
+    intervalTimers.length = 0;
+    clearedTimers.length = 0;
+    spawnedChildren.length = 0;
+    nextPid = 50000;
+    vi.clearAllMocks();
+    mockProcessExit.mockImplementation((() => {}) as any);
+    mockOpenSync.mockReturnValue(99);
+
+    // Restore createHealthServer to the correct factory (previous tests may override it)
+    const { createHealthServer } = await import("./health.js");
+    vi.mocked(createHealthServer).mockReturnValue({
+      setRuntimeCount: vi.fn(),
+      server: { close: vi.fn((cb?: () => void) => { if (cb) cb(); }) },
+    } as any);
+
+    mockClientInstance.register.mockResolvedValue({ runtimes: [{ id: "rt1" }] });
+    mockClientInstance.deregister.mockResolvedValue(undefined as any);
+    mockClientInstance.poll.mockResolvedValue({ tasks: [], evicted: false });
+  });
+
+  afterEach(() => {
+    for (const t of intervalTimers) realClearInterval(t);
+  });
+
+  it("restart spawn uses process.execPath with log file fd for stdio", async () => {
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      server_url: "",
+      watched_workspaces: [{ id: "ws1", name: "Test WS", token: "al_test_token" }],
+    });
+
+    // Make handleCliUpdate immediately invoke the restart callback
+    vi.mocked(handleCliUpdate).mockImplementation((_version: string, onSuccess: () => void) => {
+      onSuccess();
+    });
+
+    mockClientInstance.poll.mockResolvedValue({
+      tasks: [],
+      evicted: false,
+      pending_update: { version: "2.0.0" },
+    });
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 200));
+
+    const spawnCalls = vi.mocked(spawn).mock.calls;
+    const restartCall = spawnCalls.find(
+      (call) => call[0] === process.execPath && (call[1] as string[]).includes("--foreground"),
+    );
+    expect(restartCall).toBeDefined();
+
+    const args = restartCall![1] as string[];
+    expect(args).toContain("daemon");
+    expect(args).toContain("start");
+    expect(args).toContain("--foreground");
+
+    const opts = restartCall![2] as any;
+    expect(opts.detached).toBe(true);
+    expect(opts.stdio).toEqual(["ignore", 99, 99]);
+
+    expect(mockMkdirSync).toHaveBeenCalledWith(
+      expect.stringContaining("logs"),
+      { recursive: true, mode: 0o700 },
+    );
+    expect(mockOpenSync).toHaveBeenCalledWith(
+      "/tmp/alook/daemon/logs/2026-01-01.log",
+      "a",
+      0o600,
+    );
+    expect(mockCloseSync).toHaveBeenCalledWith(99);
   });
 });
 

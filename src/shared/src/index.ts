@@ -56,6 +56,8 @@ export {
   AgentStatus,
   RuntimeStatus,
   TaskStatus,
+  TERMINAL_TASK_STATUSES,
+  isTerminalTaskStatus,
   TASK_TYPES,
   MessageRole,
   POLL_INTERVAL_MS,

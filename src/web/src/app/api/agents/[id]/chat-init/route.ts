@@ -61,8 +61,7 @@ export const POST = withAuth(async (req, ctx) => {
   let taskMessages: unknown[] = [];
   if (
     activeTask &&
-    activeTask.status !== "completed" &&
-    activeTask.status !== "failed"
+    !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status)
   ) {
     try {
       const tmsgs = await queries.taskMessage.listTaskMessages(

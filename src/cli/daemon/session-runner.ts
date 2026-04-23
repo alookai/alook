@@ -17,6 +17,7 @@ import {
   createTimelineEntry,
   findResumableSessionByContextKey,
 } from "./execenv/timeline.js";
+import { readKillIntent, clearKillIntent } from "./execenv/steering.js";
 import { buildPrompt } from "./prompt.js";
 import { log } from "../lib/logger.js";
 import type { SessionRunnerInput, Attachment } from "./types.js";
@@ -149,6 +150,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
 
   // --- Graceful shutdown on SIGTERM/SIGINT ---
   let killed = false;
+  const agentBaseDir = path.dirname(timelineDir);
   const onKill = async () => {
     if (killed) return;
     killed = true;
@@ -166,17 +168,42 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     // 3. Cleanup attachments
     await cleanupAttachments(task.id);
 
-    // 4. Update timeline — status "killed"
-    updateEntry(timelineDir, task.id, (entry) => {
-      entry.pid = null;
-      entry.status = "killed";
-      entry.errmsg = "killed by signal";
-    });
+    // 4. Read kill-intent to determine reason
+    const intent = readKillIntent(agentBaseDir, task.id);
+    clearKillIntent(agentBaseDir, task.id);
 
-    // 5. Report to server
-    try {
-      await client.failTask(token, task.id, "killed by signal");
-    } catch { /* best-effort */ }
+    if (intent?.reason === "superseded") {
+      // Superseded: update timeline and report via dedicated API
+      updateEntry(timelineDir, task.id, (entry) => {
+        entry.pid = null;
+        entry.status = "superseded";
+        entry.successor_task_id = intent.successorTaskId ?? null;
+        entry.supersede_reason = "superseded by newer task";
+      });
+      try {
+        await client.supersedeTask(token, task.id);
+      } catch { /* best-effort — daemon steering may have already marked it */ }
+    } else if (intent?.reason === "cancelled") {
+      // User cancel: update timeline to cancelled (not killed)
+      updateEntry(timelineDir, task.id, (entry) => {
+        entry.pid = null;
+        entry.status = "cancelled";
+        entry.errmsg = "cancelled by user";
+      });
+      try {
+        await client.failTask(token, task.id, "cancelled by user");
+      } catch { /* best-effort */ }
+    } else {
+      // No intent file: preserve existing behavior
+      updateEntry(timelineDir, task.id, (entry) => {
+        entry.pid = null;
+        entry.status = "killed";
+        entry.errmsg = "killed by signal";
+      });
+      try {
+        await client.failTask(token, task.id, "killed by signal");
+      } catch { /* best-effort */ }
+    }
 
     process.exit(1);
   };

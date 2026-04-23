@@ -25,7 +25,9 @@ export interface ContextTimelineEntry {
   context_key: string | null;
   session_id: string | null;
   pid: number | null;
-  status: "running" | "completed" | "failed" | "killed";
+  status: "running" | "completed" | "failed" | "killed" | "superseded" | "cancelled";
+  successor_task_id?: string | null;
+  supersede_reason?: string | null;
   datetime: string;
   type: string;
   prompt: string;
@@ -286,11 +288,32 @@ export function findRunningPidByTaskId(
   timelineDir: string,
   taskId: string,
 ): number | null {
-  for (const filename of recentFilenames(2)) {
+  for (const filename of recentFilenames(7)) {
     const entries = readJsonl(join(timelineDir, filename));
     for (const entry of entries) {
       if (entry.task_id === taskId && entry.status === "running" && entry.pid != null) {
         return entry.pid;
+      }
+    }
+  }
+  return null;
+}
+
+export function findRunningEntryByContextKey(
+  timelineDir: string,
+  contextKey: string,
+  provider: string,
+): ContextTimelineEntry | null {
+  for (const filename of recentFilenames(7)) {
+    const dayEntries = readJsonl(join(timelineDir, filename));
+    for (let i = dayEntries.length - 1; i >= 0; i--) {
+      const entry = dayEntries[i];
+      if (
+        entry.status === "running" &&
+        entry.context_key === contextKey &&
+        entry.provider === provider
+      ) {
+        return entry;
       }
     }
   }
