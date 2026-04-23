@@ -3,8 +3,9 @@ import { NextRequest } from "next/server";
 
 const mockGetAgent = vi.fn();
 const mockGetEmailsByAgent = vi.fn();
-const mockGetInboxEmails = vi.fn();
+const mockGetTrustedEmails = vi.fn();
 const mockGetSentEmails = vi.fn();
+const mockGetRejectedEmails = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -18,8 +19,9 @@ vi.mock("@alook/shared", () => ({
     agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
     email: {
       getEmailsByAgent: (...args: unknown[]) => mockGetEmailsByAgent(...args),
-      getInboxEmails: (...args: unknown[]) => mockGetInboxEmails(...args),
+      getTrustedEmails: (...args: unknown[]) => mockGetTrustedEmails(...args),
       getSentEmails: (...args: unknown[]) => mockGetSentEmails(...args),
+      getRejectedEmails: (...args: unknown[]) => mockGetRejectedEmails(...args),
     },
   },
 }));
@@ -78,15 +80,26 @@ describe("GET /api/email", () => {
     expect(mockGetEmailsByAgent).toHaveBeenCalledWith({}, "a1", "ws1", "unread");
   });
 
-  it("filters by status and folder=inbox", async () => {
+  it("filters by status and folder=inbox (whitelisted inbound)", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test" });
-    mockGetInboxEmails.mockResolvedValue([{ id: "e1" }]);
+    mockGetTrustedEmails.mockResolvedValue([{ id: "e1" }]);
 
     const req = new NextRequest("http://localhost/api/email?agentId=a1&folder=inbox&status=unread");
     const res = await GET(req, {} as any);
 
     expect(res.status).toBe(200);
-    expect(mockGetInboxEmails).toHaveBeenCalledWith({}, "a1", "test@alook.ai", "ws1", "unread");
+    expect(mockGetTrustedEmails).toHaveBeenCalledWith({}, "a1", "test@alook.ai", "ws1", "unread");
+  });
+
+  it("filters by folder=untrust (non-whitelisted inbound)", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test" });
+    mockGetRejectedEmails.mockResolvedValue([{ id: "e2" }]);
+
+    const req = new NextRequest("http://localhost/api/email?agentId=a1&folder=untrust");
+    const res = await GET(req, {} as any);
+
+    expect(res.status).toBe(200);
+    expect(mockGetRejectedEmails).toHaveBeenCalledWith({}, "a1", "test@alook.ai", "ws1", undefined);
   });
 
   it("filters by status and folder=sent", async () => {

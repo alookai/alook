@@ -163,17 +163,17 @@ describe("email threading (inbound)", () => {
   })
 })
 
-// ─── Rejected folder ───
+// ─── Folder filtering ───
 
-describe("email folder: rejected", () => {
-  it("GET /api/email?folder=rejected returns only non-whitelisted emails", async () => {
+describe("email folder filtering", () => {
+  it("GET /api/email?folder=untrust returns only non-whitelisted inbound emails", async () => {
     const agentEmail = `${seed.agentEmailHandle}@alook.ai`
     const now = new Date().toISOString()
     const rejId = `erej_${randomUUID().slice(0, 8)}`
-    sql(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", created_at) VALUES ('${rejId}', '${seed.agentId}', '${seed.workspaceId}', 'stranger@external.com', '${agentEmail}', 'Rejected folder test', 'emails/fake-rej/raw', 0, 0, '', '', '', '${now}')`)
+    sql(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", created_at) VALUES ('${rejId}', '${seed.agentId}', '${seed.workspaceId}', 'stranger@external.com', '${agentEmail}', 'Untrust folder test', 'emails/fake-rej/raw', 0, 0, '', '', '', '${now}')`)
 
     const res = await tokenRequest(
-      `/api/email?workspace_id=${seed.workspaceId}&agentId=${seed.agentId}&folder=rejected`,
+      `/api/email?workspace_id=${seed.workspaceId}&agentId=${seed.agentId}&folder=untrust`,
       seed.machineToken,
     )
     expect(res.status).toBe(200)
@@ -185,8 +185,7 @@ describe("email folder: rejected", () => {
     }
   })
 
-  it("GET /api/email?folder=rejected excludes sent emails", async () => {
-    // Send an outgoing email (creates a record with is_whitelisted=false)
+  it("GET /api/email?folder=untrust excludes sent emails", async () => {
     await tokenRequest(
       `/api/email/send?workspace_id=${seed.workspaceId}`,
       seed.machineToken,
@@ -203,7 +202,7 @@ describe("email folder: rejected", () => {
     )
 
     const res = await tokenRequest(
-      `/api/email?workspace_id=${seed.workspaceId}&agentId=${seed.agentId}&folder=rejected`,
+      `/api/email?workspace_id=${seed.workspaceId}&agentId=${seed.agentId}&folder=untrust`,
       seed.machineToken,
     )
     expect(res.status).toBe(200)
@@ -215,16 +214,17 @@ describe("email folder: rejected", () => {
     }
   })
 
-  it("GET /api/email?folder=inbox returns all inbound emails", async () => {
+  it("GET /api/email?folder=inbox returns only whitelisted inbound emails", async () => {
     const res = await tokenRequest(
       `/api/email?workspace_id=${seed.workspaceId}&agentId=${seed.agentId}&folder=inbox`,
       seed.machineToken,
     )
     expect(res.status).toBe(200)
 
-    const emails = await res.json() as { direction: string }[]
+    const emails = await res.json() as { direction: string; is_whitelisted: boolean }[]
     for (const email of emails) {
       expect(email.direction).toBe("inbound")
+      expect(email.is_whitelisted).toBe(true)
     }
   })
 })

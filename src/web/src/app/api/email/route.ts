@@ -33,12 +33,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   let emailList;
   if (folder === "inbox" && agentEmail) {
-    emailList = await queries.email.getInboxEmails(db, agentId, agentEmail, ws.workspaceId, status);
+    emailList = await queries.email.getTrustedEmails(db, agentId, agentEmail, ws.workspaceId, status);
   } else if (folder === "sent" && agentEmail) {
     emailList = await queries.email.getSentEmails(db, agentId, agentEmail, ws.workspaceId, status);
-  } else if (folder === "trusted" && agentEmail) {
-    emailList = await queries.email.getTrustedEmails(db, agentId, agentEmail, ws.workspaceId, status);
-  } else if (folder === "rejected" && agentEmail) {
+  } else if (folder === "untrust" && agentEmail) {
     emailList = await queries.email.getRejectedEmails(db, agentId, agentEmail, ws.workspaceId, status);
   } else {
     emailList = await queries.email.getEmailsByAgent(db, agentId, ws.workspaceId, status);

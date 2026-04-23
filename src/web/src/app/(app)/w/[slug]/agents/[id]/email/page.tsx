@@ -12,12 +12,12 @@ import { EmailCompose } from "@/components/email-compose";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldCheck, ChevronDown } from "lucide-react";
+import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldAlert, ChevronDown } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ResizablePanels } from "@/components/ui/resizable-panels";
 import { EmailBodyFrame } from "@/components/email-body-frame";
 
-type Folder = "inbox" | "sent" | "trusted";
+type Folder = "inbox" | "sent" | "untrust";
 
 function relativeTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -346,16 +346,16 @@ export default function AgentEmailPage() {
         </button>
         <button
           type="button"
-          onClick={() => setFolder("trusted")}
+          onClick={() => setFolder("untrust")}
           className={cn(
             "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
-            folder === "trusted"
+            folder === "untrust"
               ? "bg-accent text-foreground font-medium"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
           )}
         >
-          <ShieldCheck className="size-4 shrink-0" />
-          Trusted
+          <ShieldAlert className="size-4 shrink-0" />
+          Untrust
         </button>
       </nav>
     </div>
@@ -380,7 +380,7 @@ export default function AgentEmailPage() {
         <div className="flex flex-col items-center justify-center h-full animate-[fade-up_400ms_ease-out_both]">
           <Mail className="size-8 text-muted-foreground mb-3" />
           <p className="text-sm text-muted-foreground">
-            {folder === "inbox" ? "No emails received yet" : folder === "sent" ? "No emails sent yet" : "No emails from trusted senders"}
+            {folder === "inbox" ? "No emails from trusted senders" : folder === "sent" ? "No emails sent yet" : "No untrusted emails"}
           </p>
         </div>
       ) : (
@@ -398,9 +398,6 @@ export default function AgentEmailPage() {
           >
             <div className="flex items-center justify-between gap-2 mb-0.5">
               <p className="text-sm font-medium truncate flex items-center gap-1.5">
-                {folder === "inbox" && email.is_whitelisted && (
-                  <span className="inline-block size-1.5 rounded-full bg-green-500 shrink-0" title="Allowed sender" />
-                )}
                 {folder === "sent" ? email.to_email : email.from_email}
               </p>
               <span className="text-xs text-muted-foreground shrink-0">
@@ -678,7 +675,7 @@ export default function AgentEmailPage() {
             {([
               { id: "inbox" as Folder, label: "Inbox" },
               { id: "sent" as Folder, label: "Sent" },
-              { id: "trusted" as Folder, label: "Trusted" },
+              { id: "untrust" as Folder, label: "Untrust" },
             ]).map((f) => (
               <button
                 key={f.id}
