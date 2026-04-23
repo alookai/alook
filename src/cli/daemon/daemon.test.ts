@@ -941,6 +941,18 @@ describe("spawnSessionRunner", () => {
     const decoded = JSON.parse(Buffer.from(encoded, "base64").toString("utf-8"));
     expect(decoded.logFilePath).toBe("/tmp/alook/daemon/session-runners/t1.log");
   });
+
+  it("spawns with stdio ignore when openSync fails (disk full)", () => {
+    mockOpenSync.mockImplementation(() => { throw new Error("ENOSPC: no space left on device"); });
+
+    const child = spawnSessionRunner(makeSpawnInput() as any);
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const call = vi.mocked(spawn).mock.calls[0];
+    expect((call[2] as any).stdio).toEqual(["ignore", "ignore", "ignore"]);
+    expect(child.unref).toHaveBeenCalled();
+    expect(mockCloseSync).not.toHaveBeenCalled();
+  });
 });
 
 describe("pruneSessionRunnerLogs", () => {
@@ -961,14 +973,14 @@ describe("pruneSessionRunnerLogs", () => {
   });
 
   it("does not delete when at or below limit", () => {
-    const files = Array.from({ length: 50 }, (_, i) => `${i}.log`);
+    const files = Array.from({ length: 500 }, (_, i) => `${i}.log`);
     mockReaddirSync.mockReturnValue(files);
     pruneSessionRunnerLogs();
     expect(mockUnlinkSync).not.toHaveBeenCalled();
   });
 
-  it("deletes oldest files when over limit, keeping newest 50", () => {
-    const files = Array.from({ length: 55 }, (_, i) => `${i}.log`);
+  it("deletes oldest files when over limit, keeping newest 500", () => {
+    const files = Array.from({ length: 505 }, (_, i) => `${i}.log`);
     mockReaddirSync.mockReturnValue(files);
     mockStatSync.mockImplementation((p: string) => {
       const name = p.split("/").pop()!;
@@ -992,7 +1004,7 @@ describe("pruneSessionRunnerLogs", () => {
     mockReaddirSync.mockReturnValue(files);
     mockStatSync.mockReturnValue({ mtimeMs: 0 });
     pruneSessionRunnerLogs();
-    // Only 2 .log files, well under 50 limit
+    // Only 2 .log files, well under 500 limit
     expect(mockUnlinkSync).not.toHaveBeenCalled();
   });
 });

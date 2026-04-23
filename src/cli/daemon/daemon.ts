@@ -49,7 +49,7 @@ function isCommandAvailable(cmd: string): boolean {
   }
 }
 
-const MAX_SESSION_RUNNER_LOGS = 50;
+const MAX_SESSION_RUNNER_LOGS = 500;
 
 export function pruneSessionRunnerLogs(): void {
   const logDir = sessionRunnerLogDir();
@@ -376,14 +376,19 @@ export async function startDaemon(
         if (profile) args.push("--profile", profile);
         if (serverUrl) args.push("--server", serverUrl);
         const logPath = daemonLogFilePath();
-        mkdirSync(dirname(logPath), { recursive: true, mode: 0o700 });
-        const logFd = openSync(logPath, "a", 0o600);
+        let logFd: number | undefined;
+        try {
+          mkdirSync(dirname(logPath), { recursive: true, mode: 0o700 });
+          logFd = openSync(logPath, "a", 0o600);
+        } catch (e) {
+          log.error(`Failed to open daemon log file ${logPath}`, e);
+        }
         const child = spawn(process.execPath, args, {
           detached: true,
-          stdio: ["ignore", logFd, logFd],
+          stdio: logFd != null ? ["ignore", logFd, logFd] : ["ignore", "ignore", "ignore"],
         });
         child.unref();
-        closeSync(logFd);
+        if (logFd != null) closeSync(logFd);
         log.info(`Spawned new daemon (pid=${child.pid}), logs: ${logPath}`);
       }
       clearTimeout(timeout);
@@ -403,14 +408,19 @@ export function spawnSessionRunner(input: SessionRunnerInput): ChildProcess {
   input.logFilePath = logFilePath;
 
   const encoded = Buffer.from(JSON.stringify(input)).toString("base64");
-  const fd = openSync(logFilePath, "a");
+  let fd: number | undefined;
+  try {
+    fd = openSync(logFilePath, "a");
+  } catch (e) {
+    log.error(`Failed to open log file ${logFilePath}`, e);
+  }
 
   const child = spawn(process.execPath, [sessionRunnerPath, encoded], {
     detached: true,
-    stdio: ["ignore", fd, fd],
+    stdio: fd != null ? ["ignore", fd, fd] : ["ignore", "ignore", "ignore"],
   });
   child.unref();
-  closeSync(fd);
+  if (fd != null) closeSync(fd);
 
   return child;
 }
