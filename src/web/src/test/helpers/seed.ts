@@ -62,6 +62,9 @@ export function cleanupTestData(seed: TestSeed) {
   sql(`DELETE FROM conversation WHERE workspace_id = '${ws}'`)
   sql(`DELETE FROM emails WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = '${ws}')`)
   sql(`DELETE FROM agent_whitelist WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = '${ws}')`)
+  sql(`DELETE FROM agent_access WHERE workspace_id = '${ws}'`)
+  sql(`DELETE FROM agent_pin WHERE workspace_id = '${ws}'`)
+  sql(`DELETE FROM workspace_invite WHERE workspace_id = '${ws}'`)
   sql(`DELETE FROM agent WHERE workspace_id = '${ws}'`)
   sql(`DELETE FROM agent_runtime WHERE workspace_id = '${ws}'`)
   sql(`DELETE FROM machine WHERE workspace_id = '${ws}'`)
@@ -69,4 +72,52 @@ export function cleanupTestData(seed: TestSeed) {
   sql(`DELETE FROM member WHERE workspace_id = '${ws}'`)
   sql(`DELETE FROM workspace WHERE id = '${ws}'`)
   sql(`DELETE FROM "user" WHERE id = '${seed.userId}'`)
+}
+
+export interface SecondaryUser {
+  userId: string
+  memberId: string
+}
+
+/**
+ * Create a second user + member record in an existing workspace.
+ */
+export function seedSecondaryUser(workspaceId: string, role = "member"): SecondaryUser {
+  const userId = `u_${nanoid()}`
+  const memberId = `mb_${nanoid()}`
+  const now = new Date().toISOString()
+
+  sql(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('${userId}', 'Secondary User', '${userId}@test.local', 1, '${now}', '${now}')`)
+  sql(`INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES ('${memberId}', '${workspaceId}', '${userId}', '${role}', '${now}')`)
+
+  return { userId, memberId }
+}
+
+export interface TestInvite {
+  inviteId: string
+  token: string
+}
+
+/**
+ * Create a workspace invite directly in DB for testing.
+ */
+export function seedInvite(workspaceId: string, createdBy: string): TestInvite {
+  const inviteId = `inv_${nanoid()}`
+  const token = `tok_${nanoid()}`
+  const now = new Date().toISOString()
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+
+  sql(`INSERT INTO workspace_invite (id, workspace_id, token, created_by, expires_at, created_at) VALUES ('${inviteId}', '${workspaceId}', '${token}', '${createdBy}', '${expiresAt}', '${now}')`)
+
+  return { inviteId, token }
+}
+
+/**
+ * Clean up secondary user (and their memberships).
+ */
+export function cleanupSecondaryUser(secondary: SecondaryUser) {
+  sql(`DELETE FROM agent_access WHERE user_id = '${secondary.userId}'`)
+  sql(`DELETE FROM agent_pin WHERE user_id = '${secondary.userId}'`)
+  sql(`DELETE FROM member WHERE id = '${secondary.memberId}'`)
+  sql(`DELETE FROM "user" WHERE id = '${secondary.userId}'`)
 }

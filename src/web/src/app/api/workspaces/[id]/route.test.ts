@@ -231,4 +231,14 @@ describe("DELETE /api/workspaces/[id]", () => {
     const res = await DELETE(req, { params: Promise.resolve({ id: "w1" }) } as any);
     expect(res.status).toBe(404);
   });
+
+  it("returns 400 when confirm_name is missing", async () => {
+    const req = new NextRequest("http://localhost/api/workspaces/w1", {
+      method: "DELETE",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await DELETE(req, { params: Promise.resolve({ id: "w1" }) } as any);
+    expect(res.status).toBe(400);
+  });
 });

@@ -97,6 +97,18 @@ describe("DELETE /api/agents/[id]", () => {
     expect(res.status).toBe(404);
     expect(body.error).toBe("agent not found");
   });
+
+  it("returns 403 when user is not agent owner", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "other-user" });
+
+    const req = new NextRequest("http://localhost/api/agents/a1", { method: "DELETE" });
+    const ctx = { params: Promise.resolve({ id: "a1" }) };
+    const res = await DELETE(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.error).toBe("agent owner access required");
+  });
 });
 
 describe("PATCH /api/agents/[id]", () => {
@@ -256,6 +268,21 @@ describe("PATCH /api/agents/[id]", () => {
     expect(res.status).toBe(400);
     expect(body.error).toBe("runtime not found in workspace");
     expect(mockUpdateAgent).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 when user is not agent owner", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", ownerId: "other-user" });
+
+    const req = new NextRequest("http://localhost/api/agents/a1", {
+      method: "PATCH",
+      body: JSON.stringify({ name: "New" }),
+    });
+    const ctx = { params: Promise.resolve({ id: "a1" }) };
+    const res = await PATCH(req, ctx);
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.error).toBe("agent owner access required");
   });
 
 });
