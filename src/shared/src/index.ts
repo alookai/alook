@@ -10,6 +10,7 @@ export type {
   TaskMessage,
   MachineToken,
   Email,
+  EmailDirection,
   EmailAttachment,
   Artifact,
   AgentEmailAccount,
