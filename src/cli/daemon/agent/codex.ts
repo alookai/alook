@@ -78,6 +78,7 @@ export class CodexBackend implements AgentBackend {
     // Turn lifecycle state
     let turnStarted = false;
     let turnDoneTriggered = false;
+    let turnCompletedSuccessfully = false;
     let lastCompletedTurnId = "";
     let turnError = "";
 
@@ -210,6 +211,7 @@ export class CodexBackend implements AgentBackend {
 
           const status = (turn?.status as string) || (params.status as string) || "";
           if (status === "completed" || status === "finished") {
+            turnCompletedSuccessfully = true;
             triggerTurnDone(false);
           } else if (status === "cancelled" || status === "aborted" || status === "interrupted") {
             triggerTurnDone(true);
@@ -504,11 +506,11 @@ export class CodexBackend implements AgentBackend {
 
         if (timedOut) {
           resultStatus = "timeout";
-        } else if (code !== 0 && resultStatus === "completed") {
+        } else if (code !== 0 && resultStatus === "completed" && !turnCompletedSuccessfully) {
           resultStatus = "failed";
         }
 
-        const stderr = stderrChunks.join("");
+        const stderr = stderrChunks.join("").replace(/\x1b\[[0-9;]*m/g, "");
         if (stderr && !lastError) {
           lastError = stderr;
         }

@@ -221,6 +221,24 @@ describe("session-runner runSession", () => {
     expect(mockClientInstance.completeTask).not.toHaveBeenCalled();
   });
 
+  it("uses 'agent exited unexpectedly' when result.error is empty on failure", async () => {
+    setupBackend([], {
+      status: "failed",
+      output: "",
+      error: "",
+      durationMs: 100,
+      sessionId: "sess-1",
+    });
+
+    await runSession(makeInput());
+
+    expect(mockClientInstance.failTask).toHaveBeenCalledWith(
+      "test_token",
+      "t1",
+      "agent exited unexpectedly",
+    );
+  });
+
   it("writes timeline init entry with session runner PID (process.pid)", async () => {
     setupBackend([], {
       status: "completed",

@@ -856,6 +856,58 @@ describe("CodexBackend", () => {
     expect(messages).not.toContainEqual({ type: "text", content: "ignored" });
   });
 
+  it("turn completed successfully + non-zero exit code → status completed (not failed)", async () => {
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    await completeHandshake();
+    sendNotification("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    mock.proc.emit("close", 1);
+
+    const result = await session.result;
+    expect(result.status).toBe("completed");
+  });
+
+  it("non-zero exit code before turn completes → status failed", async () => {
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    await completeHandshake();
+    sendNotification("turn/started", { turn: { id: "turn_1" } });
+    // Process exits before turn/completed
+    mock.proc.emit("close", 1);
+
+    const result = await session.result;
+    expect(result.status).toBe("failed");
+  });
+
+  it("turn completed successfully + non-zero exit + turnError → status failed with turnError", async () => {
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    await completeHandshake();
+    sendNotification("error", { error: { message: "rate limit" }, willRetry: false });
+    sendNotification("turn/completed", { turn: { id: "turn_1", status: "completed" } });
+    mock.proc.emit("close", 1);
+
+    const result = await session.result;
+    expect(result.status).toBe("failed");
+    expect(result.error).toBe("rate limit");
+  });
+
+  it("strips ANSI escape codes from stderr", async () => {
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    await completeHandshake();
+    mock.stderr.push("\x1b[31mERROR\x1b[0m something broke\n");
+    mock.proc.emit("close", 1);
+
+    const result = await session.result;
+    expect(result.error).toBe("ERROR something broke\n");
+    expect(result.error).not.toContain("\x1b[");
+  });
+
   it("handles invalid JSON gracefully", async () => {
     const session = backend.execute("hello", { cwd: "/tmp" });
     const mock = getMock();

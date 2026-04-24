@@ -362,7 +362,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     updateEntry(timelineDir, task.id, (entry) => {
       entry.pid = null;
       entry.status = "failed";
-      entry.errmsg = result.error || "unknown error";
+      entry.errmsg = result.error || "agent exited unexpectedly";
     });
   }
 
@@ -381,7 +381,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     const dur = (result.durationMs / 1000).toFixed(1);
     log.info(`completed (duration=${dur}s, messages=${seq}, tools=${toolCount})`);
   } else {
-    const errorMsg = result.error || "unknown error";
+    const errorMsg = result.error || "agent exited unexpectedly";
     await reportToServer(
       () => client.failTask(token, task.id, errorMsg),
       { taskId: task.id, type: "fail", payload: { error: errorMsg }, token, serverURL, createdAt: new Date().toISOString() },
