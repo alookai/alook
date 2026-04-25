@@ -146,5 +146,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
-  return writeJSON({ tasks, ...(pendingUpdate && { pending_update: pendingUpdate }) });
+  // 6. Pending rescan check
+  let pendingRescan: boolean | undefined;
+  if (machineRow?.pendingRescan) {
+    pendingRescan = true;
+    await queries.machine.clearPendingRescan(db, body.daemon_id, ctx.workspaceId);
+  }
+
+  return writeJSON({
+    tasks,
+    ...(pendingUpdate && { pending_update: pendingUpdate }),
+    ...(pendingRescan && { pending_rescan: pendingRescan }),
+  });
 });

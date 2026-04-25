@@ -121,3 +121,31 @@ export async function clearPendingUpdateVersion(
     .set({ pendingUpdateVersion: null, updatedAt: now })
     .where(eq(machine.daemonId, daemonId));
 }
+
+export async function setPendingRescan(
+  db: Database,
+  daemonId: string,
+  workspaceId: string,
+) {
+  const now = new Date().toISOString();
+  await db
+    .update(machine)
+    .set({ pendingRescan: true, updatedAt: now })
+    .where(
+      and(eq(machine.daemonId, daemonId), eq(machine.workspaceId, workspaceId)),
+    );
+}
+
+export async function clearPendingRescan(
+  db: Database,
+  daemonId: string,
+  workspaceId: string,
+) {
+  const now = new Date().toISOString();
+  await db
+    .update(machine)
+    .set({ pendingRescan: false, updatedAt: now })
+    .where(
+      and(eq(machine.daemonId, daemonId), eq(machine.workspaceId, workspaceId)),
+    );
+}

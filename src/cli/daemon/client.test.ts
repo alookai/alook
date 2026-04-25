@@ -37,6 +37,16 @@ describe("PollResponseSchema validation", () => {
     expect(parsed.tasks[0].agent?.name).toBe("bot");
   });
 
+  it("parses response with pending_rescan", () => {
+    const parsed = PollResponseSchema.parse({ tasks: [], pending_rescan: true });
+    expect(parsed.pending_rescan).toBe(true);
+  });
+
+  it("parses response without pending_rescan (optional)", () => {
+    const parsed = PollResponseSchema.parse({ tasks: [] });
+    expect(parsed.pending_rescan).toBeUndefined();
+  });
+
   it("parses empty tasks array", () => {
     const parsed = PollResponseSchema.parse({ tasks: [] });
     expect(parsed.tasks).toEqual([]);
@@ -197,6 +207,31 @@ describe("DaemonClient.poll() with mocked fetch", () => {
     const result = await client.poll("tok", "d1", 1);
     expect(result.tasks).toEqual([]);
     expect(result.evicted).toBe(false);
+  });
+
+  it("returns pending_rescan when present in response", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ tasks: [], pending_rescan: true }),
+    });
+
+    const client = new DaemonClient("http://localhost:8080");
+    const result = await client.poll("tok", "d1", 1);
+    expect(result.tasks).toEqual([]);
+    expect(result.pending_rescan).toBe(true);
+  });
+
+  it("returns undefined pending_rescan when absent", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ tasks: [] }),
+    });
+
+    const client = new DaemonClient("http://localhost:8080");
+    const result = await client.poll("tok", "d1", 1);
+    expect(result.pending_rescan).toBeUndefined();
   });
 
   it("returns evicted: true when server signals eviction", async () => {

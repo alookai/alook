@@ -381,7 +381,7 @@ describe("AgentRuntimeResponse shape", () => {
     });
     expect(Object.keys(res).sort()).toEqual([
       "created_at", "daemon_id", "device_info", "id", "last_seen_at",
-      "metadata", "name", "pending_update_version", "provider", "runtime_mode", "status",
+      "metadata", "name", "pending_rescan", "pending_update_version", "provider", "runtime_mode", "status",
       "updated_at", "workspace_id",
     ]);
   });

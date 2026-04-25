@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,6 @@ import {
   Card,
   CardHeader,
   CardTitle,
-  CardAction,
   CardContent,
 } from "@/components/ui/card";
 import {
@@ -29,8 +28,8 @@ import type { AgentRuntime as Runtime } from "@alook/shared";
 import { semverGte } from "@alook/shared";
 import { CLI_CMD } from "@/lib/utils";
 import { ProviderLogo } from "@/components/provider-logo";
-import { triggerRuntimeUpdate, fetchLatestCliVersion } from "@/lib/api";
-import { Loader2 } from "lucide-react";
+import { triggerRuntimeUpdate, triggerRuntimeRescan, fetchLatestCliVersion } from "@/lib/api";
+import { Loader2, RefreshCw } from "lucide-react";
 
 function ConnectMachineSteps({
   generatedToken,
@@ -140,12 +139,13 @@ export default function RuntimesPage() {
   const router = useRouter();
   const pathname = usePathname();
 
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(() => searchParams.has("connect"));
   const [generatedToken, setGeneratedToken] = useState("");
   const [generatingToken, setGeneratingToken] = useState(false);
 
   const [latestCliVersion, setLatestCliVersion] = useState<string | null>(null);
   const [updatingDaemons, setUpdatingDaemons] = useState<Set<string>>(new Set());
+  const [rescanningDaemons, setRescanningDaemons] = useState<Set<string>>(new Set());
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmTitle, setConfirmTitle] = useState("");
@@ -159,10 +159,9 @@ export default function RuntimesPage() {
       .catch(() => {});
   }, []);
 
-  // Auto-open "New machine" sheet when navigated with ?connect
+  // Clean up ?connect query param after initial open
   useEffect(() => {
     if (searchParams.has("connect")) {
-      setSheetOpen(true);
       router.replace(pathname, { scroll: false });
     }
   }, [searchParams, router, pathname]);
@@ -226,25 +225,50 @@ export default function RuntimesPage() {
     }
   };
 
-  // Clear updatingDaemons when runtimes reload shows update completed
-  useEffect(() => {
-    if (updatingDaemons.size === 0) return;
-    const stillUpdating = new Set<string>();
+  const handleRescan = async (runtimeId: string, daemonId: string) => {
+    setRescanningDaemons((prev) => new Set(prev).add(daemonId));
+    try {
+      await triggerRuntimeRescan(runtimeId, workspaceId);
+      toast.success("Rescan triggered — daemon will restart to detect runtimes");
+    } catch {
+      toast.error("Failed to trigger rescan");
+      setRescanningDaemons((prev) => {
+        const next = new Set(prev);
+        next.delete(daemonId);
+        return next;
+      });
+    }
+  };
+
+  // Derive effective optimistic sets: filter out entries whose server-side flag has cleared
+  const effectiveUpdatingDaemons = useMemo(() => {
+    if (updatingDaemons.size === 0) return updatingDaemons;
+    const still = new Set<string>();
     for (const rt of runtimes) {
       const key = rt.daemon_id || rt.id;
       if (updatingDaemons.has(key) && rt.pending_update_version) {
-        stillUpdating.add(key);
+        still.add(key);
       }
     }
-    if (stillUpdating.size < updatingDaemons.size) {
-      setUpdatingDaemons(stillUpdating);
+    return still;
+  }, [runtimes, updatingDaemons]);
+
+  const effectiveRescanningDaemons = useMemo(() => {
+    if (rescanningDaemons.size === 0) return rescanningDaemons;
+    const still = new Set<string>();
+    for (const rt of runtimes) {
+      const key = rt.daemon_id || rt.id;
+      if (rescanningDaemons.has(key) && rt.pending_rescan) {
+        still.add(key);
+      }
     }
-  }, [runtimes]); // eslint-disable-line react-hooks/exhaustive-deps
+    return still;
+  }, [runtimes, rescanningDaemons]);
 
   // Group runtimes by machine
   const machines = new Map<
     string,
-    { deviceInfo: string; name: string; status: string; lastSeenAt: string | null; pendingUpdateVersion: string | null; cliVersion: string | null; runtimes: Runtime[] }
+    { deviceInfo: string; name: string; status: string; lastSeenAt: string | null; pendingUpdateVersion: string | null; pendingRescan: boolean; cliVersion: string | null; runtimes: Runtime[] }
   >();
   for (const rt of runtimes) {
     const key = rt.daemon_id || rt.id;
@@ -256,6 +280,7 @@ export default function RuntimesPage() {
         status: rt.status,
         lastSeenAt: rt.last_seen_at,
         pendingUpdateVersion: rt.pending_update_version ?? null,
+        pendingRescan: !!rt.pending_rescan,
         cliVersion: (meta?.cli_version as string) ?? null,
         runtimes: [],
       });
@@ -372,61 +397,84 @@ export default function RuntimesPage() {
                         {machine.status}
                       </Badge>
                     </div>
-                    <CardAction>
-                      {(() => {
-                        const isUpdating = !!machine.pendingUpdateVersion || updatingDaemons.has(daemonId);
-                        const needsUpdate = latestCliVersion && machine.cliVersion && !semverGte(machine.cliVersion, latestCliVersion);
-                        if (isUpdating) {
-                          return (
-                            <Button variant="ghost" size="sm" disabled className="text-xs h-6 px-2">
-                              <Loader2 className="size-3 animate-spin mr-1" />
-                              Updating...
-                            </Button>
-                          );
-                        }
-                        if (needsUpdate) {
-                          return (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-xs h-6 px-2"
-                              onClick={() => handleUpdate(machine.runtimes[0].id, daemonId)}
-                            >
-                              Update
-                            </Button>
-                          );
-                        }
-                        return null;
-                      })()}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs text-muted-foreground h-6 px-2 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => {
-                          openConfirm(
-                            "Remove machine",
-                            `This will remove "${displayName}" and all its runtimes. Agents using these runtimes will be unlinked.`,
-                            async () => {
-                              await handleDeleteMachine(daemonId);
-                            }
-                          );
-                        }}
-                      >
-                        Remove
-                      </Button>
-                    </CardAction>
+                    {machine.cliVersion && (
+                      <span className="text-xs text-muted-foreground/60 shrink-0">v{machine.cliVersion}</span>
+                    )}
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2.5">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
-                        <span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground tabular-nums">
                           {machine.lastSeenAt ? new Date(
                             machine.lastSeenAt
                           ).toLocaleString() : "Never seen"}
                         </span>
-                        {machine.cliVersion && (
-                          <span className="text-muted-foreground/60">v{machine.cliVersion}</span>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {(() => {
+                            const isUpdating = !!machine.pendingUpdateVersion || effectiveUpdatingDaemons.has(daemonId);
+                            const needsUpdate = latestCliVersion && machine.cliVersion && !semverGte(machine.cliVersion, latestCliVersion);
+                            if (isUpdating) {
+                              return (
+                                <Button variant="ghost" size="sm" disabled className="text-xs h-6 px-2">
+                                  <Loader2 className="size-3 animate-spin mr-1" />
+                                  Updating...
+                                </Button>
+                              );
+                            }
+                            if (needsUpdate) {
+                              return (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs h-6 px-2"
+                                  onClick={() => handleUpdate(machine.runtimes[0].id, daemonId)}
+                                >
+                                  Update
+                                </Button>
+                              );
+                            }
+                            return null;
+                          })()}
+                          {(() => {
+                            const isRescanning = machine.pendingRescan || effectiveRescanningDaemons.has(daemonId);
+                            if (machine.status !== "online") return null;
+                            if (isRescanning) {
+                              return (
+                                <Button variant="ghost" size="sm" disabled className="text-xs h-6 px-2">
+                                  <RefreshCw className="size-3 animate-spin mr-1" />
+                                  Rescanning...
+                                </Button>
+                              );
+                            }
+                            return (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-xs h-6 px-2"
+                                onClick={() => handleRescan(machine.runtimes[0].id, daemonId)}
+                              >
+                                <RefreshCw className="size-3 mr-1" />
+                                Rescan
+                              </Button>
+                            );
+                          })()}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-xs text-muted-foreground h-6 px-2 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => {
+                              openConfirm(
+                                "Remove machine",
+                                `This will remove "${displayName}" and all its runtimes. Agents using these runtimes will be unlinked.`,
+                                async () => {
+                                  await handleDeleteMachine(daemonId);
+                                }
+                              );
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </div>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {machine.runtimes.map((runtime) => (
@@ -458,7 +506,7 @@ export default function RuntimesPage() {
                             }}
                             title="Click to copy"
                           >
-                            <span className="absolute inset-0 -translate-x-full animate-[shimmer_2.5s_infinite] bg-gradient-to-r from-transparent via-[var(--shimmer-peak)] to-transparent" />
+                            <span className="absolute inset-0 -translate-x-full animate-[shimmer_2.5s_infinite] bg-linear-to-r from-transparent via-(--shimmer-peak) to-transparent" />
                             <span className="relative">{CLI_CMD} daemon start</span>
                           </div>
                         </div>

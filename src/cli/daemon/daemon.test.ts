@@ -1395,6 +1395,76 @@ describe("daemon restart via update", () => {
 
 });
 
+describe("daemon rescan via poll", () => {
+  beforeEach(async () => {
+    signalHandlers.clear();
+    intervalTimers.length = 0;
+    clearedTimers.length = 0;
+    spawnedChildren.length = 0;
+    nextPid = 50000;
+    vi.clearAllMocks();
+    mockProcessExit.mockImplementation((() => {}) as any);
+    mockOpenSync.mockReturnValue(99);
+
+    const { createHealthServer } = await import("./health.js");
+    vi.mocked(createHealthServer).mockReturnValue({
+      setRuntimeCount: vi.fn(),
+      server: { close: vi.fn((cb?: () => void) => { if (cb) cb(); }) },
+    } as any);
+
+    mockClientInstance.register.mockResolvedValue({ runtimes: [{ id: "rt1" }] });
+    mockClientInstance.deregister.mockResolvedValue(undefined as any);
+  });
+
+  afterEach(() => {
+    for (const t of intervalTimers) realClearInterval(t);
+  });
+
+  it("calls requestRestart when pending_rescan is true in poll response", async () => {
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      server_url: "",
+      watched_workspaces: [{ id: "ws1", name: "Test WS", token: "al_test_token" }],
+    });
+
+    mockClientInstance.poll.mockResolvedValue({
+      tasks: [],
+      evicted: false,
+      pending_rescan: true,
+    });
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 200));
+
+    // requestRestart triggers shutdown + spawn of new daemon
+    const spawnCalls = vi.mocked(spawn).mock.calls;
+    const restartCall = spawnCalls.find(
+      (call) => call[0] === process.execPath && (call[1] as string[]).includes("--foreground"),
+    );
+    expect(restartCall).toBeDefined();
+  });
+
+  it("does not restart when pending_rescan is absent", async () => {
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      server_url: "",
+      watched_workspaces: [{ id: "ws1", name: "Test WS", token: "al_test_token" }],
+    });
+
+    mockClientInstance.poll.mockResolvedValue({
+      tasks: [],
+      evicted: false,
+    });
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 200));
+
+    const spawnCalls = vi.mocked(spawn).mock.calls;
+    const restartCall = spawnCalls.find(
+      (call) => call[0] === process.execPath && (call[1] as string[]).includes("--foreground"),
+    );
+    expect(restartCall).toBeUndefined();
+  });
+});
+
 describe("daemon restart spawn", () => {
   beforeEach(async () => {
     signalHandlers.clear();

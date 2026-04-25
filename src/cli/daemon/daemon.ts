@@ -395,7 +395,7 @@ export async function startDaemon(
       }
 
       try {
-        const { tasks: apiTasks, evicted, pending_update } = await client.poll(
+        const { tasks: apiTasks, evicted, pending_update, pending_rescan } = await client.poll(
           ws.token,
           config.daemonId,
           remaining,
@@ -409,6 +409,11 @@ export async function startDaemon(
 
         if (pending_update && !isUpdating() && pending_update.version !== config.cliVersion) {
           handleCliUpdate(pending_update.version, () => requestRestart(), profile);
+        }
+
+        if (pending_rescan) {
+          log.info("Rescan requested — restarting daemon to re-detect runtimes");
+          requestRestart();
         }
 
         for (const apiTask of apiTasks) {

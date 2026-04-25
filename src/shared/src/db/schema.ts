@@ -170,6 +170,7 @@ export const machine = sqliteTable(
     lastSeenAt: text("last_seen_at"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
     pendingUpdateVersion: text("pending_update_version"),
+    pendingRescan: integer("pending_rescan", { mode: "boolean" }).default(false),
     updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [primaryKey({ columns: [t.workspaceId, t.daemonId] })]

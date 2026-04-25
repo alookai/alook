@@ -140,6 +140,12 @@ export const triggerRuntimeUpdate = (runtimeId: string, workspaceId: string) =>
     { method: "POST" }
   );
 
+export const triggerRuntimeRescan = (runtimeId: string, workspaceId: string) =>
+  apiFetch<{ pending_rescan: boolean }>(
+    `/api/runtimes/${runtimeId}/rescan${wsQuery(workspaceId)}`,
+    { method: "POST" }
+  );
+
 export const fetchLatestCliVersion = () =>
   apiFetch<{ version: string }>("/api/cli/latest-version");
 
