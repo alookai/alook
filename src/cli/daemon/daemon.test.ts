@@ -2,18 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { EventEmitter } from "events";
 
 // Mock all external dependencies before importing
-/* eslint-disable @typescript-eslint/no-explicit-any */
 const mockClientInstance = {
-  register: vi.fn<any, [any]>(async () => ({
+  register: vi.fn(async () => ({
     runtimes: [{ id: "rt1" }],
   })),
-  deregister: vi.fn<any, [any]>(async () => {}),
-  poll: vi.fn<any, [any]>(async () => ({ tasks: [] as any[], evicted: false })),
-  startTask: vi.fn<any, [any]>(async () => ({})),
-  completeTask: vi.fn<any, [any]>(async () => ({})),
-  failTask: vi.fn<any, [any]>(async () => ({})),
-  supersedeTask: vi.fn<any, [any]>(async () => ({})),
-  reportMessages: vi.fn<any, [any]>(async () => ({})),
+  deregister: vi.fn(async () => {}),
+  poll: vi.fn(async () => ({ tasks: [], evicted: false })),
+  startTask: vi.fn(async () => ({})),
+  completeTask: vi.fn(async () => ({})),
+  failTask: vi.fn(async () => ({})),
+  supersedeTask: vi.fn(async () => ({})),
+  reportMessages: vi.fn(async () => ({})),
 };
 vi.mock("./client.js", () => {
   function MockDaemonClient() { return mockClientInstance; }
@@ -77,18 +76,18 @@ vi.mock("./update-handler.js", () => ({
   clearUpdateMarker: vi.fn(),
 }));
 
-const mockFindRunningPidByTaskId = vi.fn<any, any>();
-const mockFindRunningEntryByContextKey = vi.fn<any, any>(() => null);
+const mockFindRunningPidByTaskId = vi.fn();
+const mockFindRunningEntryByContextKey = vi.fn(() => null);
 vi.mock("./execenv/timeline.js", () => ({
   findRunningPidByTaskId: (...args: any[]) => mockFindRunningPidByTaskId(...args),
   findRunningEntryByContextKey: (...args: any[]) => mockFindRunningEntryByContextKey(...args),
 }));
 
-const mockWriteKillIntent = vi.fn<any, any>();
-const mockClearKillIntent = vi.fn<any, any>();
-const mockAcquireSteeringLock = vi.fn<any, any>(() => true);
-const mockReleaseSteeringLock = vi.fn<any, any>();
-const mockCleanupStaleIntents = vi.fn<any, any>();
+const mockWriteKillIntent = vi.fn();
+const mockClearKillIntent = vi.fn();
+const mockAcquireSteeringLock = vi.fn(() => true);
+const mockReleaseSteeringLock = vi.fn();
+const mockCleanupStaleIntents = vi.fn();
 vi.mock("./execenv/steering.js", () => ({
   writeKillIntent: (...args: any[]) => mockWriteKillIntent(...args),
   clearKillIntent: (...args: any[]) => mockClearKillIntent(...args),
@@ -106,8 +105,8 @@ interface MockChild extends EventEmitter {
 const spawnedChildren: MockChild[] = [];
 let nextPid = 50000;
 
-vi.mock("child_process", async () => {
-  const { EventEmitter } = await import("events");
+vi.mock("child_process", () => {
+  const { EventEmitter } = require("events");
 
   return {
     execSync: vi.fn(),
@@ -121,13 +120,13 @@ vi.mock("child_process", async () => {
   };
 });
 
-const mockOpenSync = vi.fn<any, any>(() => 42);
-const mockCloseSync = vi.fn<any, any>();
-const mockRenameSync = vi.fn<any, any>();
-const mockMkdirSync = vi.fn<any, any>();
-const mockReaddirSync = vi.fn<any, any>(() => [] as string[]);
-const mockStatSync = vi.fn<any, any>(() => ({ mtimeMs: 0 }));
-const mockUnlinkSync = vi.fn<any, any>();
+const mockOpenSync = vi.fn(() => 42);
+const mockCloseSync = vi.fn();
+const mockRenameSync = vi.fn();
+const mockMkdirSync = vi.fn();
+const mockReaddirSync = vi.fn(() => [] as string[]);
+const mockStatSync = vi.fn(() => ({ mtimeMs: 0 }));
+const mockUnlinkSync = vi.fn();
 
 vi.mock("fs", () => ({
   existsSync: vi.fn((p: string) => p.endsWith("session-runner.js")),
@@ -140,10 +139,10 @@ vi.mock("fs", () => ({
   unlinkSync: (...args: any[]) => mockUnlinkSync(...args),
 }));
 
-const mockReaddir = vi.fn<any, any>(async () => [] as string[]);
-const mockReadFile = vi.fn<any, any>(async () => "");
-const mockUnlink = vi.fn<any, any>(async () => undefined);
-const mockFsStat = vi.fn<any, any>(async () => ({ mtimeMs: Date.now() }));
+const mockReaddir = vi.fn(async () => [] as string[]);
+const mockReadFile = vi.fn(async () => "");
+const mockUnlink = vi.fn(async () => undefined);
+const mockFsStat = vi.fn(async () => ({ mtimeMs: Date.now() }));
 vi.mock("fs/promises", () => ({
   readdir: (...args: any[]) => mockReaddir(...args),
   readFile: (...args: any[]) => mockReadFile(...args),
