@@ -5,8 +5,7 @@
     "moduleResolution": "bundler",
     "strict": true,
     "skipLibCheck": true,
-    "types": ["bun"]
+    "types": ["bun", "vitest/globals"]
   },
-  "include": ["src", "commands", "daemon", "lib"],
-  "exclude": ["**/__tests__", "**/*.test.ts"]
+  "include": ["src", "commands", "daemon", "lib", "**/*.test.ts", "**/__tests__/**/*.ts"]
 }
