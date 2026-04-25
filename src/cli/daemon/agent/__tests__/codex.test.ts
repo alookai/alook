@@ -115,6 +115,19 @@ describe("CodexBackend", () => {
     backend = new CodexBackend("/usr/bin/codex");
   });
 
+  it("spawns codex with network_access config flag", async () => {
+    const { spawn } = await import("child_process");
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    const spawnCall = (spawn as any).mock.calls[0];
+    expect(spawnCall[1]).toContain("--config");
+    expect(spawnCall[1]).toContain("sandbox_workspace_write.network_access=true");
+
+    mock.proc.emit("close", 0);
+    await session.result;
+  });
+
   it("sends structured initialize params", async () => {
     const session = backend.execute("hello", { cwd: "/tmp" });
     const mock = getMock();
