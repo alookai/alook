@@ -50,8 +50,8 @@
   },
   "devDependencies": {
     "@alook/shared": "workspace:*",
-    "@types/bun": "^1.3.12",
+    "@types/bun": "^1.3.13",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.5"
   }
 }

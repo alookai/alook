@@ -31,8 +31,8 @@
   "devDependencies": {
     "turbo": "^2.9.6",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.4",
-    "wrangler": "^4.83.0"
+    "vitest": "^4.1.5",
+    "wrangler": "^4.85.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
