@@ -50,7 +50,7 @@ export default function SettingsPage() {
 
         <div className="flex-1 min-w-0 flex flex-col">
           <div className="px-4 pt-2 md:hidden">
-            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)}>
+            <Tabs className="items-center" value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)}>
               <TabsList className="h-auto gap-1">
                 {TABS.map((tab) => (
                   <TabsTrigger key={tab.id} value={tab.id}>

@@ -101,6 +101,7 @@ export function AgentEditForm({
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="px-4 pt-2 md:hidden">
           <Tabs
+            className="items-center"
             value={activeTab}
             onValueChange={(v) => setActiveTab(v as TabId)}
           >

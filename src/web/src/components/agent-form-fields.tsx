@@ -26,7 +26,7 @@ import type { Agent } from "@alook/shared";
 import { isValidHandle } from "@alook/shared";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { cn } from "@/lib/utils";
-import { LockIcon, XIcon } from "lucide-react";
+import { InfoIcon, LockIcon, XIcon } from "lucide-react";
 import { useWorkspace } from "@/contexts/workspace-context";
 import {
   listWhitelist,
@@ -36,6 +36,7 @@ import {
   grantAgentAccess,
   revokeAgentAccess,
   listMembers,
+  listAgents,
   updateAgent as updateAgentApi,
   type WhitelistEntry,
   type AgentAccessEntry,
@@ -285,6 +286,7 @@ export function AllowedSendersTab({ agentId }: { agentId: string }) {
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasSiblingAgents, setHasSiblingAgents] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -299,6 +301,23 @@ export function AllowedSendersTab({ agentId }: { agentId: string }) {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, workspaceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listAgents(workspaceId)
+      .then((agents) => {
+        if (!cancelled) {
+          const siblings = agents.filter(
+            (a) => a.id !== agentId && a.email_handle
+          );
+          setHasSiblingAgents(siblings.length > 0);
+        }
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -346,6 +365,13 @@ export function AllowedSendersTab({ agentId }: { agentId: string }) {
           Only emails from these addresses will trigger this agent. Applies to
           all configured email addresses (alook.ai handle and custom email).
         </p>
+        {hasSiblingAgents && (
+          <p className="text-xs text-muted-foreground/70 mt-1.5 flex items-center gap-1">
+            <InfoIcon className="size-3 shrink-0" />
+            Agents in this workspace can already email each other — no whitelist
+            entry needed.
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-2">
