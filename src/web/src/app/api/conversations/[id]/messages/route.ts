@@ -45,6 +45,13 @@ export const GET = withAuth(async (req, ctx) => {
   }
 
   const url = new URL(req.url);
+  const aroundTask = url.searchParams.get("around_task");
+
+  if (aroundTask) {
+    const messages = await queries.message.listMessagesAroundTask(db, id, aroundTask);
+    return writeJSON(messages.map(messageToResponse));
+  }
+
   const limitParam = url.searchParams.get("limit");
   const before = url.searchParams.get("before") || undefined;
   const beforeId = url.searchParams.get("before_id") || undefined;

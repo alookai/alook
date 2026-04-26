@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, inArray, notInArray, ne, count, lt, sql } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, notInArray, ne, count, lt, or, sql } from "drizzle-orm";
 import { agentTaskQueue, taskMessage } from "../schema";
 import type { Database } from "../index";
 import { ClaimedTaskRowSchema } from "../../schemas";
@@ -354,6 +354,24 @@ export async function deleteTasksByConversation(
     .returning({ id: agentTaskQueue.id });
 }
 
+export async function cancelActiveTasksByConversation(
+  db: Database,
+  conversationId: string,
+  workspaceId: string
+) {
+  return db
+    .update(agentTaskQueue)
+    .set({ status: "cancelled", completedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(agentTaskQueue.conversationId, conversationId),
+        eq(agentTaskQueue.workspaceId, workspaceId),
+        inArray(agentTaskQueue.status, ["queued", "dispatched", "running"])
+      )
+    )
+    .returning({ id: agentTaskQueue.id });
+}
+
 export async function countRunningTasks(db: Database, agentId: string, workspaceId: string, excludeTaskId?: string) {
   const conditions = [
     eq(agentTaskQueue.agentId, agentId),
@@ -526,4 +544,68 @@ export async function failStaleRunningTasks(db: Database, workspaceId: string, s
     )
     .returning({ agentId: agentTaskQueue.agentId, workspaceId: agentTaskQueue.workspaceId, conversationId: agentTaskQueue.conversationId });
   return rows;
+}
+
+const DEFAULT_HISTORY_LIMIT = 30;
+
+export async function listTaskHistory(
+  db: Database,
+  agentId: string,
+  workspaceId: string,
+  opts?: {
+    limit?: number;
+    before?: string;
+    beforeId?: string;
+    status?: string[];
+    type?: string[];
+  }
+) {
+  const limit = opts?.limit ?? DEFAULT_HISTORY_LIMIT;
+  const conditions = [
+    eq(agentTaskQueue.agentId, agentId),
+    eq(agentTaskQueue.workspaceId, workspaceId),
+    ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK),
+  ];
+
+  if (opts?.status && opts.status.length > 0) {
+    conditions.push(inArray(agentTaskQueue.status, opts.status));
+  }
+
+  if (opts?.type && opts.type.length > 0) {
+    conditions.push(inArray(agentTaskQueue.type, opts.type));
+  }
+
+  if (opts?.before) {
+    const cursorCondition = opts.beforeId
+      ? or(
+          lt(agentTaskQueue.createdAt, opts.before),
+          and(eq(agentTaskQueue.createdAt, opts.before), lt(agentTaskQueue.id, opts.beforeId))
+        )
+      : lt(agentTaskQueue.createdAt, opts.before);
+    conditions.push(cursorCondition!);
+  }
+
+  const rows = await db
+    .select({
+      id: agentTaskQueue.id,
+      agentId: agentTaskQueue.agentId,
+      conversationId: agentTaskQueue.conversationId,
+      workspaceId: agentTaskQueue.workspaceId,
+      prompt: agentTaskQueue.prompt,
+      type: agentTaskQueue.type,
+      status: agentTaskQueue.status,
+      createdAt: agentTaskQueue.createdAt,
+      startedAt: agentTaskQueue.startedAt,
+      completedAt: agentTaskQueue.completedAt,
+      error: agentTaskQueue.error,
+    })
+    .from(agentTaskQueue)
+    .where(and(...conditions))
+    .orderBy(desc(agentTaskQueue.createdAt), desc(agentTaskQueue.id))
+    .limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const tasks = hasMore ? rows.slice(0, limit) : rows;
+
+  return { tasks: tasks.reverse(), hasMore };
 }

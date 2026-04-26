@@ -4,7 +4,7 @@ import { getSession } from "@/lib/session";
 
 export const metadata: Metadata = {
   title: "Sign In",
-  description: "Sign in to manage your always-on AI agents on Alook.",
+  description: "Sign in to manage your Your Personal Colleagues on Alook.",
   openGraph: {
     images: [{ url: "/api/og?title=Sign In", width: 1200, height: 630 }],
   },

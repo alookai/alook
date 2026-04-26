@@ -202,6 +202,15 @@ export const listMessages = (
   );
 };
 
+export const listMessagesAroundTask = (
+  conversationId: string,
+  workspaceId: string,
+  taskId: string
+) =>
+  apiFetch<Message[]>(
+    `/api/conversations/${conversationId}/messages${wsQuery(workspaceId, { around_task: taskId })}`
+  );
+
 export const sendMessage = async (
   conversationId: string,
   content: string,
@@ -368,6 +377,35 @@ export interface ActiveTask {
 
 export const listAgentActiveTasks = (agentId: string, workspaceId: string) =>
   apiFetch<{ tasks: ActiveTask[] }>(`/api/agents/${agentId}/active-tasks${wsQuery(workspaceId)}`);
+
+// Activity
+export interface ActivityTask {
+  id: string;
+  conversation_id: string;
+  type: string;
+  status: string;
+  prompt: string;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+}
+
+export const listAgentActivity = (
+  agentId: string,
+  workspaceId: string,
+  opts?: { limit?: number; before?: string; beforeId?: string; status?: string; type?: string }
+) => {
+  const extra: Record<string, string> = {};
+  if (opts?.limit) extra.limit = String(opts.limit);
+  if (opts?.before) extra.before = opts.before;
+  if (opts?.beforeId) extra.before_id = opts.beforeId;
+  if (opts?.status) extra.status = opts.status;
+  if (opts?.type) extra.type = opts.type;
+  return apiFetch<{ tasks: ActivityTask[]; has_more: boolean }>(
+    `/api/agents/${agentId}/activity${wsQuery(workspaceId, extra)}`
+  );
+};
 
 // Tasks (polling)
 export const getTask = (id: string, workspaceId: string) =>

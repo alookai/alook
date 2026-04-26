@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, type ReactNode } from "react";
-import { useParams, useRouter, usePathname } from "next/navigation";
+import { useParams, useRouter, usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
@@ -10,7 +10,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AgentEditForm } from "@/components/agent-edit-form";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AgentStatusBadge } from "@/components/agent-status-badge";
-import { CalendarDays, Mail, MessageSquare, MoreHorizontal, Pencil, Trash2, X } from "lucide-react";
+import { CalendarDays, History, Mail, MessageSquare, MoreHorizontal, Pencil, Trash2, X } from "lucide-react";
 import { MobileSidebarLogo } from "@/components/mobile-sidebar-logo";
 import {
   DropdownMenu,
@@ -26,8 +26,15 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
   const router = useRouter();
   const pathname = usePathname();
   const { slug } = useWorkspace();
+  const searchParams = useSearchParams();
   const agentId = params.id as string;
-  const isOnEmail = pathname.includes(`/agents/${agentId}/email`);
+  const isActivityView = !!searchParams.get("conv");
+  const currentTab = pathname.includes("/activity") || isActivityView
+    ? "activity"
+    : pathname.includes("/email")
+      ? "email"
+      : "chat";
+  const tabLabels: Record<string, string> = { email: "Email", activity: "Activity" };
   const { agents, runtimes, handleDeleteAgent, handleUpdateAgent } = useAgentContext();
 
   const agent = agents.find((a) => a.id === agentId);
@@ -75,7 +82,7 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
             <Skeleton className="h-3.5 w-24" />
           )}
           <span className="text-xs text-muted-foreground">
-            / {editing ? "Settings" : isOnEmail ? "Email" : "Chat"}
+            / {editing ? "Settings" : tabLabels[currentTab] ?? "Chat"}
           </span>
         </div>
         {agent ? (
@@ -94,47 +101,75 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
               <>
                 {/* Desktop: inline buttons */}
                 <div className="hidden sm:flex items-center gap-0.5">
-                  {isOnEmail ? (
-                    <Link
-                      href={`/w/${slug}/agents/${agentId}`}
-                      className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
-                    >
-                      <MessageSquare className="size-3" />
-                      Chat
-                    </Link>
-                  ) : (
-                    <Link
-                      href={`/w/${slug}/agents/${agentId}/email`}
-                      className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
-                    >
-                      <Mail className="size-3" />
-                      Email
-                    </Link>
-                  )}
+                  <Link
+                    href={`/w/${slug}/agents/${agentId}`}
+                    className={`group inline-flex items-center rounded-lg text-xs h-7 px-2 transition-all ${
+                      currentTab === "chat"
+                        ? "text-foreground bg-muted"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <MessageSquare className="size-3 shrink-0" />
+                    <span className={`overflow-hidden transition-all duration-500 ease-out ${
+                      currentTab === "chat"
+                        ? "max-w-16 opacity-100 ml-1"
+                        : "max-w-0 opacity-0 group-hover:max-w-16 group-hover:opacity-100 group-hover:ml-1 group-hover:delay-300"
+                    }`}>Chat</span>
+                  </Link>
+                  <Link
+                    href={`/w/${slug}/agents/${agentId}/email`}
+                    className={`group inline-flex items-center rounded-lg text-xs h-7 px-2 transition-all ${
+                      currentTab === "email"
+                        ? "text-foreground bg-muted"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <Mail className="size-3 shrink-0" />
+                    <span className={`overflow-hidden transition-all duration-500 ease-out ${
+                      currentTab === "email"
+                        ? "max-w-16 opacity-100 ml-1"
+                        : "max-w-0 opacity-0 group-hover:max-w-16 group-hover:opacity-100 group-hover:ml-1 group-hover:delay-300"
+                    }`}>Email</span>
+                  </Link>
+                  <Link
+                    href={`/w/${slug}/agents/${agentId}/activity`}
+                    className={`group inline-flex items-center rounded-lg text-xs h-7 px-2 transition-all ${
+                      currentTab === "activity"
+                        ? "text-foreground bg-muted"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <History className="size-3 shrink-0" />
+                    <span className={`overflow-hidden transition-all duration-500 ease-out ${
+                      currentTab === "activity"
+                        ? "max-w-16 opacity-100 ml-1"
+                        : "max-w-0 opacity-0 group-hover:max-w-16 group-hover:opacity-100 group-hover:ml-1 group-hover:delay-300"
+                    }`}>Activity</span>
+                  </Link>
                   <Link
                     href={`/w/${slug}/calendar?agents=${agentId}`}
-                    className="inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 gap-1 px-2 hover:bg-muted hover:text-foreground transition-all"
+                    className="group inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 px-2 hover:bg-muted hover:text-foreground transition-all"
                   >
-                    <CalendarDays className="size-3" />
-                    Calendar
+                    <CalendarDays className="size-3 shrink-0" />
+                    <span className="max-w-0 opacity-0 group-hover:max-w-20 group-hover:opacity-100 group-hover:ml-1 group-hover:delay-300 overflow-hidden transition-all duration-500 ease-out">Calendar</span>
                   </Link>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-xs text-muted-foreground h-7 gap-1 px-2"
+                    className="group text-xs text-muted-foreground h-7 px-2"
                     onClick={() => setEditing(true)}
                   >
-                    <Pencil className="size-3" />
-                    Edit
+                    <Pencil className="size-3 shrink-0" />
+                    <span className="max-w-0 opacity-0 group-hover:max-w-12 group-hover:opacity-100 group-hover:ml-1 group-hover:delay-300 overflow-hidden transition-all duration-500 ease-out">Edit</span>
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-xs text-muted-foreground h-7 px-2 hover:text-destructive"
+                    className="group text-xs text-muted-foreground h-7 px-2 hover:text-destructive"
                     onClick={() => setAgentConfirmOpen(true)}
                   >
-                    <Trash2 className="size-3" />
-                    Remove
+                    <Trash2 className="size-3 shrink-0" />
+                    <span className="max-w-0 opacity-0 group-hover:max-w-16 group-hover:opacity-100 group-hover:ml-1 group-hover:delay-300 overflow-hidden transition-all duration-500 ease-out">Remove</span>
                   </Button>
                 </div>
 
@@ -147,21 +182,27 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
                       <MoreHorizontal className="size-4" />
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" sideOffset={6}>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          router.push(
-                            isOnEmail
-                              ? `/w/${slug}/agents/${agentId}`
-                              : `/w/${slug}/agents/${agentId}/email`
-                          )
-                        }
-                      >
-                        {isOnEmail ? (
-                          <><MessageSquare className="size-3.5" /> Chat</>
-                        ) : (
-                          <><Mail className="size-3.5" /> Email</>
-                        )}
-                      </DropdownMenuItem>
+                      {currentTab !== "chat" && (
+                        <DropdownMenuItem
+                          onClick={() => router.push(`/w/${slug}/agents/${agentId}`)}
+                        >
+                          <MessageSquare className="size-3.5" /> Chat
+                        </DropdownMenuItem>
+                      )}
+                      {currentTab !== "email" && (
+                        <DropdownMenuItem
+                          onClick={() => router.push(`/w/${slug}/agents/${agentId}/email`)}
+                        >
+                          <Mail className="size-3.5" /> Email
+                        </DropdownMenuItem>
+                      )}
+                      {currentTab !== "activity" && (
+                        <DropdownMenuItem
+                          onClick={() => router.push(`/w/${slug}/agents/${agentId}/activity`)}
+                        >
+                          <History className="size-3.5" /> Activity
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem
                         onClick={() =>
                           router.push(`/w/${slug}/calendar?agents=${agentId}`)

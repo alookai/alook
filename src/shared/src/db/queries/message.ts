@@ -1,4 +1,4 @@
-import { eq, asc, desc, and, lt, or, count } from "drizzle-orm";
+import { eq, asc, desc, and, lt, or, count, sql } from "drizzle-orm";
 import { message } from "../schema";
 import type { Database } from "../index";
 
@@ -182,4 +182,56 @@ export async function countBufferedMessages(db: Database, conversationId: string
       )
     );
   return rows[0]?.count ?? 0;
+}
+
+export async function listMessagesAroundTask(
+  db: Database,
+  conversationId: string,
+  taskId: string,
+  limit = 15
+) {
+  const target = await db
+    .select({ createdAt: message.createdAt })
+    .from(message)
+    .where(
+      and(
+        eq(message.conversationId, conversationId),
+        eq(message.taskId, taskId),
+        eq(message.status, "active")
+      )
+    )
+    .orderBy(asc(message.createdAt))
+    .limit(1);
+
+  if (target.length === 0) return [];
+
+  const pivot = target[0]!.createdAt;
+
+  const before = await db
+    .select()
+    .from(message)
+    .where(
+      and(
+        eq(message.conversationId, conversationId),
+        eq(message.status, "active"),
+        lt(message.createdAt, pivot)
+      )
+    )
+    .orderBy(desc(message.createdAt))
+    .limit(limit);
+
+  const atAndAfter = await db
+    .select()
+    .from(message)
+    .where(
+      and(
+        eq(message.conversationId, conversationId),
+        eq(message.status, "active"),
+        sql`${message.createdAt} >= ${pivot}`
+      )
+    )
+    .orderBy(asc(message.createdAt))
+    .limit(limit + 1);
+
+  return [...before.reverse(), ...atAndAfter];
 }

@@ -1194,3 +1194,13 @@
   width: max-content !important;
   min-width: 100%;
 }
+
+/* ── Task highlight (activity page scroll-to-task) ── */
+.task-highlight {
+  background-color: oklch(0.8 0.04 80 / 0.4);
+  border-radius: 0.75rem;
+  transition: background-color 1.5s ease-out;
+}
+:is(.dark) .task-highlight {
+  background-color: oklch(0.4 0.04 80 / 0.3);
+}

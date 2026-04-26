@@ -4,7 +4,7 @@ import { HomePage } from "@/components/home/home-page";
 import { WorkspaceRedirect } from "@/components/workspace-redirect";
 
 export const metadata: Metadata = {
-  title: "Alook — Always-on AI Agents",
+  title: "Alook — Your Personal Colleagues",
   description:
     "Your AI agents, always on. Give them an email, let them work for you around the clock.",
   alternates: { canonical: "https://alook.ai" },
@@ -35,7 +35,7 @@ const faqJsonLd = {
       name: "Is Alook free to use?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Yes, Alook offers a free tier to get started with always-on AI agents.",
+        text: "Yes, Alook offers a free tier to get started with Your Personal Colleagues.",
       },
     },
   ],

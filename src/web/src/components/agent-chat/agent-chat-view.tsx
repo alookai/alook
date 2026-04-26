@@ -1,18 +1,19 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
 import { TaskStream } from "@/components/task-stream";
 import {
   chatInit,
-  getOrCreateAgentConversation,
+  createConversation,
+  getConversation,
   listMessages,
+  listMessagesAroundTask,
   sendMessage,
   getTask,
   getTaskMessages,
-  deleteConversation,
   listArtifacts,
   listBufferedMessages,
   createBufferedMessage,
@@ -156,9 +157,12 @@ function PendingFileChips({
 
 export function AgentChatView() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const { workspaceId } = useWorkspace();
   const { agents, activeTaskCounts, subscribeWs } = useAgentContext();
   const agentId = params.id as string;
+  const scrollToTaskId = searchParams.get("task");
+  const targetConvId = searchParams.get("conv");
 
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -240,21 +244,42 @@ export function AgentChatView() {
   useEffect(() => {
     async function load() {
       try {
-        const data = await chatInit(agentId, workspaceId);
-        setConversation(data.conversation);
-        setMessages(data.messages);
-        setHasMore(data.has_more_messages);
-        setArtifacts(data.artifacts);
-        setBufferedMessages(data.buffered_messages);
-
-        if (data.active_task) {
-          setActiveTask(data.active_task);
-          if (data.task_messages.length > 0) {
-            setTaskMessages(data.task_messages);
-            lastSeqRef.current = Math.max(...data.task_messages.map((m) => m.seq));
+        if (targetConvId && scrollToTaskId) {
+          try {
+            const [conv, msgs, arts] = await Promise.all([
+              getConversation(targetConvId, workspaceId),
+              listMessages(targetConvId, workspaceId),
+              listArtifacts(targetConvId, workspaceId).catch(() => [] as Artifact[]),
+            ]);
+            setConversation(conv);
+            setMessages(msgs);
+            setHasMore(msgs.length >= MESSAGE_LIMIT);
+            setArtifacts(arts);
+          } catch {
+            const data = await chatInit(agentId, workspaceId);
+            setConversation(data.conversation);
+            setMessages(data.messages);
+            setHasMore(data.has_more_messages);
+            setArtifacts(data.artifacts);
+            setBufferedMessages(data.buffered_messages);
           }
-          if (!["completed", "failed", "cancelled", "superseded"].includes(data.active_task.status)) {
-            startPollingRef.current(data.active_task.id, data.conversation.id, lastSeqRef.current);
+        } else {
+          const data = await chatInit(agentId, workspaceId);
+          setConversation(data.conversation);
+          setMessages(data.messages);
+          setHasMore(data.has_more_messages);
+          setArtifacts(data.artifacts);
+          setBufferedMessages(data.buffered_messages);
+
+          if (data.active_task) {
+            setActiveTask(data.active_task);
+            if (data.task_messages.length > 0) {
+              setTaskMessages(data.task_messages);
+              lastSeqRef.current = Math.max(...data.task_messages.map((m) => m.seq));
+            }
+            if (!["completed", "failed", "cancelled", "superseded"].includes(data.active_task.status)) {
+              startPollingRef.current(data.active_task.id, data.conversation.id, lastSeqRef.current);
+            }
           }
         }
       } catch {
@@ -264,17 +289,44 @@ export function AgentChatView() {
       }
     }
     load();
-  }, [agentId, workspaceId]);
+  }, [agentId, workspaceId, targetConvId, scrollToTaskId]);
 
-  // Scroll to bottom on initial load
+  // Scroll to bottom on initial load (skip if scroll-to-task is active)
   useEffect(() => {
     if (!loading && messages.length > 0 && !initialScrollDone.current) {
       initialScrollDone.current = true;
-      setTimeout(() => {
-        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-      }, 50);
+      if (!scrollToTaskId) {
+        setTimeout(() => {
+          scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+        }, 50);
+      }
     }
-  }, [loading, messages.length]);
+  }, [loading, messages.length, scrollToTaskId]);
+
+  // Scroll to task when ?task= param is present
+  useEffect(() => {
+    if (!scrollToTaskId || loading || !conversation) return;
+    const tryScroll = () => {
+      const el = document.querySelector(`[data-task-id="${CSS.escape(scrollToTaskId)}"]`);
+      if (!el) return false;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("task-highlight");
+      setTimeout(() => el.classList.remove("task-highlight"), 1500);
+      return true;
+    };
+    setTimeout(async () => {
+      if (tryScroll()) return;
+      try {
+        const around = await listMessagesAroundTask(conversation.id, workspaceId, scrollToTaskId);
+        if (around.length > 0) {
+          setMessages((prev) => mergeMessages(prev, around));
+          requestAnimationFrame(() => {
+            setTimeout(() => tryScroll(), 100);
+          });
+        }
+      } catch {}
+    }, 100);
+  }, [scrollToTaskId, loading, conversation, workspaceId]);
 
   // Auto-scroll when task badge appears or new task steps arrive
   const taskStatus = activeTask?.status;
@@ -727,8 +779,7 @@ export function AgentChatView() {
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
-      await deleteConversation(conversation.id, workspaceId);
-      const newConv = await getOrCreateAgentConversation(agentId, workspaceId);
+      const newConv = await createConversation(agentId, workspaceId);
       setConversation(newConv);
       setMessages([]);
       setActiveTask(null);
@@ -921,7 +972,7 @@ export function AgentChatView() {
                     </div>
                   );
                 })() : !hasTaskStream ? (
-                  <div className="flex justify-start">
+                  <div className="flex justify-start" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
                     <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
                       <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{msg.content}</Streamdown>
                     </div>
@@ -943,7 +994,7 @@ export function AgentChatView() {
       </div>
 
       {/* Follow-up buffer indicator */}
-      <FollowUpBuffer
+      {!targetConvId && <FollowUpBuffer
         bufferedMessages={bufferedMessages}
         onDelete={(messageId) => {
           const prev = bufferedMessages;
@@ -953,10 +1004,10 @@ export function AgentChatView() {
             toast.error("Failed to delete follow-up");
           });
         }}
-      />
+      />}
 
-      {/* Input */}
-      <div className="px-5 py-3">
+      {/* Input — hidden when viewing a specific conversation from activity */}
+      {!targetConvId && <div className="px-5 py-3">
         <div className="mx-auto max-w-2xl relative">
           <div
             className={cn(
@@ -1139,7 +1190,7 @@ export function AgentChatView() {
             </div>
           </div>
         </div>
-      </div>
+      </div>}
 
       <Dialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
         <DialogContent showCloseButton={false}>

@@ -55,7 +55,7 @@ const SITE_URL = "https://alook.ai";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Alook — Always-on AI Agents",
+    default: "Alook — Personal Colleagues",
     template: "%s — Alook",
   },
   description:
@@ -75,25 +75,25 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     siteName: "Alook",
-    title: "Alook — Always-on AI Agents",
+    title: "Alook — Personal Colleague",
     description:
       "Your AI agents, always on. Give them an email, let them work for you around the clock.",
     url: SITE_URL,
     images: [
       {
-        url: "/api/og?title=Always-on AI Agents",
+        url: "/api/og?title=Your Personal Colleagues",
         width: 1200,
         height: 630,
-        alt: "Alook — Always-on AI Agents",
+        alt: "Alook — Your Personal Colleagues",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Alook — Always-on AI Agents",
+    title: "Alook — Your Personal Colleagues",
     description:
       "Your AI agents, always on. Give them an email, let them work for you around the clock.",
-    images: ["/api/og?title=Always-on AI Agents"],
+    images: ["/api/og?title=Your Personal Colleagues"],
   },
   alternates: {
     canonical: SITE_URL,

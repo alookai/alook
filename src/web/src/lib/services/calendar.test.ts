@@ -15,6 +15,7 @@ const mockRevert = vi.fn();
 const mockUpdateSchedule = vi.fn();
 const mockGetAgent = vi.fn();
 const mockCreateConv = vi.fn();
+const mockCreateMessage = vi.fn();
 const mockCreateTask = vi.fn();
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
@@ -27,6 +28,9 @@ vi.mock("@alook/shared", async () => {
       agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
       conversation: {
         createConversation: (...args: unknown[]) => mockCreateConv(...args),
+      },
+      message: {
+        createMessage: (...args: unknown[]) => mockCreateMessage(...args),
       },
       task: { createTask: (...args: unknown[]) => mockCreateTask(...args) },
       calendarEvent: {

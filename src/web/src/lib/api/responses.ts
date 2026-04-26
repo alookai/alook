@@ -208,6 +208,31 @@ export function calendarEventToResponse(e: any) {
   };
 }
 
+export function taskToActivityResponse(t: {
+  id: string;
+  conversationId: string;
+  type: string;
+  status: string;
+  prompt: string;
+  createdAt: Date | string;
+  startedAt: Date | string | null;
+  completedAt: Date | string | null;
+  error?: string | null;
+}) {
+  const prompt = t.prompt.length > 120 ? t.prompt.slice(0, 120) : t.prompt;
+  return {
+    id: t.id,
+    conversation_id: t.conversationId,
+    type: t.type ?? TASK_TYPES.USER_DM_MESSAGE,
+    status: t.status,
+    prompt,
+    created_at: formatTimestamp(t.createdAt),
+    started_at: formatTimestampNullable(t.startedAt),
+    completed_at: formatTimestampNullable(t.completedAt),
+    error: t.error || null,
+  };
+}
+
 export function memberToResponse(m: {
   id: string;
   userId: string;

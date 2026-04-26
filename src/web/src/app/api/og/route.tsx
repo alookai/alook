@@ -129,7 +129,7 @@ function TypewriterIllustration() {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
-    const title = searchParams.get("title") || "Always-on AI Agents";
+    const title = searchParams.get("title") || "Your Personal Colleagues";
 
     const fontData = await loadFont();
 
@@ -186,15 +186,15 @@ export async function GET(request: NextRequest) {
         height: 630,
         ...(fontData
           ? {
-              fonts: [
-                {
-                  name: "DM Sans",
-                  data: fontData,
-                  weight: 600,
-                  style: "normal" as const,
-                },
-              ],
-            }
+            fonts: [
+              {
+                name: "DM Sans",
+                data: fontData,
+                weight: 600,
+                style: "normal" as const,
+              },
+            ],
+          }
           : {}),
       },
     );

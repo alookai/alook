@@ -75,6 +75,12 @@ export async function promoteDueCalendarEventsForWorkspace(
         type: TASK_TYPES.CALENDAR_EVENT,
       });
 
+      await queries.message.createMessage(db, {
+        conversationId: conv.id,
+        role: "user",
+        content: ev.title,
+      });
+
       await queries.task.createTask(db, {
         agentId: ev.agentId,
         runtimeId: agent.runtimeId,

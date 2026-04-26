@@ -38,10 +38,16 @@ export async function POST(req: NextRequest) {
       title: `Email: ${body.subject}`.slice(0, 50),
       type: TASK_TYPES.EMAIL_NOTIFICATION,
     })
+    const prompt = `New email from ${body.from}: ${body.subject}`;
+    await queries.message.createMessage(db, {
+      conversationId: conv.id,
+      role: "user",
+      content: prompt,
+    })
     const threadId = extractThreadId(body.references, body.inReplyTo, body.messageId);
     const contextKey = buildContextKey(TASK_TYPES.EMAIL_NOTIFICATION, { threadId });
     const taskService = new TaskService(db)
-    await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, `New email from ${body.from}: ${body.subject}`, TASK_TYPES.EMAIL_NOTIFICATION, { contextKey })
+    await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, prompt, TASK_TYPES.EMAIL_NOTIFICATION, { contextKey })
   }
 
   // Notify UI for all emails (whitelisted or not)
