@@ -102,9 +102,9 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="flex min-h-full flex-col justify-between p-4 lg:p-6">
-        <div className="flex-1 flex flex-col gap-4">
+    <div className="flex-1 min-h-0 overflow-y-auto">
+      <div className="flex min-h-full lg:h-full lg:min-h-[600px] flex-col justify-between p-4 lg:p-6">
+        <div className="flex-1 min-h-0 flex flex-col gap-4">
           <AgentOverview
             agents={agents}
             runtimes={runtimes}

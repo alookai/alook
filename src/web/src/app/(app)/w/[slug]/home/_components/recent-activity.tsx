@@ -51,11 +51,11 @@ export function RecentActivity({ overview, agents }: RecentActivityProps) {
   }
 
   return (
-    <Card>
+    <Card className="flex flex-col">
       <CardHeader>
         <CardTitle>Recent Activity</CardTitle>
       </CardHeader>
-      <CardContent className="p-0">
+      <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
         <div className="divide-y divide-border/50">
           {recent_tasks.map((task) => {
             const config = TYPE_CONFIG[task.type] ?? TYPE_CONFIG.user_dm_message;
