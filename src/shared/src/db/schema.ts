@@ -476,6 +476,38 @@ export const agentEmailAccount = sqliteTable(
   ]
 );
 
+export const meetingSession = sqliteTable(
+  "meeting_session",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "ms_" + nanoid()),
+    agentId: text("agent_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    title: text("title").notNull().default(""),
+    meetingUrl: text("meeting_url").notNull(),
+    status: text("status").notNull().default("scheduled"),
+    fromEmail: text("from_email"),
+    isWhitelisted: integer("is_whitelisted", { mode: "boolean" }).notNull().default(true),
+    participants: text("participants", { mode: "json" }).$type<string[]>().notNull().default([]),
+    scheduledAt: text("scheduled_at"),
+    startedAt: text("started_at"),
+    completedAt: text("completed_at"),
+    transcriptR2Key: text("transcript_r2_key"),
+    summary: text("summary"),
+    error: text("error"),
+    workerSessionId: text("worker_session_id"),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+    updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_meeting_session_agent_ws").on(t.agentId, t.workspaceId),
+    index("idx_meeting_session_status").on(t.status),
+    foreignKey({
+      columns: [t.agentId, t.workspaceId],
+      foreignColumns: [agent.id, agent.workspaceId],
+    }).onDelete("cascade"),
+  ]
+);
+
 export const machineToken = sqliteTable(
   "machine_token",
   {
