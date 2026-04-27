@@ -22,6 +22,9 @@ vi.mock("@alook/shared", async () => {
         listCalendarEvents: (...a: unknown[]) => mockList(...a),
         createCalendarEvent: (...a: unknown[]) => mockCreate(...a),
       },
+      meetingSession: {
+        listMeetingsWithSchedule: vi.fn().mockResolvedValue([]),
+      },
     },
   };
 });

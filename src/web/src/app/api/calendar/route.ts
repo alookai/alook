@@ -37,7 +37,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   // Expand recurring rows into per-occurrence virtual rows within [from, to].
   // Non-recurring rows pass through with occurrence_at = scheduled_at.
-  const out: ReturnType<typeof calendarEventToResponse>[] = [];
+  const out: (ReturnType<typeof calendarEventToResponse> & { _type?: string; _status?: string })[] = [];
   for (const row of rows) {
     if (!row.repeatInterval || !from || !to) {
       out.push(calendarEventToResponse(row));
@@ -61,6 +61,33 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       );
     }
   }
+
+  // Also include meetings with scheduled_at in range
+  const meetingRows = await queries.meetingSession.listMeetingsWithSchedule(db, ws.workspaceId);
+  for (const m of meetingRows) {
+    if (!m.scheduledAt) continue;
+    if (from && m.scheduledAt < from) continue;
+    if (to && m.scheduledAt > to) continue;
+    if (agentId && m.agentId !== agentId) continue;
+    out.push({
+      id: m.id,
+      agent_id: m.agentId,
+      workspace_id: m.workspaceId,
+      title: m.title || "Meeting",
+      description: m.meetingUrl,
+      scheduled_at: m.scheduledAt,
+      occurrence_at: m.scheduledAt,
+      repeat_interval: null,
+      repeat_stop_at: null,
+      last_triggered_at: null,
+      created_at: m.createdAt,
+      updated_at: m.updatedAt,
+      _type: "meeting" as const,
+      _status: m.status,
+    });
+  }
+
+  out.sort((a, b) => (a.scheduled_at ?? "").localeCompare(b.scheduled_at ?? ""));
 
   return writeJSON(out);
 });
