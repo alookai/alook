@@ -3,8 +3,7 @@ import { randomUUID } from "crypto"
 import { seedTestData, cleanupTestData, type TestSeed } from "../helpers/seed"
 import { tokenRequest } from "../helpers/auth"
 import { sql, sqlQuery } from "../helpers/db"
-
-const EMAIL_WORKER_URL = process.env.EMAIL_WORKER_URL ?? "http://localhost:8787"
+import { postEmail, postEmailRaw } from "../helpers/email"
 
 let seed: TestSeed
 
@@ -12,22 +11,6 @@ beforeAll(() => {
   seed = seedTestData()
 })
 afterAll(() => cleanupTestData(seed))
-
-/** Build a minimal RFC 5322 email with Message-ID (required by wrangler) */
-function rawEmail(from: string, to: string, subject: string, body: string): string {
-  const msgId = `<${randomUUID()}@e2e.test>`
-  return [
-    `From: ${from}`,
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    `Message-ID: ${msgId}`,
-    `Date: ${new Date().toUTCString()}`,
-    `MIME-Version: 1.0`,
-    `Content-Type: text/plain; charset=utf-8`,
-    "",
-    body,
-  ].join("\r\n")
-}
 
 /** Poll D1 until at least one email row matches, or timeout */
 async function waitForEmail(
@@ -54,15 +37,7 @@ describe("email receive (inbound)", () => {
     const to = `${seed.agentEmailHandle}@alook.ai`
     const subject = "E2E whitelisted test"
 
-    const res = await fetch(
-      `${EMAIL_WORKER_URL}/cdn-cgi/handler/email?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: rawEmail(from, to, subject, "Hello from e2e"),
-      },
-    )
-    // wrangler returns 200 for accepted emails
+    const res = await postEmail(from, to, subject, "Hello from e2e")
     expect(res.status).toBe(200)
 
     const row = await waitForEmail(seed.agentId, from)
@@ -76,14 +51,7 @@ describe("email receive (inbound)", () => {
     const to = `${seed.agentEmailHandle}@alook.ai`
     const subject = "E2E non-whitelisted test"
 
-    await fetch(
-      `${EMAIL_WORKER_URL}/cdn-cgi/handler/email?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: rawEmail(from, to, subject, "Stranger email"),
-      },
-    )
+    await postEmail(from, to, subject, "Stranger email")
 
     const row = await waitForEmail(seed.agentId, from)
     expect(row).not.toBeNull()
@@ -96,14 +64,7 @@ describe("email receive (inbound)", () => {
     const to = "nonexistent-handle-xyz@alook.ai"
     const subject = "E2E unknown handle"
 
-    await fetch(
-      `${EMAIL_WORKER_URL}/cdn-cgi/handler/email?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: rawEmail(from, to, subject, "Should be rejected"),
-      },
-    )
+    await postEmail(from, to, subject, "Should be rejected")
 
     // Small wait to ensure nothing is written
     await new Promise((r) => setTimeout(r, 1000))
@@ -140,10 +101,7 @@ describe("email threading (inbound)", () => {
       "Thread test body",
     ].join("\r\n")
 
-    await fetch(
-      `${EMAIL_WORKER_URL}/cdn-cgi/handler/email?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: raw },
-    )
+    await postEmailRaw(from, to, raw)
 
     const row = await waitForEmail(seed.agentId, from, 5000)
     expect(row).not.toBeNull()

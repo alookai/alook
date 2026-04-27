@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto"
-import { sql } from "./db"
+import { sql, sqlBatch } from "./db"
 
 export interface TestSeed {
   userId: string
@@ -54,24 +54,25 @@ export function seedTestData(): TestSeed {
  * Clean up all test data created by seedTestData.
  */
 export function cleanupTestData(seed: TestSeed) {
-  // Delete in reverse dependency order, cleaning up all data in the workspace
   const ws = seed.workspaceId
-  sql(`DELETE FROM task_message WHERE task_id IN (SELECT id FROM agent_task_queue WHERE workspace_id = '${ws}')`)
-  sql(`DELETE FROM agent_task_queue WHERE workspace_id = '${ws}'`)
-  sql(`DELETE FROM message WHERE conversation_id IN (SELECT id FROM conversation WHERE workspace_id = '${ws}')`)
-  sql(`DELETE FROM conversation WHERE workspace_id = '${ws}'`)
-  sql(`DELETE FROM emails WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = '${ws}')`)
-  sql(`DELETE FROM agent_whitelist WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = '${ws}')`)
-  sql(`DELETE FROM agent_access WHERE workspace_id = '${ws}'`)
-  sql(`DELETE FROM agent_pin WHERE workspace_id = '${ws}'`)
-  sql(`DELETE FROM workspace_invite WHERE workspace_id = '${ws}'`)
-  sql(`DELETE FROM agent WHERE workspace_id = '${ws}'`)
-  sql(`DELETE FROM agent_runtime WHERE workspace_id = '${ws}'`)
-  sql(`DELETE FROM machine WHERE workspace_id = '${ws}'`)
-  sql(`DELETE FROM machine_token WHERE workspace_id = '${ws}'`)
-  sql(`DELETE FROM member WHERE workspace_id = '${ws}'`)
-  sql(`DELETE FROM workspace WHERE id = '${ws}'`)
-  sql(`DELETE FROM "user" WHERE id = '${seed.userId}'`)
+  sqlBatch([
+    `DELETE FROM task_message WHERE task_id IN (SELECT id FROM agent_task_queue WHERE workspace_id = '${ws}')`,
+    `DELETE FROM agent_task_queue WHERE workspace_id = '${ws}'`,
+    `DELETE FROM message WHERE conversation_id IN (SELECT id FROM conversation WHERE workspace_id = '${ws}')`,
+    `DELETE FROM conversation WHERE workspace_id = '${ws}'`,
+    `DELETE FROM emails WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = '${ws}')`,
+    `DELETE FROM agent_whitelist WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = '${ws}')`,
+    `DELETE FROM agent_access WHERE workspace_id = '${ws}'`,
+    `DELETE FROM agent_pin WHERE workspace_id = '${ws}'`,
+    `DELETE FROM workspace_invite WHERE workspace_id = '${ws}'`,
+    `DELETE FROM agent WHERE workspace_id = '${ws}'`,
+    `DELETE FROM agent_runtime WHERE workspace_id = '${ws}'`,
+    `DELETE FROM machine WHERE workspace_id = '${ws}'`,
+    `DELETE FROM machine_token WHERE workspace_id = '${ws}'`,
+    `DELETE FROM member WHERE workspace_id = '${ws}'`,
+    `DELETE FROM workspace WHERE id = '${ws}'`,
+    `DELETE FROM "user" WHERE id = '${seed.userId}'`,
+  ])
 }
 
 export interface SecondaryUser {

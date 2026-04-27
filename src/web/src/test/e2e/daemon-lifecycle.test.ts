@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
 import { seedTestData, cleanupTestData, type TestSeed } from "../helpers/seed"
 import { tokenRequest } from "../helpers/auth"
-import { sql, sqlQuery } from "../helpers/db"
+import { sqlQuery, sqlBatch } from "../helpers/db"
 
 let seed: TestSeed
 
@@ -108,11 +108,12 @@ describe("daemon lifecycle", () => {
     expect(rows[0]?.last_seen_at).toBeNull()
   })
 
-  // Cleanup the registered runtime and machine
   afterAll(() => {
     try {
-      sql(`DELETE FROM agent_runtime WHERE daemon_id = '${daemonId}'`)
-      sql(`DELETE FROM machine WHERE daemon_id = '${daemonId}'`)
+      sqlBatch([
+        `DELETE FROM agent_runtime WHERE daemon_id = '${daemonId}'`,
+        `DELETE FROM machine WHERE daemon_id = '${daemonId}'`,
+      ])
     } catch { /* ignore */ }
   })
 })

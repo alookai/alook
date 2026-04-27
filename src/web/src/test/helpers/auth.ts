@@ -1,24 +1,6 @@
-const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
-const MAX_RETRIES = 3
-const RETRY_DELAY_MS = 300
+import { fetchWithRetry } from "./fetch"
 
-async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await fetch(url, init)
-    } catch (e) {
-      const isRetryable =
-        e instanceof TypeError &&
-        (e.message.includes("fetch failed") || e.message.includes("socket"))
-      if (attempt < MAX_RETRIES && isRetryable) {
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt))
-        continue
-      }
-      throw e
-    }
-  }
-  throw new Error("unreachable")
-}
+const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
 
 /**
  * Sign up a new user via Better Auth.
