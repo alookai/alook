@@ -1,0 +1,27 @@
+name = "alook-browser-worker"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+[dev]
+port = 8790
+inspector_port = 9232
+
+[browser]
+binding = "BROWSER"
+
+[[services]]
+binding = "EMAIL_SERVICE"
+service = "alook-email-worker"
+
+[[services]]
+binding = "WEB_SERVICE"
+service = "alook-web"
+
+[[durable_objects.bindings]]
+name = "MEETING_BOT"
+class_name = "MeetingBotDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MeetingBotDO"]

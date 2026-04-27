@@ -1,0 +1,23 @@
+{
+  "name": "@alook/browser-worker",
+  "version": "0.0.23",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --remote --persist-to ../web/.wrangler/state",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@alook/shared": "workspace:*",
+    "@cloudflare/puppeteer": "^1.1.0",
+    "nanoid": "^5.1.9"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260426.1",
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5",
+    "wrangler": "^4.85.0"
+  }
+}
