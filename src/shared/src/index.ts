@@ -17,6 +17,7 @@ export type {
   LoginResponse,
   CreateAgentRequest,
   CalendarEvent,
+  MeetingSession,
   WsMessage,
 } from "./types";
 

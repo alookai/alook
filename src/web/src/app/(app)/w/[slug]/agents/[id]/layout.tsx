@@ -10,7 +10,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AgentEditForm } from "@/components/agent-edit-form";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AgentStatusBadge } from "@/components/agent-status-badge";
-import { CalendarDays, History, Mail, MessageSquare, MoreHorizontal, Pencil, Trash2, X } from "lucide-react";
+import { CalendarDays, History, Mail, MessageSquare, MoreHorizontal, Pencil, Trash2, Video, X } from "lucide-react";
 import { MobileSidebarLogo } from "@/components/mobile-sidebar-logo";
 import {
   DropdownMenu,
@@ -31,10 +31,12 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
   const isActivityView = !!searchParams.get("conv");
   const currentTab = pathname.includes("/activity") || isActivityView
     ? "activity"
-    : pathname.includes("/email")
-      ? "email"
-      : "chat";
-  const tabLabels: Record<string, string> = { email: "Email", activity: "Activity" };
+    : pathname.includes("/meetings")
+      ? "meetings"
+      : pathname.includes("/email")
+        ? "email"
+        : "chat";
+  const tabLabels: Record<string, string> = { email: "Email", meetings: "Meetings", activity: "Activity" };
   const { agents, runtimes, handleDeleteAgent, handleUpdateAgent } = useAgentContext();
 
   const agent = agents.find((a) => a.id === agentId);
@@ -132,6 +134,21 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
                     }`}>Email</span>
                   </Link>
                   <Link
+                    href={`/w/${slug}/agents/${agentId}/meetings`}
+                    className={`group inline-flex items-center rounded-lg text-xs h-7 px-2 transition-all ${
+                      currentTab === "meetings"
+                        ? "text-foreground bg-muted"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <Video className="size-3 shrink-0" />
+                    <span className={`overflow-hidden transition-all duration-500 ease-out ${
+                      currentTab === "meetings"
+                        ? "max-w-20 opacity-100 ml-1"
+                        : "max-w-0 opacity-0 group-hover:max-w-20 group-hover:opacity-100 group-hover:ml-1 group-hover:delay-300"
+                    }`}>Meetings</span>
+                  </Link>
+                  <Link
                     href={`/w/${slug}/agents/${agentId}/activity`}
                     className={`group inline-flex items-center rounded-lg text-xs h-7 px-2 transition-all ${
                       currentTab === "activity"
@@ -194,6 +211,13 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
                           onClick={() => router.push(`/w/${slug}/agents/${agentId}/email`)}
                         >
                           <Mail className="size-3.5" /> Email
+                        </DropdownMenuItem>
+                      )}
+                      {currentTab !== "meetings" && (
+                        <DropdownMenuItem
+                          onClick={() => router.push(`/w/${slug}/agents/${agentId}/meetings`)}
+                        >
+                          <Video className="size-3.5" /> Meetings
                         </DropdownMenuItem>
                       )}
                       {currentTab !== "activity" && (

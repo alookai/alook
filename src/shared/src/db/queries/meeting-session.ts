@@ -1,4 +1,4 @@
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, isNotNull } from "drizzle-orm";
 import { meetingSession } from "../schema";
 import type { Database } from "../index";
 
@@ -127,6 +127,22 @@ export async function listScheduledMeetings(
         eq(meetingSession.workspaceId, workspaceId),
         eq(meetingSession.status, "scheduled"),
         eq(meetingSession.isWhitelisted, true)
+      )
+    )
+    .orderBy(meetingSession.scheduledAt);
+}
+
+export async function listMeetingsWithSchedule(
+  db: Database,
+  workspaceId: string
+) {
+  return db
+    .select()
+    .from(meetingSession)
+    .where(
+      and(
+        eq(meetingSession.workspaceId, workspaceId),
+        isNotNull(meetingSession.scheduledAt)
       )
     )
     .orderBy(meetingSession.scheduledAt);

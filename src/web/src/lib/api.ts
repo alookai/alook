@@ -14,6 +14,7 @@ import type {
   UpdateAgentRequest,
   Email,
   LoginResponse,
+  MeetingSession,
   Message,
   TaskApi,
   TaskMessage,
@@ -744,3 +745,37 @@ export const pinAgent = (workspaceId: string, agentId: string) =>
 
 export const unpinAgent = (workspaceId: string, agentId: string) =>
   apiFetch<void>(`/api/agents/${agentId}/pin${wsQuery(workspaceId)}`, { method: "DELETE" });
+
+// Meetings
+export const listMeetings = (agentId: string, workspaceId: string) =>
+  apiFetch<MeetingSession[]>(`/api/agents/${agentId}/meetings${wsQuery(workspaceId)}`);
+
+export const getMeeting = (agentId: string, meetingId: string, workspaceId: string) =>
+  apiFetch<MeetingSession>(`/api/agents/${agentId}/meetings/${meetingId}${wsQuery(workspaceId)}`);
+
+export const createMeeting = (agentId: string, workspaceId: string, data: {
+  meetingUrl: string;
+  title?: string;
+  participants?: string[];
+  scheduledAt?: string;
+  immediate?: boolean;
+}) =>
+  apiFetch<MeetingSession>(`/api/agents/${agentId}/meetings${wsQuery(workspaceId)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const stopMeeting = (agentId: string, meetingId: string, workspaceId: string) =>
+  apiFetch<MeetingSession & { transcript?: string }>(`/api/agents/${agentId}/meetings/${meetingId}/stop${wsQuery(workspaceId)}`, {
+    method: "POST",
+  });
+
+export const approveMeeting = (agentId: string, meetingId: string, workspaceId: string) =>
+  apiFetch<MeetingSession>(`/api/agents/${agentId}/meetings/${meetingId}/approve${wsQuery(workspaceId)}`, {
+    method: "POST",
+  });
+
+export const deleteMeeting = (agentId: string, meetingId: string, workspaceId: string) =>
+  apiFetch<void>(`/api/agents/${agentId}/meetings/${meetingId}${wsQuery(workspaceId)}`, {
+    method: "DELETE",
+  });

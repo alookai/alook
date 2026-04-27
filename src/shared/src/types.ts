@@ -194,6 +194,27 @@ export interface CreateAgentRequest {
   email_handle?: string;
 }
 
+export interface MeetingSession {
+  id: string;
+  agent_id: string;
+  workspace_id: string;
+  title: string;
+  meeting_url: string;
+  status: string;
+  from_email: string | null;
+  is_whitelisted: boolean;
+  participants: string[];
+  scheduled_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  transcript_r2_key: string | null;
+  summary: string | null;
+  error: string | null;
+  worker_session_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** WebSocket event types — single source of truth for the WS protocol. */
 export type WsMessage =
   | { type: "runtime.registered"; daemonId: string; hostname: string; workspaceId: string }
