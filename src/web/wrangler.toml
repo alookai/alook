@@ -61,6 +61,10 @@ service = "alook-ws-do"
 binding = "EMAIL_WORKER"
 service = "alook-email-worker"
 
+[[services]]
+binding = "BROWSER_WORKER"
+service = "alook-browser-worker"
+
 [[kv_namespaces]]
 binding = "RATE_LIMIT_KV"
 id = "a3d035bea7bc49d99377b82ec21ce4c1"
