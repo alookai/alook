@@ -20,6 +20,7 @@ import {
   deleteBufferedMessage,
   cancelActiveTask,
   getActiveTask,
+  retryTask,
 } from "@/lib/api";
 import type { Artifact, Conversation, Message, TaskApi as Task, TaskMessage, WsMessage } from "@alook/shared";
 import { useAgentContext } from "@/contexts/agent-context";
@@ -765,6 +766,14 @@ export function AgentChatView() {
     }
   };
 
+  const handleRetryTask = useCallback(async () => {
+    if (!activeTask || !conversation) return;
+    const newTask = await retryTask(activeTask.id, workspaceId);
+    setActiveTask(newTask);
+    setTaskMessages([]);
+    startPolling(newTask.id, conversation.id);
+  }, [activeTask, conversation, workspaceId, startPolling]);
+
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetDontAsk, setResetDontAsk] = useState(false);
@@ -946,6 +955,7 @@ export function AgentChatView() {
                     task={activeTask}
                     messages={taskMessages}
                     connectionLost={connectionLost}
+                    onRetry={handleRetryTask}
                   />
                 )}
                 {msg.role === "user" ? (() => {

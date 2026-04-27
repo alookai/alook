@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
@@ -34,6 +34,12 @@ export default function HomePage() {
       });
     return () => { cancelled = true; };
   }, [loading, agents.length, workspaceId]);
+
+  const refreshOverview = useCallback(() => {
+    getWorkspaceOverview(workspaceId)
+      .then((data) => setOverview(data))
+      .catch(() => {});
+  }, [workspaceId]);
 
   if (loading) {
     return (
@@ -111,7 +117,7 @@ export default function HomePage() {
           overview={overview}
         />
         <div className="grid gap-4 lg:grid-cols-2 lg:flex-1 lg:min-h-0 lg:auto-rows-fr">
-          <RecentActivity overview={overview} agents={agents} />
+          <RecentActivity overview={overview} agents={agents} workspaceId={workspaceId} onRefresh={refreshOverview} />
           <CalendarOverview overview={overview} agents={agents} />
         </div>
         <div className="shrink-0">

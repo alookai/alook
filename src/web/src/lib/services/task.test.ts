@@ -18,6 +18,7 @@ vi.mock("@alook/shared", () => ({
       completeTask: vi.fn(),
       failTask: vi.fn(),
       supersedeTask: vi.fn(),
+      markFailedAsSuperseded: vi.fn(),
       getTask: vi.fn(),
       countRunningTasks: vi.fn(),
       listPendingTasksByRuntimes: vi.fn(),
@@ -732,6 +733,80 @@ describe("TaskService", () => {
       await service.cancelActiveTask("c1", "w1");
 
       expect(messageQ.activateNextBufferedMessage).toHaveBeenCalledWith({}, "c1");
+    });
+  });
+
+  // ── retryTask ──────────────────────────────────────────────
+
+  describe("retryTask", () => {
+    const failedTask = {
+      id: "t1",
+      agentId: "a1",
+      workspaceId: "w1",
+      conversationId: "c1",
+      prompt: "do stuff",
+      type: "user_dm_message",
+      status: "failed",
+      context: null,
+    };
+
+    it("throws when task not found", async () => {
+      taskQ.getTask.mockResolvedValue(null);
+
+      await expect(service.retryTask("t1", "w1")).rejects.toThrow("task not found");
+    });
+
+    it("throws when workspace mismatch", async () => {
+      taskQ.getTask.mockResolvedValue({ ...failedTask, workspaceId: "other" });
+
+      await expect(service.retryTask("t1", "w1")).rejects.toThrow("task not found");
+    });
+
+    it("throws when task is not failed", async () => {
+      taskQ.getTask.mockResolvedValue({ ...failedTask, status: "completed" });
+
+      await expect(service.retryTask("t1", "w1")).rejects.toThrow("only failed tasks can be retried");
+    });
+
+    it("marks old task as superseded and creates new task", async () => {
+      taskQ.getTask.mockResolvedValue(failedTask);
+      taskQ.markFailedAsSuperseded.mockResolvedValue({ ...failedTask, status: "superseded" });
+      agentQ.getAgent.mockResolvedValue({ id: "a1", runtimeId: "r1" });
+      taskQ.createTask.mockResolvedValue({ id: "t2", status: "queued" });
+
+      const { oldTask, newTask } = await service.retryTask("t1", "w1");
+
+      expect(taskQ.markFailedAsSuperseded).toHaveBeenCalledWith({}, "t1", "w1");
+      expect(taskQ.createTask).toHaveBeenCalledWith({}, expect.objectContaining({
+        agentId: "a1",
+        conversationId: "c1",
+        workspaceId: "w1",
+        prompt: "do stuff",
+        type: "user_dm_message",
+      }));
+      expect(oldTask.status).toBe("superseded");
+      expect(newTask.status).toBe("queued");
+    });
+
+    it("throws when markFailedAsSuperseded fails", async () => {
+      taskQ.getTask.mockResolvedValue(failedTask);
+      taskQ.markFailedAsSuperseded.mockResolvedValue(null);
+
+      await expect(service.retryTask("t1", "w1")).rejects.toThrow("failed to mark task as superseded");
+    });
+
+    it("preserves context from original task", async () => {
+      const taskWithContext = { ...failedTask, context: { attachment_ids: ["a1"] } };
+      taskQ.getTask.mockResolvedValue(taskWithContext);
+      taskQ.markFailedAsSuperseded.mockResolvedValue({ ...taskWithContext, status: "superseded" });
+      agentQ.getAgent.mockResolvedValue({ id: "a1", runtimeId: "r1" });
+      taskQ.createTask.mockResolvedValue({ id: "t2", status: "queued" });
+
+      await service.retryTask("t1", "w1");
+
+      expect(taskQ.createTask).toHaveBeenCalledWith({}, expect.objectContaining({
+        context: { attachment_ids: ["a1"] },
+      }));
     });
   });
 

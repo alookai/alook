@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useWorkspace } from "@/contexts/workspace-context";
-import { listAgentActivity, type ActivityTask } from "@/lib/api";
+import { listAgentActivity, retryTask, type ActivityTask } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
@@ -19,6 +19,8 @@ import {
   CalendarDays,
   CircleDot,
   History,
+  RotateCw,
+  Loader2,
 } from "lucide-react";
 
 const ACTIVITY_LIMIT = 30;
@@ -101,11 +103,26 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`size-1.5 rounded-full shrink-0 ${colorClass}`} />;
 }
 
-function ActivityRow({ task, slug, agentId }: { task: ActivityTask; slug: string; agentId: string }) {
+function ActivityRow({ task, slug, agentId, workspaceId, onRetry }: { task: ActivityTask; slug: string; agentId: string; workspaceId: string; onRetry: () => void }) {
   const Icon = TYPE_ICONS[task.type] ?? CircleDot;
   const duration = TERMINAL_STATUSES.has(task.status)
     ? formatDuration(task.started_at, task.completed_at)
     : null;
+  const [retrying, setRetrying] = useState(false);
+
+  const handleRetry = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setRetrying(true);
+    try {
+      await retryTask(task.id, workspaceId);
+      onRetry();
+    } catch {
+      // silently fail
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   return (
     <Link
@@ -142,6 +159,19 @@ function ActivityRow({ task, slug, agentId }: { task: ActivityTask; slug: string
               {task.error}
             </span>
           </>
+        )}
+        {task.status === "failed" && (
+          <button
+            type="button"
+            onClick={handleRetry}
+            disabled={retrying}
+            className="ml-auto shrink-0 text-muted-foreground hover:text-foreground transition-colors cursor-pointer disabled:opacity-50"
+            title="Retry task"
+          >
+            {retrying
+              ? <Loader2 className="size-3 animate-spin" />
+              : <RotateCw className="size-3" />}
+          </button>
         )}
       </div>
     </Link>
@@ -344,6 +374,8 @@ export default function AgentActivityPage() {
                 task={task}
                 slug={slug}
                 agentId={agentId}
+                workspaceId={workspaceId}
+                onRetry={loadInitial}
               />
             ))}
           </div>

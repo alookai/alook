@@ -352,7 +352,7 @@ describe("context_key resume contract", () => {
   })
 })
 
-describe("task failure", () => {
+describe("task failure and retry", () => {
   let failTaskId: string
 
   beforeAll(async () => {
@@ -413,5 +413,40 @@ describe("task failure", () => {
     const data = await res.json() as Record<string, unknown>
     expect(data.status).toBe("failed")
     expect(data.error).toBe("Timeout exceeded")
+  })
+
+  it("POST /api/tasks/:id/retry retries a failed task", async () => {
+    const res = await tokenRequest(
+      `/api/tasks/${failTaskId}/retry?workspace_id=${seed.workspaceId}`,
+      seed.machineToken,
+      { method: "POST" },
+    )
+    expect(res.status).toBe(200)
+    const data = await res.json() as Record<string, unknown>
+    expect(data.status).toBe("queued")
+    expect(data.prompt).toBe("This will fail")
+    expect(data.id).not.toBe(failTaskId)
+  })
+
+  it("original task is now superseded", async () => {
+    const res = await tokenRequest(
+      `/api/tasks/${failTaskId}?workspace_id=${seed.workspaceId}`,
+      seed.machineToken,
+    )
+    expect(res.status).toBe(200)
+    const data = await res.json() as Record<string, unknown>
+    expect(data.status).toBe("superseded")
+  })
+
+  it("retrying a non-failed task returns 400", async () => {
+    // failTaskId is now superseded, not failed
+    const res = await tokenRequest(
+      `/api/tasks/${failTaskId}/retry?workspace_id=${seed.workspaceId}`,
+      seed.machineToken,
+      { method: "POST" },
+    )
+    expect(res.status).toBe(400)
+    const data = await res.json() as Record<string, unknown>
+    expect(data.error).toBe("only failed tasks can be retried")
   })
 })

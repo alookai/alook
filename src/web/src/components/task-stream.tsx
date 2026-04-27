@@ -9,6 +9,8 @@ import {
   ChevronRight,
   Brain,
   AlertCircle,
+  RotateCw,
+  Loader2,
 } from "lucide-react";
 import { Streamdown } from "streamdown";
 
@@ -274,11 +276,14 @@ export function TaskStream({
   task,
   messages,
   connectionLost,
+  onRetry,
 }: {
   task: Task;
   messages: TaskMessage[];
   connectionLost?: boolean;
+  onRetry?: () => void;
 }) {
+  const [retrying, setRetrying] = useState(false);
   const allItems = useMemo(() => groupMessages(messages), [messages]);
   const isRunning = task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled" && task.status !== "superseded";
 
@@ -377,10 +382,26 @@ export function TaskStream({
 
       {/* Error display */}
       {task.status === "failed" && task.error && (
-        <p className="text-sm text-destructive flex items-center gap-1.5 mt-2">
-          <AlertCircle className="size-3.5 shrink-0" />
-          {task.error}
-        </p>
+        <div className="flex items-center gap-2 mt-2">
+          <p className="text-sm text-destructive flex items-center gap-1.5">
+            <AlertCircle className="size-3.5 shrink-0" />
+            {task.error}
+          </p>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={async () => {
+                setRetrying(true);
+                try { await onRetry(); } finally { setRetrying(false); }
+              }}
+              disabled={retrying}
+              className="shrink-0 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1"
+            >
+              {retrying ? <Loader2 className="size-3 animate-spin" /> : <RotateCw className="size-3" />}
+              Retry
+            </button>
+          )}
+        </div>
       )}
 
       {connectionLost && (

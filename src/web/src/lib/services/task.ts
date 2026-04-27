@@ -188,6 +188,27 @@ export class TaskService {
     return task;
   }
 
+  async retryTask(taskId: string, workspaceId: string) {
+    const original = await taskQueries.getTask(this.db, taskId);
+    if (!original) throw new Error("task not found");
+    if (original.workspaceId !== workspaceId) throw new Error("task not found");
+    if (original.status !== "failed") throw new Error("only failed tasks can be retried");
+
+    const marked = await taskQueries.markFailedAsSuperseded(this.db, taskId, workspaceId);
+    if (!marked) throw new Error("failed to mark task as superseded");
+
+    const newTask = await this.enqueueTask(
+      original.agentId,
+      original.conversationId,
+      workspaceId,
+      original.prompt,
+      original.type,
+      { context: original.context as Record<string, unknown> | undefined },
+    );
+
+    return { oldTask: marked, newTask };
+  }
+
   async cancelActiveTask(conversationId: string, workspaceId: string) {
     const activeTask = await taskQueries.getActiveTaskByConversation(this.db, conversationId, workspaceId);
     if (!activeTask) return null;

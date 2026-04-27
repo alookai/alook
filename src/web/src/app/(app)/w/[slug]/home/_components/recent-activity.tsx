@@ -1,15 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { MessageSquare, Mail, CalendarDays } from "lucide-react";
-import type { WorkspaceOverview } from "@/lib/api";
+import { MessageSquare, Mail, CalendarDays, RotateCw, Loader2 } from "lucide-react";
+import { retryTask, type WorkspaceOverview } from "@/lib/api";
 import type { Agent } from "@alook/shared";
 
 interface RecentActivityProps {
   overview: WorkspaceOverview;
   agents: Agent[];
+  workspaceId: string;
+  onRefresh: () => void;
 }
 
 const TYPE_CONFIG: Record<string, { icon: React.ElementType; label: string }> = {
@@ -30,7 +33,8 @@ function timeAgo(dateStr: string | null): string {
   return `${days}d ago`;
 }
 
-export function RecentActivity({ overview, agents }: RecentActivityProps) {
+export function RecentActivity({ overview, agents, workspaceId, onRefresh }: RecentActivityProps) {
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   const { recent_tasks } = overview;
   const agentMap = new Map(agents.map((a) => [a.id, a.name]));
 
@@ -87,6 +91,26 @@ export function RecentActivity({ overview, agents }: RecentActivityProps) {
                   >
                     {task.status}
                   </Badge>
+                  {task.status === "failed" && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setRetryingId(task.id);
+                        try {
+                          await retryTask(task.id, workspaceId);
+                          onRefresh();
+                        } catch { /* silently fail */ }
+                        finally { setRetryingId(null); }
+                      }}
+                      disabled={retryingId === task.id}
+                      className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer disabled:opacity-50"
+                      title="Retry task"
+                    >
+                      {retryingId === task.id
+                        ? <Loader2 className="size-3 animate-spin" />
+                        : <RotateCw className="size-3" />}
+                    </button>
+                  )}
                   <span className="text-[10px] text-muted-foreground w-14 text-right">
                     {timeAgo(task.completed_at)}
                   </span>

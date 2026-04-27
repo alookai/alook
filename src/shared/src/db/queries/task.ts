@@ -305,6 +305,21 @@ export async function supersedeTask(db: Database, id: string, workspaceId: strin
   return rows[0] ?? null;
 }
 
+export async function markFailedAsSuperseded(db: Database, id: string, workspaceId: string) {
+  const rows = await db
+    .update(agentTaskQueue)
+    .set({ status: "superseded" })
+    .where(
+      and(
+        eq(agentTaskQueue.id, id),
+        eq(agentTaskQueue.workspaceId, workspaceId),
+        eq(agentTaskQueue.status, "failed")
+      )
+    )
+    .returning();
+  return rows[0] ?? null;
+}
+
 export async function cancelTask(db: Database, id: string, workspaceId: string) {
   const rows = await db
     .update(agentTaskQueue)

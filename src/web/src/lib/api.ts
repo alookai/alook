@@ -416,6 +416,11 @@ export const getTaskMessages = (id: string, workspaceId: string, since?: number)
     `/api/tasks/${id}/messages${wsQuery(workspaceId, since ? { since: String(since) } : undefined)}`
   );
 
+export const retryTask = (id: string, workspaceId: string) =>
+  apiFetch<TaskApi>(`/api/tasks/${id}/retry${wsQuery(workspaceId)}`, {
+    method: "POST",
+  });
+
 // Emails
 export const listEmails = (agentId: string, workspaceId: string, folder?: string, address?: string) =>
   apiFetch<Email[]>(`/api/email${wsQuery(workspaceId, { agentId, ...(folder ? { folder } : {}), ...(address ? { address } : {}) })}`);

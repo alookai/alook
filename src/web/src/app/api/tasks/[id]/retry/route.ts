@@ -1,0 +1,31 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { getDb } from "@/lib/db";
+import { withAuth } from "@/lib/middleware/auth";
+import { withWorkspaceMember } from "@/lib/middleware/workspace";
+import { writeJSON, writeError } from "@/lib/middleware/helpers";
+import { taskToResponse } from "@/lib/api/responses";
+import { TaskService } from "@/lib/services/task";
+import { broadcastToUser } from "@/lib/broadcast";
+
+export const POST = withAuth(async (req, ctx) => {
+  const ws = await withWorkspaceMember(req, ctx);
+  if (ws instanceof Response) return ws;
+
+  const { env } = getCloudflareContext();
+  const db = getDb((env as Env).DB);
+
+  const id = ctx.params?.id;
+  if (!id) {
+    return writeError("task id is required", 400);
+  }
+
+  const taskService = new TaskService(db);
+  try {
+    const { oldTask, newTask } = await taskService.retryTask(id, ws.workspaceId);
+    broadcastToUser(ctx.userId, { type: "task.updated", taskId: oldTask.id, agentId: oldTask.agentId, status: "superseded" }).catch(() => {});
+    broadcastToUser(ctx.userId, { type: "task.updated", taskId: newTask.id, agentId: newTask.agentId, status: "queued" }).catch(() => {});
+    return writeJSON(taskToResponse(newTask));
+  } catch (e: unknown) {
+    return writeError(e instanceof Error ? e.message : "Unknown error", 400);
+  }
+});
