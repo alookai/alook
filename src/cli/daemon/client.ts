@@ -191,4 +191,16 @@ export class DaemonClient {
       { messages },
     );
   }
+
+  async claimMeetings(
+    token: string,
+    daemonId: string,
+  ): Promise<{ id: string; meetingUrl: string; participants: string[]; workspaceId: string }[]> {
+    return this.request(
+      "POST",
+      "/api/daemon/meetings/claim",
+      token,
+      { daemon_id: daemonId },
+    );
+  }
 }

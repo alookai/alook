@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, TASK_TYPES, buildContextKey, extractThreadId, EmailNotifyRequestSchema } from "@alook/shared"
+import { queries, TASK_TYPES, MeetingStatus, buildContextKey, extractThreadId, EmailNotifyRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { writeJSON, parseBody } from "@/lib/middleware/helpers"
 import { TaskService } from "@/lib/services/task"
@@ -30,6 +30,21 @@ export async function POST(req: NextRequest) {
     direction: "inbound",
   })
 
+  if (body.meetingInfo && agent) {
+    const mi = body.meetingInfo
+    await queries.meetingSession.createMeetingSession(db, {
+      agentId: body.agentId,
+      workspaceId: body.workspaceId,
+      title: mi.title || body.subject,
+      meetingUrl: mi.meetingUrl,
+      status: body.isWhitelisted ? MeetingStatus.SCHEDULED : MeetingStatus.PENDING,
+      fromEmail: body.from,
+      isWhitelisted: body.isWhitelisted,
+      participants: mi.attendees.map(a => a.email),
+      scheduledAt: mi.startTime,
+    })
+  }
+
   if (body.isWhitelisted && agent && agent.runtimeId) {
     const conv = await queries.conversation.createConversation(db, {
       workspaceId: agent.workspaceId,
@@ -50,7 +65,6 @@ export async function POST(req: NextRequest) {
     await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, prompt, TASK_TYPES.EMAIL_NOTIFICATION, { contextKey })
   }
 
-  // Notify UI for all emails (whitelisted or not)
   if (agent?.ownerId) {
     broadcastToUser(agent.ownerId, { type: "email.received", agentId: body.agentId }).catch(() => {})
   }

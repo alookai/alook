@@ -28,6 +28,9 @@ const _dir = dirname(fileURLToPath(import.meta.url));
 const sessionRunnerPath = existsSync(join(_dir, "session-runner.js"))
   ? join(_dir, "session-runner.js")
   : join(_dir, "session-runner.ts");
+const meetingRunnerPath = existsSync(join(_dir, "meeting-runner.js"))
+  ? join(_dir, "meeting-runner.js")
+  : join(_dir, "meeting-runner.ts");
 
 interface WorkspaceState {
   workspaceId: string;
@@ -440,6 +443,25 @@ export async function startDaemon(
       evictWorkspace(id);
     }
 
+    // Claim and spawn meeting bots
+    for (const ws of workspaceStates) {
+      try {
+        const meetings = await client.claimMeetings(ws.token, config.daemonId);
+        for (const m of meetings) {
+          spawnMeetingRunner({
+            meetingId: m.id,
+            meetingUrl: m.meetingUrl,
+            participants: m.participants,
+            workspaceId: m.workspaceId,
+            callbackUrl: config.serverURL,
+            authToken: ws.token,
+          });
+        }
+      } catch (e) {
+        log.debug("Meeting claim error", e);
+      }
+    }
+
     try {
       await reconcilePendingCompletions(config.workspacesRoot);
     } catch (e) {
@@ -533,6 +555,37 @@ export function spawnSessionRunner(input: SessionRunnerInput): ChildProcess {
   child.unref();
   if (fd != null) closeSync(fd);
 
+  return child;
+}
+
+export function spawnMeetingRunner(input: {
+  meetingId: string;
+  meetingUrl: string;
+  participants: string[];
+  workspaceId: string;
+  callbackUrl: string;
+  authToken: string;
+}): ChildProcess {
+  const logDir = sessionRunnerLogDir();
+  mkdirSync(logDir, { recursive: true });
+
+  const logFilePath = join(logDir, `meeting-${input.meetingId}.log`);
+  const encoded = Buffer.from(JSON.stringify(input)).toString("base64");
+  let fd: number | undefined;
+  try {
+    fd = openSync(logFilePath, "a");
+  } catch (e) {
+    log.error(`Failed to open meeting log file ${logFilePath}`, e);
+  }
+
+  const child = spawn(process.execPath, [meetingRunnerPath, encoded], {
+    detached: true,
+    stdio: fd != null ? ["ignore", fd, fd] : ["ignore", "ignore", "ignore"],
+  });
+  child.unref();
+  if (fd != null) closeSync(fd);
+
+  log.info(`Spawned meeting runner for ${input.meetingId} (pid=${child.pid})`);
   return child;
 }
 

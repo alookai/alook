@@ -1,13 +1,18 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, MeetingStatus } from "@alook/shared"
+import { queries, MeetingStatus, DEV_EMAIL_WORKER_URL } from "@alook/shared"
+import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 
-export async function POST(req: NextRequest) {
+export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
   const cfEnv = env as Env
   const db = getDb(cfEnv.DB)
+
+  if (!ctx.workspaceId) {
+    return writeError("Forbidden: machine token required", 403)
+  }
 
   let body: {
     meetingId?: string
@@ -24,6 +29,10 @@ export async function POST(req: NextRequest) {
 
   if (!body.meetingId || !body.workspaceId || !body.status) {
     return writeError("meetingId, workspaceId, and status are required", 400)
+  }
+
+  if (body.workspaceId !== ctx.workspaceId) {
+    return writeError("workspace mismatch", 403)
   }
 
   const meeting = await queries.meetingSession.getMeetingSession(
@@ -53,5 +62,36 @@ export async function POST(req: NextRequest) {
     }
   )
 
+  if (body.status === "completed" && body.transcript && meeting.participants.length > 0) {
+    const htmlBody = `
+      <h2>Meeting Transcript</h2>
+      <p><strong>Meeting:</strong> ${meeting.meetingUrl}</p>
+      <pre style="white-space: pre-wrap; font-family: monospace;">${body.transcript}</pre>
+    `.trim()
+
+    for (const email of meeting.participants) {
+      const payload = JSON.stringify({
+        to: email,
+        subject: `Meeting Transcript: ${meeting.title || "Untitled"}`,
+        htmlBody,
+      })
+      const init: RequestInit = {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      }
+
+      try {
+        await cfEnv.EMAIL_WORKER.fetch("http://internal/send/agent", init)
+      } catch {
+        try {
+          await fetch(`${DEV_EMAIL_WORKER_URL}/send/agent`, init)
+        } catch {
+          // Best-effort
+        }
+      }
+    }
+  }
+
   return writeJSON({ ok: true, meeting: updated })
-}
+})
