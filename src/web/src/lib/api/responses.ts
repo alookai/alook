@@ -189,6 +189,29 @@ export function machineTokenToResponse(mt: any) {
   };
 }
 
+export function meetingToResponse(m: any) {
+  return {
+    id: m.id,
+    agent_id: m.agentId,
+    workspace_id: m.workspaceId,
+    title: m.title,
+    meeting_url: m.meetingUrl,
+    status: m.status,
+    from_email: m.fromEmail ?? null,
+    is_whitelisted: !!m.isWhitelisted,
+    participants: m.participants ?? [],
+    scheduled_at: formatTimestampNullable(m.scheduledAt),
+    started_at: formatTimestampNullable(m.startedAt),
+    completed_at: formatTimestampNullable(m.completedAt),
+    transcript_r2_key: m.transcriptR2Key ?? null,
+    summary: m.summary ?? null,
+    error: m.error ?? null,
+    worker_session_id: m.workerSessionId ?? null,
+    created_at: formatTimestamp(m.createdAt),
+    updated_at: formatTimestamp(m.updatedAt),
+  };
+}
+
 export function calendarEventToResponse(e: any) {
   const scheduled = formatTimestamp(e.scheduledAt);
   const occurrence = e.occurrenceAt ? formatTimestamp(e.occurrenceAt) : scheduled;

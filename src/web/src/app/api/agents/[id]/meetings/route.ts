@@ -4,6 +4,7 @@ import { queries, DEV_BROWSER_WORKER_URL, MeetingStatus } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth"
 import { withWorkspaceMember } from "@/lib/middleware/workspace"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
+import { meetingToResponse } from "@/lib/api/responses"
 import { getDb } from "@/lib/db"
 
 const MEET_URL_RE = /^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/
@@ -24,7 +25,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     ws.workspaceId
   )
 
-  return writeJSON(meetings)
+  return writeJSON(meetings.map(meetingToResponse))
 })
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -116,5 +117,5 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   const updated = await queries.meetingSession.getMeetingSession(db, meeting.id, ws.workspaceId)
-  return writeJSON(updated, 201)
+  return writeJSON(meetingToResponse(updated), 201)
 })

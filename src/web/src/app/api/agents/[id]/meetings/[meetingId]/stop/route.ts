@@ -4,6 +4,7 @@ import { queries, DEV_BROWSER_WORKER_URL, MeetingStatus } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth"
 import { withWorkspaceMember } from "@/lib/middleware/workspace"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
+import { meetingToResponse } from "@/lib/api/responses"
 import { getDb } from "@/lib/db"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -65,5 +66,5 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     transcriptR2Key,
   })
 
-  return writeJSON({ ...updated, transcript })
+  return writeJSON({ ...meetingToResponse(updated), transcript })
 })
