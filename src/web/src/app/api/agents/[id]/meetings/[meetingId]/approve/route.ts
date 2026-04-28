@@ -27,6 +27,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const updated = await queries.meetingSession.updateMeetingSession(db, meetingId, ws.workspaceId, {
     status: MeetingStatus.SCHEDULED,
   })
+  if (!updated) return writeError("meeting not found", 404)
 
   return writeJSON(meetingToResponse(updated))
 })

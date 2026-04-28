@@ -65,6 +65,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     completedAt: new Date().toISOString(),
     transcriptR2Key,
   })
+  if (!updated) return writeError("meeting not found", 404)
 
   return writeJSON({ ...meetingToResponse(updated), transcript })
 })
