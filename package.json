@@ -27,6 +27,7 @@
     "deploy:web": "cd src/web && npx opennextjs-cloudflare build && npx opennextjs-cloudflare deploy",
     "deploy:ws-do": "cd src/ws-do && npx wrangler deploy",
     "deploy:email": "cd src/email-worker && npx wrangler deploy",
+    "deploy:browser": "cd src/browser-worker && npx wrangler deploy",
     "db:migrate:remote": "pnpm --filter @alook/web exec wrangler d1 migrations apply alook-app --remote",
     "bump": "node scripts/bump-version.mjs"
   },
