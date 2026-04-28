@@ -1,6 +1,6 @@
 name = "alook-browser-worker"
 main = "src/index.ts"
-compatibility_date = "2025-04-01"
+compatibility_date = "2025-09-15"
 compatibility_flags = ["nodejs_compat"]
 
 [dev]
@@ -9,10 +9,6 @@ inspector_port = 9232
 
 [browser]
 binding = "BROWSER"
-
-[[services]]
-binding = "EMAIL_SERVICE"
-service = "alook-email-worker"
 
 [[services]]
 binding = "WEB_SERVICE"

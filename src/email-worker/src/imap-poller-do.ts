@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
 import PostalMime from "postal-mime"
 import { nanoid } from "nanoid"
-import { createDb, queries, createLogger } from "@alook/shared"
+import { createDb, queries, createLogger, parseIcs } from "@alook/shared"
+import type { MeetingInfo } from "@alook/shared"
 import { decrypt } from "@alook/shared/crypto"
 import { ImapClient, ImapAuthError } from "./lib/imap-client"
 import type { EmailEnv } from "./types"
@@ -148,6 +149,22 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
           db, account.agentId, account.workspaceId, fromAddr
         )
 
+        let meetingInfo: MeetingInfo | null = null
+        const icsAttachment = parsed.attachments?.find(
+          att => att.mimeType?.includes("text/calendar") || att.filename?.endsWith(".ics")
+        )
+        if (icsAttachment) {
+          try {
+            const icsText = typeof icsAttachment.content === "string"
+              ? icsAttachment.content
+              : new TextDecoder().decode(icsAttachment.content)
+            const info = parseIcs(icsText)
+            if (info.meetingUrl) meetingInfo = info
+          } catch {
+            pollLog.warn("failed to parse ICS attachment", { uid })
+          }
+        }
+
         await this.notifyWeb({
           agentId: account.agentId,
           workspaceId: account.workspaceId,
@@ -159,6 +176,7 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
           messageId: parsed.messageId || "",
           inReplyTo: parsed.inReplyTo || "",
           references: parsed.references || "",
+          meetingInfo,
         })
 
         maxUid = Math.max(maxUid, uid)

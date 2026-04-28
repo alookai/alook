@@ -4,8 +4,8 @@ import {
   deduplicateCaptions,
   groupIntoBlocks,
   formatTranscript,
-} from "./transcript"
-import type { TranscriptEntry } from "./transcript"
+} from "@alook/shared/browser"
+import type { TranscriptEntry } from "@alook/shared/browser"
 
 describe("transcript", () => {
   describe("createTimestamp", () => {

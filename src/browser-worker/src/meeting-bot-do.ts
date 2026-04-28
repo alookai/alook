@@ -1,11 +1,18 @@
 import { DurableObject } from "cloudflare:workers"
-import puppeteer from "@cloudflare/puppeteer"
-import type { Browser, Page } from "@cloudflare/puppeteer"
+import { chromium, endpointURLString } from "@cloudflare/playwright"
+import type { Browser, Page } from "@cloudflare/playwright"
 import type { MeetingBotEnv, MeetingStatus } from "./types"
-import type { TranscriptEntry } from "./lib/transcript"
-import { deduplicateCaptions, formatTranscript } from "./lib/transcript"
-import { buildCaptionScrapeScript, parseCaptionElements } from "./lib/caption-scraper"
-import { joinMeeting, enableCaptions, leaveMeeting, isMeetingActive } from "./lib/meet-navigator"
+import type { TranscriptEntry } from "@alook/shared/browser"
+import {
+  deduplicateCaptions,
+  formatTranscript,
+  buildCaptionScrapeScript,
+  parseCaptionElements,
+  joinMeeting,
+  enableCaptions,
+  leaveMeeting,
+  isMeetingActive,
+} from "@alook/shared/browser"
 import { DEV_WEB_URL } from "@alook/shared"
 
 const SCRAPE_INTERVAL_MS = 3_000
@@ -63,7 +70,8 @@ export class MeetingBotDO extends DurableObject<MeetingBotEnv> {
 
     try {
       this.status = "joining"
-      this.browser = await puppeteer.launch(this.env.BROWSER)
+      const endpoint = endpointURLString(this.env.BROWSER, { keep_alive: 600_000 })
+      this.browser = await chromium.connect(endpoint)
       this.page = await this.browser.newPage()
 
       await joinMeeting(this.page, this.meetingUrl, BOT_NAME)
@@ -108,10 +116,6 @@ export class MeetingBotDO extends DurableObject<MeetingBotEnv> {
     const transcriptText = formatTranscript(this.transcript)
     this.status = "completed"
 
-    if (transcriptText && this.participants.length > 0) {
-      await this.sendSummaryEmail(transcriptText)
-    }
-
     return Response.json({
       ok: true,
       status: this.status,
@@ -154,10 +158,6 @@ export class MeetingBotDO extends DurableObject<MeetingBotEnv> {
       await this.cleanup()
       this.status = "completed"
 
-      if (transcriptText && this.participants.length > 0) {
-        await this.sendSummaryEmail(transcriptText)
-      }
-
       await this.callbackWeb("completed", transcriptText)
     }
   }
@@ -186,30 +186,6 @@ export class MeetingBotDO extends DurableObject<MeetingBotEnv> {
         await fetch(`${DEV_WEB_URL}/api/meeting/callback`, init)
       } catch {
         // Best-effort callback
-      }
-    }
-  }
-
-  private async sendSummaryEmail(transcript: string): Promise<void> {
-    const htmlBody = `
-      <h2>Meeting Transcript</h2>
-      <p><strong>Meeting:</strong> ${this.meetingUrl}</p>
-      <pre style="white-space: pre-wrap; font-family: monospace;">${transcript}</pre>
-    `.trim()
-
-    for (const email of this.participants) {
-      try {
-        await this.env.EMAIL_SERVICE.fetch("http://internal/send/agent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            to: email,
-            subject: "Meeting Transcript",
-            htmlBody,
-          }),
-        })
-      } catch {
-        // Best-effort email delivery
       }
     }
   }

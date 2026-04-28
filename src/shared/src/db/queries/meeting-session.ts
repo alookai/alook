@@ -1,4 +1,4 @@
-import { eq, and, desc, isNotNull } from "drizzle-orm";
+import { eq, and, desc, lte, isNotNull } from "drizzle-orm";
 import { meetingSession } from "../schema";
 import type { Database } from "../index";
 
@@ -117,7 +117,7 @@ export async function deleteMeetingSession(
 export async function listScheduledMeetings(
   db: Database,
   workspaceId: string,
-  now: string
+  beforeOrAt: string
 ) {
   return db
     .select()
@@ -126,7 +126,8 @@ export async function listScheduledMeetings(
       and(
         eq(meetingSession.workspaceId, workspaceId),
         eq(meetingSession.status, "scheduled"),
-        eq(meetingSession.isWhitelisted, true)
+        eq(meetingSession.isWhitelisted, true),
+        lte(meetingSession.scheduledAt, beforeOrAt)
       )
     )
     .orderBy(meetingSession.scheduledAt);

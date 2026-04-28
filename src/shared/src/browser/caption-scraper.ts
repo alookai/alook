@@ -38,7 +38,6 @@ export function buildCaptionScrapeScript(): string {
         }
       }
 
-      // Fallback: try the simpler caption structure
       if (result.length === 0) {
         const captions = document.querySelectorAll('.a4cQT');
         for (const cap of captions) {

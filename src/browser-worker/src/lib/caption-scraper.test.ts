@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { parseCaptionElements, buildCaptionScrapeScript } from "./caption-scraper"
+import { parseCaptionElements, buildCaptionScrapeScript } from "@alook/shared/browser"
 
 describe("caption-scraper", () => {
   describe("parseCaptionElements", () => {

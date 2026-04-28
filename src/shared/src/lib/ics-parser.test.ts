@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { parseIcs } from "@alook/shared"
+import { parseIcs } from "./ics-parser"
 
 const GOOGLE_MEET_ICS = `BEGIN:VCALENDAR
 VERSION:2.0

@@ -414,6 +414,14 @@ export type UpdateEmailStatusRequest = z.infer<
   typeof UpdateEmailStatusRequestSchema
 >;
 
+export const MeetingInfoSchema = z.object({
+  title: z.string(),
+  meetingUrl: z.string(),
+  startTime: z.string().nullable(),
+  endTime: z.string().nullable(),
+  attendees: z.array(z.object({ name: z.string(), email: z.string() })),
+});
+
 export const EmailNotifyRequestSchema = z.object({
   agentId: z.string().min(1),
   workspaceId: z.string().min(1),
@@ -426,6 +434,7 @@ export const EmailNotifyRequestSchema = z.object({
   messageId: z.string().optional().default(""),
   inReplyTo: z.string().optional().default(""),
   references: z.string().optional().default(""),
+  meetingInfo: MeetingInfoSchema.nullable().optional(),
 });
 export type EmailNotifyRequest = z.infer<typeof EmailNotifyRequestSchema>;
 

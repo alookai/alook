@@ -1,9 +1,8 @@
-import type { BrowserWorker } from "@cloudflare/puppeteer"
+import type { BrowserWorker } from "@cloudflare/playwright"
 
 export interface MeetingBotEnv {
   BROWSER: BrowserWorker
   MEETING_BOT: DurableObjectNamespace
-  EMAIL_SERVICE: Fetcher
   WEB_SERVICE: Fetcher
 }
 

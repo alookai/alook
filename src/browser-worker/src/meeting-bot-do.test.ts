@@ -15,15 +15,17 @@ vi.mock("cloudflare:workers", () => ({
 const { browser: mockBrowser, page: mockPage } = createMockBrowser()
 const mockLaunch = vi.fn().mockResolvedValue(mockBrowser)
 
-vi.mock("@cloudflare/puppeteer", () => ({
-  default: { launch: (...args: any[]) => mockLaunch(...args) },
+const mockEndpointURLString = vi.fn().mockReturnValue("ws://mock-endpoint")
+
+vi.mock("@cloudflare/playwright", () => ({
+  chromium: { connect: (...args: any[]) => mockLaunch(...args) },
+  endpointURLString: (...args: any[]) => mockEndpointURLString(...args),
 }))
 
 import { MeetingBotDO } from "./meeting-bot-do"
 import type { MeetingBotEnv } from "./types"
 
 function createDO() {
-  const { fetcher, fetch: emailFetch } = createMockFetcher()
   const capturedPromises: Promise<unknown>[] = []
   const ctx = {
     waitUntil: (p: Promise<unknown>) => { capturedPromises.push(p) },
@@ -37,12 +39,11 @@ function createDO() {
   const env: MeetingBotEnv = {
     BROWSER: {} as any,
     MEETING_BOT: {} as any,
-    EMAIL_SERVICE: fetcher,
     WEB_SERVICE: webFetcher,
   }
 
   const doInstance = new MeetingBotDO(ctx as any, env)
-  return { doInstance, ctx, env, emailFetch, webFetch, capturedPromises }
+  return { doInstance, ctx, env, webFetch, capturedPromises }
 }
 
 beforeEach(() => {

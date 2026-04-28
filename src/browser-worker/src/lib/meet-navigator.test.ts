@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { isValidMeetUrl } from "./meet-navigator"
+import { isValidMeetUrl } from "@alook/shared/browser"
 
 describe("meet-navigator", () => {
   describe("isValidMeetUrl", () => {

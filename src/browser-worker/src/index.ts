@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid"
 import type { MeetingBotEnv } from "./types"
-import { isValidMeetUrl } from "./lib/meet-navigator"
+import { isValidMeetUrl } from "@alook/shared/browser"
 
 export { MeetingBotDO } from "./meeting-bot-do"
 

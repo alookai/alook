@@ -1,4 +1,4 @@
-import type { Page } from "@cloudflare/puppeteer"
+import type { BrowserPage } from "./types"
 
 const GOOGLE_MEET_URL_RE = /^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/
 
@@ -10,8 +10,8 @@ export function isValidMeetUrl(url: string): boolean {
   return GOOGLE_MEET_URL_RE.test(url)
 }
 
-export async function joinMeeting(page: Page, meetingUrl: string, botName: string): Promise<void> {
-  await page.goto(meetingUrl, { waitUntil: "networkidle2", timeout: 30_000 })
+export async function joinMeeting(page: BrowserPage, meetingUrl: string, botName: string): Promise<void> {
+  await page.goto(meetingUrl, { waitUntil: "domcontentloaded", timeout: 30_000 })
 
   try {
     const nameInput = await page.waitForSelector('input[aria-label="Your name"]', { timeout: 10_000 })
@@ -44,7 +44,7 @@ export async function joinMeeting(page: Page, meetingUrl: string, botName: strin
   await delay(3000)
 }
 
-export async function enableCaptions(page: Page): Promise<void> {
+export async function enableCaptions(page: BrowserPage): Promise<void> {
   try {
     const ccButton = await page.waitForSelector(
       'button[aria-label*="captions" i], button[aria-label*="subtitle" i]',
@@ -59,7 +59,7 @@ export async function enableCaptions(page: Page): Promise<void> {
   }
 }
 
-export async function isMeetingActive(page: Page): Promise<boolean> {
+export async function isMeetingActive(page: BrowserPage): Promise<boolean> {
   try {
     const endCallButton = await page.$('[aria-label*="Leave call" i], [aria-label*="hang up" i]')
     return endCallButton !== null
@@ -68,7 +68,7 @@ export async function isMeetingActive(page: Page): Promise<boolean> {
   }
 }
 
-export async function leaveMeeting(page: Page): Promise<void> {
+export async function leaveMeeting(page: BrowserPage): Promise<void> {
   try {
     const leaveButton = await page.$('[aria-label*="Leave call" i], [aria-label*="hang up" i]')
     if (leaveButton) {

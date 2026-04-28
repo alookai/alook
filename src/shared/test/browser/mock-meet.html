@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Mock Google Meet</title></head>
+<body>
+  <!-- Name input (shown before joining) -->
+  <input aria-label="Your name" value="" id="name-input" />
+
+  <!-- Mic button (unmuted by default) -->
+  <button data-is-muted="false" aria-label="Turn off microphone" id="mic-btn">Mic</button>
+
+  <!-- Camera button (unmuted by default) -->
+  <button data-is-muted="false" aria-label="Turn off camera" id="cam-btn">Cam</button>
+
+  <!-- Join button -->
+  <button data-idom-class="join" id="join-btn">Join now</button>
+
+  <!-- Captions toggle -->
+  <button aria-label="Turn on captions" id="cc-btn" style="display:none;">CC</button>
+
+  <!-- Leave call button (hidden until joined) -->
+  <button aria-label="Leave call" id="leave-btn" style="display:none;">Leave</button>
+
+  <!-- Caption container (populated after captions enabled) -->
+  <div id="caption-area" style="display:none;"></div>
+
+  <script>
+    let joined = false;
+    let captionsOn = false;
+
+    document.getElementById('join-btn').addEventListener('click', () => {
+      joined = true;
+      document.getElementById('join-btn').style.display = 'none';
+      document.getElementById('name-input').style.display = 'none';
+      document.getElementById('leave-btn').style.display = '';
+      document.getElementById('cc-btn').style.display = '';
+    });
+
+    document.getElementById('mic-btn').addEventListener('click', () => {
+      const btn = document.getElementById('mic-btn');
+      btn.dataset.isMuted = btn.dataset.isMuted === 'false' ? 'true' : 'false';
+    });
+
+    document.getElementById('cam-btn').addEventListener('click', () => {
+      const btn = document.getElementById('cam-btn');
+      btn.dataset.isMuted = btn.dataset.isMuted === 'false' ? 'true' : 'false';
+    });
+
+    document.getElementById('cc-btn').addEventListener('click', () => {
+      captionsOn = true;
+      document.getElementById('caption-area').style.display = '';
+      addCaption('Alice', 'Hello everyone');
+      setTimeout(() => addCaption('Bob', 'Hi Alice, how are you?'), 100);
+      setTimeout(() => addCaption('Alice', 'I am doing great, thanks!'), 200);
+    });
+
+    document.getElementById('leave-btn').addEventListener('click', () => {
+      joined = false;
+      document.getElementById('leave-btn').style.display = 'none';
+      document.getElementById('cc-btn').style.display = 'none';
+      document.getElementById('caption-area').style.display = 'none';
+      document.body.innerHTML = '<p>You left the meeting</p>';
+    });
+
+    function addCaption(speaker, text) {
+      const area = document.getElementById('caption-area');
+      const container = document.createElement('div');
+      container.className = 'a4cQT';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'zs7s8d';
+      nameEl.textContent = speaker;
+
+      const textEl = document.createElement('span');
+      textEl.className = 'iTTPOb';
+      textEl.textContent = text;
+
+      container.appendChild(nameEl);
+      container.appendChild(textEl);
+      area.appendChild(container);
+    }
+  </script>
+</body>
+</html>

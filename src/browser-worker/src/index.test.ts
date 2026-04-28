@@ -5,8 +5,9 @@ vi.mock("cloudflare:workers", () => ({
   DurableObject: class {},
 }))
 
-vi.mock("@cloudflare/puppeteer", () => ({
-  default: { launch: vi.fn() },
+vi.mock("@cloudflare/playwright", () => ({
+  chromium: { connect: vi.fn() },
+  endpointURLString: vi.fn().mockReturnValue("ws://mock"),
 }))
 
 let nanoidCounter = 0
@@ -19,7 +20,6 @@ import type { MeetingBotEnv } from "./types"
 
 function createEnv(overrides?: { doResponse?: Response }) {
   const { meetingBot, doFetch, mockIdFromName } = createMockDO()
-  const { fetcher } = createMockFetcher()
 
   if (overrides?.doResponse) {
     doFetch.mockResolvedValue(overrides.doResponse)
@@ -29,7 +29,6 @@ function createEnv(overrides?: { doResponse?: Response }) {
   const env: MeetingBotEnv = {
     BROWSER: {} as any,
     MEETING_BOT: meetingBot,
-    EMAIL_SERVICE: fetcher,
     WEB_SERVICE: webFetcher,
   }
 
