@@ -16,6 +16,8 @@ import type { TranscriptEntry } from "@alook/shared/browser"
 
 const SCRAPE_INTERVAL_MS = 3_000
 const BOT_NAME = "Alook Meeting Bot"
+const MAX_RETRY_DURATION_MS = 30 * 60 * 1000
+const RETRY_BACKOFF = [30_000, 60_000, 120_000, 300_000]
 
 function log(msg: string) {
   console.log(`[meeting-runner] ${new Date().toISOString()} ${msg}`)
@@ -59,22 +61,8 @@ async function callbackWeb(
   }
 }
 
-async function run(input: MeetingRunnerInput): Promise<void> {
-  log(`Starting: ${input.meetingUrl} (${input.meetingId})`)
-
-  let chromePath: string
-  try {
-    chromePath = ensureChrome()
-    log(`Chrome found: ${chromePath}`)
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    log(`Chrome setup failed: ${msg}`)
-    await callbackWeb(input, "failed", undefined, `Chrome setup failed: ${msg}`)
-    process.exit(1)
-  }
-
-  log("Launching browser (en-US, stealth)...")
-  const browser = await chromium.launch({
+function launchBrowser(chromePath: string) {
+  return chromium.launch({
     executablePath: chromePath,
     headless: false,
     args: [
@@ -85,7 +73,10 @@ async function run(input: MeetingRunnerInput): Promise<void> {
       "--disable-audio-output",
     ],
   })
+}
 
+async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): Promise<{ status: "completed" | "blocked" | "error"; transcript: TranscriptEntry[]; error?: string }> {
+  const browser = await launchBrowser(chromePath)
   const context = browser.contexts()[0]
   if (context) {
     await context.addInitScript(() => {
@@ -98,30 +89,22 @@ async function run(input: MeetingRunnerInput): Promise<void> {
   let transcript: TranscriptEntry[] = []
 
   try {
-    log("Joining meeting...")
-    try {
-      await joinMeeting(page, input.meetingUrl, BOT_NAME)
-      log("Joined. Waiting for meeting UI...")
-      await waitForMeetingReady(page)
-      // Mute mic/camera after entering meeting
-      await page.evaluate(() => {
-        for (const btn of document.querySelectorAll('button')) {
-          const label = (btn.getAttribute('aria-label') || '').toLowerCase()
-          if (label.startsWith('turn off') && (label.includes('microphone') || label.includes('camera'))) {
-            (btn as HTMLElement).click()
-          }
+    await joinMeeting(page, input.meetingUrl, BOT_NAME)
+    log("Joined. Waiting for meeting UI...")
+    await waitForMeetingReady(page)
+
+    await page.evaluate(() => {
+      for (const btn of document.querySelectorAll('button')) {
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase()
+        if (label.startsWith('turn off') && (label.includes('microphone') || label.includes('camera'))) {
+          (btn as HTMLElement).click()
         }
-      })
-      log("Meeting ready. Enabling captions...")
-    } catch (joinErr) {
-      const screenshotPath = `/tmp/meeting-${input.meetingId}-fail.png`
-      await page.screenshot({ path: screenshotPath }).catch(() => {})
-      log(`Join failed, screenshot: ${screenshotPath}`)
-      throw joinErr
-    }
+      }
+    })
+    log("Meeting ready. Enabling captions...")
+
     await enableCaptions(page)
     await page.evaluate(buildCaptionObserverScript())
-    await page.screenshot({ path: `/tmp/meeting-${input.meetingId}-after-cc.png` }).catch(() => {})
     log("Captions enabled, observer injected. Scraping loop started.")
 
     let scrapeCount = 0
@@ -129,9 +112,7 @@ async function run(input: MeetingRunnerInput): Promise<void> {
       try {
         const active = await isMeetingActive(page)
         if (!active) {
-          // Final scrape to collect any remaining captions before leaving
-          const finalScript = buildCaptionScrapeScript()
-          const finalRaw = await page.evaluate(finalScript) as { speakerHtml: string; textHtml: string }[]
+          const finalRaw = await page.evaluate(buildCaptionScrapeScript()) as { speakerHtml: string; textHtml: string }[]
           const finalCaptions = parseCaptionElements(finalRaw)
           if (finalCaptions.length > 0) {
             transcript = deduplicateCaptions(transcript, finalCaptions, meetingStartMs, Date.now())
@@ -141,8 +122,7 @@ async function run(input: MeetingRunnerInput): Promise<void> {
           break
         }
 
-        const script = buildCaptionScrapeScript()
-        const rawElements = await page.evaluate(script) as { speakerHtml: string; textHtml: string }[]
+        const rawElements = await page.evaluate(buildCaptionScrapeScript()) as { speakerHtml: string; textHtml: string }[]
         const captions = parseCaptionElements(rawElements)
         scrapeCount++
 
@@ -164,16 +144,69 @@ async function run(input: MeetingRunnerInput): Promise<void> {
     }
 
     await leaveMeeting(page)
-    const transcriptText = formatTranscript(transcript)
-    log(`Completed: ${transcript.length} transcript entries`)
-    await callbackWeb(input, "completed", transcriptText)
+    return { status: "completed", transcript }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes("Blocked from joining")) {
+      const screenshotPath = `/tmp/meeting-${input.meetingId}-blocked.png`
+      await page.screenshot({ path: screenshotPath }).catch(() => {})
+      log(`Blocked — screenshot: ${screenshotPath}`)
+      return { status: "blocked", transcript, error: msg }
+    }
     log(`Error: ${msg}`)
-    await callbackWeb(input, "failed", undefined, msg)
+    return { status: "error", transcript, error: msg }
   } finally {
     await page.close().catch(() => {})
     await browser.close().catch(() => {})
+  }
+}
+
+async function run(input: MeetingRunnerInput): Promise<void> {
+  log(`Starting: ${input.meetingUrl} (${input.meetingId})`)
+
+  let chromePath: string
+  try {
+    chromePath = ensureChrome()
+    log(`Chrome found: ${chromePath}`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    log(`Chrome setup failed: ${msg}`)
+    await callbackWeb(input, "failed", undefined, `Chrome setup failed: ${msg}`)
+    process.exit(1)
+  }
+
+  const startTime = Date.now()
+  let attempt = 0
+
+  while (true) {
+    attempt++
+    log(attempt > 1 ? `Retry attempt #${attempt}...` : "Launching browser (en-US, stealth)...")
+
+    const result = await tryJoinAndRecord(input, chromePath)
+
+    if (result.status === "completed") {
+      const transcriptText = formatTranscript(result.transcript)
+      log(`Completed: ${result.transcript.length} transcript entries`)
+      await callbackWeb(input, "completed", transcriptText)
+      return
+    }
+
+    if (result.status === "blocked") {
+      const elapsed = Date.now() - startTime
+      if (elapsed >= MAX_RETRY_DURATION_MS) {
+        log(`Giving up after ${Math.round(elapsed / 60_000)}min of retries`)
+        await callbackWeb(input, "failed", undefined, result.error)
+        return
+      }
+      const backoff = RETRY_BACKOFF[Math.min(attempt - 1, RETRY_BACKOFF.length - 1)]
+      log(`Blocked, retrying in ${backoff / 1000}s (attempt ${attempt}, ${Math.round(elapsed / 60_000)}min elapsed)`)
+      await new Promise((resolve) => setTimeout(resolve, backoff))
+      continue
+    }
+
+    // Other errors — don't retry
+    await callbackWeb(input, "failed", undefined, result.error)
+    return
   }
 }
 
