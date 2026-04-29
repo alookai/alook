@@ -144,31 +144,41 @@ export async function waitForMeetingReady(page: BrowserPage, timeoutMs = 60_000)
   throw new Error("Timed out waiting to be admitted to meeting")
 }
 
+export function buildAloneDetectorScript(): string {
+  return `
+    (() => {
+      if (window.__alookAloneDetector) return;
+      window.__alookAloneDetector = true;
+      window.__alookAlone = false;
+
+      const keywords = ['only one here', 'no one else', 'everyone has left',
+                         '只有你', '没有其他人', '所有人都已离开'];
+
+      const observer = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          for (const node of m.addedNodes) {
+            if (node.nodeType !== 1) continue;
+            const text = (node.textContent || '').toLowerCase();
+            for (const kw of keywords) {
+              if (text.includes(kw)) {
+                window.__alookAlone = true;
+                return;
+              }
+            }
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    })()
+  `.trim()
+}
+
 export async function isMeetingActive(page: BrowserPage): Promise<boolean> {
   try {
     return await page.evaluate(() => {
       const leaveBtn = document.querySelector('button[aria-label="Leave call" i], button[aria-label*="hang up" i]')
       if (!leaveBtn) return false
-
-      // Check participant count from the badge in the top-right corner
-      // The badge shows "2", "3" etc. — look for small elements containing just a number
-      // near the participant/people button area
-      const allElements = document.querySelectorAll('[aria-label*="participant" i], [aria-label*="people" i]')
-      for (const el of allElements) {
-        const nums = el.textContent?.match(/\d+/)
-        if (nums) {
-          const count = parseInt(nums[0], 10)
-          if (!isNaN(count) && count <= 1) return false
-        }
-      }
-
-      // Also check full page text for "only one" messages (may appear briefly)
-      const text = document.body?.innerText || ""
-      if (text.includes("You're the only one") || text.includes("No one else is here") ||
-          text.includes("只有你一个人") || text.includes("没有其他人")) {
-        return false
-      }
-
+      if (window.__alookAlone) return false
       return true
     })
   } catch {

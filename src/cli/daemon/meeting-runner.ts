@@ -4,6 +4,7 @@ import {
   joinMeeting,
   enableCaptions,
   waitForMeetingReady,
+  buildAloneDetectorScript,
   isMeetingActive,
   leaveMeeting,
   buildCaptionObserverScript,
@@ -105,6 +106,7 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
 
     await enableCaptions(page)
     await page.evaluate(buildCaptionObserverScript())
+    await page.evaluate(buildAloneDetectorScript())
     log("Captions enabled, observer injected. Scraping loop started.")
 
     let scrapeCount = 0
