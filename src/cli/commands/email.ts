@@ -83,14 +83,34 @@ function resolveClientOpts(command: Command, opts: { workspace?: string; agentId
   const serverUrl = parentOpts.server || cfg.server_url;
   const workspaces = cfg.watched_workspaces || [];
 
-  // Resolve workspace: explicit flag > lookup by agent_id > first workspace
+  // Resolve workspace: explicit flag > lookup by agent_id > single workspace
   let ws;
   if (opts.workspace) {
     ws = workspaces.find((w) => w.id === opts.workspace);
+    if (!ws) {
+      console.error(`Error: workspace ${opts.workspace} not found in config.`);
+      process.exit(1);
+    }
   } else if (opts.agentId) {
     ws = workspaces.find((w) => w.agent_ids?.includes(opts.agentId!));
+    if (!ws) {
+      if (workspaces.length === 1) {
+        ws = workspaces[0];
+      } else {
+        console.error(
+          `Error: agent ${opts.agentId} not found in any registered workspace. Use --workspace to specify.`,
+        );
+        process.exit(1);
+      }
+    }
+  } else if (workspaces.length === 1) {
+    ws = workspaces[0];
+  } else {
+    console.error(
+      `Error: multiple workspaces registered. Use --workspace to specify which one.`,
+    );
+    process.exit(1);
   }
-  if (!ws) ws = workspaces[0];
 
   const token = ws?.token;
 
