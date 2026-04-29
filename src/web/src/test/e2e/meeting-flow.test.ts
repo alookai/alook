@@ -132,10 +132,10 @@ describe("meeting callback flow", () => {
       }),
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as { ok: boolean; meeting: { status: string; transcript_r2_key: string } }
+    const data = await res.json() as { ok: boolean; meeting: { status: string; transcriptR2Key: string } }
     expect(data.ok).toBe(true)
     expect(data.meeting.status).toBe("completed")
-    expect(data.meeting.transcript_r2_key).toContain(callbackMeetingId)
+    expect(data.meeting.transcriptR2Key).toContain(callbackMeetingId)
   })
 
   it("marks failed meetings", async () => {
