@@ -287,14 +287,6 @@ export default function AgentFilesPage() {
               </button>
             </>
           )}
-          {!isMobile && (
-            <button
-              onClick={() => { setSelectedFile(null); setFileContent(null); }}
-              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors ml-1.5 px-1.5 py-0.5"
-            >
-              Close
-            </button>
-          )}
         </div>
       </div>
       {/* Content */}
