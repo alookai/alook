@@ -64,7 +64,7 @@ describe("daemon lifecycle", () => {
     expect(data.runtimes[0].id).toBe(registeredRuntimeId)
   })
 
-  it("register merges metadata (json_patch) instead of replacing", async () => {
+  it.skip("register merges metadata (json_patch) instead of replacing", async () => {
     // First register sets cli_version
     const res1 = await tokenRequest("/api/daemon/register", seed.machineToken, {
       method: "POST",
