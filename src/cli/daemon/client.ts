@@ -80,7 +80,13 @@ export class DaemonClient {
     daemonId: string,
     maxTasks: number,
     cliVersion?: string,
-  ): Promise<{ tasks: TaskApi[]; evicted: boolean; pending_update?: { version: string }; pending_rescan?: boolean }> {
+  ): Promise<{
+    tasks: TaskApi[];
+    evicted: boolean;
+    pending_update?: { version: string };
+    pending_rescan?: boolean;
+    file_requests?: { id: string; agent_id: string; request_type: string; path: string }[];
+  }> {
     const raw = await this.request<unknown>(
       "POST",
       "/api/daemon/tasks/poll",
@@ -93,6 +99,7 @@ export class DaemonClient {
       evicted: resp.evicted ?? false,
       pending_update: resp.pending_update,
       pending_rescan: resp.pending_rescan,
+      file_requests: resp.file_requests,
     };
   }
 
@@ -189,6 +196,25 @@ export class DaemonClient {
       `/api/daemon/tasks/${taskId}/messages`,
       token,
       { messages },
+    );
+  }
+
+  reportFileData(
+    token: string,
+    body: {
+      request_id: string;
+      entries?: { name: string; path: string; isDirectory: boolean; size: number; modifiedAt: string }[];
+      content?: string | null;
+      isBinary?: boolean;
+      error?: string;
+      path: string;
+    },
+  ) {
+    return this.request(
+      "POST",
+      "/api/daemon/workspace/report",
+      token,
+      body,
     );
   }
 

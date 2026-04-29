@@ -543,3 +543,25 @@ export const machineToken = sqliteTable(
   },
   (t) => [index("idx_machine_token").on(t.token)]
 );
+
+// ---------------------------------------------------------------------------
+// Workspace file request (ephemeral queue for file browsing)
+// ---------------------------------------------------------------------------
+
+export const workspaceFileRequest = sqliteTable(
+  "workspace_file_request",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "wfr_" + nanoid()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").notNull(),
+    requestType: text("request_type").notNull(),
+    path: text("path").notNull().default("."),
+    status: text("status").notNull().default("pending"),
+    result: text("result"),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+    updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [index("idx_wfr_workspace_status").on(t.workspaceId, t.status)]
+);
