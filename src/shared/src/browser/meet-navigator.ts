@@ -149,11 +149,18 @@ export async function isMeetingActive(page: BrowserPage): Promise<boolean> {
     return await page.evaluate(() => {
       const leaveBtn = document.querySelector('button[aria-label="Leave call" i], button[aria-label*="hang up" i]')
       if (!leaveBtn) return false
-      const text = document.body?.innerText || ""
-      if (text.includes("You're the only one here") || text.includes("No one else is here") ||
-          text.includes("只有你一个人") || text.includes("没有其他人")) {
-        return false
+
+      // Check participant count — if only 1 (the bot itself), meeting is over
+      const btns = document.querySelectorAll('button')
+      for (const btn of btns) {
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase()
+        if (label.includes('participant') || label.includes('people') || label.includes('参与者')) {
+          const countText = btn.textContent?.trim() || ''
+          const count = parseInt(countText, 10)
+          if (!isNaN(count) && count <= 1) return false
+        }
       }
+
       return true
     })
   } catch {
