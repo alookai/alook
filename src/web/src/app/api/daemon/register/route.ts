@@ -45,7 +45,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const deviceInfo = deviceName.trim();
     const metadata: Record<string, unknown> = {
       version: rt.version || "",
-      cli_version: cliVersion,
+      ...(cliVersion ? { cli_version: cliVersion } : {}),
     };
 
     const result = await queries.runtime.upsertAgentRuntime(db, {
