@@ -146,8 +146,16 @@ export async function waitForMeetingReady(page: BrowserPage, timeoutMs = 60_000)
 
 export async function isMeetingActive(page: BrowserPage): Promise<boolean> {
   try {
-    const endCallButton = await page.$('button[aria-label="Leave call" i], button[aria-label*="hang up" i]')
-    return endCallButton !== null
+    return await page.evaluate(() => {
+      const leaveBtn = document.querySelector('button[aria-label="Leave call" i], button[aria-label*="hang up" i]')
+      if (!leaveBtn) return false
+      const text = document.body?.innerText || ""
+      if (text.includes("You're the only one here") || text.includes("No one else is here") ||
+          text.includes("只有你一个人") || text.includes("没有其他人")) {
+        return false
+      }
+      return true
+    })
   } catch {
     return false
   }
