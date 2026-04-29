@@ -129,6 +129,14 @@ async function run(input: MeetingRunnerInput): Promise<void> {
       try {
         const active = await isMeetingActive(page)
         if (!active) {
+          // Final scrape to collect any remaining captions before leaving
+          const finalScript = buildCaptionScrapeScript()
+          const finalRaw = await page.evaluate(finalScript) as { speakerHtml: string; textHtml: string }[]
+          const finalCaptions = parseCaptionElements(finalRaw)
+          if (finalCaptions.length > 0) {
+            transcript = deduplicateCaptions(transcript, finalCaptions, meetingStartMs, Date.now())
+            log(`Final scrape: ${finalCaptions.length} caption(s), total ${transcript.length}`)
+          }
           log("Meeting ended (no longer active)")
           break
         }
