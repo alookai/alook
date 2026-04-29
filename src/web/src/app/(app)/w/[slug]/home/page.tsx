@@ -41,19 +41,32 @@ export default function HomePage() {
       .catch(() => {});
   }, [workspaceId]);
 
+  const header = (
+    <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5 gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <h1 className="text-sm font-medium">Home</h1>
+      </div>
+    </div>
+  );
+
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
+      <>
+        {header}
+        <div className="flex flex-1 items-center justify-center">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      </>
     );
   }
 
   if (agents.length === 0) {
     const hasOnline = runtimes.some((r) => r.status === "online");
     return (
-      <div className="flex flex-1 items-center justify-center">
-        <div className="text-center animate-[fade-up_400ms_ease-out_both]">
+      <>
+        {header}
+        <div className="flex flex-1 items-center justify-center">
+          <div className="text-center animate-[fade-up_400ms_ease-out_both]">
           {runtimes.length === 0 ? (
             <>
               <p className="text-muted-foreground text-sm">Connect a machine to run your agents.</p>
@@ -90,40 +103,47 @@ export default function HomePage() {
           )}
         </div>
       </div>
+      </>
     );
   }
 
   if (overviewLoading || !overview) {
     return (
-      <div className="flex-1 overflow-y-auto">
-        <div className="p-4 lg:p-6 space-y-4">
-          <Skeleton className="h-48 rounded-xl" />
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Skeleton className="h-44 rounded-xl" />
-            <Skeleton className="h-44 rounded-xl" />
+      <>
+        {header}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-4 lg:p-6 space-y-4">
+            <Skeleton className="h-48 rounded-xl" />
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Skeleton className="h-44 rounded-xl" />
+              <Skeleton className="h-44 rounded-xl" />
+            </div>
           </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden">
-      <div className="flex min-h-full flex-col gap-4 p-4 lg:h-full lg:min-h-[600px] lg:p-6">
-        <AgentOverview
-          agents={agents}
-          runtimes={runtimes}
-          activeTaskCounts={activeTaskCounts}
-          overview={overview}
-        />
-        <div className="grid gap-4 lg:grid-cols-2 lg:flex-1 lg:min-h-0 lg:auto-rows-fr">
-          <RecentActivity overview={overview} agents={agents} workspaceId={workspaceId} onRefresh={refreshOverview} />
-          <CalendarOverview overview={overview} agents={agents} />
-        </div>
-        <div className="shrink-0">
-          <DailyQuote />
+    <>
+      {header}
+      <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden">
+        <div className="flex min-h-full flex-col gap-4 p-4 lg:h-full lg:min-h-[600px] lg:p-6">
+          <AgentOverview
+            agents={agents}
+            runtimes={runtimes}
+            activeTaskCounts={activeTaskCounts}
+            overview={overview}
+          />
+          <div className="grid gap-4 lg:grid-cols-2 lg:flex-1 lg:min-h-0 lg:auto-rows-fr">
+            <RecentActivity overview={overview} agents={agents} workspaceId={workspaceId} onRefresh={refreshOverview} />
+            <CalendarOverview overview={overview} agents={agents} />
+          </div>
+          <div className="shrink-0">
+            <DailyQuote />
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
