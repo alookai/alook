@@ -10,7 +10,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AgentEditForm } from "@/components/agent-edit-form";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AgentStatusBadge } from "@/components/agent-status-badge";
-import { CalendarDays, History, Mail, MessageSquare, MoreHorizontal, Pencil, Trash2, Video, X } from "lucide-react";
+import { CalendarDays, FolderOpen, History, Mail, MessageSquare, MoreHorizontal, Pencil, Trash2, Video, X } from "lucide-react";
 import { MobileSidebarLogo } from "@/components/mobile-sidebar-logo";
 import {
   DropdownMenu,
@@ -35,8 +35,10 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
       ? "meetings"
       : pathname.includes("/email")
         ? "email"
-        : "chat";
-  const tabLabels: Record<string, string> = { email: "Email", meetings: "Meetings", activity: "Activity" };
+        : pathname.includes("/files")
+          ? "files"
+          : "chat";
+  const tabLabels: Record<string, string> = { email: "Email", meetings: "Meetings", activity: "Activity", files: "Files" };
   const { agents, runtimes, handleDeleteAgent, handleUpdateAgent } = useAgentContext();
 
   const agent = agents.find((a) => a.id === agentId);
@@ -163,6 +165,21 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
                     }`}>Activity</span>
                   </Link>
                   <Link
+                    href={`/w/${slug}/agents/${agentId}/files`}
+                    className={`group inline-flex items-center rounded-lg text-xs h-7 px-2 transition-all ${
+                      currentTab === "files"
+                        ? "text-foreground bg-muted"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <FolderOpen className="size-3 shrink-0" />
+                    <span className={`overflow-hidden transition-all duration-500 ease-out ${
+                      currentTab === "files"
+                        ? "max-w-16 opacity-100 ml-1"
+                        : "max-w-0 opacity-0 group-hover:max-w-16 group-hover:opacity-100 group-hover:ml-1 group-hover:delay-300"
+                    }`}>Files</span>
+                  </Link>
+                  <Link
                     href={`/w/${slug}/calendar?agents=${agentId}`}
                     className="group inline-flex items-center rounded-lg text-xs text-muted-foreground h-7 px-2 hover:bg-muted hover:text-foreground transition-all"
                   >
@@ -224,6 +241,13 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
                           onClick={() => router.push(`/w/${slug}/agents/${agentId}/activity`)}
                         >
                           <History className="size-3.5" /> Activity
+                        </DropdownMenuItem>
+                      )}
+                      {currentTab !== "files" && (
+                        <DropdownMenuItem
+                          onClick={() => router.push(`/w/${slug}/agents/${agentId}/files`)}
+                        >
+                          <FolderOpen className="size-3.5" /> Files
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuItem

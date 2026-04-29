@@ -175,9 +175,28 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     await queries.machine.clearPendingRescan(db, body.daemon_id, ctx.workspaceId);
   }
 
+  // 7. Pending file browse requests + cleanup
+  let fileRequests: { id: string; agent_id: string; request_type: string; path: string }[] | undefined;
+  try {
+    await queries.workspaceFileRequest.expireStale(db, ctx.workspaceId);
+    const pending = await queries.workspaceFileRequest.getPendingByWorkspace(db, ctx.workspaceId);
+    if (pending.length > 0) {
+      fileRequests = pending.map((r) => ({
+        id: r.id,
+        agent_id: r.agentId,
+        request_type: r.requestType,
+        path: r.path,
+      }));
+      await queries.workspaceFileRequest.markDispatched(db, pending.map((r) => r.id));
+    }
+  } catch (e) {
+    log.warn("file-requests: poll failed", { err: String(e) });
+  }
+
   return writeJSON({
     tasks,
     ...(pendingUpdate && { pending_update: pendingUpdate }),
     ...(pendingRescan && { pending_rescan: pendingRescan }),
+    ...(fileRequests && fileRequests.length > 0 && { file_requests: fileRequests }),
   });
 });

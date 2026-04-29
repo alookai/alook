@@ -18,6 +18,7 @@ import {
   cleanupStaleIntents,
 } from "./execenv/steering.js";
 import { TASK_TYPES } from "@alook/shared";
+import { readDirectoryTree, readFileContent, validatePath } from "./workspace-files.js";
 import { existsSync, mkdirSync, openSync, closeSync, readdirSync, statSync, unlinkSync } from "fs";
 import { readdir, readFile, unlink, stat as fsStat } from "fs/promises";
 import { execSync, spawn, type ChildProcess } from "child_process";
@@ -398,7 +399,7 @@ export async function startDaemon(
       }
 
       try {
-        const { tasks: apiTasks, evicted, pending_update, pending_rescan } = await client.poll(
+        const { tasks: apiTasks, evicted, pending_update, pending_rescan, file_requests } = await client.poll(
           ws.token,
           config.daemonId,
           remaining,
@@ -429,6 +430,14 @@ export async function startDaemon(
               log.error("Task error", e);
               activeTasks.delete(task.id);
             });
+        }
+
+        // Handle workspace file browse requests
+        if (file_requests) {
+          for (const req of file_requests) {
+            handleFileRequest(client, config, ws.workspaceId, req, ws.token)
+              .catch((e) => log.debug("File request error", e));
+          }
         }
       } catch (e) {
         if (e instanceof Error && e.message.startsWith("HTTP 401")) {
@@ -587,6 +596,38 @@ export function spawnMeetingRunner(input: {
 
   log.info(`Spawned meeting runner for ${input.meetingId} (pid=${child.pid})`);
   return child;
+}
+
+async function handleFileRequest(
+  client: DaemonClient,
+  config: DaemonConfig,
+  workspaceId: string,
+  req: { id: string; agent_id: string; request_type: string; path: string },
+  token: string,
+): Promise<void> {
+  const agentWorkdir = join(config.workspacesRoot, workspaceId, req.agent_id, "workdir");
+  const resolved = validatePath(agentWorkdir, req.path);
+
+  if (!resolved) {
+    await client.reportFileData(token, { request_id: req.id, error: "invalid path", path: req.path });
+    return;
+  }
+
+  try {
+    if (req.request_type === "tree") {
+      const entries = await readDirectoryTree(resolved, agentWorkdir);
+      await client.reportFileData(token, { request_id: req.id, entries, path: req.path });
+    } else {
+      const { content, isBinary } = await readFileContent(resolved);
+      await client.reportFileData(token, { request_id: req.id, content, isBinary, path: req.path });
+    }
+  } catch (e) {
+    await client.reportFileData(token, {
+      request_id: req.id,
+      error: e instanceof Error ? e.message : String(e),
+      path: req.path,
+    });
+  }
 }
 
 async function handleTask(

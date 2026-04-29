@@ -108,11 +108,20 @@ export const PollRequestSchema = z.object({
 });
 export type PollRequest = z.infer<typeof PollRequestSchema>;
 
+export const FileRequestItemSchema = z.object({
+  id: z.string(),
+  agent_id: z.string(),
+  request_type: z.enum(["tree", "read"]),
+  path: z.string(),
+});
+export type FileRequestItem = z.infer<typeof FileRequestItemSchema>;
+
 export const PollResponseSchema = z.object({
   tasks: z.array(TaskApiSchema),
   evicted: z.boolean().optional(),
   pending_update: z.object({ version: z.string() }).optional(),
   pending_rescan: z.boolean().optional(),
+  file_requests: z.array(FileRequestItemSchema).optional(),
 });
 export type PollResponse = z.infer<typeof PollResponseSchema>;
 
@@ -527,3 +536,31 @@ export const GrantAgentAccessRequestSchema = z.object({
   user_id: z.string().min(1, "user_id is required"),
 });
 export type GrantAgentAccessRequest = z.infer<typeof GrantAgentAccessRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// Workspace file browsing
+// ---------------------------------------------------------------------------
+
+export const WorkspaceFileBrowseRequestSchema = z.object({
+  request_type: z.enum(["tree", "read"]),
+  path: z.string().default("."),
+});
+export type WorkspaceFileBrowseRequest = z.infer<typeof WorkspaceFileBrowseRequestSchema>;
+
+export const WorkspaceFileEntrySchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  isDirectory: z.boolean(),
+  size: z.number(),
+  modifiedAt: z.string(),
+});
+
+export const WorkspaceFileReportSchema = z.object({
+  request_id: z.string().min(1),
+  entries: z.array(WorkspaceFileEntrySchema).optional(),
+  content: z.string().nullable().optional(),
+  isBinary: z.boolean().optional(),
+  error: z.string().optional(),
+  path: z.string(),
+});
+export type WorkspaceFileReport = z.infer<typeof WorkspaceFileReportSchema>;

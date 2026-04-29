@@ -57,7 +57,7 @@ export function CalendarOverview({ overview, agents }: CalendarOverviewProps) {
           </button>
         </CardAction>
       </CardHeader>
-      <CardContent className="space-y-3 flex-1 min-h-0 overflow-y-auto">
+      <CardContent className="space-y-3 flex-1 min-h-0 overflow-y-auto thin-scrollbar">
         <div className="grid grid-cols-3 gap-3">
           <div className="rounded-lg border border-border/50 px-3 py-2 text-center">
             <p className="text-xl font-semibold">{todayEvents.length}</p>

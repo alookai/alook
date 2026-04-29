@@ -20,6 +20,8 @@ export type {
   MeetingSession,
   Channel,
   WsMessage,
+  WorkspaceFileEntry,
+  WorkspaceFileResult,
 } from "./types";
 
 // API types
@@ -124,6 +126,10 @@ export {
   UpdateWorkspaceRequestSchema,
   DeleteWorkspaceRequestSchema,
   GrantAgentAccessRequestSchema,
+  FileRequestItemSchema,
+  WorkspaceFileBrowseRequestSchema,
+  WorkspaceFileEntrySchema,
+  WorkspaceFileReportSchema,
 } from "./schemas";
 
 export type {
@@ -152,6 +158,9 @@ export type {
   UpdateMemberRequest,
   UpdateEmailAccountRequest,
   TestEmailConnectionRequest,
+  FileRequestItem,
+  WorkspaceFileBrowseRequest,
+  WorkspaceFileReport,
 } from "./schemas";
 
 // Database

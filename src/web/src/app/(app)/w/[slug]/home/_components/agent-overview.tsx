@@ -36,7 +36,7 @@ export function AgentOverview({ agents, runtimes, activeTaskCounts, overview }: 
           </button>
         </CardAction>
       </CardHeader>
-      <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto">
+      <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto thin-scrollbar">
         <div className="divide-y divide-border/50">
           {agents.map((agent) => {
             const rt = runtimes.find((r) => r.id === agent.runtime_id);

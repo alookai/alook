@@ -55,41 +55,47 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     const isActive = activeAgentId === agent.id;
     const isPinned = pins.has(agent.id);
     return (
-      <ContextMenu key={agent.id}>
-        <ContextMenuTrigger
-          render={
-            <button
-              type="button"
-              title={agent.name}
-              onClick={() => handleAgentClick(agent.id)}
-              className={cn(
-                "relative flex shrink-0 items-center justify-center size-10 rounded-xl text-sm font-medium transition-colors duration-200 cursor-pointer",
-                isActive
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "bg-secondary text-secondary-foreground hover:bg-accent"
-              )}
-            />
-          }
-        >
-          {agent.name.charAt(0).toUpperCase()}
-          {(taskCounts[agent.id] ?? 0) > 0 && (
-            <span className="absolute bottom-0 right-0 size-2 rounded-full bg-status-online animate-pulse ring-2 ring-background" />
-          )}
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          {isPinned ? (
-            <ContextMenuItem onClick={() => handleUnpinAgent(agent.id)}>
-              <PinOffIcon className="size-3.5 mr-1.5" />
-              Unpin
-            </ContextMenuItem>
-          ) : (
-            <ContextMenuItem onClick={() => handlePinAgent(agent.id)}>
-              <PinIcon className="size-3.5 mr-1.5" />
-              Pin to top
-            </ContextMenuItem>
-          )}
-        </ContextMenuContent>
-      </ContextMenu>
+      <Tooltip key={agent.id}>
+        <ContextMenu>
+          <TooltipTrigger
+            render={
+              <ContextMenuTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={() => handleAgentClick(agent.id)}
+                    className={cn(
+                      "relative flex shrink-0 items-center justify-center size-10 rounded-xl text-sm font-medium transition-colors duration-200 cursor-pointer",
+                      isActive
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "bg-secondary text-secondary-foreground hover:bg-accent"
+                    )}
+                  />
+                }
+              />
+            }
+          >
+            {agent.name.charAt(0).toUpperCase()}
+            {(taskCounts[agent.id] ?? 0) > 0 && (
+              <span className="absolute bottom-0 right-0 size-2 rounded-full bg-status-online animate-pulse ring-2 ring-background" />
+            )}
+          </TooltipTrigger>
+          <ContextMenuContent>
+            {isPinned ? (
+              <ContextMenuItem onClick={() => handleUnpinAgent(agent.id)}>
+                <PinOffIcon className="size-3.5 mr-1.5" />
+                Unpin
+              </ContextMenuItem>
+            ) : (
+              <ContextMenuItem onClick={() => handlePinAgent(agent.id)}>
+                <PinIcon className="size-3.5 mr-1.5" />
+                Pin to top
+              </ContextMenuItem>
+            )}
+          </ContextMenuContent>
+        </ContextMenu>
+        <TooltipContent side="right">{agent.name} (right-click for options)</TooltipContent>
+      </Tooltip>
     );
   };
 

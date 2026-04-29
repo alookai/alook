@@ -236,3 +236,20 @@ export type WsMessage =
   | { type: "followup.created"; conversationId: string; message: Message }
   | { type: "followup.deleted"; conversationId: string; messageId: string }
   | { type: "followup.dispatch_failed"; conversationId: string; messageId: string; error: string }
+  | { type: "workspace.files"; agentId: string; requestId: string; requestType: "tree" | "read"; result: WorkspaceFileResult }
+
+export interface WorkspaceFileEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  modifiedAt: string;
+}
+
+export interface WorkspaceFileResult {
+  entries?: WorkspaceFileEntry[];
+  content?: string | null;
+  isBinary?: boolean;
+  error?: string;
+  path: string;
+}

@@ -790,6 +790,21 @@ export const pinAgent = (workspaceId: string, agentId: string) =>
 export const unpinAgent = (workspaceId: string, agentId: string) =>
   apiFetch<void>(`/api/agents/${agentId}/pin${wsQuery(workspaceId)}`, { method: "DELETE" });
 
+// Workspace file browsing
+export const requestWorkspaceBrowse = (
+  agentId: string,
+  workspaceId: string,
+  requestType: "tree" | "read",
+  path: string,
+) =>
+  apiFetch<{ request_id: string }>(
+    `/api/agents/${agentId}/workspace/browse${wsQuery(workspaceId)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ request_type: requestType, path }),
+    },
+  );
+
 // Meetings
 export const listMeetings = (agentId: string, workspaceId: string) =>
   apiFetch<MeetingSession[]>(`/api/agents/${agentId}/meetings${wsQuery(workspaceId)}`);
