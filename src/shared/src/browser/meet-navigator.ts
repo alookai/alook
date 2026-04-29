@@ -150,15 +150,23 @@ export async function isMeetingActive(page: BrowserPage): Promise<boolean> {
       const leaveBtn = document.querySelector('button[aria-label="Leave call" i], button[aria-label*="hang up" i]')
       if (!leaveBtn) return false
 
-      // Check participant count — if only 1 (the bot itself), meeting is over
-      const btns = document.querySelectorAll('button')
-      for (const btn of btns) {
-        const label = (btn.getAttribute('aria-label') || '').toLowerCase()
-        if (label.includes('participant') || label.includes('people') || label.includes('参与者')) {
-          const countText = btn.textContent?.trim() || ''
-          const count = parseInt(countText, 10)
+      // Check participant count from the badge in the top-right corner
+      // The badge shows "2", "3" etc. — look for small elements containing just a number
+      // near the participant/people button area
+      const allElements = document.querySelectorAll('[aria-label*="participant" i], [aria-label*="people" i]')
+      for (const el of allElements) {
+        const nums = el.textContent?.match(/\d+/)
+        if (nums) {
+          const count = parseInt(nums[0], 10)
           if (!isNaN(count) && count <= 1) return false
         }
+      }
+
+      // Also check full page text for "only one" messages (may appear briefly)
+      const text = document.body?.innerText || ""
+      if (text.includes("You're the only one") || text.includes("No one else is here") ||
+          text.includes("只有你一个人") || text.includes("没有其他人")) {
+        return false
       }
 
       return true
