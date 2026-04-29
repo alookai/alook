@@ -74,5 +74,13 @@ isNotNull(agentTaskQueue.sessionId)
 .set({ attempts: sql`${verificationCode.attempts} + 1` })
 ```
 
+## Scrollbar
+
+Always use the `thin-scrollbar` class alongside `overflow-y-auto` or `overflow-x-auto`. Never use bare overflow-auto without it.
+
+```tsx
+<div className="overflow-y-auto thin-scrollbar">...</div>
+```
+
 ## UIUX
 read @DESIGN.md

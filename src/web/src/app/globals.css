@@ -922,6 +922,23 @@
 .markdown strong { font-weight: 600; }
 .markdown em { font-style: italic; }
 
+/* Textarea mention backdrop */
+.caret-foreground {
+  caret-color: var(--foreground);
+}
+
+/* Mention highlight — underline + italic */
+.mention-highlight {
+  text-decoration: underline;
+  text-decoration-color: var(--foreground);
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1.5px;
+  font-style: italic;
+}
+.markdown-user .mention-highlight {
+  text-decoration-color: var(--primary-foreground);
+}
+
 /* User bubble markdown — inherit text color from primary-foreground parent */
 .markdown-user,
 .markdown-user code:not(pre code) {

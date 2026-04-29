@@ -3,6 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import {
   queries,
   CreateBufferedMessageRequestSchema,
+  parsePromptMentions,
 } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { nanoid } from "nanoid";
@@ -119,9 +120,20 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     artifactIds.push(artifactId);
   }
 
+  let enrichedContent = content;
+  if (content.includes("@")) {
+    try {
+      const agentList = await queries.agent.listAgents(db, ws.workspaceId, ctx.userId);
+      const { enrichedPrompt } = parsePromptMentions(content, agentList);
+      enrichedContent = enrichedPrompt;
+    } catch {
+      // Fail-open: pass content through unmodified
+    }
+  }
+
   const message = await queries.message.createBufferedMessage(db, {
     conversationId: id,
-    content,
+    content: enrichedContent,
     attachmentIds: artifactIds.length > 0 ? JSON.stringify(artifactIds) : null,
   });
 

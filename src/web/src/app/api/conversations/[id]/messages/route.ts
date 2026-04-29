@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, TASK_TYPES, buildContextKey, CreateMessageRequestSchema } from "@alook/shared"
+import { queries, TASK_TYPES, buildContextKey, CreateMessageRequestSchema, parsePromptMentions } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { nanoid } from "nanoid";
 import { withAuth } from "@/lib/middleware/auth";
@@ -155,18 +155,49 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // Auto-title: conditional WHERE title = '' ensures only the first message sets it
   queries.conversation.updateConversationTitle(db, id, truncateTitle(content)).catch(() => {});
 
+  let enrichedContent = content;
+  let mentionContext: Record<string, unknown> | undefined;
+  if (content.includes("@")) {
+    try {
+      const agentList = await queries.agent.listAgents(db, ws.workspaceId, ctx.userId);
+      const { enrichedPrompt, mentions } = parsePromptMentions(content, agentList);
+      enrichedContent = enrichedPrompt;
+      if (mentions.length > 0) {
+        const seen = new Set<string>();
+        const uniqueMentions = mentions.filter(m => {
+          if (seen.has(m.name)) return false;
+          seen.add(m.name);
+          return true;
+        });
+        mentionContext = {
+          mentioned_agents: uniqueMentions.map(m => ({
+            name: m.name,
+            email: m.email,
+            ...(m.description ? { description: m.description } : {}),
+          })),
+        };
+      }
+    } catch {
+      // Fail-open: if agent query fails, pass content through unmodified
+    }
+  }
+
   const contextKey = buildContextKey(TASK_TYPES.USER_DM_MESSAGE, { conversationId: id });
+  const taskContext: Record<string, unknown> = {
+    ...(artifactIds.length > 0 ? { attachment_ids: artifactIds } : {}),
+    ...mentionContext,
+  };
   const taskService = new TaskService(db);
   try {
     const task = await taskService.enqueueTask(
       conversation.agentId,
       id,
       ws.workspaceId,
-      content,
+      enrichedContent,
       TASK_TYPES.USER_DM_MESSAGE,
       {
         contextKey,
-        context: artifactIds.length > 0 ? { attachment_ids: artifactIds } : undefined,
+        context: Object.keys(taskContext).length > 0 ? taskContext : undefined,
       },
     );
     broadcastToUser(ctx.userId, { type: "task.updated", taskId: task.id, agentId: task.agentId, status: "queued" }).catch(() => {});

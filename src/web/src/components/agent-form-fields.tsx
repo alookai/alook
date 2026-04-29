@@ -61,8 +61,8 @@ interface GeneralFieldsProps {
   setName: (v: string) => void;
   description: string;
   setDescription: (v: string) => void;
-  instructions: string;
-  setInstructions: (v: string) => void;
+  instructions?: string;
+  setInstructions?: (v: string) => void;
   model: string;
   setModel: (v: string) => void;
   runtimeId: string;
@@ -108,16 +108,18 @@ export function GeneralFields({
         />
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="agent-instructions">Instructions</Label>
-        <Textarea
-          id="agent-instructions"
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          placeholder="System prompt or instructions..."
-          rows={6}
-        />
-      </div>
+      {setInstructions && (
+        <div className="space-y-1.5">
+          <Label htmlFor="agent-instructions">Instructions</Label>
+          <Textarea
+            id="agent-instructions"
+            value={instructions ?? ""}
+            onChange={(e) => setInstructions(e.target.value)}
+            placeholder="System prompt or instructions..."
+            rows={6}
+          />
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <Label htmlFor="agent-model">Model</Label>

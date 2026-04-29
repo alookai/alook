@@ -30,6 +30,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { ArrowUp, Box, FileText, Loader2, Mail, Mic, Paperclip, RotateCcw, Square, X } from "lucide-react";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
+import { useMentionPopup } from "@/hooks/use-mention-popup";
+import { MentionPopup } from "@/components/agent-chat/mention-popup";
+import { highlightMentions } from "@/lib/highlight-mentions";
 import { ArtifactSheet, formatSize } from "@/components/agent-chat/artifact-sheet";
 import { isPreviewable, getArtifactUrl } from "@/components/artifact-content-renderer";
 import {
@@ -45,6 +48,13 @@ import { FollowUpBuffer } from "@/components/agent-chat/follow-up-buffer";
 
 const MESSAGE_LIMIT = 20;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+
+const MENTION_ALLOWED_TAGS = { mention: [] as string[] };
+const MENTION_LITERAL_TAGS = ["mention"];
+const MentionHighlight = ({ children }: { children?: React.ReactNode }) => (
+  <span className="mention-highlight">{children}</span>
+);
+const MENTION_COMPONENTS = { mention: MentionHighlight };
 
 /** Sort messages by (created_at, id) ascending — guarantees chronological order. */
 export function sortMessages(msgs: Message[]): Message[] {
@@ -184,6 +194,7 @@ export function AgentChatView() {
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [bufferedMessages, setBufferedMessages] = useState<Message[]>([]);
+  const [caretIndex, setCaretIndex] = useState<number | null>(null);
 
   const pendingFilesMapRef = useRef<Map<string, File[]>>(new Map());
 
@@ -216,6 +227,16 @@ export function AgentChatView() {
   const startPollingRef = useRef<(taskId: string, conversationId: string, initialSeq?: number) => void>(null!);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const otherAgents = useMemo(() => agents.filter(a => a.id !== agentId), [agents, agentId]);
+
+  const mentionPopup = useMentionPopup({
+    input,
+    caretIndex,
+    textareaRef,
+    agents: otherAgents,
+    onInputChange: setInput,
+  });
 
   useEffect(() => {
     const key = `chat-draft:${agentId}`;
@@ -821,6 +842,7 @@ export function AgentChatView() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (mentionPopup.handleMentionKeyDown(e)) return;
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
@@ -970,7 +992,7 @@ export function AgentChatView() {
                           <div className="absolute inset-0 rounded-lg animate-pulse pointer-events-none" style={{ boxShadow: "0 0 0 2px var(--bubble-glow)" }} />
                         )}
                         <div className="markdown markdown-user">
-                          <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: false, download: false, fullscreen: false } }} linkSafety={{ enabled: false }}>{msg.content}</Streamdown>
+                          <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: false, download: false, fullscreen: false } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={MENTION_COMPONENTS}>{highlightMentions(msg.content, agents)}</Streamdown>
                         </div>
                         {msg.attachment_ids && msg.attachment_ids.length > 0 && (
                           <AttachmentChips attachmentIds={msg.attachment_ids} artifacts={artifacts} onArtifactClick={handleArtifactClick} />
@@ -984,7 +1006,7 @@ export function AgentChatView() {
                 })() : !hasTaskStream ? (
                   <div className="flex justify-start" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
                     <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
-                      <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{msg.content}</Streamdown>
+                      <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={MENTION_COMPONENTS}>{highlightMentions(msg.content, agents)}</Streamdown>
                     </div>
                   </div>
                 ) : null}
@@ -1036,20 +1058,51 @@ export function AgentChatView() {
                 <p className="text-sm text-muted-foreground font-medium">Drop files here</p>
               </div>
             )}
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={isTaskActive ? "Type a follow-up..." : "Type a message..."}
-              rows={1}
-              disabled={sending}
-              className={cn(
-                "field-sizing-content w-full resize-none bg-transparent px-3.5 pt-2.5 text-base outline-none",
-                "placeholder:text-muted-foreground disabled:cursor-not-allowed",
-                "min-h-[38px] max-h-[200px] thin-scrollbar"
-              )}
+            <MentionPopup
+              isOpen={mentionPopup.isOpen}
+              agents={mentionPopup.filteredAgents}
+              selectedIndex={mentionPopup.selectedIndex}
+              onSelect={mentionPopup.selectAgent}
+              anchorPos={mentionPopup.anchorPos}
             />
+            <div className="relative">
+              <div
+                aria-hidden
+                className="mention-backdrop absolute inset-0 px-3.5 pt-2.5 text-base whitespace-pre-wrap break-words pointer-events-none overflow-hidden"
+                dangerouslySetInnerHTML={{
+                  __html: input
+                    ? highlightMentions(
+                        input.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+                        agents,
+                      )
+                        .replace(/<mention>/g, '<span class="mention-highlight">')
+                        .replace(/<\/mention>/g, "</span>")
+                    : "",
+                }}
+              />
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => { setInput(e.target.value); setCaretIndex(e.target.selectionStart); }}
+                onKeyDown={handleKeyDown}
+                onKeyUp={(e) => setCaretIndex((e.target as HTMLTextAreaElement).selectionStart)}
+                onClick={(e) => setCaretIndex((e.target as HTMLTextAreaElement).selectionStart)}
+                onSelect={(e) => setCaretIndex((e.target as HTMLTextAreaElement).selectionStart)}
+                onScroll={(e) => {
+                  const backdrop = (e.target as HTMLTextAreaElement).previousElementSibling;
+                  if (backdrop) backdrop.scrollTop = (e.target as HTMLTextAreaElement).scrollTop;
+                }}
+                placeholder={isTaskActive ? "Type a follow-up..." : "Type a message..."}
+                rows={1}
+                disabled={sending}
+                className={cn(
+                  "relative field-sizing-content w-full resize-none bg-transparent px-3.5 pt-2.5 text-base outline-none",
+                  "placeholder:text-muted-foreground disabled:cursor-not-allowed",
+                  "min-h-[38px] max-h-[200px] thin-scrollbar",
+                  "caret-foreground text-transparent"
+                )}
+              />
+            </div>
 
             {/* Pending file pills */}
             {pendingFiles.length > 0 && (

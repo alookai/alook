@@ -246,6 +246,22 @@ export const agentWhitelist = sqliteTable(
   ]
 );
 
+export const channel = sqliteTable(
+  "channel",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "ch_" + nanoid()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    unique("channel_workspace_name").on(t.workspaceId, t.name),
+    index("idx_channel_workspace").on(t.workspaceId),
+  ]
+);
+
 export const conversation = sqliteTable(
   "conversation",
   {
@@ -259,6 +275,7 @@ export const conversation = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     title: text("title").notNull().default(""),
     type: text("type").notNull().default(TASK_TYPES.USER_DM_MESSAGE),
+    channel: text("channel").notNull().default("default"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Agent } from "@alook/shared";
@@ -8,12 +8,45 @@ import type { AgentRuntime as Runtime } from "@alook/shared";
 import { cn } from "@/lib/utils";
 import { LockIcon } from "lucide-react";
 import { CustomEmailForm } from "@/components/custom-email-form";
+import { MarkdownEditor } from "@/components/ui/markdown-editor";
+import { useWorkspace } from "@/contexts/workspace-context";
+import { updateAgent as updateAgentApi } from "@/lib/api";
+import { toast } from "sonner";
 import {
   GeneralFields,
   PinToggle,
   AllowedSendersTab,
   AgentAccessTab,
 } from "@/components/agent-form-fields";
+
+const MAX_INSTRUCTION_LENGTH = 50_000;
+const DEBOUNCE_MS = 500;
+
+function UsageRing({ ratio, size = 16, stroke = 1.5 }: { ratio: number; size?: number; stroke?: number }) {
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const visual = ratio <= 0 ? 0 : ratio >= 1 ? 1 : Math.log1p(ratio * 99) / Math.log(100);
+  const filled = visual * circ;
+  return (
+    <svg width={size} height={size} className="shrink-0 -rotate-90" aria-hidden>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="currentColor" strokeWidth={stroke} className="text-border" />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={stroke}
+        strokeDasharray={`${filled} ${circ - filled}`}
+        strokeLinecap="round"
+        className={cn(
+          "transition-all duration-300",
+          ratio > 0.9 ? "text-destructive/70" : ratio > 0.7 ? "text-yellow-500/50" : "text-muted-foreground/30"
+        )}
+      />
+    </svg>
+  );
+}
 
 interface AgentEditFormProps {
   agent: Agent;
@@ -22,7 +55,6 @@ interface AgentEditFormProps {
   onSave: (data: {
     name: string;
     description: string;
-    instructions: string;
     runtime_id: string;
     runtime_config?: Record<string, unknown>;
   }) => Promise<boolean>;
@@ -30,7 +62,7 @@ interface AgentEditFormProps {
   saving: boolean;
 }
 
-type TabId = "general" | "email" | "senders" | "access";
+type TabId = "general" | "instruction" | "email" | "permission";
 
 export function AgentEditForm({
   agent,
@@ -40,15 +72,79 @@ export function AgentEditForm({
   onCancel,
   saving,
 }: AgentEditFormProps) {
+  const { workspaceId } = useWorkspace();
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [name, setName] = useState(agent.name ?? "");
   const [description, setDescription] = useState(agent.description ?? "");
-  const [instructions, setInstructions] = useState(agent.instructions ?? "");
   const [runtimeId, setRuntimeId] = useState(agent.runtime_id ?? "");
   const [model, setModel] = useState(() => {
     const rc = agent.runtime_config;
     return typeof rc?.model === "string" ? rc.model : "";
   });
+
+  // Instruction tab state — auto-saves independently
+  const [instructions, setInstructions] = useState(agent.instructions ?? "");
+  const [savedInstructions, setSavedInstructions] = useState(agent.instructions ?? "");
+  const instructionsRef = useRef(instructions);
+  instructionsRef.current = instructions;
+  const savedInstructionsRef = useRef(savedInstructions);
+  savedInstructionsRef.current = savedInstructions;
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savingInstructionsRef = useRef(false);
+
+  const flushInstructions = useCallback(async () => {
+    if (savingInstructionsRef.current) return;
+    const current = instructionsRef.current;
+    if (current === savedInstructionsRef.current) return;
+    savingInstructionsRef.current = true;
+    try {
+      await updateAgentApi(agent.id, { instructions: current }, workspaceId);
+      setSavedInstructions(current);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save instructions");
+    } finally {
+      savingInstructionsRef.current = false;
+    }
+  }, [agent.id, workspaceId]);
+
+  const scheduleInstructionSave = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(flushInstructions, DEBOUNCE_MS);
+  }, [flushInstructions]);
+
+  const handleInstructionChange = useCallback(
+    (next: string) => {
+      setInstructions(next);
+      scheduleInstructionSave();
+    },
+    [scheduleInstructionSave],
+  );
+
+  useEffect(() => {
+    const onBeforeUnload = () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (instructionsRef.current !== savedInstructionsRef.current) {
+        const params = new URLSearchParams({ workspace_id: workspaceId });
+        fetch(`/api/agents/${agent.id}?${params}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ instructions: instructionsRef.current }),
+          keepalive: true,
+        });
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [agent.id, workspaceId]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (instructionsRef.current !== savedInstructionsRef.current) {
+        void flushInstructions();
+      }
+    };
+  }, [flushInstructions]);
 
   const selectedRuntime = runtimes.find((r) => r.id === runtimeId);
   const providerModels =
@@ -61,7 +157,6 @@ export function AgentEditForm({
     await onSave({
       name,
       description,
-      instructions,
       runtime_id: runtimeId,
       runtime_config: model ? { model } : {},
     });
@@ -69,14 +164,13 @@ export function AgentEditForm({
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "general", label: "General" },
+    { id: "instruction", label: "Instruction" },
     { id: "email", label: "Email" },
-    ...(agent.email_handle
-      ? [{ id: "senders" as TabId, label: "Senders" }]
-      : []),
-    { id: "access", label: "Access" },
+    { id: "permission", label: "Permission" },
   ];
 
   const isFormTab = activeTab === "general" || activeTab === "email";
+  const instructionRatio = instructions.length / MAX_INSTRUCTION_LENGTH;
 
   return (
     <div className="flex flex-1 min-h-0">
@@ -115,80 +209,103 @@ export function AgentEditForm({
           </Tabs>
         </div>
 
-        <div className="flex-1 overflow-y-auto thin-scrollbar px-5 py-6">
-          {isFormTab ? (
-            <form
-              onSubmit={handleSubmit}
-              className="mx-auto max-w-md space-y-4"
-            >
-              {activeTab === "general" && (
-                <>
-                  <GeneralFields
-                    name={name}
-                    setName={setName}
-                    description={description}
-                    setDescription={setDescription}
-                    instructions={instructions}
-                    setInstructions={setInstructions}
-                    model={model}
-                    setModel={setModel}
-                    runtimeId={runtimeId}
-                    setRuntimeId={setRuntimeId}
-                    runtimes={runtimes}
-                    providerModels={providerModels}
-                  />
-                  <PinToggle agentId={agent.id} />
-                </>
-              )}
+        {activeTab === "instruction" ? (
+          <div className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 px-6 pt-4 pb-4 overflow-y-auto">
+              <MarkdownEditor
+                value={instructions}
+                onChange={handleInstructionChange}
+                placeholder="Write instructions for this agent..."
+                minHeight="calc(100vh - 240px)"
+                contentType="markdown"
+                variant="seamless"
+              />
+            </div>
+            <div className="flex items-center gap-2 px-6 py-3 border-t border-border/50">
+              <UsageRing ratio={instructionRatio} />
+              <p className="text-xs text-muted-foreground">
+                Agent-specific instruction. Your global instruction is prepended automatically.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto thin-scrollbar px-5 py-6">
+            {isFormTab ? (
+              <form
+                onSubmit={handleSubmit}
+                className="mx-auto max-w-md space-y-4"
+              >
+                {activeTab === "general" && (
+                  <>
+                    <GeneralFields
+                      name={name}
+                      setName={setName}
+                      description={description}
+                      setDescription={setDescription}
+                      model={model}
+                      setModel={setModel}
+                      runtimeId={runtimeId}
+                      setRuntimeId={setRuntimeId}
+                      runtimes={runtimes}
+                      providerModels={providerModels}
+                    />
+                    <PinToggle agentId={agent.id} />
+                  </>
+                )}
 
-              {activeTab === "email" && (
-                <>
-                  <div className="rounded-lg border border-border/50 bg-muted/30 px-4 py-3">
-                    <div className="mb-2.5 flex items-center gap-1.5">
-                      <LockIcon className="size-3 text-muted-foreground/60" />
-                      <span className="text-xs font-medium text-muted-foreground/60">
-                        Set at creation
-                      </span>
+                {activeTab === "email" && (
+                  <>
+                    <div className="rounded-lg border border-border/50 bg-muted/30 px-4 py-3">
+                      <div className="mb-2.5 flex items-center gap-1.5">
+                        <LockIcon className="size-3 text-muted-foreground/60" />
+                        <span className="text-xs font-medium text-muted-foreground/60">
+                          Set at creation
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-muted-foreground">
+                          Email
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {agent.email_handle
+                            ? `${agent.email_handle}@alook.ai`
+                            : "Not configured"}
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">
-                        Email
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {agent.email_handle
-                          ? `${agent.email_handle}@alook.ai`
-                          : "Not configured"}
-                      </span>
-                    </div>
-                  </div>
 
-                  <CustomEmailForm
-                    agentId={agent.id}
-                    workspaceId={agent.workspace_id}
-                  />
-                </>
-              )}
+                    <CustomEmailForm
+                      agentId={agent.id}
+                      workspaceId={agent.workspace_id}
+                    />
 
-              <div className="flex items-center gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={onCancel}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" size="sm" disabled={saving || !name}>
-                  {saving ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </form>
-          ) : activeTab === "senders" ? (
-            <AllowedSendersTab agentId={agent.id} />
-          ) : (
-            <AgentAccessTab agentId={agent.id} ownerId={agent.owner_id} />
-          )}
-        </div>
+                    {agent.email_handle && (
+                      <div className="border-t border-border/50 pt-4 mt-4">
+                        <AllowedSendersTab agentId={agent.id} />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div className="flex items-center gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={onCancel}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" size="sm" disabled={saving || !name}>
+                    {saving ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <AgentAccessTab agentId={agent.id} ownerId={agent.owner_id} />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

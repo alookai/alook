@@ -59,8 +59,16 @@ export interface Conversation {
   agent_id: string;
   title: string;
   type: string;
+  channel: string;
   created_at: string;
   message_count?: number;
+}
+
+export interface Channel {
+  id: string;
+  workspace_id: string;
+  name: string;
+  created_at: string;
 }
 
 export interface CalendarEvent {

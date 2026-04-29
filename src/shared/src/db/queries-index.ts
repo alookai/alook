@@ -20,3 +20,4 @@ export * as agentAccess from "./queries/agent-access";
 export * as agentPin from "./queries/agent-pin";
 export * as overview from "./queries/overview";
 export * as meetingSession from "./queries/meeting-session";
+export * as channel from "./queries/channel";

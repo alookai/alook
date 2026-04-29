@@ -12,6 +12,7 @@ export async function createConversation(
     userId: string;
     title: string;
     type?: TaskType;
+    channel?: string;
   }
 ) {
   const rows = await db
@@ -22,6 +23,7 @@ export async function createConversation(
       userId: data.userId,
       title: data.title,
       type: data.type ?? TASK_TYPES.USER_DM_MESSAGE,
+      channel: data.channel ?? "default",
     })
     .returning();
   return rows[0]!;

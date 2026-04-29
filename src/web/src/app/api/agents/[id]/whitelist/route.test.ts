@@ -29,8 +29,13 @@ vi.mock("@alook/shared", () => ({
   },
   AddWhitelistRequestSchema: {
     parse(data: unknown) {
-      const { z } = require("zod");
-      return z.object({ email: z.string().email() }).parse(data);
+      const d = data as Record<string, unknown>;
+      if (!d || typeof d !== "object" || typeof d.email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) {
+        const err = new Error("validation");
+        (err as any).issues = [{ path: ["email"], message: "Invalid email" }];
+        throw err;
+      }
+      return { email: String(d.email) };
     },
   },
 }));

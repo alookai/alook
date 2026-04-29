@@ -178,7 +178,7 @@ export async function isMeetingActive(page: BrowserPage): Promise<boolean> {
     return await page.evaluate(() => {
       const leaveBtn = document.querySelector('button[aria-label="Leave call" i], button[aria-label*="hang up" i]')
       if (!leaveBtn) return false
-      if (window.__alookAlone) return false
+      if ((window as any).__alookAlone) return false
       return true
     })
   } catch {
