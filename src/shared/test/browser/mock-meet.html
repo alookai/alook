@@ -20,15 +20,14 @@
   <!-- Leave call button (hidden until joined) -->
   <button aria-label="Leave call" id="leave-btn" style="display:none;">Leave</button>
 
-  <!-- Caption container (populated after captions enabled) -->
-  <div id="caption-area" style="display:none;"></div>
+  <!-- Caption panel (populated after captions enabled) -->
+  <div id="caption-area" style="display:none;">
+    <button aria-label="Turn off captions" id="cc-close-btn" style="display:none;">CC Off</button>
+    <div id="caption-entries"></div>
+  </div>
 
   <script>
-    let joined = false;
-    let captionsOn = false;
-
     document.getElementById('join-btn').addEventListener('click', () => {
-      joined = true;
       document.getElementById('join-btn').style.display = 'none';
       document.getElementById('name-input').style.display = 'none';
       document.getElementById('leave-btn').style.display = '';
@@ -46,7 +45,8 @@
     });
 
     document.getElementById('cc-btn').addEventListener('click', () => {
-      captionsOn = true;
+      document.getElementById('cc-btn').style.display = 'none';
+      document.getElementById('cc-close-btn').style.display = '';
       document.getElementById('caption-area').style.display = '';
       addCaption('Alice', 'Hello everyone');
       setTimeout(() => addCaption('Bob', 'Hi Alice, how are you?'), 100);
@@ -54,29 +54,31 @@
     });
 
     document.getElementById('leave-btn').addEventListener('click', () => {
-      joined = false;
       document.getElementById('leave-btn').style.display = 'none';
       document.getElementById('cc-btn').style.display = 'none';
+      document.getElementById('cc-close-btn').style.display = 'none';
       document.getElementById('caption-area').style.display = 'none';
       document.body.innerHTML = '<p>You left the meeting</p>';
     });
 
     function addCaption(speaker, text) {
-      const area = document.getElementById('caption-area');
-      const container = document.createElement('div');
-      container.className = 'a4cQT';
+      const area = document.getElementById('caption-entries');
+      const entry = document.createElement('div');
 
-      const nameEl = document.createElement('span');
-      nameEl.className = 'zs7s8d';
-      nameEl.textContent = speaker;
+      const img = document.createElement('img');
+      img.src = 'https://lh3.googleusercontent.com/a/default';
+      img.alt = speaker;
+      entry.appendChild(img);
 
-      const textEl = document.createElement('span');
-      textEl.className = 'iTTPOb';
-      textEl.textContent = text;
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = speaker;
+      entry.appendChild(nameSpan);
 
-      container.appendChild(nameEl);
-      container.appendChild(textEl);
-      area.appendChild(container);
+      const textSpan = document.createElement('span');
+      textSpan.textContent = text;
+      entry.appendChild(textSpan);
+
+      area.appendChild(entry);
     }
   </script>
 </body>

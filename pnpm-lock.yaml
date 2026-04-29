@@ -21,34 +21,6 @@ importers:
         specifier: ^4.85.0
         version: 4.85.0(@cloudflare/workers-types@4.20260426.1)
 
-  src/browser-worker:
-    dependencies:
-      '@alook/shared':
-        specifier: workspace:*
-        version: link:../shared
-      '@cloudflare/playwright':
-        specifier: ^1.3.0
-        version: 1.3.0
-      nanoid:
-        specifier: ^5.1.9
-        version: 5.1.9
-    devDependencies:
-      '@cloudflare/workers-types':
-        specifier: ^4.20260426.1
-        version: 4.20260426.1
-      '@types/node':
-        specifier: ^25.6.0
-        version: 25.6.0
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-      vitest:
-        specifier: ^4.1.5
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.0)(msw@2.13.6(@types/node@25.6.0)(typescript@6.0.3))(vite@8.0.8(@types/node@25.6.0)(esbuild@0.27.3)(jiti@2.6.1)(terser@5.16.9)(yaml@2.8.3))
-      wrangler:
-        specifier: ^4.85.0
-        version: 4.85.0(@cloudflare/workers-types@4.20260426.1)
-
   src/cli:
     dependencies:
       citty:
@@ -830,9 +802,6 @@ packages:
   '@cloudflare/kv-asset-handler@0.4.2':
     resolution: {integrity: sha512-SIOD2DxrRRwQ+jgzlXCqoEFiKOFqaPjhnNTGKXSRLvp1HiOvapLaFG2kEr9dYQTYe8rKrd9uvDUzmAITeNyaHQ==}
     engines: {node: '>=18.0.0'}
-
-  '@cloudflare/playwright@1.3.0':
-    resolution: {integrity: sha512-WOlpXzfJ7noXmW8qE/qlU7MbVHyt9IzxxwPcTGeh2+YQS1gqNIe3fl99AZvBsheH0o7oCePYtL9wRV1KPCYghQ==}
 
   '@cloudflare/unenv-preset@2.16.1':
     resolution: {integrity: sha512-ECxObrMfyTl5bhQf/lZCXwo5G6xX9IAUo+nDMKK4SZ8m4Jvvxp52vilxyySSWh2YTZz8+HQ07qGH/2rEom1vDw==}
@@ -7909,8 +7878,6 @@ snapshots:
   '@chevrotain/utils@12.0.0': {}
 
   '@cloudflare/kv-asset-handler@0.4.2': {}
-
-  '@cloudflare/playwright@1.3.0': {}
 
   '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260424.1)':
     dependencies:

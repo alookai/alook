@@ -9,6 +9,7 @@ import {
   enableCaptions,
   isMeetingActive,
   leaveMeeting,
+  buildCaptionObserverScript,
   buildCaptionScrapeScript,
   parseCaptionElements,
   deduplicateCaptions,
@@ -103,9 +104,10 @@ describe("meet-navigator (browser integration)", () => {
     const bp = page as unknown as BrowserPage
 
     await joinMeeting(bp, serverUrl, "Test Bot")
+    await page.evaluate(buildCaptionObserverScript())
     await enableCaptions(bp)
 
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
 
     const script = buildCaptionScrapeScript()
     const rawElements = await page.evaluate(script) as { speakerHtml: string; textHtml: string }[]
@@ -126,8 +128,9 @@ describe("meet-navigator (browser integration)", () => {
     const bp = page as unknown as BrowserPage
 
     await joinMeeting(bp, serverUrl, "Test Bot")
+    await page.evaluate(buildCaptionObserverScript())
     await enableCaptions(bp)
-    await page.waitForTimeout(300)
+    await page.waitForTimeout(500)
 
     const script = buildCaptionScrapeScript()
     const raw = await page.evaluate(script) as { speakerHtml: string; textHtml: string }[]
