@@ -816,8 +816,6 @@ export const createMeeting = (agentId: string, workspaceId: string, data: {
   meetingUrl: string;
   title?: string;
   participants?: string[];
-  scheduledAt?: string;
-  immediate?: boolean;
 }) =>
   apiFetch<MeetingSession>(`/api/agents/${agentId}/meetings${wsQuery(workspaceId)}`, {
     method: "POST",

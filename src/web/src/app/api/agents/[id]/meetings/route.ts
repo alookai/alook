@@ -47,7 +47,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     title?: string
     participants?: string[]
     scheduledAt?: string
-    immediate?: boolean
   }
   try {
     body = await req.json() as typeof body
@@ -58,8 +57,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!body.meetingUrl) return writeError("meetingUrl is required", 400)
   if (!MEET_URL_RE.test(body.meetingUrl)) return writeError("invalid Google Meet URL format", 400)
 
-  const shouldJoinNow = body.immediate === true || !body.scheduledAt
-
   const meeting = await queries.meetingSession.createMeetingSession(db, {
     agentId,
     workspaceId: ws.workspaceId,
@@ -68,7 +65,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     status: MeetingStatus.SCHEDULED,
     isWhitelisted: true,
     participants: body.participants ?? [],
-    scheduledAt: shouldJoinNow ? new Date().toISOString() : body.scheduledAt!,
+    scheduledAt: body.scheduledAt ?? new Date().toISOString(),
   })
 
   const created = await queries.meetingSession.getMeetingSession(db, meeting.id, ws.workspaceId)

@@ -56,7 +56,7 @@ export default function AgentMeetingsPage() {
   const [meetUrl, setMeetUrl] = useState("");
   const [meetTitle, setMeetTitle] = useState("");
   const [meetParticipants, setMeetParticipants] = useState("");
-  const [meetImmediate, setMeetImmediate] = useState(true);
+
 
   const loadMeetings = useCallback(async () => {
     try {
@@ -93,7 +93,6 @@ export default function AgentMeetingsPage() {
         meetingUrl: meetUrl,
         title: meetTitle || undefined,
         participants: participants.length > 0 ? participants : undefined,
-        immediate: meetImmediate,
       });
       toast.success("Meeting created");
       setCreateOpen(false);
@@ -285,15 +284,6 @@ export default function AgentMeetingsPage() {
                 className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring resize-none"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={meetImmediate}
-                onChange={(e) => setMeetImmediate(e.target.checked)}
-                className="rounded"
-              />
-              Join immediately
-            </label>
           </SheetBody>
           <SheetFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
