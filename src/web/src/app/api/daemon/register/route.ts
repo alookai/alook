@@ -17,6 +17,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const { workspace_id: workspaceId, daemon_id: daemonId, device_name: deviceName, cli_version: cliVersion, runtimes } = body;
 
+  // When authenticated with a machine token, enforce workspace match
+  if (ctx.workspaceId && ctx.workspaceId !== workspaceId) {
+    return writeJSON({ error: "workspace_id does not match token" }, 403);
+  }
+
   const membership = await queries.member.getMemberByUserAndWorkspace(
     db,
     ctx.userId,

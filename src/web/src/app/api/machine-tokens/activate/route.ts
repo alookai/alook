@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
 
   return writeJSON({
     daemon_id: daemonId,
+    workspace_id: mt.workspaceId,
     runtimes: results.map(runtimeToResponse),
   });
 }
