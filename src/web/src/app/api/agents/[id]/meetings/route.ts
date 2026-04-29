@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, DEV_BROWSER_WORKER_URL, MeetingStatus } from "@alook/shared"
+import { queries, MeetingStatus } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth"
 import { withWorkspaceMember } from "@/lib/middleware/workspace"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -65,58 +65,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     workspaceId: ws.workspaceId,
     title: body.title ?? "",
     meetingUrl: body.meetingUrl,
-    status: shouldJoinNow ? MeetingStatus.JOINING : MeetingStatus.SCHEDULED,
+    status: MeetingStatus.SCHEDULED,
     isWhitelisted: true,
     participants: body.participants ?? [],
-    scheduledAt: body.scheduledAt ?? null,
+    scheduledAt: shouldJoinNow ? new Date().toISOString() : body.scheduledAt!,
   })
 
-  if (shouldJoinNow) {
-    try {
-      const payload = JSON.stringify({
-        meetingUrl: body.meetingUrl,
-        participants: body.participants ?? [],
-        meetingId: meeting.id,
-        workspaceId: ws.workspaceId,
-      })
-      let workerRes: Response
-      try {
-        workerRes = await cfEnv.BROWSER_WORKER.fetch("http://internal/meeting/join", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: payload,
-        })
-      } catch {
-        workerRes = await fetch(`${DEV_BROWSER_WORKER_URL}/meeting/join`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: payload,
-        })
-      }
-
-      if (workerRes.ok) {
-        const result = await workerRes.json() as { sessionId?: string }
-        await queries.meetingSession.updateMeetingSession(db, meeting.id, ws.workspaceId, {
-          status: MeetingStatus.RECORDING,
-          workerSessionId: result.sessionId,
-          startedAt: new Date().toISOString(),
-        })
-      } else {
-        const errBody = await workerRes.text()
-        await queries.meetingSession.updateMeetingSession(db, meeting.id, ws.workspaceId, {
-          status: MeetingStatus.FAILED,
-          error: errBody,
-        })
-      }
-    } catch (e) {
-      await queries.meetingSession.updateMeetingSession(db, meeting.id, ws.workspaceId, {
-        status: MeetingStatus.FAILED,
-        error: e instanceof Error ? e.message : String(e),
-      })
-    }
-  }
-
-  const updated = await queries.meetingSession.getMeetingSession(db, meeting.id, ws.workspaceId)
-  if (!updated) return writeError("meeting not found", 404)
-  return writeJSON(meetingToResponse(updated), 201)
+  const created = await queries.meetingSession.getMeetingSession(db, meeting.id, ws.workspaceId)
+  if (!created) return writeError("meeting not found", 404)
+  return writeJSON(meetingToResponse(created), 201)
 })

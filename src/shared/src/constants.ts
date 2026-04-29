@@ -80,4 +80,3 @@ export const TERMINAL_MEETING_STATUSES: readonly MeetingStatusType[] = [
 export const DEV_WEB_URL = process.env.ALOOK_SERVER_URL || "http://localhost:3000";
 export const DEV_WS_DO_URL = process.env.DEV_WS_DO_URL || "http://localhost:8789";
 export const DEV_EMAIL_WORKER_URL = process.env.DEV_EMAIL_WORKER_URL || "http://localhost:8787";
-export const DEV_BROWSER_WORKER_URL = process.env.DEV_BROWSER_WORKER_URL || "http://localhost:8790";

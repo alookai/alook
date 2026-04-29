@@ -15,7 +15,6 @@
     "dev:cli": "ALOOK_SERVER_URL=http://localhost:3000 ALOOK_PROJECT_ROOT=$PWD ALOOK_HEALTH_PORT=19515 pnpm --filter @alook/cli dev",
     "dev:email": "pnpm --filter @alook/email-worker dev",
     "dev:ws": "pnpm --filter @alook/ws-do dev",
-    "dev:browser": "pnpm --filter @alook/browser-worker dev",
     "dev:send": "node -e \"const c=require('crypto');const a=process.argv.slice(1);const[f,t,s='Test',b='Hello from dev']=a;if(!f||!t){console.error('Usage: pnpm dev:send <from> <to> [subject] [body]');process.exit(1)}const raw=['From: '+f,'To: '+t,'Subject: '+s,'Message-ID: <'+c.randomUUID()+'@dev.local>','Date: '+new Date().toUTCString(),'MIME-Version: 1.0','Content-Type: text/plain; charset=utf-8','',b].join('\\r\\n');fetch('http://localhost:8787/cdn-cgi/handler/email?from='+encodeURIComponent(f)+'&to='+encodeURIComponent(t),{method:'POST',headers:{'Content-Type':'application/json'},body:raw}).then(r=>{if(r.ok)console.log('Email delivered to worker');else return r.text().then(t=>{throw new Error(t)})}).catch(e=>console.error('Email worker not running?',e.message))\"",
     "test:shared": "pnpm --filter @alook/shared test",
     "test:cli": "pnpm --filter @alook/cli test",
@@ -27,7 +26,6 @@
     "deploy:web": "cd src/web && npx opennextjs-cloudflare build && npx opennextjs-cloudflare deploy",
     "deploy:ws-do": "cd src/ws-do && npx wrangler deploy",
     "deploy:email": "cd src/email-worker && npx wrangler deploy",
-    "deploy:browser": "cd src/browser-worker && npx wrangler deploy",
     "db:migrate:remote": "pnpm --filter @alook/web exec wrangler d1 migrations apply alook-app --remote",
     "bump": "node scripts/bump-version.mjs"
   },

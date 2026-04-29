@@ -4,7 +4,6 @@ declare namespace Cloudflare {
     EMAIL_BUCKET: R2Bucket
     WS_DO_WORKER: Fetcher
     EMAIL_WORKER: Fetcher
-    BROWSER_WORKER: Fetcher
     WORKER_SELF_REFERENCE: Fetcher
     NEXT_INC_CACHE_R2_BUCKET: R2Bucket
     NEXT_TAG_CACHE_D1: D1Database
