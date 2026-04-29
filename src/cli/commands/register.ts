@@ -21,6 +21,7 @@ interface AgentListItem {
 
 interface ActivateResponse {
   daemon_id: string;
+  workspace_id: string;
   runtimes: { id: string; provider: string }[];
 }
 
@@ -108,8 +109,6 @@ export function registerCommand(): Command {
         process.exit(1);
       }
 
-      const ws = workspaces[0];
-
       // Detect local runtimes
       console.log("Scanning for AI runtimes...");
       const runtimes = detectRuntimes();
@@ -145,6 +144,9 @@ export function registerCommand(): Command {
         );
         process.exit(1);
       }
+
+      // Use the workspace_id from activate response to find the correct workspace
+      const ws = workspaces.find((w) => w.id === activateResp.workspace_id) || workspaces[0];
 
       // Fetch agents for this workspace
       const wsClient = new APIClient(serverUrl, token, ws.id);

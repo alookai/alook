@@ -136,6 +136,32 @@ describe("POST /api/daemon/register", () => {
     expect(mockBroadcastToUser).not.toHaveBeenCalled();
   });
 
+  it("returns 403 when token workspace_id does not match body workspace_id", async () => {
+    const POST = await loadRoute({ ...authCtx, workspaceId: "w_other" });
+
+    const res = await POST(makeReq(validBody));
+    const body = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(body.error).toBe("workspace_id does not match token");
+    expect(mockGetMember).not.toHaveBeenCalled();
+    expect(mockUpsertMachine).not.toHaveBeenCalled();
+  });
+
+  it("allows register when token workspace_id matches body workspace_id", async () => {
+    const POST = await loadRoute({ ...authCtx, workspaceId: "w1" });
+
+    mockGetMember.mockResolvedValue({ userId: "u1", workspaceId: "w1" });
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1", name: "claude" });
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    const res = await POST(makeReq(validBody));
+
+    expect(res.status).toBe(200);
+    expect(mockUpsertMachine).toHaveBeenCalledTimes(1);
+  });
+
   it("does not fail the request if broadcast throws (fire-and-forget)", async () => {
     const POST = await loadRoute(authCtx);
 
