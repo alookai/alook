@@ -19,3 +19,4 @@ export * as workspaceInvite from "./queries/workspace-invite";
 export * as agentAccess from "./queries/agent-access";
 export * as agentPin from "./queries/agent-pin";
 export * as overview from "./queries/overview";
+export * as channel from "./queries/channel";

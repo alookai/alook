@@ -17,6 +17,7 @@ export type {
   LoginResponse,
   CreateAgentRequest,
   CalendarEvent,
+  Channel,
   WsMessage,
 } from "./types";
 
