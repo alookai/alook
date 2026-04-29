@@ -56,10 +56,24 @@ export default function AgentFilesPage() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"raw" | "preview">("preview");
 
-  // Pending request tracking: map requestId -> { type, path }
-  const pendingRef = useRef<Map<string, { type: "tree" | "read"; path: string }>>(new Map());
+  // Pending request tracking: map requestId -> { type, path, timer }
+  const pendingRef = useRef<Map<string, { type: "tree" | "read"; path: string; timer: ReturnType<typeof setTimeout> }>>(new Map());
 
   const rootLabel = `~/.alook/workspaces/${workspaceId}/${agentId}/workdir`;
+
+  const REQUEST_TIMEOUT_MS = 15_000;
+
+  const clearPending = useCallback((requestId: string) => {
+    const entry = pendingRef.current.get(requestId);
+    if (entry) {
+      clearTimeout(entry.timer);
+      pendingRef.current.delete(requestId);
+    }
+  }, []);
+
+  const setNodeLoading = useCallback((path: string, loading: boolean) => {
+    setRootNodes((prev) => setLoadingRecursive(prev, path, loading));
+  }, []);
 
   // --- Request helpers ---
 
@@ -67,13 +81,24 @@ export default function AgentFilesPage() {
     async (path: string) => {
       try {
         const { request_id } = await requestWorkspaceBrowse(agentId, workspaceId, "tree", path);
-        pendingRef.current.set(request_id, { type: "tree", path });
+        const timer = setTimeout(() => {
+          if (pendingRef.current.has(request_id)) {
+            pendingRef.current.delete(request_id);
+            if (path === ".") {
+              setRootError("Request timed out — daemon may be offline");
+              setRootLoading(false);
+            } else {
+              setNodeLoading(path, false);
+            }
+          }
+        }, REQUEST_TIMEOUT_MS);
+        pendingRef.current.set(request_id, { type: "tree", path, timer });
         return request_id;
       } catch {
         return null;
       }
     },
-    [agentId, workspaceId],
+    [agentId, workspaceId, setNodeLoading],
   );
 
   const requestFile = useCallback(
@@ -86,7 +111,14 @@ export default function AgentFilesPage() {
       setViewMode("preview");
       try {
         const { request_id } = await requestWorkspaceBrowse(agentId, workspaceId, "read", path);
-        pendingRef.current.set(request_id, { type: "read", path });
+        const timer = setTimeout(() => {
+          if (pendingRef.current.has(request_id)) {
+            pendingRef.current.delete(request_id);
+            setFileError("Request timed out — daemon may be offline");
+            setFileLoading(false);
+          }
+        }, REQUEST_TIMEOUT_MS);
+        pendingRef.current.set(request_id, { type: "read", path, timer });
       } catch {
         setFileError("Failed to request file");
         setFileLoading(false);
@@ -95,12 +127,16 @@ export default function AgentFilesPage() {
     [agentId, workspaceId],
   );
 
-  // --- Load root on mount ---
+  // --- Load root on mount + cleanup timers ---
 
   useEffect(() => {
     setRootLoading(true);
     setRootError(null);
     requestTree(".");
+    return () => {
+      for (const entry of pendingRef.current.values()) clearTimeout(entry.timer);
+      pendingRef.current.clear();
+    };
   }, [requestTree]);
 
   // --- Update tree node helper ---
@@ -125,10 +161,6 @@ export default function AgentFilesPage() {
     [],
   );
 
-  const setNodeLoading = useCallback((path: string, loading: boolean) => {
-    setRootNodes((prev) => setLoadingRecursive(prev, path, loading));
-  }, []);
-
   // --- WS handler ---
 
   useEffect(() => {
@@ -137,7 +169,7 @@ export default function AgentFilesPage() {
 
       const pending = pendingRef.current.get(msg.requestId);
       if (!pending) return;
-      pendingRef.current.delete(msg.requestId);
+      clearPending(msg.requestId);
 
       if (pending.type === "tree") {
         if (msg.result.error) {
@@ -162,7 +194,7 @@ export default function AgentFilesPage() {
         setFileLoading(false);
       }
     });
-  }, [subscribeWs, agentId, updateNodeChildren, setNodeLoading]);
+  }, [subscribeWs, agentId, updateNodeChildren, setNodeLoading, clearPending]);
 
   // --- Toggle directory ---
 

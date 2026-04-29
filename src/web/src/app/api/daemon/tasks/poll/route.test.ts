@@ -12,6 +12,9 @@ const mockGetUser = vi.fn();
 const mockClaimTasksForRuntimes = vi.fn();
 const mockSweepStaleState = vi.fn();
 const mockBroadcastToUser = vi.fn();
+const mockGetPendingFileRequests = vi.fn();
+const mockMarkFileRequestsDispatched = vi.fn();
+const mockExpireStaleFileRequests = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -47,6 +50,11 @@ vi.mock("@alook/shared", async () => {
       },
       emailAccount: {
         getEmailAccountsByAgent: vi.fn().mockResolvedValue([]),
+      },
+      workspaceFileRequest: {
+        getPendingByWorkspace: (...args: unknown[]) => mockGetPendingFileRequests(...args),
+        markDispatched: (...args: unknown[]) => mockMarkFileRequestsDispatched(...args),
+        expireStale: (...args: unknown[]) => mockExpireStaleFileRequests(...args),
       },
     },
   };
@@ -111,6 +119,8 @@ describe("POST /api/daemon/tasks/poll", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetMachineByDaemon.mockResolvedValue(null);
+    mockGetPendingFileRequests.mockResolvedValue([]);
+    mockExpireStaleFileRequests.mockResolvedValue(undefined);
   });
 
   it("returns evicted: true and skips heartbeat when daemon has no runtimes", async () => {
@@ -600,5 +610,74 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(body.tasks[0].sender).toEqual({ name: "Gus", email: "gus@ex.com", is_owner: false });
     expect(body.tasks[1].sender).toEqual({ name: "Gus", email: "gus@ex.com", is_owner: false });
     expect(mockGetUser).toHaveBeenCalledTimes(1);
+  });
+
+  // --- Workspace file requests ---
+
+  it("includes pending file_requests in response and marks them dispatched", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetPendingFileRequests.mockResolvedValue([
+      { id: "wfr_1", agentId: "a1", requestType: "tree", path: "." },
+      { id: "wfr_2", agentId: "a1", requestType: "read", path: "memory.md" },
+    ]);
+    mockMarkFileRequestsDispatched.mockResolvedValue(undefined);
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.file_requests).toHaveLength(2);
+    expect(body.file_requests[0]).toEqual({ id: "wfr_1", agent_id: "a1", request_type: "tree", path: "." });
+    expect(body.file_requests[1]).toEqual({ id: "wfr_2", agent_id: "a1", request_type: "read", path: "memory.md" });
+    expect(mockMarkFileRequestsDispatched).toHaveBeenCalledWith({}, ["wfr_1", "wfr_2"]);
+  });
+
+  it("omits file_requests field when no pending requests", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetPendingFileRequests.mockResolvedValue([]);
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.file_requests).toBeUndefined();
+    expect(mockMarkFileRequestsDispatched).not.toHaveBeenCalled();
+  });
+
+  it("calls expireStale to clean up old file requests", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetPendingFileRequests.mockResolvedValue([]);
+
+    await POST(postReq({ daemon_id: "d1" }));
+
+    expect(mockExpireStaleFileRequests).toHaveBeenCalledWith({}, "w1");
+  });
+
+  it("gracefully handles file request errors without failing the poll", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockExpireStaleFileRequests.mockRejectedValue(new Error("DB error"));
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.tasks).toEqual([]);
+    expect(body.file_requests).toBeUndefined();
   });
 });
