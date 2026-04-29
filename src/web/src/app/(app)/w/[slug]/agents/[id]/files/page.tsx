@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizablePanels } from "@/components/ui/resizable-panels";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Streamdown } from "streamdown";
 import type { WsMessage, WorkspaceFileEntry } from "@alook/shared";
 import {
   ArrowLeft,
@@ -19,7 +20,17 @@ import {
   FileCode,
   Folder,
   FolderOpen,
+  Loader2,
 } from "lucide-react";
+
+// --- Tree node state ---
+
+interface TreeNode {
+  entry: WorkspaceFileEntry;
+  children: TreeNode[] | null; // null = not loaded
+  loading: boolean;
+  expanded: boolean;
+}
 
 export default function AgentFilesPage() {
   const params = useParams();
@@ -32,11 +43,12 @@ export default function AgentFilesPage() {
   const runtime = agent ? runtimes.find((r) => r.id === agent.runtime_id) : null;
   const isOnline = runtime?.status === "online";
 
-  const [currentPath, setCurrentPath] = useState(".");
-  const [entries, setEntries] = useState<WorkspaceFileEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [treeError, setTreeError] = useState<string | null>(null);
+  // Tree state: top-level entries + nested children per directory
+  const [rootNodes, setRootNodes] = useState<TreeNode[]>([]);
+  const [rootLoading, setRootLoading] = useState(true);
+  const [rootError, setRootError] = useState<string | null>(null);
 
+  // File viewer state
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [fileBinary, setFileBinary] = useState(false);
@@ -44,23 +56,21 @@ export default function AgentFilesPage() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"raw" | "preview">("preview");
 
-  const pendingTreeReqRef = useRef<string | null>(null);
-  const pendingFileReqRef = useRef<string | null>(null);
+  // Pending request tracking: map requestId -> { type, path }
+  const pendingRef = useRef<Map<string, { type: "tree" | "read"; path: string }>>(new Map());
 
   const rootLabel = `~/.alook/workspaces/${workspaceId}/${agentId}/workdir`;
 
-  // --- Requests ---
+  // --- Request helpers ---
 
   const requestTree = useCallback(
     async (path: string) => {
-      setLoading(true);
-      setTreeError(null);
       try {
         const { request_id } = await requestWorkspaceBrowse(agentId, workspaceId, "tree", path);
-        pendingTreeReqRef.current = request_id;
+        pendingRef.current.set(request_id, { type: "tree", path });
+        return request_id;
       } catch {
-        setTreeError("Failed to request file list");
-        setLoading(false);
+        return null;
       }
     },
     [agentId, workspaceId],
@@ -76,7 +86,7 @@ export default function AgentFilesPage() {
       setViewMode("preview");
       try {
         const { request_id } = await requestWorkspaceBrowse(agentId, workspaceId, "read", path);
-        pendingFileReqRef.current = request_id;
+        pendingRef.current.set(request_id, { type: "read", path });
       } catch {
         setFileError("Failed to request file");
         setFileLoading(false);
@@ -85,30 +95,64 @@ export default function AgentFilesPage() {
     [agentId, workspaceId],
   );
 
-  // --- Effects ---
+  // --- Load root on mount ---
 
   useEffect(() => {
-    requestTree(currentPath);
-  }, [currentPath, requestTree]);
+    setRootLoading(true);
+    setRootError(null);
+    requestTree(".");
+  }, [requestTree]);
+
+  // --- Update tree node helper ---
+
+  const updateNodeChildren = useCallback(
+    (path: string, children: WorkspaceFileEntry[]) => {
+      const childNodes: TreeNode[] = children.map((e) => ({
+        entry: e,
+        children: null,
+        loading: false,
+        expanded: false,
+      }));
+
+      if (path === ".") {
+        setRootNodes(childNodes);
+        setRootLoading(false);
+        return;
+      }
+
+      setRootNodes((prev) => updateNodesRecursive(prev, path, childNodes));
+    },
+    [],
+  );
+
+  const setNodeLoading = useCallback((path: string, loading: boolean) => {
+    setRootNodes((prev) => setLoadingRecursive(prev, path, loading));
+  }, []);
+
+  // --- WS handler ---
 
   useEffect(() => {
     return subscribeWs((msg: WsMessage) => {
       if (msg.type !== "workspace.files" || msg.agentId !== agentId) return;
 
-      if (msg.requestType === "tree" && msg.requestId === pendingTreeReqRef.current) {
-        pendingTreeReqRef.current = null;
+      const pending = pendingRef.current.get(msg.requestId);
+      if (!pending) return;
+      pendingRef.current.delete(msg.requestId);
+
+      if (pending.type === "tree") {
         if (msg.result.error) {
-          setTreeError(msg.result.error);
-          setEntries([]);
+          if (pending.path === ".") {
+            setRootError(msg.result.error);
+            setRootLoading(false);
+          } else {
+            setNodeLoading(pending.path, false);
+          }
         } else {
-          setEntries(msg.result.entries ?? []);
-          setTreeError(null);
+          updateNodeChildren(pending.path, msg.result.entries ?? []);
         }
-        setLoading(false);
       }
 
-      if (msg.requestType === "read" && msg.requestId === pendingFileReqRef.current) {
-        pendingFileReqRef.current = null;
+      if (pending.type === "read") {
         if (msg.result.error) {
           setFileError(msg.result.error);
         } else {
@@ -118,39 +162,32 @@ export default function AgentFilesPage() {
         setFileLoading(false);
       }
     });
-  }, [subscribeWs, agentId]);
+  }, [subscribeWs, agentId, updateNodeChildren, setNodeLoading]);
 
-  // --- Navigation ---
+  // --- Toggle directory ---
 
-  const pathParts = currentPath === "." ? [] : currentPath.split("/");
-
-  const navigateTo = (path: string) => {
-    setCurrentPath(path);
-    if (isMobile) {
-      setSelectedFile(null);
-      setFileContent(null);
-    }
-  };
-
-  const goUp = () => {
-    if (pathParts.length === 0) return;
-    navigateTo(pathParts.slice(0, -1).join("/") || ".");
-  };
-
-  const handleEntryClick = (entry: WorkspaceFileEntry) => {
-    if (entry.isDirectory) {
-      navigateTo(entry.path);
-    } else {
-      requestFile(entry.path);
-    }
-  };
+  const toggleDir = useCallback(
+    (path: string, node: TreeNode) => {
+      if (node.expanded) {
+        // Collapse
+        setRootNodes((prev) => toggleExpandRecursive(prev, path, false));
+        return;
+      }
+      // Expand: load if needed
+      if (node.children === null) {
+        setNodeLoading(path, true);
+        requestTree(path);
+      }
+      setRootNodes((prev) => toggleExpandRecursive(prev, path, true));
+    },
+    [requestTree, setNodeLoading],
+  );
 
   const handleCopyPath = () => {
-    const full = currentPath === "." ? rootLabel : `${rootLabel}/${currentPath}`;
-    navigator.clipboard.writeText(full).catch(() => {});
+    navigator.clipboard.writeText(rootLabel).catch(() => {});
   };
 
-  // --- Offline state ---
+  // --- Offline ---
 
   if (!isOnline) {
     return (
@@ -164,80 +201,44 @@ export default function AgentFilesPage() {
     );
   }
 
-  // --- Shared UI pieces ---
+  // --- Shared UI ---
 
-  const breadcrumb = (
-    <div className="flex items-center gap-1 px-4 py-2 border-b border-border/50 text-xs text-muted-foreground shrink-0 min-w-0">
-      <button
-        onClick={() => navigateTo(".")}
-        className="hover:text-foreground transition-colors shrink-0"
-      >
-        workdir
-      </button>
-      {pathParts.map((part, i) => (
-        <span key={i} className="flex items-center gap-1 min-w-0">
-          <ChevronRight className="size-3 opacity-40 shrink-0" />
-          <button
-            onClick={() => navigateTo(pathParts.slice(0, i + 1).join("/"))}
-            className="hover:text-foreground transition-colors truncate"
-          >
-            {part}
-          </button>
-        </span>
-      ))}
+  const pathBar = (
+    <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border/50 text-xs text-muted-foreground shrink-0 min-w-0">
       <button
         onClick={handleCopyPath}
-        className="ml-auto hover:text-foreground transition-colors shrink-0"
-        title="Copy path"
+        className="hover:text-foreground transition-colors shrink-0"
+        title="Copy full path"
       >
         <Copy className="size-3" />
       </button>
+      <span className="truncate opacity-60">{rootLabel}</span>
     </div>
   );
 
-  const fileList = (
+  const treePanel = (
     <ScrollArea className="h-full">
-      {loading ? (
+      {rootLoading ? (
         <div className="p-3 space-y-1">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-7 w-full rounded" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-6 w-full rounded" />
           ))}
         </div>
-      ) : treeError ? (
-        <div className="p-4 text-sm text-destructive">{treeError}</div>
-      ) : entries.length === 0 ? (
+      ) : rootError ? (
+        <div className="p-4 text-sm text-destructive">{rootError}</div>
+      ) : rootNodes.length === 0 ? (
         <div className="p-4 text-sm text-muted-foreground">Empty directory</div>
       ) : (
         <div className="py-0.5">
-          {currentPath !== "." && (
-            <button
-              onClick={goUp}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 transition-colors"
-            >
-              <ArrowLeft className="size-3.5 shrink-0" />
-              <span>..</span>
-            </button>
-          )}
-          {entries.map((entry) => (
-            <button
-              key={entry.path}
-              onClick={() => handleEntryClick(entry)}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors text-left ${
-                selectedFile === entry.path ? "bg-muted text-foreground" : ""
-              }`}
-            >
-              {entry.isDirectory ? (
-                <Folder className="size-3.5 text-blue-500/70 shrink-0" />
-              ) : (
-                <FileIcon name={entry.name} />
-              )}
-              <span className="truncate">{entry.name}</span>
-              {!entry.isDirectory && (
-                <span className="ml-auto text-[10px] text-muted-foreground/60 shrink-0 tabular-nums">
-                  {formatSize(entry.size)}
-                </span>
-              )}
-            </button>
+          {rootNodes.map((node) => (
+            <TreeNodeRow
+              key={node.entry.path}
+              node={node}
+              depth={0}
+              selectedFile={selectedFile}
+              onToggleDir={toggleDir}
+              onSelectFile={requestFile}
+            />
           ))}
         </div>
       )}
@@ -247,9 +248,8 @@ export default function AgentFilesPage() {
   const selectedFileName = selectedFile?.split("/").pop() ?? "";
   const isMarkdown = selectedFileName.endsWith(".md");
 
-  const fileViewer = (
+  const fileViewer = selectedFile ? (
     <div className="flex-1 min-h-0 flex flex-col">
-      {/* Header: filename + view mode toggle */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border/50 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           {isMobile && (
@@ -268,9 +268,7 @@ export default function AgentFilesPage() {
               <button
                 onClick={() => setViewMode("raw")}
                 className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
-                  viewMode === "raw"
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
+                  viewMode === "raw" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 Raw
@@ -278,9 +276,7 @@ export default function AgentFilesPage() {
               <button
                 onClick={() => setViewMode("preview")}
                 className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
-                  viewMode === "preview"
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
+                  viewMode === "preview" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 Preview
@@ -289,7 +285,6 @@ export default function AgentFilesPage() {
           )}
         </div>
       </div>
-      {/* Content */}
       <ScrollArea className="flex-1">
         {fileLoading ? (
           <div className="p-4 space-y-2">
@@ -304,8 +299,8 @@ export default function AgentFilesPage() {
             Binary file — cannot display
           </div>
         ) : isMarkdown && viewMode === "preview" ? (
-          <div className="p-4 prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed whitespace-pre-wrap break-words">
-            {fileContent}
+          <div className="markdown text-sm p-4">
+            <Streamdown>{fileContent ?? ""}</Streamdown>
           </div>
         ) : (
           <pre className="p-4 text-[11px] font-mono whitespace-pre-wrap break-all leading-relaxed text-foreground/80">
@@ -313,6 +308,10 @@ export default function AgentFilesPage() {
           </pre>
         )}
       </ScrollArea>
+    </div>
+  ) : (
+    <div className="flex-1 flex items-center justify-center text-muted-foreground text-xs h-full">
+      Select a file to view
     </div>
   );
 
@@ -324,16 +323,15 @@ export default function AgentFilesPage() {
     }
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {breadcrumb}
-        <div className="flex-1 min-h-0">{fileList}</div>
+        {pathBar}
+        <div className="flex-1 min-h-0">{treePanel}</div>
       </div>
     );
   }
 
-  // Desktop: resizable panels
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      {breadcrumb}
+      {pathBar}
       <ResizablePanels
         storageKey="agent-files-panel-sizes"
         panels={[
@@ -341,17 +339,11 @@ export default function AgentFilesPage() {
             defaultWidth: 280,
             minWidth: 180,
             maxWidth: 480,
-            children: fileList,
+            children: treePanel,
             className: "overflow-hidden",
           },
           {
-            children: selectedFile ? (
-              fileViewer
-            ) : (
-              <div className="flex-1 flex items-center justify-center text-muted-foreground text-xs h-full">
-                Select a file to view
-              </div>
-            ),
+            children: fileViewer,
             className: "overflow-hidden flex flex-col",
           },
         ]}
@@ -360,7 +352,120 @@ export default function AgentFilesPage() {
   );
 }
 
-// --- Helpers ---
+// --- Tree node row ---
+
+function TreeNodeRow({
+  node,
+  depth,
+  selectedFile,
+  onToggleDir,
+  onSelectFile,
+}: {
+  node: TreeNode;
+  depth: number;
+  selectedFile: string | null;
+  onToggleDir: (path: string, node: TreeNode) => void;
+  onSelectFile: (path: string) => void;
+}) {
+  const { entry } = node;
+  const paddingLeft = 12 + depth * 16;
+
+  if (entry.isDirectory) {
+    return (
+      <>
+        <button
+          onClick={() => onToggleDir(entry.path, node)}
+          className="w-full flex items-center gap-1.5 py-1 text-sm hover:bg-muted/50 transition-colors text-left"
+          style={{ paddingLeft }}
+        >
+          <ChevronRight
+            className={`size-3 text-muted-foreground/60 shrink-0 transition-transform duration-150 ${
+              node.expanded ? "rotate-90" : ""
+            }`}
+          />
+          {node.expanded ? (
+            <FolderOpen className="size-3.5 text-blue-500/70 shrink-0" />
+          ) : (
+            <Folder className="size-3.5 text-blue-500/70 shrink-0" />
+          )}
+          <span className="truncate">{entry.name}</span>
+          {node.loading && <Loader2 className="size-3 text-muted-foreground animate-spin shrink-0 ml-auto mr-2" />}
+        </button>
+        {node.expanded && node.children && node.children.map((child) => (
+          <TreeNodeRow
+            key={child.entry.path}
+            node={child}
+            depth={depth + 1}
+            selectedFile={selectedFile}
+            onToggleDir={onToggleDir}
+            onSelectFile={onSelectFile}
+          />
+        ))}
+        {node.expanded && node.children && node.children.length === 0 && (
+          <div className="text-[10px] text-muted-foreground/50 py-0.5" style={{ paddingLeft: paddingLeft + 24 }}>
+            empty
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => onSelectFile(entry.path)}
+      className={`w-full flex items-center gap-1.5 py-1 text-sm hover:bg-muted/50 transition-colors text-left ${
+        selectedFile === entry.path ? "bg-muted text-foreground" : ""
+      }`}
+      style={{ paddingLeft: paddingLeft + 15 }}
+    >
+      <FileIcon name={entry.name} />
+      <span className="truncate">{entry.name}</span>
+      <span className="ml-auto text-[10px] text-muted-foreground/50 shrink-0 tabular-nums mr-2">
+        {formatSize(entry.size)}
+      </span>
+    </button>
+  );
+}
+
+// --- Recursive tree update helpers ---
+
+function updateNodesRecursive(nodes: TreeNode[], targetPath: string, children: TreeNode[]): TreeNode[] {
+  return nodes.map((node) => {
+    if (node.entry.path === targetPath) {
+      return { ...node, children, loading: false, expanded: true };
+    }
+    if (node.children && targetPath.startsWith(node.entry.path + "/")) {
+      return { ...node, children: updateNodesRecursive(node.children, targetPath, children) };
+    }
+    return node;
+  });
+}
+
+function setLoadingRecursive(nodes: TreeNode[], targetPath: string, loading: boolean): TreeNode[] {
+  return nodes.map((node) => {
+    if (node.entry.path === targetPath) {
+      return { ...node, loading };
+    }
+    if (node.children && targetPath.startsWith(node.entry.path + "/")) {
+      return { ...node, children: setLoadingRecursive(node.children, targetPath, loading) };
+    }
+    return node;
+  });
+}
+
+function toggleExpandRecursive(nodes: TreeNode[], targetPath: string, expanded: boolean): TreeNode[] {
+  return nodes.map((node) => {
+    if (node.entry.path === targetPath) {
+      return { ...node, expanded };
+    }
+    if (node.children && targetPath.startsWith(node.entry.path + "/")) {
+      return { ...node, children: toggleExpandRecursive(node.children, targetPath, expanded) };
+    }
+    return node;
+  });
+}
+
+// --- Misc helpers ---
 
 function FileIcon({ name }: { name: string }) {
   if (name.endsWith(".md") || name.endsWith(".txt")) {
