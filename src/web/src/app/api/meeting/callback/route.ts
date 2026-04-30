@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
+import { nanoid } from "nanoid"
 import { queries, MeetingStatus, DEV_WEB_URL } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -70,13 +71,34 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       const messageId = `<meeting-${body.meetingId}@alook.ai>`
       const existing = await queries.email.getEmailByMessageId(db, messageId, body.workspaceId)
       if (!existing) {
+        const fromAddr = "no-reply@alook.ai"
+        const toAddr = `${agent.emailHandle}@alook.ai`
+        const subject = `Meeting transcript: ${meeting.title || "Untitled"}`
+
+        const rawMime = [
+          `From: ${fromAddr}`,
+          `To: ${toAddr}`,
+          `Subject: ${subject}`,
+          `Date: ${new Date().toUTCString()}`,
+          `Message-ID: ${messageId}`,
+          `MIME-Version: 1.0`,
+          `Content-Type: text/plain; charset=utf-8`,
+          "",
+          body.transcript,
+        ].join("\r\n")
+
+        const emailR2Key = `emails/${nanoid()}/raw`
+        await cfEnv.EMAIL_BUCKET.put(emailR2Key, rawMime, {
+          httpMetadata: { contentType: "message/rfc822" },
+        })
+
         const notifyPayload = JSON.stringify({
           agentId: agent.id,
           workspaceId: body.workspaceId,
-          r2Key: transcriptR2Key,
-          from: "no-reply@alook.ai",
-          to: `${agent.emailHandle}@alook.ai`,
-          subject: `Meeting transcript: ${meeting.title || "Untitled"}`,
+          r2Key: emailR2Key,
+          from: fromAddr,
+          to: toAddr,
+          subject,
           isWhitelisted: true,
           forwarded: false,
           messageId,
