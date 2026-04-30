@@ -1,5 +1,5 @@
 import { readdir, stat, readFile } from "fs/promises";
-import { join, resolve, extname, relative } from "path";
+import { join, resolve, extname, relative, sep } from "path";
 import type { WorkspaceFileEntry } from "@alook/shared";
 
 const SKIP_DIRS = new Set([".git", "node_modules", ".next", ".wrangler", "__pycache__", ".venv"]);
@@ -73,6 +73,6 @@ export async function readFileContent(
 
 export function validatePath(agentWorkdir: string, requestedPath: string): string | null {
   const resolved = resolve(agentWorkdir, requestedPath);
-  if (resolved !== agentWorkdir && !resolved.startsWith(agentWorkdir + "/")) return null;
+  if (resolved !== agentWorkdir && !resolved.startsWith(agentWorkdir + sep)) return null;
   return resolved;
 }

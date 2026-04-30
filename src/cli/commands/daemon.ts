@@ -9,6 +9,8 @@ import {
   readDaemonPid,
   removePidFileIfMatches,
 } from "../daemon/pidfile.js";
+import { resolveLoginShellEnv } from "../lib/shell-env.js";
+import { isWindows } from "../lib/platform.js";
 
 const PID_POLL_INTERVAL_MS = 200;
 const PID_POLL_TIMEOUT_MS = 2000;
@@ -55,6 +57,7 @@ async function startInBackground(
   const child = spawn(process.execPath, buildChildArgs(profile, serverUrl), {
     detached: true,
     stdio: ["ignore", logFd, logFd],
+    env: resolveLoginShellEnv(),
   });
   child.unref();
   closeSync(logFd);
@@ -119,12 +122,14 @@ async function stopCommand(profile: string | undefined): Promise<void> {
   }
 
   console.warn(
-    `Daemon did not exit within ${shutdownMs}ms — sending SIGKILL.`,
+    `Daemon did not exit within ${shutdownMs}ms — force killing.`,
   );
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // already dead
+  if (!isWindows) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // already dead
+    }
   }
   removePidFileIfMatches(pid, profile);
   console.log("Daemon stopped.");
