@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, TASK_TYPES, MeetingStatus, buildContextKey, extractThreadId, EmailNotifyRequestSchema } from "@alook/shared"
+import { queries, TASK_TYPES, MeetingStatus, extractThreadId, buildEmailMapKey, EmailNotifyRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { writeJSON, parseBody } from "@/lib/middleware/helpers"
 import { TaskService } from "@/lib/services/task"
@@ -45,24 +45,73 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  if (body.isWhitelisted && agent && agent.runtimeId) {
-    const conv = await queries.conversation.createConversation(db, {
-      workspaceId: agent.workspaceId,
-      agentId: agent.id,
-      userId: agent.ownerId!,
-      title: `Email: ${body.subject}`.slice(0, 50),
-      type: TASK_TYPES.EMAIL_NOTIFICATION,
-    })
+  if (body.isWhitelisted && agent && agent.runtimeId && agent.ownerId) {
+    const threadId = extractThreadId(body.references, body.inReplyTo, body.messageId);
+    const mapKey = threadId ? buildEmailMapKey(agent.id, threadId) : null;
+
+    let conversationId: string | null = null;
+    let conversationType: string = TASK_TYPES.EMAIL_NOTIFICATION;
+    let dmUser: { name: string; email: string } | undefined;
+
+    if (mapKey) {
+      conversationId = await queries.conversationMap.findByKey(db, mapKey, body.workspaceId);
+    }
+
+    if (conversationId) {
+      const conv = await queries.conversation.getConversation(db, conversationId, body.workspaceId);
+      if (conv) {
+        conversationType = conv.type;
+        if (conv.type === TASK_TYPES.USER_DM_MESSAGE && conv.userId) {
+          const u = await queries.user.getUser(db, conv.userId);
+          if (u) dmUser = { name: u.name, email: u.email };
+        }
+      }
+    } else {
+      const conv = await queries.conversation.createConversation(db, {
+        workspaceId: agent.workspaceId,
+        agentId: agent.id,
+        userId: agent.ownerId,
+        title: `Email: ${body.subject}`.slice(0, 50),
+        type: TASK_TYPES.EMAIL_NOTIFICATION,
+      })
+      conversationId = conv.id;
+
+      if (mapKey) {
+        await queries.conversationMap.createMapping(db, {
+          key: mapKey,
+          workspaceId: body.workspaceId,
+          conversationId,
+        });
+      }
+    }
+
     const prompt = `New email from ${body.from}: ${body.subject}`;
-    await queries.message.createMessage(db, {
-      conversationId: conv.id,
-      role: "user",
+    const msg = await queries.message.createMessage(db, {
+      conversationId,
+      role: "event",
       content: prompt,
     })
-    const threadId = extractThreadId(body.references, body.inReplyTo, body.messageId);
-    const contextKey = buildContextKey(TASK_TYPES.EMAIL_NOTIFICATION, { threadId });
+
+    if (conversationType === TASK_TYPES.USER_DM_MESSAGE) {
+      broadcastToUser(agent.ownerId, {
+        type: "conversation.message",
+        conversationId,
+        message: {
+          id: msg.id,
+          conversation_id: msg.conversationId,
+          role: msg.role as "event",
+          content: msg.content,
+          task_id: msg.taskId,
+          attachment_ids: null,
+          created_at: msg.createdAt,
+        },
+      }).catch(() => {})
+    }
+
     const taskService = new TaskService(db)
-    await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, prompt, TASK_TYPES.EMAIL_NOTIFICATION, { contextKey })
+    const context: Record<string, unknown> = { conversationType };
+    if (dmUser) context.dmUser = dmUser;
+    await taskService.enqueueTask(agent.id, conversationId, agent.workspaceId, prompt, TASK_TYPES.EMAIL_NOTIFICATION, { contextKey: conversationId, context })
   }
 
   if (agent?.ownerId) {

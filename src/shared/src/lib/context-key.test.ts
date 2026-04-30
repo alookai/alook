@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractThreadId, buildContextKey } from "./context-key";
-import { TASK_TYPES } from "../constants";
+import { extractThreadId, buildEmailMapKey } from "./context-key";
 
 describe("extractThreadId", () => {
   it("returns first message-id from references when available", () => {
@@ -50,42 +49,16 @@ describe("extractThreadId", () => {
   });
 });
 
-describe("buildContextKey", () => {
-  it("returns dm:{conversationId} for USER_DM_MESSAGE with conversationId", () => {
-    expect(
-      buildContextKey(TASK_TYPES.USER_DM_MESSAGE, { conversationId: "conv_123" }),
-    ).toBe("dm:conv_123");
+describe("buildEmailMapKey", () => {
+  it("returns email:<agentId>:<threadId>", () => {
+    expect(buildEmailMapKey("agent123", "<msg-001@example.com>")).toBe(
+      "email:agent123:<msg-001@example.com>",
+    );
   });
 
-  it("returns null for USER_DM_MESSAGE without conversationId", () => {
-    expect(buildContextKey(TASK_TYPES.USER_DM_MESSAGE, {})).toBeNull();
-  });
-
-  it("returns email:{threadId} for EMAIL_NOTIFICATION with threadId", () => {
-    expect(
-      buildContextKey(TASK_TYPES.EMAIL_NOTIFICATION, { threadId: "<abc@mail.com>" }),
-    ).toBe("email:<abc@mail.com>");
-  });
-
-  it("returns null for EMAIL_NOTIFICATION without threadId", () => {
-    expect(buildContextKey(TASK_TYPES.EMAIL_NOTIFICATION, {})).toBeNull();
-  });
-
-  it("returns null for EMAIL_NOTIFICATION with null threadId", () => {
-    expect(buildContextKey(TASK_TYPES.EMAIL_NOTIFICATION, { threadId: null })).toBeNull();
-  });
-
-  it("returns null for CALENDAR_EVENT", () => {
-    expect(buildContextKey(TASK_TYPES.CALENDAR_EVENT, {})).toBeNull();
-  });
-
-  it("returns null for CALENDAR_EVENT even with conversationId", () => {
-    expect(
-      buildContextKey(TASK_TYPES.CALENDAR_EVENT, { conversationId: "conv_123" }),
-    ).toBeNull();
-  });
-
-  it("returns null for unknown type", () => {
-    expect(buildContextKey("unknown_type", { conversationId: "conv_123" })).toBeNull();
+  it("handles different agent and thread IDs", () => {
+    expect(buildEmailMapKey("ag_abc", "<thread@mail.com>")).toBe(
+      "email:ag_abc:<thread@mail.com>",
+    );
   });
 });

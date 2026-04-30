@@ -120,38 +120,38 @@ describe("steering", () => {
 
   describe("steering lock", () => {
     it("acquires and releases a steering lock", () => {
-      const acquired = acquireSteeringLock(baseDir, "email:<thread@mail.com>");
+      const acquired = acquireSteeringLock(baseDir, "conv_thread");
       expect(acquired).toBe(true);
 
-      releaseSteeringLock(baseDir, "email:<thread@mail.com>");
+      releaseSteeringLock(baseDir, "conv_thread");
     });
 
     it("cannot acquire the same lock twice", () => {
-      acquireSteeringLock(baseDir, "dm:conv_1");
-      const second = acquireSteeringLock(baseDir, "dm:conv_1");
+      acquireSteeringLock(baseDir, "conv_1");
+      const second = acquireSteeringLock(baseDir, "conv_1");
       expect(second).toBe(false);
 
-      releaseSteeringLock(baseDir, "dm:conv_1");
+      releaseSteeringLock(baseDir, "conv_1");
     });
 
     it("can re-acquire after release", () => {
-      acquireSteeringLock(baseDir, "dm:conv_1");
-      releaseSteeringLock(baseDir, "dm:conv_1");
+      acquireSteeringLock(baseDir, "conv_1");
+      releaseSteeringLock(baseDir, "conv_1");
 
-      const reacquired = acquireSteeringLock(baseDir, "dm:conv_1");
+      const reacquired = acquireSteeringLock(baseDir, "conv_1");
       expect(reacquired).toBe(true);
 
-      releaseSteeringLock(baseDir, "dm:conv_1");
+      releaseSteeringLock(baseDir, "conv_1");
     });
 
     it("different context keys do not conflict", () => {
-      const first = acquireSteeringLock(baseDir, "dm:conv_1");
-      const second = acquireSteeringLock(baseDir, "dm:conv_2");
+      const first = acquireSteeringLock(baseDir, "conv_1");
+      const second = acquireSteeringLock(baseDir, "conv_2");
       expect(first).toBe(true);
       expect(second).toBe(true);
 
-      releaseSteeringLock(baseDir, "dm:conv_1");
-      releaseSteeringLock(baseDir, "dm:conv_2");
+      releaseSteeringLock(baseDir, "conv_1");
+      releaseSteeringLock(baseDir, "conv_2");
     });
   });
 });

@@ -13,7 +13,6 @@ import {
   initEntry,
   updateEntry,
   createTimelineEntry,
-  findResumableSessionId,
   findResumableSessionByContextKey,
   findRunningPidByTaskId,
   findRunningEntryByContextKey,
@@ -245,275 +244,23 @@ describe("timeline", () => {
     expect(todayEntries.agent_responses).toEqual([]);
   });
 
-  describe("findResumableSessionId", () => {
-    function writeEntry(filename: string, entry: ContextTimelineEntry) {
-      const filePath = join(dir, filename);
-      let existing = "";
-      try { existing = readFileSync(filePath, "utf-8"); } catch { /* new file */ }
-      writeFileSync(filePath, existing + JSON.stringify(entry) + "\n");
-    }
-
-    function makeEntry(overrides: Partial<ContextTimelineEntry>): ContextTimelineEntry {
-      return {
-        task_id: "t_1",
-        context_key: null,
-        session_id: null,
-        pid: null,
-        status: "running",
-        datetime: new Date().toISOString(),
-        type: "user_dm_message",
-        prompt: "test",
-        agent_responses: [],
-        errmsg: null,
-        provider: "claude",
-        ...overrides,
-      };
-    }
-
-    it("returns session_id from a completed entry of matching type within 3h", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_1",
-        status: "completed",
-        session_id: "sess_abc",
-        datetime: new Date().toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBe("sess_abc");
-    });
-
-    it("returns null when no entries exist", () => {
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBeNull();
-    });
-
-    it("returns null when no timeline files exist", () => {
-      rmSync(dir, { recursive: true, force: true });
-      mkdirSync(dir, { recursive: true });
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBeNull();
-    });
-
-    it("returns null when the latest completed entry is older than 3h", () => {
-      const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_old",
-        status: "completed",
-        session_id: "sess_old",
-        datetime: fourHoursAgo.toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBeNull();
-    });
-
-    it("returns null when session_id is null on the entry", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_nosess",
-        status: "completed",
-        session_id: null,
-        datetime: new Date().toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBeNull();
-    });
-
-    it("skips running entries but resumes from failed/killed/completed", () => {
-      const threeMinAgo = new Date(Date.now() - 3 * 60 * 1000);
-      const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
-      const oneMinAgo = new Date(Date.now() - 1 * 60 * 1000);
-
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_completed",
-        status: "completed",
-        session_id: "sess_completed",
-        datetime: threeMinAgo.toISOString(),
-      }));
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_running",
-        status: "running",
-        session_id: null,
-        datetime: oneMinAgo.toISOString(),
-      }));
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_failed",
-        status: "failed",
-        session_id: "sess_failed",
-        datetime: twoMinAgo.toISOString(),
-      }));
-
-      // Most recent non-running entry with a session_id wins (failed, 2min ago)
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBe("sess_failed");
-    });
-
-    it("resumes from killed sessions", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_killed",
-        status: "killed",
-        session_id: "sess_killed",
-        datetime: new Date().toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBe("sess_killed");
-    });
-
-    it("searches across midnight boundary (yesterday's file)", () => {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-
-      writeEntry(_filenameForDate(yesterday), makeEntry({
-        task_id: "t_yesterday",
-        status: "completed",
-        session_id: "sess_yesterday",
-        datetime: twoHoursAgo.toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBe("sess_yesterday");
-    });
-
-    it("returns the latest match, not the first one in file order", () => {
-      const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000);
-      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_older",
-        status: "completed",
-        session_id: "sess_older",
-        datetime: twoHoursAgo.toISOString(),
-      }));
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_newer",
-        status: "completed",
-        session_id: "sess_newer",
-        datetime: oneHourAgo.toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBe("sess_newer");
-    });
-
-    it("respects custom maxAgeMs parameter", () => {
-      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_recent",
-        status: "completed",
-        session_id: "sess_recent",
-        datetime: thirtyMinAgo.toISOString(),
-      }));
-
-      // 10 minute window — entry is 30 min old, should not match
-      expect(findResumableSessionId(dir, "user_dm_message", "claude", 10 * 60 * 1000)).toBeNull();
-      // 60 minute window — entry is 30 min old, should match
-      expect(findResumableSessionId(dir, "user_dm_message", "claude", 60 * 60 * 1000)).toBe("sess_recent");
-    });
-
-    it("does not match a different task type", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_1",
-        status: "completed",
-        session_id: "sess_dm",
-        type: "user_dm_message",
-        datetime: new Date().toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "scheduled_check", "claude")).toBeNull();
-    });
-
-    it("finds the latest entry across midnight boundary correctly", () => {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const ninetyMinAgo = new Date(Date.now() - 90 * 60 * 1000);
-      const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
-
-      // Yesterday's entry is older but still within 3h
-      writeEntry(_filenameForDate(yesterday), makeEntry({
-        task_id: "t_yesterday",
-        status: "completed",
-        session_id: "sess_yesterday",
-        datetime: ninetyMinAgo.toISOString(),
-      }));
-      // Today's entry is newer
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_today",
-        status: "completed",
-        session_id: "sess_today",
-        datetime: thirtyMinAgo.toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBe("sess_today");
-    });
-
-    it("createTimelineEntry includes provider field when provided", () => {
+  describe("createTimelineEntry provider and context_key", () => {
+    it("includes provider field when provided", () => {
       const entry = createTimelineEntry("t_p1", "test", "user_dm_message", "sess_1", 1234, "claude");
       expect(entry.provider).toBe("claude");
     });
 
-    it("createTimelineEntry sets provider to null when not provided (backward compat)", () => {
+    it("sets provider to null when not provided (backward compat)", () => {
       const entry = createTimelineEntry("t_p2", "test", "user_dm_message", "sess_1", 1234);
       expect(entry.provider).toBeNull();
     });
 
-    it("returns session ID when latest completed entry has matching provider", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_match",
-        status: "completed",
-        session_id: "sess_match",
-        provider: "codex",
-        datetime: new Date().toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "codex")).toBe("sess_match");
+    it("includes context_key when provided", () => {
+      const entry = createTimelineEntry("t_c1", "test", "user_dm_message", "sess_1", 1234, "claude", "conv_abc");
+      expect(entry.context_key).toBe("conv_abc");
     });
 
-    it("returns null when latest completed entry has a different provider", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_diff",
-        status: "completed",
-        session_id: "sess_claude",
-        provider: "claude",
-        datetime: new Date().toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "codex")).toBeNull();
-    });
-
-    it("skips entries with provider null or undefined (old entries — backward compat)", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_old",
-        status: "completed",
-        session_id: "sess_old",
-        provider: null,
-        datetime: new Date().toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBeNull();
-    });
-
-    it("finds correct session when multiple providers interleave in timeline", () => {
-      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-      const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000);
-
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_claude",
-        status: "completed",
-        session_id: "sess_claude",
-        provider: "claude",
-        datetime: twoHoursAgo.toISOString(),
-      }));
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_codex",
-        status: "completed",
-        session_id: "sess_codex",
-        provider: "codex",
-        datetime: oneHourAgo.toISOString(),
-      }));
-
-      expect(findResumableSessionId(dir, "user_dm_message", "claude")).toBe("sess_claude");
-      expect(findResumableSessionId(dir, "user_dm_message", "codex")).toBe("sess_codex");
-    });
-
-    it("createTimelineEntry includes context_key when provided", () => {
-      const entry = createTimelineEntry("t_c1", "test", "user_dm_message", "sess_1", 1234, "claude", "dm:conv_abc");
-      expect(entry.context_key).toBe("dm:conv_abc");
-    });
-
-    it("createTimelineEntry sets context_key to null when not provided", () => {
+    it("sets context_key to null when not provided", () => {
       const entry = createTimelineEntry("t_c2", "test", "user_dm_message");
       expect(entry.context_key).toBeNull();
     });
@@ -620,11 +367,11 @@ describe("timeline", () => {
         task_id: "t_1",
         status: "completed",
         session_id: "sess_abc",
-        context_key: "dm:conv_1",
+        context_key: "conv_1",
         datetime: new Date().toISOString(),
       }));
 
-      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "claude")).toBe("sess_abc");
+      expect(findResumableSessionByContextKey(dir, "conv_1", "claude")).toBe("sess_abc");
     });
 
     it("returns null when context_key does not match", () => {
@@ -632,54 +379,65 @@ describe("timeline", () => {
         task_id: "t_1",
         status: "completed",
         session_id: "sess_abc",
-        context_key: "dm:conv_1",
+        context_key: "conv_1",
         datetime: new Date().toISOString(),
       }));
 
-      expect(findResumableSessionByContextKey(dir, "dm:conv_2", "claude")).toBeNull();
+      expect(findResumableSessionByContextKey(dir, "conv_2", "claude")).toBeNull();
     });
 
     it("returns null when no entries exist", () => {
-      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "claude")).toBeNull();
+      expect(findResumableSessionByContextKey(dir, "conv_1", "claude")).toBeNull();
     });
 
-    it("uses 3h max age for dm: context keys", () => {
+    it("uses unified 72h max age for all context keys", () => {
       const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
       writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_old",
+        task_id: "t_4h",
         status: "completed",
-        session_id: "sess_old",
-        context_key: "dm:conv_1",
+        session_id: "sess_4h",
+        context_key: "conv_1",
         datetime: fourHoursAgo.toISOString(),
       }));
 
-      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "claude")).toBeNull();
+      // 4 hours ago is within 72h — should match
+      expect(findResumableSessionByContextKey(dir, "conv_1", "claude")).toBe("sess_4h");
     });
 
-    it("uses 48h max age for email: context keys", () => {
+    it("expires after 72h", () => {
+      const seventyFourHoursAgo = new Date(Date.now() - 74 * 60 * 60 * 1000);
+      writeEntry(_filenameForDate(seventyFourHoursAgo), makeEntry({
+        task_id: "t_old",
+        status: "completed",
+        session_id: "sess_old",
+        context_key: "conv_1",
+        datetime: seventyFourHoursAgo.toISOString(),
+      }));
+
+      expect(findResumableSessionByContextKey(dir, "conv_1", "claude")).toBeNull();
+    });
+
+    it("does not use different max age for different context key types", () => {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      writeEntry(_todayFilename(), makeEntry({
+        task_id: "t_dm",
+        status: "completed",
+        session_id: "sess_dm",
+        context_key: "conv_dm",
+        datetime: twentyFourHoursAgo.toISOString(),
+      }));
       writeEntry(_todayFilename(), makeEntry({
         task_id: "t_email",
         status: "completed",
         session_id: "sess_email",
-        context_key: "email:<thread@mail.com>",
+        context_key: "conv_email",
         datetime: twentyFourHoursAgo.toISOString(),
       }));
 
-      expect(findResumableSessionByContextKey(dir, "email:<thread@mail.com>", "claude")).toBe("sess_email");
-    });
-
-    it("email: context key expires after 48h", () => {
-      const fiftyHoursAgo = new Date(Date.now() - 50 * 60 * 60 * 1000);
-      writeEntry(_filenameForDate(fiftyHoursAgo), makeEntry({
-        task_id: "t_email_old",
-        status: "completed",
-        session_id: "sess_email_old",
-        context_key: "email:<thread@mail.com>",
-        datetime: fiftyHoursAgo.toISOString(),
-      }));
-
-      expect(findResumableSessionByContextKey(dir, "email:<thread@mail.com>", "claude")).toBeNull();
+      // Both 24h old — both within unified 72h window
+      expect(findResumableSessionByContextKey(dir, "conv_dm", "claude")).toBe("sess_dm");
+      expect(findResumableSessionByContextKey(dir, "conv_email", "claude")).toBe("sess_email");
     });
 
     it("filters by provider", () => {
@@ -687,13 +445,13 @@ describe("timeline", () => {
         task_id: "t_1",
         status: "completed",
         session_id: "sess_claude",
-        context_key: "dm:conv_1",
+        context_key: "conv_1",
         provider: "claude",
         datetime: new Date().toISOString(),
       }));
 
-      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "codex")).toBeNull();
-      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "claude")).toBe("sess_claude");
+      expect(findResumableSessionByContextKey(dir, "conv_1", "codex")).toBeNull();
+      expect(findResumableSessionByContextKey(dir, "conv_1", "claude")).toBe("sess_claude");
     });
 
     it("returns the latest matching entry", () => {
@@ -704,18 +462,18 @@ describe("timeline", () => {
         task_id: "t_older",
         status: "completed",
         session_id: "sess_older",
-        context_key: "dm:conv_1",
+        context_key: "conv_1",
         datetime: twoHoursAgo.toISOString(),
       }));
       writeEntry(_todayFilename(), makeEntry({
         task_id: "t_newer",
         status: "completed",
         session_id: "sess_newer",
-        context_key: "dm:conv_1",
+        context_key: "conv_1",
         datetime: oneHourAgo.toISOString(),
       }));
 
-      expect(findResumableSessionByContextKey(dir, "dm:conv_1", "claude")).toBe("sess_newer");
+      expect(findResumableSessionByContextKey(dir, "conv_1", "claude")).toBe("sess_newer");
     });
   });
 
@@ -801,29 +559,29 @@ describe("timeline", () => {
         task_id: "t_running",
         status: "running",
         pid: 12345,
-        context_key: "email:<thread@mail.com>",
+        context_key: "conv_thread",
         provider: "claude",
       }));
 
-      const entry = findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude");
+      const entry = findRunningEntryByContextKey(dir, "conv_thread", "claude");
       expect(entry).not.toBeNull();
       expect(entry!.task_id).toBe("t_running");
       expect(entry!.pid).toBe(12345);
     });
 
     it("returns null when no running entries exist", () => {
-      expect(findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude")).toBeNull();
+      expect(findRunningEntryByContextKey(dir, "conv_thread", "claude")).toBeNull();
     });
 
     it("ignores non-running entries", () => {
       writeEntry(_todayFilename(), makeEntry({
         task_id: "t_done",
         status: "completed",
-        context_key: "email:<thread@mail.com>",
+        context_key: "conv_thread",
         provider: "claude",
       }));
 
-      expect(findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude")).toBeNull();
+      expect(findRunningEntryByContextKey(dir, "conv_thread", "claude")).toBeNull();
     });
 
     it("ignores different provider", () => {
@@ -831,11 +589,11 @@ describe("timeline", () => {
         task_id: "t_codex",
         status: "running",
         pid: 22222,
-        context_key: "email:<thread@mail.com>",
+        context_key: "conv_thread",
         provider: "codex",
       }));
 
-      expect(findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude")).toBeNull();
+      expect(findRunningEntryByContextKey(dir, "conv_thread", "claude")).toBeNull();
     });
 
     it("ignores different context_key", () => {
@@ -843,11 +601,11 @@ describe("timeline", () => {
         task_id: "t_other",
         status: "running",
         pid: 33333,
-        context_key: "email:<other@mail.com>",
+        context_key: "conv_other",
         provider: "claude",
       }));
 
-      expect(findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude")).toBeNull();
+      expect(findRunningEntryByContextKey(dir, "conv_thread", "claude")).toBeNull();
     });
 
     it("returns the newest running entry for same context_key", () => {
@@ -858,7 +616,7 @@ describe("timeline", () => {
         task_id: "t_older",
         status: "running",
         pid: 11111,
-        context_key: "email:<thread@mail.com>",
+        context_key: "conv_thread",
         provider: "claude",
         datetime: twoMinAgo.toISOString(),
       }));
@@ -866,12 +624,12 @@ describe("timeline", () => {
         task_id: "t_newer",
         status: "running",
         pid: 22222,
-        context_key: "email:<thread@mail.com>",
+        context_key: "conv_thread",
         provider: "claude",
         datetime: oneMinAgo.toISOString(),
       }));
 
-      const entry = findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude");
+      const entry = findRunningEntryByContextKey(dir, "conv_thread", "claude");
       expect(entry!.task_id).toBe("t_newer");
     });
 
@@ -882,12 +640,12 @@ describe("timeline", () => {
         task_id: "t_old_running",
         status: "running",
         pid: 44444,
-        context_key: "email:<thread@mail.com>",
+        context_key: "conv_thread",
         provider: "claude",
         datetime: threeDaysAgo.toISOString(),
       }));
 
-      const entry = findRunningEntryByContextKey(dir, "email:<thread@mail.com>", "claude");
+      const entry = findRunningEntryByContextKey(dir, "conv_thread", "claude");
       expect(entry!.task_id).toBe("t_old_running");
     });
 
@@ -900,7 +658,7 @@ describe("timeline", () => {
         provider: "claude",
       }));
 
-      expect(findRunningEntryByContextKey(dir, "dm:conv_1", "claude")).toBeNull();
+      expect(findRunningEntryByContextKey(dir, "conv_1", "claude")).toBeNull();
     });
   });
 

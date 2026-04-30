@@ -34,7 +34,7 @@ vi.mock("@alook/shared", () => ({
     },
   },
   TASK_TYPES: { USER_DM_MESSAGE: "user_dm_message", KILL_TASK: "kill_task" },
-  buildContextKey: () => "ctx:test",
+  buildEmailMapKey: (agentId: string, threadId: string) => `email:${agentId}:${threadId}`,
 }));
 
 vi.mock("@/lib/logger", () => ({

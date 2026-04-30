@@ -38,4 +38,3 @@ export function prepare(
 }
 
 export { buildInstructionContent, writeInstructionFileIfChanged, ensureSymlinks, CANONICAL_FILE } from "./context.js";
-export { findResumableSessionId } from "./timeline.js";

@@ -11,6 +11,8 @@ const mockEmailWorkerFetch = vi.fn();
 const mockEmailBucketGet = vi.fn();
 const mockEmailBucketPut = vi.fn();
 const mockWorkerSelfRefFetch = vi.fn();
+const mockCreateMapping = vi.fn();
+const mockGetConversation = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({
@@ -47,6 +49,12 @@ vi.mock("@alook/shared", async () => {
       emailAccount: {
         getEmailAccountsByAgent: (...args: unknown[]) => mockGetEmailAccountsByAgent(...args),
         getEmailAccountScoped: (...args: unknown[]) => mockGetEmailAccountScoped(...args),
+      },
+      conversation: {
+        getConversation: (...args: unknown[]) => mockGetConversation(...args),
+      },
+      conversationMap: {
+        createMapping: (...args: unknown[]) => mockCreateMapping(...args),
       },
     },
   };
@@ -492,6 +500,119 @@ describe("POST /api/email/send", () => {
       const body = await res.json();
       expect(body.error).toContain("local delivery failed");
       expect(mockCreateEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("conversation_map mapping creation", () => {
+    it("creates mapping on local delivery when conversationId is provided", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });
+      mockIsWhitelisted.mockResolvedValue(false);
+      mockWorkerSelfRefFetch.mockResolvedValue(Response.json({ ok: true }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+      mockGetConversation.mockResolvedValue({ id: "conv_123" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "agent-b@alook.ai",
+        subject: "Map test",
+        htmlBody: "<p>Map</p>",
+        conversationId: "conv_123",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+      expect(mockCreateMapping).toHaveBeenCalledOnce();
+      const args = mockCreateMapping.mock.calls[0]![1] as any;
+      expect(args.workspaceId).toBe("ws1");
+      expect(args.conversationId).toBe("conv_123");
+      expect(args.key).toMatch(/^email:a1:/);
+    });
+
+    it("does NOT create mapping on local delivery without conversationId", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });
+      mockIsWhitelisted.mockResolvedValue(false);
+      mockWorkerSelfRefFetch.mockResolvedValue(Response.json({ ok: true }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "agent-b@alook.ai",
+        subject: "No map",
+        htmlBody: "<p>No map</p>",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+      expect(mockCreateMapping).not.toHaveBeenCalled();
+    });
+
+    it("creates mapping on remote delivery when conversationId and messageId are provided", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent" });
+      mockEmailWorkerFetch.mockResolvedValue(
+        Response.json({ ok: true, r2Key: "emails/abc/raw", messageId: "<msg1@worker.com>" }),
+      );
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+      mockGetConversation.mockResolvedValue({ id: "conv_456" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "user@example.com",
+        subject: "Remote map",
+        htmlBody: "<p>Remote</p>",
+        conversationId: "conv_456",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+      expect(mockCreateMapping).toHaveBeenCalledOnce();
+      const args = mockCreateMapping.mock.calls[0]![1] as any;
+      expect(args.workspaceId).toBe("ws1");
+      expect(args.conversationId).toBe("conv_456");
+      expect(args.key).toBe("email:a1:<msg1@worker.com>");
+    });
+
+    it("does NOT create mapping when conversationId does not belong to workspace", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });
+      mockIsWhitelisted.mockResolvedValue(false);
+      mockWorkerSelfRefFetch.mockResolvedValue(Response.json({ ok: true }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+      mockGetConversation.mockResolvedValue(null);
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "agent-b@alook.ai",
+        subject: "Bad conv",
+        htmlBody: "<p>Bad</p>",
+        conversationId: "conv_other_workspace",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+      expect(mockCreateMapping).not.toHaveBeenCalled();
+    });
+
+    it("does NOT create mapping on remote delivery when messageId is undefined", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent" });
+      mockEmailWorkerFetch.mockResolvedValue(
+        Response.json({ ok: true, r2Key: "emails/abc/raw" }),
+      );
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+      mockGetConversation.mockResolvedValue({ id: "conv_456" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "user@example.com",
+        subject: "Remote no msgid",
+        htmlBody: "<p>No id</p>",
+        conversationId: "conv_456",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+      expect(mockCreateMapping).not.toHaveBeenCalled();
     });
   });
 });

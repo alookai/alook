@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
 import {
@@ -17,17 +18,17 @@ import { LogOut, User } from "lucide-react";
 export function NavUser() {
   const { data: session, isPending } = useSession();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const user = session?.user;
-  if (isPending || !user) return <Skeleton className="size-10 rounded-xl" />;
+  if (!mounted || isPending || !user)
+    return <Skeleton className="size-10 rounded-xl" />;
 
   const firstLetter = (user.name || user.email || "?").charAt(0).toUpperCase();
-
-  const initials = (user.name ?? user.email ?? "?")
-    .split(/[\s@]/)
-    .slice(0, 2)
-    .map((s) => s[0]?.toUpperCase())
-    .join("");
 
   return (
     <DropdownMenu>

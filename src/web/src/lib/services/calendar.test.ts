@@ -100,6 +100,10 @@ describe("promoteDueCalendarEventsForWorkspace", () => {
       userId: "u_1",
       type: "calendar_event",
     });
+    expect(mockCreateMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ role: "event" }),
+    );
     expect(mockCreateTask).toHaveBeenCalledTimes(1);
     expect(mockCreateTask.mock.calls[0][1]).toMatchObject({
       agentId: "ag_1",

@@ -1,5 +1,3 @@
-import { TASK_TYPES } from "../constants";
-
 /**
  * Extract a stable thread identifier from email headers (RFC 2822).
  * Priority: first message-id in References > In-Reply-To > own Message-ID.
@@ -19,21 +17,9 @@ export function extractThreadId(
 }
 
 /**
- * Build a unified context key for session resumption.
- * Returns null when the task type should never resume (e.g. calendar events).
+ * Build the conversation_map lookup key for email threads.
+ * Format: "email:<agentId>:<threadId>" — agent-scoped, thread-scoped.
  */
-export function buildContextKey(
-  type: string,
-  opts: { conversationId?: string; threadId?: string | null },
-): string | null {
-  switch (type) {
-    case TASK_TYPES.USER_DM_MESSAGE:
-      return opts.conversationId ? `dm:${opts.conversationId}` : null;
-    case TASK_TYPES.EMAIL_NOTIFICATION:
-      return opts.threadId ? `email:${opts.threadId}` : null;
-    case TASK_TYPES.CALENDAR_EVENT:
-      return null;
-    default:
-      return null;
-  }
+export function buildEmailMapKey(agentId: string, threadId: string): string {
+  return `email:${agentId}:${threadId}`;
 }

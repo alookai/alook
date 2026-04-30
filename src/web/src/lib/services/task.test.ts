@@ -9,7 +9,6 @@ vi.mock("@alook/shared", () => ({
     CALENDAR_EVENT: "calendar_event",
     KILL_TASK: "kill_task",
   },
-  buildContextKey: (...a: unknown[]) => `ctx:${(a[1] as Record<string, unknown>)?.conversationId}`,
   queries: {
     task: {
       createTask: vi.fn(),
@@ -806,6 +805,34 @@ describe("TaskService", () => {
 
       expect(taskQ.createTask).toHaveBeenCalledWith({}, expect.objectContaining({
         context: { attachment_ids: ["a1"] },
+      }));
+    });
+
+    it("propagates contextKey from original task", async () => {
+      const taskWithKey = { ...failedTask, contextKey: "c1" };
+      taskQ.getTask.mockResolvedValue(taskWithKey);
+      taskQ.markFailedAsSuperseded.mockResolvedValue({ ...taskWithKey, status: "superseded" });
+      agentQ.getAgent.mockResolvedValue({ id: "a1", runtimeId: "r1" });
+      taskQ.createTask.mockResolvedValue({ id: "t2", status: "queued" });
+
+      await service.retryTask("t1", "w1");
+
+      expect(taskQ.createTask).toHaveBeenCalledWith({}, expect.objectContaining({
+        contextKey: "c1",
+      }));
+    });
+
+    it("handles original task with contextKey: null gracefully", async () => {
+      const taskNoKey = { ...failedTask, contextKey: null };
+      taskQ.getTask.mockResolvedValue(taskNoKey);
+      taskQ.markFailedAsSuperseded.mockResolvedValue({ ...taskNoKey, status: "superseded" });
+      agentQ.getAgent.mockResolvedValue({ id: "a1", runtimeId: "r1" });
+      taskQ.createTask.mockResolvedValue({ id: "t2", status: "queued" });
+
+      await service.retryTask("t1", "w1");
+
+      expect(taskQ.createTask).toHaveBeenCalledWith({}, expect.objectContaining({
+        contextKey: null,
       }));
     });
   });

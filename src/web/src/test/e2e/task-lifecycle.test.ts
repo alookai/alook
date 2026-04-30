@@ -61,7 +61,7 @@ describe("task lifecycle", () => {
     expect(data.tasks[0].id).toBe(taskId)
     expect(data.tasks[0].status).toBe("dispatched")
     expect(data.tasks[0].prompt).toBe("Run the e2e tests")
-    expect(data.tasks[0].context_key).toBe(`dm:${conversationId}`)
+    expect(data.tasks[0].context_key).toBe(conversationId)
     // Poll response includes agent data
     expect(data.tasks[0].agent).toBeTruthy()
     const agent = data.tasks[0].agent as Record<string, unknown>
@@ -193,7 +193,7 @@ describe("context_key resume contract", () => {
     const pollData = await pollRes.json() as { tasks: Array<Record<string, unknown>> }
     expect(pollData.tasks).toHaveLength(1)
     // Same conversation → same context_key
-    expect(pollData.tasks[0].context_key).toBe(`dm:${conversationId}`)
+    expect(pollData.tasks[0].context_key).toBe(conversationId)
 
     // Clean up: start + complete this task
     await tokenRequest(`/api/daemon/tasks/${task2Id}/start`, seed.machineToken, { method: "POST" })
@@ -242,8 +242,8 @@ describe("context_key resume contract", () => {
     const pollData = await pollRes.json() as { tasks: Array<Record<string, unknown>> }
     expect(pollData.tasks).toHaveLength(1)
     // Different conversation → different context_key
-    expect(pollData.tasks[0].context_key).toBe(`dm:${conv2Id}`)
-    expect(pollData.tasks[0].context_key).not.toBe(`dm:${conversationId}`)
+    expect(pollData.tasks[0].context_key).toBe(conv2Id)
+    expect(pollData.tasks[0].context_key).not.toBe(conversationId)
 
     // Clean up
     const tid = pollData.tasks[0].id as string
@@ -255,7 +255,7 @@ describe("context_key resume contract", () => {
     })
   })
 
-  it("email notify with same thread root produces same context_key", async () => {
+  it("email notify with same thread root reuses same conversation via mapping", async () => {
     const threadRoot = `<root-${Date.now()}@e2e.test>`
 
     // First email in thread
@@ -292,8 +292,10 @@ describe("context_key resume contract", () => {
     )
     const poll1Data = await poll1.json() as { tasks: Array<Record<string, unknown>> }
     expect(poll1Data.tasks).toHaveLength(1)
-    const emailKey1 = poll1Data.tasks[0].context_key as string
-    expect(emailKey1).toBe(`email:${threadRoot}`)
+    const emailConvId = poll1Data.tasks[0].context_key as string
+    // context_key is now a conversation ID (not email:threadRoot)
+    expect(emailConvId).toBeTruthy()
+    expect(emailConvId).toBe(poll1Data.tasks[0].conversation_id)
 
     // Complete it
     const tid1 = poll1Data.tasks[0].id as string
@@ -338,8 +340,9 @@ describe("context_key resume contract", () => {
     )
     const poll2Data = await poll2.json() as { tasks: Array<Record<string, unknown>> }
     expect(poll2Data.tasks).toHaveLength(1)
-    // Same thread root → same context_key
-    expect(poll2Data.tasks[0].context_key).toBe(emailKey1)
+    // Same thread root → same conversation (via conversation_map lookup)
+    expect(poll2Data.tasks[0].context_key).toBe(emailConvId)
+    expect(poll2Data.tasks[0].conversation_id).toBe(emailConvId)
 
     // Clean up
     const tid2 = poll2Data.tasks[0].id as string

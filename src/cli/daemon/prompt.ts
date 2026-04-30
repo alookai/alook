@@ -6,10 +6,24 @@ const EMAIL_NOTICE =
   " If you need more information or confirmation from the human, send them an email asking for it and then exit." +
   " Do not wait — when the human replies, a new task will be triggered automatically and you will be woken up with their response.";
 
+function buildDmNotice(name: string, email: string): string {
+  return (
+    `This task was triggered by an incoming email on a conversation with ${name} (${email}).` +
+    ` ${name} is present in this session — reply to them directly.` +
+    ` If you need to communicate with anyone else, use the email sending tool.`
+  );
+}
+
 export function buildPrompt(task: Task, attachments?: Attachment[]): string {
   const obj: Record<string, unknown> = { type: task.type, instruction: task.prompt };
   if (task.type === "email_notification") {
-    obj.notice = EMAIL_NOTICE;
+    const ctx = task.context as Record<string, unknown> | undefined;
+    const dmUser = ctx?.dmUser as { name: string; email: string } | undefined;
+    if (ctx?.conversationType === "user_dm_message" && dmUser) {
+      obj.notice = buildDmNotice(dmUser.name, dmUser.email);
+    } else {
+      obj.notice = EMAIL_NOTICE;
+    }
   }
   if (task.sender) {
     obj.sender = {

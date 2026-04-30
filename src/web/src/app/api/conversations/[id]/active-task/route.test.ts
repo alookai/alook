@@ -14,7 +14,7 @@ vi.mock("@alook/shared", () => ({
   createDb: vi.fn(() => ({})),
   createLogger: vi.fn(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() })),
   TASK_TYPES: { USER_DM_MESSAGE: "user_dm_message", KILL_TASK: "kill_task" },
-  buildContextKey: () => "ctx:test",
+  buildEmailMapKey: (agentId: string, threadId: string) => `email:${agentId}:${threadId}`,
   queries: {
     conversation: {
       getConversation: (...args: any[]) => mockGetConversation(...args),

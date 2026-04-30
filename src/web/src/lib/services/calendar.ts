@@ -77,7 +77,7 @@ export async function promoteDueCalendarEventsForWorkspace(
 
       await queries.message.createMessage(db, {
         conversationId: conv.id,
-        role: "user",
+        role: "event",
         content: ev.title,
       });
 

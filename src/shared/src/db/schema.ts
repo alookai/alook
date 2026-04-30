@@ -547,6 +547,24 @@ export const machineToken = sqliteTable(
 // Workspace file request (ephemeral queue for file browsing)
 // ---------------------------------------------------------------------------
 
+export const conversationMap = sqliteTable(
+  "conversation_map",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    key: text("key").notNull(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    unique("conversation_map_key_workspace").on(t.key, t.workspaceId),
+  ]
+);
+
 export const workspaceFileRequest = sqliteTable(
   "workspace_file_request",
   {

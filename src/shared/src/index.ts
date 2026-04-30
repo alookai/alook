@@ -177,7 +177,7 @@ export type { LogLevel, LoggerOptions } from "./logger"
 
 // Lib
 export { isEmptyHtml } from "./lib/html";
-export { buildContextKey, extractThreadId } from "./lib/context-key";
+export { extractThreadId, buildEmailMapKey } from "./lib/context-key";
 export { parseIcs } from "./lib/ics-parser";
 export type { MeetingInfo } from "./lib/ics-parser";
 export { buildMimeMessage } from "./lib/mime";

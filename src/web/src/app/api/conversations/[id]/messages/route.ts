@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, TASK_TYPES, buildContextKey, CreateMessageRequestSchema, parsePromptMentions } from "@alook/shared"
+import { queries, TASK_TYPES, CreateMessageRequestSchema, parsePromptMentions } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { nanoid } from "nanoid";
 import { withAuth } from "@/lib/middleware/auth";
@@ -182,7 +182,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
-  const contextKey = buildContextKey(TASK_TYPES.USER_DM_MESSAGE, { conversationId: id });
+  const contextKey = id;
   const taskContext: Record<string, unknown> = {
     ...(artifactIds.length > 0 ? { attachment_ids: artifactIds } : {}),
     ...mentionContext,

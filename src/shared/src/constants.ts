@@ -50,6 +50,7 @@ export type TaskType = (typeof TASK_TYPES)[keyof typeof TASK_TYPES];
 export const MessageRole = {
   USER: "user",
   ASSISTANT: "assistant",
+  EVENT: "event",
 } as const;
 
 export type MessageRoleType = (typeof MessageRole)[keyof typeof MessageRole];

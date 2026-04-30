@@ -27,8 +27,7 @@ vi.mock("@alook/shared", async () => {
       EMAIL_NOTIFICATION: "email_notification",
       CALENDAR_EVENT: "calendar_event",
     },
-    buildContextKey: (type: string, opts: { conversationId?: string }) =>
-      type === "user_dm_message" && opts.conversationId ? `dm:${opts.conversationId}` : null,
+    buildEmailMapKey: (agentId: string, threadId: string) => `email:${agentId}:${threadId}`,
     queries: {
       conversation: {
         getConversation: (...args: any[]) => mockGetConversation(...args),
@@ -184,7 +183,7 @@ describe("POST /api/conversations/[id]/messages", () => {
     expect(res.status).toBe(201);
     expect(body.message).toEqual({ id: "m1", content: "Hi there" });
     expect(body.task).toEqual({ id: "t1", status: "pending" });
-    expect(mockEnqueueTask).toHaveBeenCalledWith("a1", "c1", "w1", "Hi there", "user_dm_message", { contextKey: "dm:c1" });
+    expect(mockEnqueueTask).toHaveBeenCalledWith("a1", "c1", "w1", "Hi there", "user_dm_message", { contextKey: "c1" });
   });
 
   it("auto-titles conversation with truncated first message", async () => {

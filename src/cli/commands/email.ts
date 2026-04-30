@@ -373,6 +373,7 @@ export function emailCommand(): Command {
           }
         }
 
+        const conversationId = process.env.ALOOK_CONVERSATION_ID;
         const res = await client.postJSON<SendResponse>("/api/email/send", {
           agentId: opts.agent_id,
           to: opts.to,
@@ -381,6 +382,7 @@ export function emailCommand(): Command {
           attachments,
           ...(inReplyTo ? { inReplyTo, references } : {}),
           ...(opts.from ? { from: opts.from } : {}),
+          ...(conversationId ? { conversationId } : {}),
         });
         console.log(`Sent email to ${res.to_email} (id: ${res.id})`);
       } catch (err) {

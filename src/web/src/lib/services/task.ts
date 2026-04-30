@@ -1,5 +1,5 @@
 import type { Database } from "@alook/shared";
-import { queries, TASK_TYPES, buildContextKey } from "@alook/shared";
+import { queries, TASK_TYPES } from "@alook/shared";
 import { log } from "@/lib/logger";
 import { broadcastToUser } from "@/lib/broadcast";
 import { messageToResponse, taskToResponse } from "@/lib/api/responses";
@@ -203,7 +203,10 @@ export class TaskService {
       workspaceId,
       original.prompt,
       original.type,
-      { context: original.context as Record<string, unknown> | undefined },
+      {
+        contextKey: original.contextKey ?? null,
+        context: original.context as Record<string, unknown> | undefined,
+      },
     );
 
     return { oldTask: marked, newTask };
@@ -262,7 +265,7 @@ export class TaskService {
     const userId = conversation.userId;
 
     try {
-      const contextKey = buildContextKey(TASK_TYPES.USER_DM_MESSAGE, { conversationId });
+      const contextKey = conversationId;
       const attachmentIds = activated.attachmentIds ? JSON.parse(activated.attachmentIds) as string[] : [];
       const task = await this.enqueueTask(
         conversation.agentId,

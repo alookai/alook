@@ -39,13 +39,52 @@ describe("buildPrompt", () => {
     );
   });
 
-  it("adds notice for email_notification tasks", () => {
+  it("adds EMAIL_NOTICE for email_notification tasks without context", () => {
     const task = makeTask("New email from a@b.com: Hi", "email_notification");
     const parsed = JSON.parse(buildPrompt(task));
     expect(parsed.notice).toContain("no human in this session");
     expect(parsed.notice).toContain("email sending tool");
     expect(parsed.notice).toContain("send them an email asking for it and then exit");
     expect(parsed.notice).toContain("new task will be triggered automatically");
+  });
+
+  it("adds EMAIL_NOTICE when conversationType is email_notification", () => {
+    const task: Task = {
+      ...makeTask("New email from a@b.com: Hi", "email_notification"),
+      context: { conversationType: "email_notification" },
+    };
+    const parsed = JSON.parse(buildPrompt(task));
+    expect(parsed.notice).toContain("no human in this session");
+  });
+
+  it("adds DM_NOTICE when conversationType is user_dm_message with dmUser", () => {
+    const task: Task = {
+      ...makeTask("New email from bob@b.com: Review this", "email_notification"),
+      context: { conversationType: "user_dm_message", dmUser: { name: "Alice", email: "alice@example.com" } },
+    };
+    const parsed = JSON.parse(buildPrompt(task));
+    expect(parsed.notice).toContain("Alice");
+    expect(parsed.notice).toContain("alice@example.com");
+    expect(parsed.notice).toContain("reply to them directly");
+    expect(parsed.notice).not.toContain("no human in this session");
+  });
+
+  it("falls back to EMAIL_NOTICE when conversationType is user_dm_message but dmUser is missing", () => {
+    const task: Task = {
+      ...makeTask("New email from a@b.com: Hi", "email_notification"),
+      context: { conversationType: "user_dm_message" },
+    };
+    const parsed = JSON.parse(buildPrompt(task));
+    expect(parsed.notice).toContain("no human in this session");
+  });
+
+  it("falls back to EMAIL_NOTICE when conversationType is undefined in context", () => {
+    const task: Task = {
+      ...makeTask("New email from a@b.com: Hi", "email_notification"),
+      context: { someOtherField: "value" },
+    };
+    const parsed = JSON.parse(buildPrompt(task));
+    expect(parsed.notice).toContain("no human in this session");
   });
 
   it("does not add notice for non-email tasks", () => {

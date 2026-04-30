@@ -31,7 +31,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { ArrowUp, BedDouble, Box, FileText, Loader2, Mail, Mic, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, BedDouble, Box, Calendar, FileText, Loader2, Mail, Mic, Paperclip, Square, X } from "lucide-react";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { useMentionPopup } from "@/hooks/use-mention-popup";
 import { MentionPopup } from "@/components/agent-chat/mention-popup";
@@ -688,6 +688,9 @@ export function AgentChatView() {
           lastSeqRef.current = Math.max(...incoming.map((m) => m.seq), lastSeqRef.current);
         }
       }
+      if (msg.type === "conversation.message" && msg.conversationId === conversation?.id) {
+        setMessages((prev) => mergeMessages(prev, [msg.message]));
+      }
       if (msg.type === "artifact.uploaded" && msg.conversationId === conversation?.id) {
         setArtifacts((prev) => {
           if (prev.some((a) => a.id === msg.artifact.id)) return prev;
@@ -1138,7 +1141,14 @@ export function AgentChatView() {
                       </div>
                     </div>
                   );
-                })() : !hasTaskStream ? (
+                })() : msg.role === "event" ? (
+                  <div className="flex justify-start">
+                    <div className="w-full rounded-md border bg-muted/50 text-muted-foreground text-sm px-3 py-2 flex items-start gap-2">
+                      {msg.content.toLowerCase().includes("email") ? <Mail className="h-4 w-4 mt-0.5 shrink-0" /> : <Calendar className="h-4 w-4 mt-0.5 shrink-0" />}
+                      <span>{msg.content}</span>
+                    </div>
+                  </div>
+                ) : !hasTaskStream ? (
                   <div className="flex justify-start" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
                     <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
                       <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={MENTION_COMPONENTS}>{highlightMentions(msg.content, agents)}</Streamdown>

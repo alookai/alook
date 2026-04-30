@@ -119,7 +119,7 @@ function makeInput(overrides?: Partial<SessionRunnerInput>): SessionRunnerInput 
       status: "dispatched",
       priority: 0,
       type: "user_dm_message",
-      contextKey: "dm:c1",
+      contextKey: "c1",
       createdAt: "2026-01-01T00:00:00Z",
     },
     provider: "claude",
@@ -257,7 +257,7 @@ describe("session-runner runSession", () => {
       "sess-1",
       process.pid,
       "claude",
-      "dm:c1",
+      "c1",
       undefined,
     );
     expect(mockInitEntryAsync).toHaveBeenCalledWith(
@@ -384,7 +384,7 @@ describe("session-runner runSession", () => {
 
     expect(mockFindResumableSessionByContextKey).toHaveBeenCalledWith(
       "/tmp/ws/ws1/agent1/workdir/.context_timeline",
-      "dm:c1",
+      "c1",
       "claude",
     );
     expect(mockBackendExecute).toHaveBeenCalledWith(
@@ -591,7 +591,7 @@ describe("session-runner runSession", () => {
       "sess-1",
       process.pid,
       "codex",
-      "dm:c1",
+      "c1",
       undefined,
     );
   });
@@ -609,7 +609,7 @@ describe("session-runner runSession", () => {
 
     expect(mockFindResumableSessionByContextKey).toHaveBeenCalledWith(
       "/tmp/ws/ws1/agent1/workdir/.context_timeline",
-      "dm:c1",
+      "c1",
       "codex",
     );
   });
@@ -648,7 +648,7 @@ describe("session-runner runSession", () => {
 
     expect(mockFindResumableSessionByContextKey).toHaveBeenCalledWith(
       "/tmp/ws/ws1/agent1/workdir/.context_timeline",
-      "dm:c1",
+      "c1",
       "opencode",
     );
     expect(mockBackendExecute).toHaveBeenCalledWith(

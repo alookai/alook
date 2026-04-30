@@ -423,6 +423,7 @@ export const SendEmailRequestSchema = z.object({
   attachments: z.array(EmailAttachmentSchema).optional(),
   customAccountId: z.string().optional(),
   from: z.string().email().optional(),
+  conversationId: z.string().optional(),
 });
 export type SendEmailRequest = z.infer<typeof SendEmailRequestSchema>;
 

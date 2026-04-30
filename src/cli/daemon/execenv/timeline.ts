@@ -218,55 +218,17 @@ export function createTimelineEntry(
   };
 }
 
-const DEFAULT_RESUME_MAX_AGE_MS = 3 * 60 * 60 * 1000; // 3 hours
-
-export function findResumableSessionId(
-  timelineDir: string,
-  type: string,
-  provider: string,
-  maxAgeMs: number = DEFAULT_RESUME_MAX_AGE_MS,
-): string | null {
-  const now = new Date();
-  const cutoff = new Date(now.getTime() - maxAgeMs);
-
-  const daysToScan = Math.ceil(maxAgeMs / 86_400_000) + 1;
-  const entries: ContextTimelineEntry[] = [];
-  for (const filename of recentFilenames(daysToScan)) {
-    entries.push(...readJsonl(join(timelineDir, filename)));
-  }
-
-  entries.sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
-
-  for (const entry of entries) {
-    if (
-      entry.status !== "running" &&
-      entry.type === type &&
-      entry.provider === provider &&
-      entry.session_id &&
-      new Date(entry.datetime) >= cutoff
-    ) {
-      return entry.session_id;
-    }
-  }
-
-  return null;
-}
-
-const EMAIL_RESUME_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+const RESUME_MAX_AGE_MS = 72 * 60 * 60 * 1000; // 72 hours
 
 export function findResumableSessionByContextKey(
   timelineDir: string,
   contextKey: string,
   provider: string,
 ): string | null {
-  const maxAgeMs = contextKey.startsWith("email:")
-    ? EMAIL_RESUME_MAX_AGE_MS
-    : DEFAULT_RESUME_MAX_AGE_MS;
   const now = new Date();
-  const cutoff = new Date(now.getTime() - maxAgeMs);
-  const daysToScan = Math.ceil(maxAgeMs / 86_400_000) + 1;
+  const cutoff = new Date(now.getTime() - RESUME_MAX_AGE_MS);
   const entries: ContextTimelineEntry[] = [];
-  for (const filename of recentFilenames(daysToScan)) {
+  for (const filename of recentFilenames(7)) {
     entries.push(...readJsonl(join(timelineDir, filename)));
   }
   entries.sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());

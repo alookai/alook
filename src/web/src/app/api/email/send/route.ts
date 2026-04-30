@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, DEV_EMAIL_WORKER_URL, DEV_WEB_URL, SendEmailRequestSchema, parseEmailHandle, buildMimeMessage } from "@alook/shared";
+import { queries, DEV_EMAIL_WORKER_URL, DEV_WEB_URL, SendEmailRequestSchema, parseEmailHandle, buildMimeMessage, extractThreadId, buildEmailMapKey } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
@@ -49,6 +49,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       return writeError("agent has no email handle configured", 400);
     }
     fromAddress = `${agent.emailHandle}@alook.ai`;
+  }
+
+  let validatedConversationId: string | undefined;
+  if (body.conversationId) {
+    const conv = await queries.conversation.getConversation(db, body.conversationId, ws.workspaceId);
+    if (conv) validatedConversationId = body.conversationId;
   }
 
   const attachments = body.attachments ?? [];
@@ -133,6 +139,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         direction: "outbound",
       });
 
+      if (validatedConversationId) {
+        const threadId = extractThreadId(body.references, body.inReplyTo, messageId);
+        if (threadId) {
+          await queries.conversationMap.createMapping(db, {
+            key: buildEmailMapKey(body.agentId, threadId),
+            workspaceId: ws.workspaceId,
+            conversationId: validatedConversationId,
+          });
+        }
+      }
+
       return writeJSON(emailToResponse(email));
     }
   }
@@ -192,6 +209,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     attachments: JSON.stringify(attachments),
     direction: "outbound",
   });
+
+  if (validatedConversationId && emailResult.messageId) {
+    const threadId = extractThreadId(body.references, body.inReplyTo, emailResult.messageId);
+    if (threadId) {
+      await queries.conversationMap.createMapping(db, {
+        key: buildEmailMapKey(body.agentId, threadId),
+        workspaceId: ws.workspaceId,
+        conversationId: validatedConversationId,
+      });
+    }
+  }
 
   return writeJSON(emailToResponse(email));
 });

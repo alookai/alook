@@ -93,7 +93,7 @@ export interface CalendarEvent {
 export interface Message {
   id: string;
   conversation_id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "event";
   content: string;
   task_id: string | null;
   attachment_ids: string[] | null;
@@ -235,6 +235,7 @@ export type WsMessage =
   | { type: "followup.created"; conversationId: string; message: Message }
   | { type: "followup.deleted"; conversationId: string; messageId: string }
   | { type: "followup.dispatch_failed"; conversationId: string; messageId: string; error: string }
+  | { type: "conversation.message"; conversationId: string; message: Message }
   | { type: "workspace.files"; agentId: string; requestId: string; requestType: "tree" | "read"; result: WorkspaceFileResult }
 
 export interface WorkspaceFileResult {

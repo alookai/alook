@@ -3,8 +3,8 @@ import type { Message, Artifact } from "@alook/shared";
 import { sortMessages, mergeMessages, buildTimeline } from "./agent-chat-view";
 import type { NapMarker } from "./agent-chat-view";
 
-function msg(id: string, created_at: string, role: "user" | "assistant" = "user", content = ""): Message {
-  return { id, conversation_id: "conv1", role, content, task_id: null, created_at };
+function msg(id: string, created_at: string, role: "user" | "assistant" | "event" = "user", content = ""): Message {
+  return { id, conversation_id: "conv1", role, content, task_id: null, attachment_ids: null, created_at };
 }
 
 describe("sortMessages", () => {
@@ -286,5 +286,17 @@ describe("buildTimeline", () => {
 
   it("returns empty timeline when all inputs are empty", () => {
     expect(buildTimeline([], [], [])).toEqual([]);
+  });
+
+  it("handles mixed roles (user + assistant + event) without errors", () => {
+    const msgs = [
+      msg("m1", "2024-01-01T00:00:00Z", "user", "hello"),
+      msg("m2", "2024-01-02T00:00:00Z", "event", "New email from sender@test.com: Subject"),
+      msg("m3", "2024-01-03T00:00:00Z", "assistant", "response"),
+    ];
+    const result = buildTimeline(msgs, [], []);
+    expect(result).toHaveLength(3);
+    expect(result.map((i) => i.data.id)).toEqual(["m1", "m2", "m3"]);
+    expect(result.every((i) => i.kind === "message")).toBe(true);
   });
 });
