@@ -295,7 +295,7 @@ describe("daemon session runner dispatch", () => {
     expect(input.model).toBe("opus");
     expect(input.serverURL).toBe("http://localhost:8080");
     expect(input.token).toBe("al_test_token");
-    expect(input.workspacesRoot).toBe("/tmp/ws");
+    expect(input.workspacesRoot).toBe(path.join("/tmp", "ws"));
     expect(input.agentTimeout).toBe(7200000);
     expect(input.messageInactivityTimeout).toBe(300000);
   });
@@ -996,7 +996,7 @@ describe("pruneSessionRunnerLogs", () => {
     const files = Array.from({ length: 505 }, (_, i) => `${i}.log`);
     mockReaddirSync.mockReturnValue(files);
     mockStatSync.mockImplementation((p: string) => {
-      const name = p.split("/").pop()!;
+      const name = path.basename(p);
       const idx = parseInt(name);
       return { mtimeMs: idx * 1000 };
     });
