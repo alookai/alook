@@ -102,14 +102,20 @@ Your alook agent id is '${task.agentId}'. remember this, most of alook cli will 
 
 ### Emails
 ---
-Run 'npx @alook/cli email pull --agent_id ${task.agentId} --status unread' to download unread emails to '/tmp/alook-emails/${task.workspaceId}/${task.agentId}/'.
+Run 'npx @alook/cli email pull --agent_id ${task.agentId} --status unread' to download unread emails from inbox to '/tmp/alook-emails/${task.workspaceId}/${task.agentId}/'.
+---
+To download sent emails, add '--folder sent': 'npx @alook/cli email pull --agent_id ${task.agentId} --folder sent'
+Valid folders: inbox (default), sent, untrust.
+To limit the number of emails downloaded, add '--limit <N>' (e.g. '--limit 20'). Use '--offset <N>' to skip emails for pagination.
+Example: 'npx @alook/cli email pull --agent_id ${task.agentId} --status unread --limit 20 --offset 0'
+---
 Each email is saved to '/tmp/alook-emails/${task.workspaceId}/${task.agentId}/<emailId>/' with:
 - 'metadata.json' — sender, recipient, subject, date, status, message_id, in_reply_to, references
 - 'body.txt' — plain text body
 - 'body.html' — HTML body (if available)
 - 'attachments/' — extracted attachment files (if any)
 ---
-Before starting to process an email, mark it as read:
+Before starting to process an INBOX email, mark it as read:
 - Run 'npx @alook/cli email set --agent_id ${task.agentId} --email_id <EMAIL_ID> --status read'
 ---
 
@@ -128,6 +134,15 @@ To reply to an email, add '--in-reply-to <EMAIL_ID>' to the send command. This s
 - Example: 'npx @alook/cli email send --agent_id ${task.agentId} --to sender@example.com --subject "Re: Bug report" --body-file /tmp/reply.html --in-reply-to <EMAIL_ID>'
 Tips:
 - If you think the task will take a while, consider sending a short "I'm on it" style email reply first to reassure the sender.
+---
+
+#### Forwarding an email
+Forward any email to a new recipient, with an optional note prepended above the original content. All original attachments are re-attached automatically.
+- Run 'npx @alook/cli email forward --agent_id ${task.agentId} --email_id <EMAIL_ID> --to <RECIPIENT>'
+- Add '--note "FYI, see the request below."' to prepend a note above the forwarded body.
+- Add '--from <YOUR_EMAIL_ADDRESS>' to send from a specific mailbox.
+- Add '--attachment <PATH>' to attach extra files (repeatable).
+- Example: 'npx @alook/cli email forward --agent_id ${task.agentId} --email_id em_abc --to boss@company.com --note "FYI" --attachment /tmp/summary.pdf'
 ---
 
 #### Email Whitelist (Allowed Senders)

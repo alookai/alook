@@ -31,17 +31,28 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const address = req.nextUrl.searchParams.get("address");
   const agentEmail = address || (agent.emailHandle ? `${agent.emailHandle}@alook.ai` : "");
 
+  const limitParam = req.nextUrl.searchParams.get("limit");
+  const offsetParam = req.nextUrl.searchParams.get("offset");
+  let pagination: { limit: number; offset: number } | undefined;
+  if (limitParam != null) {
+    const limit = parseInt(limitParam, 10);
+    if (isNaN(limit) || limit < 1 || limit > 100) return writeError("limit must be an integer between 1 and 100", 400);
+    const offset = offsetParam != null ? parseInt(offsetParam, 10) : 0;
+    if (isNaN(offset) || offset < 0) return writeError("offset must be a non-negative integer", 400);
+    pagination = { limit, offset };
+  }
+
   let emailList;
   if (folder === "inbox" && agentEmail) {
-    emailList = await queries.email.getTrustedEmails(db, agentId, agentEmail, ws.workspaceId, status);
+    emailList = await queries.email.getTrustedEmails(db, agentId, agentEmail, ws.workspaceId, status, pagination);
   } else if (folder === "sent" && agentEmail) {
-    emailList = await queries.email.getSentEmails(db, agentId, agentEmail, ws.workspaceId, status);
+    emailList = await queries.email.getSentEmails(db, agentId, agentEmail, ws.workspaceId, status, pagination);
   } else if (folder === "untrust" && agentEmail) {
-    emailList = await queries.email.getRejectedEmails(db, agentId, agentEmail, ws.workspaceId, status);
+    emailList = await queries.email.getRejectedEmails(db, agentId, agentEmail, ws.workspaceId, status, pagination);
   } else if (folder === "all") {
-    emailList = await queries.email.getEmailsByAgent(db, agentId, ws.workspaceId, status);
+    emailList = await queries.email.getEmailsByAgent(db, agentId, ws.workspaceId, status, pagination);
   } else {
-    emailList = await queries.email.getInboxEmails(db, agentId, agentEmail, ws.workspaceId, status);
+    emailList = await queries.email.getInboxEmails(db, agentId, agentEmail, ws.workspaceId, status, pagination);
   }
 
   return writeJSON(emailList.map(emailToResponse));

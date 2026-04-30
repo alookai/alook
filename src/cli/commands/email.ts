@@ -26,6 +26,7 @@ interface EmailResponse {
 }
 
 const VALID_STATUSES = ["unread", "read", "archived", "sent"];
+const VALID_FOLDERS = ["inbox", "sent", "untrust"];
 const EMAIL_BASE = "/tmp/alook-emails";
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -132,6 +133,9 @@ export function emailCommand(): Command {
     .description("Download and parse emails to /tmp/alook-emails/{workspaceId}/{agentId}/")
     .requiredOption("--agent_id <id>", "Agent ID")
     .option("--status <status>", "Filter by status (unread, read, archived)")
+    .option("--folder <folder>", "Email folder (inbox, sent, untrust)")
+    .option("--limit <n>", "Maximum number of emails to download")
+    .option("--offset <n>", "Number of emails to skip")
     .option("--workspace <id>", "Workspace ID")
     .option("--json", "Output as JSON instead of files")
     .action(async (opts, command) => {
@@ -145,11 +149,37 @@ export function emailCommand(): Command {
         process.exit(1);
       }
 
+      if (opts.folder && !VALID_FOLDERS.includes(opts.folder)) {
+        console.error(
+          `Error: invalid folder "${opts.folder}", must be one of: ${VALID_FOLDERS.join(", ")}`,
+        );
+        process.exit(1);
+      }
+
+      if (opts.limit != null) {
+        const n = parseInt(opts.limit, 10);
+        if (isNaN(n) || n < 1 || n > 100) {
+          console.error(`Error: --limit must be an integer between 1 and 100`);
+          process.exit(1);
+        }
+      }
+
+      if (opts.offset != null) {
+        const n = parseInt(opts.offset, 10);
+        if (isNaN(n) || n < 0) {
+          console.error(`Error: --offset must be a non-negative integer`);
+          process.exit(1);
+        }
+      }
+
       const emailDir_base = join(EMAIL_BASE, workspaceId, opts.agent_id);
 
       try {
         let query = `/api/email?agentId=${opts.agent_id}`;
         if (opts.status) query += `&status=${opts.status}`;
+        if (opts.folder) query += `&folder=${opts.folder}`;
+        if (opts.limit) query += `&limit=${opts.limit}`;
+        if (opts.offset) query += `&offset=${opts.offset}`;
 
         const emails = await client.getJSON<EmailResponse[]>(query);
 
@@ -387,6 +417,167 @@ export function emailCommand(): Command {
         console.log(`Sent email to ${res.to_email} (id: ${res.id})`);
       } catch (err) {
         console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        process.exit(1);
+      }
+    });
+
+  cmd
+    .command("forward")
+    .description("Forward an email to a new recipient")
+    .requiredOption("--agent_id <id>", "Agent ID")
+    .requiredOption("--email_id <id>", "Source email ID to forward")
+    .requiredOption("--to <addr>", "Recipient email address")
+    .option("--from <addr>", "Send from a specific email address (custom mailbox)")
+    .option("--note <text>", "Text to prepend above the forwarded message")
+    .option(
+      "--attachment <path>",
+      "Extra file to attach (repeatable)",
+      collectRepeated,
+      [] as string[],
+    )
+    .option("--workspace <id>", "Workspace ID")
+    .action(async (opts, command) => {
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, {
+        workspace: opts.workspace,
+        agentId: opts.agent_id,
+      });
+      const client = new APIClient(serverUrl, token, workspaceId);
+
+      try {
+        // 1. Fetch original email metadata
+        let original: EmailResponse;
+        try {
+          original = await client.getJSON<EmailResponse>(`/api/email/${opts.email_id}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("404")) {
+            console.error(`Error: email ${opts.email_id} not found`);
+            process.exit(1);
+          }
+          throw err;
+        }
+
+        // 2. Fetch raw MIME
+        let rawMime: string;
+        try {
+          rawMime = await client.getText(`/api/email/${opts.email_id}/raw`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("404")) {
+            console.error(`Error: raw email body not available for ${opts.email_id}`);
+            process.exit(1);
+          }
+          throw err;
+        }
+
+        // 3. Parse MIME to extract body and attachments
+        const parsed = await new PostalMime().parse(rawMime);
+
+        // 4. Re-upload original attachments
+        const attachments: AttachmentDescriptor[] = [];
+        if (parsed.attachments && parsed.attachments.length > 0) {
+          for (const att of parsed.attachments) {
+            const filename = att.filename || "attachment.bin";
+            const contentType = att.mimeType || "application/octet-stream";
+            const content = att.content;
+            let buf: Buffer;
+            if (typeof content === "string") {
+              buf = Buffer.from(content, "base64");
+            } else if (content instanceof ArrayBuffer) {
+              buf = Buffer.from(new Uint8Array(content));
+            } else {
+              buf = Buffer.from(content as Uint8Array);
+            }
+            const form = new FormData();
+            form.append(
+              "file",
+              new Blob([new Uint8Array(buf)], { type: contentType }),
+              filename,
+            );
+            const uploaded = await client.postMultipart<AttachmentDescriptor>(
+              "/api/email/upload",
+              form,
+            );
+            attachments.push({
+              key: uploaded.key,
+              filename: uploaded.filename,
+              size: uploaded.size ?? buf.byteLength,
+              contentType: uploaded.contentType ?? contentType,
+            });
+          }
+        }
+
+        // 5. Upload extra --attachment files
+        const extraPaths: string[] = opts.attachment ?? [];
+        for (const path of extraPaths) {
+          let bytes: Buffer;
+          let size: number;
+          try {
+            bytes = readFileSync(path);
+            size = statSync(path).size;
+          } catch (err) {
+            console.error(
+              `Error: cannot read attachment "${path}": ${err instanceof Error ? err.message : err}`,
+            );
+            process.exit(1);
+          }
+          const filename = basename(path);
+          const contentType = guessContentType(filename);
+          const form = new FormData();
+          form.append(
+            "file",
+            new Blob([new Uint8Array(bytes)], { type: contentType }),
+            filename,
+          );
+          const uploaded = await client.postMultipart<AttachmentDescriptor>(
+            "/api/email/upload",
+            form,
+          );
+          attachments.push({
+            key: uploaded.key,
+            filename: uploaded.filename,
+            size: uploaded.size ?? size,
+            contentType: uploaded.contentType ?? contentType,
+          });
+        }
+
+        // 6. Compose forwarded HTML body
+        let htmlBody = "";
+        if (opts.note) {
+          htmlBody += `<p>${opts.note}</p>`;
+        }
+        htmlBody += `<br><br>---------- Forwarded message ----------<br>`;
+        htmlBody += `From: ${original.from_email}<br>`;
+        htmlBody += `Date: ${original.created_at}<br>`;
+        htmlBody += `Subject: ${original.subject}<br>`;
+        htmlBody += `To: ${original.to_email}<br><br>`;
+        if (parsed.html) {
+          htmlBody += parsed.html;
+        } else if (parsed.text) {
+          htmlBody += `<pre>${parsed.text}</pre>`;
+        }
+
+        // 7. Build subject
+        const subject = /^fwd:/i.test(original.subject)
+          ? original.subject
+          : `Fwd: ${original.subject}`;
+
+        // 8. Send
+        const conversationId = process.env.ALOOK_CONVERSATION_ID;
+        const res = await client.postJSON<SendResponse>("/api/email/send", {
+          agentId: opts.agent_id,
+          to: opts.to,
+          subject,
+          htmlBody,
+          attachments,
+          ...(opts.from ? { from: opts.from } : {}),
+          ...(conversationId ? { conversationId } : {}),
+        });
+        console.log(`Forwarded email to ${res.to_email} (id: ${res.id})`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg === "__exit__") throw err;
+        console.error(`Error: ${msg}`);
         process.exit(1);
       }
     });

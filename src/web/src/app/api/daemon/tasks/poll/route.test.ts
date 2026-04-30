@@ -204,6 +204,7 @@ describe("POST /api/daemon/tasks/poll", () => {
       email_handle: null,
       email_addresses: [],
       user_email: "u@t.com",
+      user_name: null,
     });
   });
 
@@ -616,7 +617,7 @@ describe("POST /api/daemon/tasks/poll", () => {
 
     expect(body.tasks[0].sender).toEqual({ name: "Gus", email: "gus@ex.com", is_owner: false });
     expect(body.tasks[1].sender).toEqual({ name: "Gus", email: "gus@ex.com", is_owner: false });
-    expect(mockGetUser).toHaveBeenCalledTimes(1);
+    expect(mockGetUser).toHaveBeenCalledTimes(2);
   });
 
   // --- Workspace file requests ---

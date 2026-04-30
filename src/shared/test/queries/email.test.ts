@@ -40,17 +40,17 @@ describe("email query module exports", () => {
 });
 
 describe("email query function signatures", () => {
-  it("getEmailsByAgent accepts optional status parameter", () => {
-    // The function should accept 4 parameters (db, agentId, workspaceId, status?)
-    expect(emailQueries.getEmailsByAgent.length).toBeLessThanOrEqual(4);
+  it("getEmailsByAgent accepts optional status and pagination parameters", () => {
+    // (db, agentId, workspaceId, status?, pagination?)
+    expect(emailQueries.getEmailsByAgent.length).toBeLessThanOrEqual(5);
   });
 
-  it("getInboxEmails accepts optional status parameter", () => {
-    expect(emailQueries.getInboxEmails.length).toBeLessThanOrEqual(5);
+  it("getInboxEmails accepts optional status and pagination parameters", () => {
+    expect(emailQueries.getInboxEmails.length).toBeLessThanOrEqual(6);
   });
 
-  it("getSentEmails accepts optional status parameter", () => {
-    expect(emailQueries.getSentEmails.length).toBeLessThanOrEqual(5);
+  it("getSentEmails accepts optional status and pagination parameters", () => {
+    expect(emailQueries.getSentEmails.length).toBeLessThanOrEqual(6);
   });
 
   it("getRejectedEmails requires agentEmail parameter to exclude outbound", () => {

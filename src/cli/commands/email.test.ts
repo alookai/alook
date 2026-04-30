@@ -4,10 +4,11 @@ import { join } from "path";
 import PostalMime from "postal-mime";
 import { Command } from "commander";
 
-const { postMultipartMock, postJSONMock, getJSONMock, deleteJSONMock } = vi.hoisted(() => ({
+const { postMultipartMock, postJSONMock, getJSONMock, getTextMock, deleteJSONMock } = vi.hoisted(() => ({
   postMultipartMock: vi.fn(),
   postJSONMock: vi.fn(),
   getJSONMock: vi.fn(),
+  getTextMock: vi.fn(),
   deleteJSONMock: vi.fn(),
 }));
 
@@ -21,6 +22,9 @@ vi.mock("../lib/client.js", () => ({
     }
     getJSON(...a: unknown[]) {
       return getJSONMock(...a);
+    }
+    getText(...a: unknown[]) {
+      return getTextMock(...a);
     }
     deleteJSON(...a: unknown[]) {
       return deleteJSONMock(...a);
@@ -472,6 +476,445 @@ describe("email send behavior", () => {
     expect(err.join("\n")).toContain("is empty");
     expect(postMultipartMock).not.toHaveBeenCalled();
     expect(postJSONMock).not.toHaveBeenCalled();
+  });
+});
+
+// --- Forward tests ---
+
+async function runForward(args: string[]): Promise<{ out: string[]; err: string[]; exitCode: number | null }> {
+  const out: string[] = [];
+  const err: string[] = [];
+  let exitCode: number | null = null;
+  const logSpy = vi.spyOn(console, "log").mockImplementation((m: unknown) => {
+    out.push(String(m));
+  });
+  const errSpy = vi.spyOn(console, "error").mockImplementation((m: unknown) => {
+    err.push(String(m));
+  });
+  const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+    exitCode = code ?? 0;
+    throw new Error("__exit__");
+  }) as never);
+  try {
+    const program = new Command()
+      .name("alook")
+      .option("--server <url>", "Server URL")
+      .option("--profile <name>", "Profile name");
+    program.addCommand(emailCommand());
+    await program.parseAsync(["email", "forward", ...args], { from: "user" });
+  } catch (e) {
+    if (!(e instanceof Error) || e.message !== "__exit__") throw e;
+  } finally {
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+    exitSpy.mockRestore();
+  }
+  return { out, err, exitCode };
+}
+
+async function runPull(args: string[]): Promise<{ out: string[]; err: string[]; exitCode: number | null }> {
+  const out: string[] = [];
+  const err: string[] = [];
+  let exitCode: number | null = null;
+  const logSpy = vi.spyOn(console, "log").mockImplementation((m: unknown) => {
+    out.push(String(m));
+  });
+  const errSpy = vi.spyOn(console, "error").mockImplementation((m: unknown) => {
+    err.push(String(m));
+  });
+  const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+    exitCode = code ?? 0;
+    throw new Error("__exit__");
+  }) as never);
+  try {
+    const program = new Command()
+      .name("alook")
+      .option("--server <url>", "Server URL")
+      .option("--profile <name>", "Profile name");
+    program.addCommand(emailCommand());
+    await program.parseAsync(["email", "pull", ...args], { from: "user" });
+  } catch (e) {
+    if (!(e instanceof Error) || e.message !== "__exit__") throw e;
+  } finally {
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+    exitSpy.mockRestore();
+  }
+  return { out, err, exitCode };
+}
+
+const FORWARD_TMP = "/tmp/alook-email-forward-test";
+
+function makeOriginalEmail(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "em_orig",
+    agent_id: "ag_1",
+    from_email: "sender@example.com",
+    to_email: "agent@alook.ai",
+    subject: "Original Subject",
+    r2_key: "emails/em_orig",
+    is_whitelisted: true,
+    forwarded: false,
+    message_id: "<msg1@example.com>",
+    in_reply_to: "",
+    references: "",
+    html_body: "<p>Hello</p>",
+    attachments: [],
+    status: "read",
+    created_at: "2026-04-20T10:00:00Z",
+    ...overrides,
+  };
+}
+
+function makeRawMime(opts: { html?: string; text?: string; attachment?: boolean } = {}) {
+  if (opts.attachment) {
+    const boundary = "----=_Part_fwd";
+    const parts = [];
+    if (opts.html) {
+      parts.push(
+        `--${boundary}\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${opts.html}`,
+      );
+    } else if (opts.text) {
+      parts.push(
+        `--${boundary}\r\nContent-Type: text/plain\r\n\r\n${opts.text}`,
+      );
+    }
+    parts.push(
+      `--${boundary}\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename="original.pdf"\r\nContent-Transfer-Encoding: base64\r\n\r\n${Buffer.from("pdf-content").toString("base64")}`,
+    );
+    return `From: sender@example.com\r\nTo: agent@alook.ai\r\nSubject: Original Subject\r\nContent-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n${parts.join("\r\n")}\r\n--${boundary}--`;
+  }
+  if (opts.html) {
+    return `From: sender@example.com\r\nTo: agent@alook.ai\r\nSubject: Original Subject\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${opts.html}`;
+  }
+  return `From: sender@example.com\r\nTo: agent@alook.ai\r\nSubject: Original Subject\r\nContent-Type: text/plain\r\n\r\n${opts.text || "Hello world"}`;
+}
+
+describe("email forward subcommand shape", () => {
+  const cmd = emailCommand();
+  const forward = cmd.commands.find((c) => c.name() === "forward")!;
+
+  it("is registered", () => {
+    expect(forward).toBeDefined();
+  });
+
+  it("requires --agent_id, --email_id, --to", () => {
+    const opts = (forward as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
+    const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
+    expect(mandatory).toContain("--agent_id");
+    expect(mandatory).toContain("--email_id");
+    expect(mandatory).toContain("--to");
+  });
+
+  it("accepts --from, --note, --attachment, --workspace as optional", () => {
+    const opts = (forward as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
+    const longs = opts.map((o) => o.long);
+    const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
+    expect(longs).toContain("--from");
+    expect(longs).toContain("--note");
+    expect(longs).toContain("--attachment");
+    expect(longs).toContain("--workspace");
+    expect(mandatory).not.toContain("--from");
+    expect(mandatory).not.toContain("--note");
+    expect(mandatory).not.toContain("--attachment");
+    expect(mandatory).not.toContain("--workspace");
+  });
+});
+
+describe("email forward behavior", () => {
+  beforeEach(() => {
+    mkdirSync(FORWARD_TMP, { recursive: true });
+    postMultipartMock.mockReset();
+    postJSONMock.mockReset();
+    getJSONMock.mockReset();
+    getTextMock.mockReset();
+  });
+
+  afterEach(() => {
+    rmSync(FORWARD_TMP, { recursive: true, force: true });
+  });
+
+  it("fetches original email, parses MIME, re-uploads attachments, and sends", async () => {
+    getJSONMock.mockResolvedValueOnce(makeOriginalEmail());
+    getTextMock.mockResolvedValueOnce(makeRawMime({ html: "<p>Hello</p>", attachment: true }));
+    postMultipartMock.mockResolvedValueOnce({
+      key: "emails/drafts/x/original.pdf",
+      filename: "original.pdf",
+      size: 11,
+      contentType: "application/pdf",
+    });
+    postJSONMock.mockResolvedValueOnce({ id: "em_fwd1", to_email: "boss@company.com" });
+
+    const { out, exitCode } = await runForward([
+      "--agent_id", "ag_1",
+      "--email_id", "em_orig",
+      "--to", "boss@company.com",
+    ]);
+
+    expect(exitCode).toBeNull();
+    expect(getJSONMock).toHaveBeenCalledWith("/api/email/em_orig");
+    expect(getTextMock).toHaveBeenCalledWith("/api/email/em_orig/raw");
+    expect(postMultipartMock).toHaveBeenCalledTimes(1);
+    expect(postJSONMock).toHaveBeenCalledTimes(1);
+
+    const payload = postJSONMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload.subject).toBe("Fwd: Original Subject");
+    expect((payload.htmlBody as string)).toContain("---------- Forwarded message ----------");
+    expect((payload.htmlBody as string)).toContain("sender@example.com");
+    expect((payload.attachments as unknown[]).length).toBe(1);
+    expect(out.join("\n")).toContain("Forwarded email to boss@company.com");
+  });
+
+  it("prepends note when --note is provided", async () => {
+    getJSONMock.mockResolvedValueOnce(makeOriginalEmail());
+    getTextMock.mockResolvedValueOnce(makeRawMime({ html: "<p>Content</p>" }));
+    postJSONMock.mockResolvedValueOnce({ id: "em_fwd2", to_email: "boss@company.com" });
+
+    const { exitCode } = await runForward([
+      "--agent_id", "ag_1",
+      "--email_id", "em_orig",
+      "--to", "boss@company.com",
+      "--note", "FYI see below",
+    ]);
+
+    expect(exitCode).toBeNull();
+    const payload = postJSONMock.mock.calls[0][1] as Record<string, unknown>;
+    const body = payload.htmlBody as string;
+    expect(body).toMatch(/^<p>FYI see below<\/p>/);
+    expect(body).toContain("---------- Forwarded message ----------");
+  });
+
+  it("has no extra prefix without --note", async () => {
+    getJSONMock.mockResolvedValueOnce(makeOriginalEmail());
+    getTextMock.mockResolvedValueOnce(makeRawMime({ html: "<p>Content</p>" }));
+    postJSONMock.mockResolvedValueOnce({ id: "em_fwd3", to_email: "boss@company.com" });
+
+    const { exitCode } = await runForward([
+      "--agent_id", "ag_1",
+      "--email_id", "em_orig",
+      "--to", "boss@company.com",
+    ]);
+
+    expect(exitCode).toBeNull();
+    const payload = postJSONMock.mock.calls[0][1] as Record<string, unknown>;
+    const body = payload.htmlBody as string;
+    expect(body).not.toMatch(/^<p>/);
+    expect(body).toMatch(/^<br><br>---------- Forwarded message ----------/);
+  });
+
+  it("handles plain-text-only original email", async () => {
+    getJSONMock.mockResolvedValueOnce(makeOriginalEmail());
+    getTextMock.mockResolvedValueOnce(makeRawMime({ text: "Plain text body" }));
+    postJSONMock.mockResolvedValueOnce({ id: "em_fwd4", to_email: "boss@company.com" });
+
+    const { exitCode } = await runForward([
+      "--agent_id", "ag_1",
+      "--email_id", "em_orig",
+      "--to", "boss@company.com",
+    ]);
+
+    expect(exitCode).toBeNull();
+    const payload = postJSONMock.mock.calls[0][1] as Record<string, unknown>;
+    const body = payload.htmlBody as string;
+    expect(body).toContain("<pre>Plain text body");
+    expect(body).toContain("</pre>");
+  });
+
+  it("preserves subject prefix — no double Fwd:", async () => {
+    getJSONMock.mockResolvedValueOnce(makeOriginalEmail({ subject: "Fwd: Already forwarded" }));
+    getTextMock.mockResolvedValueOnce(makeRawMime({ html: "<p>Hi</p>" }));
+    postJSONMock.mockResolvedValueOnce({ id: "em_fwd5", to_email: "boss@company.com" });
+
+    const { exitCode } = await runForward([
+      "--agent_id", "ag_1",
+      "--email_id", "em_orig",
+      "--to", "boss@company.com",
+    ]);
+
+    expect(exitCode).toBeNull();
+    const payload = postJSONMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload.subject).toBe("Fwd: Already forwarded");
+  });
+
+  it("passes --from to send payload when provided", async () => {
+    getJSONMock.mockResolvedValueOnce(makeOriginalEmail());
+    getTextMock.mockResolvedValueOnce(makeRawMime({ html: "<p>Hi</p>" }));
+    postJSONMock.mockResolvedValueOnce({ id: "em_fwd6", to_email: "boss@company.com" });
+
+    const { exitCode } = await runForward([
+      "--agent_id", "ag_1",
+      "--email_id", "em_orig",
+      "--to", "boss@company.com",
+      "--from", "custom@company.com",
+    ]);
+
+    expect(exitCode).toBeNull();
+    const payload = postJSONMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload.from).toBe("custom@company.com");
+  });
+
+  it("adds extra --attachment files alongside original attachments", async () => {
+    getJSONMock.mockResolvedValueOnce(makeOriginalEmail());
+    getTextMock.mockResolvedValueOnce(makeRawMime({ html: "<p>Hi</p>", attachment: true }));
+    postMultipartMock
+      .mockResolvedValueOnce({ key: "emails/drafts/x/original.pdf", filename: "original.pdf", size: 11, contentType: "application/pdf" })
+      .mockResolvedValueOnce({ key: "emails/drafts/y/extra.pdf", filename: "extra.pdf", size: 5, contentType: "application/pdf" });
+    postJSONMock.mockResolvedValueOnce({ id: "em_fwd7", to_email: "boss@company.com" });
+
+    const extraPath = join(FORWARD_TMP, "extra.pdf");
+    writeFileSync(extraPath, "extra");
+
+    const { exitCode } = await runForward([
+      "--agent_id", "ag_1",
+      "--email_id", "em_orig",
+      "--to", "boss@company.com",
+      "--attachment", extraPath,
+    ]);
+
+    expect(exitCode).toBeNull();
+    expect(postMultipartMock).toHaveBeenCalledTimes(2);
+    const payload = postJSONMock.mock.calls[0][1] as Record<string, unknown>;
+    expect((payload.attachments as unknown[]).length).toBe(2);
+  });
+
+  it("errors when original email not found (404)", async () => {
+    getJSONMock.mockRejectedValueOnce(new Error("HTTP 404: not found"));
+
+    const { err, exitCode } = await runForward([
+      "--agent_id", "ag_1",
+      "--email_id", "em_missing",
+      "--to", "boss@company.com",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(err.join("\n")).toContain("not found");
+  });
+
+  it("errors when raw MIME not available (404)", async () => {
+    getJSONMock.mockResolvedValueOnce(makeOriginalEmail());
+    getTextMock.mockRejectedValueOnce(new Error("HTTP 404: not found"));
+
+    const { err, exitCode } = await runForward([
+      "--agent_id", "ag_1",
+      "--email_id", "em_orig",
+      "--to", "boss@company.com",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(err.join("\n")).toContain("raw email body not available");
+  });
+});
+
+describe("email pull with --folder", () => {
+  beforeEach(() => {
+    getJSONMock.mockReset();
+    getTextMock.mockReset();
+  });
+
+  it("passes folder param to API when --folder sent", async () => {
+    getJSONMock.mockResolvedValueOnce([]);
+
+    const { exitCode } = await runPull(["--agent_id", "ag_1", "--folder", "sent"]);
+
+    expect(exitCode).toBeNull();
+    expect(getJSONMock).toHaveBeenCalledWith("/api/email?agentId=ag_1&folder=sent");
+  });
+
+  it("rejects invalid --folder value", async () => {
+    const { err, exitCode } = await runPull(["--agent_id", "ag_1", "--folder", "invalid"]);
+
+    expect(exitCode).toBe(1);
+    expect(err.join("\n")).toContain("invalid folder");
+    expect(err.join("\n")).toContain("inbox, sent, untrust");
+  });
+
+  it("does not include folder param without --folder (preserves default)", async () => {
+    getJSONMock.mockResolvedValueOnce([]);
+
+    const { exitCode } = await runPull(["--agent_id", "ag_1"]);
+
+    expect(exitCode).toBeNull();
+    expect(getJSONMock).toHaveBeenCalledWith("/api/email?agentId=ag_1");
+  });
+});
+
+describe("email pull with --limit and --offset", () => {
+  beforeEach(() => {
+    getJSONMock.mockReset();
+    getTextMock.mockReset();
+  });
+
+  it("passes limit param to API when --limit 10", async () => {
+    getJSONMock.mockResolvedValueOnce([]);
+
+    const { exitCode } = await runPull(["--agent_id", "ag_1", "--limit", "10"]);
+
+    expect(exitCode).toBeNull();
+    expect(getJSONMock).toHaveBeenCalledWith("/api/email?agentId=ag_1&limit=10");
+  });
+
+  it("passes both limit and offset to API", async () => {
+    getJSONMock.mockResolvedValueOnce([]);
+
+    const { exitCode } = await runPull(["--agent_id", "ag_1", "--limit", "10", "--offset", "20"]);
+
+    expect(exitCode).toBeNull();
+    expect(getJSONMock).toHaveBeenCalledWith("/api/email?agentId=ag_1&limit=10&offset=20");
+  });
+
+  it("rejects --limit 0", async () => {
+    const { err, exitCode } = await runPull(["--agent_id", "ag_1", "--limit", "0"]);
+
+    expect(exitCode).toBe(1);
+    expect(err.join("\n")).toContain("--limit must be an integer between 1 and 100");
+  });
+
+  it("rejects negative --limit", async () => {
+    const { err, exitCode } = await runPull(["--agent_id", "ag_1", "--limit", "-5"]);
+
+    expect(exitCode).toBe(1);
+    expect(err.join("\n")).toContain("--limit must be an integer between 1 and 100");
+  });
+
+  it("rejects non-numeric --limit", async () => {
+    const { err, exitCode } = await runPull(["--agent_id", "ag_1", "--limit", "abc"]);
+
+    expect(exitCode).toBe(1);
+    expect(err.join("\n")).toContain("--limit must be an integer between 1 and 100");
+  });
+
+  it("rejects --limit over 100", async () => {
+    const { err, exitCode } = await runPull(["--agent_id", "ag_1", "--limit", "200"]);
+
+    expect(exitCode).toBe(1);
+    expect(err.join("\n")).toContain("--limit must be an integer between 1 and 100");
+  });
+
+  it("rejects negative --offset", async () => {
+    const { err, exitCode } = await runPull(["--agent_id", "ag_1", "--offset", "-1"]);
+
+    expect(exitCode).toBe(1);
+    expect(err.join("\n")).toContain("--offset must be a non-negative integer");
+  });
+
+  it("does not include limit/offset params when not specified", async () => {
+    getJSONMock.mockResolvedValueOnce([]);
+
+    const { exitCode } = await runPull(["--agent_id", "ag_1"]);
+
+    expect(exitCode).toBeNull();
+    const calledUrl = getJSONMock.mock.calls[0][0] as string;
+    expect(calledUrl).not.toContain("limit");
+    expect(calledUrl).not.toContain("offset");
+  });
+
+  it("combines --limit with --folder and --status", async () => {
+    getJSONMock.mockResolvedValueOnce([]);
+
+    const { exitCode } = await runPull(["--agent_id", "ag_1", "--status", "unread", "--folder", "sent", "--limit", "5"]);
+
+    expect(exitCode).toBeNull();
+    expect(getJSONMock).toHaveBeenCalledWith("/api/email?agentId=ag_1&status=unread&folder=sent&limit=5");
   });
 });
 
