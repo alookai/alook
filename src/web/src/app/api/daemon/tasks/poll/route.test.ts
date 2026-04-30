@@ -16,7 +16,7 @@ const mockGetPendingFileRequests = vi.fn();
 const mockMarkFileRequestsDispatched = vi.fn();
 const mockExpireStaleFileRequests = vi.fn();
 const mockListScheduledMeetings = vi.fn();
-const mockUpdateMeetingSession = vi.fn();
+const mockClaimMeetingSession = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -60,7 +60,7 @@ vi.mock("@alook/shared", async () => {
       },
       meetingSession: {
         listScheduledMeetings: (...args: unknown[]) => mockListScheduledMeetings(...args),
-        updateMeetingSession: (...args: unknown[]) => mockUpdateMeetingSession(...args),
+        claimMeetingSession: (...args: unknown[]) => mockClaimMeetingSession(...args),
       },
     },
   };
@@ -699,7 +699,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockListScheduledMeetings.mockResolvedValue([
       { id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "scheduled" },
     ]);
-    mockUpdateMeetingSession.mockResolvedValue({
+    mockClaimMeetingSession.mockResolvedValue({
       id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "joining",
     });
     mockGetAgent.mockResolvedValue({ id: "a1", name: "Jarvis", instructions: "", runtimeConfig: {} });

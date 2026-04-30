@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, PollRequestSchema, semverGte, MeetingStatus, type FileRequestItem, type PollMeetingItem } from "@alook/shared";
+import { queries, PollRequestSchema, semverGte, type FileRequestItem, type PollMeetingItem } from "@alook/shared";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -216,11 +216,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
       const claimed: PollMeetingItem[] = [];
       for (const meeting of scheduled) {
-        const updated = await queries.meetingSession.updateMeetingSession(
+        const updated = await queries.meetingSession.claimMeetingSession(
           db,
           meeting.id,
           ctx.workspaceId,
-          { status: MeetingStatus.JOINING, startedAt: now },
+          now,
         );
         if (updated) {
           claimed.push({

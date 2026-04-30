@@ -100,6 +100,26 @@ export async function updateMeetingSession(
   return rows[0] ?? null;
 }
 
+export async function claimMeetingSession(
+  db: Database,
+  id: string,
+  workspaceId: string,
+  startedAt: string,
+) {
+  const rows = await db
+    .update(meetingSession)
+    .set({ status: "joining", startedAt, updatedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(meetingSession.id, id),
+        eq(meetingSession.workspaceId, workspaceId),
+        eq(meetingSession.status, "scheduled"),
+      )
+    )
+    .returning();
+  return rows[0] ?? null;
+}
+
 export async function deleteMeetingSession(
   db: Database,
   id: string,
