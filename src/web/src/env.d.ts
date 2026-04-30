@@ -19,6 +19,7 @@ declare namespace Cloudflare {
     AUTH_OTP_RATE_LIMIT_MAX?: string
     AUTH_OTP_RATE_LIMIT_WINDOW_SEC?: string
     RUNTIME_MODEL_OPTIONS?: string
+    MIN_CLI_VERSION?: string
   }
 }
 

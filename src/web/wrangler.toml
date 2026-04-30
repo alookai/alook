@@ -67,3 +67,4 @@ id = "a3d035bea7bc49d99377b82ec21ce4c1"
 
 [vars]
 RUNTIME_MODEL_OPTIONS = '{"claude":["claude-opus-4-6","claude-sonnet-4-6","claude-haiku-4-5"],"codex":["gpt-5.4","gpt-5.3-codex"]}'
+MIN_CLI_VERSION = "0.0.26"

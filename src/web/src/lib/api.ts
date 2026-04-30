@@ -148,6 +148,9 @@ export const triggerRuntimeRescan = (runtimeId: string, workspaceId: string) =>
     { method: "POST" }
   );
 
+export const getMinCliVersion = () =>
+  apiFetch<{ min_cli_version: string | null }>("/api/config/min-version");
+
 export const fetchLatestCliVersion = () =>
   apiFetch<{ version: string }>("/api/cli/latest-version");
 
