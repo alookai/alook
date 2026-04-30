@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { nanoid } from "nanoid"
-import { queries, MeetingStatus, DEV_WEB_URL } from "@alook/shared"
+import { queries, MeetingStatus, DEV_WEB_URL, buildMimeMessage } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -75,17 +75,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         const toAddr = `${agent.emailHandle}@alook.ai`
         const subject = `Meeting transcript: ${meeting.title || "Untitled"}`
 
-        const rawMime = [
-          `From: ${fromAddr}`,
-          `To: ${toAddr}`,
-          `Subject: ${subject}`,
-          `Date: ${new Date().toUTCString()}`,
-          `Message-ID: ${messageId}`,
-          `MIME-Version: 1.0`,
-          `Content-Type: text/plain; charset=utf-8`,
-          "",
-          body.transcript,
-        ].join("\r\n")
+        const rawMime = buildMimeMessage({
+          from: fromAddr,
+          to: toAddr,
+          subject,
+          messageId,
+          body: body.transcript,
+          bodyType: "text/plain",
+        })
 
         const emailR2Key = `emails/${nanoid()}/raw`
         await cfEnv.EMAIL_BUCKET.put(emailR2Key, rawMime, {

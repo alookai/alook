@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid"
-import { createDb, queries, parseEmailHandle, DEV_WEB_URL, createLogger } from "@alook/shared"
+import { createDb, queries, parseEmailHandle, DEV_WEB_URL, createLogger, buildMimeMessage } from "@alook/shared"
 import { decrypt } from "@alook/shared/crypto"
 import { WorkerMailer, type AuthType } from "worker-mailer"
 
@@ -205,56 +205,17 @@ export default {
 
     // Build raw MIME for R2 archival
     const outMessageId = `<${nanoid()}@alook.ai>`
-    const threadingHeaders: string[] = []
-    threadingHeaders.push(`Message-ID: ${outMessageId}`)
-    if (body.inReplyTo) threadingHeaders.push(`In-Reply-To: ${body.inReplyTo}`)
-    if (body.references) threadingHeaders.push(`References: ${body.references}`)
-
-    let rawMime: string
-    if (attachments.length === 0) {
-      rawMime = [
-        `From: ${fromAddress}`,
-        `To: ${body.to}`,
-        `Subject: ${body.subject}`,
-        `Date: ${new Date().toUTCString()}`,
-        ...threadingHeaders,
-        `MIME-Version: 1.0`,
-        `Content-Type: text/html; charset=utf-8`,
-        "",
-        htmlBody,
-      ].join("\r\n")
-    } else {
-      const boundary = `----=_Part_${nanoid(16)}`
-      const parts = [
-        `From: ${fromAddress}`,
-        `To: ${body.to}`,
-        `Subject: ${body.subject}`,
-        `Date: ${new Date().toUTCString()}`,
-        ...threadingHeaders,
-        `MIME-Version: 1.0`,
-        `Content-Type: multipart/mixed; boundary="${boundary}"`,
-        "",
-        `--${boundary}`,
-        `Content-Type: text/html; charset=utf-8`,
-        `Content-Transfer-Encoding: 7bit`,
-        "",
-        htmlBody,
-      ]
-      for (const att of attachments) {
-        parts.push(
-          [
-            `--${boundary}`,
-            `Content-Type: ${att.type}; name="${att.filename}"`,
-            `Content-Disposition: attachment; filename="${att.filename}"`,
-            `Content-Transfer-Encoding: base64`,
-            "",
-            att.base64.match(/.{1,76}/g)?.join("\r\n") ?? att.base64,
-          ].join("\r\n")
-        )
-      }
-      parts.push(`--${boundary}--`)
-      rawMime = parts.join("\r\n")
-    }
+    const rawMime = buildMimeMessage({
+      from: fromAddress,
+      to: body.to,
+      subject: body.subject,
+      messageId: outMessageId,
+      inReplyTo: body.inReplyTo,
+      references: body.references,
+      body: htmlBody,
+      bodyType: "text/html",
+      attachments: attachments.map(a => ({ filename: a.filename, contentType: a.type, base64: a.base64 })),
+    })
 
     // Store MIME archive in R2
     const r2Id = nanoid()

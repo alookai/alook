@@ -39,7 +39,8 @@ const mockGetUser = vi.fn<(db: unknown, id: unknown) => unknown>()
 const mockGetEmailAccount = vi.fn()
 const mockCreateDb = vi.fn<(d1: unknown) => Record<string, unknown>>().mockReturnValue({})
 
-vi.mock("@alook/shared", () => {
+vi.mock("@alook/shared", async () => {
+  const real = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   const noopLogger = {
     debug: () => {},
     info: () => {},
@@ -48,6 +49,7 @@ vi.mock("@alook/shared", () => {
     child: () => noopLogger,
   }
   return {
+    buildMimeMessage: real.buildMimeMessage,
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
     parseEmailHandle: (address: string) => {

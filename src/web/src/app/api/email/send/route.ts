@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, DEV_EMAIL_WORKER_URL, DEV_WEB_URL, SendEmailRequestSchema, parseEmailHandle } from "@alook/shared";
+import { queries, DEV_EMAIL_WORKER_URL, DEV_WEB_URL, SendEmailRequestSchema, parseEmailHandle, buildMimeMessage } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
@@ -62,65 +62,26 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       const messageId = `<${nanoid()}@alook.ai>`;
       const htmlBody = body.htmlBody || "";
 
-      const fetchedAttachments: { filename: string; type: string; base64: string }[] = [];
+      const fetchedAttachments: { filename: string; contentType: string; base64: string }[] = [];
       for (const att of attachments) {
         const obj = await cfEnv.EMAIL_BUCKET.get(att.key);
         if (!obj) continue;
         const raw = await obj.arrayBuffer();
         const base64 = btoa(String.fromCharCode(...new Uint8Array(raw)));
-        fetchedAttachments.push({ filename: att.filename, type: att.contentType, base64 });
+        fetchedAttachments.push({ filename: att.filename, contentType: att.contentType, base64 });
       }
 
-      const threadingHeaders: string[] = [];
-      threadingHeaders.push(`Message-ID: ${messageId}`);
-      if (body.inReplyTo) threadingHeaders.push(`In-Reply-To: ${body.inReplyTo}`);
-      if (body.references) threadingHeaders.push(`References: ${body.references}`);
-
-      let rawMime: string;
-      if (fetchedAttachments.length === 0) {
-        rawMime = [
-          `From: ${fromAddress}`,
-          `To: ${body.to}`,
-          `Subject: ${body.subject}`,
-          `Date: ${new Date().toUTCString()}`,
-          ...threadingHeaders,
-          `MIME-Version: 1.0`,
-          `Content-Type: text/html; charset=utf-8`,
-          "",
-          htmlBody,
-        ].join("\r\n");
-      } else {
-        const boundary = `----=_Part_${nanoid(16)}`;
-        const parts = [
-          `From: ${fromAddress}`,
-          `To: ${body.to}`,
-          `Subject: ${body.subject}`,
-          `Date: ${new Date().toUTCString()}`,
-          ...threadingHeaders,
-          `MIME-Version: 1.0`,
-          `Content-Type: multipart/mixed; boundary="${boundary}"`,
-          "",
-          `--${boundary}`,
-          `Content-Type: text/html; charset=utf-8`,
-          `Content-Transfer-Encoding: 7bit`,
-          "",
-          htmlBody,
-        ];
-        for (const att of fetchedAttachments) {
-          parts.push(
-            [
-              `--${boundary}`,
-              `Content-Type: ${att.type}; name="${att.filename}"`,
-              `Content-Disposition: attachment; filename="${att.filename}"`,
-              `Content-Transfer-Encoding: base64`,
-              "",
-              att.base64.match(/.{1,76}/g)?.join("\r\n") ?? att.base64,
-            ].join("\r\n")
-          );
-        }
-        parts.push(`--${boundary}--`);
-        rawMime = parts.join("\r\n");
-      }
+      const rawMime = buildMimeMessage({
+        from: fromAddress,
+        to: body.to,
+        subject: body.subject,
+        messageId,
+        inReplyTo: body.inReplyTo,
+        references: body.references,
+        body: htmlBody,
+        bodyType: "text/html",
+        attachments: fetchedAttachments,
+      });
 
       const r2Id = nanoid();
       const r2Key = `emails/${r2Id}/raw`;

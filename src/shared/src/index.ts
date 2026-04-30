@@ -180,6 +180,8 @@ export { isEmptyHtml } from "./lib/html";
 export { buildContextKey, extractThreadId } from "./lib/context-key";
 export { parseIcs } from "./lib/ics-parser";
 export type { MeetingInfo } from "./lib/ics-parser";
+export { buildMimeMessage } from "./lib/mime";
+export type { MimeAttachment, BuildMimeOptions } from "./lib/mime";
 export {
   addRepeatInterval,
   computeNextScheduledAt,
