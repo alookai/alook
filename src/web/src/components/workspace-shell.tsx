@@ -9,6 +9,7 @@ import {
   Sheet,
   SheetContent,
 } from "@/components/ui/sheet";
+import { RuntimeVersionGate } from "@/components/runtime-version-gate";
 
 const SidebarTriggerContext = createContext<(() => void) | null>(null);
 
@@ -36,6 +37,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
               <AppSidebar onNavigate={() => setSidebarOpen(false)} />
             </SheetContent>
           </Sheet>
+          <RuntimeVersionGate />
         </div>
       </SidebarTriggerContext.Provider>
     );
@@ -51,6 +53,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+      <RuntimeVersionGate />
     </div>
   );
 }

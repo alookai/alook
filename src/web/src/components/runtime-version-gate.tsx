@@ -50,9 +50,6 @@ export function RuntimeVersionGate() {
   };
 
   return (
-    // disablePointerDismissal prevents backdrop-click from closing.
-    // onOpenChange is a no-op so escape key and other close events are ignored.
-    // open is hardcoded to true so the dialog can never close programmatically.
     <Dialog
       open
       modal
