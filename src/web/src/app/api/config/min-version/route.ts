@@ -2,17 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { semverGte } from "@alook/shared";
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON } from "@/lib/middleware/helpers";
-
-async function fetchLatestCliVersion(): Promise<string | null> {
-  try {
-    const res = await fetch("https://registry.npmjs.org/@alook/cli/latest");
-    if (!res.ok) return null;
-    const data = (await res.json()) as { version?: string };
-    return data.version ?? null;
-  } catch {
-    return null;
-  }
-}
+import { fetchLatestCliVersion } from "@/lib/npm";
 
 export const GET = withAuth(async () => {
   const { env } = getCloudflareContext()

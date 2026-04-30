@@ -5,17 +5,7 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
-
-async function fetchLatestCliVersion(): Promise<string | null> {
-  try {
-    const res = await fetch("https://registry.npmjs.org/@alook/cli/latest");
-    if (!res.ok) return null;
-    const data = (await res.json()) as { version?: string };
-    return data.version ?? null;
-  } catch {
-    return null;
-  }
-}
+import { fetchLatestCliVersion } from "@/lib/npm";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
