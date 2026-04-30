@@ -124,6 +124,66 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     task,
   );
 
+  const agentBaseDir = path.dirname(timelineDir);
+
+  // Timeline entry: write IMMEDIATELY so KILL_TASK can find our PID
+  await initEntryAsync(
+    timelineDir,
+    createTimelineEntry(task.id, task.prompt, task.type, undefined, process.pid, provider, task.contextKey, input.logFilePath),
+  );
+
+  let killed = false;
+
+  // Early signal handler (before agent starts — no agentPid/flushTimer yet)
+  const earlyOnKill = async () => {
+    if (killed) return;
+    killed = true;
+    log.info(`killed by signal (messages=0, tools=0)`);
+
+    await cleanupAttachments(task.id);
+
+    const intent = readKillIntent(agentBaseDir, task.id);
+    clearKillIntent(agentBaseDir, task.id);
+
+    if (intent?.reason === "superseded") {
+      updateEntry(timelineDir, task.id, (entry) => {
+        entry.pid = null;
+        entry.status = "superseded";
+        entry.successor_task_id = intent.successorTaskId ?? null;
+        entry.supersede_reason = "superseded by newer task";
+      });
+      try {
+        await client.supersedeTask(token, task.id);
+      } catch { /* best-effort */ }
+    } else if (intent?.reason === "cancelled") {
+      updateEntry(timelineDir, task.id, (entry) => {
+        entry.pid = null;
+        entry.status = "cancelled";
+        entry.errmsg = "cancelled by user";
+      });
+      await reportToServer(
+        () => client.failTask(token, task.id, "cancelled by user"),
+        { taskId: task.id, type: "fail", payload: { error: "cancelled by user" }, token, serverURL, createdAt: new Date().toISOString() },
+        workspacesRoot,
+      );
+    } else {
+      updateEntry(timelineDir, task.id, (entry) => {
+        entry.pid = null;
+        entry.status = "killed";
+        entry.errmsg = "killed by signal";
+      });
+      await reportToServer(
+        () => client.failTask(token, task.id, "killed by signal"),
+        { taskId: task.id, type: "fail", payload: { error: "killed by signal" }, token, serverURL, createdAt: new Date().toISOString() },
+        workspacesRoot,
+      );
+    }
+
+    process.exit(1);
+  };
+  process.on("SIGTERM", earlyOnKill);
+  process.on("SIGINT", earlyOnKill);
+
   // Download attachments before building prompt
   const attachmentIds = (task.context?.attachment_ids as string[]) ?? [];
   let attachments: Attachment[] | undefined;
@@ -136,7 +196,14 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
       await cleanupAttachments(task.id);
       const errMsg = `failed to download attachments: ${e}`;
       log.error(errMsg);
+      updateEntry(timelineDir, task.id, (entry) => {
+        entry.pid = null;
+        entry.status = "failed";
+        entry.errmsg = errMsg;
+      });
       await client.failTask(token, task.id, errMsg);
+      process.removeListener("SIGTERM", earlyOnKill);
+      process.removeListener("SIGINT", earlyOnKill);
       return;
     }
   }
@@ -161,14 +228,13 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
   // Capture agent PID for signal handler
   const agentPid = session.pid;
 
-  // Timeline init — use process.pid (session runner PID), not the inner agent PID
+  // Update timeline entry with session_id once agent starts
   const earlySessionId = await session.sessionId;
   log.info(`agent started (pid=${agentPid ?? "unknown"}, session=${earlySessionId})`);
   log.info(JSON.stringify({ role: "user", type: "text", content: prompt }));
-  await initEntryAsync(
-    timelineDir,
-    createTimelineEntry(task.id, task.prompt, task.type, earlySessionId, process.pid, provider, task.contextKey, input.logFilePath),
-  );
+  updateEntry(timelineDir, task.id, (entry) => {
+    entry.session_id = earlySessionId || null;
+  });
 
   // Message batching
   const pendingMessages: {
@@ -197,9 +263,10 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
 
   const flushTimer = setInterval(flushMessages, FLUSH_INTERVAL_MS);
 
-  // --- Graceful shutdown on SIGTERM/SIGINT ---
-  let killed = false;
-  const agentBaseDir = path.dirname(timelineDir);
+  // --- Replace early signal handler with full one ---
+  process.removeListener("SIGTERM", earlyOnKill);
+  process.removeListener("SIGINT", earlyOnKill);
+
   const onKill = async () => {
     if (killed) return;
     killed = true;
@@ -307,7 +374,11 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
       });
 
       if (msg.type === "tool-use") toolCount++;
-      log.info(JSON.stringify({ role: "assistant", ...msg }));
+      if (msg.type === "tool-result" && msg.output && msg.output.length > 500) {
+        log.info(JSON.stringify({ role: "assistant", ...msg, output: msg.output.slice(0, 500) + `... (${msg.output.length} chars)` }));
+      } else {
+        log.info(JSON.stringify({ role: "assistant", ...msg }));
+      }
 
       // Timeline — record assistant text messages
       if (msg.type === "text" && msg.content) {

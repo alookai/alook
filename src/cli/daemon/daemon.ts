@@ -646,7 +646,17 @@ async function handleTask(
 
     const agentBaseDir = join(config.workspacesRoot, task.workspaceId, task.agentId, "workdir");
     const timelineDir = join(agentBaseDir, ".context_timeline");
-    const pid = findRunningPidByTaskId(timelineDir, targetTaskId);
+
+    // Retry loop: session-runner may not have written its timeline entry yet
+    const MAX_WAIT_MS = Number(process.env.ALOOK_KILL_TASK_MAX_WAIT_MS) || 15_000;
+    const POLL_MS = Number(process.env.ALOOK_KILL_TASK_POLL_MS) || 200;
+    const waitStart = Date.now();
+    let pid: number | null = null;
+    while (Date.now() - waitStart < MAX_WAIT_MS) {
+      pid = findRunningPidByTaskId(timelineDir, targetTaskId);
+      if (pid != null) break;
+      await new Promise((r) => setTimeout(r, POLL_MS));
+    }
 
     if (pid != null) {
       writeKillIntent(agentBaseDir, {

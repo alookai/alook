@@ -7,6 +7,8 @@ const mockClientInstance = {
   failTask: vi.fn(async () => ({})),
   supersedeTask: vi.fn(async () => ({})),
   reportMessages: vi.fn(async () => ({})),
+  getArtifactMeta: vi.fn(async () => ({ filename: "file.txt", content_type: "text/plain" })),
+  downloadArtifact: vi.fn(async () => new ArrayBuffer(0)),
 };
 vi.mock("./client.js", () => {
   function MockDaemonClient() { return mockClientInstance; }
@@ -239,7 +241,7 @@ describe("session-runner runSession", () => {
     );
   });
 
-  it("writes timeline init entry with session runner PID (process.pid)", async () => {
+  it("writes timeline init entry with session runner PID (process.pid) and sessionId=undefined", async () => {
     setupBackend([], {
       status: "completed",
       output: "Done",
@@ -254,7 +256,7 @@ describe("session-runner runSession", () => {
       "t1",
       "do the thing",
       "user_dm_message",
-      "sess-1",
+      undefined,
       process.pid,
       "claude",
       "c1",
@@ -262,7 +264,50 @@ describe("session-runner runSession", () => {
     );
     expect(mockInitEntryAsync).toHaveBeenCalledWith(
       "/tmp/ws/ws1/agent1/workdir/.context_timeline",
-      expect.objectContaining({ task_id: "t1", pid: process.pid }),
+      expect.objectContaining({ task_id: "t1", pid: process.pid, session_id: null }),
+    );
+  });
+
+  it("updates timeline entry with session_id after agent starts", async () => {
+    setupBackend([], {
+      status: "completed",
+      output: "Done",
+      error: "",
+      durationMs: 100,
+      sessionId: "sess-1",
+    });
+
+    await runSession(makeInput());
+
+    // The first updateEntry call should set session_id
+    const firstCall = mockUpdateEntry.mock.calls[0];
+    expect(firstCall[0]).toBe("/tmp/ws/ws1/agent1/workdir/.context_timeline");
+    expect(firstCall[1]).toBe("t1");
+    const entry = { session_id: null as string | null };
+    firstCall[2](entry);
+    expect(entry.session_id).toBe("sess-1");
+  });
+
+  it("initEntryAsync is called with detailedLog from input.logFilePath", async () => {
+    setupBackend([], {
+      status: "completed",
+      output: "Done",
+      error: "",
+      durationMs: 100,
+      sessionId: "sess-1",
+    });
+
+    await runSession(makeInput({ logFilePath: "/tmp/logs/t1.log" }));
+
+    expect(mockCreateTimelineEntry).toHaveBeenCalledWith(
+      "t1",
+      "do the thing",
+      "user_dm_message",
+      undefined,
+      process.pid,
+      "claude",
+      "c1",
+      "/tmp/logs/t1.log",
     );
   });
 
@@ -492,6 +537,102 @@ describe("session-runner runSession", () => {
     expect(mockClientInstance.completeTask).not.toHaveBeenCalled();
   });
 
+  it("updates timeline to failed when attachment download fails", async () => {
+    mockClientInstance.getArtifactMeta.mockRejectedValueOnce(new Error("network error"));
+
+    await runSession(makeInput({
+      task: {
+        id: "t1",
+        agentId: "a1",
+        runtimeId: "rt1",
+        conversationId: "c1",
+        workspaceId: "ws1",
+        prompt: "do the thing",
+        status: "dispatched",
+        priority: 0,
+        type: "user_dm_message",
+        contextKey: "c1",
+        createdAt: "2026-01-01T00:00:00Z",
+        context: { attachment_ids: ["art-1"] },
+      },
+    }));
+
+    // Timeline entry should have been written immediately
+    expect(mockInitEntryAsync).toHaveBeenCalled();
+
+    // Timeline should be updated to "failed" on attachment download error
+    const failCalls = mockUpdateEntry.mock.calls.filter((call: any[]) => {
+      const updater = call[2];
+      const entry = { pid: 1, status: "running" as string, errmsg: null as string | null };
+      updater(entry);
+      return entry.status === "failed" && entry.errmsg?.includes("failed to download attachments");
+    });
+    expect(failCalls.length).toBe(1);
+
+    // failTask should have been called
+    expect(mockClientInstance.failTask).toHaveBeenCalledWith(
+      "test_token",
+      "t1",
+      expect.stringContaining("failed to download attachments"),
+    );
+
+    // Agent should NOT have been started
+    expect(mockBackendExecute).not.toHaveBeenCalled();
+  });
+
+  it("SIGTERM during setup phase (before agent starts) cleans up properly", async () => {
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
+
+    // Make downloadAttachments hang so SIGTERM fires during setup
+    let resolveDownload: (() => void) | null = null;
+    mockClientInstance.getArtifactMeta.mockImplementation(async () => {
+      await new Promise<void>((resolve) => { resolveDownload = resolve; });
+      return { filename: "file.txt", content_type: "text/plain" };
+    });
+
+    const sessionPromise = runSession(makeInput({
+      task: {
+        id: "t1",
+        agentId: "a1",
+        runtimeId: "rt1",
+        conversationId: "c1",
+        workspaceId: "ws1",
+        prompt: "do the thing",
+        status: "dispatched",
+        priority: 0,
+        type: "user_dm_message",
+        contextKey: "c1",
+        createdAt: "2026-01-01T00:00:00Z",
+        context: { attachment_ids: ["art-1"] },
+      },
+    }));
+
+    // Wait for initEntryAsync to complete and signal handler to be registered
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Fire SIGTERM during attachment download (before agent starts)
+    process.emit("SIGTERM", "SIGTERM");
+
+    // Unblock the download so the promise can settle
+    if (resolveDownload) resolveDownload();
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Timeline should be updated (killed or cancelled depending on intent)
+    const killCalls = mockUpdateEntry.mock.calls.filter((call: any[]) => {
+      const updater = call[2];
+      const entry = { pid: 1, status: "running" as string, errmsg: null as string | null };
+      updater(entry);
+      return entry.status === "killed";
+    });
+    expect(killCalls.length).toBe(1);
+
+    // Should have called process.exit(1)
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    exitSpy.mockRestore();
+  });
+
   it("gracefully cleans up on SIGTERM: kills agent, updates timeline to killed, calls failTask", async () => {
     // Mock process.kill to track calls
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
@@ -588,7 +729,7 @@ describe("session-runner runSession", () => {
       "t1",
       "do the thing",
       "user_dm_message",
-      "sess-1",
+      undefined,
       process.pid,
       "codex",
       "c1",
@@ -847,6 +988,56 @@ describe("session-runner runSession", () => {
       expect(mockLog.info).toHaveBeenCalledWith(
         expect.stringContaining("model=default"),
       );
+    });
+
+    it("truncates tool-result output longer than 500 chars in log", async () => {
+      const longOutput = "x".repeat(1000);
+      setupBackend(
+        [
+          { type: "tool-result", tool: "Read", callId: "c1", output: longOutput },
+        ],
+        {
+          status: "completed",
+          output: "Done",
+          error: "",
+          durationMs: 100,
+          sessionId: "sess-1",
+        },
+      );
+
+      await runSession(makeInput());
+
+      const logCalls = (mockLog.info as any).mock.calls.map((c: any[]) => c[0] as string);
+      const toolResultLog = logCalls.find((s: string) => s.includes('"type":"tool-result"'));
+      expect(toolResultLog).toBeDefined();
+
+      const parsed = JSON.parse(toolResultLog!);
+      expect(parsed.output).toBe("x".repeat(500) + "... (1000 chars)");
+    });
+
+    it("does not truncate tool-result output under 500 chars in log", async () => {
+      const shortOutput = "x".repeat(200);
+      setupBackend(
+        [
+          { type: "tool-result", tool: "Read", callId: "c1", output: shortOutput },
+        ],
+        {
+          status: "completed",
+          output: "Done",
+          error: "",
+          durationMs: 100,
+          sessionId: "sess-1",
+        },
+      );
+
+      await runSession(makeInput());
+
+      const logCalls = (mockLog.info as any).mock.calls.map((c: any[]) => c[0] as string);
+      const toolResultLog = logCalls.find((s: string) => s.includes('"type":"tool-result"'));
+      expect(toolResultLog).toBeDefined();
+
+      const parsed = JSON.parse(toolResultLog!);
+      expect(parsed.output).toBe(shortOutput);
     });
   });
 
