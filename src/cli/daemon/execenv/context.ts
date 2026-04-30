@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import { toAlookAddress } from "@alook/shared";
+import { tempDir } from "../../lib/platform.js";
 import {
   writeFileSync,
   readFileSync,
@@ -102,14 +103,14 @@ Your alook agent id is '${task.agentId}'. remember this, most of alook cli will 
 
 ### Emails
 ---
-Run 'npx @alook/cli email pull --agent_id ${task.agentId} --status unread' to download unread emails from inbox to '/tmp/alook-emails/${task.workspaceId}/${task.agentId}/'.
+Run 'npx @alook/cli email pull --agent_id ${task.agentId} --status unread' to download unread emails from inbox to '${tempDir("alook-emails")}/${task.workspaceId}/${task.agentId}/'.
 ---
 To download sent emails, add '--folder sent': 'npx @alook/cli email pull --agent_id ${task.agentId} --folder sent'
 Valid folders: inbox (default), sent, untrust.
 To limit the number of emails downloaded, add '--limit <N>' (e.g. '--limit 20'). Use '--offset <N>' to skip emails for pagination.
 Example: 'npx @alook/cli email pull --agent_id ${task.agentId} --status unread --limit 20 --offset 0'
 ---
-Each email is saved to '/tmp/alook-emails/${task.workspaceId}/${task.agentId}/<emailId>/' with:
+Each email is saved to '${tempDir("alook-emails")}/${task.workspaceId}/${task.agentId}/<emailId>/' with:
 - 'metadata.json' — sender, recipient, subject, date, status, message_id, in_reply_to, references
 - 'body.txt' — plain text body
 - 'body.html' — HTML body (if available)

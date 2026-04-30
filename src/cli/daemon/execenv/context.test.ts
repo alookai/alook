@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildInstructionContent } from "./context.js";
+import { tempDir } from "../../lib/platform.js";
 import type { Task } from "../types.js";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -27,7 +28,7 @@ describe("buildInstructionContent email tool injection", () => {
 
     expect(content).toContain("npx @alook/cli email pull --agent_id agent-123 --status unread");
     expect(content).toContain("npx @alook/cli email set --agent_id agent-123 --email_id <EMAIL_ID> --status read");
-    expect(content).toContain("/tmp/alook-emails/ws1/agent-123/");
+    expect(content).toContain(`${tempDir("alook-emails")}/ws1/agent-123/`);
     expect(content).toContain("metadata.json");
     expect(content).toContain("'myagent@alook.ai' (default, Alook platform address)");
   });
