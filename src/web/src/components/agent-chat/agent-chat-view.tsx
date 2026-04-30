@@ -307,6 +307,9 @@ export function AgentChatView() {
   }, []);
 
   useEffect(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = null;
+    pollTaskIdRef.current = null;
     setLoading(true);
     initialScrollDone.current = false;
     setActiveTask(null);

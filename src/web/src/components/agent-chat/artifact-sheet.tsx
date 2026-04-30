@@ -9,7 +9,7 @@ import {
   SheetBody,
 } from "@/components/ui/sheet";
 import type { Artifact } from "@alook/shared";
-import { FileText, Download } from "lucide-react";
+import { FileText, Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ArtifactContentRenderer, getArtifactUrl } from "@/components/artifact-content-renderer";
 
@@ -94,6 +94,14 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
                 >
                   <Download className="size-4" />
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 sm:hidden"
+                  onClick={() => handleOpenChange(false)}
+                >
+                  <X className="size-4" />
+                </Button>
               </div>
             </SheetHeader>
             <SheetBody className="thin-scrollbar">
@@ -103,7 +111,17 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
         ) : (
           <>
             <SheetHeader>
-              <SheetTitle>Artifacts</SheetTitle>
+              <div className="flex items-center gap-2">
+                <SheetTitle className="flex-1">Artifacts</SheetTitle>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 sm:hidden"
+                  onClick={() => handleOpenChange(false)}
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
             </SheetHeader>
             <SheetBody className="thin-scrollbar">
               {artifacts.length === 0 ? (
