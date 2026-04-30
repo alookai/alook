@@ -34,7 +34,14 @@ export function RuntimeVersionGate() {
     return !semverGte(cliVersion, minVersion);
   });
 
-  if (outdatedRuntimes.length === 0) return null;
+  // Deduplicate by daemon_id — show one card per machine
+  const outdatedMachines = new Map<string, AgentRuntime>();
+  for (const rt of outdatedRuntimes) {
+    const key = rt.daemon_id ?? rt.id;
+    if (!outdatedMachines.has(key)) outdatedMachines.set(key, rt);
+  }
+
+  if (outdatedMachines.size === 0) return null;
 
   const handleUpdate = async (rt: AgentRuntime) => {
     setUpdating((prev) => new Set(prev).add(rt.id));
@@ -63,25 +70,25 @@ export function RuntimeVersionGate() {
             Runtime Update Required
           </DialogTitle>
           <DialogDescription>
-            The following runtime(s) are running an outdated CLI version (minimum required: v{minVersion}). Please update to continue.
+            The following machine(s) are running an outdated CLI version (minimum required: v{minVersion}). Please update to continue.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 mt-2">
-          {outdatedRuntimes.map((rt) => {
+          {[...outdatedMachines.entries()].map(([daemonId, rt]) => {
             const cliVersion = (rt.metadata as Record<string, unknown>)?.cli_version as string | undefined;
             const isUpdating = updating.has(rt.id);
 
             return (
               <div
-                key={rt.id}
+                key={daemonId}
                 className="flex items-center justify-between rounded-lg border p-3"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
                   <div className="min-w-0">
                     <div className="text-sm font-medium truncate">
-                      {rt.device_info || rt.daemon_id || rt.id.slice(0, 12)}
+                      {rt.device_info || daemonId.slice(0, 12)}
                     </div>
                     <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
                       <span>v{cliVersion || "unknown"}</span>
