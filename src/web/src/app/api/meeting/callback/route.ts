@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, MeetingStatus, DEV_EMAIL_WORKER_URL } from "@alook/shared"
+import { queries, MeetingStatus, DEV_WEB_URL } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
+import { log } from "@/lib/logger"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
@@ -62,32 +63,40 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   )
 
-  if (body.status === "completed" && body.transcript && meeting.participants.length > 0) {
-    const htmlBody = `
-      <h2>Meeting Transcript</h2>
-      <p><strong>Meeting:</strong> ${meeting.meetingUrl}</p>
-      <pre style="white-space: pre-wrap; font-family: monospace;">${body.transcript}</pre>
-    `.trim()
+  if (body.status === "completed" && body.transcript) {
+    const agent = await queries.agent.getAgent(db, meeting.agentId, body.workspaceId)
 
-    for (const email of meeting.participants) {
-      const payload = JSON.stringify({
-        to: email,
-        subject: `Meeting Transcript: ${meeting.title || "Untitled"}`,
-        htmlBody,
-      })
-      const init: RequestInit = {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: payload,
-      }
+    if (agent?.emailHandle) {
+      const messageId = `<meeting-${body.meetingId}@alook.ai>`
+      const existing = await queries.email.getEmailByMessageId(db, messageId, body.workspaceId)
+      if (!existing) {
+        const notifyPayload = JSON.stringify({
+          agentId: agent.id,
+          workspaceId: body.workspaceId,
+          r2Key: transcriptR2Key,
+          from: "no-reply@alook.ai",
+          to: `${agent.emailHandle}@alook.ai`,
+          subject: `Meeting transcript: ${meeting.title || "Untitled"}`,
+          isWhitelisted: true,
+          forwarded: false,
+          messageId,
+          inReplyTo: "",
+          references: "",
+        })
+        const notifyInit: RequestInit = {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: notifyPayload,
+        }
 
-      try {
-        await cfEnv.EMAIL_WORKER.fetch("http://internal/send/agent", init)
-      } catch {
         try {
-          await fetch(`${DEV_EMAIL_WORKER_URL}/send/agent`, init)
+          await cfEnv.WORKER_SELF_REFERENCE!.fetch("http://internal/api/email/notify", notifyInit)
         } catch {
-          // Best-effort
+          try {
+            await fetch(`${DEV_WEB_URL}/api/email/notify`, notifyInit)
+          } catch (e) {
+            log.warn("meeting-callback: email notify failed", { err: String(e) })
+          }
         }
       }
     }

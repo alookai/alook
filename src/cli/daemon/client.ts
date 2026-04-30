@@ -2,6 +2,7 @@ import {
   PollResponseSchema,
   RegisterResponseSchema,
   type FileRequestItem,
+  type PollMeetingItem,
   type PollResponse,
   type RegisterResponse,
   type TaskApi,
@@ -87,6 +88,7 @@ export class DaemonClient {
     pending_update?: { version: string };
     pending_rescan?: boolean;
     file_requests?: FileRequestItem[];
+    meetings?: PollMeetingItem[];
   }> {
     const raw = await this.request<unknown>(
       "POST",
@@ -101,6 +103,7 @@ export class DaemonClient {
       pending_update: resp.pending_update,
       pending_rescan: resp.pending_rescan,
       file_requests: resp.file_requests,
+      meetings: resp.meetings,
     };
   }
 
@@ -209,17 +212,4 @@ export class DaemonClient {
     );
   }
 
-  async claimMeetings(
-    token: string,
-    daemonId: string,
-  ): Promise<{ id: string; meetingUrl: string; participants: string[]; workspaceId: string }[]> {
-    const raw: { id: string; meeting_url: string; participants: string[]; workspace_id: string }[] =
-      await this.request("POST", "/api/daemon/meetings/claim", token, { daemon_id: daemonId });
-    return raw.map((m) => ({
-      id: m.id,
-      meetingUrl: m.meeting_url,
-      participants: m.participants,
-      workspaceId: m.workspace_id,
-    }));
-  }
 }

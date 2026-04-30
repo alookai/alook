@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, PollRequestSchema, semverGte, type FileRequestItem } from "@alook/shared";
+import { queries, PollRequestSchema, semverGte, MeetingStatus, type FileRequestItem, type PollMeetingItem } from "@alook/shared";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -193,10 +193,56 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     log.warn("file-requests: poll failed", { err: String(e) });
   }
 
+  // 8. Meeting claim — piggyback on poll to avoid a separate HTTP request
+  let meetings: PollMeetingItem[] | undefined;
+  try {
+    const CLAIM_WINDOW_MS = 5 * 60 * 1000;
+    const windowEnd = new Date(Date.now() + CLAIM_WINDOW_MS);
+    const now = new Date().toISOString();
+
+    const scheduled = await queries.meetingSession.listScheduledMeetings(
+      db,
+      ctx.workspaceId,
+      windowEnd.toISOString(),
+    );
+
+    if (scheduled.length > 0) {
+      const agentIds = [...new Set(scheduled.map((m) => m.agentId))];
+      const agentNameMap = new Map<string, string>();
+      for (const agentId of agentIds) {
+        const agent = await queries.agent.getAgent(db, agentId, ctx.workspaceId);
+        if (agent) agentNameMap.set(agentId, agent.name);
+      }
+
+      const claimed: PollMeetingItem[] = [];
+      for (const meeting of scheduled) {
+        const updated = await queries.meetingSession.updateMeetingSession(
+          db,
+          meeting.id,
+          ctx.workspaceId,
+          { status: MeetingStatus.JOINING, startedAt: now },
+        );
+        if (updated) {
+          claimed.push({
+            id: updated.id,
+            meeting_url: updated.meetingUrl,
+            participants: updated.participants as string[],
+            workspace_id: updated.workspaceId,
+            agent_name: agentNameMap.get(updated.agentId) || "",
+          });
+        }
+      }
+      if (claimed.length > 0) meetings = claimed;
+    }
+  } catch (e) {
+    log.warn("meeting-claim: failed in poll", { err: String(e) });
+  }
+
   return writeJSON({
     tasks,
     ...(pendingUpdate && { pending_update: pendingUpdate }),
     ...(pendingRescan && { pending_rescan: pendingRescan }),
     ...(fileRequests && { file_requests: fileRequests }),
+    ...(meetings && { meetings }),
   });
 });

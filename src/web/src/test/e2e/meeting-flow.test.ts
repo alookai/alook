@@ -20,50 +20,43 @@ function req(path: string, opts?: RequestInit) {
   })
 }
 
-describe("meeting claim flow", () => {
-  it("POST /api/daemon/meetings/claim requires machine token", async () => {
-    const res = await tokenRequest(
-      "/api/daemon/meetings/claim",
-      "invalid_token",
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ daemon_id: "x" }) },
-    )
-    expect(res.status).toBe(401)
-  })
-
-  it("returns empty when no scheduled meetings exist", async () => {
-    const res = await req("/api/daemon/meetings/claim", {
+describe("meeting claim via poll", () => {
+  it("poll returns no meetings when none are scheduled", async () => {
+    const res = await req("/api/daemon/tasks/poll", {
       method: "POST",
       body: JSON.stringify({ daemon_id: seed.daemonId }),
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as unknown[]
-    expect(data).toEqual([])
+    const data = await res.json() as { meetings?: unknown[] }
+    expect(data.meetings).toBeUndefined()
   })
 
-  it("claims a scheduled meeting within 5-minute window", async () => {
+  it("poll claims a scheduled meeting within 5-minute window", async () => {
     const pastTime = new Date(Date.now() - 60_000).toISOString()
     sql(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, scheduled_at, created_at, updated_at)
       VALUES ('ms_claim_test', '${seed.agentId}', '${seed.workspaceId}', 'Claim Test', 'https://meet.google.com/abc-defg-hij', 'scheduled', 1, '[]', '${pastTime}', '${pastTime}', '${pastTime}')`)
 
-    const res = await req("/api/daemon/meetings/claim", {
+    const res = await req("/api/daemon/tasks/poll", {
       method: "POST",
       body: JSON.stringify({ daemon_id: seed.daemonId }),
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as { id: string; status: string }[]
-    expect(data.length).toBe(1)
-    expect(data[0].id).toBe("ms_claim_test")
-    expect(data[0].status).toBe("joining")
+    const data = await res.json() as { meetings?: { id: string; meeting_url: string; agent_name: string }[] }
+    expect(data.meetings).toBeDefined()
+    expect(data.meetings!.length).toBe(1)
+    expect(data.meetings![0].id).toBe("ms_claim_test")
+    expect(data.meetings![0].meeting_url).toBe("https://meet.google.com/abc-defg-hij")
+    expect(data.meetings![0].agent_name).toBeDefined()
   })
 
   it("does not re-claim already claimed meeting", async () => {
-    const res = await req("/api/daemon/meetings/claim", {
+    const res = await req("/api/daemon/tasks/poll", {
       method: "POST",
       body: JSON.stringify({ daemon_id: seed.daemonId }),
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as unknown[]
-    expect(data).toEqual([])
+    const data = await res.json() as { meetings?: unknown[] }
+    expect(data.meetings).toBeUndefined()
   })
 
   it("does not claim meetings far in the future", async () => {
@@ -71,13 +64,13 @@ describe("meeting claim flow", () => {
     sql(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, scheduled_at, created_at, updated_at)
       VALUES ('ms_future_test', '${seed.agentId}', '${seed.workspaceId}', 'Future Test', 'https://meet.google.com/xyz-wxyz-abc', 'scheduled', 1, '[]', '${futureTime}', '${futureTime}', '${futureTime}')`)
 
-    const res = await req("/api/daemon/meetings/claim", {
+    const res = await req("/api/daemon/tasks/poll", {
       method: "POST",
       body: JSON.stringify({ daemon_id: seed.daemonId }),
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as unknown[]
-    expect(data).toEqual([])
+    const data = await res.json() as { meetings?: unknown[] }
+    expect(data.meetings).toBeUndefined()
   })
 })
 

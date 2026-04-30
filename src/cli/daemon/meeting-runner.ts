@@ -16,7 +16,7 @@ import {
 import type { TranscriptEntry } from "@alook/shared/browser"
 
 const SCRAPE_INTERVAL_MS = 3_000
-const BOT_NAME = "Alook Meeting Bot"
+const DEFAULT_BOT_NAME = "Alook Meeting Bot"
 const MAX_RETRY_DURATION_MS = 30 * 60 * 1000
 const RETRY_BACKOFF = [30_000, 60_000, 120_000, 300_000]
 
@@ -31,6 +31,7 @@ export interface MeetingRunnerInput {
   workspaceId: string
   callbackUrl: string
   authToken: string
+  agentName?: string
 }
 
 async function callbackWeb(
@@ -90,7 +91,8 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
   let transcript: TranscriptEntry[] = []
 
   try {
-    await joinMeeting(page, input.meetingUrl, BOT_NAME)
+    const botName = input.agentName ? `${input.agentName} (Alook)` : DEFAULT_BOT_NAME
+    await joinMeeting(page, input.meetingUrl, botName)
     log("Joined. Waiting for meeting UI...")
     await waitForMeetingReady(page)
 

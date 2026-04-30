@@ -398,7 +398,7 @@ export async function startDaemon(
       }
 
       try {
-        const { tasks: apiTasks, evicted, pending_update, pending_rescan, file_requests } = await client.poll(
+        const { tasks: apiTasks, evicted, pending_update, pending_rescan, file_requests, meetings } = await client.poll(
           ws.token,
           config.daemonId,
           remaining,
@@ -438,6 +438,21 @@ export async function startDaemon(
               .catch((e) => log.debug("File request error", e));
           }
         }
+
+        // Spawn meeting bots from merged poll response
+        if (meetings) {
+          for (const m of meetings) {
+            spawnMeetingRunner({
+              meetingId: m.id,
+              meetingUrl: m.meeting_url,
+              participants: m.participants,
+              workspaceId: m.workspace_id,
+              callbackUrl: config.serverURL,
+              authToken: ws.token,
+              agentName: m.agent_name,
+            });
+          }
+        }
       } catch (e) {
         if (e instanceof Error && e.message.startsWith("HTTP 401")) {
           log.warn(`Workspace ${ws.workspaceId} poll returned 401 — will retry next cycle`);
@@ -449,25 +464,6 @@ export async function startDaemon(
 
     for (const id of evictedIds) {
       evictWorkspace(id);
-    }
-
-    // Claim and spawn meeting bots
-    for (const ws of workspaceStates) {
-      try {
-        const meetings = await client.claimMeetings(ws.token, config.daemonId);
-        for (const m of meetings) {
-          spawnMeetingRunner({
-            meetingId: m.id,
-            meetingUrl: m.meetingUrl,
-            participants: m.participants,
-            workspaceId: m.workspaceId,
-            callbackUrl: config.serverURL,
-            authToken: ws.token,
-          });
-        }
-      } catch (e) {
-        log.debug("Meeting claim error", e);
-      }
     }
 
     try {
@@ -573,6 +569,7 @@ export function spawnMeetingRunner(input: {
   workspaceId: string;
   callbackUrl: string;
   authToken: string;
+  agentName?: string;
 }): ChildProcess {
   const logDir = sessionRunnerLogDir();
   mkdirSync(logDir, { recursive: true });

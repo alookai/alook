@@ -15,6 +15,8 @@ const mockBroadcastToUser = vi.fn();
 const mockGetPendingFileRequests = vi.fn();
 const mockMarkFileRequestsDispatched = vi.fn();
 const mockExpireStaleFileRequests = vi.fn();
+const mockListScheduledMeetings = vi.fn();
+const mockUpdateMeetingSession = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -55,6 +57,10 @@ vi.mock("@alook/shared", async () => {
         getPendingByWorkspace: (...args: unknown[]) => mockGetPendingFileRequests(...args),
         markDispatched: (...args: unknown[]) => mockMarkFileRequestsDispatched(...args),
         expireStale: (...args: unknown[]) => mockExpireStaleFileRequests(...args),
+      },
+      meetingSession: {
+        listScheduledMeetings: (...args: unknown[]) => mockListScheduledMeetings(...args),
+        updateMeetingSession: (...args: unknown[]) => mockUpdateMeetingSession(...args),
       },
     },
   };
@@ -121,6 +127,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockGetMachineByDaemon.mockResolvedValue(null);
     mockGetPendingFileRequests.mockResolvedValue([]);
     mockExpireStaleFileRequests.mockResolvedValue(undefined);
+    mockListScheduledMeetings.mockResolvedValue([]);
   });
 
   it("returns evicted: true and skips heartbeat when daemon has no runtimes", async () => {
@@ -679,5 +686,66 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(res.status).toBe(200);
     expect(body.tasks).toEqual([]);
     expect(body.file_requests).toBeUndefined();
+  });
+
+  // --- Meeting claim via poll ---
+
+  it("includes meetings in response when scheduled meetings exist", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockListScheduledMeetings.mockResolvedValue([
+      { id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "scheduled" },
+    ]);
+    mockUpdateMeetingSession.mockResolvedValue({
+      id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "joining",
+    });
+    mockGetAgent.mockResolvedValue({ id: "a1", name: "Jarvis", instructions: "", runtimeConfig: {} });
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.meetings).toHaveLength(1);
+    expect(body.meetings[0]).toEqual({
+      id: "ms1",
+      meeting_url: "https://meet.google.com/abc",
+      participants: ["alice@test.com"],
+      workspace_id: "w1",
+      agent_name: "Jarvis",
+    });
+  });
+
+  it("omits meetings field when no scheduled meetings", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockListScheduledMeetings.mockResolvedValue([]);
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.meetings).toBeUndefined();
+  });
+
+  it("gracefully handles meeting claim errors without failing the poll", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockListScheduledMeetings.mockRejectedValue(new Error("DB error"));
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.tasks).toEqual([]);
+    expect(body.meetings).toBeUndefined();
   });
 });

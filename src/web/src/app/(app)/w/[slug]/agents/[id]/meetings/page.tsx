@@ -278,7 +278,7 @@ export default function AgentMeetingsPage() {
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                Send transcript to (one email per line)
+                Participants (one email per line)
               </label>
               <textarea
                 placeholder={"alice@example.com\nbob@example.com"}

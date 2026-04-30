@@ -116,12 +116,22 @@ export const FileRequestItemSchema = z.object({
 });
 export type FileRequestItem = z.infer<typeof FileRequestItemSchema>;
 
+export const PollMeetingItemSchema = z.object({
+  id: z.string(),
+  meeting_url: z.string(),
+  participants: z.array(z.string()),
+  workspace_id: z.string(),
+  agent_name: z.string(),
+});
+export type PollMeetingItem = z.infer<typeof PollMeetingItemSchema>;
+
 export const PollResponseSchema = z.object({
   tasks: z.array(TaskApiSchema),
   evicted: z.boolean().optional(),
   pending_update: z.object({ version: z.string() }).optional(),
   pending_rescan: z.boolean().optional(),
   file_requests: z.array(FileRequestItemSchema).optional(),
+  meetings: z.array(PollMeetingItemSchema).optional(),
 });
 export type PollResponse = z.infer<typeof PollResponseSchema>;
 
