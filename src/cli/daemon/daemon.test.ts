@@ -1375,11 +1375,11 @@ describe("daemon restart via update", () => {
     expect(clearUpdateMarker).toHaveBeenCalled();
   });
 
-  it("does not clear update marker when versions differ", async () => {
+  it("clears stale update marker on startup when current version does not match marker", async () => {
     vi.clearAllMocks();
     mockProcessExit.mockImplementation((() => {}) as any);
 
-    vi.mocked(readUpdateMarker).mockReturnValue("0.0.9"); // differs from cliVersion 0.1.0
+    vi.mocked(readUpdateMarker).mockReturnValue("0.0.9"); // stale — differs from cliVersion 0.1.0
 
     vi.mocked(loadCLIConfigForProfile).mockReturnValue({
       server_url: "",
@@ -1390,7 +1390,7 @@ describe("daemon restart via update", () => {
 
     await startDaemon();
 
-    expect(clearUpdateMarker).not.toHaveBeenCalled();
+    expect(clearUpdateMarker).toHaveBeenCalled();
   });
 
 });

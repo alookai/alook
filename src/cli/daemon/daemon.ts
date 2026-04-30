@@ -225,9 +225,13 @@ export async function startDaemon(
   if (serverUrl) config.serverURL = serverUrl;
 
   const marker = readUpdateMarker(profile);
-  if (marker && marker === config.cliVersion) {
+  if (marker) {
     clearUpdateMarker(profile);
-    log.info(`Cleared update marker — now running v${config.cliVersion}`);
+    if (marker === config.cliVersion) {
+      log.info(`Cleared update marker — now running v${config.cliVersion}`);
+    } else {
+      log.info(`Cleared stale update marker (was v${marker}, running v${config.cliVersion}) — update will be retried`);
+    }
   }
 
   const cliConfig = loadCLIConfigForProfile(profile);
