@@ -6,6 +6,7 @@ import { APIClient } from "../lib/client.js";
 import { loadCLIConfigForProfile } from "../lib/config.js";
 import { printJSON, printTable } from "../lib/output.js";
 import { cmdPrefix } from "../lib/env.js";
+import { tempDir } from "../lib/platform.js";
 
 interface EmailResponse {
   id: string;
@@ -27,7 +28,7 @@ interface EmailResponse {
 
 const VALID_STATUSES = ["unread", "read", "archived", "sent"];
 const VALID_FOLDERS = ["inbox", "sent", "untrust"];
-const EMAIL_BASE = "/tmp/alook-emails";
+const EMAIL_BASE = tempDir("alook-emails");
 
 const MIME_BY_EXT: Record<string, string> = {
   ".pdf": "application/pdf",

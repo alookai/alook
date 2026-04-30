@@ -19,6 +19,7 @@ import {
 } from "./execenv/steering.js";
 import { TASK_TYPES } from "@alook/shared";
 import { readDirectoryTree, readFileContent, validatePath } from "./workspace-files.js";
+import { resolveLoginShellEnv } from "../lib/shell-env.js";
 import { existsSync, mkdirSync, openSync, closeSync, readdirSync, statSync, unlinkSync } from "fs";
 import { readdir, readFile, unlink, stat as fsStat } from "fs/promises";
 import { execSync, spawn, type ChildProcess } from "child_process";
@@ -523,6 +524,7 @@ export async function startDaemon(
         const child = spawn(process.execPath, args, {
           detached: true,
           stdio: logFd != null ? ["ignore", logFd, logFd] : ["ignore", "ignore", "ignore"],
+          env: resolveLoginShellEnv(),
         });
         child.unref();
         if (logFd != null) closeSync(logFd);

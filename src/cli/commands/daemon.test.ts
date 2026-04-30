@@ -192,9 +192,11 @@ describe("daemon stop", () => {
     const { out, err } = await promise;
 
     expect(killSpy).toHaveBeenCalledWith(888, "SIGTERM");
-    expect(killSpy).toHaveBeenCalledWith(888, "SIGKILL");
+    if (process.platform !== "win32") {
+      expect(killSpy).toHaveBeenCalledWith(888, "SIGKILL");
+    }
     expect(removePidFileIfMatchesMock).toHaveBeenCalledWith(888, undefined);
-    expect(err.join("\n")).toContain("SIGKILL");
+    expect(err.join("\n")).toContain("force killing");
     expect(out.join("\n")).toContain("Daemon stopped.");
 
     delete process.env.ALOOK_SHUTDOWN_TIMEOUT_MS;

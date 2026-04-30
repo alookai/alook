@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import path from "path";
 
 // --- Mocks ---
 
@@ -1196,21 +1197,21 @@ describe("writeMarkerFile", () => {
   it("writes marker with correct JSON structure", async () => {
     await writeMarkerFile("/tmp/ws", marker);
 
-    expect(mockMkdir).toHaveBeenCalledWith("/tmp/ws/.pending_completions", { recursive: true, mode: 0o700 });
+    expect(mockMkdir).toHaveBeenCalledWith(path.join("/tmp", "ws", ".pending_completions"), { recursive: true, mode: 0o700 });
     expect(mockWriteFile).toHaveBeenCalledWith(
-      "/tmp/ws/.pending_completions/t1.tmp",
+      path.join("/tmp", "ws", ".pending_completions", "t1.tmp"),
       JSON.stringify(marker),
       { mode: 0o600 },
     );
     expect(mockRename).toHaveBeenCalledWith(
-      "/tmp/ws/.pending_completions/t1.tmp",
-      "/tmp/ws/.pending_completions/t1.json",
+      path.join("/tmp", "ws", ".pending_completions", "t1.tmp"),
+      path.join("/tmp", "ws", ".pending_completions", "t1.json"),
     );
   });
 
   it("creates .pending_completions/ directory if missing", async () => {
     await writeMarkerFile("/tmp/ws", marker);
-    expect(mockMkdir).toHaveBeenCalledWith("/tmp/ws/.pending_completions", { recursive: true, mode: 0o700 });
+    expect(mockMkdir).toHaveBeenCalledWith(path.join("/tmp", "ws", ".pending_completions"), { recursive: true, mode: 0o700 });
   });
 
   it("works when directory already exists", async () => {

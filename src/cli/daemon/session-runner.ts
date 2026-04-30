@@ -20,9 +20,10 @@ import {
 import { readKillIntent, clearKillIntent } from "./execenv/steering.js";
 import { buildPrompt } from "./prompt.js";
 import { log } from "../lib/logger.js";
+import { tempDir } from "../lib/platform.js";
 import type { SessionRunnerInput, Attachment } from "./types.js";
 
-const ATTACHMENTS_BASE = "/tmp/alook-attachments";
+const ATTACHMENTS_BASE = tempDir("alook-attachments");
 
 // --- Marker file support for resilient server reporting ---
 

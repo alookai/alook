@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { EventEmitter } from "events";
+import path from "path";
 
 // Mock all external dependencies before importing
 const mockClientInstance = {
@@ -34,13 +35,13 @@ vi.mock("./config.js", () => ({
     maxConcurrentTasks: 20,
     daemonId: "d1",
     deviceName: "test-host",
-    workspacesRoot: "/tmp/ws",
+    workspacesRoot: path.join("/tmp", "ws"),
     cliVersion: "0.1.0",
   })),
-  sessionRunnerLogDir: vi.fn(() => "/tmp/alook/daemon/session-runners"),
-  daemonLogFilePath: vi.fn(() => "/tmp/alook/daemon/logs/2026-01-01.log"),
+  sessionRunnerLogDir: vi.fn(() => path.join("/tmp", "alook", "daemon", "session-runners")),
+  daemonLogFilePath: vi.fn(() => path.join("/tmp", "alook", "daemon", "logs", "2026-01-01.log")),
   lastUpdateMarkerPath: vi.fn((profile?: string) =>
-    profile ? `/tmp/alook/last_update_${profile}` : "/tmp/alook/last_update",
+    profile ? path.join("/tmp", "alook", `last_update_${profile}`) : path.join("/tmp", "alook", "last_update"),
   ),
 }));
 
@@ -294,7 +295,7 @@ describe("daemon session runner dispatch", () => {
     expect(input.model).toBe("opus");
     expect(input.serverURL).toBe("http://localhost:8080");
     expect(input.token).toBe("al_test_token");
-    expect(input.workspacesRoot).toBe("/tmp/ws");
+    expect(input.workspacesRoot).toBe(path.join("/tmp", "ws"));
     expect(input.agentTimeout).toBe(7200000);
     expect(input.messageInactivityTimeout).toBe(300000);
   });
@@ -927,11 +928,11 @@ describe("spawnSessionRunner", () => {
     spawnSessionRunner(makeSpawnInput() as any);
 
     expect(mockMkdirSync).toHaveBeenCalledWith(
-      "/tmp/alook/daemon/session-runners",
+      path.join("/tmp", "alook", "daemon", "session-runners"),
       { recursive: true },
     );
     expect(mockOpenSync).toHaveBeenCalledWith(
-      "/tmp/alook/daemon/session-runners/t1.log",
+      path.join("/tmp", "alook", "daemon", "session-runners", "t1.log"),
       "a",
     );
 
@@ -951,7 +952,7 @@ describe("spawnSessionRunner", () => {
     const call = vi.mocked(spawn).mock.calls[0];
     const encoded = call[1]![1] as string;
     const decoded = JSON.parse(Buffer.from(encoded, "base64").toString("utf-8"));
-    expect(decoded.logFilePath).toBe("/tmp/alook/daemon/session-runners/t1.log");
+    expect(decoded.logFilePath).toBe(path.join("/tmp", "alook", "daemon", "session-runners", "t1.log"));
   });
 
   it("spawns with stdio ignore when openSync fails (disk full)", () => {
@@ -995,7 +996,7 @@ describe("pruneSessionRunnerLogs", () => {
     const files = Array.from({ length: 505 }, (_, i) => `${i}.log`);
     mockReaddirSync.mockReturnValue(files);
     mockStatSync.mockImplementation((p: string) => {
-      const name = p.split("/").pop()!;
+      const name = path.basename(p);
       const idx = parseInt(name);
       return { mtimeMs: idx * 1000 };
     });
@@ -1006,7 +1007,7 @@ describe("pruneSessionRunnerLogs", () => {
     // Files 0-4 are the oldest (lowest mtime), they should be deleted
     for (let i = 0; i < 5; i++) {
       expect(mockUnlinkSync).toHaveBeenCalledWith(
-        `/tmp/alook/daemon/session-runners/${i}.log`,
+        path.join("/tmp", "alook", "daemon", "session-runners", `${i}.log`),
       );
     }
   });
@@ -1531,7 +1532,7 @@ describe("daemon restart spawn", () => {
       { recursive: true, mode: 0o700 },
     );
     expect(mockOpenSync).toHaveBeenCalledWith(
-      "/tmp/alook/daemon/logs/2026-01-01.log",
+      path.join("/tmp", "alook", "daemon", "logs", "2026-01-01.log"),
       "a",
       0o600,
     );
@@ -1763,7 +1764,7 @@ describe("reconcilePendingCompletions", () => {
     await reconcilePendingCompletions("/tmp/ws");
 
     expect(mockClientInstance.completeTask).toHaveBeenCalledWith("tok_123", "t1", { output: "Done!" });
-    expect(mockUnlink).toHaveBeenCalledWith("/tmp/ws/.pending_completions/t1.json");
+    expect(mockUnlink).toHaveBeenCalledWith(path.join("/tmp", "ws", ".pending_completions", "t1.json"));
   });
 
   it("delivers 'fail' marker and deletes file", async () => {
@@ -1783,7 +1784,7 @@ describe("reconcilePendingCompletions", () => {
 
     await reconcilePendingCompletions("/tmp/ws");
 
-    expect(mockUnlink).toHaveBeenCalledWith("/tmp/ws/.pending_completions/t1.json");
+    expect(mockUnlink).toHaveBeenCalledWith(path.join("/tmp", "ws", ".pending_completions", "t1.json"));
   });
 
   it("retains marker on network error", async () => {
@@ -1814,7 +1815,7 @@ describe("reconcilePendingCompletions", () => {
     await reconcilePendingCompletions("/tmp/ws");
 
     expect(mockClientInstance.completeTask).not.toHaveBeenCalled();
-    expect(mockUnlink).toHaveBeenCalledWith("/tmp/ws/.pending_completions/t1.json");
+    expect(mockUnlink).toHaveBeenCalledWith(path.join("/tmp", "ws", ".pending_completions", "t1.json"));
   });
 
   it("deletes malformed JSON marker files and continues processing", async () => {
@@ -1824,7 +1825,7 @@ describe("reconcilePendingCompletions", () => {
 
     await reconcilePendingCompletions("/tmp/ws");
 
-    expect(mockUnlink).toHaveBeenCalledWith("/tmp/ws/.pending_completions/bad.json");
+    expect(mockUnlink).toHaveBeenCalledWith(path.join("/tmp", "ws", ".pending_completions", "bad.json"));
     expect(mockClientInstance.completeTask).toHaveBeenCalledTimes(1);
   });
 
@@ -1835,7 +1836,7 @@ describe("reconcilePendingCompletions", () => {
     await reconcilePendingCompletions("/tmp/ws");
 
     expect(mockClientInstance.completeTask).not.toHaveBeenCalled();
-    expect(mockUnlink).toHaveBeenCalledWith("/tmp/ws/.pending_completions/t1.json");
+    expect(mockUnlink).toHaveBeenCalledWith(path.join("/tmp", "ws", ".pending_completions", "t1.json"));
   });
 
   it("skips structurally invalid marker files and deletes them", async () => {
@@ -1877,9 +1878,9 @@ describe("reconcilePendingCompletions", () => {
 
     expect(mockClientInstance.completeTask).toHaveBeenCalledTimes(3);
     // t1 and t3 delivered → deleted, t2 failed → retained
-    expect(mockUnlink).toHaveBeenCalledWith("/tmp/ws/.pending_completions/t1.json");
-    expect(mockUnlink).not.toHaveBeenCalledWith("/tmp/ws/.pending_completions/t2.json");
-    expect(mockUnlink).toHaveBeenCalledWith("/tmp/ws/.pending_completions/t3.json");
+    expect(mockUnlink).toHaveBeenCalledWith(path.join("/tmp", "ws", ".pending_completions", "t1.json"));
+    expect(mockUnlink).not.toHaveBeenCalledWith(path.join("/tmp", "ws", ".pending_completions", "t2.json"));
+    expect(mockUnlink).toHaveBeenCalledWith(path.join("/tmp", "ws", ".pending_completions", "t3.json"));
   });
 
   it("ignores .tmp files (not processed as markers)", async () => {
@@ -1898,7 +1899,7 @@ describe("reconcilePendingCompletions", () => {
 
     await reconcilePendingCompletions("/tmp/ws");
 
-    expect(mockUnlink).toHaveBeenCalledWith("/tmp/ws/.pending_completions/t1.tmp");
+    expect(mockUnlink).toHaveBeenCalledWith(path.join("/tmp", "ws", ".pending_completions", "t1.tmp"));
   });
 
   it("keeps recent .tmp files", async () => {

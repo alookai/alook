@@ -14,6 +14,8 @@ import {
   formatTranscript,
 } from "@alook/shared/browser"
 import type { TranscriptEntry } from "@alook/shared/browser"
+import { join } from "path"
+import { tempDir } from "../lib/platform.js"
 
 const SCRAPE_INTERVAL_MS = 3_000
 const DEFAULT_BOT_NAME = "Alook Meeting Bot"
@@ -152,7 +154,7 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     if (msg.includes("Blocked from joining")) {
-      const screenshotPath = `/tmp/meeting-${input.meetingId}-blocked.png`
+      const screenshotPath = join(tempDir("alook-meetings"), `meeting-${input.meetingId}-blocked.png`)
       await page.screenshot({ path: screenshotPath }).catch(() => {})
       log(`Blocked — screenshot: ${screenshotPath}`)
       return { status: "blocked", transcript, error: msg }
