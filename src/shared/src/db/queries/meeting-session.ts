@@ -1,5 +1,5 @@
 import { eq, and, desc, lte, isNotNull } from "drizzle-orm";
-import { meetingSession } from "../schema";
+import { meetingSession, agent } from "../schema";
 import type { Database } from "../index";
 
 export async function createMeetingSession(
@@ -140,8 +140,19 @@ export async function listScheduledMeetings(
   beforeOrAt: string
 ) {
   return db
-    .select()
+    .select({
+      id: meetingSession.id,
+      agentId: meetingSession.agentId,
+      workspaceId: meetingSession.workspaceId,
+      title: meetingSession.title,
+      meetingUrl: meetingSession.meetingUrl,
+      status: meetingSession.status,
+      participants: meetingSession.participants,
+      scheduledAt: meetingSession.scheduledAt,
+      agentName: agent.name,
+    })
     .from(meetingSession)
+    .leftJoin(agent, eq(agent.id, meetingSession.agentId))
     .where(
       and(
         eq(meetingSession.workspaceId, workspaceId),

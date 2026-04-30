@@ -697,12 +697,11 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockBroadcastToUser.mockResolvedValue(undefined);
     mockClaimTasksForRuntimes.mockResolvedValue([]);
     mockListScheduledMeetings.mockResolvedValue([
-      { id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "scheduled" },
+      { id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "scheduled", agentName: "Jarvis" },
     ]);
     mockClaimMeetingSession.mockResolvedValue({
       id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "joining",
     });
-    mockGetAgent.mockResolvedValue({ id: "a1", name: "Jarvis", instructions: "", runtimeConfig: {} });
 
     const res = await POST(postReq({ daemon_id: "d1" }));
     const body = await res.json();

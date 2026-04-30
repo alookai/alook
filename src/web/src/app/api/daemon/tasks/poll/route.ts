@@ -207,13 +207,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     );
 
     if (scheduled.length > 0) {
-      const agentIds = [...new Set(scheduled.map((m) => m.agentId))];
-      const agentNameMap = new Map<string, string>();
-      for (const agentId of agentIds) {
-        const agent = await queries.agent.getAgent(db, agentId, ctx.workspaceId);
-        if (agent) agentNameMap.set(agentId, agent.name);
-      }
-
       const claimed: PollMeetingItem[] = [];
       for (const meeting of scheduled) {
         const updated = await queries.meetingSession.claimMeetingSession(
@@ -228,7 +221,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
             meeting_url: updated.meetingUrl,
             participants: updated.participants as string[],
             workspace_id: updated.workspaceId,
-            agent_name: agentNameMap.get(updated.agentId) || "",
+            agent_name: meeting.agentName || "",
           });
         }
       }
