@@ -1281,7 +1281,7 @@ export function AgentChatView() {
                         variant="ghost"
                         size="icon-sm"
                         onClick={handleNap}
-                        disabled={napping || !conversation || !currentConvHasMessages}
+                        disabled={napping || !conversation || !currentConvHasMessages || isTaskActive}
                         className="rounded-lg text-muted-foreground/60 hover:text-foreground transition-colors duration-200"
                       >
                         {napping ? (
@@ -1293,7 +1293,7 @@ export function AgentChatView() {
                     </span>
                   )} />
                   <TooltipContent side="top">
-                    {currentConvHasMessages ? "Take a nap" : `${agentName} is well-rested and ready to go`}
+                    {isTaskActive ? "Wait for the task to finish" : currentConvHasMessages ? "Take a nap" : `${agentName} is well-rested and ready to go`}
                   </TooltipContent>
                 </Tooltip>
                 <Tooltip>

@@ -42,13 +42,62 @@ describe("buildInstructionContent", () => {
   it("uses agent name in opening line when provided", () => {
     const task = makeTask({ agent: { name: "My Assistant", instructions: "" } });
     const content = buildInstructionContent(task);
-    expect(content).toMatch(/^You're My Assistant in the Alook Platform\./);
+    expect(content).toContain("You're My Assistant in the Alook Platform.");
   });
 
   it("falls back to 'Alook Agent' when agent is undefined", () => {
     const task = makeTask({ agent: undefined });
     const content = buildInstructionContent(task);
-    expect(content).toMatch(/^You're Alook Agent in the Alook Platform\./);
+    expect(content).toContain("You're Alook Agent in the Alook Platform.");
+  });
+
+  it("includes agent email in opening line", () => {
+    const task = makeTask({
+      agent: { name: "Aria", instructions: "", emailHandle: "aria" },
+    });
+    const content = buildInstructionContent(task);
+    expect(content).toContain("You're Aria (aria@alook.ai) in the Alook Platform.");
+  });
+
+  it("omits email parenthetical when no email configured", () => {
+    const task = makeTask({
+      agent: { name: "Aria", instructions: "" },
+    });
+    const content = buildInstructionContent(task);
+    expect(content).toContain("You're Aria in the Alook Platform.");
+    expect(content).not.toContain("You're Aria (");
+  });
+
+  it("includes owner name and email", () => {
+    const task = makeTask({
+      agent: { name: "Aria", instructions: "", userName: "Gustavo", userEmail: "gus@example.com" },
+    });
+    const content = buildInstructionContent(task);
+    expect(content).toContain("Your owner and creator is Gustavo (gus@example.com).");
+  });
+
+  it("includes owner email without name when name is not available", () => {
+    const task = makeTask({
+      agent: { name: "Aria", instructions: "", userEmail: "gus@example.com" },
+    });
+    const content = buildInstructionContent(task);
+    expect(content).toContain("Your owner and creator is (gus@example.com).");
+  });
+
+  it("omits owner sentence when no owner info available", () => {
+    const task = makeTask({
+      agent: { name: "Aria", instructions: "" },
+    });
+    const content = buildInstructionContent(task);
+    expect(content).not.toContain("owner and creator");
+  });
+
+  it("uses custom email address when no alook handle", () => {
+    const task = makeTask({
+      agent: { name: "Aria", instructions: "", emailAddresses: ["aria@company.com"] },
+    });
+    const content = buildInstructionContent(task);
+    expect(content).toContain("You're Aria (aria@company.com) in the Alook Platform.");
   });
 });
 

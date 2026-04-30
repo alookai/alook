@@ -35,6 +35,7 @@ export interface TaskAgentData {
   emailHandle?: string | null;
   emailAddresses?: string[];
   userEmail?: string | null;
+  userName?: string | null;
   runtimeConfig?: Record<string, unknown>;
 }
 
@@ -122,7 +123,7 @@ export function fromApiTask(api: import("@alook/shared").TaskApi): Task {
     contextKey: api.context_key ?? null,
     context: (api.context as Record<string, unknown>) ?? undefined,
     agent: api.agent
-      ? { name: api.agent.name, instructions: api.agent.instructions, emailHandle: api.agent.email_handle ?? undefined, emailAddresses: api.agent.email_addresses ?? [], userEmail: api.agent.user_email ?? undefined, runtimeConfig: api.agent.runtime_config ?? undefined }
+      ? { name: api.agent.name, instructions: api.agent.instructions, emailHandle: api.agent.email_handle ?? undefined, emailAddresses: api.agent.email_addresses ?? [], userEmail: api.agent.user_email ?? undefined, userName: api.agent.user_name ?? undefined, runtimeConfig: api.agent.runtime_config ?? undefined }
       : undefined,
     sender: api.sender
       ? { name: api.sender.name, email: api.sender.email, isOwner: api.sender.is_owner }

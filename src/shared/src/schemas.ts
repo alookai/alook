@@ -52,6 +52,7 @@ export const TaskAgentDataApiSchema = z.object({
   email_handle: z.string().nullable().optional(),
   email_addresses: z.array(z.string()).default([]),
   user_email: z.string().nullable().optional(),
+  user_name: z.string().nullable().optional(),
 });
 export type TaskAgentDataApi = z.infer<typeof TaskAgentDataApiSchema>;
 
@@ -428,7 +429,7 @@ export const SendEmailRequestSchema = z.object({
 export type SendEmailRequest = z.infer<typeof SendEmailRequestSchema>;
 
 export const UpdateEmailStatusRequestSchema = z.object({
-  status: z.enum(["unread", "read", "archived"]),
+  status: z.enum(["unread", "read", "archived", "sent"]),
 });
 export type UpdateEmailStatusRequest = z.infer<
   typeof UpdateEmailStatusRequestSchema

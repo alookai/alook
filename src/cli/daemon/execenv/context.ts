@@ -69,7 +69,17 @@ those json are sorted by datetime in asc order.
 
 export function buildInstructionContent(task: Task): string {
   const displayName = task.agent?.name || "Alook Agent";
-  let content = `You're ${displayName} in the Alook Platform.\n${SYSTEM_PROMPT_BODY}`;
+  const alookAddr = task.agent?.emailHandle ? toAlookAddress(task.agent.emailHandle) : null;
+  const customAddrs = (task.agent?.emailAddresses ?? []).filter((a) => a !== alookAddr);
+  const primaryEmail = alookAddr ?? customAddrs[0] ?? null;
+
+  let agentLine = `You're ${displayName}${primaryEmail ? ` (${primaryEmail})` : ""} in the Alook Platform.`;
+  if (task.agent?.userName || task.agent?.userEmail) {
+    const ownerParts = [task.agent.userName, task.agent.userEmail ? `(${task.agent.userEmail})` : null].filter(Boolean).join(" ");
+    agentLine += ` Your owner and creator is ${ownerParts}.`;
+  }
+
+  let content = `${agentLine}\n${SYSTEM_PROMPT_BODY}`;
 
   if (task.agent?.instructions) {
     content += `## BIG BOSS Instructions
@@ -84,15 +94,11 @@ You can communicate with the world through Alook CLI.
 Your alook agent id is '${task.agentId}'. remember this, most of alook cli will requires you input your agent id.
 `;
 
-  const alookAddr = task.agent?.emailHandle ? toAlookAddress(task.agent.emailHandle) : null;
-  const customAddrs = (task.agent?.emailAddresses ?? []).filter((a) => a !== alookAddr);
-
   if (alookAddr || customAddrs.length > 0) {
     const lines: string[] = [];
     if (alookAddr) lines.push(`- '${alookAddr}' (default, Alook platform address)`);
     for (const a of customAddrs) lines.push(`- '${a}' (custom IMAP/SMTP mailbox)`);
-    content += `Your email addresses:\n${lines.join("\n")}
-${task.agent?.userEmail ? `Your owner's email address is '${task.agent.userEmail}'.` : ""}
+    content += `Your email addresses:\n${lines.join("\n")}\n
 
 ### Emails
 ---

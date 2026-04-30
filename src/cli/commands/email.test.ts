@@ -249,7 +249,7 @@ describe("email pull output structure", () => {
 });
 
 describe("email status validation", () => {
-  const VALID_STATUSES = ["unread", "read", "archived"];
+  const VALID_STATUSES = ["unread", "read", "archived", "sent"];
 
   it("accepts valid status values", () => {
     for (const s of VALID_STATUSES) {

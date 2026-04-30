@@ -25,7 +25,7 @@ interface EmailResponse {
   created_at: string;
 }
 
-const VALID_STATUSES = ["unread", "read", "archived"];
+const VALID_STATUSES = ["unread", "read", "archived", "sent"];
 const EMAIL_BASE = "/tmp/alook-emails";
 
 const MIME_BY_EXT: Record<string, string> = {

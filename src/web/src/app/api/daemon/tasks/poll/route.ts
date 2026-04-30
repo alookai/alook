@@ -111,6 +111,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       }
     }
 
+    // Resolve owner name
+    let ownerName: string | null = null;
+    if (agent?.ownerId) {
+      if (!userCache.has(agent.ownerId)) {
+        const u = await queries.user.getUser(db, agent.ownerId);
+        userCache.set(agent.ownerId, u ? { name: u.name, email: u.email } : null);
+      }
+      ownerName = userCache.get(agent.ownerId)?.name ?? null;
+    }
+
     // Resolve sender identity for DM tasks only
     let sender: { name: string; email: string; is_owner: boolean } | null = null;
     if (task.type === "user_dm_message" && task.conversationId) {
@@ -142,6 +152,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
             email_handle: agent.emailHandle || null,
             email_addresses: emailAddresses,
             user_email: ctx.email || null,
+            user_name: ownerName,
           }
         : null,
     });

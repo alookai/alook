@@ -7,7 +7,7 @@ import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import { emailToResponse } from "@/lib/api/responses";
 
-const VALID_STATUSES = ["unread", "read", "archived"];
+const VALID_STATUSES = ["unread", "read", "archived", "sent"];
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -38,8 +38,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     emailList = await queries.email.getSentEmails(db, agentId, agentEmail, ws.workspaceId, status);
   } else if (folder === "untrust" && agentEmail) {
     emailList = await queries.email.getRejectedEmails(db, agentId, agentEmail, ws.workspaceId, status);
-  } else {
+  } else if (folder === "all") {
     emailList = await queries.email.getEmailsByAgent(db, agentId, ws.workspaceId, status);
+  } else {
+    emailList = await queries.email.getInboxEmails(db, agentId, agentEmail, ws.workspaceId, status);
   }
 
   return writeJSON(emailList.map(emailToResponse));

@@ -63,24 +63,24 @@ describe("buildInstructionContent email tool injection", () => {
     expect(content).not.toContain("email send --agent_id");
   });
 
-  it("includes owner email when user email is provided", () => {
+  it("includes owner email in opening line when user email is provided", () => {
     const task = makeTask({
       agent: { name: "test", instructions: "do stuff", emailHandle: "myagent", userEmail: "gus@example.com" },
     });
     const content = buildInstructionContent(task);
 
     expect(content).toContain("'myagent@alook.ai' (default, Alook platform address)");
-    expect(content).toContain("Your owner's email address is 'gus@example.com'");
+    expect(content).toContain("Your owner and creator is (gus@example.com).");
   });
 
-  it("omits owner email line when user email is not provided", () => {
+  it("omits owner sentence when user email is not provided", () => {
     const task = makeTask({
       agent: { name: "test", instructions: "do stuff", emailHandle: "myagent" },
     });
     const content = buildInstructionContent(task);
 
     expect(content).toContain("'myagent@alook.ai' (default, Alook platform address)");
-    expect(content).not.toContain("owner's email");
+    expect(content).not.toContain("owner and creator");
   });
 
   it("omits email tool section when agent has no email handle", () => {

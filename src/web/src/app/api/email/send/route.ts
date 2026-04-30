@@ -137,6 +137,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         htmlBody,
         attachments: JSON.stringify(attachments),
         direction: "outbound",
+        status: "sent",
       });
 
       if (validatedConversationId) {
@@ -208,6 +209,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     htmlBody: body.htmlBody || "",
     attachments: JSON.stringify(attachments),
     direction: "outbound",
+    status: "sent",
   });
 
   if (validatedConversationId && emailResult.messageId) {
