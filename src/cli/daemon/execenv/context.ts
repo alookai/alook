@@ -99,7 +99,7 @@ Your alook agent id is '${task.agentId}'. remember this, most of alook cli will 
     const lines: string[] = [];
     if (alookAddr) lines.push(`- '${alookAddr}' (default, Alook platform address)`);
     for (const a of customAddrs) lines.push(`- '${a}' (custom IMAP/SMTP mailbox)`);
-    content += `Your email addresses:\n${lines.join("\n")}\n
+    content += `\nYour email addresses:\n${lines.join("\n")}\n
 
 ### Emails
 ---

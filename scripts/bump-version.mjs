@@ -22,12 +22,17 @@ function bumpSemver(current, type) {
   return `${major}.${minor}.${patch + 1}`;
 }
 
-const arg = process.argv[2];
+const args = process.argv.slice(2);
+const updateMinCli = args.includes("--min-cli");
+const filtered = args.filter((a) => a !== "--min-cli");
+const arg = filtered[0];
+
 if (!arg) {
-  console.error("Usage: pnpm bump <version|patch|minor|major>");
+  console.error("Usage: pnpm bump <version|patch|minor|major> [--min-cli]");
   console.error("  pnpm bump 0.0.11");
   console.error("  pnpm bump v0.0.11");
   console.error("  pnpm bump patch");
+  console.error("  pnpm bump patch --min-cli   # also update MIN_CLI_VERSION in wrangler.toml");
   process.exit(1);
 }
 
@@ -56,6 +61,17 @@ for (const dir of WORKSPACE_DIRS) {
   writePkg(path, pkg);
   files.push(path);
   console.log(`  ${pkg.name}: ${old} → ${version}`);
+}
+
+if (updateMinCli) {
+  const tomlPath = join(ROOT, "src/web/wrangler.toml");
+  let toml = readFileSync(tomlPath, "utf8");
+  const oldMatch = toml.match(/MIN_CLI_VERSION\s*=\s*"([^"]+)"/);
+  const oldMinCli = oldMatch ? oldMatch[1] : "unknown";
+  toml = toml.replace(/MIN_CLI_VERSION\s*=\s*"[^"]+"/, `MIN_CLI_VERSION = "${version}"`);
+  writeFileSync(tomlPath, toml);
+  files.push(tomlPath);
+  console.log(`  MIN_CLI_VERSION: ${oldMinCli} → ${version} (wrangler.toml)`);
 }
 
 const gitFiles = files.map((f) => f.replace(ROOT + "/", ""));
