@@ -7,6 +7,11 @@
 
 PRAGMA foreign_keys = OFF;
 
+-- Clean up orphaned task rows that reference deleted parents
+DELETE FROM agent_task_queue WHERE runtime_id NOT IN (SELECT id FROM agent_runtime);
+DELETE FROM agent_task_queue WHERE workspace_id NOT IN (SELECT id FROM workspace);
+DELETE FROM agent_task_queue WHERE conversation_id NOT IN (SELECT id FROM conversation);
+
 CREATE TABLE agent_task_queue_new (
   id TEXT PRIMARY KEY,
   agent_id TEXT NOT NULL,
@@ -47,3 +52,5 @@ CREATE INDEX idx_task_queue_agent_history
   ON agent_task_queue(agent_id, workspace_id, created_at);
 
 PRAGMA foreign_keys = ON;
+
+PRAGMA foreign_key_check;
