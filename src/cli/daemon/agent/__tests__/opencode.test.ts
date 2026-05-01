@@ -7,24 +7,16 @@ let currentMockProc: ReturnType<typeof createMockProc> | null = null;
 let lastSpawnArgs: { cmd: string; args: string[]; opts: Record<string, unknown> } | null = null;
 
 function createMockProc() {
-  const stdinWrites: string[] = [];
   const stdout = new Readable({ read() {} });
   const stderr = new Readable({ read() {} });
-  const stdinEnd = vi.fn();
   const proc = Object.assign(new EventEmitter(), {
     stdout,
     stderr,
-    stdin: {
-      write: (data: string) => {
-        stdinWrites.push(data);
-        return true;
-      },
-      end: stdinEnd,
-    },
+    stdin: null,
     kill: vi.fn(),
     pid: 12345,
   });
-  return { proc, stdout, stderr, stdinWrites, stdinEnd };
+  return { proc, stdout, stderr };
 }
 
 vi.mock("child_process", () => ({
@@ -196,6 +188,15 @@ describe("OpenCodeBackend", () => {
     expect(messages).toContainEqual({ type: "log", content: "not json", level: "debug" });
   });
 
+  it("spawns with stdin ignored to prevent opencode from blocking on pipe", () => {
+    backend.execute("hello", { cwd: "/tmp" });
+    expect(lastSpawnArgs).toBeTruthy();
+    const stdio = lastSpawnArgs!.opts.stdio as string[];
+    expect(stdio[0]).toBe("ignore");
+    expect(stdio[1]).toBe("pipe");
+    expect(stdio[2]).toBe("pipe");
+  });
+
   it("OPENCODE_PERMISSION env var is set on subprocess", () => {
     backend.execute("hello", { cwd: "/tmp" });
     expect(lastSpawnArgs).toBeTruthy();
@@ -280,14 +281,13 @@ describe("OpenCodeBackend", () => {
 
   // --- Turn completion: process lifecycle ---
 
-  it("done event closes stdin and kills the process", async () => {
+  it("done event kills the process", async () => {
     const session = backend.execute("hello", { cwd: "/tmp" });
     const mock = getMock();
 
     mock.stdout.push(JSON.stringify({ type: "done", output: "all done" }) + "\n");
     await tick();
 
-    expect(mock.stdinEnd).toHaveBeenCalled();
     expect(mock.proc.kill).toHaveBeenCalledWith("SIGTERM");
 
     mock.proc.emit("close", 0);
@@ -296,14 +296,13 @@ describe("OpenCodeBackend", () => {
     expect(result.output).toBe("all done");
   });
 
-  it("complete event closes stdin and kills the process", async () => {
+  it("complete event kills the process", async () => {
     const session = backend.execute("hello", { cwd: "/tmp" });
     const mock = getMock();
 
     mock.stdout.push(JSON.stringify({ type: "complete", output: "finished" }) + "\n");
     await tick();
 
-    expect(mock.stdinEnd).toHaveBeenCalled();
     expect(mock.proc.kill).toHaveBeenCalledWith("SIGTERM");
 
     mock.proc.emit("close", 0);
@@ -311,14 +310,13 @@ describe("OpenCodeBackend", () => {
     expect(result.status).toBe("completed");
   });
 
-  it("error event closes stdin and kills the process", async () => {
+  it("error event kills the process", async () => {
     const session = backend.execute("hello", { cwd: "/tmp" });
     const mock = getMock();
 
     mock.stdout.push(JSON.stringify({ type: "error", message: "fatal error" }) + "\n");
     await tick();
 
-    expect(mock.stdinEnd).toHaveBeenCalled();
     expect(mock.proc.kill).toHaveBeenCalledWith("SIGTERM");
 
     mock.proc.emit("close", 1);
@@ -335,7 +333,6 @@ describe("OpenCodeBackend", () => {
     mock.stdout.push(JSON.stringify({ type: "done", output: "done anyway" }) + "\n");
     await tick();
 
-    expect(mock.stdinEnd).toHaveBeenCalledTimes(1);
     expect(mock.proc.kill).toHaveBeenCalledTimes(1);
 
     mock.proc.emit("close", 1);
@@ -354,7 +351,7 @@ describe("OpenCodeBackend", () => {
     mock.stdout.push(JSON.stringify({ type: "done", output: "Found the bug", session_id: "sess_123" }) + "\n");
     await tick();
 
-    expect(mock.stdinEnd).toHaveBeenCalled();
+    expect(mock.proc.kill).toHaveBeenCalledWith("SIGTERM");
     mock.proc.emit("close", 0);
 
     const result = await session.result;
