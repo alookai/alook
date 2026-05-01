@@ -466,4 +466,54 @@ describe("OpenCodeBackend", () => {
     const messages = await collectMessages(session.messages);
     expect(messages).toContainEqual({ type: "text", content: "我是トニー大木" });
   });
+
+  it("v1.14+: non-zero exit after turnDone still reports completed", async () => {
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    mock.stdout.push(JSON.stringify({
+      type: "text",
+      sessionID: "ses_x",
+      part: { type: "text", text: "Done!" },
+    }) + "\n");
+    mock.stdout.push(JSON.stringify({
+      type: "step_finish",
+      sessionID: "ses_x",
+      part: { type: "step-finish", reason: "stop" },
+    }) + "\n");
+    await tick();
+
+    expect(mock.proc.kill).toHaveBeenCalledWith("SIGTERM");
+    // Process exits with non-zero due to SIGTERM (143)
+    mock.proc.emit("close", 143);
+
+    const result = await session.result;
+    expect(result.status).toBe("completed");
+    expect(result.output).toBe("Done!");
+  });
+
+  it("non-zero exit with output but no turnDone still reports completed", async () => {
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    mock.stdout.push(JSON.stringify({ type: "message", role: "assistant", content: "Got it" }) + "\n");
+    await tick();
+    // Process crashes after producing output
+    mock.proc.emit("close", 1);
+
+    const result = await session.result;
+    expect(result.status).toBe("completed");
+    expect(result.output).toBe("Got it");
+  });
+
+  it("non-zero exit with no output and no turnDone reports failed", async () => {
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    await tick();
+    mock.proc.emit("close", 1);
+
+    const result = await session.result;
+    expect(result.status).toBe("failed");
+  });
 });

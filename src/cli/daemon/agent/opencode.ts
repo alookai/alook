@@ -204,8 +204,10 @@ export class OpenCodeBackend implements AgentBackend {
 
         if (timedOut) {
           resultStatus = "timeout";
-        } else if (code !== 0 && resultStatus === "completed") {
-          resultStatus = "failed";
+        } else if (code !== 0 && resultStatus === "completed" && !turnDoneTriggered) {
+          if (!lastOutput) {
+            resultStatus = "failed";
+          }
         }
 
         const stderr = stderrChunks.join("");
