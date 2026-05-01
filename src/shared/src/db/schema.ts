@@ -317,7 +317,7 @@ export const agentTaskQueue = sqliteTable(
       .references(() => workspace.id),
     conversationId: text("conversation_id")
       .notNull()
-      .references(() => conversation.id),
+      .references(() => conversation.id, { onDelete: "cascade" }),
     prompt: text("prompt").notNull(),
     type: text("type").notNull().default(TASK_TYPES.USER_DM_MESSAGE),
     contextKey: text("context_key"),
