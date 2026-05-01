@@ -1,5 +1,5 @@
 import { eq, and, desc, or, exists } from "drizzle-orm";
-import { agent, agentTaskQueue, agentAccess } from "../schema";
+import { agent, agentAccess } from "../schema";
 import type { Database } from "../index";
 
 export async function getAgent(db: Database, id: string, workspaceId: string, userId?: string) {
@@ -50,10 +50,10 @@ export async function createAgent(
   data: {
     workspaceId: string;
     name: string;
+    runtimeId: string;
     description?: string;
     instructions?: string;
     avatarUrl?: string | null;
-    runtimeId?: string | null;
     runtimeMode?: string;
     runtimeConfig?: unknown;
     visibility?: string;
@@ -69,10 +69,10 @@ export async function createAgent(
     .values({
       workspaceId: data.workspaceId,
       name: data.name,
+      runtimeId: data.runtimeId,
       description: data.description ?? "",
       instructions: data.instructions ?? "",
       avatarUrl: data.avatarUrl ?? null,
-      runtimeId: data.runtimeId ?? null,
       runtimeMode: data.runtimeMode ?? "local",
       runtimeConfig: data.runtimeConfig ?? null,
       visibility: data.visibility ?? "private",
@@ -92,9 +92,6 @@ export async function deleteAgent(
   workspaceId: string,
   ownerId?: string
 ) {
-  await db
-    .delete(agentTaskQueue)
-    .where(and(eq(agentTaskQueue.agentId, id), eq(agentTaskQueue.workspaceId, workspaceId)));
   const conditions = [eq(agent.id, id), eq(agent.workspaceId, workspaceId)];
   if (ownerId) conditions.push(eq(agent.ownerId, ownerId));
   const rows = await db
@@ -112,7 +109,7 @@ export async function updateAgent(
     name?: string;
     description?: string;
     instructions?: string;
-    runtimeId?: string | null;
+    runtimeId?: string;
     runtimeConfig?: unknown;
     visibility?: string;
   },
