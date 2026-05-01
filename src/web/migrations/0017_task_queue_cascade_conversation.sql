@@ -2,15 +2,15 @@
 -- 1. conversation_id: ON DELETE CASCADE — deleting a channel (which cascades
 --    to its conversations) no longer fails due to dangling task references.
 -- 2. workspace_id: ON DELETE CASCADE — same logic for workspace deletion.
--- 3. runtime_id: ON DELETE SET NULL — runtime may be replaced; task history
---    should survive runtime removal.
+-- 3. runtime_id: ON DELETE CASCADE — matches existing app-level behavior
+--    (deleteRuntimesByDaemonId already deletes associated tasks).
 
 PRAGMA foreign_keys = OFF;
 
 CREATE TABLE agent_task_queue_new (
   id TEXT PRIMARY KEY,
   agent_id TEXT NOT NULL,
-  runtime_id TEXT REFERENCES agent_runtime(id) ON DELETE SET NULL,
+  runtime_id TEXT NOT NULL REFERENCES agent_runtime(id) ON DELETE CASCADE,
   workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
   conversation_id TEXT NOT NULL REFERENCES conversation(id) ON DELETE CASCADE,
   prompt TEXT NOT NULL,
