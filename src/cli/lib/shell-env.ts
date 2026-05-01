@@ -8,7 +8,7 @@ export function resolveLoginShellEnv(): NodeJS.ProcessEnv {
 
   const shell = process.env.SHELL || "/bin/zsh";
   try {
-    const output = execSync(`${shell} -lc 'env'`, {
+    const output = execSync(`${shell} -ilc 'env'`, {
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["ignore", "pipe", "ignore"],
