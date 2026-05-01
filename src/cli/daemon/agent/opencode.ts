@@ -50,7 +50,6 @@ export class OpenCodeBackend implements AgentBackend {
     const turnDone = () => {
       if (turnDoneTriggered) return;
       turnDoneTriggered = true;
-      try { proc.stdin?.end(); } catch { /* already closed */ }
       try { proc.kill("SIGTERM"); } catch { /* already dead */ }
     };
 
