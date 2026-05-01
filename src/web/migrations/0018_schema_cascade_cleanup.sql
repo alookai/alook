@@ -28,6 +28,9 @@ CREATE TABLE agent_new (
   PRIMARY KEY (id, workspace_id)
 );
 
+-- Clean up orphan agents with NULL runtime_id (previously set by deleteRuntimesByDaemonId)
+DELETE FROM agent WHERE runtime_id IS NULL;
+
 INSERT INTO agent_new SELECT * FROM agent;
 
 DROP TABLE agent;
@@ -57,3 +60,5 @@ ALTER TABLE workspace_file_request_new RENAME TO workspace_file_request;
 CREATE INDEX idx_wfr_workspace_status ON workspace_file_request(workspace_id, status);
 
 PRAGMA foreign_keys = ON;
+
+PRAGMA foreign_key_check;
