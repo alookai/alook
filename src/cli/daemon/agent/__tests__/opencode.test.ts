@@ -365,4 +365,105 @@ describe("OpenCodeBackend", () => {
     expect(messages).toContainEqual(expect.objectContaining({ type: "tool-use", tool: "read_file", callId: "c1" }));
     expect(messages).toContainEqual(expect.objectContaining({ type: "tool-result", callId: "c1", output: "buggy code" }));
   });
+
+  // --- v1.14+ format tests ---
+
+  it("v1.14+: emits text from part.text field", async () => {
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    mock.stdout.push(JSON.stringify({
+      type: "text",
+      timestamp: 1777626241755,
+      sessionID: "ses_abc123",
+      part: { id: "prt_1", messageID: "msg_1", sessionID: "ses_abc123", type: "text", text: "Hello from v1.14!" },
+    }) + "\n");
+    await tick();
+    mock.proc.emit("close", 0);
+
+    const messages = await collectMessages(session.messages);
+    expect(messages).toContainEqual({ type: "text", content: "Hello from v1.14!" });
+
+    const result = await session.result;
+    expect(result.output).toBe("Hello from v1.14!");
+    expect(result.sessionId).toBe("ses_abc123");
+  });
+
+  it("v1.14+: step_finish with reason=stop calls turnDone", async () => {
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    mock.stdout.push(JSON.stringify({
+      type: "step_start",
+      sessionID: "ses_abc",
+      part: { type: "step-start" },
+    }) + "\n");
+    mock.stdout.push(JSON.stringify({
+      type: "text",
+      sessionID: "ses_abc",
+      part: { type: "text", text: "Done!" },
+    }) + "\n");
+    mock.stdout.push(JSON.stringify({
+      type: "step_finish",
+      sessionID: "ses_abc",
+      part: { type: "step-finish", reason: "stop", tokens: { total: 100 } },
+    }) + "\n");
+    await tick();
+
+    expect(mock.proc.kill).toHaveBeenCalledWith("SIGTERM");
+    mock.proc.emit("close", 0);
+
+    const result = await session.result;
+    expect(result.status).toBe("completed");
+    expect(result.output).toBe("Done!");
+  });
+
+  it("v1.14+: extracts sessionID from event-level field", async () => {
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    mock.stdout.push(JSON.stringify({
+      type: "step_start",
+      sessionID: "ses_from_event",
+      part: { type: "step-start" },
+    }) + "\n");
+    await tick();
+    mock.proc.emit("close", 0);
+
+    const result = await session.result;
+    expect(result.sessionId).toBe("ses_from_event");
+  });
+
+  it("v1.14+: full flow with new format", async () => {
+    const session = backend.execute("你是谁", { cwd: "/tmp" });
+    const mock = getMock();
+
+    mock.stdout.push(JSON.stringify({
+      type: "step_start",
+      sessionID: "ses_new",
+      part: { id: "prt_1", messageID: "msg_1", sessionID: "ses_new", type: "step-start" },
+    }) + "\n");
+    mock.stdout.push(JSON.stringify({
+      type: "text",
+      sessionID: "ses_new",
+      part: { id: "prt_2", messageID: "msg_1", sessionID: "ses_new", type: "text", text: "我是トニー大木" },
+    }) + "\n");
+    mock.stdout.push(JSON.stringify({
+      type: "step_finish",
+      sessionID: "ses_new",
+      part: { id: "prt_3", reason: "stop", messageID: "msg_1", sessionID: "ses_new", type: "step-finish", tokens: { total: 20145, input: 6, output: 34 }, cost: 0.12 },
+    }) + "\n");
+    await tick();
+
+    expect(mock.proc.kill).toHaveBeenCalledWith("SIGTERM");
+    mock.proc.emit("close", 0);
+
+    const result = await session.result;
+    expect(result.status).toBe("completed");
+    expect(result.output).toBe("我是トニー大木");
+    expect(result.sessionId).toBe("ses_new");
+
+    const messages = await collectMessages(session.messages);
+    expect(messages).toContainEqual({ type: "text", content: "我是トニー大木" });
+  });
 });

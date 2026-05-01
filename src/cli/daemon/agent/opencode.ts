@@ -87,6 +87,14 @@ export class OpenCodeBackend implements AgentBackend {
         }
 
         const eventType = event.type as string | undefined;
+        const part = event.part as Record<string, unknown> | undefined;
+
+        // Extract sessionID from any event (v1.14+ format)
+        const eventSessionId = (event.sessionID as string) || (event.session_id as string);
+        if (eventSessionId && !lastSessionId) {
+          lastSessionId = eventSessionId;
+          resolveSessionId(eventSessionId);
+        }
 
         switch (eventType) {
           case "session": {
@@ -108,8 +116,18 @@ export class OpenCodeBackend implements AgentBackend {
             break;
           }
 
+          // v1.14+ format: { type: "text", part: { text: "..." } }
+          case "text": {
+            const text = (part?.text as string) || (event.content as string) || "";
+            if (text) {
+              lastOutput = text;
+              pushMessage({ type: "text", content: text });
+            }
+            break;
+          }
+
           case "thinking": {
-            const content = event.content as string | undefined;
+            const content = (part?.thinking as string) || (event.content as string) || "";
             pushMessage({ type: "thinking", content });
             break;
           }
@@ -117,9 +135,9 @@ export class OpenCodeBackend implements AgentBackend {
           case "tool_call": {
             pushMessage({
               type: "tool-use",
-              tool: (event.name as string) || "",
-              callId: event.call_id as string,
-              input: event.input as Record<string, unknown>,
+              tool: (event.name as string) || (part?.name as string) || "",
+              callId: (event.call_id as string) || (part?.id as string) || "",
+              input: (event.input as Record<string, unknown>) || (part?.input as Record<string, unknown>),
             });
             break;
           }
@@ -127,17 +145,30 @@ export class OpenCodeBackend implements AgentBackend {
           case "tool_result": {
             pushMessage({
               type: "tool-result",
-              callId: event.call_id as string,
-              output: event.output as string,
+              callId: (event.call_id as string) || (part?.id as string) || "",
+              output: (event.output as string) || (part?.output as string) || "",
             });
             break;
           }
 
           case "error": {
-            const content = (event.message as string) || (event.content as string) || "";
+            const content = (event.message as string) || (event.content as string) || (part?.error as string) || "";
             lastError = content;
             pushMessage({ type: "error", content });
             turnDone();
+            break;
+          }
+
+          // v1.14+ signals
+          case "step_start": {
+            break;
+          }
+
+          case "step_finish": {
+            const reason = part?.reason as string | undefined;
+            if (reason === "stop" || reason === "end_turn") {
+              turnDone();
+            }
             break;
           }
 
