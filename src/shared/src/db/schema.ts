@@ -310,11 +310,10 @@ export const agentTaskQueue = sqliteTable(
     id: text("id").primaryKey().$defaultFn(() => nanoid()),
     agentId: text("agent_id").notNull(),
     runtimeId: text("runtime_id")
-      .notNull()
-      .references(() => agentRuntime.id),
+      .references(() => agentRuntime.id, { onDelete: "set null" }),
     workspaceId: text("workspace_id")
       .notNull()
-      .references(() => workspace.id),
+      .references(() => workspace.id, { onDelete: "cascade" }),
     conversationId: text("conversation_id")
       .notNull()
       .references(() => conversation.id, { onDelete: "cascade" }),
