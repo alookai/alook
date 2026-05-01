@@ -21,6 +21,7 @@ import {
   listAgentPins,
   pinAgent as pinAgentApi,
   unpinAgent as unpinAgentApi,
+  reorderAgentPins,
   type AgentPin,
 } from "@/lib/api";
 import type { AgentRuntime as Runtime } from "@alook/shared";
@@ -42,7 +43,7 @@ interface AgentContextValue {
   runtimes: Runtime[];
   loading: boolean;
   activeTaskCounts: Record<string, number>;
-  pins: Map<string, string>;
+  pins: Map<string, number>;
   reload: () => Promise<void>;
   subscribeWs: (fn: WsSubscriber) => () => void;
   handleCreateAgent: (req: CreateAgentRequest) => Promise<Agent | null>;
@@ -50,6 +51,7 @@ interface AgentContextValue {
   handleDeleteAgent: (id: string) => Promise<boolean>;
   handlePinAgent: (agentId: string) => Promise<void>;
   handleUnpinAgent: (agentId: string) => Promise<void>;
+  handleReorderPins: (agentIds: string[]) => Promise<void>;
   getFirstOnlineRuntimeId: () => string;
   handleGenerateToken: () => Promise<string | null>;
   handleDeleteMachine: (daemonId: string) => Promise<boolean>;
@@ -74,7 +76,7 @@ export function AgentProvider({
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTaskCounts, setActiveTaskCounts] = useState<Record<string, number>>({});
-  const [pins, setPins] = useState<Map<string, string>>(new Map());
+  const [pins, setPins] = useState<Map<string, number>>(new Map());
   const loadedRef = useRef(false);
   const subscribersRef = useRef(new Set<WsSubscriber>());
   const taskCountsMountedRef = useRef(true);
@@ -112,7 +114,7 @@ export function AgentProvider({
       ]);
       setAgents(a);
       setRuntimes(r);
-      setPins(new Map(p.map((pin) => [pin.agent_id, pin.created_at])));
+      setPins(new Map(p.map((pin) => [pin.agent_id, pin.order])));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load data");
     } finally {
@@ -225,7 +227,10 @@ export function AgentProvider({
   );
 
   const handlePinAgent = useCallback(async (agentId: string) => {
-    setPins((prev) => new Map(prev).set(agentId, new Date().toISOString()));
+    setPins((prev) => {
+      const maxOrder = Math.max(0, ...prev.values());
+      return new Map(prev).set(agentId, maxOrder + 1);
+    });
     try {
       await pinAgentApi(workspaceId, agentId);
     } catch {
@@ -235,13 +240,27 @@ export function AgentProvider({
   }, [workspaceId]);
 
   const handleUnpinAgent = useCallback(async (agentId: string) => {
-    let savedValue: string | undefined;
+    let savedValue: number | undefined;
     setPins((prev) => { savedValue = prev.get(agentId); const next = new Map(prev); next.delete(agentId); return next; });
     try {
       await unpinAgentApi(workspaceId, agentId);
     } catch {
       if (savedValue !== undefined) setPins((prev) => new Map(prev).set(agentId, savedValue!));
       toast.error("Failed to unpin agent");
+    }
+  }, [workspaceId]);
+
+  const handleReorderPins = useCallback(async (agentIds: string[]) => {
+    let prevPins: Map<string, number> | undefined;
+    setPins((prev) => {
+      prevPins = new Map(prev);
+      return new Map(agentIds.map((id, i) => [id, i]));
+    });
+    try {
+      await reorderAgentPins(workspaceId, agentIds);
+    } catch {
+      if (prevPins) setPins(prevPins);
+      toast.error("Failed to reorder agents");
     }
   }, [workspaceId]);
 
@@ -294,6 +313,7 @@ export function AgentProvider({
         handleDeleteAgent,
         handlePinAgent,
         handleUnpinAgent,
+        handleReorderPins,
         getFirstOnlineRuntimeId,
         handleGenerateToken,
         handleDeleteMachine,

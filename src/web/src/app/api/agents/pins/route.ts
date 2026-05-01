@@ -12,5 +12,5 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const { env } = await getCloudflareContext({ async: true });
   const db = getDb((env as Env).DB);
   const pins = await queries.agentPin.listPins(db, ws.workspaceId, ctx.userId);
-  return writeJSON(pins.map((p) => ({ id: p.id, agent_id: p.agentId, created_at: p.createdAt })));
+  return writeJSON(pins.map((p) => ({ id: p.id, agent_id: p.agentId, order: p.order, created_at: p.createdAt })));
 });
