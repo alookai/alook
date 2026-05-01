@@ -1,5 +1,5 @@
 import { eq, and, asc, sql } from "drizzle-orm";
-import { agentRuntime, agent, agentTaskQueue, machine } from "../schema";
+import { agentRuntime, machine } from "../schema";
 import type { Database } from "../index";
 
 export async function upsertAgentRuntime(
@@ -114,34 +114,6 @@ export async function deleteRuntimesByDaemonId(
   daemonId: string,
   workspaceId: string
 ) {
-  // Find runtime IDs to delete
-  const runtimes = await db
-    .select({ id: agentRuntime.id })
-    .from(agentRuntime)
-    .where(
-      and(
-        eq(agentRuntime.daemonId, daemonId),
-        eq(agentRuntime.workspaceId, workspaceId)
-      )
-    );
-
-  if (runtimes.length === 0) return;
-
-  const ids = runtimes.map((r) => r.id);
-
-  // Null out agent references and delete tasks per runtime
-  for (const id of ids) {
-    await db
-      .update(agent)
-      .set({ runtimeId: null, updatedAt: new Date().toISOString() })
-      .where(eq(agent.runtimeId, id));
-
-    await db
-      .delete(agentTaskQueue)
-      .where(eq(agentTaskQueue.runtimeId, id));
-  }
-
-  // Delete the runtimes
   await db
     .delete(agentRuntime)
     .where(
