@@ -8,6 +8,8 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
 const mockListPins = vi.fn();
 
+const mockListSidebarOrder = vi.fn();
+
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   return {
@@ -15,6 +17,9 @@ vi.mock("@alook/shared", async () => {
     queries: {
       agentPin: {
         listPins: (...args: unknown[]) => mockListPins(...args),
+      },
+      agentSidebarOrder: {
+        listOrder: (...args: unknown[]) => mockListSidebarOrder(...args),
       },
     },
   };
@@ -39,11 +44,16 @@ import { GET } from "./route";
 
 beforeEach(() => vi.clearAllMocks());
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockListSidebarOrder.mockResolvedValue([]);
+});
+
 describe("GET /api/agents/pins", () => {
   it("returns list of pins with mapped fields", async () => {
     mockListPins.mockResolvedValue([
-      { id: "pin1", agentId: "a1", createdAt: "2025-01-01T00:00:00Z" },
-      { id: "pin2", agentId: "a2", createdAt: "2025-01-02T00:00:00Z" },
+      { id: "pin1", agentId: "a1", createdAt: "2025-01-01T00:00:00Z", position: 0 },
+      { id: "pin2", agentId: "a2", createdAt: "2025-01-02T00:00:00Z", position: 1 },
     ]);
 
     const req = new NextRequest("http://localhost/api/agents/pins");
@@ -51,10 +61,11 @@ describe("GET /api/agents/pins", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual([
-      { id: "pin1", agent_id: "a1", created_at: "2025-01-01T00:00:00Z" },
-      { id: "pin2", agent_id: "a2", created_at: "2025-01-02T00:00:00Z" },
+    expect(body.pins).toEqual([
+      { id: "pin1", agent_id: "a1", created_at: "2025-01-01T00:00:00Z", position: 0 },
+      { id: "pin2", agent_id: "a2", created_at: "2025-01-02T00:00:00Z", position: 1 },
     ]);
+    expect(body.sidebar_order).toEqual([]);
     expect(mockListPins).toHaveBeenCalledWith({}, "w1", "u1");
   });
 
@@ -66,6 +77,7 @@ describe("GET /api/agents/pins", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual([]);
+    expect(body.pins).toEqual([]);
+    expect(body.sidebar_order).toEqual([]);
   });
 });

@@ -19,8 +19,8 @@ describe("agent pin", () => {
       seed.machineToken,
     )
     expect(res.status).toBe(200)
-    const data = await res.json() as Array<Record<string, unknown>>
-    expect(data).toEqual([])
+    const data = await res.json() as { pins: Array<Record<string, unknown>>; sidebar_order: Array<Record<string, unknown>> }
+    expect(data.pins).toEqual([])
   })
 
   it("POST /api/agents/:id/pin pins an agent", async () => {
@@ -51,9 +51,9 @@ describe("agent pin", () => {
       seed.machineToken,
     )
     expect(res.status).toBe(200)
-    const data = await res.json() as Array<Record<string, unknown>>
-    expect(data).toHaveLength(1)
-    expect(data[0].agent_id).toBe(seed.agentId)
+    const data = await res.json() as { pins: Array<Record<string, unknown>>; sidebar_order: Array<Record<string, unknown>> }
+    expect(data.pins).toHaveLength(1)
+    expect(data.pins[0].agent_id).toBe(seed.agentId)
   })
 
   it("DELETE /api/agents/:id/pin unpins the agent", async () => {
@@ -71,8 +71,8 @@ describe("agent pin", () => {
       seed.machineToken,
     )
     expect(res.status).toBe(200)
-    const data = await res.json() as Array<Record<string, unknown>>
-    expect(data).toEqual([])
+    const data = await res.json() as { pins: Array<Record<string, unknown>>; sidebar_order: Array<Record<string, unknown>> }
+    expect(data.pins).toEqual([])
   })
 
   it("DELETE /api/agents/:id/pin is idempotent (unpin again)", async () => {

@@ -59,7 +59,8 @@ const mockGetEmailAccount = vi.fn()
 const mockUpdateEmailAccount = vi.fn()
 const mockIsWhitelisted = vi.fn().mockResolvedValue(true)
 
-vi.mock("@alook/shared", () => {
+vi.mock("@alook/shared", async () => {
+  const real = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   const noopLogger = {
     debug: () => {},
     info: () => {},
@@ -70,6 +71,8 @@ vi.mock("@alook/shared", () => {
   return {
     createDb: () => ({}),
     createLogger: () => noopLogger,
+    parseIcs: real.parseIcs,
+    extractAttachmentMeta: real.extractAttachmentMeta,
     DEV_WEB_URL: "http://localhost:3000",
     queries: {
       emailAccount: {

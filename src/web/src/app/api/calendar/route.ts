@@ -4,6 +4,7 @@ import {
   queries,
   CreateCalendarEventRequestSchema,
   expandOccurrences,
+  isEmptyHtml,
 } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
@@ -123,7 +124,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
-  const description = body.description?.trim() || null;
+  const rawDesc = body.description?.trim() || null;
+  const description = rawDesc && isEmptyHtml(rawDesc) ? null : rawDesc;
 
   const created = await queries.calendarEvent.createCalendarEvent(db, {
     agentId: body.agent_id,

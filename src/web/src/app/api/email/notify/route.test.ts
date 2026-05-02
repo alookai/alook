@@ -72,6 +72,10 @@ vi.mock("@/lib/broadcast", () => ({
   broadcastToUser: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/api/responses", () => ({
+  taskToResponse: (t: unknown) => t,
+}));
+
 import { POST } from "./route";
 
 function makeNotifyReq(body: Record<string, unknown>) {
