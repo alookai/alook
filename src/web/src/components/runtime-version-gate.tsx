@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAgentContext } from "@/contexts/agent-context";
 import { getMinCliVersion, triggerRuntimeUpdate } from "@/lib/api";
 import { semverGte } from "@alook/shared";
@@ -13,16 +13,27 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, RefreshCw, Terminal } from "lucide-react";
+import { toast } from "sonner";
 import type { AgentRuntime } from "@alook/shared";
+
+const MANUAL_UPDATE_CMD = "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start";
 
 export function RuntimeVersionGate() {
   const { runtimes, workspaceId } = useAgentContext();
   const [minVersion, setMinVersion] = useState<string | null>(null);
   const [updating, setUpdating] = useState<Set<string>>(new Set());
+  const [showManualHint, setShowManualHint] = useState(false);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     getMinCliVersion().then((res) => setMinVersion(res.min_cli_version)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (hintTimer.current) clearTimeout(hintTimer.current);
+    };
   }, []);
 
   if (!minVersion) return null;
@@ -45,6 +56,11 @@ export function RuntimeVersionGate() {
 
   const handleUpdate = async (rt: AgentRuntime) => {
     setUpdating((prev) => new Set(prev).add(rt.id));
+    if (!hintTimer.current) {
+      hintTimer.current = setTimeout(() => {
+        setShowManualHint(true);
+      }, 5000);
+    }
     try {
       await triggerRuntimeUpdate(rt.id, workspaceId);
     } catch {
@@ -111,6 +127,26 @@ export function RuntimeVersionGate() {
             );
           })}
         </div>
+
+        {showManualHint && (
+          <div className="mt-3 rounded-md bg-muted/50 border border-dashed p-2.5 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5 font-medium text-foreground mb-1">
+              <Terminal className="size-3" />
+              Update taking too long?
+            </div>
+            <p className="mb-1">Run this command on the machine to update manually:</p>
+            <code
+              className="block rounded bg-background px-2 py-1 font-mono text-[11px] cursor-pointer hover:bg-background/80 transition-colors"
+              title="Click to copy"
+              onClick={() => {
+                navigator.clipboard.writeText(MANUAL_UPDATE_CMD);
+                toast.success("Copied to clipboard");
+              }}
+            >
+              {MANUAL_UPDATE_CMD}
+            </code>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
