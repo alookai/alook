@@ -270,7 +270,6 @@ function AgentCanvas() {
       try {
         const updated = await updateAgentLink(id, { instruction }, workspaceId);
         setLinks((prev) => prev.map((l) => (l.id === id ? updated : l)));
-        setSidecarOpen(false);
       } catch {
         toast.error("Failed to update link");
       }
