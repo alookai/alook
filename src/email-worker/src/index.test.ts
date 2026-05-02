@@ -50,6 +50,8 @@ vi.mock("@alook/shared", async () => {
   }
   return {
     buildMimeMessage: real.buildMimeMessage,
+    extractAttachmentMeta: real.extractAttachmentMeta,
+    filterDownloadableAttachments: real.filterDownloadableAttachments,
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
     parseEmailHandle: (address: string) => {
