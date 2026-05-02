@@ -815,6 +815,7 @@ export interface AgentPin {
   id: string;
   agent_id: string;
   order: number;
+  pinned: boolean;
   created_at: string;
 }
 
@@ -827,10 +828,10 @@ export const pinAgent = (workspaceId: string, agentId: string) =>
 export const unpinAgent = (workspaceId: string, agentId: string) =>
   apiFetch<void>(`/api/agents/${agentId}/pin${wsQuery(workspaceId)}`, { method: "DELETE" });
 
-export const reorderAgentPins = (workspaceId: string, agentIds: string[]) =>
+export const reorderAgentPins = (workspaceId: string, pinnedIds: string[], unpinnedIds: string[]) =>
   apiFetch<{ ok: boolean }>(`/api/agents/pins/reorder${wsQuery(workspaceId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ agentIds }),
+    body: JSON.stringify({ pinnedIds, unpinnedIds }),
   });
 
 // Workspace file browsing

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
@@ -154,16 +154,33 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const { resolvedTheme, setTheme } = useTheme();
   const { activeTaskCounts: taskCounts } = useAgentContext();
 
-  const { orderedAgents, agentIds } = useMemo(() => {
+  const isPinned = useCallback((agentId: string) => {
+    const entry = pins.get(agentId);
+    return entry?.pinned === true;
+  }, [pins]);
+
+  const { pinnedAgents, unpinnedAgents, pinnedIds, unpinnedIds } = useMemo(() => {
     const pinned = agents
-      .filter((a) => pins.has(a.id))
-      .sort((a, b) => pins.get(a.id)! - pins.get(b.id)!);
+      .filter((a) => isPinned(a.id))
+      .sort((a, b) => (pins.get(a.id)?.order ?? 0) - (pins.get(b.id)?.order ?? 0));
     const unpinned = agents
-      .filter((a) => !pins.has(a.id))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    const ordered = [...pinned, ...unpinned];
-    return { orderedAgents: ordered, agentIds: ordered.map((a) => a.id) };
-  }, [agents, pins]);
+      .filter((a) => !isPinned(a.id));
+    // Sort unpinned: those with stored order first (by order), then alphabetical
+    const withOrder = unpinned.filter(a => pins.has(a.id)).sort((a, b) => (pins.get(a.id)?.order ?? 0) - (pins.get(b.id)?.order ?? 0));
+    const withoutOrder = unpinned.filter(a => !pins.has(a.id)).sort((a, b) => a.name.localeCompare(b.name));
+    const sortedUnpinned = [...withOrder, ...withoutOrder];
+    return {
+      pinnedAgents: pinned,
+      unpinnedAgents: sortedUnpinned,
+      pinnedIds: pinned.map(a => a.id),
+      unpinnedIds: sortedUnpinned.map(a => a.id),
+    };
+  }, [agents, pins, isPinned]);
+
+  const pinnedIdSet = useMemo(() => new Set(pinnedIds), [pinnedIds]);
+  const unpinnedIdSet = useMemo(() => new Set(unpinnedIds), [unpinnedIds]);
+
+  const [isDragging, setIsDragging] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -171,13 +188,26 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
+    setIsDragging(false);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oldIndex = agentIds.indexOf(active.id as string);
-    const newIndex = agentIds.indexOf(over.id as string);
-    if (oldIndex === -1 || newIndex === -1) return;
-    const newOrder = arrayMove(agentIds, oldIndex, newIndex);
-    handleReorderPins(newOrder);
+    const activeId = active.id as string;
+    const overId = over.id as string;
+    // Block cross-zone drag
+    const activeInPinned = pinnedIdSet.has(activeId);
+    const overInPinned = pinnedIdSet.has(overId);
+    if (activeInPinned !== overInPinned) return;
+    if (activeInPinned) {
+      const oldIndex = pinnedIds.indexOf(activeId);
+      const newIndex = pinnedIds.indexOf(overId);
+      if (oldIndex === -1 || newIndex === -1) return;
+      handleReorderPins(arrayMove(pinnedIds, oldIndex, newIndex), unpinnedIds);
+    } else {
+      const oldIndex = unpinnedIds.indexOf(activeId);
+      const newIndex = unpinnedIds.indexOf(overId);
+      if (oldIndex === -1 || newIndex === -1) return;
+      handleReorderPins(pinnedIds, arrayMove(unpinnedIds, oldIndex, newIndex));
+    }
   };
 
   const prefix = `/w/${slug}`;
@@ -218,15 +248,39 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             sensors={sensors}
             collisionDetection={closestCenter}
             modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+            onDragStart={() => setIsDragging(true)}
             onDragEnd={handleDragEnd}
+            onDragCancel={() => setIsDragging(false)}
           >
-            <SortableContext items={agentIds} strategy={verticalListSortingStrategy}>
-              {orderedAgents.map((agent) => (
+            <SortableContext items={pinnedIds} strategy={verticalListSortingStrategy}>
+              {pinnedAgents.map((agent) => (
                 <AgentSidebarButton
                   key={agent.id}
                   agent={agent}
                   isActive={activeAgentId === agent.id}
-                  isPinned={pins.has(agent.id)}
+                  isPinned
+                  taskCount={taskCounts[agent.id] ?? 0}
+                  onClick={() => handleAgentClick(agent.id)}
+                  onPin={() => handlePinAgent(agent.id)}
+                  onUnpin={() => handleUnpinAgent(agent.id)}
+                />
+              ))}
+            </SortableContext>
+            {pinnedAgents.length > 0 && unpinnedAgents.length > 0 && (
+              <div className={cn(
+                "border-t transition-all duration-200",
+                isDragging
+                  ? "w-10 border-t-2 border-primary/60"
+                  : "w-6 border-border/50"
+              )} />
+            )}
+            <SortableContext items={unpinnedIds} strategy={verticalListSortingStrategy}>
+              {unpinnedAgents.map((agent) => (
+                <AgentSidebarButton
+                  key={agent.id}
+                  agent={agent}
+                  isActive={activeAgentId === agent.id}
+                  isPinned={false}
                   taskCount={taskCounts[agent.id] ?? 0}
                   onClick={() => handleAgentClick(agent.id)}
                   onPin={() => handlePinAgent(agent.id)}

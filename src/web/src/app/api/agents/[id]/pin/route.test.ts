@@ -60,16 +60,16 @@ describe("POST /api/agents/[id]/pin", () => {
     expect(mockPinAgent).toHaveBeenCalledWith({}, { agentId: "a1", workspaceId: "w1", userId: "u1" });
   });
 
-  it("returns 200 when already pinned", async () => {
+  it("returns 201 when already pinned (upsert)", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", name: "Agent 1" });
-    mockPinAgent.mockResolvedValue(null);
+    mockPinAgent.mockResolvedValue({ id: "pin1", agentId: "a1" });
 
     const req = new NextRequest("http://localhost/api/agents/a1/pin", { method: "POST" });
     const ctx = { params: Promise.resolve({ id: "a1" }) };
     const res = await POST(req, ctx);
     const body = await res.json();
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(body).toEqual({ pinned: true });
   });
 

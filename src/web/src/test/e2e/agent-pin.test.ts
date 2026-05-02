@@ -34,13 +34,13 @@ describe("agent pin", () => {
     expect(data.pinned).toBe(true)
   })
 
-  it("POST /api/agents/:id/pin again returns 200 (already pinned)", async () => {
+  it("POST /api/agents/:id/pin again returns 201 (upsert)", async () => {
     const res = await tokenRequest(
       `/api/agents/${seed.agentId}/pin?workspace_id=${seed.workspaceId}`,
       seed.machineToken,
       { method: "POST" },
     )
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(201)
     const data = await res.json() as Record<string, unknown>
     expect(data.pinned).toBe(true)
   })
@@ -65,14 +65,15 @@ describe("agent pin", () => {
     expect(res.status).toBe(204)
   })
 
-  it("GET /api/agents/pins returns empty after unpin", async () => {
+  it("GET /api/agents/pins returns unpinned record after unpin", async () => {
     const res = await tokenRequest(
       `/api/agents/pins?workspace_id=${seed.workspaceId}`,
       seed.machineToken,
     )
     expect(res.status).toBe(200)
     const data = await res.json() as Array<Record<string, unknown>>
-    expect(data).toEqual([])
+    expect(data).toHaveLength(1)
+    expect(data[0].pinned).toBe(false)
   })
 
   it("DELETE /api/agents/:id/pin is idempotent (unpin again)", async () => {

@@ -148,6 +148,7 @@ export const agentPin = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     order: integer("order").notNull().default(0),
+    pinned: integer("pinned").notNull().default(1),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [

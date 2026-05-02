@@ -42,8 +42,8 @@ beforeEach(() => vi.clearAllMocks());
 describe("GET /api/agents/pins", () => {
   it("returns list of pins with mapped fields", async () => {
     mockListPins.mockResolvedValue([
-      { id: "pin1", agentId: "a1", createdAt: "2025-01-01T00:00:00Z" },
-      { id: "pin2", agentId: "a2", createdAt: "2025-01-02T00:00:00Z" },
+      { id: "pin1", agentId: "a1", order: 0, pinned: 1, createdAt: "2025-01-01T00:00:00Z" },
+      { id: "pin2", agentId: "a2", order: 1, pinned: 1, createdAt: "2025-01-02T00:00:00Z" },
     ]);
 
     const req = new NextRequest("http://localhost/api/agents/pins");
@@ -52,8 +52,8 @@ describe("GET /api/agents/pins", () => {
 
     expect(res.status).toBe(200);
     expect(body).toEqual([
-      { id: "pin1", agent_id: "a1", created_at: "2025-01-01T00:00:00Z" },
-      { id: "pin2", agent_id: "a2", created_at: "2025-01-02T00:00:00Z" },
+      { id: "pin1", agent_id: "a1", order: 0, pinned: true, created_at: "2025-01-01T00:00:00Z" },
+      { id: "pin2", agent_id: "a2", order: 1, pinned: true, created_at: "2025-01-02T00:00:00Z" },
     ]);
     expect(mockListPins).toHaveBeenCalledWith({}, "w1", "u1");
   });

@@ -223,7 +223,7 @@ export function getHandleError(effectiveHandle: string): string {
 
 export function PinToggle({ agentId }: { agentId: string }) {
   const { pins, handlePinAgent, handleUnpinAgent } = useAgentContext();
-  const isPinned = pins.has(agentId);
+  const isPinned = pins.get(agentId)?.pinned === true;
   const [toggling, setToggling] = useState(false);
 
   const handleToggle = async () => {

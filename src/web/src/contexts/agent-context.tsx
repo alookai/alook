@@ -43,7 +43,7 @@ interface AgentContextValue {
   runtimes: Runtime[];
   loading: boolean;
   activeTaskCounts: Record<string, number>;
-  pins: Map<string, number>;
+  pins: Map<string, { order: number; pinned: boolean }>;
   reload: () => Promise<void>;
   subscribeWs: (fn: WsSubscriber) => () => void;
   handleCreateAgent: (req: CreateAgentRequest) => Promise<Agent | null>;
@@ -51,7 +51,7 @@ interface AgentContextValue {
   handleDeleteAgent: (id: string) => Promise<boolean>;
   handlePinAgent: (agentId: string) => Promise<void>;
   handleUnpinAgent: (agentId: string) => Promise<void>;
-  handleReorderPins: (agentIds: string[]) => Promise<void>;
+  handleReorderPins: (pinnedIds: string[], unpinnedIds: string[]) => Promise<void>;
   getFirstOnlineRuntimeId: () => string;
   handleGenerateToken: () => Promise<string | null>;
   handleDeleteMachine: (daemonId: string) => Promise<boolean>;
@@ -76,7 +76,7 @@ export function AgentProvider({
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTaskCounts, setActiveTaskCounts] = useState<Record<string, number>>({});
-  const [pins, setPins] = useState<Map<string, number>>(new Map());
+  const [pins, setPins] = useState<Map<string, { order: number; pinned: boolean }>>(new Map());
   const loadedRef = useRef(false);
   const subscribersRef = useRef(new Set<WsSubscriber>());
   const taskCountsMountedRef = useRef(true);
@@ -114,7 +114,7 @@ export function AgentProvider({
       ]);
       setAgents(a);
       setRuntimes(r);
-      setPins(new Map(p.map((pin) => [pin.agent_id, pin.order])));
+      setPins(new Map(p.map((pin) => [pin.agent_id, { order: pin.order, pinned: pin.pinned }])));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load data");
     } finally {
@@ -228,36 +228,51 @@ export function AgentProvider({
 
   const handlePinAgent = useCallback(async (agentId: string) => {
     setPins((prev) => {
-      const maxOrder = Math.max(0, ...prev.values());
-      return new Map(prev).set(agentId, maxOrder + 1);
+      const maxOrder = Math.max(0, ...[...prev.values()].filter(v => v.pinned).map(v => v.order));
+      return new Map(prev).set(agentId, { order: maxOrder + 1, pinned: true });
     });
     try {
       await pinAgentApi(workspaceId, agentId);
     } catch {
-      setPins((prev) => { const next = new Map(prev); next.delete(agentId); return next; });
+      setPins((prev) => {
+        const entry = prev.get(agentId);
+        if (entry) {
+          return new Map(prev).set(agentId, { ...entry, pinned: false });
+        }
+        return prev;
+      });
       toast.error("Failed to pin agent");
     }
   }, [workspaceId]);
 
   const handleUnpinAgent = useCallback(async (agentId: string) => {
-    let savedValue: number | undefined;
-    setPins((prev) => { savedValue = prev.get(agentId); const next = new Map(prev); next.delete(agentId); return next; });
+    let savedValue: { order: number; pinned: boolean } | undefined;
+    setPins((prev) => {
+      savedValue = prev.get(agentId);
+      if (savedValue) {
+        return new Map(prev).set(agentId, { ...savedValue, pinned: false });
+      }
+      return prev;
+    });
     try {
       await unpinAgentApi(workspaceId, agentId);
     } catch {
-      if (savedValue !== undefined) setPins((prev) => new Map(prev).set(agentId, savedValue!));
+      if (savedValue) setPins((prev) => new Map(prev).set(agentId, savedValue!));
       toast.error("Failed to unpin agent");
     }
   }, [workspaceId]);
 
-  const handleReorderPins = useCallback(async (agentIds: string[]) => {
-    let prevPins: Map<string, number> | undefined;
+  const handleReorderPins = useCallback(async (pinnedIds: string[], unpinnedIds: string[]) => {
+    let prevPins: Map<string, { order: number; pinned: boolean }> | undefined;
     setPins((prev) => {
       prevPins = new Map(prev);
-      return new Map(agentIds.map((id, i) => [id, i]));
+      const next = new Map(prev);
+      pinnedIds.forEach((id, i) => next.set(id, { order: i, pinned: true }));
+      unpinnedIds.forEach((id, i) => next.set(id, { order: i, pinned: false }));
+      return next;
     });
     try {
-      await reorderAgentPins(workspaceId, agentIds);
+      await reorderAgentPins(workspaceId, pinnedIds, unpinnedIds);
     } catch {
       if (prevPins) setPins(prevPins);
       toast.error("Failed to reorder agents");
