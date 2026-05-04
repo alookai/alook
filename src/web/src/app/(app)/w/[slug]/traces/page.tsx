@@ -170,7 +170,7 @@ export default function TracesPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isFetchingRef = useRef(false);
 
-  const statusFilter = searchParams.get("status") ?? "";
+  const statusFilter = searchParams.get("status") ?? "active";
   const agentFilter = searchParams.get("agentId") ?? "";
   const channelFilter = searchParams.get("channel") ?? "";
 
