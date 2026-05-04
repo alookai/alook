@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
-    "nanoid": "^5.1.9",
-    "zod": "^4.3"
+    "nanoid": "^5.1.11",
+    "zod": "^4.4"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260426.1",
+    "@cloudflare/workers-types": "^4.20260504.1",
     "@types/node": "^25.6.0",
     "playwright-core": "^1.59.1",
     "typescript": "^6.0.3",

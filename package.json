@@ -31,10 +31,10 @@
     "bump": "node scripts/bump-version.mjs"
   },
   "devDependencies": {
-    "turbo": "^2.9.6",
+    "turbo": "^2.9.8",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5",
-    "wrangler": "^4.85.0"
+    "wrangler": "^4.87.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
