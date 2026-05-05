@@ -470,6 +470,7 @@ export function AgentChatView() {
 
   const loadOlderMessages = useCallback(async (scrollToEnd = false) => {
     if (!conversation || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
 
     const currentMessages = messagesRef.current;
     const currentHasMore = hasMoreRef.current;
@@ -502,9 +503,11 @@ export function AgentChatView() {
 
     const canLoadPrevConv = prevConvsList.length > 0;
 
-    if (!canLoadMoreInConv && !canLoadPrevConv) return;
+    if (!canLoadMoreInConv && !canLoadPrevConv) {
+      loadingMoreRef.current = false;
+      return;
+    }
 
-    loadingMoreRef.current = true;
     setLoadingMore(true);
     const el = scrollRef.current;
     if (el) el.style.overflowAnchor = "none";
@@ -579,6 +582,7 @@ export function AgentChatView() {
         });
       }
 
+      loadingMoreRef.current = false;
       flushSync(() => setLoadingMore(false));
 
       if (el) {
@@ -598,29 +602,31 @@ export function AgentChatView() {
     }
   }, [conversation, workspaceId, agentId]);
 
-  // Auto-load older messages when content doesn't overflow (scroll can't trigger)
   const canLoadMore = hasMore || previousConversations.length > 0 || hasMoreConversations;
+
+  const backfillAttemptsRef = useRef(0);
+  const prevConversationIdRef = useRef(conversation?.id);
+  if (conversation?.id !== prevConversationIdRef.current) {
+    prevConversationIdRef.current = conversation?.id;
+    backfillAttemptsRef.current = 0;
+  }
+
+  const MIN_MESSAGES = 10;
   useEffect(() => {
-    if (loading || !canLoadMore || loadingMoreRef.current) return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const raf = requestAnimationFrame(() => {
-      if (el.scrollHeight <= el.clientHeight) {
-        loadOlderMessages(true);
-      }
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [loading, canLoadMore, messages.length, loadOlderMessages]);
+    if (loading || !conversation) return;
+    if (messages.length >= MIN_MESSAGES || !canLoadMore) return;
+    if (loadingMore) return;
+    if (backfillAttemptsRef.current >= 3) return;
+    backfillAttemptsRef.current += 1;
+    loadOlderMessages(true);
+  }, [loading, messages.length, canLoadMore, loadingMore, conversation, loadOlderMessages]);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     isNearBottom.current =
       el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-    if (!loadingMore && canLoadMore && el.scrollTop < 80) {
-      loadOlderMessages();
-    }
-  }, [loadOlderMessages, loadingMore, canLoadMore]);
+  }, []);
 
   const startPolling = useCallback(
     (taskId: string, conversationId: string, initialSeq?: number) => {
@@ -1122,7 +1128,16 @@ export function AgentChatView() {
         }}
       >
         <div className="mx-auto max-w-2xl py-6 space-y-4">
-          {/* Load more indicator */}
+          {canLoadMore && !loadingMore && (
+            <div className="flex justify-center py-2">
+              <button
+                onClick={() => loadOlderMessages()}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Load earlier messages
+              </button>
+            </div>
+          )}
           {loadingMore && (
             <div className="flex justify-center py-2">
               <Loader2 className="size-4 animate-spin text-muted-foreground" />
