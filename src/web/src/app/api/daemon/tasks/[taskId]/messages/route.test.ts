@@ -43,8 +43,9 @@ vi.mock("@/lib/middleware/helpers", async () => {
 vi.mock("@/lib/api/responses", () => ({
   taskMessageToResponse: (...args: any[]) => mockTaskMessageToResponse(...args),
 }));
+const mockBroadcastToUser = vi.fn().mockResolvedValue(undefined);
 vi.mock("@/lib/broadcast", () => ({
-  broadcastToUser: vi.fn().mockResolvedValue(undefined),
+  broadcastToUser: (...args: any[]) => mockBroadcastToUser(...args),
 }));
 vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
@@ -157,5 +158,57 @@ describe("POST /api/daemon/tasks/[taskId]/messages", () => {
     expect(res.status).toBe(404);
     expect(body.error).toBe("task not found");
     expect(mockCreateTaskMessage).not.toHaveBeenCalled();
+  });
+
+  it("excludes tool-result messages from WebSocket broadcast", async () => {
+    mockGetTask.mockResolvedValue({ id: "t1", workspaceId: "w1" });
+    mockCreateTaskMessage.mockResolvedValue({ id: "m1" });
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/daemon/tasks/t1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            { seq: 1, type: "text", content: "hello" },
+            { seq: 2, type: "tool-result", content: "large payload" },
+            { seq: 3, type: "tool-use", tool: "grep", content: "" },
+          ],
+        }),
+      }),
+      withParams("t1")
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("ok");
+    expect(mockCreateTaskMessage).toHaveBeenCalledTimes(3);
+    expect(mockBroadcastToUser).toHaveBeenCalledTimes(1);
+    const broadcastPayload = mockBroadcastToUser.mock.calls[0][1];
+    expect(broadcastPayload.messages).toHaveLength(2);
+    expect(broadcastPayload.messages.every((m: any) => m.type !== "tool-result")).toBe(true);
+    expect(broadcastPayload.messages[0].type).toBe("text");
+    expect(broadcastPayload.messages[1].type).toBe("tool-use");
+  });
+
+  it("does not broadcast when all messages are tool-result", async () => {
+    mockGetTask.mockResolvedValue({ id: "t1", workspaceId: "w1" });
+    mockCreateTaskMessage.mockResolvedValue({ id: "m1" });
+
+    await POST(
+      new NextRequest("http://localhost/api/daemon/tasks/t1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [
+            { seq: 1, type: "tool-result", content: "result1" },
+            { seq: 2, type: "tool-result", content: "result2" },
+          ],
+        }),
+      }),
+      withParams("t1")
+    );
+
+    expect(mockBroadcastToUser).not.toHaveBeenCalled();
   });
 });

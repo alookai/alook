@@ -48,13 +48,13 @@ export async function listTaskMessages(db: Database, taskId: string, workspaceId
       })
       .from(taskMessage)
       .innerJoin(agentTaskQueue, eq(taskMessage.taskId, agentTaskQueue.id))
-      .where(and(eq(taskMessage.taskId, taskId), eq(agentTaskQueue.workspaceId, workspaceId)))
+      .where(and(eq(taskMessage.taskId, taskId), eq(agentTaskQueue.workspaceId, workspaceId), notInArray(taskMessage.type, ["tool-result"])))
       .orderBy(asc(taskMessage.seq));
   }
   return db
     .select()
     .from(taskMessage)
-    .where(eq(taskMessage.taskId, taskId))
+    .where(and(eq(taskMessage.taskId, taskId), notInArray(taskMessage.type, ["tool-result"])))
     .orderBy(asc(taskMessage.seq));
 }
 
@@ -66,7 +66,7 @@ export async function listTaskMessagesSince(
   return db
     .select()
     .from(taskMessage)
-    .where(and(eq(taskMessage.taskId, taskId), gt(taskMessage.seq, afterSeq)))
+    .where(and(eq(taskMessage.taskId, taskId), gt(taskMessage.seq, afterSeq), notInArray(taskMessage.type, ["tool-result"])))
     .orderBy(asc(taskMessage.seq));
 }
 

@@ -74,8 +74,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   });
 
   const succeeded = body.messages.filter((_, i) => results[i].status === "fulfilled");
-  if (succeeded.length > 0) {
-    const wsMessages: TaskMessage[] = succeeded.map((m) => ({
+  const broadcastable = succeeded.filter((m) => m.type !== "tool-result");
+  if (broadcastable.length > 0) {
+    const wsMessages: TaskMessage[] = broadcastable.map((m) => ({
       id: "",
       task_id: taskId,
       seq: m.seq,

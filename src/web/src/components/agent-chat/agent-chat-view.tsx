@@ -234,7 +234,7 @@ export function AgentChatView() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState(() => {
     if (typeof window === "undefined") return "";
-    return localStorage.getItem(`chat-draft:${agentId}`) ?? "";
+    return localStorage.getItem(`chat-draft:${agentId}:${targetConvId ?? 'default'}`) ?? "";
   });
   const [sending, setSending] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -298,13 +298,13 @@ export function AgentChatView() {
   });
 
   useEffect(() => {
-    const key = `chat-draft:${agentId}`;
+    const key = `chat-draft:${agentId}:${targetConvId ?? 'default'}`;
     if (input) {
       localStorage.setItem(key, input);
     } else {
       localStorage.removeItem(key);
     }
-  }, [input, agentId]);
+  }, [input, agentId, targetConvId]);
 
   useEffect(() => {
     if (!sending) {
@@ -337,19 +337,22 @@ export function AgentChatView() {
     setHasMoreConversations(false);
     oldestConvIdRef.current = null;
     oldestConvCreatedAtRef.current = null;
+    setInput(localStorage.getItem(`chat-draft:${agentId}:${targetConvId ?? 'default'}`) ?? "");
     async function load() {
       try {
         if (targetConvId && scrollToTaskId) {
           try {
-            const [conv, msgs, arts] = await Promise.all([
+            const [conv, msgs, arts, buffered] = await Promise.all([
               getConversation(targetConvId, workspaceId),
               listMessages(targetConvId, workspaceId),
               listArtifacts(targetConvId, workspaceId).catch(() => [] as Artifact[]),
+              listBufferedMessages(targetConvId, workspaceId).catch(() => [] as Message[]),
             ]);
             setConversation(conv);
             setMessages(msgs);
             setHasMore(msgs.length >= MESSAGE_LIMIT);
             setArtifacts(arts);
+            setBufferedMessages(buffered);
             const taskIds = [...new Set(msgs.filter((m) => m.role === "assistant" && m.task_id).map((m) => m.task_id!))];
             if (taskIds.length > 0) {
               getTaskStepCounts(taskIds, workspaceId)
@@ -1277,7 +1280,7 @@ export function AgentChatView() {
       </div>
 
       {/* Follow-up buffer indicator */}
-      {!targetConvId && <FollowUpBuffer
+      <FollowUpBuffer
         bufferedMessages={bufferedMessages}
         onDelete={(messageId) => {
           const prev = bufferedMessages;
@@ -1287,10 +1290,10 @@ export function AgentChatView() {
             toast.error("Failed to delete follow-up");
           });
         }}
-      />}
+      />
 
-      {/* Input — hidden when viewing a specific conversation from activity */}
-      {!targetConvId && <div className="px-3 md:px-5 py-3">
+      {/* Input */}
+      <div className="px-3 md:px-5 py-3">
         <div className="mx-auto max-w-2xl relative">
           <div
             className={cn(
@@ -1381,28 +1384,30 @@ export function AgentChatView() {
 
             <div className="flex items-center justify-between px-2 pb-2 pt-0.5">
               <div className="flex items-center gap-1">
-                <Tooltip>
-                  <TooltipTrigger render={(props) => (
-                    <span {...props} className={cn("inline-flex", props.className)}>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={handleNap}
-                        disabled={napping || !conversation || !currentConvHasMessages || isTaskActive}
-                        className="rounded-lg text-muted-foreground/60 hover:text-foreground transition-colors duration-200"
-                      >
-                        {napping ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : (
-                          <BedDouble className="size-3.5" />
-                        )}
-                      </Button>
-                    </span>
-                  )} />
-                  <TooltipContent side="top">
-                    {isTaskActive ? "Wait for the task to finish" : currentConvHasMessages ? "Take a nap" : `${agentName} is well-rested and ready to go`}
-                  </TooltipContent>
-                </Tooltip>
+                {!targetConvId && (
+                  <Tooltip>
+                    <TooltipTrigger render={(props) => (
+                      <span {...props} className={cn("inline-flex", props.className)}>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={handleNap}
+                          disabled={napping || !conversation || !currentConvHasMessages || isTaskActive}
+                          className="rounded-lg text-muted-foreground/60 hover:text-foreground transition-colors duration-200"
+                        >
+                          {napping ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <BedDouble className="size-3.5" />
+                          )}
+                        </Button>
+                      </span>
+                    )} />
+                    <TooltipContent side="top">
+                      {isTaskActive ? "Wait for the task to finish" : currentConvHasMessages ? "Take a nap" : `${agentName} is well-rested and ready to go`}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 <Tooltip>
                   <TooltipTrigger render={
                     <Button
@@ -1509,7 +1514,7 @@ export function AgentChatView() {
             </div>
           </div>
         </div>
-      </div>}
+      </div>
 
       <ArtifactSheet
         open={artifactSheetOpen}
