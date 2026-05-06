@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const mockGetIssue = vi.fn();
 const mockListIssueMessages = vi.fn();
 const mockUpdateIssue = vi.fn();
+const mockDeleteIssue = vi.fn();
 const mockCreateMessage = vi.fn();
 const mockListArtifactsByConversation = vi.fn();
 
@@ -22,6 +23,7 @@ vi.mock("@alook/shared", async () => {
         getIssue: (...a: unknown[]) => mockGetIssue(...a),
         listIssueMessages: (...a: unknown[]) => mockListIssueMessages(...a),
         updateIssue: (...a: unknown[]) => mockUpdateIssue(...a),
+        deleteIssue: (...a: unknown[]) => mockDeleteIssue(...a),
       },
       message: { createMessage: (...a: unknown[]) => mockCreateMessage(...a) },
       artifact: {
@@ -48,7 +50,7 @@ vi.mock("@/lib/api/responses", () => ({
   messageToResponse: (m: any) => ({ id: m.id, role: m.role, content: m.content }),
 }));
 
-import { GET, PATCH, POST } from "./route";
+import { GET, PATCH, POST, DELETE } from "./route";
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -95,5 +97,22 @@ describe("POST /api/issues/[id]", () => {
     const res = await POST(req, { params: { id: "iss_1" } } as any);
     expect(res.status).toBe(201);
     expect(mockCreateMessage).toHaveBeenCalledWith({}, expect.objectContaining({ role: "user", content: "Looks good" }));
+  });
+});
+
+describe("DELETE /api/issues/[id]", () => {
+  it("deletes the issue and returns 204", async () => {
+    mockDeleteIssue.mockResolvedValue({ id: "iss_1" });
+    const req = new NextRequest("http://localhost/api/issues/iss_1", { method: "DELETE" });
+    const res = await DELETE(req, { params: { id: "iss_1" } } as any);
+    expect(res.status).toBe(204);
+    expect(mockDeleteIssue).toHaveBeenCalledWith({}, "iss_1", "w1");
+  });
+
+  it("returns 404 when issue does not exist", async () => {
+    mockDeleteIssue.mockResolvedValue(null);
+    const req = new NextRequest("http://localhost/api/issues/iss_999", { method: "DELETE" });
+    const res = await DELETE(req, { params: { id: "iss_999" } } as any);
+    expect(res.status).toBe(404);
   });
 });
