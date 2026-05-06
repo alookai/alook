@@ -166,10 +166,15 @@ export default function RuntimesPage() {
     }
   }, [searchParams, router, pathname]);
 
-  // Close the sheet automatically when a daemon registers for this workspace
+  // Close the sheet only after the daemon is actually online. Runtime
+  // registration can happen before the user starts the daemon process.
   useEffect(() => {
     return subscribeWs((msg) => {
-      if (msg.type === "runtime.registered" && msg.workspaceId === workspaceId) {
+      if (
+        msg.type === "runtime.status" &&
+        msg.workspaceId === workspaceId &&
+        msg.status === "online"
+      ) {
         setSheetOpen(false);
         setGeneratedToken("");
         toast.success("Machine connected");
