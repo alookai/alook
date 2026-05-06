@@ -51,6 +51,7 @@ const literata = Literata({
 
 
 const SITE_URL = "https://alook.ai";
+const OG_IMAGE_URL = "/og?title=Your Personal Company";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -93,7 +94,7 @@ export const metadata: Metadata = {
     url: SITE_URL,
     images: [
       {
-        url: "/api/og?title=Your Personal Company",
+        url: OG_IMAGE_URL,
         width: 1200,
         height: 630,
         alt: "Alook — Your Personal Company",
@@ -105,7 +106,7 @@ export const metadata: Metadata = {
     title: "Alook — Your Personal Company",
     description:
       "Your AI agents, always on. Give them an email, let them work for you around the clock.",
-    images: ["/api/og?title=Your Personal Company"],
+    images: [OG_IMAGE_URL],
   },
   alternates: {
     canonical: SITE_URL,
