@@ -325,7 +325,7 @@ export default function AgentActivityPage() {
         </Select>
 
         <Select value={typeFilter} onValueChange={(v) => updateFilter("type", v ?? "")}>
-          <SelectTrigger className="w-[130px] border-none bg-transparent shadow-none text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+          <SelectTrigger className="w-32.5 border-none bg-transparent shadow-none text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
             <SelectValue placeholder="Type: All" />
           </SelectTrigger>
           <SelectPopup>

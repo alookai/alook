@@ -43,13 +43,6 @@ export default function AgentEmailPage() {
   const isMobile = useIsMobile();
 
   const [folder, _setFolder] = useState<Folder>("inbox");
-  const switchFolder = useCallback((f: Folder) => {
-    _setFolder(f);
-    setEmails([]);
-    setSelectedId(null);
-    setBody(null);
-    setComposing(false);
-  }, []);
   const [emails, setEmails] = useState<Email[]>([]);
   const unreadCount = useMemo(() => emails.filter(e => e.status === "unread").length, [emails]);
   const [loading, setLoading] = useState(true);
@@ -72,6 +65,14 @@ export default function AgentEmailPage() {
 
   const [emailAccounts, setEmailAccounts] = useState<AgentEmailAccount[]>([]);
   const [mailboxOpen, setMailboxOpen] = useState(false);
+
+  const switchFolder = useCallback((f: Folder) => {
+    _setFolder(f);
+    setEmails([]);
+    setSelectedId(null);
+    setBody(null);
+    setComposing(false);
+  }, []);
 
   type Mailbox = { type: "alook"; address: string } | { type: "custom"; address: string; accountId: string };
   const alookAddress = agent?.email_handle ? `${agent.email_handle}@alook.ai` : "";
@@ -354,7 +355,7 @@ export default function AgentEmailPage() {
           <Inbox className="size-4 shrink-0" />
           Inbox
           {folder === "inbox" && unreadCount > 0 && (
-            <span className="ml-auto text-xs bg-blue-500 text-white rounded-full px-1.5 py-0.5 leading-none min-w-[1.25rem] text-center">
+            <span className="ml-auto text-xs bg-blue-500 text-white rounded-full px-1.5 py-0.5 leading-none min-w-5 text-center">
               {unreadCount}
             </span>
           )}
@@ -479,7 +480,7 @@ export default function AgentEmailPage() {
           Select an email to view
         </div>
       ) : (
-        <div className="flex flex-col h-full md:min-w-[400px] max-w-3xl mx-auto w-full">
+        <div className="flex flex-col h-full md:min-w-100 max-w-3xl mx-auto w-full">
           {/* Detail toolbar */}
           <div className="flex items-center gap-0.5 border-b border-border/40 px-4 py-1.5">
             {folder !== "sent" && (
@@ -740,7 +741,7 @@ export default function AgentEmailPage() {
               >
                 {f.label}
                 {f.id === "inbox" && folder === "inbox" && unreadCount > 0 && (
-                  <span className="ml-0.5 text-[10px] bg-blue-500 text-white rounded-full px-1 leading-none min-w-[1rem] text-center">
+                  <span className="ml-0.5 text-[10px] bg-blue-500 text-white rounded-full px-1 leading-none min-w-4 text-center">
                     {unreadCount}
                   </span>
                 )}

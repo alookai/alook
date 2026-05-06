@@ -115,7 +115,7 @@ export function ActiveTasksFloat() {
     <div
       role="region"
       aria-label="Active tasks"
-      className="absolute bottom-4 right-4 z-10 w-[320px] rounded-lg ring-1 ring-foreground/8 shadow-sm bg-background/90 backdrop-blur-sm animate-[fade-up_300ms_ease-out_both]"
+      className="absolute bottom-4 right-4 z-10 w-80 rounded-lg ring-1 ring-foreground/8 shadow-sm bg-background/90 backdrop-blur-sm animate-[fade-up_300ms_ease-out_both]"
     >
       <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
         <div className="flex items-center gap-2 text-sm font-medium" aria-live="polite">
@@ -145,7 +145,7 @@ export function ActiveTasksFloat() {
       </div>
 
       {!minimized && (
-        <div className="max-h-[300px] overflow-y-auto thin-scrollbar py-1">
+        <div className="max-h-75 overflow-y-auto thin-scrollbar py-1">
           {tasks.slice(0, 8).map((task) => (
             <TaskRow key={task.id} task={task} slug={slug} />
           ))}

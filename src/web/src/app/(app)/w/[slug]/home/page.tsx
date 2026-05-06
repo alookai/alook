@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   ReactFlow,
   Background,
+  BackgroundVariant,
   ReactFlowProvider,
   useReactFlow,
   type Node,
@@ -359,7 +360,7 @@ function AgentCanvas() {
         panOnScroll={false}
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={"dots" as any} gap={24} size={1.5} color="var(--color-border)" />
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} color="var(--color-border)" />
       </ReactFlow>
 
       {/* Custom floating toolbar */}
@@ -427,7 +428,7 @@ function MobileAgentList() {
     return (
       <div className="flex flex-col gap-1 p-4">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="animate-pulse rounded-xl bg-muted h-[60px]" />
+          <div key={i} className="animate-pulse rounded-xl bg-muted h-15" />
         ))}
       </div>
     );

@@ -75,7 +75,10 @@ function MentionHighlight(props: Record<string, unknown> & { children?: React.Re
 }
 const MENTION_COMPONENTS: Record<string, React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }>> = {
   mention: MentionHighlight,
-  p: ({ children, node: _node, ...rest }: Record<string, unknown> & { children?: React.ReactNode }) => <div data-md-p="" {...rest}>{children}</div>,
+  p: ({ children, node, ...rest }: Record<string, unknown> & { children?: React.ReactNode }) => {
+    void node;
+    return <div data-md-p="" {...rest}>{children}</div>;
+  },
 };
 
 /** Sort messages by (created_at, id) ascending — guarantees chronological order. */
@@ -138,6 +141,14 @@ export function buildTimeline(messages: Message[], artifacts: Artifact[], napMar
   });
 }
 
+function useLatest<T>(value: T) {
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref;
+}
+
 function NapSeparator({ agentName }: { agentName: string }) {
   return (
     <div className="flex items-center gap-3 py-4 select-none" aria-hidden>
@@ -194,7 +205,7 @@ function AttachmentChips({
           className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-0.5 text-xs text-primary-foreground/80 hover:bg-primary-foreground/20 transition-colors cursor-pointer"
         >
           <FileText className="size-3 shrink-0" />
-          <span className="truncate max-w-[150px]">{a.filename}</span>
+          <span className="truncate max-w-37.5">{a.filename}</span>
         </button>
       ))}
     </div>
@@ -219,7 +230,7 @@ function PendingFileChips({
           className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-0.5 text-xs text-primary-foreground/80"
         >
           <FileText className="size-3 shrink-0" />
-          <span className="truncate max-w-[150px]">{f.name}</span>
+          <span className="truncate max-w-37.5">{f.name}</span>
         </span>
       ))}
     </div>
@@ -260,8 +271,9 @@ export function AgentChatView() {
   const [hasMoreConversations, setHasMoreConversations] = useState(false);
   const [napMarkers, setNapMarkers] = useState<NapMarker[]>([]);
   const [stepCounts, setStepCounts] = useState<Record<string, number>>({});
+  const [renderNow] = useState(() => Date.now());
 
-  const pendingFilesMapRef = useRef<Map<string, File[]>>(new Map());
+  const [pendingFilesByMessage, setPendingFilesByMessage] = useState<Map<string, File[]>>(() => new Map());
 
   const handleSpeechResult = useCallback((text: string) => {
     setInput((prev) => (prev ? prev + " " + text : text));
@@ -289,7 +301,10 @@ export function AgentChatView() {
   const initialScrollDone = useRef(false);
   const loadingMoreRef = useRef(false);
   const isNearBottom = useRef(true);
-  const startPollingRef = useRef<(taskId: string, conversationId: string, initialSeq?: number) => void>(null!);
+  const startPollingRef = useRef<((taskId: string, conversationId: string, initialSeq?: number) => void) | null>(null);
+  const oldestConversationCursorRef = useRef<PreviousConversation | null>(null);
+  const backfillAttemptsRef = useRef(0);
+  const prevConversationIdRef = useRef<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -332,18 +347,20 @@ export function AgentChatView() {
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = null;
     pollTaskIdRef.current = null;
-    setLoading(true);
-    initialScrollDone.current = false;
-    setActiveTask(null);
-    setTaskMessages([]);
-    setBufferedMessages([]);
-    setNapMarkers([]);
-    setStepCounts({});
-    setPreviousConversations([]);
-    setHasMoreConversations(false);
-    oldestConvIdRef.current = null;
-    oldestConvCreatedAtRef.current = null;
-    setInput(localStorage.getItem(`chat-draft:${agentId}:${targetConvId ?? 'default'}`) ?? "");
+    queueMicrotask(() => {
+      setLoading(true);
+      initialScrollDone.current = false;
+      setActiveTask(null);
+      setTaskMessages([]);
+      setBufferedMessages([]);
+      setPendingFilesByMessage(new Map());
+      setNapMarkers([]);
+      setStepCounts({});
+      setPreviousConversations([]);
+      setHasMoreConversations(false);
+      oldestConversationCursorRef.current = null;
+      setInput(localStorage.getItem(`chat-draft:${agentId}:${targetConvId ?? 'default'}`) ?? "");
+    });
     async function load() {
       try {
         if (targetConvId && scrollToTaskId) {
@@ -373,7 +390,7 @@ export function AgentChatView() {
               if (tmsgs.length > 0) {
                 lastSeqRef.current = Math.max(...tmsgs.map((m) => m.seq));
               }
-              startPollingRef.current(task.id, targetConvId, lastSeqRef.current);
+              startPollingRef.current?.(task.id, targetConvId, lastSeqRef.current);
             }
           } catch {
             const data = await chatInit(agentId, workspaceId, activeChannel);
@@ -400,7 +417,7 @@ export function AgentChatView() {
               lastSeqRef.current = Math.max(...data.task_messages.map((m) => m.seq));
             }
             if (!["completed", "failed", "cancelled", "superseded"].includes(data.active_task.status)) {
-              startPollingRef.current(data.active_task.id, data.conversation.id, lastSeqRef.current);
+              startPollingRef.current?.(data.active_task.id, data.conversation.id, lastSeqRef.current);
             }
           }
         }
@@ -461,21 +478,12 @@ export function AgentChatView() {
 
   const agentName = useMemo(() => agents.find((a) => a.id === agentId)?.name ?? "Agent", [agents, agentId]);
 
-  const messagesRef = useRef(messages);
-  messagesRef.current = messages;
-  const hasMoreRef = useRef(hasMore);
-  hasMoreRef.current = hasMore;
-  const prevConvsRef = useRef(previousConversations);
-  prevConvsRef.current = previousConversations;
-  const hasMoreConvsRef = useRef(hasMoreConversations);
-  hasMoreConvsRef.current = hasMoreConversations;
-  const agentNameRef = useRef(agentName);
-  agentNameRef.current = agentName;
-  const activeChannelRef = useRef(activeChannel);
-  activeChannelRef.current = activeChannel;
-
-  const oldestConvIdRef = useRef<string | null>(null);
-  const oldestConvCreatedAtRef = useRef<string | null>(null);
+  const messagesRef = useLatest(messages);
+  const hasMoreRef = useLatest(hasMore);
+  const prevConvsRef = useLatest(previousConversations);
+  const hasMoreConvsRef = useLatest(hasMoreConversations);
+  const agentNameRef = useLatest(agentName);
+  const activeChannelRef = useLatest(activeChannel);
 
   const loadOlderMessages = useCallback(async (scrollToEnd = false) => {
     if (!conversation || loadingMoreRef.current) return;
@@ -488,14 +496,12 @@ export function AgentChatView() {
     const currentChannel = activeChannelRef.current;
 
     const oldest = currentMessages[0];
-    const paginatingConvId = oldestConvIdRef.current ?? conversation.id;
+    const paginatingConvId = oldestConversationCursorRef.current?.id ?? conversation.id;
     const canLoadMoreInConv = currentHasMore && oldest;
     let prevConvsList = prevConvsRef.current;
 
     if (!canLoadMoreInConv && prevConvsList.length === 0 && currentHasMoreConvs) {
-      const oldestConv = oldestConvCreatedAtRef.current
-        ? { id: oldestConvIdRef.current!, created_at: oldestConvCreatedAtRef.current }
-        : { id: conversation.id, created_at: conversation.created_at };
+      const oldestConv = oldestConversationCursorRef.current ?? { id: conversation.id, created_at: conversation.created_at };
       try {
         const result = await listPreviousConversations(agentId, workspaceId, {
           exclude: conversation.id,
@@ -555,16 +561,14 @@ export function AgentChatView() {
           });
 
           if (older.length === 0) {
-            oldestConvIdRef.current = prevConv.id;
-            oldestConvCreatedAtRef.current = prevConv.created_at;
+            oldestConversationCursorRef.current = prevConv;
             continue;
           }
 
-          napTs = oldestConvCreatedAtRef.current ?? conversation.created_at;
+          napTs = oldestConversationCursorRef.current?.created_at ?? conversation.created_at;
           napId = `nap-${prevConv.id}`;
           loadedOlder = older;
-          oldestConvIdRef.current = prevConv.id;
-          oldestConvCreatedAtRef.current = prevConv.created_at;
+          oldestConversationCursorRef.current = prevConv;
           break;
         }
 
@@ -609,16 +613,25 @@ export function AgentChatView() {
       setLoadingMore(false);
       if (scrollRef.current) scrollRef.current.style.overflowAnchor = "";
     }
-  }, [conversation, workspaceId, agentId]);
+  }, [
+    conversation,
+    workspaceId,
+    agentId,
+    messagesRef,
+    hasMoreRef,
+    hasMoreConvsRef,
+    agentNameRef,
+    activeChannelRef,
+    prevConvsRef,
+  ]);
 
   const canLoadMore = hasMore || previousConversations.length > 0 || hasMoreConversations;
 
-  const backfillAttemptsRef = useRef(0);
-  const prevConversationIdRef = useRef(conversation?.id);
-  if (conversation?.id !== prevConversationIdRef.current) {
+  useEffect(() => {
+    if (conversation?.id === prevConversationIdRef.current) return;
     prevConversationIdRef.current = conversation?.id;
     backfillAttemptsRef.current = 0;
-  }
+  }, [conversation?.id]);
 
   const MIN_MESSAGES = 10;
   useEffect(() => {
@@ -723,7 +736,7 @@ export function AgentChatView() {
                   setMessages((prev) => mergeMessages(prev, latestMsgs));
                   setActiveTask(nextTask);
                   setTaskMessages([]);
-                  startPollingRef.current(nextTask.id, conversationId);
+                  startPollingRef.current?.(nextTask.id, conversationId);
                 }
               } catch { }
             }, 1000);
@@ -746,7 +759,9 @@ export function AgentChatView() {
     },
     [workspaceId]
   );
-  startPollingRef.current = startPolling;
+  useEffect(() => {
+    startPollingRef.current = startPolling;
+  }, [startPolling]);
 
   useEffect(() => {
     return () => {
@@ -782,7 +797,7 @@ export function AgentChatView() {
         setActiveTask(task);
         setTaskMessages([]);
         lastSeqRef.current = 0;
-        startPollingRef.current(task.id, msg.conversationId);
+        startPollingRef.current?.(task.id, msg.conversationId);
       }
       if (msg.type === "conversation.message" && msg.conversationId === conversation?.id) {
         setMessages((prev) => mergeMessages(prev, [msg.message]));
@@ -806,7 +821,7 @@ export function AgentChatView() {
         activeTaskIdRef.current = task.id;
         setActiveTask(task);
         setTaskMessages([]);
-        startPollingRef.current(task.id, msg.conversationId);
+        startPollingRef.current?.(task.id, msg.conversationId);
       }
       if (msg.type === "followup.created" && msg.conversationId === conversation?.id) {
         setBufferedMessages((prev) => addBufferedIfNew(prev, msg.message));
@@ -818,7 +833,7 @@ export function AgentChatView() {
         toast.error(msg.error || "Failed to dispatch follow-up");
       }
     });
-  }, [subscribeWs, conversation?.id]);
+  }, [subscribeWs, conversation?.id, workspaceId]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files;
@@ -982,7 +997,11 @@ export function AgentChatView() {
 
     // Store pending files for the optimistic message rendering
     if (filesToSend.length > 0) {
-      pendingFilesMapRef.current.set(optimisticId, filesToSend);
+      setPendingFilesByMessage((prev) => {
+        const next = new Map(prev);
+        next.set(optimisticId, filesToSend);
+        return next;
+      });
     }
 
     setMessages((prev) => [...prev, optimistic]);
@@ -996,7 +1015,12 @@ export function AgentChatView() {
         filesToSend.length > 0 ? filesToSend : undefined,
       );
       // Clean up pending files ref
-      pendingFilesMapRef.current.delete(optimisticId);
+      setPendingFilesByMessage((prev) => {
+        if (!prev.has(optimisticId)) return prev;
+        const next = new Map(prev);
+        next.delete(optimisticId);
+        return next;
+      });
       setMessages((prev) =>
         prev.map((m) => (m.id === optimistic.id ? message : m))
       );
@@ -1009,7 +1033,12 @@ export function AgentChatView() {
       setTaskMessages([]);
       startPolling(task.id, conversation.id);
     } catch (err) {
-      pendingFilesMapRef.current.delete(optimisticId);
+      setPendingFilesByMessage((prev) => {
+        if (!prev.has(optimisticId)) return prev;
+        const next = new Map(prev);
+        next.delete(optimisticId);
+        return next;
+      });
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       setInput(content);
       setPendingFiles(filesToSend);
@@ -1063,12 +1092,11 @@ export function AgentChatView() {
       setArtifacts([]);
       setBufferedMessages([]);
       setPendingFiles([]);
-      pendingFilesMapRef.current.clear();
+      setPendingFilesByMessage(new Map());
       lastSeqRef.current = 0;
       setConnectionLost(false);
       setHasMore(false);
-      oldestConvIdRef.current = null;
-      oldestConvCreatedAtRef.current = null;
+      oldestConversationCursorRef.current = null;
 
       scrollToBottom();
     } catch {
@@ -1120,7 +1148,7 @@ export function AgentChatView() {
         {/* Skeleton input area */}
         <div className="px-3 md:px-5 py-3">
           <div className="mx-auto max-w-2xl">
-            <Skeleton className="h-[72px] w-full rounded-xl" />
+            <Skeleton className="h-18 w-full rounded-xl" />
           </div>
         </div>
       </>
@@ -1168,7 +1196,7 @@ export function AgentChatView() {
 
           {messages.length === 0 && !activeTask && (() => {
             const agent = agents.find(a => a.id === agentId);
-            const isNewAgent = agent?.created_at && (Date.now() - new Date(agent.created_at).getTime() < 5 * 60 * 1000);
+            const isNewAgent = agent?.created_at && (renderNow - new Date(agent.created_at).getTime() < 5 * 60 * 1000);
             const hasEmailTask = (activeTaskCounts[agentId] ?? 0) > 0;
 
             if (isNewAgent && hasEmailTask) {
@@ -1264,7 +1292,7 @@ export function AgentChatView() {
                           <AttachmentChips attachmentIds={msg.attachment_ids} artifacts={artifacts} onArtifactClick={handleArtifactClick} />
                         )}
                         {!msg.attachment_ids && (
-                          <PendingFileChips pendingFiles={pendingFilesMapRef.current} messageId={msg.id} />
+                          <PendingFileChips pendingFiles={pendingFilesByMessage} messageId={msg.id} />
                         )}
                       </div>
                     </div>
@@ -1380,7 +1408,7 @@ export function AgentChatView() {
                 className={cn(
                   "relative field-sizing-content w-full resize-none bg-transparent px-3.5 py-2.5 text-base leading-normal outline-none",
                   "placeholder:text-muted-foreground disabled:cursor-not-allowed",
-                  "min-h-[38px] max-h-[200px] thin-scrollbar",
+                  "min-h-9.5 max-h-50 thin-scrollbar",
                   "caret-foreground text-transparent"
                 )}
               />

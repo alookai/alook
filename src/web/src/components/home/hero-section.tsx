@@ -101,7 +101,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         </div>
 
         {/* Typewriter + Slogan wrapper */}
-        <div className="relative w-full h-[420px] sm:h-[500px] md:h-[570px]">
+        <div className="relative w-full h-105 sm:h-125 md:h-142.5">
           {/* Slogan — positioned at top of typewriter area */}
           <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-2">
             <h1

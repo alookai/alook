@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -29,6 +29,12 @@ function normalize(html: string | null | undefined): string {
   if (!html) return "";
   return isEmptyHtml(html) ? "" : html.trim();
 }
+
+type MentionSuggestionProps = {
+  items: Agent[];
+  command: (props: { id: string; label: string }) => void;
+  decorationNode: Element | null;
+};
 
 interface PopupState {
   items: Agent[];
@@ -61,7 +67,7 @@ function MentionList({
       className="fixed z-[100] w-64 rounded-lg border border-border bg-popover text-popover-foreground shadow-md"
       style={{ top: rect.top - 4, left: rect.left, transform: "translateY(-100%)" }}
     >
-      <div ref={listRef} className="max-h-[200px] overflow-y-auto py-1 thin-scrollbar">
+      <div ref={listRef} className="max-h-50 overflow-y-auto py-1 thin-scrollbar">
         {items.map((agent, i) => (
           <button
             key={agent.id}
@@ -93,7 +99,9 @@ function useMentionSuggestion(agents: Agent[] | undefined) {
   const [popup, setPopup] = useState<PopupState>({ items: [], selectedIndex: 0, command: null });
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const popupRef = useRef(popup);
-  popupRef.current = popup;
+  useEffect(() => {
+    popupRef.current = popup;
+  }, [popup]);
 
   const mentionExt = agents && agents.length > 0
     ? Mention.configure({
@@ -115,12 +123,12 @@ function useMentionSuggestion(agents: Agent[] | undefined) {
             return [...sw, ...inc].slice(0, 20);
           },
           render: () => ({
-            onStart: (props: any) => {
-              setAnchorEl(props.decorationNode ?? null);
+            onStart: (props: MentionSuggestionProps) => {
+              setAnchorEl(props.decorationNode instanceof HTMLElement ? props.decorationNode : null);
               setPopup({ items: props.items ?? [], selectedIndex: 0, command: props.command });
             },
-            onUpdate: (props: any) => {
-              setAnchorEl(props.decorationNode ?? null);
+            onUpdate: (props: MentionSuggestionProps) => {
+              setAnchorEl(props.decorationNode instanceof HTMLElement ? props.decorationNode : null);
               setPopup({ items: props.items ?? [], selectedIndex: 0, command: props.command });
             },
             onKeyDown: ({ event }: { event: KeyboardEvent }) => {

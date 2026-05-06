@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   type AvatarConfig,
   AvatarRenderer,
@@ -152,17 +152,6 @@ export function AvatarGenerator({ config, onChange, layout = "vertical", mobile 
     }
   }, [config]);
 
-  // Find matched preset name
-  const matchedPresetName = useMemo(() => {
-    const match = PRESETS.find(
-      (p) =>
-        p.config.shape === config.shape &&
-        p.config.eye === config.eye &&
-        p.config.nose === config.nose &&
-        p.config.bg === config.bg
-    );
-    return match?.name ?? null;
-  }, [config]);
 
   // Spacebar shortcut for random in horizontal (dialog) mode
   useEffect(() => {
@@ -201,7 +190,7 @@ export function AvatarGenerator({ config, onChange, layout = "vertical", mobile 
     <div className={cn(
       "flex flex-col items-center gap-3 rounded-2xl bg-muted/30",
       mobile ? "p-3" : "p-4",
-      isHorizontal ? "w-[280px] shrink-0 justify-center" : ""
+      isHorizontal ? "w-70 shrink-0 justify-center" : ""
     )}>
       <div className={cn("rounded-2xl", shaking && "animate-[shake_0.45s_cubic-bezier(.36,.07,.19,.97)]")}>
         <AvatarRenderer config={config} size={previewSize} />
@@ -230,7 +219,7 @@ export function AvatarGenerator({ config, onChange, layout = "vertical", mobile 
   const controls = (
     <div className={cn(
       "flex flex-col gap-3 flex-1 min-w-0",
-      isHorizontal && "rounded-2xl bg-muted/30 p-4 h-[380px]"
+      isHorizontal && "rounded-2xl bg-muted/30 p-4 h-95"
     )}>
       {/* Tabs */}
       <div className="flex border-b border-border">

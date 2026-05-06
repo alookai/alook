@@ -80,7 +80,7 @@ export function EmailCompose({
     ],
     editorProps: {
       attributes: {
-        class: "text-sm max-w-none focus:outline-none min-h-[200px] px-4 py-3",
+        class: "text-sm max-w-none focus:outline-none min-h-50 px-4 py-3",
       },
     },
   });
@@ -229,7 +229,7 @@ export function EmailCompose({
               className="flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs"
             >
               <FileIcon className="size-3 text-muted-foreground shrink-0" />
-              <span className="truncate max-w-[150px]">{att.filename}</span>
+              <span className="truncate max-w-37.5">{att.filename}</span>
               <span className="text-muted-foreground shrink-0">{formatFileSize(att.size)}</span>
               <button
                 type="button"

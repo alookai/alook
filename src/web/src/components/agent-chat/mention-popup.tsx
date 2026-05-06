@@ -30,7 +30,7 @@ export function MentionPopup({ isOpen, agents, selectedIndex, onSelect, anchorPo
         transform: "translateY(-100%)",
       }}
     >
-      <div ref={listRef} className="max-h-[200px] overflow-y-auto py-1 thin-scrollbar">
+      <div ref={listRef} className="max-h-50 overflow-y-auto py-1 thin-scrollbar">
         {agents.map((agent, i) => (
           <button
             key={agent.id}

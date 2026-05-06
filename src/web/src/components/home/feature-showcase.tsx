@@ -272,7 +272,7 @@ function FeaturePanel({ feature, reversed }: { feature: Feature; reversed: boole
             }}
           />
           {/* ASCII art */}
-          <div className="relative z-20 flex items-center justify-center min-h-[140px]">
+          <div className="relative z-20 flex items-center justify-center min-h-35">
             <AnimatedArt lines={feature.terminal} />
           </div>
         </div>

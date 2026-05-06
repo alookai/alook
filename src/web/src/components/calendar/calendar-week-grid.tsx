@@ -96,7 +96,7 @@ export function CalendarWeekGrid({
       arr.push(d);
     }
     return arr;
-  }, [weekStart.getTime()]);
+  }, [weekStart]);
 
   const eventsByDay = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
@@ -320,7 +320,7 @@ export function CalendarWeekGrid({
                         style={{ top: currentFractionalHour * HOUR_HEIGHT }}
                       >
                         <div className="h-px bg-foreground/40" />
-                        <div className="absolute -left-0.5 -top-[3px] size-[7px] rounded-full bg-foreground/40" />
+                        <div className="absolute -left-0.5 -top-0.75 size-1.75 rounded-full bg-foreground/40" />
                       </div>
                     )}
 
