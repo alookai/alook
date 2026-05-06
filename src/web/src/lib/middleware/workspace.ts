@@ -40,6 +40,9 @@ export async function withWorkspaceMember(
     auth.userId,
     workspaceId
   )
+  if (!membership && auth.workspaceId === workspaceId) {
+    return { workspaceId, memberRole: "member" }
+  }
   if (!membership) {
     return NextResponse.json(
       { error: "workspace not found" },

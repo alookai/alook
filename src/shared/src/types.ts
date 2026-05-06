@@ -91,6 +91,21 @@ export interface CalendarEvent {
   updated_at: string;
 }
 
+export interface Issue {
+  id: string;
+  workspace_id: string;
+  agent_id: string;
+  creator_user_id: string;
+  conversation_id: string;
+  latest_task_id: string | null;
+  title: string;
+  description: string;
+  status: "todo" | "in_progress" | "review" | "done" | "closed" | "canceled" | "failed";
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
 export interface Message {
   id: string;
   conversation_id: string;

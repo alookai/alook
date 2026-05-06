@@ -6,6 +6,10 @@ const EMAIL_NOTICE =
   " If you need more information or confirmation from the human, send them an email asking for it and then exit." +
   " Do not wait — when the human replies, a new task will be triggered automatically and you will be woken up with their response.";
 
+const ISSUE_NOTICE =
+  "This task was triggered by an assigned issue. Use `alook issue show`, `alook issue update`, and `alook issue comment` to inspect and update the issue as you work." +
+  " Move the issue to in_progress when you begin, then to review, done, closed, canceled, or failed when appropriate.";
+
 function buildDmNotice(name: string, email: string): string {
   return (
     `This task was triggered by an incoming email on a conversation with ${name} (${email}).` +
@@ -24,6 +28,9 @@ export function buildPrompt(task: Task, attachments?: Attachment[]): string {
     } else {
       obj.notice = EMAIL_NOTICE;
     }
+  }
+  if (task.type === "issue_event") {
+    obj.notice = ISSUE_NOTICE;
   }
   if (task.sender) {
     obj.sender = {

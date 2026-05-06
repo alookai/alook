@@ -6,6 +6,16 @@ import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeError } from "@/lib/middleware/helpers";
 
+function asciiFallbackFilename(filename: string): string {
+  const fallback = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_").trim();
+  return fallback || "download";
+}
+
+function contentDisposition(disposition: "inline" | "attachment", filename: string): string {
+  const fallback = asciiFallbackFilename(filename);
+  return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+}
+
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
@@ -31,9 +41,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     "Content-Length": String(row.size),
   };
   if (download !== null) {
-    headers["Content-Disposition"] = `attachment; filename="${row.filename.replace(/"/g, '\\"')}"`;
+    headers["Content-Disposition"] = contentDisposition("attachment", row.filename);
   } else {
-    headers["Content-Disposition"] = `inline; filename="${row.filename.replace(/"/g, '\\"')}"`;
+    headers["Content-Disposition"] = contentDisposition("inline", row.filename);
   }
 
   return new Response(object.body, { headers });

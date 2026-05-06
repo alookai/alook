@@ -25,3 +25,4 @@ export * as channel from "./queries/channel";
 export * as workspaceFileRequest from "./queries/workspace-file-request";
 export * as conversationMap from "./queries/conversation-map";
 export * as agentLink from "./queries/agent-link";
+export * as issue from "./queries/issue";

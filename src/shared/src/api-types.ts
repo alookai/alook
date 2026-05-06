@@ -8,6 +8,7 @@ import type {
   TaskMessage,
   MachineToken,
   CalendarEvent,
+  Issue,
 } from "./types";
 import type { TaskApi } from "./schemas";
 
@@ -49,6 +50,8 @@ export type ListMachineTokensResponse = ApiListResponse<MachineToken>;
 
 export type ListCalendarEventsResponse = ApiListResponse<CalendarEvent>;
 export type GetCalendarEventResponse = ApiResponse<CalendarEvent>;
+export type ListIssuesResponse = ApiListResponse<Issue>;
+export type GetIssueResponse = ApiResponse<Issue>;
 
 export interface CreateCalendarEventRequest {
   agent_id: string;
@@ -78,6 +81,22 @@ export interface DeleteCalendarEventRequest {
    * current `scheduled_at` (next fire) when omitted.
    */
   occurrence_at?: string;
+}
+
+export interface CreateIssueRequest {
+  agent_id: string;
+  title: string;
+  description?: string;
+}
+
+export interface UpdateIssueRequest {
+  title?: string;
+  description?: string;
+  status?: Issue["status"];
+}
+
+export interface CreateIssueCommentRequest {
+  content: string;
 }
 
 export interface CreateAgentLinkRequest {

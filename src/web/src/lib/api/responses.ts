@@ -257,6 +257,23 @@ export function calendarEventToResponse(e: any) {
   };
 }
 
+export function issueToResponse(row: any) {
+  return {
+    id: row.id,
+    workspace_id: row.workspaceId,
+    agent_id: row.agentId,
+    creator_user_id: row.creatorUserId,
+    conversation_id: row.conversationId,
+    latest_task_id: row.latestTaskId ?? null,
+    title: row.title,
+    description: row.description ?? "",
+    status: row.status,
+    created_at: formatTimestamp(row.createdAt),
+    updated_at: formatTimestamp(row.updatedAt),
+    completed_at: formatTimestampNullable(row.completedAt),
+  };
+}
+
 export function taskToActivityResponse(t: {
   id: string;
   conversationId: string;

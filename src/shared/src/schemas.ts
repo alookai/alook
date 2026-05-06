@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TASK_TYPES } from "./constants";
+import { IssueStatus, TASK_TYPES } from "./constants";
 
 // ---------------------------------------------------------------------------
 // Task status
@@ -339,6 +339,63 @@ export const CalendarEventApiSchema = z.object({
   updated_at: z.string(),
 });
 export type CalendarEventApi = z.infer<typeof CalendarEventApiSchema>;
+
+// ---------------------------------------------------------------------------
+// Issue schemas
+// ---------------------------------------------------------------------------
+
+export const IssueStatusSchema = z.enum([
+  IssueStatus.TODO,
+  IssueStatus.IN_PROGRESS,
+  IssueStatus.REVIEW,
+  IssueStatus.DONE,
+  IssueStatus.CLOSED,
+  IssueStatus.CANCELED,
+  IssueStatus.FAILED,
+]);
+
+export const CreateIssueRequestSchema = z.object({
+  agent_id: z.string().min(1, "agent_id is required"),
+  title: z.string().min(1, "title is required").max(200),
+  description: z.string().max(20_000).optional().default(""),
+});
+export type CreateIssueRequestInput = z.infer<typeof CreateIssueRequestSchema>;
+
+export const UpdateIssueRequestSchema = z
+  .object({
+    title: z.string().min(1).max(200).optional(),
+    description: z.string().max(20_000).optional(),
+    status: IssueStatusSchema.optional(),
+  })
+  .refine(
+    (v) =>
+      v.title !== undefined ||
+      v.description !== undefined ||
+      v.status !== undefined,
+    { message: "at least one field is required" }
+  );
+export type UpdateIssueRequestInput = z.infer<typeof UpdateIssueRequestSchema>;
+
+export const CreateIssueCommentRequestSchema = z.object({
+  content: z.string().min(1, "content is required").max(20_000),
+});
+export type CreateIssueCommentRequestInput = z.infer<typeof CreateIssueCommentRequestSchema>;
+
+export const IssueApiSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  agent_id: z.string(),
+  creator_user_id: z.string(),
+  conversation_id: z.string(),
+  latest_task_id: z.string().nullable(),
+  title: z.string(),
+  description: z.string(),
+  status: IssueStatusSchema,
+  created_at: z.string(),
+  updated_at: z.string(),
+  completed_at: z.string().nullable(),
+});
+export type IssueApi = z.infer<typeof IssueApiSchema>;
 
 // ---------------------------------------------------------------------------
 // Agent link schemas

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Message, Artifact } from "@alook/shared";
-import { sortMessages, mergeMessages, buildTimeline, addBufferedIfNew, replaceOptimisticBuffered } from "./agent-chat-view";
+import { sortMessages, mergeMessages, buildTimeline, addBufferedIfNew, replaceOptimisticBuffered, getEventIconType } from "./agent-chat-view";
 import type { NapMarker } from "./agent-chat-view";
 
 function msg(id: string, created_at: string, role: "user" | "assistant" | "event" = "user", content = ""): Message {
@@ -193,6 +193,25 @@ describe("mergeMessages", () => {
     ];
     const result = mergeMessages(existing, incoming);
     expect(result.map((m) => m.id)).toEqual(["m1", "m2", "m3", "m4", "m5", "m6"]);
+  });
+});
+
+describe("getEventIconType", () => {
+  it("uses the issue icon for issue conversations", () => {
+    expect(getEventIconType("Error: failed to download attachments", "issue_event")).toBe("issue");
+  });
+
+  it("uses the issue icon for issue event content", () => {
+    expect(getEventIconType("Issue status changed: todo -> done", "user_dm_message")).toBe("issue");
+  });
+
+  it("keeps email and calendar event icons for existing channels", () => {
+    expect(getEventIconType("New email from user@example.com", "email_notification")).toBe("email");
+    expect(getEventIconType("Calendar event started", "calendar_event")).toBe("calendar");
+  });
+
+  it("lets explicit channel type win over event content", () => {
+    expect(getEventIconType("Issue mentioned in an email subject", "email_notification")).toBe("email");
   });
 });
 

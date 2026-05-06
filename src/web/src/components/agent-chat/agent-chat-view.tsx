@@ -33,7 +33,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { ArrowUp, BedDouble, Box, Calendar, FileText, Loader2, Mail, Mic, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, BedDouble, Box, Calendar, CircleDot, FileText, Loader2, Mail, Mic, Paperclip, Square, X } from "lucide-react";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { useMentionPopup } from "@/hooks/use-mention-popup";
 import { MentionPopup } from "@/components/agent-chat/mention-popup";
@@ -80,6 +80,28 @@ const MENTION_COMPONENTS: Record<string, React.ComponentType<Record<string, unkn
     return <div data-md-p="" {...rest}>{children}</div>;
   },
 };
+
+type EventIconType = "issue" | "email" | "calendar";
+
+export function getEventIconType(content: string, conversationType?: string | null): EventIconType {
+  if (conversationType === "issue_event") return "issue";
+  if (conversationType === "email_notification") return "email";
+  if (conversationType === "calendar_event") return "calendar";
+
+  const lower = content.toLowerCase();
+  if (lower.startsWith("issue ") || lower.startsWith("issue:")) return "issue";
+  if (lower.includes("email")) return "email";
+  return "calendar";
+}
+
+function EventMessageIcon({ content, conversationType }: { content: string; conversationType?: string | null }) {
+  const iconType = getEventIconType(content, conversationType);
+  const className = "h-4 w-4 mt-0.5 shrink-0";
+
+  if (iconType === "issue") return <CircleDot className={className} />;
+  if (iconType === "email") return <Mail className={className} />;
+  return <Calendar className={className} />;
+}
 
 /** Sort messages by (created_at, id) ascending — guarantees chronological order. */
 export function sortMessages(msgs: Message[]): Message[] {
@@ -363,7 +385,7 @@ export function AgentChatView() {
     });
     async function load() {
       try {
-        if (targetConvId && scrollToTaskId) {
+        if (targetConvId) {
           try {
             const [conv, msgs, arts, buffered] = await Promise.all([
               getConversation(targetConvId, workspaceId),
@@ -382,15 +404,17 @@ export function AgentChatView() {
                 .then(setStepCounts)
                 .catch(() => {});
             }
-            const task = await getTask(scrollToTaskId, workspaceId).catch(() => null);
-            if (task && !["completed", "failed", "cancelled", "superseded"].includes(task.status)) {
-              setActiveTask(task);
-              const tmsgs = await getTaskMessages(scrollToTaskId, workspaceId).catch(() => [] as TaskMessage[]);
-              setTaskMessages(tmsgs);
-              if (tmsgs.length > 0) {
-                lastSeqRef.current = Math.max(...tmsgs.map((m) => m.seq));
+            if (scrollToTaskId) {
+              const task = await getTask(scrollToTaskId, workspaceId).catch(() => null);
+              if (task && !["completed", "failed", "cancelled", "superseded"].includes(task.status)) {
+                setActiveTask(task);
+                const tmsgs = await getTaskMessages(scrollToTaskId, workspaceId).catch(() => [] as TaskMessage[]);
+                setTaskMessages(tmsgs);
+                if (tmsgs.length > 0) {
+                  lastSeqRef.current = Math.max(...tmsgs.map((m) => m.seq));
+                }
+                startPollingRef.current?.(task.id, targetConvId, lastSeqRef.current);
               }
-              startPollingRef.current?.(task.id, targetConvId, lastSeqRef.current);
             }
           } catch {
             const data = await chatInit(agentId, workspaceId, activeChannel);
@@ -1331,7 +1355,7 @@ export function AgentChatView() {
                 })() : msg.role === "event" ? (
                   <div className="flex justify-start">
                     <div className="w-full rounded-md border bg-muted/50 text-muted-foreground text-sm px-3 py-2 flex items-start gap-2">
-                      {msg.content.toLowerCase().includes("email") ? <Mail className="h-4 w-4 mt-0.5 shrink-0" /> : <Calendar className="h-4 w-4 mt-0.5 shrink-0" />}
+                      <EventMessageIcon content={msg.content} conversationType={conversation?.type} />
                       <span>{msg.content}</span>
                     </div>
                   </div>

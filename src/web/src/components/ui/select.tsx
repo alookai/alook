@@ -15,8 +15,9 @@ function Select({
 function SelectTrigger({
   className,
   children,
+  hideIcon = false,
   ...props
-}: SelectPrimitive.Trigger.Props) {
+}: SelectPrimitive.Trigger.Props & { hideIcon?: boolean }) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
@@ -27,9 +28,11 @@ function SelectTrigger({
       {...props}
     >
       {children}
-      <SelectPrimitive.Icon className="shrink-0">
-        <ChevronDownIcon className="size-3.5 opacity-50" />
-      </SelectPrimitive.Icon>
+      {!hideIcon && (
+        <SelectPrimitive.Icon className="shrink-0">
+          <ChevronDownIcon className="size-3.5 opacity-50" />
+        </SelectPrimitive.Icon>
+      )}
     </SelectPrimitive.Trigger>
   )
 }

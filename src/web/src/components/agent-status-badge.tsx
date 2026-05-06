@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Mail, MessageSquare } from "lucide-react";
+import { CalendarDays, CircleDot, Mail, MessageSquare } from "lucide-react";
 import { badgeVariants } from "@/components/ui/badge";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -20,6 +20,7 @@ interface AgentStatusBadgeProps {
 
 const TASK_TYPES = [
   { type: "user_dm_message", icon: MessageSquare, label: "Chat" },
+  { type: "issue_event", icon: CircleDot, label: "Issue" },
   { type: "email_notification", icon: Mail, label: "Email" },
   { type: "calendar_event", icon: CalendarDays, label: "Calendar" },
 ] as const;
@@ -30,6 +31,8 @@ function getTaskRoute(slug: string, agentId: string, type: string) {
       return `/w/${slug}/agents/${agentId}/email`;
     case "calendar_event":
       return `/w/${slug}/calendar?agents=${agentId}`;
+    case "issue_event":
+      return `/w/${slug}/issues`;
     default:
       return `/w/${slug}/agents/${agentId}`;
   }

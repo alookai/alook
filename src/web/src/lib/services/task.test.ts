@@ -7,6 +7,7 @@ vi.mock("@alook/shared", () => ({
     USER_DM_MESSAGE: "user_dm_message",
     EMAIL_NOTIFICATION: "email_notification",
     CALENDAR_EVENT: "calendar_event",
+    ISSUE_EVENT: "issue_event",
     KILL_TASK: "kill_task",
   },
   MAX_TASKS_PER_TRACE: 256,
@@ -41,6 +42,10 @@ vi.mock("@alook/shared", () => ({
     conversation: {
       getConversation: vi.fn(),
     },
+    issue: {
+      getIssue: vi.fn(),
+      updateIssue: vi.fn(),
+    },
   },
 }));
 
@@ -72,6 +77,10 @@ const messageQ = queries.message as {
 };
 const conversationQ = (queries as any).conversation as {
   getConversation: ReturnType<typeof vi.fn>;
+};
+const issueQ = (queries as any).issue as {
+  getIssue: ReturnType<typeof vi.fn>;
+  updateIssue: ReturnType<typeof vi.fn>;
 };
 
 const service = new TaskService({} as any);
@@ -286,6 +295,30 @@ describe("TaskService", () => {
       expect(result).toEqual(task);
       expect(taskQ.startTask).toHaveBeenCalledWith({}, "t1", "w1");
     });
+
+    it("moves issue tasks to in_progress when they start", async () => {
+      const task = {
+        id: "t1",
+        type: "issue_event",
+        contextKey: "iss_1",
+        workspaceId: "w1",
+        conversationId: "c1",
+        status: "running",
+      };
+      taskQ.startTask.mockResolvedValue(task);
+      issueQ.getIssue.mockResolvedValue({ id: "iss_1", status: "todo", conversationId: "c1" });
+      issueQ.updateIssue.mockResolvedValue({ id: "iss_1", status: "in_progress", conversationId: "c1" });
+
+      await service.startTask("t1", "w1");
+
+      expect(issueQ.updateIssue).toHaveBeenCalledWith({}, "iss_1", "w1", { status: "in_progress" });
+      expect(messageQ.createMessage).toHaveBeenCalledWith({}, {
+        conversationId: "c1",
+        role: "event",
+        content: "Issue status changed: todo -> in_progress",
+        taskId: "t1",
+      });
+    });
   });
 
   // ── completeTask ─────────────────────────────────────────────────
@@ -356,6 +389,33 @@ describe("TaskService", () => {
         "working"
       );
     });
+
+    it("moves issue tasks to done when they complete", async () => {
+      const task = {
+        id: "t1",
+        agentId: "a1",
+        workspaceId: "w1",
+        conversationId: "c1",
+        type: "issue_event",
+        contextKey: "iss_1",
+        status: "completed",
+      };
+      taskQ.completeTask.mockResolvedValue(task);
+      taskQ.countRunningTasks.mockResolvedValue(0);
+      agentQ.updateAgentStatus.mockResolvedValue(undefined);
+      issueQ.getIssue.mockResolvedValue({ id: "iss_1", status: "in_progress", conversationId: "c1" });
+      issueQ.updateIssue.mockResolvedValue({ id: "iss_1", status: "done", conversationId: "c1" });
+
+      await service.completeTask("t1", "w1", JSON.stringify({}), "sess-1");
+
+      expect(issueQ.updateIssue).toHaveBeenCalledWith({}, "iss_1", "w1", { status: "done" });
+      expect(messageQ.createMessage).toHaveBeenCalledWith({}, {
+        conversationId: "c1",
+        role: "event",
+        content: "Issue status changed: in_progress -> done",
+        taskId: "t1",
+      });
+    });
   });
 
   // ── failTask ─────────────────────────────────────────────────────
@@ -420,6 +480,33 @@ describe("TaskService", () => {
         "w1",
         "working"
       );
+    });
+
+    it("moves issue tasks to failed when they fail", async () => {
+      const task = {
+        id: "t1",
+        agentId: "a1",
+        workspaceId: "w1",
+        conversationId: "c1",
+        type: "issue_event",
+        contextKey: "iss_1",
+        status: "failed",
+      };
+      taskQ.failTask.mockResolvedValue(task);
+      taskQ.countRunningTasks.mockResolvedValue(0);
+      agentQ.updateAgentStatus.mockResolvedValue(undefined);
+      issueQ.getIssue.mockResolvedValue({ id: "iss_1", status: "in_progress", conversationId: "c1" });
+      issueQ.updateIssue.mockResolvedValue({ id: "iss_1", status: "failed", conversationId: "c1" });
+
+      await service.failTask("t1", "w1", "something went wrong");
+
+      expect(issueQ.updateIssue).toHaveBeenCalledWith({}, "iss_1", "w1", { status: "failed" });
+      expect(messageQ.createMessage).toHaveBeenCalledWith({}, {
+        conversationId: "c1",
+        role: "event",
+        content: "Issue status changed: in_progress -> failed",
+        taskId: "t1",
+      });
     });
   });
 

@@ -42,10 +42,40 @@ export const TASK_TYPES = {
   USER_DM_MESSAGE: "user_dm_message",
   EMAIL_NOTIFICATION: "email_notification",
   CALENDAR_EVENT: "calendar_event",
+  ISSUE_EVENT: "issue_event",
   KILL_TASK: "kill_task",
 } as const;
 
 export type TaskType = (typeof TASK_TYPES)[keyof typeof TASK_TYPES];
+
+export const IssueStatus = {
+  TODO: "todo",
+  IN_PROGRESS: "in_progress",
+  REVIEW: "review",
+  DONE: "done",
+  CLOSED: "closed",
+  CANCELED: "canceled",
+  FAILED: "failed",
+} as const;
+
+export type IssueStatusType = (typeof IssueStatus)[keyof typeof IssueStatus];
+
+export const ACTIVE_ISSUE_STATUSES: readonly IssueStatusType[] = [
+  IssueStatus.TODO,
+  IssueStatus.IN_PROGRESS,
+  IssueStatus.REVIEW,
+] as const;
+
+export const TERMINAL_ISSUE_STATUSES: readonly IssueStatusType[] = [
+  IssueStatus.DONE,
+  IssueStatus.CLOSED,
+  IssueStatus.CANCELED,
+  IssueStatus.FAILED,
+] as const;
+
+export function isTerminalIssueStatus(status: string): boolean {
+  return (TERMINAL_ISSUE_STATUSES as readonly string[]).includes(status);
+}
 
 export const MessageRole = {
   USER: "user",

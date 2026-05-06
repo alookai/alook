@@ -7,7 +7,7 @@ import { useWorkspace } from "@/contexts/workspace-context";
 import type { Agent } from "@alook/shared";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
-import { Monitor, SunMoon, Plus, CalendarDays, GitBranch, Settings, PinIcon, PinOffIcon, ArrowLeftRight, Home } from "lucide-react";
+import { Monitor, SunMoon, Plus, CalendarDays, GitBranch, Settings, PinIcon, PinOffIcon, ArrowLeftRight, Home, CircleDot } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useTheme } from "next-themes";
@@ -175,6 +175,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const isRuntimes = pathname === `${prefix}/runtimes`;
   const isCalendar = pathname === `${prefix}/calendar`;
   const isTraces = pathname.startsWith(`${prefix}/threads`);
+  const isIssues = pathname.startsWith(`${prefix}/issues`);
   const isSettings = pathname === `${prefix}/settings`;
   const isCreateAgent = pathname === `${prefix}/agents/new`;
 
@@ -276,6 +277,23 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             <GitBranch className="size-4" />
           </TooltipTrigger>
           <TooltipContent side="right">Threads</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger render={
+            <button
+              type="button"
+              onClick={() => { router.push(`${prefix}/issues`); onNavigate?.(); }}
+              className={cn(
+                "flex items-center justify-center size-10 rounded-xl transition-colors duration-200 cursor-pointer",
+                "text-muted-foreground hover:text-foreground hover:bg-accent",
+                isIssues && "bg-accent text-foreground"
+              )}
+            />
+          }>
+            <CircleDot className="size-4" />
+          </TooltipTrigger>
+          <TooltipContent side="right">Issues</TooltipContent>
         </Tooltip>
       </div>
 

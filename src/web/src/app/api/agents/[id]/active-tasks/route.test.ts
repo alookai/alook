@@ -48,6 +48,7 @@ describe("GET /api/agents/[id]/active-tasks", () => {
     mockListActiveTasksByAgent.mockResolvedValue([
       { id: "t1", status: "running", type: "user_dm_message", conversationId: "c1", createdAt: "2026-01-01T00:00:00Z" },
       { id: "t2", status: "queued", type: "email_notification", conversationId: "c2", createdAt: "2026-01-01T00:01:00Z" },
+      { id: "t3", status: "running", type: "issue_event", conversationId: "c3", createdAt: "2026-01-01T00:02:00Z" },
     ]);
 
     const res = await GET(
@@ -57,7 +58,7 @@ describe("GET /api/agents/[id]/active-tasks", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.tasks).toHaveLength(2);
+    expect(body.tasks).toHaveLength(3);
     expect(body.tasks[0]).toEqual({
       id: "t1",
       status: "running",
@@ -69,6 +70,12 @@ describe("GET /api/agents/[id]/active-tasks", () => {
       status: "queued",
       type: "email_notification",
       created_at: "2026-01-01T00:01:00Z",
+    });
+    expect(body.tasks[2]).toEqual({
+      id: "t3",
+      status: "running",
+      type: "issue_event",
+      created_at: "2026-01-01T00:02:00Z",
     });
   });
 

@@ -59,6 +59,12 @@ describe("withWorkspaceMember", () => {
     expect(result).toBeInstanceOf(NextResponse);
     expect((result as NextResponse).status).toBe(404);
   });
+
+  it("allows machine token workspace access when auth workspace matches", async () => {
+    mockGetMemberByUserAndWorkspace.mockResolvedValue(null);
+    const result = await withWorkspaceMember(makeReq("w1"), { ...auth, workspaceId: "w1" });
+    expect(result).toEqual({ workspaceId: "w1", memberRole: "member" });
+  });
 });
 
 describe("withWorkspaceOwner", () => {

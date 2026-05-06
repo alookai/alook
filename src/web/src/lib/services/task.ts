@@ -8,6 +8,7 @@ const taskQueries = queries.task;
 const agentQueries = queries.agent;
 const messageQueries = queries.message;
 const conversationQueries = queries.conversation;
+const issueQueries = queries.issue;
 
 export class TaskService {
   constructor(private db: Database) {}
@@ -108,6 +109,7 @@ export class TaskService {
     if (!task) {
       throw new Error("task not in dispatched status");
     }
+    await this.syncIssueStatusFromTask(task, "in_progress");
     return task;
   }
 
@@ -150,6 +152,7 @@ export class TaskService {
     }
 
     await this.reconcileAgentStatus(task.agentId, task.workspaceId);
+    await this.syncIssueStatusFromTask(task, "done");
     await this.dispatchNextBufferedMessage(task.conversationId, task.workspaceId);
     return task;
   }
@@ -178,8 +181,29 @@ export class TaskService {
     }
 
     await this.reconcileAgentStatus(task.agentId, task.workspaceId);
+    await this.syncIssueStatusFromTask(task, "failed");
     await this.dispatchNextBufferedMessage(task.conversationId, task.workspaceId);
     return task;
+  }
+
+  private async syncIssueStatusFromTask(
+    task: { id: string; type?: string | null; contextKey?: string | null; workspaceId: string; conversationId: string },
+    status: "in_progress" | "done" | "failed",
+  ) {
+    if (task.type !== TASK_TYPES.ISSUE_EVENT || !task.contextKey) return;
+
+    const issue = await issueQueries.getIssue(this.db, task.contextKey, task.workspaceId);
+    if (!issue || issue.conversationId !== task.conversationId || issue.status === status) return;
+
+    const updated = await issueQueries.updateIssue(this.db, issue.id, task.workspaceId, { status });
+    if (!updated) return;
+
+    await messageQueries.createMessage(this.db, {
+      conversationId: issue.conversationId,
+      role: "event",
+      content: `Issue status changed: ${issue.status} -> ${status}`,
+      taskId: task.id,
+    });
   }
 
   async supersedeTask(taskId: string, workspaceId: string) {

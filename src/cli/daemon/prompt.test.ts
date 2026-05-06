@@ -93,6 +93,14 @@ describe("buildPrompt", () => {
     expect(parsed.notice).toBeUndefined();
   });
 
+  it("adds issue guidance for issue_event tasks", () => {
+    const task = makeTask("Issue iss_1: Fix import", "issue_event");
+    const parsed = JSON.parse(buildPrompt(task));
+    expect(parsed.notice).toContain("assigned issue");
+    expect(parsed.notice).toContain("alook issue update");
+    expect(parsed.notice).toContain("in_progress");
+  });
+
   it("includes sender for DM tasks when sender is present", () => {
     const task: Task = {
       ...makeTask("Fix the login bug"),

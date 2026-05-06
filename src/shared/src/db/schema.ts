@@ -378,6 +378,41 @@ export const agentTaskQueue = sqliteTable(
   ]
 );
 
+export const issue = sqliteTable(
+  "issue",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "iss_" + nanoid()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").notNull(),
+    creatorUserId: text("creator_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    latestTaskId: text("latest_task_id").references(() => agentTaskQueue.id, {
+      onDelete: "set null",
+    }),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    status: text("status").notNull().default("todo"),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+    updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+    completedAt: text("completed_at"),
+  },
+  (t) => [
+    index("idx_issue_workspace_status_agent").on(t.workspaceId, t.status, t.agentId),
+    index("idx_issue_workspace_updated").on(t.workspaceId, t.updatedAt),
+    unique("issue_conversation_unique").on(t.conversationId),
+    foreignKey({
+      columns: [t.agentId, t.workspaceId],
+      foreignColumns: [agent.id, agent.workspaceId],
+    }).onDelete("cascade"),
+  ]
+);
+
 export const taskMessage = sqliteTable(
   "task_message",
   {
