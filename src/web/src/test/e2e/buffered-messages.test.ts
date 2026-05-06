@@ -5,6 +5,7 @@ import { sql, sqlQuery } from "../helpers/db"
 
 let seed: TestSeed
 let conversationId: string
+let activeTaskId: string
 
 beforeAll(async () => {
   seed = seedTestData()
@@ -20,6 +21,12 @@ beforeAll(async () => {
   )
   const data = await res.json() as { id: string }
   conversationId = data.id
+
+  activeTaskId = `task_${Date.now()}`
+  const now = new Date().toISOString()
+  sql(
+    `INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, created_at) VALUES ('${activeTaskId}', '${seed.agentId}', '${seed.runtimeId}', '${seed.workspaceId}', '${conversationId}', 'active task', 'running', 'user_dm_message', '${now}')`
+  )
 })
 afterAll(() => cleanupTestData(seed))
 
