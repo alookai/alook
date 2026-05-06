@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/context-menu";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
+import { parseAvatarUrl } from "@/components/avatar";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";

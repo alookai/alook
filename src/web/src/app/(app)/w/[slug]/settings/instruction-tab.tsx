@@ -44,9 +44,13 @@ export function InstructionTab() {
   const [loading, setLoading] = useState(true);
 
   const valueRef = useRef(value);
-  valueRef.current = value;
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
   const savedValueRef = useRef(savedValue);
-  savedValueRef.current = savedValue;
+  useEffect(() => {
+    savedValueRef.current = savedValue;
+  }, [savedValue]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingRef = useRef(false);
 

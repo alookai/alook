@@ -30,7 +30,6 @@ interface ArtifactSheetProps {
 const MIN_WIDTH = 320;
 const MAX_WIDTH_RATIO = 0.8;
 const DEFAULT_WIDTH = 448;
-const MOBILE_BREAKPOINT = 640;
 
 export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, initialArtifact = null }: ArtifactSheetProps) {
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);

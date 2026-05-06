@@ -22,7 +22,6 @@ import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import {
   CalendarDays,
   CalendarOff,
-  Clock,
   Repeat as RepeatIcon,
   User,
   X,

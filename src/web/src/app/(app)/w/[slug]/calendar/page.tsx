@@ -349,8 +349,12 @@ export default function CalendarPage() {
   // the grid.
   const createOpenRef = useRef(createOpen);
   const detailOpenRef = useRef(detailOpen);
-  createOpenRef.current = createOpen;
-  detailOpenRef.current = detailOpen;
+  useEffect(() => {
+    createOpenRef.current = createOpen;
+  }, [createOpen]);
+  useEffect(() => {
+    detailOpenRef.current = detailOpen;
+  }, [detailOpen]);
 
   // Memoize events-per-day for quick lookup in the keyboard handler.
   const hiddenCountForDate = useCallback(

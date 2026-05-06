@@ -87,7 +87,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
 
     const agent = await queries.agent.getAgent(db, task.agentId, task.workspaceId);
-    let emailAddresses: string[] = [];
+    const emailAddresses: string[] = [];
     if (agent) {
       if (agent.emailHandle) emailAddresses.push(`${agent.emailHandle}@alook.ai`);
       const customAccounts = await queries.emailAccount.getEmailAccountsByAgent(db, agent.id, task.workspaceId);

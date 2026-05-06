@@ -62,7 +62,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const isMultipart = contentType.includes("multipart/form-data");
 
   let content: string;
-  let files: File[] = [];
+  const files: File[] = [];
 
   if (isMultipart) {
     let formData: FormData;

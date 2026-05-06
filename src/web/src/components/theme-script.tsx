@@ -5,6 +5,7 @@ const themeScript = `(function(){try{var s=localStorage.getItem('theme');var d=s
 export function ThemeScript() {
   return (
     <Script
+      id="theme-script"
       strategy="beforeInteractive"
       dangerouslySetInnerHTML={{ __html: themeScript }}
     />

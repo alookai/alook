@@ -13,13 +13,18 @@ export function useUserWs(onMessage: (msg: WsMessage) => void) {
   const onMessageRef = useRef(onMessage)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Keep the ref in sync with the latest callback on every render
-  onMessageRef.current = onMessage
+  useEffect(() => {
+    onMessageRef.current = onMessage
+  }, [onMessage])
 
-  const scheduleReconnect = useCallback((connect: () => void) => {
+  const connectRef = useRef<(() => Promise<void>) | null>(null)
+
+  const scheduleReconnect = useCallback(() => {
     const delay = Math.min(reconnectDelay.current, WS_RECONNECT_MAX)
     reconnectDelay.current = Math.min(delay * 2, WS_RECONNECT_MAX)
-    reconnectTimerRef.current = setTimeout(connect, delay + Math.random() * 500)
+    reconnectTimerRef.current = setTimeout(() => {
+      void connectRef.current?.()
+    }, delay + Math.random() * 500)
   }, [])
 
   const connect = useCallback(async () => {
@@ -29,7 +34,7 @@ export function useUserWs(onMessage: (msg: WsMessage) => void) {
       const res = await fetch("/api/ws/token")
       if (!res.ok) {
         console.warn("[ws] token fetch failed:", res.status)
-        scheduleReconnect(connect)
+        scheduleReconnect()
         return
       }
       const body = await res.json() as { userId: string; token: string }
@@ -37,7 +42,7 @@ export function useUserWs(onMessage: (msg: WsMessage) => void) {
       authToken = body.token
     } catch (err) {
       console.warn("[ws] token fetch error:", err)
-      scheduleReconnect(connect)
+      scheduleReconnect()
       return
     }
 
@@ -50,7 +55,7 @@ export function useUserWs(onMessage: (msg: WsMessage) => void) {
       ws = new WebSocket(url)
     } catch (err) {
       console.warn("[ws] WebSocket creation failed:", err)
-      scheduleReconnect(connect)
+      scheduleReconnect()
       return
     }
     wsRef.current = ws
@@ -74,9 +79,13 @@ export function useUserWs(onMessage: (msg: WsMessage) => void) {
       // Ownership check: only reconnect if this WS is still the current one.
       // If effect cleanup already replaced wsRef.current, this is an orphan — skip.
       if (ws !== wsRef.current) return
-      scheduleReconnect(connect)
+      scheduleReconnect()
     }
   }, [scheduleReconnect])
+
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
 
   useEffect(() => {
     connect()

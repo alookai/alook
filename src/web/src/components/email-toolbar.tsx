@@ -14,7 +14,7 @@ import {
   AlignRight,
   Link,
   Unlink,
-  Image,
+  ImageIcon,
   Heading1,
   Heading2,
   Minus,
@@ -191,7 +191,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
         )}
       </ToolbarButton>
       <ToolbarButton title="Insert Image" onClick={handleImage}>
-        <Image className={iconSize} />
+        <ImageIcon className={iconSize} />
       </ToolbarButton>
 
       <ToolbarDivider />

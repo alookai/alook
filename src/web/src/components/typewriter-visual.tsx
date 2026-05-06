@@ -154,7 +154,6 @@ interface Birthday {
 function BirthdayPicker({
   value,
   onSave,
-  onClear,
 }: {
   value: Birthday | null;
   onSave: (v: Birthday) => void;

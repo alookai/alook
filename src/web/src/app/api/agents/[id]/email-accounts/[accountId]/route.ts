@@ -6,7 +6,9 @@ import { withAuth } from "@/lib/middleware/auth"
 import { withWorkspaceMember } from "@/lib/middleware/workspace"
 import { writeJSON, writeError, parseBody, formatTimestamp, formatTimestampNullable } from "@/lib/middleware/helpers"
 
-function accountToResponse(a: any) {
+type AgentEmailAccountRow = Awaited<ReturnType<typeof queries.emailAccount.getEmailAccountsByAgent>>[number]
+
+function accountToResponse(a: AgentEmailAccountRow) {
   return {
     id: a.id,
     agent_id: a.agentId,
@@ -72,7 +74,7 @@ export const PATCH = withAuth(async (req, ctx) => {
   if (body.smtpTls !== undefined) data.smtpTls = body.smtpTls
   if (body.pollIntervalSeconds !== undefined) data.pollIntervalSeconds = body.pollIntervalSeconds
 
-  const updated = await queries.emailAccount.updateEmailAccount(db, accountId, ws.workspaceId, data as any)
+  const updated = await queries.emailAccount.updateEmailAccount(db, accountId, ws.workspaceId, data)
   if (!updated) return writeError("update failed", 500)
 
   const hasCredentialChange = body.imapUsername || body.imapPassword || body.smtpUsername || body.smtpPassword || body.imapHost || body.smtpHost

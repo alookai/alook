@@ -20,7 +20,7 @@ import {
 } from "@/lib/api";
 import type { AgentEmailAccount, CreateEmailAccountRequest } from "@alook/shared";
 import {
-  Loader2, Mail, RefreshCw, Trash2, AlertCircle, CheckCircle2,
+  Loader2, Mail, RefreshCw, AlertCircle, CheckCircle2,
   ChevronRight, XIcon, CircleHelp,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -235,6 +235,8 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
     onDataChange?.(buildData());
   }, [
     isCreateMode,
+    buildData,
+    onDataChange,
     fields.emailAddress, fields.displayName,
     fields.imapHost, fields.imapPort, fields.imapUsername, fields.imapPassword,
     fields.smtpHost, fields.smtpPort, fields.smtpUsername, fields.smtpPassword,
@@ -278,8 +280,8 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
       toast.success("Custom email configured");
       setOpen(false);
       await load();
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to save");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
     }
@@ -292,8 +294,8 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
       await deleteEmailAccount(agentId, existing.id, workspaceId);
       toast.success("Custom email removed");
       setAccounts([]);
-    } catch (err: any) {
-      toast.error(err?.message ?? "Failed to remove");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove");
     } finally {
       setDeleting(false);
     }
@@ -306,8 +308,8 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
       await syncEmailAccount(agentId, existing.id, workspaceId);
       toast.success("Sync triggered");
       setTimeout(() => load(), 2000);
-    } catch (err: any) {
-      toast.error(err?.message ?? "Sync failed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Sync failed");
     } finally {
       setSyncing(false);
     }

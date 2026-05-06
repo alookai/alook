@@ -67,7 +67,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     )
   );
 
-  results.forEach((r, i) => {
+  results.forEach((r) => {
     if (r.status === "rejected") {
       log.warn("Failed to create task message", { taskId, err: r.reason });
     }

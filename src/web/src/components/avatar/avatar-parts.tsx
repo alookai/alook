@@ -173,12 +173,16 @@ export interface EyeDef {
   render: (dx: number) => ReactNode;
 }
 
-const eye = (l: ReactNode, r: ReactNode = l) => (dx: number) => (
+const eye = (l: ReactNode, r: ReactNode = l) => {
+  const EyePair = (dx: number) => (
   <g>
     <g transform={`translate(${-dx}, 0)`}>{l}</g>
     <g transform={`translate(${dx}, 0)`}>{r}</g>
   </g>
-);
+  );
+  EyePair.displayName = "EyePair";
+  return EyePair;
+};
 
 export const Eyes: Record<string, EyeDef> = {
   dots: { name: "Dots", render: eye(<circle cx="0" cy="0" r="4.5" {...fp} />) },

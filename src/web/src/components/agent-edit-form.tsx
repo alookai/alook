@@ -97,9 +97,13 @@ export function AgentEditForm({
   const [instructions, setInstructions] = useState(agent.instructions ?? "");
   const [savedInstructions, setSavedInstructions] = useState(agent.instructions ?? "");
   const instructionsRef = useRef(instructions);
-  instructionsRef.current = instructions;
+  useEffect(() => {
+    instructionsRef.current = instructions;
+  }, [instructions]);
   const savedInstructionsRef = useRef(savedInstructions);
-  savedInstructionsRef.current = savedInstructions;
+  useEffect(() => {
+    savedInstructionsRef.current = savedInstructions;
+  }, [savedInstructions]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingInstructionsRef = useRef(false);
 

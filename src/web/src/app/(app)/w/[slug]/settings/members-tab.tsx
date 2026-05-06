@@ -208,7 +208,6 @@ export function MembersTab() {
                 {/* Avatar */}
                 <div className="size-7 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground shrink-0 overflow-hidden">
                   {member.image ? (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img src={member.image} alt={member.name} className="size-full object-cover" />
                   ) : (
                     initials

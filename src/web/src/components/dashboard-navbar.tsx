@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -137,7 +136,6 @@ function OnboardingSteps({
 }
 
 export function DashboardNavbar() {
-  const router = useRouter();
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
   const [runtimeSheetOpen, setRuntimeSheetOpen] = useState(false);
   const [generatedToken, setGeneratedToken] = useState("");

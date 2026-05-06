@@ -133,9 +133,10 @@ export default function AgentFilesPage() {
     setRootLoading(true);
     setRootError(null);
     requestTree(".");
+    const pending = pendingRef.current;
     return () => {
-      for (const entry of pendingRef.current.values()) clearTimeout(entry.timer);
-      pendingRef.current.clear();
+      for (const entry of pending.values()) clearTimeout(entry.timer);
+      pending.clear();
     };
   }, [requestTree]);
 

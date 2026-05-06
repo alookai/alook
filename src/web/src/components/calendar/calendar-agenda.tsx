@@ -3,7 +3,6 @@
 import { cn } from "@/lib/utils";
 import type { CalendarEvent, Agent } from "@alook/shared";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Video } from "lucide-react";
 import { agentColor } from "./calendar-colors";
 import { dateKey } from "./calendar-month-grid";
 import { formatRepeatDisplay } from "./repeat-interval-utils";
@@ -138,9 +137,6 @@ export function CalendarAgenda({
                       {agentNameById.get(ev.agent_id) ?? ev.agent_id}
                     </span>
                     <span className="flex-1 truncate text-sm">{ev.title}</span>
-                    {(ev as any)._type === "meeting" && (
-                      <Video className="shrink-0 size-3 text-muted-foreground" />
-                    )}
                     {ev.repeat_interval && (
                       <span className="shrink-0 text-[10px] text-muted-foreground">
                         {formatRepeatDisplay(ev.repeat_interval!)}

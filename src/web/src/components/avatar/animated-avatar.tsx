@@ -41,7 +41,7 @@ export function AnimatedAvatar({ config, size, className, isHovered, isWorking }
     } else if (!isWorking) {
       setAnimClass(null);
     }
-  }, [isHovered]);
+  }, [isHovered, isWorking]);
 
   useEffect(() => {
     if (!isWorking) {
@@ -53,7 +53,7 @@ export function AnimatedAvatar({ config, size, className, isHovered, isWorking }
       setAnimClass(pickAnimation());
     }, 4000);
     return () => clearInterval(interval);
-  }, [isWorking]);
+  }, [isHovered, isWorking]);
 
   return (
     <div className={animClass ?? undefined}>

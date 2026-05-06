@@ -6,7 +6,9 @@ import { withAuth } from "@/lib/middleware/auth"
 import { withWorkspaceMember } from "@/lib/middleware/workspace"
 import { writeJSON, writeError, parseBody, formatTimestamp, formatTimestampNullable } from "@/lib/middleware/helpers"
 
-function accountToResponse(a: any) {
+type AgentEmailAccountRow = Awaited<ReturnType<typeof queries.emailAccount.getEmailAccountsByAgent>>[number]
+
+function accountToResponse(a: AgentEmailAccountRow) {
   return {
     id: a.id,
     agent_id: a.agentId,

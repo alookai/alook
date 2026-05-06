@@ -38,11 +38,15 @@ export function LinkSidecar({
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const instructionRef = useRef(instruction);
-  instructionRef.current = instruction;
+  useEffect(() => {
+    instructionRef.current = instruction;
+  }, [instruction]);
   const savedInstructionRef = useRef("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const linkRef = useRef(link);
-  linkRef.current = link;
+  useEffect(() => {
+    linkRef.current = link;
+  }, [link]);
 
   const sourceAgent = agents.find((a) => a.id === link?.source_agent_id);
   const targetAgent = agents.find((a) => a.id === link?.target_agent_id);

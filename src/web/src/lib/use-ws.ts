@@ -13,8 +13,11 @@ export function useAgentWs(agentId: string, onMessage: (msg: WsMessage) => void)
   const onMessageRef = useRef(onMessage)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Keep the ref in sync with the latest callback on every render
-  onMessageRef.current = onMessage
+  useEffect(() => {
+    onMessageRef.current = onMessage
+  }, [onMessage])
+
+  const connectRef = useRef<(() => Promise<void>) | null>(null)
 
   const connect = useCallback(async () => {
     // Unified dev/prod flow — see use-user-ws.ts for rationale.
@@ -64,9 +67,15 @@ export function useAgentWs(agentId: string, onMessage: (msg: WsMessage) => void)
 
       const delay = Math.min(reconnectDelay.current, WS_RECONNECT_MAX)
       reconnectDelay.current = Math.min(delay * 2, WS_RECONNECT_MAX)
-      reconnectTimerRef.current = setTimeout(connect, delay + Math.random() * 500)
+      reconnectTimerRef.current = setTimeout(() => {
+        void connectRef.current?.()
+      }, delay + Math.random() * 500)
     }
   }, [agentId])
+
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
 
   useEffect(() => {
     connect()

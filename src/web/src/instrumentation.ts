@@ -23,9 +23,9 @@ export function register() {
       ): boolean => {
         const str = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString()
         if (REQUEST_LOG_RE.test(str)) {
-          return (origWrite as Function)(`${timestamp()}${str}`, ...rest)
+          return (origWrite as (chunk: Uint8Array | string, ...args: unknown[]) => boolean)(`${timestamp()}${str}`, ...rest)
         }
-        return (origWrite as Function)(chunk, ...rest)
+        return (origWrite as (chunk: Uint8Array | string, ...args: unknown[]) => boolean)(chunk, ...rest)
       }
     }
   } catch {

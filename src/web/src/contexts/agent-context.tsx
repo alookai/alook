@@ -24,7 +24,6 @@ import {
   unpinAgent as unpinAgentApi,
   reorderAgentPins,
   reorderUnpinnedAgents,
-  type AgentPin,
   type WorkspaceActiveTask,
 } from "@/lib/api";
 import type { AgentRuntime as Runtime } from "@alook/shared";

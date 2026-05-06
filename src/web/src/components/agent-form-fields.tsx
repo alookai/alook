@@ -22,11 +22,10 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { RuntimeSelect } from "@/components/runtime-select";
-import type { Agent } from "@alook/shared";
 import { isValidHandle } from "@alook/shared";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { cn } from "@/lib/utils";
-import { InfoIcon, LockIcon, XIcon } from "lucide-react";
+import { InfoIcon, XIcon } from "lucide-react";
 import { useWorkspace } from "@/contexts/workspace-context";
 import {
   listWhitelist,
