@@ -205,7 +205,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     wiggleRef.current = true;
     setWiggling(true);
     const count = pinned.length + unpinned.length;
-    const total = Math.max(0, count - 1) * 60 + 550;
+    const total = Math.max(0, count - 1) * 60 + 250;
     wiggleTimerRef.current = setTimeout(() => {
       wiggleRef.current = false;
       setWiggling(false);
