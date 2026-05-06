@@ -296,6 +296,8 @@ export function TaskStream({
   const toolItems = allItems.filter((i) => i.kind !== "text");
   const textItems = allItems.filter((i): i is TextItem => i.kind === "text");
 
+  const finalTextItem = textItems.length > 0 ? textItems[textItems.length - 1] : null;
+
   const toolScrollRef = useRef<HTMLDivElement>(null);
   const expandedRef = useRef(false);
 
@@ -306,8 +308,10 @@ export function TaskStream({
     }
   }, [toolItems.length, isRunning]);
 
-  const displayStepCount = toolItems.length > 0 ? toolItems.length : stepCountHint ?? 0;
-  const showStepsSection = toolItems.length > 0 || (stepCountHint && stepCountHint > 0);
+  const hiddenTextCount = !isRunning ? Math.max(0, textItems.length - 1) : 0;
+  const hasHiddenText = hiddenTextCount > 0;
+  const displayStepCount = (toolItems.length > 0 ? toolItems.length : stepCountHint ?? 0) + hiddenTextCount;
+  const showStepsSection = toolItems.length > 0 || (stepCountHint && stepCountHint > 0) || hasHiddenText;
 
   const handleStepsToggle = (e: React.SyntheticEvent<HTMLDetailsElement>) => {
     if ((e.currentTarget as HTMLDetailsElement).open && !expandedRef.current && onExpandSteps) {
@@ -370,7 +374,15 @@ export function TaskStream({
                 <span>Loading steps...</span>
               </div>
             )}
-            {toolItems.map((item) => {
+            {(isRunning ? toolItems : allItems).map((item) => {
+              if (item.kind === "text") {
+                if (item.id === finalTextItem?.id) return null;
+                return (
+                  <div key={item.id} className="markdown max-w-full min-w-0 px-1 py-0.5 text-sm text-muted-foreground">
+                    <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{item.content}</Streamdown>
+                  </div>
+                );
+              }
               switch (item.kind) {
                 case "tool-call":
                   return <ToolCallBlock key={item.id} item={item} isRunning={isRunning} />;
@@ -396,10 +408,15 @@ export function TaskStream({
         </details>
       )}
 
-      {/* Text output zone */}
-      {textItems.length > 0 && (
+      {/* Text output zone — all text while running; only final text after completion */}
+      {isRunning && textItems.length > 0 && (
         <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
           <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{textItems.map((item) => item.content).join("\n\n")}</Streamdown>
+        </div>
+      )}
+      {!isRunning && finalTextItem && (
+        <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
+          <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{finalTextItem.content}</Streamdown>
         </div>
       )}
 

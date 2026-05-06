@@ -178,7 +178,8 @@ describe("CodexBackend", () => {
     expect(threadWrite).toBeDefined();
     const parsed = JSON.parse(threadWrite!);
     expect(parsed.params.cwd).toBe("/tmp");
-    expect(parsed.params.sandbox).toBe("danger-full-access");
+    expect(parsed.params.sandboxPolicy).toEqual({ type: "dangerFullAccess" });
+    expect(parsed.params.approvalPolicy).toBe("never");
     expect(parsed.params.persistExtendedHistory).toBe(true);
     expect(parsed.params.experimentalRawEvents).toBe(false);
     expect(parsed.params.developerInstructions).toBeUndefined();

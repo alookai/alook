@@ -8,20 +8,7 @@ import { useWorkspace } from "@/contexts/workspace-context";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
 import type { WorkspaceActiveTask } from "@/lib/api";
-
-function relativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}h ago`;
-  const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
+import { relativeTime } from "@/lib/time";
 
 function AgentAvatar({ name, avatarUrl, size = 20 }: { name?: string; avatarUrl?: string | null; size?: number }) {
   const config = parseAvatarUrl(avatarUrl);

@@ -24,6 +24,7 @@ import {
   Maximize2,
   RotateCcw,
   Loader2,
+  Plus,
 } from "lucide-react";
 import type { AgentLink } from "@alook/shared";
 import { useAgentContext } from "@/contexts/agent-context";
@@ -415,6 +416,17 @@ function AgentCanvas() {
       />
 
       <ActiveTasksFloat />
+
+      {/* Create agent button */}
+      <button
+        type="button"
+        className="absolute top-4 right-4 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors animate-[fade-up_300ms_ease-out_both]"
+        style={{ animationDelay: "200ms" }}
+        onClick={() => router.push(`/w/${slug}/agents/new`)}
+        title="Create new agent"
+      >
+        <Plus className="size-4" />
+      </button>
     </div>
   );
 }
@@ -435,32 +447,42 @@ function MobileAgentList() {
   }
 
   return (
-    <div className="flex flex-col gap-1 p-4 overflow-y-auto thin-scrollbar">
-      {agents.map((agent) => {
-        const rt = runtimes.find((r) => r.id === agent.runtime_id);
-        const isOnline = rt?.status === "online";
-        return (
-          <div
-            key={agent.id}
-            role="button"
-            tabIndex={0}
-            className="flex items-center w-full rounded-xl px-3 py-2.5 hover:bg-accent/50 active:bg-accent/70 transition-colors cursor-pointer text-left"
-            onClick={() => router.push(`/w/${slug}/agents/${agent.id}`)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                router.push(`/w/${slug}/agents/${agent.id}`);
-              }
-            }}
-          >
-            <AgentPreviewCard
-              agent={agent}
-              isOnline={isOnline}
-              activeTaskCount={activeTaskCounts[agent.id] ?? 0}
-            />
-          </div>
-        );
-      })}
+    <div className="relative flex-1 flex flex-col">
+      <div className="flex flex-col gap-1 p-4 overflow-y-auto thin-scrollbar">
+        {agents.map((agent) => {
+          const rt = runtimes.find((r) => r.id === agent.runtime_id);
+          const isOnline = rt?.status === "online";
+          return (
+            <div
+              key={agent.id}
+              role="button"
+              tabIndex={0}
+              className="flex items-center w-full rounded-xl px-3 py-2.5 hover:bg-accent/50 active:bg-accent/70 transition-colors cursor-pointer text-left"
+              onClick={() => router.push(`/w/${slug}/agents/${agent.id}`)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  router.push(`/w/${slug}/agents/${agent.id}`);
+                }
+              }}
+            >
+              <AgentPreviewCard
+                agent={agent}
+                isOnline={isOnline}
+                activeTaskCount={activeTaskCounts[agent.id] ?? 0}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="absolute top-4 right-4 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+        onClick={() => router.push(`/w/${slug}/agents/new`)}
+        title="Create new agent"
+      >
+        <Plus className="size-4" />
+      </button>
     </div>
   );
 }

@@ -320,6 +320,123 @@ describe("buildTimeline", () => {
   });
 });
 
+function msgInConv(id: string, created_at: string, conversation_id: string): Message {
+  return { id, conversation_id, role: "user", content: "", task_id: null, attachment_ids: null, created_at };
+}
+
+function artifactInConv(id: string, created_at: string, conversation_id: string): Artifact {
+  return { id, conversation_id, filename: "file.txt", content_type: "text/plain", size: 100, source: "agent", r2_key: `key-${id}`, created_at };
+}
+
+describe("buildTimeline — conversation grouping", () => {
+  it("groups messages from multiple conversations correctly", () => {
+    const msgs = [
+      msgInConv("a1", "2024-01-01T00:00:00Z", "convA"),
+      msgInConv("a2", "2024-01-01T01:00:00Z", "convA"),
+      msgInConv("b1", "2024-01-02T00:00:00Z", "convB"),
+      msgInConv("b2", "2024-01-02T01:00:00Z", "convB"),
+    ];
+    const naps = [nap("nap-convA", "2024-01-01T12:00:00Z")];
+
+    const result = buildTimeline(msgs, [], naps, "convB");
+    expect(result.map((i) => i.data.id)).toEqual(["a1", "a2", "nap-convA", "b1", "b2"]);
+  });
+
+  it("new message in old conversation stays in its section", () => {
+    const msgs = [
+      msgInConv("a1", "2024-01-01T00:00:00Z", "convA"),
+      msgInConv("a2", "2024-01-01T01:00:00Z", "convA"),
+      msgInConv("b1", "2024-01-02T00:00:00Z", "convB"),
+      msgInConv("b2", "2024-01-02T01:00:00Z", "convB"),
+      msgInConv("a3", "2024-01-03T00:00:00Z", "convA"), // newer than everything but belongs to old conv
+    ];
+    const naps = [nap("nap-convA", "2024-01-01T12:00:00Z")];
+
+    const result = buildTimeline(msgs, [], naps, "convB");
+    expect(result.map((i) => i.data.id)).toEqual(["a1", "a2", "a3", "nap-convA", "b1", "b2"]);
+  });
+
+  it("artifacts are grouped within their conversation section", () => {
+    const msgs = [
+      msgInConv("a1", "2024-01-01T00:00:00Z", "convA"),
+      msgInConv("a2", "2024-01-01T02:00:00Z", "convA"),
+      msgInConv("b1", "2024-01-02T00:00:00Z", "convB"),
+    ];
+    const arts = [artifactInConv("art1", "2024-01-01T01:00:00Z", "convA")];
+    const naps = [nap("nap-convA", "2024-01-01T12:00:00Z")];
+
+    const result = buildTimeline(msgs, arts, naps, "convB");
+    expect(result.map((i) => i.data.id)).toEqual(["a1", "art1", "a2", "nap-convA", "b1"]);
+  });
+
+  it("single conversation (no nap markers) behaves as before", () => {
+    const msgs = [
+      msgInConv("m2", "2024-01-02T00:00:00Z", "convA"),
+      msgInConv("m1", "2024-01-01T00:00:00Z", "convA"),
+    ];
+    const result = buildTimeline(msgs, [], [], "convA");
+    expect(result.map((i) => i.data.id)).toEqual(["m1", "m2"]);
+  });
+
+  it("currentConversationId is null → fallback to global sort", () => {
+    const msgs = [
+      msgInConv("a1", "2024-01-01T00:00:00Z", "convA"),
+      msgInConv("b1", "2024-01-02T00:00:00Z", "convB"),
+    ];
+    const naps = [nap("nap-convA", "2024-01-01T12:00:00Z")];
+
+    const result = buildTimeline(msgs, [], naps, null);
+    // falls back to global timestamp sort
+    expect(result.map((i) => i.data.id)).toEqual(["a1", "nap-convA", "b1"]);
+  });
+
+  it("empty messages array returns only nap markers", () => {
+    const naps = [nap("nap-convA", "2024-01-01T00:00:00Z")];
+    const result = buildTimeline([], [], naps, "convB");
+    expect(result).toHaveLength(1);
+    expect(result[0].kind).toBe("nap");
+  });
+
+  it("nap marker ID parsing handles expected format", () => {
+    const msgs = [
+      msgInConv("m1", "2024-01-01T00:00:00Z", "conv_abc123"),
+      msgInConv("m2", "2024-01-02T00:00:00Z", "conv_xyz"),
+    ];
+    const naps = [nap("nap-conv_abc123", "2024-01-01T12:00:00Z")];
+
+    const result = buildTimeline(msgs, [], naps, "conv_xyz");
+    expect(result.map((i) => i.data.id)).toEqual(["m1", "nap-conv_abc123", "m2"]);
+  });
+
+  it("multiple nap markers order sections correctly", () => {
+    const msgs = [
+      msgInConv("a1", "2024-01-01T00:00:00Z", "convA"),
+      msgInConv("b1", "2024-01-02T00:00:00Z", "convB"),
+      msgInConv("c1", "2024-01-03T00:00:00Z", "convC"),
+    ];
+    const naps = [
+      nap("nap-convA", "2024-01-01T12:00:00Z"),
+      nap("nap-convB", "2024-01-02T12:00:00Z"),
+    ];
+
+    const result = buildTimeline(msgs, [], naps, "convC");
+    expect(result.map((i) => i.data.id)).toEqual(["a1", "nap-convA", "b1", "nap-convB", "c1"]);
+  });
+
+  it("orphan messages (unknown conversation_id) are placed before first nap marker", () => {
+    const msgs = [
+      msgInConv("a1", "2024-01-01T00:00:00Z", "convA"),
+      msgInConv("x1", "2024-01-01T06:00:00Z", "convX"), // unknown
+      msgInConv("b1", "2024-01-02T00:00:00Z", "convB"),
+    ];
+    const naps = [nap("nap-convA", "2024-01-01T12:00:00Z")];
+
+    const result = buildTimeline(msgs, [], naps, "convB");
+    // orphan x1 is placed before the first nap marker
+    expect(result.map((i) => i.data.id)).toEqual(["a1", "x1", "nap-convA", "b1"]);
+  });
+});
+
 describe("addBufferedIfNew", () => {
   it("adds a new message when id is not present", () => {
     const prev = [msg("m1", "2024-01-01T00:00:00Z")];

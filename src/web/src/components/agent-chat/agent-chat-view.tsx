@@ -145,22 +145,81 @@ type TimelineItem =
   | { kind: "artifact"; data: Artifact }
   | { kind: "nap"; data: NapMarker };
 
-export function buildTimeline(messages: Message[], artifacts: Artifact[], napMarkers: NapMarker[]): TimelineItem[] {
-  const items: TimelineItem[] = [
-    ...messages.map((m): TimelineItem => ({ kind: "message", data: m })),
-    ...artifacts.map((a): TimelineItem => ({ kind: "artifact", data: a })),
-    ...napMarkers.map((n): TimelineItem => ({ kind: "nap", data: n })),
-  ];
-  return items.sort((a, b) => {
-    const cmp = a.data.created_at.localeCompare(b.data.created_at);
-    if (cmp !== 0) return cmp;
-    if (a.kind === "nap" || b.kind === "nap") {
-      if (a.kind === "nap" && b.kind !== "nap") return 1;
-      if (a.kind !== "nap" && b.kind === "nap") return -1;
+export function buildTimeline(
+  messages: Message[],
+  artifacts: Artifact[],
+  napMarkers: NapMarker[],
+  currentConversationId?: string | null,
+): TimelineItem[] {
+  if (!currentConversationId || napMarkers.length === 0) {
+    const items: TimelineItem[] = [
+      ...messages.map((m): TimelineItem => ({ kind: "message", data: m })),
+      ...artifacts.map((a): TimelineItem => ({ kind: "artifact", data: a })),
+      ...napMarkers.map((n): TimelineItem => ({ kind: "nap", data: n })),
+    ];
+    return items.sort((a, b) => {
+      const cmp = a.data.created_at.localeCompare(b.data.created_at);
+      if (cmp !== 0) return cmp;
+      if (a.kind === "nap" || b.kind === "nap") {
+        if (a.kind === "nap" && b.kind !== "nap") return 1;
+        if (a.kind !== "nap" && b.kind === "nap") return -1;
+      }
+      if (a.kind !== b.kind) return a.kind === "message" ? -1 : 1;
+      return a.data.id.localeCompare(b.data.id);
+    });
+  }
+
+  const napConvIds = new Set(napMarkers.map((n) => n.id.replace(/^nap-/, "")));
+  const sortedNaps = [...napMarkers].sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+  const groupItems = (convId: string): TimelineItem[] => {
+    const msgs: TimelineItem[] = messages
+      .filter((m) => m.conversation_id === convId)
+      .map((m) => ({ kind: "message" as const, data: m }));
+    const arts: TimelineItem[] = artifacts
+      .filter((a) => a.conversation_id === convId)
+      .map((a) => ({ kind: "artifact" as const, data: a }));
+    return [...msgs, ...arts].sort((a, b) => {
+      const cmp = a.data.created_at.localeCompare(b.data.created_at);
+      if (cmp !== 0) return cmp;
+      if (a.kind !== b.kind) return a.kind === "message" ? -1 : 1;
+      return a.data.id.localeCompare(b.data.id);
+    });
+  };
+
+  const result: TimelineItem[] = [];
+
+  for (const nap of sortedNaps) {
+    const convId = nap.id.replace(/^nap-/, "");
+    result.push(...groupItems(convId));
+    result.push({ kind: "nap", data: nap });
+  }
+
+  result.push(...groupItems(currentConversationId));
+
+  const knownConvIds = new Set([...napConvIds, currentConversationId]);
+  const orphanMsgs = messages.filter((m) => !knownConvIds.has(m.conversation_id));
+  const orphanArts = artifacts.filter((a) => !knownConvIds.has(a.conversation_id));
+  if (orphanMsgs.length > 0 || orphanArts.length > 0) {
+    const orphanItems: TimelineItem[] = [
+      ...orphanMsgs.map((m): TimelineItem => ({ kind: "message", data: m })),
+      ...orphanArts.map((a): TimelineItem => ({ kind: "artifact", data: a })),
+    ];
+    orphanItems.sort((a, b) => {
+      const cmp = a.data.created_at.localeCompare(b.data.created_at);
+      if (cmp !== 0) return cmp;
+      if (a.kind !== b.kind) return a.kind === "message" ? -1 : 1;
+      return a.data.id.localeCompare(b.data.id);
+    });
+    const napIdx = result.findIndex((item) => item.kind === "nap");
+    if (napIdx >= 0) {
+      result.splice(napIdx, 0, ...orphanItems);
+    } else {
+      result.push(...orphanItems);
     }
-    if (a.kind !== b.kind) return a.kind === "message" ? -1 : 1;
-    return a.data.id.localeCompare(b.data.id);
-  });
+  }
+
+  return result;
 }
 
 function useLatest<T>(value: T) {
@@ -264,7 +323,7 @@ export function AgentChatView() {
   const searchParams = useSearchParams();
   const { workspaceId } = useWorkspace();
   const { agents, activeTaskCounts, subscribeWs } = useAgentContext();
-  const { activeChannel } = useChannel();
+  const { activeChannel, loading: channelLoading } = useChannel();
   const agentId = params.id as string;
   const scrollToTaskId = searchParams.get("task");
   const targetConvId = searchParams.get("conv");
@@ -304,7 +363,7 @@ export function AgentChatView() {
 
   const agentArtifacts = useMemo(() => artifacts.filter((a) => a.source === "agent"), [artifacts]);
 
-  const timeline = useMemo(() => buildTimeline(messages, agentArtifacts, napMarkers), [messages, agentArtifacts, napMarkers]);
+  const timeline = useMemo(() => buildTimeline(messages, agentArtifacts, napMarkers, conversation?.id), [messages, agentArtifacts, napMarkers, conversation?.id]);
 
   const handleArtifactClick = useCallback((artifact: Artifact) => {
     if (isPreviewable(artifact)) {
@@ -366,10 +425,14 @@ export function AgentChatView() {
   }, []);
 
   useEffect(() => {
+    if (channelLoading) return;
+
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = null;
     pollTaskIdRef.current = null;
+    let ignore = false;
     queueMicrotask(() => {
+      if (ignore) return;
       setLoading(true);
       initialScrollDone.current = false;
       setActiveTask(null);
@@ -393,6 +456,7 @@ export function AgentChatView() {
               listArtifacts(targetConvId, workspaceId).catch(() => [] as Artifact[]),
               listBufferedMessages(targetConvId, workspaceId).catch(() => [] as Message[]),
             ]);
+            if (ignore) return;
             setConversation(conv);
             setMessages(msgs);
             setHasMore(msgs.length >= MESSAGE_LIMIT);
@@ -401,14 +465,16 @@ export function AgentChatView() {
             const taskIds = [...new Set(msgs.filter((m) => m.role === "assistant" && m.task_id).map((m) => m.task_id!))];
             if (taskIds.length > 0) {
               getTaskStepCounts(taskIds, workspaceId)
-                .then(setStepCounts)
+                .then((counts) => { if (!ignore) setStepCounts(counts); })
                 .catch(() => {});
             }
             if (scrollToTaskId) {
               const task = await getTask(scrollToTaskId, workspaceId).catch(() => null);
+              if (ignore) return;
               if (task && !["completed", "failed", "cancelled", "superseded"].includes(task.status)) {
                 setActiveTask(task);
                 const tmsgs = await getTaskMessages(scrollToTaskId, workspaceId).catch(() => [] as TaskMessage[]);
+                if (ignore) return;
                 setTaskMessages(tmsgs);
                 if (tmsgs.length > 0) {
                   lastSeqRef.current = Math.max(...tmsgs.map((m) => m.seq));
@@ -418,6 +484,7 @@ export function AgentChatView() {
             }
           } catch {
             const data = await chatInit(agentId, workspaceId, activeChannel);
+            if (ignore) return;
             setConversation(data.conversation);
             setMessages(data.messages);
             setHasMore(data.has_more_messages);
@@ -427,6 +494,7 @@ export function AgentChatView() {
           }
         } else {
           const data = await chatInit(agentId, workspaceId, activeChannel);
+          if (ignore) return;
           setConversation(data.conversation);
           setMessages(data.messages);
           setHasMore(data.has_more_messages);
@@ -448,11 +516,12 @@ export function AgentChatView() {
       } catch {
         toast.error("Failed to load conversation");
       } finally {
-        setLoading(false);
+        if (!ignore) setLoading(false);
       }
     }
     load();
-  }, [agentId, workspaceId, targetConvId, scrollToTaskId, activeChannel]);
+    return () => { ignore = true; };
+  }, [agentId, workspaceId, targetConvId, scrollToTaskId, activeChannel, channelLoading]);
 
   // Scroll to bottom on initial load (skip if scroll-to-task is active)
   useEffect(() => {

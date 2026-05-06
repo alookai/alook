@@ -1,5 +1,10 @@
 import type { Task, Attachment } from "./types.js";
 
+const DM_RESPONSE_NOTICE =
+  "IMPORTANT: Only your final text response is visible to the user." +
+  " Tool calls, intermediate reasoning, and mid-process outputs are NOT displayed." +
+  " Put all key information, answers, and conclusions in your final response — that is the only thing the user will read.";
+
 const EMAIL_NOTICE =
   "This task was triggered automatically by an incoming email. There is no human in this session." +
   " If you need to communicate with a human, you MUST send an email using the email sending tool." +
@@ -20,6 +25,9 @@ function buildDmNotice(name: string, email: string): string {
 
 export function buildPrompt(task: Task, attachments?: Attachment[]): string {
   const obj: Record<string, unknown> = { type: task.type, instruction: task.prompt };
+  if (task.type === "user_dm_message") {
+    obj.notice = DM_RESPONSE_NOTICE;
+  }
   if (task.type === "email_notification") {
     const ctx = task.context as Record<string, unknown> | undefined;
     const dmUser = ctx?.dmUser as { name: string; email: string } | undefined;

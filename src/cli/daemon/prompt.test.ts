@@ -20,16 +20,16 @@ function makeTask(prompt: string, type = "user_dm_message"): Task {
 describe("buildPrompt", () => {
   it("returns structured JSON with type and instruction", () => {
     const task = makeTask("Fix the login bug");
-    expect(buildPrompt(task)).toBe(
-      JSON.stringify({ type: "user_dm_message", instruction: "Fix the login bug" }),
-    );
+    const parsed = JSON.parse(buildPrompt(task));
+    expect(parsed.type).toBe("user_dm_message");
+    expect(parsed.instruction).toBe("Fix the login bug");
   });
 
   it("handles empty prompt", () => {
     const task = makeTask("");
-    expect(buildPrompt(task)).toBe(
-      JSON.stringify({ type: "user_dm_message", instruction: "" }),
-    );
+    const parsed = JSON.parse(buildPrompt(task));
+    expect(parsed.type).toBe("user_dm_message");
+    expect(parsed.instruction).toBe("");
   });
 
   it("includes the task type in output", () => {
@@ -87,8 +87,14 @@ describe("buildPrompt", () => {
     expect(parsed.notice).toContain("no human in this session");
   });
 
-  it("does not add notice for non-email tasks", () => {
+  it("adds DM_RESPONSE_NOTICE for user_dm_message tasks", () => {
     const task = makeTask("Fix the bug", "user_dm_message");
+    const parsed = JSON.parse(buildPrompt(task));
+    expect(parsed.notice).toContain("final text response is visible to the user");
+  });
+
+  it("does not add notice for non-email non-dm tasks", () => {
+    const task = makeTask("Check inbox", "calendar_event");
     const parsed = JSON.parse(buildPrompt(task));
     expect(parsed.notice).toBeUndefined();
   });

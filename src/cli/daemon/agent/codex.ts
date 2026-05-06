@@ -470,7 +470,8 @@ export class CodexBackend implements AgentBackend {
             // thread/start creates a new thread
             const threadParams: Record<string, unknown> = {
               cwd: options.cwd,
-              sandbox: "danger-full-access",
+              sandboxPolicy: { type: "dangerFullAccess" },
+              approvalPolicy: "never",
               persistExtendedHistory: true,
               experimentalRawEvents: false,
             };
@@ -487,6 +488,8 @@ export class CodexBackend implements AgentBackend {
           await sendRpc("turn/start", {
             threadId: sessionId,
             input: [{ type: "text", text: prompt }],
+            sandboxPolicy: { type: "dangerFullAccess" },
+            approvalPolicy: "never",
           });
         } catch (err) {
           const errMsg =
