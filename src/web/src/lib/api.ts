@@ -728,6 +728,9 @@ export const commentIssue = (workspaceId: string, issueId: string, content: stri
     body: JSON.stringify({ content }),
   });
 
+export const deleteIssue = (workspaceId: string, issueId: string) =>
+  apiFetch<void>(`/api/issues/${issueId}${wsQuery(workspaceId)}`, { method: "DELETE" });
+
 // Whitelist
 export interface WhitelistEntry {
   id: string;

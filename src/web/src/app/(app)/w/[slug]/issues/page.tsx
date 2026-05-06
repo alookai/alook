@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, CheckCircle2, CircleDot, ExternalLink, File as FileIcon, Loader2, MessageSquare, Paperclip, Plus, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check, CheckCircle2, ExternalLink, File as FileIcon, Loader2, MessageSquare, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
-import type { Agent, Artifact, Issue, Message } from "@alook/shared";
+import type { Agent, Artifact, Issue, Message, WsMessage } from "@alook/shared";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
-import { createIssue, getIssue, listIssues } from "@/lib/api";
+import { createIssue, deleteIssue, getIssue, listIssues } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -19,13 +19,17 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetBody } from "@/components/ui/sheet";
 import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 
-const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
-const MAX_ATTACHMENTS = 10;
+// TODO: re-enable when Codex CLI fixes image_url serialization bug
+// const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+// const MAX_ATTACHMENTS = 10;
 
 const ACTIVE_COLUMNS = [
   { id: "todo", label: "Todo" },
@@ -41,7 +45,7 @@ function statusLabel(status: string) {
 
 function formatDate(value: string | null) {
   if (!value) return "";
-  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
 function formatFileSize(bytes: number): string {
@@ -86,14 +90,23 @@ function BoardAgentCell({
   agent: Agent;
 }) {
   const email = agent.email_handle ? `${agent.email_handle}@alook.ai` : "";
+  const isOnline = agent.status === "working" || agent.status === "idle";
 
   return (
-    <div className="min-w-0 bg-background/25 px-3 py-3">
-      <div className="space-y-1.5">
-        <AgentIdentity agent={agent} />
-        {email ? null : <div className="text-xs text-muted-foreground">No email handle</div>}
-        {agent.description ? (
-          <div className="line-clamp-2 text-xs leading-4 text-muted-foreground">{agent.description}</div>
+    <div className="flex min-w-0 items-center gap-3 bg-background/25 px-3 py-3">
+      <div className="relative shrink-0">
+        <AgentAvatar agent={agent} size={32} />
+        <span className={cn(
+          "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-background",
+          agent.status === "working" ? "bg-amber-400" : isOnline ? "bg-emerald-500" : "bg-muted-foreground/40"
+        )} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">{agent.name}</div>
+        {email ? (
+          <div className="truncate text-[11px] text-muted-foreground">{email}</div>
+        ) : agent.description ? (
+          <div className="line-clamp-1 text-[11px] text-muted-foreground">{agent.description}</div>
         ) : null}
       </div>
     </div>
@@ -104,29 +117,47 @@ function IssueCard({
   issue,
   selected,
   onClick,
+  onDelete,
   agentName,
   compact = false,
 }: {
   issue: Issue;
   selected: boolean;
   onClick: () => void;
+  onDelete?: () => void;
   agentName?: string;
   compact?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "w-full rounded-lg border bg-background/75 p-3 text-left transition-colors cursor-pointer",
-        "hover:bg-accent/70 hover:border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-        selected ? "border-foreground/30 bg-accent" : "border-border/60"
-      )}
-    >
-      <div className="flex items-start gap-2">
-        <CircleDot className={cn("mt-0.5 size-3.5 shrink-0", selected ? "text-foreground" : "text-muted-foreground")} />
-        <div className="min-w-0 flex-1">
-          <div className="line-clamp-2 text-sm font-medium leading-5 text-foreground">{issue.title}</div>
+    <ContextMenu>
+      <ContextMenuTrigger
+        render={
+          <button
+            type="button"
+            onClick={onClick}
+            className={cn(
+              "w-full rounded-lg border bg-background/75 p-3 text-left transition-colors cursor-pointer",
+              "hover:bg-accent/70 hover:border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+              selected ? "border-foreground/30 bg-accent" : "border-border/60"
+            )}
+          />
+        }
+      >
+        <div className="min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="line-clamp-2 min-w-0 text-sm font-medium leading-5 text-foreground">{issue.title}</div>
+            {issue.status === "in_progress" && (
+              <span className="flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                <Loader2 className="size-2.5 animate-spin" /> Working
+              </span>
+            )}
+            {issue.status === "review" && (
+              <span className="shrink-0 rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium text-yellow-600 dark:text-yellow-400">Review</span>
+            )}
+            {issue.status === "failed" && (
+              <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">Failed</span>
+            )}
+          </div>
           {issue.description ? (
             <div className={cn("mt-1 text-xs leading-4 text-muted-foreground", compact ? "line-clamp-1" : "line-clamp-2")}>
               {issue.description}
@@ -137,8 +168,16 @@ function IssueCard({
             <span className="shrink-0">{formatDate(issue.updated_at)}</span>
           </div>
         </div>
-      </div>
-    </button>
+      </ContextMenuTrigger>
+      {onDelete && (
+        <ContextMenuContent>
+          <ContextMenuItem className="text-destructive" onClick={onDelete}>
+            <Trash2 className="size-3.5 mr-1.5" />
+            Delete
+          </ContextMenuItem>
+        </ContextMenuContent>
+      )}
+    </ContextMenu>
   );
 }
 
@@ -178,7 +217,7 @@ function AttachmentList({ artifacts }: { artifacts: Artifact[] }) {
 
 export default function IssuesPage() {
   const { workspaceId, slug } = useWorkspace();
-  const { agents, loading: agentsLoading } = useAgentContext();
+  const { agents, loading: agentsLoading, subscribeWs } = useAgentContext();
   const [issues, setIssues] = useState<Issue[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -188,8 +227,6 @@ export default function IssuesPage() {
   const [detail, setDetail] = useState<{ issue: Issue; messages: Message[]; artifacts: Artifact[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [form, setForm] = useState({ title: "", description: "", agentId: "" });
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const completedIssues = useMemo(
     () => issues.filter((issue) => TERMINAL_STATUSES.includes(issue.status)),
@@ -199,26 +236,7 @@ export default function IssuesPage() {
     () => issues.filter((issue) => !TERMINAL_STATUSES.includes(issue.status)),
     [issues]
   );
-  const issuesByAgent = useMemo(() => {
-    const map = new Map<string, Issue[]>();
-    for (const issue of activeIssues) {
-      map.set(issue.agent_id, [...(map.get(issue.agent_id) ?? []), issue]);
-    }
-    return map;
-  }, [activeIssues]);
   const selectedFormAgent = agents.find((agent) => agent.id === form.agentId) ?? null;
-  const assigneeRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!assigneeOpen) return;
-    function handlePointerDown(event: PointerEvent) {
-      if (!assigneeRef.current?.contains(event.target as Node)) {
-        setAssigneeOpen(false);
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [assigneeOpen]);
 
   function agentName(agentId: string) {
     return agents.find((agent) => agent.id === agentId)?.name ?? agentId;
@@ -241,6 +259,7 @@ export default function IssuesPage() {
 
   useEffect(() => {
     reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspaceId]);
 
   useEffect(() => {
@@ -262,6 +281,32 @@ export default function IssuesPage() {
     }
   }
 
+  const detailConvId = detail?.issue.conversation_id ?? null;
+
+  useEffect(() => {
+    return subscribeWs((msg: WsMessage) => {
+      if (msg.type === "conversation.message" && detailConvId && msg.conversationId === detailConvId) {
+        setDetail((prev) => {
+          if (!prev) return prev;
+          if (prev.messages.some((m) => m.id === msg.message.id)) return prev;
+          return { ...prev, messages: [...prev.messages, msg.message] };
+        });
+        if (msg.message.role === "event" && msg.message.content.startsWith("Issue status changed:")) {
+          const match = msg.message.content.match(/-> (\w+)/);
+          if (match) {
+            const newStatus = match[1] as Issue["status"];
+            setDetail((prev) => prev ? { ...prev, issue: { ...prev.issue, status: newStatus } } : prev);
+            setIssues((prev) => prev.map((i) => i.conversation_id === detailConvId ? { ...i, status: newStatus, updated_at: msg.message.created_at } : i));
+          }
+        }
+      }
+      if (msg.type === "task.updated" && (msg.status === "running" || msg.status === "completed" || msg.status === "failed")) {
+        reload();
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailConvId, subscribeWs]);
+
   async function handleCreate() {
     if (!form.title.trim() || !form.agentId) return;
     setCreating(true);
@@ -270,12 +315,11 @@ export default function IssuesPage() {
         agent_id: form.agentId,
         title: form.title.trim(),
         description: form.description.trim(),
-        files: attachments,
+        // files: attachments, // TODO: disabled until Codex CLI fixes image_url serialization bug
       });
       setIssues((prev) => [res.issue, ...prev]);
       setDialogOpen(false);
       setForm({ title: "", description: "", agentId: form.agentId });
-      setAttachments([]);
       await openIssue(res.issue.id);
       toast.success("Issue created");
     } catch (err) {
@@ -285,34 +329,26 @@ export default function IssuesPage() {
     }
   }
 
-  function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    if (files.length === 0) return;
-
-    const next = [...attachments];
-    for (const file of files) {
-      if (next.length >= MAX_ATTACHMENTS) {
-        toast.error(`You can attach up to ${MAX_ATTACHMENTS} files`);
-        break;
+  const handleDeleteIssue = useCallback(async (issueId: string) => {
+    try {
+      await deleteIssue(workspaceId, issueId);
+      setIssues((prev) => prev.filter((i) => i.id !== issueId));
+      if (selectedId === issueId) {
+        setSelectedId(null);
+        setDetail(null);
       }
-      if (file.size > MAX_ATTACHMENT_SIZE) {
-        toast.error(`${file.name} exceeds 10 MB limit`);
-        continue;
-      }
-      next.push(file);
+      toast.success("Issue deleted");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete issue");
     }
-    setAttachments(next);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }
+  }, [workspaceId, selectedId]);
 
-  function removeAttachment(index: number) {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
-  }
+  // TODO: attachment functions disabled until Codex CLI fixes image_url serialization bug
+  // function handleFileSelect(event: React.ChangeEvent<HTMLInputElement>) { ... }
+  // function removeAttachment(index: number) { ... }
 
   function resetDraft(nextAgentId = form.agentId) {
     setForm({ title: "", description: "", agentId: nextAgentId || agents[0]?.id || "" });
-    setAttachments([]);
-    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   const boardLoading = loading || agentsLoading;
@@ -363,38 +399,39 @@ export default function IssuesPage() {
               </div>
               <div className="flex min-w-0 items-center gap-2 text-sm">
                 <span className="w-18 shrink-0 text-muted-foreground">Assign</span>
-                <div ref={assigneeRef} className="relative -ml-1.5 min-w-0 flex-1">
-                  <button
-                    type="button"
-                    disabled={agents.length === 0 || creating}
-                    onClick={() => setAssigneeOpen((open) => !open)}
-                    className="flex h-9 w-full min-w-0 items-center rounded-lg bg-muted/40 px-1.5 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+                <Popover open={assigneeOpen} onOpenChange={setAssigneeOpen}>
+                  <PopoverTrigger
+                    render={
+                      <button
+                        type="button"
+                        disabled={agents.length === 0 || creating}
+                        className="-ml-1.5 flex h-7 min-w-0 flex-1 items-center rounded-md bg-muted/40 px-1.5 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+                      />
+                    }
                   >
                     {selectedFormAgent ? (
                       <AgentIdentity agent={selectedFormAgent} />
                     ) : (
                       <span className="text-sm text-muted-foreground">Select an agent</span>
                     )}
-                  </button>
-                  {assigneeOpen ? (
-                    <div className="absolute left-0 top-[calc(100%+4px)] z-[70] max-h-64 w-full min-w-72 overflow-y-auto thin-scrollbar rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-md">
-                      {agents.map((agent) => (
-                        <button
-                          key={agent.id}
-                          type="button"
-                          onClick={() => {
-                            setForm((prev) => ({ ...prev, agentId: agent.id }));
-                            setAssigneeOpen(false);
-                          }}
-                          className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
-                        >
-                          <AgentIdentity agent={agent} />
-                          {form.agentId === agent.id ? <Check className="size-3.5 shrink-0" /> : null}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="max-h-64 w-72 overflow-y-auto p-1">
+                    {agents.map((agent) => (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        onClick={() => {
+                          setForm((prev) => ({ ...prev, agentId: agent.id }));
+                          setAssigneeOpen(false);
+                        }}
+                        className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground"
+                      >
+                        <AgentIdentity agent={agent} />
+                        {form.agentId === agent.id ? <Check className="size-3.5 shrink-0" /> : null}
+                      </button>
+                    ))}
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 
@@ -411,44 +448,7 @@ export default function IssuesPage() {
               />
             </div>
 
-            <div className="flex shrink-0 flex-col gap-2 border-t border-border/30 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={handleFileSelect}
-                />
-                <button
-                  type="button"
-                  title="Attach file"
-                  disabled={creating}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
-                >
-                  <Paperclip className="size-3.5" />
-                </button>
-                <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto thin-scrollbar">
-                  {attachments.map((file, index) => (
-                    <div key={`${file.name}-${file.size}-${index}`} className="flex max-w-56 shrink-0 items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs">
-                      <FileIcon className="size-3 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{file.name}</span>
-                      <span className="shrink-0 text-muted-foreground">{formatFileSize(file.size)}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeAttachment(index)}
-                        className="ml-0.5 cursor-pointer text-muted-foreground hover:text-foreground"
-                        aria-label={`Remove ${file.name}`}
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center justify-end gap-1">
+            <div className="flex shrink-0 items-center justify-end gap-1 border-t border-border/30 px-3 py-2">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -471,7 +471,6 @@ export default function IssuesPage() {
                   {creating ? <Loader2 className="mr-1 size-3 animate-spin" /> : <Plus className="mr-1 size-3" />}
                   Create
                 </Button>
-              </div>
             </div>
           </DialogContent>
         </Dialog>
@@ -479,7 +478,7 @@ export default function IssuesPage() {
 
       <div className="hidden min-h-0 flex-1 grid-cols-[minmax(0,1fr)_300px] lg:grid">
         <div className="min-w-0 overflow-x-auto overflow-y-auto thin-scrollbar p-4">
-          <div className="min-w-[760px] overflow-hidden rounded-lg border border-border/60 bg-card/60">
+          <div className="min-w-190 overflow-hidden rounded-lg border border-border/60 bg-card/60">
             <div className="grid grid-cols-[240px_repeat(3,minmax(180px,1fr))] border-b border-border/60 bg-muted/30 text-xs font-medium text-muted-foreground">
               <div className="px-3 py-2">Agent</div>
               {ACTIVE_COLUMNS.map((col) => (
@@ -509,7 +508,7 @@ export default function IssuesPage() {
                           </div>
                         ) : (
                           columnIssues.map((issue) => (
-                            <IssueCard key={issue.id} issue={issue} selected={selectedId === issue.id} onClick={() => openIssue(issue.id)} />
+                            <IssueCard key={issue.id} issue={issue} selected={selectedId === issue.id} onClick={() => openIssue(issue.id)} onDelete={() => handleDeleteIssue(issue.id)} />
                           ))
                         )}
                       </div>
@@ -537,18 +536,7 @@ export default function IssuesPage() {
                 <div className="py-8 text-center text-xs text-muted-foreground">No completed issues.</div>
               ) : (
                 completedIssues.map((issue) => (
-                  <button
-                    key={issue.id}
-                    type="button"
-                    onClick={() => openIssue(issue.id)}
-                    className="w-full rounded-lg border border-border/60 bg-background/60 p-3 text-left text-sm hover:bg-accent cursor-pointer"
-                  >
-                    <div className="line-clamp-2 font-medium">{issue.title}</div>
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <Badge variant="outline" className="capitalize">{statusLabel(issue.status)}</Badge>
-                      <span className="text-xs text-muted-foreground">{agentName(issue.agent_id)}</span>
-                    </div>
-                  </button>
+                  <IssueCard key={issue.id} issue={issue} selected={selectedId === issue.id} onClick={() => openIssue(issue.id)} onDelete={() => handleDeleteIssue(issue.id)} agentName={agentName(issue.agent_id)} compact />
                 ))
               )}
             </div>
@@ -571,12 +559,7 @@ export default function IssuesPage() {
                 <section key={agent.id} className="rounded-lg border border-border/60 bg-card/60">
                   <div className="flex items-center justify-between gap-3 border-b border-border/50 px-3 py-2">
                     <div className="min-w-0 flex-1">
-                      <div className="space-y-1.5">
-                        <AgentIdentity agent={agent} />
-                        {agent.description ? (
-                          <div className="line-clamp-2 text-xs leading-4 text-muted-foreground">{agent.description}</div>
-                        ) : null}
-                      </div>
+                      <AgentIdentity agent={agent} />
                     </div>
                     <Badge variant="outline" className="shrink-0">{agentIssues.length} active</Badge>
                   </div>
@@ -593,7 +576,7 @@ export default function IssuesPage() {
                             <div className="rounded-lg border border-dashed border-border/45 px-3 py-4 text-center text-xs text-muted-foreground/70">Empty</div>
                           ) : (
                             columnIssues.map((issue) => (
-                              <IssueCard key={issue.id} issue={issue} selected={selectedId === issue.id} onClick={() => openIssue(issue.id)} compact />
+                              <IssueCard key={issue.id} issue={issue} selected={selectedId === issue.id} onClick={() => openIssue(issue.id)} onDelete={() => handleDeleteIssue(issue.id)} compact />
                             ))
                           )}
                         </div>
@@ -613,7 +596,7 @@ export default function IssuesPage() {
                   <div className="rounded-lg border border-dashed border-border/45 px-3 py-4 text-center text-xs text-muted-foreground/70">No completed issues.</div>
                 ) : (
                   completedIssues.map((issue) => (
-                    <IssueCard key={issue.id} issue={issue} selected={selectedId === issue.id} onClick={() => openIssue(issue.id)} agentName={agentName(issue.agent_id)} compact />
+                    <IssueCard key={issue.id} issue={issue} selected={selectedId === issue.id} onClick={() => openIssue(issue.id)} onDelete={() => handleDeleteIssue(issue.id)} agentName={agentName(issue.agent_id)} compact />
                   ))
                 )}
               </div>
@@ -622,22 +605,24 @@ export default function IssuesPage() {
         )}
       </div>
 
-      {selectedId ? (
-        <div className="absolute inset-0 z-20 bg-background/40 backdrop-blur-[1px] sm:bg-transparent sm:backdrop-blur-none">
-        <div className="absolute inset-x-2 bottom-2 top-2 flex flex-col rounded-xl border border-border/70 bg-popover shadow-lg sm:inset-y-2 sm:left-auto sm:right-2 sm:w-[460px] sm:max-w-[calc(100%-1rem)]">
-          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border/60 p-4">
-            {detailLoading || !detail ? (
-              <Skeleton className="h-8 w-56" />
-            ) : (
-              <div className="min-w-0">
-                <div className="line-clamp-2 text-sm font-semibold">{detail.issue.title}</div>
-              </div>
-            )}
-            <Button variant="ghost" size="icon-sm" onClick={() => { setSelectedId(null); setDetail(null); }}>
-              <X className="size-4" />
-            </Button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar p-4">
+      <Sheet open={!!selectedId} onOpenChange={(open) => { if (!open) { setSelectedId(null); setDetail(null); } }}>
+        <SheetContent side="right" showCloseButton>
+          <SheetHeader>
+            <SheetTitle>
+              {detailLoading || !detail ? (
+                <Skeleton className="h-5 w-56" />
+              ) : (
+                <span className="flex items-center gap-1.5">
+                  <Badge variant={detail.issue.status === "in_progress" ? "default" : "outline"} className="shrink-0 text-[10px] px-1.5 py-0">
+                    {detail.issue.status === "in_progress" && <Loader2 className="mr-1 size-3 animate-spin" />}
+                    {statusLabel(detail.issue.status)}
+                  </Badge>
+                  <span className="line-clamp-2 text-sm font-semibold">{detail.issue.title}</span>
+                </span>
+              )}
+            </SheetTitle>
+          </SheetHeader>
+          <SheetBody>
             {detailLoading || !detail ? (
               <div className="space-y-3">
                 <Skeleton className="h-24" />
@@ -678,10 +663,9 @@ export default function IssuesPage() {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-        </div>
-      ) : null}
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

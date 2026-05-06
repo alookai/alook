@@ -73,6 +73,21 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   return writeJSON(issueToResponse(updated));
 });
 
+export const DELETE = withAuth(async (req: NextRequest, ctx) => {
+  const ws = await withWorkspaceMember(req, ctx);
+  if (ws instanceof Response) return ws;
+
+  const { env } = getCloudflareContext();
+  const db = getDb((env as Env).DB);
+  const id = ctx.params?.id;
+  if (!id) return writeError("issue id is required", 400);
+
+  const deleted = await queries.issue.deleteIssue(db, id, ws.workspaceId);
+  if (!deleted) return writeError("issue not found", 404);
+
+  return new Response(null, { status: 204 });
+});
+
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;

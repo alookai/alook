@@ -112,6 +112,14 @@ export async function setLatestTask(
   return updateIssue(db, id, workspaceId, { latestTaskId });
 }
 
+export async function deleteIssue(db: Database, id: string, workspaceId: string) {
+  const rows = await db
+    .delete(issue)
+    .where(and(eq(issue.id, id), eq(issue.workspaceId, workspaceId)))
+    .returning();
+  return rows[0] ?? null;
+}
+
 export async function listIssueMessages(
   db: Database,
   issueId: string,
