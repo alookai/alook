@@ -6,7 +6,9 @@ import Link from "next/link";
 import type { Agent, Artifact, Issue, Message, WsMessage } from "@alook/shared";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
-import { createIssue, deleteIssue, getIssue, listIssues } from "@/lib/api";
+import { createIssue, deleteIssue, getIssue, getTask, getTaskMessages, listIssues } from "@/lib/api";
+import type { TaskApi, TaskMessage } from "@alook/shared";
+import { TaskStream } from "@/components/task-stream";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -205,6 +207,8 @@ export default function IssuesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ issue: Issue & { trace_id?: string | null }; messages: Message[]; artifacts: Artifact[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [activeTask, setActiveTask] = useState<TaskApi | null>(null);
+  const [taskMessages, setTaskMessages] = useState<TaskMessage[]>([]);
   const [form, setForm] = useState({ title: "", description: "", agentId: "" });
 
   const completedIssues = useMemo(
@@ -261,6 +265,36 @@ export default function IssuesPage() {
   }
 
   const detailConvId = detail?.issue.conversation_id ?? null;
+  const detailTaskId = detail?.issue.latest_task_id ?? null;
+  const isTaskActive = activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
+
+  useEffect(() => {
+    if (!detailTaskId) { setActiveTask(null); setTaskMessages([]); return; }
+    let cancelled = false;
+    getTask(detailTaskId, workspaceId).then((task) => {
+      if (cancelled) return;
+      setActiveTask(task);
+      if (!["completed", "failed", "cancelled", "superseded"].includes(task.status)) {
+        getTaskMessages(detailTaskId, workspaceId).then((msgs) => { if (!cancelled) setTaskMessages(msgs); }).catch(() => {});
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [detailTaskId, workspaceId]);
+
+  useEffect(() => {
+    if (!isTaskActive || !detailTaskId) return;
+    const interval = setInterval(async () => {
+      try {
+        const [task, msgs] = await Promise.all([
+          getTask(detailTaskId, workspaceId),
+          getTaskMessages(detailTaskId, workspaceId),
+        ]);
+        setActiveTask(task);
+        setTaskMessages(msgs);
+      } catch {}
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [isTaskActive, detailTaskId, workspaceId]);
 
   useEffect(() => {
     return subscribeWs((msg: WsMessage) => {
@@ -570,7 +604,7 @@ export default function IssuesPage() {
         )}
       </div>
 
-      <Sheet open={!!selectedId} onOpenChange={(open) => { if (!open) { setSelectedId(null); setDetail(null); } }}>
+      <Sheet open={!!selectedId} onOpenChange={(open) => { if (!open) { setSelectedId(null); setDetail(null); setActiveTask(null); setTaskMessages([]); } }}>
         <SheetContent side="right" showCloseButton>
           <SheetHeader>
             <SheetTitle>
@@ -624,10 +658,13 @@ export default function IssuesPage() {
                 </div>
                 <AttachmentList artifacts={detail.artifacts ?? []} workspaceId={workspaceId} />
                 <div className="space-y-2 border-t border-border/60 pt-4">
-                  {detail.messages.length === 0 ? (
+                  {detail.messages.length === 0 && !isTaskActive ? (
                     <div className="text-xs text-muted-foreground">No messages yet.</div>
                   ) : (
                     detail.messages.map((message) => <MessageRow key={message.id} message={message} />)
+                  )}
+                  {isTaskActive && activeTask && (
+                    <TaskStream task={activeTask} messages={taskMessages} />
                   )}
                 </div>
               </div>
