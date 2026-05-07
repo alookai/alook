@@ -311,6 +311,9 @@ export default function IssuesPage() {
       if (msg.type === "task.updated" && (msg.status === "running" || msg.status === "completed" || msg.status === "failed")) {
         reload();
         if (selectedId) openIssue(selectedId);
+        if (detailTaskId) {
+          getTask(detailTaskId, workspaceId).then(setActiveTask).catch(() => {});
+        }
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
