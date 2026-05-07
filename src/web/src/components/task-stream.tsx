@@ -299,6 +299,7 @@ export function TaskStream({
   const finalTextItem = textItems.length > 0 ? textItems[textItems.length - 1] : null;
 
   const toolScrollRef = useRef<HTMLDivElement>(null);
+  const textScrollRef = useRef<HTMLDivElement>(null);
   const expandedRef = useRef(false);
 
   // Auto-scroll tool area to bottom while running
@@ -308,10 +309,17 @@ export function TaskStream({
     }
   }, [toolItems.length, isRunning]);
 
-  const hiddenTextCount = !isRunning ? Math.max(0, textItems.length - 1) : 0;
-  const hasHiddenText = hiddenTextCount > 0;
-  const displayStepCount = (toolItems.length > 0 ? toolItems.length : stepCountHint ?? 0) + hiddenTextCount;
-  const showStepsSection = toolItems.length > 0 || (stepCountHint && stepCountHint > 0) || hasHiddenText;
+  // Auto-scroll text area to bottom while running
+  useEffect(() => {
+    if (isRunning && textScrollRef.current) {
+      textScrollRef.current.scrollTop = textScrollRef.current.scrollHeight;
+    }
+  }, [textItems.length, isRunning]);
+
+  const intermediateTextItems = isRunning ? textItems : textItems.slice(0, -1);
+  const hasFinalText = !isRunning && finalTextItem !== null;
+  const displayStepCount = toolItems.length > 0 ? toolItems.length : stepCountHint ?? 0;
+  const showStepsSection = toolItems.length > 0 || (stepCountHint && stepCountHint > 0);
 
   const handleStepsToggle = (e: React.SyntheticEvent<HTMLDetailsElement>) => {
     if ((e.currentTarget as HTMLDetailsElement).open && !expandedRef.current && onExpandSteps) {
@@ -374,15 +382,7 @@ export function TaskStream({
                 <span>Loading steps...</span>
               </div>
             )}
-            {(isRunning ? toolItems : allItems).map((item) => {
-              if (item.kind === "text") {
-                if (item.id === finalTextItem?.id) return null;
-                return (
-                  <div key={item.id} className="markdown max-w-full min-w-0 px-1 py-0.5 text-sm text-muted-foreground">
-                    <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{item.content}</Streamdown>
-                  </div>
-                );
-              }
+            {toolItems.map((item) => {
               switch (item.kind) {
                 case "tool-call":
                   return <ToolCallBlock key={item.id} item={item} isRunning={isRunning} />;
@@ -408,13 +408,31 @@ export function TaskStream({
         </details>
       )}
 
-      {/* Text output zone — all text while running; only final text after completion */}
-      {isRunning && textItems.length > 0 && (
-        <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
-          <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{textItems.map((item) => item.content).join("\n\n")}</Streamdown>
-        </div>
+      {/* Thinking section — intermediate text, open while running or when no final text */}
+      {intermediateTextItems.length > 0 && (
+        <details className="group/midtext pl-1" open={!hasFinalText || undefined}>
+          <summary
+            className={cn(
+              "flex items-center gap-1.5 py-1 cursor-pointer select-none",
+              "text-xs text-muted-foreground transition-colors duration-150",
+              "hover:text-foreground",
+              "[&::-webkit-details-marker]:hidden [&::marker]:hidden"
+            )}
+          >
+            <ChevronRight className="size-3 shrink-0 text-muted-foreground/60 transition-transform duration-150 group-open/midtext:rotate-90" />
+            <span><AnimatedNumber value={intermediateTextItems.length} /> thinking</span>
+          </summary>
+          <div ref={textScrollRef} className="mt-1 max-h-60 overflow-y-auto thin-scrollbar space-y-2 pl-1">
+            {intermediateTextItems.map((item) => (
+              <div key={item.id} className="markdown max-w-full min-w-0 px-1 py-0.5 text-sm text-muted-foreground">
+                <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{item.content}</Streamdown>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
-      {!isRunning && finalTextItem && !onExpandSteps && (
+      {/* Final text — shown after completion (not for historical tasks which render it as a message) */}
+      {hasFinalText && !onExpandSteps && (
         <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
           <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{finalTextItem.content}</Streamdown>
         </div>

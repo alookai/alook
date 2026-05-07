@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { TaskStream } from "@/components/task-stream";
 import { getTaskMessages } from "@/lib/api";
 import type { TaskMessage, TaskApi } from "@alook/shared";
@@ -36,7 +36,7 @@ export function HistoricalTaskSteps({
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
 
-  const handleExpand = useCallback(async () => {
+  const fetchMessages = useCallback(async () => {
     if (fetched || loading) return;
     setLoading(true);
     try {
@@ -50,12 +50,15 @@ export function HistoricalTaskSteps({
     }
   }, [fetched, loading, taskId, workspaceId]);
 
+  // Auto-load messages so intermediate text ("Thinking") is available
+  useEffect(() => { fetchMessages(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <TaskStream
       task={COMPLETED_STUB}
       messages={messages}
       stepCountHint={stepCount}
-      onExpandSteps={handleExpand}
+      onExpandSteps={fetchMessages}
       stepsLoading={loading}
     />
   );
