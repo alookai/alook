@@ -422,7 +422,7 @@ export function TaskStream({
             <ChevronRight className="size-3 shrink-0 text-muted-foreground/60 transition-transform duration-150 group-open/midtext:rotate-90" />
             <span><AnimatedNumber value={intermediateTextItems.length} /> thinking</span>
           </summary>
-          <div ref={textScrollRef} className="mt-1 max-h-60 overflow-y-auto thin-scrollbar space-y-2 pl-1">
+          <div ref={textScrollRef} className="mt-1 space-y-2 pl-1">
             {intermediateTextItems.map((item) => (
               <div key={item.id} className="markdown max-w-full min-w-0 px-1 py-0.5 text-sm text-muted-foreground">
                 <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{item.content}</Streamdown>
