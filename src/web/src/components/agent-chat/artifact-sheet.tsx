@@ -9,7 +9,7 @@ import {
   SheetBody,
 } from "@/components/ui/sheet";
 import type { Artifact } from "@alook/shared";
-import { FileText, Download, X } from "lucide-react";
+import { FileText, Download, X, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ArtifactContentRenderer, getArtifactUrl } from "@/components/artifact-content-renderer";
 
@@ -84,6 +84,20 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
           <>
             <SheetHeader>
               <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 sm:hidden"
+                  onClick={() => {
+                    if (artifacts.length > 1) {
+                      setSelectedArtifact(null);
+                    } else {
+                      handleOpenChange(false);
+                    }
+                  }}
+                >
+                  <ArrowLeft className="size-4" />
+                </Button>
                 <SheetTitle className="truncate flex-1">{selectedArtifact.filename}</SheetTitle>
                 <Button
                   variant="ghost"
@@ -92,14 +106,6 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
                   onClick={() => window.open(getArtifactUrl(selectedArtifact.id, workspaceId, true), "_blank")}
                 >
                   <Download className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="shrink-0 sm:hidden"
-                  onClick={() => handleOpenChange(false)}
-                >
-                  <X className="size-4" />
                 </Button>
               </div>
             </SheetHeader>
@@ -111,15 +117,15 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
           <>
             <SheetHeader>
               <div className="flex items-center gap-2">
-                <SheetTitle className="flex-1">Artifacts</SheetTitle>
                 <Button
                   variant="ghost"
                   size="icon-sm"
                   className="shrink-0 sm:hidden"
                   onClick={() => handleOpenChange(false)}
                 >
-                  <X className="size-4" />
+                  <ArrowLeft className="size-4" />
                 </Button>
+                <SheetTitle className="flex-1">Artifacts</SheetTitle>
               </div>
             </SheetHeader>
             <SheetBody className="thin-scrollbar">
