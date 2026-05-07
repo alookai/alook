@@ -7,7 +7,8 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
-import { Plus, ArrowRight, Loader2 } from "lucide-react"
+import { Plus, ArrowRight, Loader2, LogOut } from "lucide-react"
+import { signOut } from "@/lib/auth-client"
 import {
   type WorkspaceFormErrors,
   hasWorkspaceFormErrors,
@@ -75,6 +76,19 @@ export function WorkspaceListClient({
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center p-6">
       <GradientBackground />
+
+      <Button
+        variant="ghost"
+        size="sm"
+        className="absolute top-4 right-4 text-muted-foreground"
+        onClick={async () => {
+          await signOut()
+          router.push("/sign-in")
+        }}
+      >
+        <LogOut className="size-4" />
+        Log out
+      </Button>
 
       <div className="w-full max-w-md space-y-8">
         <div className="flex flex-col items-center gap-3">
