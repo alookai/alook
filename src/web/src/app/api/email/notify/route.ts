@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
 
   const agent = await queries.agent.getAgent(db, body.agentId, body.workspaceId)
 
-  await queries.email.createEmail(db, {
+  const email = await queries.email.createEmail(db, {
     agentId: body.agentId,
     workspaceId: body.workspaceId,
     fromEmail: body.from,
@@ -98,10 +98,12 @@ export async function POST(req: NextRequest) {
     }
 
     const prompt = `New email from ${body.from}: ${body.subject}`;
+    const emailMetadata = JSON.stringify({ emailId: email.id });
     const msg = await queries.message.createMessage(db, {
       conversationId,
       role: "event",
       content: prompt,
+      metadata: emailMetadata,
     })
 
     if (conversationType === TASK_TYPES.USER_DM_MESSAGE) {
@@ -115,6 +117,7 @@ export async function POST(req: NextRequest) {
           content: msg.content,
           task_id: msg.taskId,
           attachment_ids: null,
+          metadata: { emailId: email.id },
           created_at: msg.createdAt,
         },
       }).catch(() => {})

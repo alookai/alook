@@ -27,6 +27,7 @@ const LIGHT_STYLES = `
     line-height: 1.6;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    overflow: hidden;
   }
   a { color: inherit; }
   img { max-width: 100%; height: auto; }
@@ -45,6 +46,7 @@ const DARK_STYLES = `
     line-height: 1.6;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    overflow: hidden;
     color-scheme: dark;
   }
   a { color: inherit; }

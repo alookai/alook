@@ -39,6 +39,7 @@ import { useMentionPopup } from "@/hooks/use-mention-popup";
 import { MentionPopup } from "@/components/agent-chat/mention-popup";
 import { highlightMentions } from "@/lib/highlight-mentions";
 import { ArtifactSheet, formatSize } from "@/components/agent-chat/artifact-sheet";
+import { EmailEventSheet } from "@/components/agent-chat/email-event-sheet";
 import { isPreviewable, getArtifactUrl } from "@/components/artifact-content-renderer";
 import { Streamdown } from "streamdown";
 import { FollowUpBuffer } from "@/components/agent-chat/follow-up-buffer";
@@ -345,6 +346,8 @@ export function AgentChatView() {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [artifactSheetOpen, setArtifactSheetOpen] = useState(false);
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
+  const [emailSheetOpen, setEmailSheetOpen] = useState(false);
+  const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [bufferedMessages, setBufferedMessages] = useState<Message[]>([]);
   const [caretIndex, setCaretIndex] = useState<number | null>(null);
@@ -1421,14 +1424,26 @@ export function AgentChatView() {
                       </div>
                     </div>
                   );
-                })() : msg.role === "event" ? (
-                  <div className="flex justify-start">
-                    <div className="w-full rounded-md border bg-muted/50 text-muted-foreground text-sm px-3 py-2 flex items-start gap-2">
-                      <EventMessageIcon content={msg.content} conversationType={conversation?.type} />
-                      <span>{msg.content}</span>
+                })() : msg.role === "event" ? (() => {
+                  const eventEmailId = msg.metadata?.emailId as string | undefined;
+                  return (
+                    <div className="flex justify-start">
+                      <div
+                        className={cn(
+                          "w-full rounded-md border bg-muted/50 text-muted-foreground text-sm px-3 py-2 flex items-start gap-2",
+                          eventEmailId && "cursor-pointer hover:bg-muted transition-colors"
+                        )}
+                        onClick={eventEmailId ? () => {
+                          setSelectedEmailId(eventEmailId);
+                          setEmailSheetOpen(true);
+                        } : undefined}
+                      >
+                        <EventMessageIcon content={msg.content} conversationType={conversation?.type} />
+                        <span>{msg.content}</span>
+                      </div>
                     </div>
-                  </div>
-                ) : !hasTaskStream ? (
+                  );
+                })() : !hasTaskStream ? (
                   <div className="flex justify-start" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
                     <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
                       <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={MENTION_COMPONENTS}>{highlightMentions(msg.content, agents)}</Streamdown>
@@ -1707,6 +1722,16 @@ export function AgentChatView() {
         artifacts={agentArtifacts}
         workspaceId={workspaceId}
         initialArtifact={selectedArtifact}
+      />
+
+      <EmailEventSheet
+        open={emailSheetOpen}
+        onOpenChange={(v) => {
+          setEmailSheetOpen(v);
+          if (!v) setTimeout(() => setSelectedEmailId(null), 300);
+        }}
+        emailId={selectedEmailId}
+        workspaceId={workspaceId}
       />
     </>
   );

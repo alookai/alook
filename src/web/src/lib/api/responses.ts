@@ -147,6 +147,7 @@ export function messageToResponse(m: any) {
     content: m.content,
     task_id: m.taskId || null,
     attachment_ids: m.attachmentIds ? JSON.parse(m.attachmentIds) : null,
+    metadata: m.metadata ? JSON.parse(m.metadata) : null,
     created_at: formatTimestamp(m.createdAt),
   };
   if (m.status && m.status !== "active") {

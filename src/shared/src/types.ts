@@ -113,6 +113,7 @@ export interface Message {
   content: string;
   task_id: string | null;
   attachment_ids: string[] | null;
+  metadata?: Record<string, unknown> | null;
   status?: "active" | "buffered";
   created_at: string;
 }

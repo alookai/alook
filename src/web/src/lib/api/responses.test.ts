@@ -401,7 +401,7 @@ describe("MessageResponse shape", () => {
   it("has expected keys: id, conversation_id, role, content, task_id, created_at", () => {
     const res = messageToResponse({ id: "m1", conversationId: "c1", role: "user", content: "hi", taskId: "t1", createdAt: ts });
     expect(Object.keys(res).sort()).toEqual(
-      ["attachment_ids", "content", "conversation_id", "created_at", "id", "role", "task_id"]
+      ["attachment_ids", "content", "conversation_id", "created_at", "id", "metadata", "role", "task_id"]
     );
   });
 });

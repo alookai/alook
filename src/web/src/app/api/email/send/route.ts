@@ -16,12 +16,15 @@ async function broadcastEmailSentEvent(
   agentId: string,
   to: string,
   subject: string,
+  emailId: string,
 ) {
   const eventContent = `Email sent to ${to}: ${subject}`;
+  const metadata = JSON.stringify({ emailId });
   const eventMsg = await queries.message.createMessage(db, {
     conversationId,
     role: "event",
     content: eventContent,
+    metadata,
   });
   broadcastToUser(ownerId, {
     type: "conversation.message",
@@ -33,6 +36,7 @@ async function broadcastEmailSentEvent(
       content: eventMsg.content,
       task_id: eventMsg.taskId,
       attachment_ids: null,
+      metadata: { emailId },
       created_at: eventMsg.createdAt,
     },
   }).catch(() => {});
@@ -183,7 +187,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
           });
         }
         if (agent.ownerId) {
-          await broadcastEmailSentEvent(db, validatedConversationId, agent.ownerId, body.agentId, body.to, body.subject);
+          await broadcastEmailSentEvent(db, validatedConversationId, agent.ownerId, body.agentId, body.to, body.subject, email.id);
         }
       }
 
@@ -258,7 +262,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       });
     }
     if (agent.ownerId) {
-      await broadcastEmailSentEvent(db, validatedConversationId, agent.ownerId, body.agentId, body.to, body.subject);
+      await broadcastEmailSentEvent(db, validatedConversationId, agent.ownerId, body.agentId, body.to, body.subject, email.id);
     }
   }
 

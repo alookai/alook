@@ -320,6 +320,7 @@ export const message = sqliteTable(
     content: text("content").notNull().default(""),
     taskId: text("task_id"),
     attachmentIds: text("attachment_ids"),
+    metadata: text("metadata"),
     status: text("status").notNull().default("active"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },

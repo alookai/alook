@@ -10,6 +10,7 @@ export async function createMessage(
     content: string;
     taskId?: string | null;
     attachmentIds?: string | null;
+    metadata?: string | null;
   }
 ) {
   const rows = await db
@@ -20,6 +21,7 @@ export async function createMessage(
       content: data.content,
       taskId: data.taskId ?? null,
       attachmentIds: data.attachmentIds ?? null,
+      metadata: data.metadata ?? null,
     })
     .returning();
   return rows[0]!;
