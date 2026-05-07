@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, CheckCircle2, CircleDot, ExternalLink, File as FileIcon, GitBranch, Loader2, MessageSquare, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
-import type { Agent, Artifact, Issue, Message, WsMessage } from "@alook/shared";
+import type { Agent, Artifact, Issue, IssueComment, Message, WsMessage } from "@alook/shared";
+import { isTerminalIssueStatus } from "@alook/shared";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
 import { createIssue, deleteIssue, getIssue, getTask, getTaskMessages, listIssues } from "@/lib/api";
@@ -23,6 +24,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetBody } from "@/components/ui/sheet";
 import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
@@ -173,6 +175,62 @@ function MessageRow({ message }: { message: Message }) {
   );
 }
 
+function CommentRow({ comment, agents }: { comment: IssueComment; agents: Agent[] }) {
+  const authorLabel = comment.author_type === "agent"
+    ? agents.find((a) => a.id === comment.author_id)?.name ?? "Agent"
+    : "You";
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-background p-3">
+      <div className="mb-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span className="font-medium">{authorLabel}</span>
+        <span>{new Date(comment.created_at).toLocaleString()}</span>
+      </div>
+      <div className="prose prose-sm dark:prose-invert max-w-none text-sm break-words">
+        <Streamdown>{comment.content}</Streamdown>
+      </div>
+    </div>
+  );
+}
+
+function CommentInput({ issueId, workspaceId, onCommented }: { issueId: string; workspaceId: string; onCommented: () => void }) {
+  const [content, setContent] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    if (!content.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      await fetch(`/api/issues/${issueId}/comments?workspace_id=${workspaceId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: content.trim() }),
+      });
+      setContent("");
+      onCommented();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-border/60 pt-3 space-y-2">
+      <Textarea
+        placeholder="Leave a comment..."
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        className="min-h-[60px] text-sm"
+        onKeyDown={(e) => { if (e.key === "Enter" && e.metaKey) submit(); }}
+      />
+      <div className="flex justify-end">
+        <Button size="sm" onClick={submit} disabled={!content.trim() || submitting}>
+          {submitting ? "Sending..." : "Comment"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function AttachmentList({ artifacts, workspaceId }: { artifacts: Artifact[]; workspaceId: string }) {
   if (artifacts.length === 0) return null;
 
@@ -204,7 +262,7 @@ export default function IssuesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<{ issue: Issue & { trace_id?: string | null }; messages: Message[]; artifacts: Artifact[] } | null>(null);
+  const [detail, setDetail] = useState<{ issue: Issue & { trace_id?: string | null }; messages: Message[]; comments: IssueComment[]; artifacts: Artifact[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeTask, setActiveTask] = useState<TaskApi | null>(null);
   const [taskLatestText, setTaskLatestText] = useState<string>("");
@@ -308,6 +366,13 @@ export default function IssuesPage() {
           }
         }
       }
+      if (msg.type === "issue.comment" && selectedId === msg.issueId) {
+        setDetail((prev) => {
+          if (!prev) return prev;
+          if (prev.comments.some((c) => c.id === msg.comment.id)) return prev;
+          return { ...prev, comments: [...prev.comments, msg.comment] };
+        });
+      }
       if (msg.type === "task.updated" && (msg.status === "running" || msg.status === "completed" || msg.status === "failed")) {
         reload();
         if (selectedId) openIssue(selectedId);
@@ -317,7 +382,7 @@ export default function IssuesPage() {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detailConvId, subscribeWs]);
+  }, [detailConvId, selectedId, subscribeWs]);
 
   async function handleCreate() {
     if (!form.title.trim() || !form.agentId) return;
@@ -651,11 +716,26 @@ export default function IssuesPage() {
                 </div>
                 <AttachmentList artifacts={detail.artifacts ?? []} workspaceId={workspaceId} />
                 <div className="space-y-2 border-t border-border/60 pt-4">
-                  {detail.messages.length === 0 && !isTaskActive ? (
-                    <div className="text-xs text-muted-foreground">No messages yet.</div>
-                  ) : (
-                    detail.messages.map((message) => <MessageRow key={message.id} message={message} />)
-                  )}
+                  {(() => {
+                    const events = detail.messages
+                      .filter((m) => m.role === "event")
+                      .map((m) => ({ kind: "event" as const, id: m.id, created_at: m.created_at, data: m }));
+                    const comments = (detail.comments ?? [])
+                      .map((c) => ({ kind: "comment" as const, id: c.id, created_at: c.created_at, data: c }));
+                    const timeline = [...events, ...comments].sort(
+                      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                    );
+
+                    if (timeline.length === 0 && !isTaskActive) {
+                      return <div className="text-xs text-muted-foreground">No activity yet.</div>;
+                    }
+
+                    return timeline.map((item) =>
+                      item.kind === "event"
+                        ? <MessageRow key={item.id} message={item.data} />
+                        : <CommentRow key={item.id} comment={item.data} agents={agents} />
+                    );
+                  })()}
                   {isTaskActive && (
                     <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
                       <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">
@@ -668,6 +748,9 @@ export default function IssuesPage() {
                     </div>
                   )}
                 </div>
+                {!isTaskActive && !isTerminalIssueStatus(detail.issue.status) && (
+                  <CommentInput issueId={detail.issue.id} workspaceId={workspaceId} onCommented={() => openIssue(detail.issue.id)} />
+                )}
               </div>
             )}
           </SheetBody>

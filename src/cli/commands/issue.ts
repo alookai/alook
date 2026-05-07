@@ -29,6 +29,14 @@ interface MessageResponse {
   created_at: string;
 }
 
+interface CommentResponse {
+  id: string;
+  author_type: string;
+  author_id: string;
+  content: string;
+  created_at: string;
+}
+
 function resolveClientOpts(command: Command, agentId: string) {
   let root = command;
   while (root.parent) root = root.parent;
@@ -61,7 +69,7 @@ function printIssue(issue: IssueResponse): void {
   console.log(`${issue.id}  ${issue.status.padEnd(11)}  ${issue.title}`);
 }
 
-function printIssueDetail(issue: IssueResponse, messages?: MessageResponse[]): void {
+function printIssueDetail(issue: IssueResponse, messages?: MessageResponse[], comments?: CommentResponse[]): void {
   console.log(`id:              ${issue.id}`);
   console.log(`agent_id:        ${issue.agent_id}`);
   console.log(`status:          ${issue.status}`);
@@ -70,10 +78,17 @@ function printIssueDetail(issue: IssueResponse, messages?: MessageResponse[]): v
   console.log(`title:           ${issue.title}`);
   console.log("description:");
   console.log(issue.description || "(no description)");
-  if (messages && messages.length > 0) {
-    console.log("\nconversation:");
-    for (const m of messages) {
-      console.log(`[${m.role}] ${m.content}`);
+  const events = messages?.filter((m) => m.role === "event") ?? [];
+  if (events.length > 0) {
+    console.log("\nevents:");
+    for (const m of events) {
+      console.log(`  [${m.created_at}] ${m.content}`);
+    }
+  }
+  if (comments && comments.length > 0) {
+    console.log("\ncomments:");
+    for (const c of comments) {
+      console.log(`  [${c.created_at}] (${c.author_type}) ${c.content}`);
     }
   }
 }
@@ -140,29 +155,6 @@ export function issueCommand(): Command {
     });
 
   cmd
-    .command("pull")
-    .description("Show the next active issue for an agent")
-    .requiredOption("--agent_id <id>", "Agent ID")
-    .option("--json", "Output as JSON")
-    .action(async (opts, command) => {
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, opts.agent_id);
-      const client = new APIClient(serverUrl, token, workspaceId);
-      try {
-        const issues = await client.getJSON<IssueResponse[]>(`/api/issues?agentId=${encodeURIComponent(opts.agent_id)}&terminal=false`);
-        const issue = issues[0] ?? null;
-        if (opts.json) return printJSON(issue);
-        if (!issue) {
-          console.log("No active issues.");
-          return;
-        }
-        printIssueDetail(issue);
-      } catch (err) {
-        console.error(`Error: ${err instanceof Error ? err.message : err}`);
-        process.exit(1);
-      }
-    });
-
-  cmd
     .command("show")
     .description("Show issue details and conversation")
     .requiredOption("--agent_id <id>", "Agent ID")
@@ -172,13 +164,13 @@ export function issueCommand(): Command {
       const { serverUrl, token, workspaceId } = resolveClientOpts(command, opts.agent_id);
       const client = new APIClient(serverUrl, token, workspaceId);
       try {
-        const res = await client.getJSON<{ issue: IssueResponse; messages: MessageResponse[] }>(`/api/issues/${opts.issue_id}?agentId=${encodeURIComponent(opts.agent_id)}`);
+        const res = await client.getJSON<{ issue: IssueResponse; messages: MessageResponse[]; comments: CommentResponse[] }>(`/api/issues/${opts.issue_id}?agentId=${encodeURIComponent(opts.agent_id)}`);
         if (res.issue.agent_id !== opts.agent_id) {
           console.error(`Error: issue ${res.issue.id} does not belong to agent ${opts.agent_id}`);
           process.exit(1);
         }
         if (opts.json) return printJSON(res);
-        printIssueDetail(res.issue, res.messages);
+        printIssueDetail(res.issue, res.messages, res.comments);
       } catch (err) {
         console.error(`Error: ${err instanceof Error ? err.message : err}`);
         process.exit(1);
@@ -238,7 +230,7 @@ export function issueCommand(): Command {
       const { serverUrl, token, workspaceId } = resolveClientOpts(command, opts.agent_id);
       const client = new APIClient(serverUrl, token, workspaceId);
       try {
-        const res = await client.postJSON<{ message: MessageResponse }>(`/api/issues/${opts.issue_id}?agentId=${encodeURIComponent(opts.agent_id)}`, { content });
+        const res = await client.postJSON<{ comment: CommentResponse }>(`/api/issues/${opts.issue_id}/comments?agentId=${encodeURIComponent(opts.agent_id)}`, { content });
         if (opts.json) return printJSON(res);
         console.log(`Commented on ${opts.issue_id}`);
       } catch (err) {

@@ -18,19 +18,9 @@ function sanitizeFilename(name: string): string {
   return name.replace(/[/\\]/g, "_").replace(/\.\./g, "_").slice(0, 255) || "file";
 }
 
-function buildIssuePrompt(issue: { id: string; title: string; description: string }) {
-  const description = issue.description.trim() || "(no description)";
-  return [
-    `Issue ${issue.id}: ${issue.title}`,
-    "",
-    description,
-    "",
-    "Use the issue CLI to keep this issue updated:",
-    `- alook issue show --agent_id <your_agent_id> --issue_id ${issue.id}`,
-    `- alook issue update --agent_id <your_agent_id> --issue_id ${issue.id} --status in_progress`,
-    `- alook issue comment --agent_id <your_agent_id> --issue_id ${issue.id} --body-file <path>`,
-    `- alook issue update --agent_id <your_agent_id> --issue_id ${issue.id} --status done`,
-  ].join("\n");
+function buildIssuePrompt(issue: { title: string; description: string }) {
+  const description = issue.description.trim();
+  return description ? `${issue.title}\n\n${description}` : issue.title;
 }
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
@@ -170,7 +160,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   });
 
   const prompt = buildIssuePrompt({
-    id: created.id,
     title: created.title,
     description: created.description,
   });

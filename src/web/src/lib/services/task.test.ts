@@ -306,18 +306,11 @@ describe("TaskService", () => {
         status: "running",
       };
       taskQ.startTask.mockResolvedValue(task);
-      issueQ.getIssue.mockResolvedValue({ id: "iss_1", status: "todo", conversationId: "c1" });
-      issueQ.updateIssue.mockResolvedValue({ id: "iss_1", status: "in_progress", conversationId: "c1" });
 
       await service.startTask("t1", "w1");
 
-      expect(issueQ.updateIssue).toHaveBeenCalledWith({}, "iss_1", "w1", { status: "in_progress" });
-      expect(messageQ.createMessage).toHaveBeenCalledWith({}, {
-        conversationId: "c1",
-        role: "event",
-        content: "Issue status changed: todo -> in_progress",
-        taskId: "t1",
-      });
+      // Agent now controls issue status via CLI — startTask no longer auto-syncs
+      expect(issueQ.updateIssue).not.toHaveBeenCalled();
     });
   });
 
@@ -403,18 +396,11 @@ describe("TaskService", () => {
       taskQ.completeTask.mockResolvedValue(task);
       taskQ.countRunningTasks.mockResolvedValue(0);
       agentQ.updateAgentStatus.mockResolvedValue(undefined);
-      issueQ.getIssue.mockResolvedValue({ id: "iss_1", status: "in_progress", conversationId: "c1" });
-      issueQ.updateIssue.mockResolvedValue({ id: "iss_1", status: "done", conversationId: "c1" });
 
       await service.completeTask("t1", "w1", JSON.stringify({}), "sess-1");
 
-      expect(issueQ.updateIssue).toHaveBeenCalledWith({}, "iss_1", "w1", { status: "done" });
-      expect(messageQ.createMessage).toHaveBeenCalledWith({}, {
-        conversationId: "c1",
-        role: "event",
-        content: "Issue status changed: in_progress -> done",
-        taskId: "t1",
-      });
+      // Agent now controls issue status via CLI — completeTask no longer auto-syncs
+      expect(issueQ.updateIssue).not.toHaveBeenCalled();
     });
   });
 

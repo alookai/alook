@@ -109,7 +109,6 @@ export class TaskService {
     if (!task) {
       throw new Error("task not in dispatched status");
     }
-    await this.syncIssueStatusFromTask(task, "in_progress");
     return task;
   }
 
@@ -152,7 +151,6 @@ export class TaskService {
     }
 
     await this.reconcileAgentStatus(task.agentId, task.workspaceId);
-    await this.syncIssueStatusFromTask(task, "done");
     await this.dispatchNextBufferedMessage(task.conversationId, task.workspaceId);
     return task;
   }
@@ -188,7 +186,7 @@ export class TaskService {
 
   private async syncIssueStatusFromTask(
     task: { id: string; type?: string | null; contextKey?: string | null; workspaceId: string; conversationId: string },
-    status: "in_progress" | "done" | "failed",
+    status: "failed",
   ) {
     if (task.type !== TASK_TYPES.ISSUE_EVENT || !task.contextKey) return;
 

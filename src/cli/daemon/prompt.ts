@@ -12,8 +12,12 @@ const EMAIL_NOTICE =
   " Do not wait — when the human replies, a new task will be triggered automatically and you will be woken up with their response.";
 
 const ISSUE_NOTICE =
-  "This task was triggered by an assigned issue. Use `alook issue show`, `alook issue update`, and `alook issue comment` to inspect and update the issue as you work." +
-  " Move the issue to in_progress when you begin, then to review, done, closed, canceled, or failed when appropriate.";
+  "This task was triggered by an assigned issue. The issue_id is provided in this message." +
+  " Use `alook issue show --agent_id <your_agent_id> --issue_id <issue_id>` to read full context." +
+  " Use `alook issue update --agent_id <your_agent_id> --issue_id <issue_id> --status <status>` to change status." +
+  " Use `alook issue comment --agent_id <your_agent_id> --issue_id <issue_id> --body <text>` to leave a comment." +
+  " You are responsible for setting the issue status: move to in_progress when working, review when awaiting user feedback, done/closed when finished." +
+  " Always leave a comment summarizing what you did before changing status.";
 
 function buildDmNotice(name: string, email: string): string {
   return (
@@ -39,6 +43,10 @@ export function buildPrompt(task: Task, attachments?: Attachment[]): string {
   }
   if (task.type === "issue_event") {
     obj.notice = ISSUE_NOTICE;
+    const ctx = task.context as Record<string, unknown> | undefined;
+    if (ctx?.issue_id) {
+      obj.issue_id = ctx.issue_id;
+    }
   }
   if (task.sender) {
     obj.sender = {

@@ -7,6 +7,8 @@ const mockUpdateIssue = vi.fn();
 const mockDeleteIssue = vi.fn();
 const mockCreateMessage = vi.fn();
 const mockListArtifactsByConversation = vi.fn();
+const mockListComments = vi.fn();
+const mockCreateComment = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -29,6 +31,11 @@ vi.mock("@alook/shared", async () => {
         getTask: vi.fn().mockResolvedValue(null),
       },
       message: { createMessage: (...a: unknown[]) => mockCreateMessage(...a) },
+      issueComment: {
+        listComments: (...a: unknown[]) => mockListComments(...a),
+        createComment: (...a: unknown[]) => mockCreateComment(...a),
+        commentToResponse: (c: any) => ({ id: c.id, content: c.content, author_type: c.authorType ?? "user", author_id: c.authorId ?? "u1", created_at: c.createdAt ?? new Date().toISOString() }),
+      },
       artifact: {
         listArtifactsByConversation: (...a: unknown[]) => mockListArtifactsByConversation(...a),
         artifactToResponse: (a: any) => ({ id: a.id, filename: a.filename }),
@@ -61,12 +68,14 @@ describe("GET /api/issues/[id]", () => {
   it("returns issue and messages", async () => {
     mockGetIssue.mockResolvedValue({ id: "iss_1", status: "todo", conversationId: "c1" });
     mockListIssueMessages.mockResolvedValue([{ id: "m1", role: "event", content: "Created" }]);
+    mockListComments.mockResolvedValue([]);
     mockListArtifactsByConversation.mockResolvedValue([{ id: "art_1", filename: "brief.md" }]);
     const res = await GET(new NextRequest("http://localhost/api/issues/iss_1"), { params: { id: "iss_1" } } as any);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       issue: { id: "iss_1", status: "todo", conversation_id: "c1", trace_id: null },
       messages: [{ id: "m1", role: "event", content: "Created" }],
+      comments: [],
       artifacts: [{ id: "art_1", filename: "brief.md" }],
     });
     expect(mockListArtifactsByConversation).toHaveBeenCalledWith({}, "c1", "w1");
@@ -90,8 +99,8 @@ describe("PATCH /api/issues/[id]", () => {
 
 describe("POST /api/issues/[id]", () => {
   it("adds a user comment for browser callers", async () => {
-    mockGetIssue.mockResolvedValue({ id: "iss_1", status: "todo", conversationId: "c1" });
-    mockCreateMessage.mockResolvedValue({ id: "m1", role: "user", content: "Looks good" });
+    mockGetIssue.mockResolvedValue({ id: "iss_1", status: "todo", conversationId: "c1", agentId: "a1" });
+    mockCreateComment.mockResolvedValue({ id: "ic_1", issueId: "iss_1", workspaceId: "w1", authorType: "user", authorId: "u1", content: "Looks good", createdAt: "2026-01-01T00:00:00Z" });
     mockUpdateIssue.mockResolvedValue({ id: "iss_1" });
     const req = new NextRequest("http://localhost/api/issues/iss_1", {
       method: "POST",
@@ -99,7 +108,7 @@ describe("POST /api/issues/[id]", () => {
     });
     const res = await POST(req, { params: { id: "iss_1" } } as any);
     expect(res.status).toBe(201);
-    expect(mockCreateMessage).toHaveBeenCalledWith({}, expect.objectContaining({ role: "user", content: "Looks good" }));
+    expect(mockCreateComment).toHaveBeenCalledWith({}, expect.objectContaining({ issueId: "iss_1", content: "Looks good", authorType: "user" }));
   });
 });
 

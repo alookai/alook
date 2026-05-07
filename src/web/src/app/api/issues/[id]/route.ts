@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import {
-  CreateIssueCommentRequestSchema,
+  CreateIssueCommentBodySchema,
   UpdateIssueRequestSchema,
   queries,
 } from "@alook/shared";
@@ -32,6 +32,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   }
 
   const messages = await queries.issue.listIssueMessages(db, id, ws.workspaceId);
+  const comments = await queries.issueComment.listComments(db, id, ws.workspaceId);
   const artifacts = await queries.artifact.listArtifactsByConversation(
     db,
     issue.conversationId,
@@ -40,6 +41,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   return writeJSON({
     issue: { ...issueToResponse(issue), trace_id: traceId },
     messages: (messages ?? []).map(messageToResponse),
+    comments: comments.map(queries.issueComment.commentToResponse),
     artifacts: artifacts.map(queries.artifact.artifactToResponse),
   });
 });
@@ -108,16 +110,21 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const agentId = req.nextUrl.searchParams.get("agentId");
   if (agentId && issue.agentId !== agentId) return writeError("issue does not belong to agent", 403);
 
-  const [body, err] = await parseBody(req, CreateIssueCommentRequestSchema);
+  const [body, err] = await parseBody(req, CreateIssueCommentBodySchema);
   if (err) return err;
 
-  const message = await queries.message.createMessage(db, {
-    conversationId: issue.conversationId,
-    role: ctx.workspaceId ? "assistant" : "user",
+  const authorType = agentId ? ("agent" as const) : ("user" as const);
+  const authorId = agentId ?? ctx.userId;
+
+  const comment = await queries.issueComment.createComment(db, {
+    issueId: id,
+    workspaceId: ws.workspaceId,
+    authorType,
+    authorId,
     content: body.content,
   });
 
   await queries.issue.updateIssue(db, id, ws.workspaceId, {});
 
-  return writeJSON({ message: messageToResponse(message) }, 201);
+  return writeJSON({ comment: queries.issueComment.commentToResponse(comment) }, 201);
 });

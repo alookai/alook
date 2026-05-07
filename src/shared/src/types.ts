@@ -106,6 +106,16 @@ export interface Issue {
   completed_at: string | null;
 }
 
+export interface IssueComment {
+  id: string;
+  issue_id: string;
+  workspace_id: string;
+  author_type: "user" | "agent";
+  author_id: string;
+  content: string;
+  created_at: string;
+}
+
 export interface Message {
   id: string;
   conversation_id: string;
@@ -266,6 +276,7 @@ export type WsMessage =
   | { type: "followup.deleted"; conversationId: string; messageId: string }
   | { type: "followup.dispatch_failed"; conversationId: string; messageId: string; error: string }
   | { type: "conversation.message"; conversationId: string; message: Message }
+  | { type: "issue.comment"; issueId: string; comment: IssueComment }
   | { type: "workspace.files"; agentId: string; requestId: string; requestType: "tree" | "read"; result: WorkspaceFileResult }
 
 export interface WorkspaceFileResult {

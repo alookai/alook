@@ -131,7 +131,7 @@ function TaskNode({ node, slug }: { node: TreeNode; slug: string }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-sm text-foreground truncate flex-1 min-w-0">
-              {node.prompt}
+              {node.prompt.split("\n")[0]}
             </span>
             <span className="text-xs text-muted-foreground shrink-0 ml-2" title={new Date(node.created_at).toLocaleString()}>
               {relativeTime(node.created_at)}

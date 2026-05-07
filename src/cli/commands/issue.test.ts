@@ -8,7 +8,6 @@ describe("issueCommand", () => {
     const names = cmd.commands.map((c) => c.name());
     expect(names).toContain("create");
     expect(names).toContain("list");
-    expect(names).toContain("pull");
     expect(names).toContain("show");
     expect(names).toContain("update");
     expect(names).toContain("comment");

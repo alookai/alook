@@ -19,6 +19,7 @@ import type {
   UpdateAgentRequest,
   Email,
   Issue,
+  IssueComment,
   LoginResponse,
   MeetingSession,
   Message,
@@ -639,6 +640,7 @@ export const deleteCalendarEvent = (
 export interface IssueDetailResponse {
   issue: Issue & { trace_id?: string | null };
   messages: Message[];
+  comments: IssueComment[];
   artifacts: Artifact[];
 }
 

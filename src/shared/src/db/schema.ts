@@ -414,6 +414,27 @@ export const issue = sqliteTable(
   ]
 );
 
+export const issueComment = sqliteTable(
+  "issue_comment",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "ic_" + nanoid()),
+    issueId: text("issue_id")
+      .notNull()
+      .references(() => issue.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    authorType: text("author_type").notNull().default("user"),
+    authorId: text("author_id").notNull(),
+    content: text("content").notNull(),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_issue_comment_issue").on(t.issueId, t.createdAt),
+    index("idx_issue_comment_workspace").on(t.workspaceId, t.issueId),
+  ]
+);
+
 export const taskMessage = sqliteTable(
   "task_message",
   {

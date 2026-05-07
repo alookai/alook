@@ -376,10 +376,25 @@ export const UpdateIssueRequestSchema = z
   );
 export type UpdateIssueRequestInput = z.infer<typeof UpdateIssueRequestSchema>;
 
-export const CreateIssueCommentRequestSchema = z.object({
+export const CreateIssueCommentBodySchema = z.object({
   content: z.string().min(1, "content is required").max(20_000),
 });
-export type CreateIssueCommentRequestInput = z.infer<typeof CreateIssueCommentRequestSchema>;
+export type CreateIssueCommentBody = z.infer<typeof CreateIssueCommentBodySchema>;
+
+/** @deprecated Use CreateIssueCommentBodySchema instead */
+export const CreateIssueCommentRequestSchema = CreateIssueCommentBodySchema;
+export type CreateIssueCommentRequestInput = CreateIssueCommentBody;
+
+export const IssueCommentApiSchema = z.object({
+  id: z.string(),
+  issue_id: z.string(),
+  workspace_id: z.string(),
+  author_type: z.enum(["user", "agent"]),
+  author_id: z.string(),
+  content: z.string(),
+  created_at: z.string(),
+});
+export type IssueCommentApi = z.infer<typeof IssueCommentApiSchema>;
 
 export const IssueApiSchema = z.object({
   id: z.string(),
