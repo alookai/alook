@@ -948,6 +948,13 @@
 .caret-foreground {
   caret-color: var(--foreground);
 }
+.textarea-text-hidden {
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.chat-input-line-height {
+  line-height: 24px;
+}
 
 /* Mention highlight — underline + italic */
 .mention-highlight {

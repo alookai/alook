@@ -1525,7 +1525,7 @@ export function AgentChatView() {
             <div className="relative">
               <div
                 aria-hidden
-                className="mention-backdrop absolute inset-0 px-3.5 py-2.5 text-base leading-normal whitespace-pre-wrap wrap-break-word pointer-events-none overflow-y-auto thin-scrollbar"
+                className="mention-backdrop absolute inset-0 px-3.5 py-2.5 text-base chat-input-line-height whitespace-pre-wrap wrap-break-word pointer-events-none overflow-y-auto thin-scrollbar"
                 dangerouslySetInnerHTML={{
                   __html: input
                     ? highlightMentions(
@@ -1563,10 +1563,10 @@ export function AgentChatView() {
                 rows={1}
                 disabled={sending}
                 className={cn(
-                  "relative field-sizing-content w-full resize-none bg-transparent px-3.5 py-2.5 text-base leading-normal outline-none",
+                  "relative field-sizing-content w-full resize-none bg-transparent px-3.5 py-2.5 text-base chat-input-line-height outline-none",
                   "placeholder:text-muted-foreground disabled:cursor-not-allowed",
                   "min-h-9.5 max-h-50 thin-scrollbar",
-                  "caret-foreground text-transparent"
+                  "caret-foreground textarea-text-hidden"
                 )}
               />
             </div>
