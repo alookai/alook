@@ -117,8 +117,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const [body, valErr] = await parseBody(req, CreateStudioRequestSchema);
   if (valErr) return valErr;
 
-  const leaderMember = body.members.find((m) => m.role === "leader")!;
-
   const runtimeIds = [...new Set(body.members.map((m) => m.runtime_id))];
   const runtimeCache = new Map<string, { id: string; runtimeMode: string; machineLastSeenAt: string | null }>();
   for (const rid of runtimeIds) {
