@@ -1361,7 +1361,7 @@ export function AgentChatView() {
         <button
           type="button"
           className="fixed z-50 flex items-center gap-1 px-2 py-1 rounded-md bg-popover border shadow-md text-xs text-popover-foreground hover:bg-accent transition-colors"
-          style={{ left: selectionPopup.x, top: selectionPopup.y, transform: "translate(-50%, -100%)" }}
+          style={{ left: selectionPopup.x, top: selectionPopup.y, transform: "translate(-100%, -100%)" }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={handleQuoteSelection}
         >
