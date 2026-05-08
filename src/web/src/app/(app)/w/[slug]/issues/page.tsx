@@ -812,7 +812,18 @@ export default function IssuesPage() {
                 <section key={col.id} className="rounded-lg border border-border/60 bg-card/60">
                   <div className="flex items-center justify-between border-b border-border/50 px-3 py-2 text-sm font-medium">
                     <span>{col.label}</span>
-                    <Badge variant="outline">{columnIssues.length}</Badge>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="outline">{columnIssues.length}</Badge>
+                      {col.id === "completed" && (
+                        <button
+                          type="button"
+                          onClick={() => setShowCompleted(false)}
+                          className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-muted-foreground"
+                        >
+                          <EyeOff className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="space-y-2 p-3">
                     {columnIssues.map((issue) => (
