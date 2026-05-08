@@ -47,6 +47,9 @@ vi.mock("@alook/shared", async () => {
       conversation: {
         createConversation: (...args: unknown[]) => mockCreateConversation(...args),
       },
+      agentPin: {
+        pinAgent: vi.fn(),
+      },
     },
   };
 });
@@ -232,7 +235,7 @@ describe("POST /api/studios", () => {
     );
   });
 
-  it("enqueues welcome email only for leader", async () => {
+  it("enqueues welcome email and welcome chat for leader", async () => {
     const req = new NextRequest("http://localhost/api/studios", {
       method: "POST",
       body: JSON.stringify({
@@ -245,8 +248,8 @@ describe("POST /api/studios", () => {
 
     await POST(req, {});
 
-    expect(mockCreateConversation).toHaveBeenCalledTimes(1);
-    expect(mockEnqueueTask).toHaveBeenCalledTimes(1);
+    expect(mockCreateConversation).toHaveBeenCalledTimes(2); // welcome email + welcome chat
+    expect(mockEnqueueTask).toHaveBeenCalledTimes(2);
     expect(mockEnqueueTask).toHaveBeenCalledWith(
       "agent-1",
       expect.any(String),
