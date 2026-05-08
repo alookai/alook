@@ -995,7 +995,7 @@ export function AgentChatView() {
     }
     const rects = range.getClientRects();
     const lastRect = rects[rects.length - 1] || range.getBoundingClientRect();
-    setSelectionPopup({ text, x: lastRect.right, y: lastRect.top - 8 });
+    setSelectionPopup({ text, x: lastRect.right, y: lastRect.top - 4 });
   }, []);
 
   useEffect(() => {
@@ -1361,7 +1361,7 @@ export function AgentChatView() {
         <button
           type="button"
           className="fixed z-50 flex items-center gap-1 px-2 py-1 rounded-md bg-popover border shadow-md text-xs text-popover-foreground hover:bg-accent transition-colors"
-          style={{ left: selectionPopup.x, top: selectionPopup.y, transform: "translateY(-100%)" }}
+          style={{ left: selectionPopup.x, top: selectionPopup.y, transform: "translate(-50%, -100%)" }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={handleQuoteSelection}
         >
