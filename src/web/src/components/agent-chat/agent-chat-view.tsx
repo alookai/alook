@@ -362,7 +362,8 @@ export function AgentChatView() {
   const [renderNow] = useState(() => Date.now());
 
   const [pendingFilesByMessage, setPendingFilesByMessage] = useState<Map<string, File[]>>(() => new Map());
-  const [quotedMessage, setQuotedMessage] = useState<Message | null>(null);
+  const [quotedText, setQuotedText] = useState<string | null>(null);
+  const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number } | null>(null);
 
   const handleSpeechResult = useCallback((text: string) => {
     setInput((prev) => (prev ? prev + " " + text : text));
@@ -975,6 +976,41 @@ export function AgentChatView() {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  const handleTextSelect = useCallback(() => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.rangeCount) {
+      setSelectionPopup(null);
+      return;
+    }
+    const text = selection.toString().trim();
+    if (!text) { setSelectionPopup(null); return; }
+    // Only allow quoting from assistant message bubbles
+    const range = selection.getRangeAt(0);
+    const container = range.commonAncestorContainer instanceof HTMLElement
+      ? range.commonAncestorContainer
+      : range.commonAncestorContainer.parentElement;
+    if (!container?.closest("[data-quote-source]")) {
+      setSelectionPopup(null);
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    setSelectionPopup({ text, x: rect.left + rect.width / 2, y: rect.top - 8 });
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener("selectionchange", handleTextSelect);
+    return () => document.removeEventListener("selectionchange", handleTextSelect);
+  }, [handleTextSelect]);
+
+  const handleQuoteSelection = useCallback(() => {
+    if (selectionPopup) {
+      setQuotedText(selectionPopup.text);
+      setSelectionPopup(null);
+      window.getSelection()?.removeAllRanges();
+      textareaRef.current?.focus();
+    }
+  }, [selectionPopup]);
+
   const [dragging, setDragging] = useState(false);
   const dragCounter = useRef(0);
 
@@ -1089,14 +1125,14 @@ export function AgentChatView() {
     }
 
     // Prepend quoted text as blockquote if present
-    const content = quotedMessage
-      ? `> ${quotedMessage.content.split("\n").join("\n> ")}\n\n${rawContent}`
+    const content = quotedText
+      ? `> ${quotedText.split("\n").join("\n> ")}\n\n${rawContent}`
       : rawContent;
 
     const filesToSend = [...pendingFiles];
     setInput("");
     setPendingFiles([]);
-    setQuotedMessage(null);
+    setQuotedText(null);
     setSending(true);
 
     const taskActive = !!activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
@@ -1319,6 +1355,19 @@ export function AgentChatView() {
 
   return (
     <>
+      {/* Floating quote button on text selection */}
+      {selectionPopup && (
+        <button
+          type="button"
+          className="fixed z-50 flex items-center gap-1 px-2 py-1 rounded-md bg-popover border shadow-md text-xs text-popover-foreground hover:bg-accent transition-colors"
+          style={{ left: selectionPopup.x, top: selectionPopup.y, transform: "translate(-50%, -100%)" }}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={handleQuoteSelection}
+        >
+          <MessageSquareQuote className="size-3" />
+          Quote
+        </button>
+      )}
       {/* Messages */}
       <div
         className="flex-1 overflow-y-auto overflow-x-hidden px-3 md:px-5 thin-scrollbar"
@@ -1432,14 +1481,7 @@ export function AgentChatView() {
                   const isLastUser = messages.length > 0 && messages[messages.length - 1].id === msg.id;
                   const awaitingRun = isLastUser && !!activeTask && activeTask.status !== "running" && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
                   return (
-                    <div className="group/msg flex justify-end" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
-                      <button
-                        type="button"
-                        className="opacity-0 group-hover/msg:opacity-100 transition-opacity self-center mr-1.5 p-1 rounded hover:bg-muted text-muted-foreground"
-                        onClick={() => { setQuotedMessage(msg); textareaRef.current?.focus(); }}
-                      >
-                        <MessageSquareQuote className="size-3.5" />
-                      </button>
+                    <div className="flex justify-end" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
                       <div className={cn(
                         "max-w-[80%] rounded-lg px-4 py-2 bg-primary text-primary-foreground text-base relative",
                       )}>
@@ -1478,17 +1520,10 @@ export function AgentChatView() {
                     </div>
                   );
                 })() : !hasTaskStream ? (
-                  <div className="group/msg flex justify-start" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
+                  <div className="flex justify-start" data-quote-source {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
                     <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
                       <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={MENTION_COMPONENTS}>{highlightMentions(msg.content, agents)}</Streamdown>
                     </div>
-                    <button
-                      type="button"
-                      className="opacity-0 group-hover/msg:opacity-100 transition-opacity self-start mt-1 ml-1 p-1 rounded hover:bg-muted text-muted-foreground"
-                      onClick={() => { setQuotedMessage(msg); textareaRef.current?.focus(); }}
-                    >
-                      <MessageSquareQuote className="size-3.5" />
-                    </button>
                   </div>
                 ) : null}
               </React.Fragment>
@@ -1539,17 +1574,17 @@ export function AgentChatView() {
                 <p className="text-sm text-muted-foreground font-medium">Drop files here</p>
               </div>
             )}
-            {quotedMessage && (
+            {quotedText && (
               <div className="flex items-center gap-2 px-3.5 pt-2.5 pb-1 border-b border-border/50">
                 <div className="flex-1 min-w-0 flex items-start gap-2">
                   <MessageSquareQuote className="size-3.5 shrink-0 mt-0.5 text-muted-foreground" />
                   <p className="text-xs text-muted-foreground truncate">
-                    {quotedMessage.content.slice(0, 120)}{quotedMessage.content.length > 120 ? "..." : ""}
+                    {quotedText.slice(0, 120)}{quotedText.length > 120 ? "..." : ""}
                   </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setQuotedMessage(null)}
+                  onClick={() => setQuotedText(null)}
                   className="shrink-0 p-0.5 rounded-sm hover:bg-muted-foreground/20 transition-colors text-muted-foreground"
                 >
                   <X className="size-3.5" />
