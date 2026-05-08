@@ -55,14 +55,16 @@ export async function listUnreadConversations(
       )
     LEFT JOIN agent a
       ON a.id = c.agent_id AND a.workspace_id = c.workspace_id
-    WHERE t.parent_task_id IS NULL
+    WHERE t.workspace_id = ${workspaceId}
+      AND t.parent_task_id IS NULL
       AND t.trace_id IS NOT NULL
       AND t.type = 'user_dm_message'
       AND t.status IN ('completed', 'failed')
       AND t.completed_at > COALESCE(crs.last_read_at, '1970-01-01T00:00:00.000Z')
       AND t.id = (
         SELECT id FROM agent_task_queue
-        WHERE conversation_id = c.id
+        WHERE workspace_id = ${workspaceId}
+          AND conversation_id = c.id
           AND parent_task_id IS NULL
           AND trace_id IS NOT NULL
           AND type = 'user_dm_message'
@@ -94,7 +96,8 @@ export async function getUnreadCount(
       AND c.workspace_id = ${workspaceId}
     LEFT JOIN conversation_read_state crs
       ON crs.conversation_id = t.conversation_id AND crs.user_id = ${userId}
-    WHERE t.parent_task_id IS NULL
+    WHERE t.workspace_id = ${workspaceId}
+      AND t.parent_task_id IS NULL
       AND t.trace_id IS NOT NULL
       AND t.type = 'user_dm_message'
       AND t.status IN ('completed', 'failed')

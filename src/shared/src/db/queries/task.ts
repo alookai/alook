@@ -473,7 +473,8 @@ export async function listActiveTaskCountsByWorkspace(
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
       )
     )
-    .groupBy(agentTaskQueue.agentId);
+    .groupBy(agentTaskQueue.agentId)
+    .limit(200);
 }
 
 export async function listActiveTasksByWorkspace(
@@ -754,6 +755,7 @@ export async function listTraces(
           .from(helperTask)
           .where(
             and(
+              eq(helperTask.workspaceId, workspaceId),
               eq(helperTask.traceId, agentTaskQueue.traceId),
               ne(helperTask.agentId, agentTaskQueue.agentId),
               ne(helperTask.type, TASK_TYPES.KILL_TASK),
@@ -773,6 +775,7 @@ export async function listTraces(
             .from(traceTask)
             .where(
               and(
+                eq(traceTask.workspaceId, workspaceId),
                 eq(traceTask.traceId, agentTaskQueue.traceId),
                 ne(traceTask.type, TASK_TYPES.KILL_TASK),
                 inArray(traceTask.status, ["queued", "dispatched", "running"])
@@ -782,11 +785,11 @@ export async function listTraces(
       );
     } else if (opts.status === "completed") {
       conditions.push(
-        sql`NOT EXISTS (SELECT 1 FROM ${agentTaskQueue} tt WHERE tt.trace_id = ${agentTaskQueue.traceId} AND tt.type != ${TASK_TYPES.KILL_TASK} AND tt.status IN ('queued', 'dispatched', 'running', 'failed'))`
+        sql`NOT EXISTS (SELECT 1 FROM ${agentTaskQueue} tt WHERE tt.workspace_id = ${workspaceId} AND tt.trace_id = ${agentTaskQueue.traceId} AND tt.type != ${TASK_TYPES.KILL_TASK} AND tt.status IN ('queued', 'dispatched', 'running', 'failed'))`
       );
     } else if (opts.status === "failed") {
       conditions.push(
-        sql`NOT EXISTS (SELECT 1 FROM ${agentTaskQueue} tt WHERE tt.trace_id = ${agentTaskQueue.traceId} AND tt.type != ${TASK_TYPES.KILL_TASK} AND tt.status IN ('queued', 'dispatched', 'running'))`
+        sql`NOT EXISTS (SELECT 1 FROM ${agentTaskQueue} tt WHERE tt.workspace_id = ${workspaceId} AND tt.trace_id = ${agentTaskQueue.traceId} AND tt.type != ${TASK_TYPES.KILL_TASK} AND tt.status IN ('queued', 'dispatched', 'running'))`
       );
       const failedTask = alias(agentTaskQueue, "failed_task");
       conditions.push(
@@ -795,6 +798,7 @@ export async function listTraces(
             .from(failedTask)
             .where(
               and(
+                eq(failedTask.workspaceId, workspaceId),
                 eq(failedTask.traceId, agentTaskQueue.traceId),
                 ne(failedTask.type, TASK_TYPES.KILL_TASK),
                 eq(failedTask.status, "failed")
@@ -837,6 +841,7 @@ export async function listTraces(
     .from(agentTaskQueue)
     .where(
       and(
+        eq(agentTaskQueue.workspaceId, workspaceId),
         inArray(agentTaskQueue.traceId, traceIds),
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK),
       )
