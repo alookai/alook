@@ -37,20 +37,75 @@ async function generateUniqueHandle(
   return `${base}-${nanoid(6)}`;
 }
 
-const LINK_INSTRUCTIONS: Record<string, { toLeader: string; fromLeader: string }> = {
-  researcher: {
-    fromLeader: "Delegate research tasks with: clear question, decision context, scope boundary, and expected output format. Researcher will confirm understanding before starting and report back with structured findings + confidence level.",
-    toLeader: "Report findings with: Status (DONE/BLOCKED/NEEDS_CONTEXT), summary, evidence with sources, recommendation, and confidence level. Flag low-confidence conclusions explicitly.",
+type LinkInstruction = { fromLeader: string; toLeader: string };
+
+const SCENARIO_LINK_INSTRUCTIONS: Record<string, Record<string, LinkInstruction>> = {
+  "software-dev": {
+    researcher: {
+      fromLeader: "Delegate technical research: what to investigate (API, library, architecture pattern), what decision it informs, and what format/depth you need back. Include relevant file paths or code pointers.",
+      toLeader: "Report with: Status, technical summary, evidence (file paths, doc URLs, code snippets), recommendation for implementation, and confidence level. Flag anything you couldn't verify from source.",
+    },
+    engineer: {
+      fromLeader: "Delegate coding tasks with: clear requirement, relevant file paths, existing patterns to follow, expected behavior, and test expectations. Include context from researcher findings if relevant.",
+      toLeader: "Report with: Status, files changed with descriptions, test results (pass/fail), self-review findings, and concerns about correctness or edge cases.",
+    },
   },
-  engineer: {
-    fromLeader: "Delegate coding tasks with: clear requirement, relevant context (file paths, existing patterns), and expected behavior. Engineer will ask clarifying questions before starting if anything is ambiguous.",
-    toLeader: "Report results with: Status (DONE/BLOCKED/NEEDS_CONTEXT), files changed, tests run + results, self-review findings, and any concerns about correctness or edge cases.",
+  "content-research": {
+    researcher: {
+      fromLeader: "Delegate content research: topic/claim to investigate, target content format (article, report, social), depth needed (quick check vs. deep dive), and any specific sources to check.",
+      toLeader: "Report with: Status, key facts for the writer, organized source list (URL, date, reliability), verification gaps, angle suggestion, and per-claim confidence levels.",
+    },
+    assistant: {
+      fromLeader: "Delegate content operations: what content to format/publish, which platform, deadline, and any style/formatting requirements.",
+      toLeader: "Report with: Status, what was done (formatted, published, submitted), next step (awaiting review, scheduled for X), and any blockers (platform issues, access problems).",
+    },
   },
-  assistant: {
-    fromLeader: "Delegate operational tasks with: action needed, target person/system, deadline, and tone guidance for external communications.",
-    toLeader: "Report results with: Status (DONE/BLOCKED/NEEDS_CONTEXT), action taken, next step (if any), and escalation flags (e.g., no response, bounced email, conflicting info).",
+  productivity: {
+    assistant: {
+      fromLeader: "Delegate operational tasks: what action, who's the target, what's the deadline, and tone guidance for external communications.",
+      toLeader: "Report with: Status, action taken, next step (waiting for reply, follow-up on X date), and escalation flags (no response, bounced email, conflicting info).",
+    },
+  },
+  "full-team": {
+    researcher: {
+      fromLeader: "Delegate research tasks with: clear question, decision context, scope boundary, and expected output format.",
+      toLeader: "Report with: Status, summary, evidence with sources, recommendation, and confidence level. Flag low-confidence conclusions.",
+    },
+    engineer: {
+      fromLeader: "Delegate coding tasks with: clear requirement, relevant context (file paths, patterns), and expected behavior.",
+      toLeader: "Report with: Status, files changed, tests run + results, self-review findings, and concerns about correctness.",
+    },
+    assistant: {
+      fromLeader: "Delegate operational tasks: action needed, target person/system, deadline, and tone guidance.",
+      toLeader: "Report with: Status, action taken, next step, and escalation flags.",
+    },
   },
 };
+
+const DEFAULT_LINK_INSTRUCTIONS: Record<string, LinkInstruction> = {
+  researcher: {
+    fromLeader: "Delegate research tasks with: clear question, decision context, scope boundary, and expected output format.",
+    toLeader: "Report findings with: Status (DONE/BLOCKED/NEEDS_CONTEXT), summary, evidence with sources, recommendation, and confidence level.",
+  },
+  engineer: {
+    fromLeader: "Delegate coding tasks with: clear requirement, relevant context, and expected behavior.",
+    toLeader: "Report results with: Status (DONE/BLOCKED/NEEDS_CONTEXT), files changed, tests run + results, self-review findings, and concerns.",
+  },
+  assistant: {
+    fromLeader: "Delegate operational tasks with: action needed, target person/system, deadline, and tone guidance.",
+    toLeader: "Report results with: Status (DONE/BLOCKED/NEEDS_CONTEXT), action taken, next step, and escalation flags.",
+  },
+};
+
+function getLinkInstructions(scenario: string | undefined, role: string): LinkInstruction {
+  if (scenario && SCENARIO_LINK_INSTRUCTIONS[scenario]?.[role]) {
+    return SCENARIO_LINK_INSTRUCTIONS[scenario][role];
+  }
+  return DEFAULT_LINK_INSTRUCTIONS[role] || {
+    fromLeader: `Collaborate with this team member.`,
+    toLeader: `Report results back to the leader.`,
+  };
+}
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -164,10 +219,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const createdLinks = [];
 
   for (const specialist of specialists) {
-    const instructions = LINK_INSTRUCTIONS[specialist.role] || {
-      fromLeader: `Collaborate with ${specialist.name}.`,
-      toLeader: `Report results back to the leader.`,
-    };
+    const instructions = getLinkInstructions(body.scenario, specialist.role);
 
     try {
       const link = await queries.agentLink.create(db, {
