@@ -65,7 +65,7 @@ export function WorkspaceListClient({
         return
       }
       const ws = (await res.json()) as WorkspaceItem
-      router.push(`/w/${ws.slug}/home`)
+      router.push(`/studio/new?workspace_id=${ws.id}`)
     } catch {
       setError("Failed to create workspace")
     } finally {

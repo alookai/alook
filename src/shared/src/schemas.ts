@@ -685,3 +685,28 @@ export const WorkspaceFileReportSchema = z.object({
   path: z.string(),
 });
 export type WorkspaceFileReport = z.infer<typeof WorkspaceFileReportSchema>;
+
+// ---------------------------------------------------------------------------
+// Studio onboarding
+// ---------------------------------------------------------------------------
+
+export const StudioMemberSchema = z.object({
+  name: z.string().optional(),
+  role: z.enum(["leader", "researcher", "engineer", "assistant"]),
+  runtime_id: z.string().min(1, "runtime_id is required"),
+  runtime_config: z.object({ model: z.string().max(100).optional() }).passthrough().optional(),
+  description: z.string().optional().default(""),
+  instructions: z.string().optional().default(""),
+  avatar_url: z.string().max(2000).nullable().optional(),
+  email_handle: z.string().max(30).optional(),
+});
+
+export const CreateStudioRequestSchema = z.object({
+  name: z.string().max(100).optional(),
+  scenario: z.string().max(50).optional(),
+  members: z.array(StudioMemberSchema).min(1).max(4),
+}).refine(
+  (v) => v.members.some((m) => m.role === "leader"),
+  { message: "at least one member must have the leader role" },
+);
+export type CreateStudioRequest = z.infer<typeof CreateStudioRequestSchema>;

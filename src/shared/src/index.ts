@@ -155,6 +155,7 @@ export {
   WorkspaceFileBrowseRequestSchema,
   WorkspaceFileEntrySchema,
   WorkspaceFileReportSchema,
+  CreateStudioRequestSchema,
 } from "./schemas";
 
 export type {
@@ -196,6 +197,7 @@ export type {
   WorkspaceFileEntry,
   WorkspaceFileBrowseRequest,
   WorkspaceFileReport,
+  CreateStudioRequest,
 } from "./schemas";
 
 // Database

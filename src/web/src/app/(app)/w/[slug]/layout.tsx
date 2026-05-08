@@ -33,6 +33,11 @@ export default async function WorkspaceLayout({
   )
   if (!membership) redirect("/workspaces")
 
+  const agents = await queries.agent.listAgents(db, ws.id, session.user.id)
+  if (agents.length === 0) {
+    redirect(`/studio/new?workspace_id=${ws.id}`)
+  }
+
   return (
     <WorkspaceProvider workspaceId={ws.id} slug={slug}>
       <AgentProvider workspaceId={ws.id}>

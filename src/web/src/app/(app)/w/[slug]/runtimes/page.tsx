@@ -22,7 +22,7 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Monitor, Plus, Check } from "lucide-react";
+import { Monitor, Plus } from "lucide-react";
 
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { semverGte } from "@alook/shared";
@@ -31,128 +31,7 @@ import { ProviderLogo } from "@/components/provider-logo";
 import { triggerRuntimeUpdate, triggerRuntimeRescan, fetchLatestCliVersion } from "@/lib/api";
 import { Loader2, RefreshCw } from "lucide-react";
 
-function StepIndicator({ step, completed }: { step: number; completed: boolean }) {
-  if (completed) {
-    return (
-      <span className="flex items-center justify-center size-5 rounded-full bg-emerald-500 text-white transition-all duration-300">
-        <Check className="size-3" strokeWidth={3} />
-      </span>
-    );
-  }
-  return (
-    <span className="flex items-center justify-center size-5 rounded-full bg-foreground text-background text-[10px] font-semibold">
-      {step}
-    </span>
-  );
-}
-
-function ConnectMachineSteps({
-  generatedToken,
-  generatingToken,
-  onGenerateToken,
-  registered,
-}: {
-  generatedToken: string;
-  generatingToken: boolean;
-  onGenerateToken: () => void;
-  registered: boolean;
-}) {
-  const hasTriggered = useRef(false);
-
-  useEffect(() => {
-    if (!generatedToken && !generatingToken && !hasTriggered.current) {
-      hasTriggered.current = true;
-      onGenerateToken();
-    }
-  }, [generatedToken, generatingToken, onGenerateToken]);
-
-  const copyRegister = () => {
-    navigator.clipboard.writeText(`${CLI_CMD} register --token ${generatedToken}`);
-    toast.success("Copied to clipboard");
-  };
-
-  const copyDaemon = () => {
-    navigator.clipboard.writeText(`${CLI_CMD} daemon start --foreground`);
-    toast.success("Copied to clipboard");
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Step 1 */}
-      <div className="space-y-2">
-        <p className="text-xs font-medium flex items-center gap-2">
-          <StepIndicator step={1} completed={registered} />
-          Register your CLI
-          {registered && <span className="text-[10px] text-emerald-500 font-normal">Done</span>}
-        </p>
-        <p className="text-xs text-muted-foreground pl-7">
-          Run this in your terminal to link your machine.
-        </p>
-        {generatingToken ? (
-          <div className="pl-7">
-            <div className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground animate-pulse">
-              Generating token...
-            </div>
-          </div>
-        ) : generatedToken ? (
-          <div className="pl-7 space-y-2">
-            <div
-              className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-              onClick={copyRegister}
-              title="Click to copy"
-            >
-              {CLI_CMD} register --token{" "}
-              <span className="text-foreground/70">
-                {generatedToken.slice(0, 12)}...
-              </span>
-            </div>
-            {!registered && (
-              <Button
-                size="sm"
-                onClick={copyRegister}
-                className="w-full"
-              >
-                Copy Command
-              </Button>
-            )}
-          </div>
-        ) : null}
-      </div>
-
-      {/* Step 2 */}
-      <div
-        className={`space-y-2 transition-opacity duration-300 ${!registered ? "opacity-40 pointer-events-none" : ""}`}
-      >
-        <p className="text-xs font-medium flex items-center gap-2">
-          <StepIndicator step={2} completed={false} />
-          Start the daemon
-        </p>
-        <p className="text-xs text-muted-foreground pl-7">
-          The daemon connects your local agents to Alook.
-        </p>
-        <div
-          className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-          onClick={copyDaemon}
-          title="Click to copy"
-        >
-          {CLI_CMD} daemon start --foreground
-        </div>
-        {registered && (
-          <div className="pl-7">
-            <Button
-              size="sm"
-              onClick={copyDaemon}
-              className="w-full"
-            >
-              Copy Command
-            </Button>
-          </div>
-        )}
-      </div>
-
-    </div>
-  );
-}
+import { ConnectMachineSteps } from "@/components/connect-machine-steps";
 
 export default function RuntimesPage() {
   const { agents, runtimes, loading, handleGenerateToken, handleDeleteMachine, subscribeWs, workspaceId } =

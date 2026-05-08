@@ -47,7 +47,7 @@ export default async function WorkspacesPage({
           userId: session.user.id,
           role: "owner",
         })
-        redirect(`/w/${ws.slug}/home`)
+        redirect(`/studio/new?workspace_id=${ws.id}`)
       } catch (err) {
         if (isRedirectError(err)) throw err
         // Slug conflict — append random suffix and retry
@@ -62,6 +62,10 @@ export default async function WorkspacesPage({
   // Auto-redirect to single workspace only on post-login flow
   const params = await searchParams
   if (workspaces.length === 1 && params.auto !== undefined) {
+    const agents = await queries.agent.listAgents(db, workspaces[0].id, session.user.id)
+    if (agents.length === 0) {
+      redirect(`/studio/new?workspace_id=${workspaces[0].id}`)
+    }
     redirect(`/w/${workspaces[0].slug}/home`)
   }
 

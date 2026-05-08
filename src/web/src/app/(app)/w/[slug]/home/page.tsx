@@ -490,7 +490,7 @@ function MobileAgentList() {
 export default function HomePage() {
   const router = useRouter();
   const { agents, runtimes, loading } = useAgentContext();
-  const { slug } = useWorkspace();
+  const { slug, workspaceId } = useWorkspace();
   const isMobile = useIsMobile();
 
   if (loading) {
@@ -502,44 +502,17 @@ export default function HomePage() {
   }
 
   if (agents.length === 0) {
-    const hasOnline = runtimes.some((r) => r.status === "online");
     return (
       <div className="flex flex-1 items-center justify-center">
         <div className="text-center animate-[fade-up_400ms_ease-out_both]">
-          {runtimes.length === 0 ? (
-            <>
-              <p className="text-muted-foreground text-sm">Connect a machine to run your agents.</p>
-              <Button
-                size="sm"
-                className="mt-4 glow-border"
-                onClick={() => router.push(`/w/${slug}/runtimes?connect`)}
-              >
-                Connect Machine
-              </Button>
-            </>
-          ) : !hasOnline ? (
-            <>
-              <p className="text-muted-foreground text-sm">Start the daemon on your machine to bring it online.</p>
-              <Button
-                size="sm"
-                className="mt-4 glow-border"
-                onClick={() => router.push(`/w/${slug}/runtimes`)}
-              >
-                Bring Machine Online
-              </Button>
-            </>
-          ) : (
-            <>
-              <p className="text-muted-foreground text-sm">Your machine is ready. Create your first agent to get started.</p>
-              <Button
-                size="sm"
-                className="mt-4 glow-border"
-                onClick={() => router.push(`/w/${slug}/agents/new`)}
-              >
-                Create Agent
-              </Button>
-            </>
-          )}
+          <p className="text-muted-foreground text-sm">Build your AI studio to get started.</p>
+          <Button
+            size="sm"
+            className="mt-4 glow-border"
+            onClick={() => router.push(`/studio/new?workspace_id=${workspaceId}`)}
+          >
+            Build Studio
+          </Button>
         </div>
       </div>
     );
