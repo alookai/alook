@@ -4,6 +4,7 @@ import { hostname } from "os";
 import { APIClient } from "../lib/client.js";
 import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
 import { cmdPrefix } from "../lib/env.js";
+import { readDaemonPid, isProcessAlive } from "../daemon/pidfile.js";
 
 interface MeResponse {
   id: string;
@@ -176,10 +177,22 @@ export function registerCommand(): Command {
       console.log(`\nRegistered as ${me.email}`);
       console.log(`Workspace: ${ws.name} (${ws.id})`);
       console.log(`Runtimes: ${activateResp.runtimes.map((r) => r.provider).join(", ")}`);
-      console.log();
-      console.log(
-        `Run '${cmdPrefix()} daemon start --foreground' to start the daemon.`,
-      );
+
+      // Notify running daemon to pick up the new workspace
+      const daemonPid = readDaemonPid(profile);
+      if (daemonPid && isProcessAlive(daemonPid)) {
+        try {
+          process.kill(daemonPid, "SIGHUP");
+          console.log(`\nDaemon (pid ${daemonPid}) notified — workspace will be active shortly.`);
+        } catch {
+          console.log(`\nDaemon is running but could not be notified. Restart it to pick up the new workspace.`);
+        }
+      } else {
+        console.log();
+        console.log(
+          `Run '${cmdPrefix()} daemon start --foreground' to start the daemon.`,
+        );
+      }
     });
 
   return cmd;

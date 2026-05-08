@@ -544,6 +544,59 @@ export async function startDaemon(
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
+
+  // SIGHUP: reload config and register any new workspaces
+  process.on("SIGHUP", async () => {
+    if (shuttingDown) return;
+    log.info("SIGHUP received — reloading config...");
+    try {
+      const freshConfig = loadCLIConfigForProfile(profile);
+      const freshWorkspaces = freshConfig.watched_workspaces || [];
+      const existingIds = new Set(workspaceStates.map((ws) => ws.workspaceId));
+
+      const newWorkspaces = freshWorkspaces.filter(
+        (ws) => ws.token && !existingIds.has(ws.id),
+      );
+
+      for (const ws of newWorkspaces) {
+        const runtimes = providers.map((p) => ({ type: p.type, version: p.version }));
+        log.info(`Registering new workspace ${ws.id} (${ws.name ?? "unnamed"})...`);
+        try {
+          const resp = await client.register(ws.token, {
+            workspace_id: ws.id,
+            daemon_id: config.daemonId,
+            device_name: config.deviceName,
+            cli_version: config.cliVersion,
+            runtimes,
+          });
+          const runtimeIds = resp.runtimes.map((r: { id: string }) => r.id);
+          workspaceStates.push({ workspaceId: ws.id, token: ws.token, runtimeIds });
+          for (let i = 0; i < runtimeIds.length; i++) {
+            runtimeIndex.set(runtimeIds[i], {
+              id: runtimeIds[i],
+              workspaceId: ws.id,
+              provider: providers[i].type,
+            });
+          }
+          log.info(`Workspace ${ws.id} added — ${runtimeIds.length} runtime(s)`);
+        } catch (e) {
+          log.error(`Failed to register new workspace ${ws.id}`, e);
+        }
+      }
+
+      if (newWorkspaces.length > 0) {
+        health.setRuntimeCount(
+          workspaceStates.reduce((sum, w) => sum + w.runtimeIds.length, 0),
+        );
+        log.info(`Reload complete — now polling ${workspaceStates.length} workspace(s)`);
+      } else {
+        log.info("Reload complete — no new workspaces found");
+      }
+    } catch (e) {
+      log.error("Failed to reload config", e);
+    }
+  });
+
   await pollCycle();
 }
 
