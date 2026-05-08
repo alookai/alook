@@ -39,16 +39,16 @@ async function generateUniqueHandle(
 
 const LINK_INSTRUCTIONS: Record<string, { toLeader: string; fromLeader: string }> = {
   researcher: {
-    fromLeader: "Ask for research, document reading, and context summaries.",
-    toLeader: "Send findings back so they can be summarized for the user.",
+    fromLeader: "Delegate research tasks with: clear question, decision context, scope boundary, and expected output format. Researcher will confirm understanding before starting and report back with structured findings + confidence level.",
+    toLeader: "Report findings with: Status (DONE/BLOCKED/NEEDS_CONTEXT), summary, evidence with sources, recommendation, and confidence level. Flag low-confidence conclusions explicitly.",
   },
   engineer: {
-    fromLeader: "Ask for code changes, test runs, and implementation checks.",
-    toLeader: "Send code changes and test results back.",
+    fromLeader: "Delegate coding tasks with: clear requirement, relevant context (file paths, existing patterns), and expected behavior. Engineer will ask clarifying questions before starting if anything is ambiguous.",
+    toLeader: "Report results with: Status (DONE/BLOCKED/NEEDS_CONTEXT), files changed, tests run + results, self-review findings, and any concerns about correctness or edge cases.",
   },
   assistant: {
-    fromLeader: "Ask for email follow-ups, reminders, and task tracking.",
-    toLeader: "Report completed follow-ups and upcoming reminders.",
+    fromLeader: "Delegate operational tasks with: action needed, target person/system, deadline, and tone guidance for external communications.",
+    toLeader: "Report results with: Status (DONE/BLOCKED/NEEDS_CONTEXT), action taken, next step (if any), and escalation flags (e.g., no response, bounced email, conflicting info).",
   },
 };
 
