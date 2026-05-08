@@ -35,7 +35,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { ArrowUp, BedDouble, Box, Calendar, CircleDot, FileText, Loader2, Mail, Mic, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, BedDouble, Box, Calendar, CircleDot, FileText, Loader2, Mail, MessageSquareQuote, Mic, Paperclip, Square, X } from "lucide-react";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { useMentionPopup } from "@/hooks/use-mention-popup";
 import { MentionPopup } from "@/components/agent-chat/mention-popup";
@@ -362,6 +362,7 @@ export function AgentChatView() {
   const [renderNow] = useState(() => Date.now());
 
   const [pendingFilesByMessage, setPendingFilesByMessage] = useState<Map<string, File[]>>(() => new Map());
+  const [quotedMessage, setQuotedMessage] = useState<Message | null>(null);
 
   const handleSpeechResult = useCallback((text: string) => {
     setInput((prev) => (prev ? prev + " " + text : text));
@@ -1080,16 +1081,22 @@ export function AgentChatView() {
   };
 
   const handleSend = async () => {
-    const content = input.trim();
-    if ((!content && pendingFiles.length === 0) || sending || !conversation) return;
-    if (!content) {
+    const rawContent = input.trim();
+    if ((!rawContent && pendingFiles.length === 0) || sending || !conversation) return;
+    if (!rawContent) {
       toast.error("Please type a message");
       return;
     }
 
+    // Prepend quoted text as blockquote if present
+    const content = quotedMessage
+      ? `> ${quotedMessage.content.split("\n").join("\n> ")}\n\n${rawContent}`
+      : rawContent;
+
     const filesToSend = [...pendingFiles];
     setInput("");
     setPendingFiles([]);
+    setQuotedMessage(null);
     setSending(true);
 
     const taskActive = !!activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
@@ -1425,7 +1432,14 @@ export function AgentChatView() {
                   const isLastUser = messages.length > 0 && messages[messages.length - 1].id === msg.id;
                   const awaitingRun = isLastUser && !!activeTask && activeTask.status !== "running" && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
                   return (
-                    <div className="flex justify-end" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
+                    <div className="group/msg flex justify-end" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
+                      <button
+                        type="button"
+                        className="opacity-0 group-hover/msg:opacity-100 transition-opacity self-center mr-1.5 p-1 rounded hover:bg-muted text-muted-foreground"
+                        onClick={() => { setQuotedMessage(msg); textareaRef.current?.focus(); }}
+                      >
+                        <MessageSquareQuote className="size-3.5" />
+                      </button>
                       <div className={cn(
                         "max-w-[80%] rounded-lg px-4 py-2 bg-primary text-primary-foreground text-base relative",
                       )}>
@@ -1464,10 +1478,17 @@ export function AgentChatView() {
                     </div>
                   );
                 })() : !hasTaskStream ? (
-                  <div className="flex justify-start" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
+                  <div className="group/msg flex justify-start" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
                     <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
                       <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={MENTION_COMPONENTS}>{highlightMentions(msg.content, agents)}</Streamdown>
                     </div>
+                    <button
+                      type="button"
+                      className="opacity-0 group-hover/msg:opacity-100 transition-opacity self-start mt-1 ml-1 p-1 rounded hover:bg-muted text-muted-foreground"
+                      onClick={() => { setQuotedMessage(msg); textareaRef.current?.focus(); }}
+                    >
+                      <MessageSquareQuote className="size-3.5" />
+                    </button>
                   </div>
                 ) : null}
               </React.Fragment>
@@ -1516,6 +1537,23 @@ export function AgentChatView() {
             {dragging && (
               <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-background/80 border-2 border-dashed border-ring pointer-events-none">
                 <p className="text-sm text-muted-foreground font-medium">Drop files here</p>
+              </div>
+            )}
+            {quotedMessage && (
+              <div className="flex items-center gap-2 px-3.5 pt-2.5 pb-1 border-b border-border/50">
+                <div className="flex-1 min-w-0 flex items-start gap-2">
+                  <MessageSquareQuote className="size-3.5 shrink-0 mt-0.5 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground truncate">
+                    {quotedMessage.content.slice(0, 120)}{quotedMessage.content.length > 120 ? "..." : ""}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setQuotedMessage(null)}
+                  className="shrink-0 p-0.5 rounded-sm hover:bg-muted-foreground/20 transition-colors text-muted-foreground"
+                >
+                  <X className="size-3.5" />
+                </button>
               </div>
             )}
             <MentionPopup

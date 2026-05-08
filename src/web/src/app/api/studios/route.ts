@@ -232,6 +232,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
+  // Pin leader agent by default
+  try {
+    await queries.agentPin.pinAgent(db, {
+      agentId: leaderAgent.id,
+      workspaceId: ws.workspaceId,
+      userId: ctx.userId,
+    });
+  } catch {
+    // Best-effort
+  }
+
   // Enqueue welcome email for leader only
   const leaderRuntime = runtimeCache.get(body.members.find((m) => m.role === "leader")!.runtime_id);
 
@@ -260,6 +271,38 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         ws.workspaceId,
         welcomePrompt,
         TASK_TYPES.EMAIL_NOTIFICATION,
+      );
+    } catch {
+      // Best-effort
+    }
+  }
+
+  // Enqueue welcome chat for leader (DM conversation)
+  if (leaderAgent && leaderRuntime && isOnline(leaderRuntime.machineLastSeenAt)) {
+    try {
+      const teammatesList = createdAgents
+        .filter((a) => a.id !== leaderAgent.id)
+        .map((a) => `- ${a.name} (${a.emailHandle}@alook.ai), role: ${a.role}`)
+        .join("\n");
+
+      const welcomeChatPrompt = createdAgents.length === 1
+        ? `You have just been created by your owner (${ctx.email}). Please introduce yourself as "${leaderAgent.name}" in this chat. 1) Introduce yourself warmly — your name and what you can help with. 2) Briefly introduce the Alook platform. 3) Let them know they can chat with you directly or email you anytime. Be warm, professional, and concise. Reply in the same language as your owner's name or email suggests.`
+        : `You have just been created as the lead of a new AI studio by your owner (${ctx.email}). Your teammates are:\n${teammatesList}\n\nPlease introduce yourself and all your teammates in this chat. Include: 1) Your name. 2) Each teammate's name and what they handle. 3) How the team works together — you coordinate and delegate to specialists. 4) Let them know they can chat with you directly to assign work. Be warm, professional, and concise. Reply in the same language as your owner's name or email suggests.`;
+
+      const dmConv = await queries.conversation.createConversation(db, {
+        workspaceId: ws.workspaceId,
+        agentId: leaderAgent.id,
+        userId: ctx.userId,
+        title: `Welcome`,
+        type: TASK_TYPES.USER_DM_MESSAGE,
+      });
+      const taskService2 = new TaskService(db);
+      await taskService2.enqueueTask(
+        leaderAgent.id,
+        dmConv.id,
+        ws.workspaceId,
+        welcomeChatPrompt,
+        TASK_TYPES.USER_DM_MESSAGE,
       );
     } catch {
       // Best-effort
