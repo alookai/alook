@@ -4,9 +4,10 @@ import { join } from "path";
 import { tmpdir } from "os";
 
 // Mock logger to prevent noise
-vi.mock("../../../lib/logger.js", () => ({
-  log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
+vi.mock("../../../lib/logger.js", () => {
+  const mockLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { createLogger: () => mockLog, log: mockLog };
+});
 
 import { TASK_TYPES } from "@alook/shared";
 import {

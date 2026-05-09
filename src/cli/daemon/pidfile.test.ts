@@ -13,9 +13,10 @@ vi.mock("./config.js", () => ({
   },
 }));
 
-vi.mock("../lib/logger.js", () => ({
-  log: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
-}));
+vi.mock("../lib/logger.js", () => {
+  const mockLog = { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() };
+  return { createLogger: () => mockLog, log: mockLog };
+});
 
 import { acquireDaemonPid, releaseDaemonPid, isProcessAlive, readDaemonPid } from "./pidfile.js";
 

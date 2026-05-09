@@ -4,9 +4,10 @@ const mockRunNpmUpdate = vi.fn();
 vi.mock("../lib/update.js", () => ({
   runNpmUpdate: (...args: any[]) => mockRunNpmUpdate(...args),
 }));
-vi.mock("../lib/logger.js", () => ({
-  log: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
-}));
+vi.mock("../lib/logger.js", () => {
+  const mockLog = { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() };
+  return { createLogger: () => mockLog, log: mockLog };
+});
 
 const mockReadFileSync = vi.fn();
 const mockWriteFileSync = vi.fn();

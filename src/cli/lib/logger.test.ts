@@ -17,7 +17,7 @@ afterEach(() => {
 
 describe("Logger", () => {
   it("filters messages below configured level", () => {
-    const logger = new Logger("warn");
+    const logger = new Logger({ level: "warn" });
     logger.debug("hidden");
     logger.info("hidden");
     logger.warn("visible");
@@ -28,7 +28,7 @@ describe("Logger", () => {
   });
 
   it("formats output with timestamp and level prefix", () => {
-    const logger = new Logger("debug");
+    const logger = new Logger({ level: "debug" });
     logger.info("hello world");
 
     const output = stdoutSpy.mock.calls[0][0] as string;
@@ -36,7 +36,7 @@ describe("Logger", () => {
   });
 
   it("writes error level to stderr", () => {
-    const logger = new Logger("error");
+    const logger = new Logger({ level: "error" });
     logger.error("something broke");
 
     expect(stderrSpy).toHaveBeenCalledTimes(1);
@@ -46,7 +46,7 @@ describe("Logger", () => {
   });
 
   it("writes debug/info/warn to stdout", () => {
-    const logger = new Logger("debug");
+    const logger = new Logger({ level: "debug" });
     logger.debug("d");
     logger.info("i");
     logger.warn("w");
@@ -57,7 +57,7 @@ describe("Logger", () => {
 
   it("respects NO_COLOR environment variable", () => {
     process.env.NO_COLOR = "1";
-    const logger = new Logger("info");
+    const logger = new Logger({ level: "info" });
     logger.info("no colors");
 
     const output = stdoutSpy.mock.calls[0][0] as string;
@@ -65,7 +65,7 @@ describe("Logger", () => {
   });
 
   it("includes extra args on subsequent lines", () => {
-    const logger = new Logger("error");
+    const logger = new Logger({ level: "error" });
     logger.error("failed", new Error("bad input"));
 
     expect(stderrSpy).toHaveBeenCalledTimes(2);
@@ -74,7 +74,7 @@ describe("Logger", () => {
   });
 
   it("silent level suppresses all output", () => {
-    const logger = new Logger("silent");
+    const logger = new Logger({ level: "silent" });
     logger.debug("nope");
     logger.info("nope");
     logger.warn("nope");
@@ -85,12 +85,40 @@ describe("Logger", () => {
   });
 
   it("setLevel changes level at runtime", () => {
-    const logger = new Logger("error");
+    const logger = new Logger({ level: "error" });
     logger.info("hidden");
     expect(stdoutSpy).not.toHaveBeenCalled();
 
     logger.setLevel("debug");
     logger.info("visible");
     expect(stdoutSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes module prefix in output", () => {
+    const logger = new Logger({ level: "info", module: "test-mod" });
+    logger.info("hello");
+
+    const output = stdoutSpy.mock.calls[0][0] as string;
+    expect(output).toContain("[test-mod]");
+    expect(output).toContain("hello");
+  });
+
+  it("child creates logger with module prefix", () => {
+    const parent = new Logger({ level: "info" });
+    const child = parent.child("child-mod");
+    child.info("from child");
+
+    const output = stdoutSpy.mock.calls[0][0] as string;
+    expect(output).toContain("[child-mod]");
+  });
+
+  it("formats object args as key=value pairs", () => {
+    const logger = new Logger({ level: "info" });
+    logger.info("ctx test", { foo: "bar", num: 42 });
+
+    expect(stdoutSpy).toHaveBeenCalledTimes(2);
+    const extra = stdoutSpy.mock.calls[1][0] as string;
+    expect(extra).toContain("foo=bar");
+    expect(extra).toContain("num=42");
   });
 });

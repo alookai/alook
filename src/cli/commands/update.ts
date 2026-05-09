@@ -1,9 +1,6 @@
 import { Command } from "commander";
 import { getCurrentVersion, fetchLatestVersion, runNpmUpdate } from "../lib/update.js";
 import { semverGte } from "@alook/shared";
-import { createLogger } from "../lib/logger.js";
-
-const log = createLogger({ module: "update" });
 
 export function updateCommand(): Command {
   const cmd = new Command("update")
@@ -29,7 +26,9 @@ export function updateCommand(): Command {
       try {
         const res = await fetch(`http://127.0.0.1:${healthPort}/health`);
         if (res.ok) {
-          log.warn("daemon is running on old version — restart with: alook daemon restart");
+          console.warn(
+            "Warning: daemon is running on the old version. After update, restart with: alook daemon restart",
+          );
         }
       } catch {
         // daemon not running — fine

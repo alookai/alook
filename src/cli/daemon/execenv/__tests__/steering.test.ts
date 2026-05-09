@@ -3,9 +3,10 @@ import { existsSync, readFileSync, mkdirSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
-vi.mock("../../../lib/logger.js", () => ({
-  log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
+vi.mock("../../../lib/logger.js", () => {
+  const mockLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  return { createLogger: () => mockLog, log: mockLog };
+});
 
 import {
   writeKillIntent,

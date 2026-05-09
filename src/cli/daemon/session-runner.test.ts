@@ -85,9 +85,10 @@ vi.mock("./agent/index.js", () => ({
   })),
 }));
 
-vi.mock("../lib/logger.js", () => ({
-  log: { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() },
-}));
+vi.mock("../lib/logger.js", () => {
+  const mockLog = { info: vi.fn(), error: vi.fn(), debug: vi.fn(), warn: vi.fn() };
+  return { createLogger: () => mockLog, log: mockLog };
+});
 
 const mockMkdir = vi.fn(async () => undefined);
 const mockWriteFile = vi.fn(async () => undefined);
