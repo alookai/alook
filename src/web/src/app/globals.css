@@ -13,7 +13,7 @@
   --font-sans: var(--font-dm-sans);
   --font-mono: var(--font-dm-mono);
   --font-heading: var(--font-dm-sans);
-  --font-display: var(--font-bricolage);
+  --font-display: var(--font-dm-sans);
   --font-news: var(--font-literata);
   --font-brand: var(--font-caveat);
   --color-sidebar-ring: var(--sidebar-ring);

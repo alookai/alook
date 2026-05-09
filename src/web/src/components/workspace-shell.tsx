@@ -47,7 +47,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     <div className="flex h-dvh overflow-hidden relative">
       <GradientBackground />
       <AppSidebar />
-      <div className="flex-1 flex flex-col min-w-0 pt-1 pr-2 pb-2">
+      <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
         <main className="flex-1 min-h-0 rounded-xl bg-card/80 backdrop-blur-xl shadow-lg ring-1 ring-border/40 overflow-hidden flex flex-col">
           {children}
         </main>

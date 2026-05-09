@@ -3,7 +3,6 @@ import {
   DM_Sans,
   DM_Mono,
   Caveat,
-  Bricolage_Grotesque,
   VT323,
   Literata,
 } from "next/font/google";
@@ -29,12 +28,6 @@ const caveat = Caveat({
   variable: "--font-caveat",
   subsets: ["latin"],
   weight: ["700"],
-});
-
-const bricolage = Bricolage_Grotesque({
-  variable: "--font-bricolage",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700", "800"],
 });
 
 const vt323 = VT323({
@@ -119,7 +112,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${dmSans.variable} ${dmMono.variable} ${caveat.variable} ${bricolage.variable} ${vt323.variable} ${literata.variable} h-full antialiased`}
+      className={`${dmSans.variable} ${dmMono.variable} ${caveat.variable} ${vt323.variable} ${literata.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>

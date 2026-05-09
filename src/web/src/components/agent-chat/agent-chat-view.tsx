@@ -35,7 +35,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { ArrowUp, BedDouble, Box, Calendar, CircleDot, FileText, Loader2, Mail, MessageSquareQuote, Mic, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, BedDouble, Box, FileText, Loader2, Mail, MessageSquareQuote, Mic, Paperclip, Square, X } from "lucide-react";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import { useMentionPopup } from "@/hooks/use-mention-popup";
 import { MentionPopup } from "@/components/agent-chat/mention-popup";
@@ -43,9 +43,8 @@ import { highlightMentions } from "@/lib/highlight-mentions";
 import { ArtifactSheet, formatSize } from "@/components/agent-chat/artifact-sheet";
 import { EmailEventSheet } from "@/components/agent-chat/email-event-sheet";
 import { isPreviewable, getArtifactUrl } from "@/components/artifact-content-renderer";
-import { Streamdown } from "streamdown";
 import { FollowUpBuffer } from "@/components/agent-chat/follow-up-buffer";
-import { HistoricalTaskSteps } from "@/components/agent-chat/historical-task-steps";
+import { MessageItem } from "@/components/agent-chat/message-list";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 
@@ -98,14 +97,6 @@ export function getEventIconType(content: string, conversationType?: string | nu
   return "calendar";
 }
 
-function EventMessageIcon({ content, conversationType }: { content: string; conversationType?: string | null }) {
-  const iconType = getEventIconType(content, conversationType);
-  const className = "h-4 w-4 mt-0.5 shrink-0";
-
-  if (iconType === "issue") return <CircleDot className={className} />;
-  if (iconType === "email") return <Mail className={className} />;
-  return <Calendar className={className} />;
-}
 
 /** Sort messages by (created_at, id) ascending — guarantees chronological order. */
 export function sortMessages(msgs: Message[]): Message[] {
@@ -262,63 +253,6 @@ function ArtifactCard({ artifact, onClick }: { artifact: Artifact; onClick: (a: 
         <p className="text-xs text-muted-foreground">{formatSize(artifact.size)}</p>
       </div>
     </button>
-  );
-}
-
-function AttachmentChips({
-  attachmentIds,
-  artifacts,
-  onArtifactClick,
-}: {
-  attachmentIds: string[];
-  artifacts: Artifact[];
-  onArtifactClick: (a: Artifact) => void;
-}) {
-  const matched = attachmentIds
-    .map((id) => artifacts.find((a) => a.id === id))
-    .filter((a): a is Artifact => !!a);
-
-  if (matched.length === 0) return null;
-
-  return (
-    <div className="flex flex-wrap gap-1.5 mt-1.5">
-      {matched.map((a) => (
-        <button
-          key={a.id}
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onArtifactClick(a); }}
-          className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-0.5 text-xs text-primary-foreground/80 hover:bg-primary-foreground/20 transition-colors cursor-pointer"
-        >
-          <FileText className="size-3 shrink-0" />
-          <span className="truncate max-w-37.5">{a.filename}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function PendingFileChips({
-  pendingFiles,
-  messageId,
-}: {
-  pendingFiles: Map<string, File[]>;
-  messageId: string;
-}) {
-  const files = pendingFiles.get(messageId);
-  if (!files || files.length === 0) return null;
-
-  return (
-    <div className="flex flex-wrap gap-1.5 mt-1.5">
-      {files.map((f, i) => (
-        <span
-          key={i}
-          className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-0.5 text-xs text-primary-foreground/80"
-        >
-          <FileText className="size-3 shrink-0" />
-          <span className="truncate max-w-37.5">{f.name}</span>
-        </span>
-      ))}
-    </div>
   );
 }
 
@@ -1446,88 +1380,29 @@ export function AgentChatView() {
             }
 
             const msg = item.data;
-            const hasTaskStream =
-              activeTask &&
-              msg.role === "assistant" &&
-              msg.task_id === activeTask.id &&
-              taskMessages.length > 0;
-
-            const historicalStepCount =
-              !hasTaskStream &&
-              targetConvId &&
-              msg.role === "assistant" &&
-              msg.task_id &&
-              stepCounts[msg.task_id] > 0
-                ? stepCounts[msg.task_id]
-                : 0;
-
             return (
-              <React.Fragment key={msg.id}>
-                {hasTaskStream && (
-                  <TaskStream
-                    task={activeTask}
-                    messages={taskMessages}
-                    connectionLost={connectionLost}
-                    onRetry={handleRetryTask}
-                  />
-                )}
-                {historicalStepCount > 0 && msg.task_id && (
-                  <HistoricalTaskSteps
-                    taskId={msg.task_id}
-                    stepCount={historicalStepCount}
-                    workspaceId={workspaceId}
-                  />
-                )}
-                {msg.role === "user" ? (() => {
-                  const isLastUser = messages.length > 0 && messages[messages.length - 1].id === msg.id;
-                  const awaitingRun = isLastUser && !!activeTask && activeTask.status !== "running" && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
-                  return (
-                    <div className="flex justify-end" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
-                      <div className={cn(
-                        "max-w-[80%] rounded-lg px-4 py-2 bg-primary text-primary-foreground text-base relative",
-                      )}>
-                        {awaitingRun && (
-                          <div className="absolute inset-0 rounded-lg animate-pulse pointer-events-none" style={{ boxShadow: "0 0 0 2px var(--bubble-glow)" }} />
-                        )}
-                        <div className="markdown markdown-user">
-                          <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: false, download: false, fullscreen: false } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={MENTION_COMPONENTS}>{highlightMentions(msg.content, agents)}</Streamdown>
-                        </div>
-                        {msg.attachment_ids && msg.attachment_ids.length > 0 && (
-                          <AttachmentChips attachmentIds={msg.attachment_ids} artifacts={artifacts} onArtifactClick={handleArtifactClick} />
-                        )}
-                        {!msg.attachment_ids && (
-                          <PendingFileChips pendingFiles={pendingFilesByMessage} messageId={msg.id} />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })() : msg.role === "event" ? (() => {
-                  const eventEmailId = msg.metadata?.emailId as string | undefined;
-                  return (
-                    <div className="flex justify-start" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
-                      <div
-                        className={cn(
-                          "w-full rounded-md border bg-muted/50 text-muted-foreground text-sm px-3 py-2 flex items-start gap-2",
-                          eventEmailId && "cursor-pointer hover:bg-muted transition-colors"
-                        )}
-                        onClick={eventEmailId ? () => {
-                          setSelectedEmailId(eventEmailId);
-                          setEmailSheetOpen(true);
-                        } : undefined}
-                      >
-                        <EventMessageIcon content={msg.content} conversationType={conversation?.type} />
-                        <span>{msg.content}</span>
-                      </div>
-                    </div>
-                  );
-                })() : !hasTaskStream ? (
-                  <div className="flex justify-start" data-quote-source {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
-                    <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
-                      <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={MENTION_COMPONENTS}>{highlightMentions(msg.content, agents)}</Streamdown>
-                    </div>
-                  </div>
-                ) : null}
-              </React.Fragment>
+              <MessageItem
+                key={msg.id}
+                msg={msg}
+                agents={agents}
+                artifacts={artifacts}
+                activeTask={activeTask}
+                taskMessages={taskMessages}
+                connectionLost={connectionLost}
+                isLastMessage={messages.length > 0 && messages[messages.length - 1].id === msg.id}
+                stepCount={msg.task_id ? (stepCounts[msg.task_id] ?? 0) : 0}
+                targetConvId={targetConvId}
+                workspaceId={workspaceId}
+                conversationType={conversation?.type}
+                pendingFilesByMessage={pendingFilesByMessage}
+                onArtifactClick={handleArtifactClick}
+                onEmailClick={(emailId) => {
+                  setSelectedEmailId(emailId);
+                  setEmailSheetOpen(true);
+                }}
+                onRetry={handleRetryTask}
+                mentionComponents={MENTION_COMPONENTS}
+              />
             );
           })}
 
