@@ -139,6 +139,41 @@ function DroppableColumn({ id, children, className }: { id: string; children: Re
   );
 }
 
+function CollapsedCompletedStrip({ activeDragId, completedCount, onExpand }: { activeDragId: string | null; completedCount: number; onExpand: () => void }) {
+  const { isOver, setNodeRef } = useDroppable({ id: "completed" });
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <div
+            ref={setNodeRef}
+            role="button"
+            tabIndex={0}
+            aria-label="Show completed column"
+            onClick={() => { if (!activeDragId) onExpand(); }}
+            onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !activeDragId) { e.preventDefault(); onExpand(); } }}
+            className={cn(
+              "flex h-full items-center justify-center rounded-lg border transition-colors",
+              isOver
+                ? "ring-2 ring-primary/40 bg-primary/5 border-primary/30"
+                : "border-dashed border-border/60 bg-muted/20 cursor-pointer hover:bg-muted/40"
+            )}
+          />
+        }
+      >
+        <div className="flex flex-col items-center justify-center gap-3 h-full py-3">
+          <Eye className="size-3.5 text-muted-foreground/60 shrink-0" />
+          <span className="text-xs font-medium text-muted-foreground" style={{ writingMode: "vertical-rl" }}>
+            Completed ({completedCount})
+          </span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent>{activeDragId ? "Drop to complete" : "Show completed"}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function DraggableIssueCard({
   issue,
   selected,
@@ -177,8 +212,6 @@ export default function IssuesPage() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ issue: Issue & { trace_id?: string | null }; messages: Message[]; comments: IssueComment[]; artifacts: Artifact[] } | null>(null);
@@ -316,20 +349,14 @@ export default function IssuesPage() {
   }, [workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleUpdate = useCallback(async (issueId: string, patch: { title?: string; description?: string }) => {
-    setSaving(true);
     try {
       const updated = await updateIssue(workspaceId, issueId, patch);
       setIssues((prev) => prev.map((i) => i.id === issueId ? { ...i, ...patch, updated_at: updated.updated_at } : i));
-      if (detail?.issue.id === issueId) {
-        setDetail((prev) => prev ? { ...prev, issue: { ...prev.issue, ...patch, updated_at: updated.updated_at } } : prev);
-      }
-      toast.success("Issue updated");
+      setDetail((prev) => prev && prev.issue.id === issueId ? { ...prev, issue: { ...prev.issue, ...patch, updated_at: updated.updated_at } } : prev);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update issue");
-    } finally {
-      setSaving(false);
     }
-  }, [workspaceId, detail]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workspaceId]);
 
   const handleStatusChange = useCallback(async (issueId: string, newStatus: string) => {
     const issue = issues.find((i) => i.id === issueId);
@@ -357,21 +384,6 @@ export default function IssuesPage() {
     }
   }, [workspaceId, issues, detail]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleDeleteFromSheet = useCallback(async (issueId: string) => {
-    setDeleting(true);
-    try {
-      await deleteIssue(workspaceId, issueId);
-      setIssues((prev) => prev.filter((i) => i.id !== issueId));
-      setSheetOpen(false);
-      setSelectedId(null);
-      setDetail(null);
-      toast.success("Issue deleted");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete issue");
-    } finally {
-      setDeleting(false);
-    }
-  }, [workspaceId]);
 
   const handleDeleteIssue = useCallback(async (issueId: string) => {
     try {
@@ -521,31 +533,11 @@ export default function IssuesPage() {
                 );
               })}
               {!showCompleted && (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        aria-label="Show completed column"
-                        onClick={() => { if (!activeDragId) setShowCompleted(true); }}
-                        onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && !activeDragId) { e.preventDefault(); setShowCompleted(true); } }}
-                        className={cn(
-                          "flex h-full items-center justify-center rounded-lg border border-dashed border-border/60 bg-muted/20 transition-colors",
-                          activeDragId ? "pointer-events-none opacity-40" : "cursor-pointer hover:bg-muted/40"
-                        )}
-                      />
-                    }
-                  >
-                    <div className="flex flex-col items-center justify-center gap-3 h-full py-3">
-                      <Eye className="size-3.5 text-muted-foreground/60 shrink-0" />
-                      <span className="text-xs font-medium text-muted-foreground" style={{ writingMode: "vertical-rl" }}>
-                        Completed ({issues.filter(i => (COLUMNS[3].statuses as readonly string[]).includes(i.status)).length})
-                      </span>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>Show completed</TooltipContent>
-                </Tooltip>
+                <CollapsedCompletedStrip
+                  activeDragId={activeDragId}
+                  completedCount={issues.filter(i => (COLUMNS[3].statuses as readonly string[]).includes(i.status)).length}
+                  onExpand={() => setShowCompleted(true)}
+                />
               )}
             </div>
             <DragOverlay style={{ zIndex: 9999 }}>
@@ -636,8 +628,6 @@ export default function IssuesPage() {
         activeTask={activeTask}
         taskLatestText={taskLatestText}
         submitting={creating}
-        saving={saving}
-        deleting={deleting}
         defaultAgentId={recentAgentId}
         slug={slug}
         workspaceId={workspaceId}
@@ -648,7 +638,6 @@ export default function IssuesPage() {
         onCreate={handleCreate}
         onUpdate={handleUpdate}
         onStatusChange={handleStatusChange}
-        onDelete={handleDeleteFromSheet}
         onCommented={() => selectedId && openIssue(selectedId)}
       />
     </div>
