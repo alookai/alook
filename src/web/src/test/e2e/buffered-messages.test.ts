@@ -79,8 +79,8 @@ describe("buffered messages CRUD", () => {
       seed.machineToken,
     )
     expect(res.status).toBe(200)
-    const data = await res.json() as Array<Record<string, unknown>>
-    const buffered = data.filter((m) => m.status === "buffered")
+    const body = await res.json() as { messages: Array<Record<string, unknown>>; has_more: boolean }
+    const buffered = body.messages.filter((m) => m.status === "buffered")
     expect(buffered.length).toBe(0)
   })
 

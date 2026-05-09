@@ -73,9 +73,9 @@ describe("conversations", () => {
       seed.machineToken,
     )
     expect(res.status).toBe(200)
-    const data = await res.json() as Array<Record<string, unknown>>
-    expect(data.length).toBeGreaterThanOrEqual(1)
-    expect(data.some(m => m.content === "Hello from e2e test")).toBe(true)
+    const body = await res.json() as { messages: Array<Record<string, unknown>>; has_more: boolean }
+    expect(body.messages.length).toBeGreaterThanOrEqual(1)
+    expect(body.messages.some(m => m.content === "Hello from e2e test")).toBe(true)
   })
 
   it("POST /api/conversations/:id/messages auto-titles conversation", async () => {
