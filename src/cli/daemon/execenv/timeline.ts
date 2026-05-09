@@ -1,7 +1,9 @@
 import { appendFileSync, readFileSync, writeFileSync, renameSync } from "fs";
 import { join } from "path";
 import { acquireLock, releaseLock } from "./filelock.js";
-import { log } from "../../lib/logger.js";
+import { createLogger } from "../../lib/logger.js";
+
+const log = createLogger({ module: "timeline" });
 
 function readJsonl(filePath: string): ContextTimelineEntry[] {
   let content: string;

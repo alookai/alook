@@ -1,6 +1,8 @@
 import { readFileSync, writeFileSync, unlinkSync } from "fs";
 import { runNpmUpdate } from "../lib/update.js";
-import { log } from "../lib/logger.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger({ module: "updater" });
 import { lastUpdateMarkerPath } from "./config.js";
 
 let updating = false;

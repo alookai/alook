@@ -24,6 +24,7 @@ const COLORS: Record<Exclude<LogLevel, "silent">, string> = {
 
 const RESET = "\x1b[0m";
 const DIM = "\x1b[2m";
+const BOLD = "\x1b[1m";
 
 function useColor(): boolean {
   if (process.env.NO_COLOR !== undefined) return false;
@@ -42,17 +43,30 @@ function timestamp(): string {
   return `${Y}-${M}-${D} ${h}:${m}:${s}`;
 }
 
+export interface LoggerOptions {
+  level?: LogLevel;
+  module?: string;
+}
+
 export class Logger {
   private level: number;
   private color: boolean;
+  private module: string | undefined;
 
-  constructor(level: LogLevel = "info") {
-    this.level = LEVELS[level];
+  constructor(opts: LoggerOptions = {}) {
+    const envLevel = process.env.ALOOK_LOG_LEVEL as LogLevel | undefined;
+    this.level = LEVELS[opts.level ?? envLevel ?? "info"];
     this.color = useColor();
+    this.module = opts.module;
   }
 
   setLevel(level: LogLevel): void {
     this.level = LEVELS[level];
+  }
+
+  child(module: string): Logger {
+    const child = new Logger({ level: this.levelName(), module });
+    return child;
   }
 
   debug(msg: string, ...args: unknown[]): void {
@@ -71,6 +85,13 @@ export class Logger {
     this.write("error", msg, args);
   }
 
+  private levelName(): LogLevel {
+    for (const [name, num] of Object.entries(LEVELS)) {
+      if (num === this.level) return name as LogLevel;
+    }
+    return "info";
+  }
+
   private write(
     level: Exclude<LogLevel, "silent">,
     msg: string,
@@ -80,13 +101,16 @@ export class Logger {
 
     const ts = timestamp();
     const label = LABELS[level];
+    const mod = this.module ? `[${this.module}]` : "";
     let line: string;
 
     if (this.color) {
       const c = COLORS[level];
-      line = `${DIM}${ts}${RESET} ${c}${label}${RESET} ${msg}`;
+      const modStr = mod ? ` ${BOLD}${mod}${RESET}` : "";
+      line = `${DIM}${ts}${RESET} ${c}${label}${RESET}${modStr} ${msg}`;
     } else {
-      line = `${ts} ${label} ${msg}`;
+      const modStr = mod ? ` ${mod}` : "";
+      line = `${ts} ${label}${modStr} ${msg}`;
     }
 
     const dest = level === "error" ? process.stderr : process.stdout;
@@ -95,6 +119,14 @@ export class Logger {
     for (const a of args) {
       if (a instanceof Error) {
         dest.write(`  ${a.message}\n`);
+        if (a.stack && this.level <= LEVELS.debug) {
+          dest.write(`  ${a.stack}\n`);
+        }
+      } else if (a !== null && typeof a === "object") {
+        const pairs = Object.entries(a as Record<string, unknown>)
+          .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`)
+          .join(" ");
+        if (pairs) dest.write(`  ${pairs}\n`);
       } else if (a !== undefined) {
         dest.write(`  ${String(a)}\n`);
       }
@@ -102,9 +134,8 @@ export class Logger {
   }
 }
 
-export function createLogger(level?: LogLevel): Logger {
-  const envLevel = process.env.ALOOK_LOG_LEVEL as LogLevel | undefined;
-  return new Logger(level ?? envLevel ?? "info");
+export function createLogger(opts?: LoggerOptions): Logger {
+  return new Logger(opts);
 }
 
 export const log = createLogger();

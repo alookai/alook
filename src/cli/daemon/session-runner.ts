@@ -19,7 +19,9 @@ import {
 } from "./execenv/timeline.js";
 import { readKillIntent, clearKillIntent } from "./execenv/steering.js";
 import { buildPrompt } from "./prompt.js";
-import { log } from "../lib/logger.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger({ module: "session-runner" });
 import { tempDir } from "../lib/platform.js";
 import type { SessionRunnerInput, Attachment } from "./types.js";
 

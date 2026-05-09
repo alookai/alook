@@ -16,15 +16,14 @@ import {
 import type { TranscriptEntry } from "@alook/shared/browser"
 import { join } from "path"
 import { tempDir } from "../lib/platform.js"
+import { createLogger } from "../lib/logger.js"
+
+const log = createLogger({ module: "meeting-runner" })
 
 const SCRAPE_INTERVAL_MS = 3_000
 const DEFAULT_BOT_NAME = "Alook Meeting Bot"
 const MAX_RETRY_DURATION_MS = 30 * 60 * 1000
 const RETRY_BACKOFF = [30_000, 60_000, 120_000, 300_000]
-
-function log(msg: string) {
-  console.log(`[meeting-runner] ${new Date().toISOString()} ${msg}`)
-}
 
 export interface MeetingRunnerInput {
   meetingId: string
@@ -59,9 +58,9 @@ async function callbackWeb(
       },
       body: payload,
     })
-    log(`Callback ${status} → ${res.status}`)
+    log.info(`callback ${status} → HTTP ${res.status}`, { meeting: input.meetingId })
   } catch (err) {
-    log(`Callback failed: ${err instanceof Error ? err.message : err}`)
+    log.error(`callback failed: ${err instanceof Error ? err.message : err}`, { meeting: input.meetingId })
   }
 }
 
@@ -95,7 +94,7 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
   try {
     const botName = input.agentName ? `${input.agentName} (Alook)` : DEFAULT_BOT_NAME
     await joinMeeting(page, input.meetingUrl, botName)
-    log("Joined. Waiting for meeting UI...")
+    log.info("joined meeting, waiting for UI ready...", { meeting: input.meetingId })
     await waitForMeetingReady(page)
 
     await page.evaluate(() => {
@@ -106,12 +105,12 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
         }
       }
     })
-    log("Meeting ready. Enabling captions...")
+    log.info("meeting ready, enabling captions...", { meeting: input.meetingId })
 
     await enableCaptions(page)
     await page.evaluate(buildCaptionObserverScript())
     await page.evaluate(buildAloneDetectorScript())
-    log("Captions enabled, observer injected. Scraping loop started.")
+    log.info("captions enabled, scraping loop started", { meeting: input.meetingId })
 
     let scrapeCount = 0
     while (true) {
@@ -122,9 +121,9 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
           const finalCaptions = parseCaptionElements(finalRaw)
           if (finalCaptions.length > 0) {
             transcript = deduplicateCaptions(transcript, finalCaptions, meetingStartMs, Date.now())
-            log(`Final scrape: ${finalCaptions.length} caption(s), total ${transcript.length}`)
+            log.debug(`final scrape: ${finalCaptions.length} caption(s), total ${transcript.length}`, { meeting: input.meetingId })
           }
-          log("Meeting ended (no longer active)")
+          log.info("meeting ended (no longer active)", { meeting: input.meetingId })
           break
         }
 
@@ -136,13 +135,13 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
           const prevLen = transcript.length
           transcript = deduplicateCaptions(transcript, captions, meetingStartMs, Date.now())
           if (transcript.length > prevLen) {
-            log(`Caption: ${captions[captions.length - 1].speaker}: "${captions[captions.length - 1].text}" (total ${transcript.length})`)
+            log.debug(`caption: ${captions[captions.length - 1].speaker}: "${captions[captions.length - 1].text}" (total ${transcript.length})`, { meeting: input.meetingId })
           }
         } else if (scrapeCount <= 5) {
-          log(`Scrape #${scrapeCount}: no captions yet`)
+          log.debug(`scrape #${scrapeCount}: no captions yet`, { meeting: input.meetingId })
         }
       } catch (err) {
-        log(`Scrape error: ${err instanceof Error ? err.message : err}`)
+        log.error(`scrape error: ${err instanceof Error ? err.message : err}`, { meeting: input.meetingId })
         break
       }
 
@@ -156,10 +155,10 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
     if (msg.includes("Blocked from joining")) {
       const screenshotPath = join(tempDir("alook-meetings"), `meeting-${input.meetingId}-blocked.png`)
       await page.screenshot({ path: screenshotPath }).catch(() => {})
-      log(`Blocked — screenshot: ${screenshotPath}`)
+      log.warn(`blocked from joining, screenshot saved: ${screenshotPath}`, { meeting: input.meetingId })
       return { status: "blocked", transcript, error: msg }
     }
-    log(`Error: ${msg}`)
+    log.error(`unexpected error: ${msg}`, { meeting: input.meetingId })
     return { status: "error", transcript, error: msg }
   } finally {
     await page.close().catch(() => {})
@@ -168,15 +167,15 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
 }
 
 async function run(input: MeetingRunnerInput): Promise<void> {
-  log(`Starting: ${input.meetingUrl} (${input.meetingId})`)
+  log.info(`starting meeting: url=${input.meetingUrl}`, { meeting: input.meetingId, workspace: input.workspaceId })
 
   let chromePath: string
   try {
     chromePath = ensureChrome()
-    log(`Chrome found: ${chromePath}`)
+    log.debug(`chrome found: ${chromePath}`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
-    log(`Chrome setup failed: ${msg}`)
+    log.error(`chrome setup failed: ${msg}`, { meeting: input.meetingId })
     await callbackWeb(input, "failed", undefined, `Chrome setup failed: ${msg}`)
     process.exit(1)
   }
@@ -186,13 +185,13 @@ async function run(input: MeetingRunnerInput): Promise<void> {
 
   while (true) {
     attempt++
-    log(attempt > 1 ? `Retry attempt #${attempt}...` : "Launching browser (en-US, stealth)...")
+    log.info(attempt > 1 ? `retry attempt #${attempt}` : "launching browser (en-US, stealth)...", { meeting: input.meetingId })
 
     const result = await tryJoinAndRecord(input, chromePath)
 
     if (result.status === "completed") {
       const transcriptText = formatTranscript(result.transcript)
-      log(`Completed: ${result.transcript.length} transcript entries`)
+      log.info(`completed: ${result.transcript.length} transcript entries`, { meeting: input.meetingId })
       await callbackWeb(input, "completed", transcriptText)
       return
     }
@@ -200,12 +199,12 @@ async function run(input: MeetingRunnerInput): Promise<void> {
     if (result.status === "blocked") {
       const elapsed = Date.now() - startTime
       if (elapsed >= MAX_RETRY_DURATION_MS) {
-        log(`Giving up after ${Math.round(elapsed / 60_000)}min of retries`)
+        log.warn(`giving up after ${Math.round(elapsed / 60_000)}min of retries`, { meeting: input.meetingId })
         await callbackWeb(input, "failed", undefined, result.error)
         return
       }
       const backoff = RETRY_BACKOFF[Math.min(attempt - 1, RETRY_BACKOFF.length - 1)]
-      log(`Blocked, retrying in ${backoff / 1000}s (attempt ${attempt}, ${Math.round(elapsed / 60_000)}min elapsed)`)
+      log.info(`blocked, retrying in ${backoff / 1000}s (attempt=${attempt}, elapsed=${Math.round(elapsed / 60_000)}min)`, { meeting: input.meetingId })
       await new Promise((resolve) => setTimeout(resolve, backoff))
       continue
     }
@@ -227,6 +226,6 @@ const input: MeetingRunnerInput = JSON.parse(
 )
 
 run(input).then(() => process.exit(0)).catch((err) => {
-  log(`Fatal: ${err instanceof Error ? err.message : err}`)
+  log.error(`fatal: ${err instanceof Error ? err.message : err}`)
   process.exit(1)
 })

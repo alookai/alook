@@ -1,7 +1,9 @@
 import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import { pidFilePath } from "./config.js";
-import { log } from "../lib/logger.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger({ module: "pidfile" });
 
 export function isProcessAlive(pid: number): boolean {
   try {

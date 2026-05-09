@@ -5,7 +5,9 @@ import { detectVersion } from "./agent/index.js";
 import { type Task, type SessionRunnerInput, fromApiTask } from "./types.js";
 import type { MarkerData } from "./session-runner.js";
 import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
-import { log } from "../lib/logger.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger({ module: "daemon" });
 import { cmdPrefix } from "../lib/env.js";
 import { acquireDaemonPid, releaseDaemonPid } from "./pidfile.js";
 import { handleCliUpdate, isUpdating, readUpdateMarker, clearUpdateMarker } from "./update-handler.js";

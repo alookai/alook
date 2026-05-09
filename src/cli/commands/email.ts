@@ -7,6 +7,9 @@ import { loadCLIConfigForProfile } from "../lib/config.js";
 import { printJSON, printTable } from "../lib/output.js";
 import { cmdPrefix } from "../lib/env.js";
 import { tempDir } from "../lib/platform.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger({ module: "email" });
 
 interface EmailResponse {
   id: string;
@@ -225,9 +228,7 @@ export function emailCommand(): Command {
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             if (msg.includes("404")) {
-              console.warn(
-                `Warning: email body not available for ${email.id}, skipping`,
-              );
+              log.warn(`email body not available for ${email.id}, skipping`);
               continue;
             }
             throw err;
@@ -400,7 +401,7 @@ export function emailCommand(): Command {
               references = [parentEmail.references, parentEmail.message_id].filter(Boolean).join(" ").trim() || undefined;
             }
           } catch {
-            console.warn(`Warning: could not fetch parent email ${opts.inReplyTo}, sending without threading`);
+            log.warn(`could not fetch parent email ${opts.inReplyTo}, sending without threading`);
           }
         }
 

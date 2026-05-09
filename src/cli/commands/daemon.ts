@@ -11,6 +11,9 @@ import {
 } from "../daemon/pidfile.js";
 import { resolveLoginShellEnv } from "../lib/shell-env.js";
 import { isWindows } from "../lib/platform.js";
+import { createLogger } from "../lib/logger.js";
+
+const log = createLogger({ module: "daemon-cmd" });
 
 const PID_POLL_INTERVAL_MS = 200;
 const PID_POLL_TIMEOUT_MS = 2000;
@@ -121,9 +124,7 @@ async function stopCommand(profile: string | undefined): Promise<void> {
     await sleep(STOP_POLL_INTERVAL_MS);
   }
 
-  console.warn(
-    `Daemon did not exit within ${shutdownMs}ms — force killing.`,
-  );
+  log.warn(`daemon did not exit within ${shutdownMs}ms, force killing (pid=${pid})`);
   if (!isWindows) {
     try {
       process.kill(pid, "SIGKILL");

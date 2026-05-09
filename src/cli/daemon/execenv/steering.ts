@@ -1,7 +1,9 @@
 import { mkdirSync, writeFileSync, readFileSync, unlinkSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 import { acquireLock, releaseLock } from "./filelock.js";
-import { log } from "../../lib/logger.js";
+import { createLogger } from "../../lib/logger.js";
+
+const log = createLogger({ module: "steering" });
 
 export interface KillIntent {
   reason: "superseded" | "cancelled";
