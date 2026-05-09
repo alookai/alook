@@ -167,18 +167,21 @@ export function AvatarGenerator({ config, onChange, layout = "vertical", mobile 
   }, [layout, onChange]);
 
   const renderShapeThumb = (key: string) => (
-    <svg viewBox="0 0 200 200" width="40" height="40" className="dark:invert">
-      {Shapes[key]?.render()}
+    <svg viewBox="0 0 200 200" width="40" height="40">
+      <rect width="200" height="200" rx="56" fill="hsl(var(--muted))" />
+      <g transform="translate(100,100) scale(0.8) translate(-100,-100)">
+        {Shapes[key]?.render()}
+      </g>
     </svg>
   );
   const renderNoseThumb = (key: string) => (
-    <svg viewBox="-14 -10 28 20" width="36" height="24" className="dark:invert">
-      {Noses[key]?.render()}
+    <svg viewBox="-14 -10 28 20" width="36" height="24">
+      {Noses[key]?.render("currentColor")}
     </svg>
   );
   const renderEyeThumb = (key: string) => (
-    <svg viewBox="-18 -8 36 16" width="44" height="22" className="dark:invert">
-      {Eyes[key]?.render(8)}
+    <svg viewBox="-18 -10 36 20" width="44" height="24">
+      {Eyes[key]?.render(8, "currentColor")}
     </svg>
   );
 
@@ -265,16 +268,13 @@ export function AvatarGenerator({ config, onChange, layout = "vertical", mobile 
                 type="button"
                 onClick={() => onChange(p.config)}
                 className={cn(
-                  "flex flex-col items-center gap-1 rounded-xl border p-2 transition-all",
+                  "flex items-center justify-center rounded-xl border p-2 transition-all",
                   isActive
                     ? "border-primary border-2 bg-primary/5 shadow-sm"
                     : "border-border bg-background hover:border-primary/40"
                 )}
               >
                 <AvatarRenderer config={p.config} size={56} />
-                <span className="text-[10px] text-muted-foreground">
-                  {p.name}
-                </span>
               </button>
             );
           })}
@@ -327,7 +327,7 @@ export function AvatarGenerator({ config, onChange, layout = "vertical", mobile 
                       ? "ring-2 ring-primary ring-offset-2"
                       : "ring-1 ring-border"
                   )}
-                  style={{ backgroundColor: c.value }}
+                  style={{ background: `linear-gradient(135deg, ${c.gradient[0]}, ${c.gradient[1]}, ${c.gradient[2]})` }}
                 />
               ))}
             </div>

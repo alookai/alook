@@ -1,25 +1,15 @@
-// Avatar parts library — inline SVG components for modular avatar generation.
-// Ported from Jacky's Notion-style avatar generator prototype.
-// All shapes are pure SVG paths — no external PNG files needed.
-
+import { useId } from "react";
 import type { ReactNode } from "react";
 
 // ─────────────────────────────────────────────────────────────
-// STROKE / FILL CONSTANTS
+// STYLE CONSTANTS
 // ─────────────────────────────────────────────────────────────
-const STROKE = "#1F1F1F";
-const FILL = "#FFFFFF";
-const SW_OUT = 8;
-const SW_INNER = 5;
-const SW_FACE = 5;
+const SHAPE_FILL = "rgba(255,255,255,0.92)";
+const SHAPE_STROKE = "rgba(255,255,255,0.95)";
+const SHAPE_SW = 3.5;
+const DEFAULT_FACE_COLOR = "#27272a";
 
-const sp = (w = SW_OUT) =>
-  ({ fill: FILL, stroke: STROKE, strokeWidth: w, strokeLinejoin: "round" as const, strokeLinecap: "round" as const });
-const lp = (w = SW_INNER) =>
-  ({ fill: "none", stroke: STROKE, strokeWidth: w, strokeLinejoin: "round" as const, strokeLinecap: "round" as const });
-const lpf = (w = SW_FACE) =>
-  ({ fill: "none", stroke: STROKE, strokeWidth: w, strokeLinejoin: "round" as const, strokeLinecap: "round" as const });
-const fp = { fill: STROKE };
+const shapeStyle = { fill: SHAPE_FILL, stroke: SHAPE_STROKE, strokeWidth: SHAPE_SW };
 
 // ─────────────────────────────────────────────────────────────
 // PALETTES
@@ -27,25 +17,27 @@ const fp = { fill: STROKE };
 export interface ColorOption {
   name: string;
   value: string;
+  gradient: [string, string, string];
+  faceColor: string;
 }
 
 export const BG_COLORS: ColorOption[] = [
-  { name: "Purple", value: "#9B7FE8" },
-  { name: "Teal", value: "#2BAA9C" },
-  { name: "Orange", value: "#F39A4F" },
-  { name: "Blue", value: "#3D7EE8" },
-  { name: "Pink", value: "#F8B4C4" },
-  { name: "Yellow", value: "#F4C141" },
-  { name: "Green", value: "#7FCB6F" },
-  { name: "Beige", value: "#D6CCB8" },
-  { name: "Red", value: "#EE5E48" },
-  { name: "Lake Blue", value: "#3FA8C0" },
-  { name: "Gray", value: "#C9D1D9" },
-  { name: "Deep Purple", value: "#6A4DCC" },
+  { name: "Purple",      value: "#a855f7", gradient: ["#c084fc", "#a855f7", "#7c3aed"], faceColor: "#2e1065" },
+  { name: "Teal",        value: "#14b8a6", gradient: ["#5eead4", "#14b8a6", "#0d9488"], faceColor: "#134e4a" },
+  { name: "Orange",      value: "#f97316", gradient: ["#fdba74", "#f97316", "#c2410c"], faceColor: "#7c2d12" },
+  { name: "Blue",        value: "#3b82f6", gradient: ["#93c5fd", "#3b82f6", "#1d4ed8"], faceColor: "#1e3a5f" },
+  { name: "Pink",        value: "#f472b6", gradient: ["#fda4af", "#f472b6", "#be185d"], faceColor: "#831843" },
+  { name: "Yellow",      value: "#eab308", gradient: ["#fde047", "#eab308", "#a16207"], faceColor: "#713f12" },
+  { name: "Green",       value: "#22c55e", gradient: ["#86efac", "#22c55e", "#15803d"], faceColor: "#14532d" },
+  { name: "Beige",       value: "#d6ccb8", gradient: ["#e8e0d4", "#d6ccb8", "#b8a990"], faceColor: "#57534e" },
+  { name: "Red",         value: "#ef4444", gradient: ["#fca5a5", "#ef4444", "#991b1b"], faceColor: "#7f1d1d" },
+  { name: "Lake Blue",   value: "#6366f1", gradient: ["#a5b4fc", "#6366f1", "#3730a3"], faceColor: "#312e81" },
+  { name: "Gray",        value: "#9ca3af", gradient: ["#d4d4d8", "#9ca3af", "#6b7280"], faceColor: "#374151" },
+  { name: "Deep Purple", value: "#8b5cf6", gradient: ["#c4b5fd", "#8b5cf6", "#5b21b6"], faceColor: "#3b0764" },
 ];
 
 // ─────────────────────────────────────────────────────────────
-// SHAPES (outlines)
+// SHAPES (rounded silhouettes only)
 // ─────────────────────────────────────────────────────────────
 export interface ShapeDef {
   name: string;
@@ -56,89 +48,62 @@ export interface ShapeDef {
 export const Shapes: Record<string, ShapeDef> = {
   circle: {
     name: "Circle",
-    face: { cx: 100, cy: 105, w: 80 },
-    render: () => <circle cx="100" cy="100" r="70" {...sp()} />,
+    face: { cx: 100, cy: 100, w: 80 },
+    render: () => <circle cx="100" cy="100" r="66" {...shapeStyle} />,
   },
   rounded: {
     name: "Rounded",
-    face: { cx: 100, cy: 105, w: 90 },
-    render: () => <rect x="30" y="30" width="140" height="140" rx="20" {...sp()} />,
+    face: { cx: 100, cy: 100, w: 90 },
+    render: () => <rect x="30" y="30" width="140" height="140" rx="32" {...shapeStyle} />,
   },
   hexagon: {
     name: "Hexagon",
-    face: { cx: 100, cy: 105, w: 86 },
-    render: () => <path d="M100 28 L162 64 L162 136 L100 172 L38 136 L38 64 Z" {...sp()} />,
+    face: { cx: 100, cy: 100, w: 86 },
+    render: () => (
+      <path d="M100 32 C108 32 114 35 120 39 L155 60 C161 64 165 70 165 78 L165 122 C165 130 161 136 155 140 L120 161 C114 165 108 168 100 168 C92 168 86 165 80 161 L45 140 C39 136 35 130 35 122 L35 78 C35 70 39 64 45 60 L80 39 C86 35 92 32 100 32 Z" {...shapeStyle} />
+    ),
   },
   task: {
     name: "Task",
-    face: { cx: 92, cy: 92, w: 70 },
-    render: () => (
-      <g>
-        <rect x="34" y="34" width="132" height="132" rx="14" {...sp()} />
-        <path d="M70 110 L102 138 L168 64" {...lp(SW_OUT)} />
-      </g>
-    ),
+    face: { cx: 100, cy: 100, w: 80 },
+    render: () => <rect x="34" y="34" width="132" height="132" rx="24" {...shapeStyle} />,
   },
   book: {
     name: "Book",
-    face: { cx: 100, cy: 105, w: 90 },
+    face: { cx: 100, cy: 100, w: 80 },
     render: () => (
-      <g>
-        <path d="M30 60 C 60 50, 85 56, 100 70 C 115 56, 140 50, 170 60 L 170 158 C 140 148, 115 154, 100 168 C 85 154, 60 148, 30 158 Z" {...sp()} />
-        <path d="M100 70 L100 84" {...lp(SW_INNER)} />
-        <path d="M100 154 L100 168" {...lp(SW_INNER)} />
-      </g>
+      <path d="M42 162 L42 88 C42 54 68 34 100 34 C132 34 158 54 158 88 L158 162 C158 166 154 170 150 170 L50 170 C46 170 42 166 42 162 Z" {...shapeStyle} />
     ),
   },
   mail: {
     name: "Mail",
-    face: { cx: 100, cy: 118, w: 80 },
-    render: () => (
-      <g>
-        <rect x="30" y="56" width="140" height="100" rx="12" {...sp()} />
-        <path d="M36 64 L100 108 L164 64" {...lp(SW_INNER)} />
-      </g>
-    ),
+    face: { cx: 100, cy: 100, w: 86 },
+    render: () => <rect x="28" y="54" width="144" height="92" rx="46" {...shapeStyle} />,
   },
   calendar: {
     name: "Calendar",
-    face: { cx: 100, cy: 122, w: 80 },
+    face: { cx: 100, cy: 100, w: 80 },
     render: () => (
-      <g>
-        <rect x="30" y="48" width="140" height="124" rx="12" {...sp()} />
-        <path d="M30 80 L170 80" {...lp(SW_INNER)} />
-        <path d="M62 36 L62 60" {...lp(SW_INNER)} />
-        <path d="M138 36 L138 60" {...lp(SW_INNER)} />
-      </g>
+      <path d="M100 34 C138 34 166 52 166 80 C166 94 158 106 158 118 C158 148 138 166 100 166 C62 166 42 148 42 118 C42 106 34 94 34 80 C34 52 62 34 100 34 Z" {...shapeStyle} />
     ),
   },
   bulb: {
     name: "Bulb",
-    face: { cx: 100, cy: 100, w: 70 },
-    render: () => (
-      <g>
-        <path d="M100 26 C 62 26, 36 52, 36 86 C 36 110, 52 126, 68 138 L 68 148 A 6 6 0 0 0 74 154 L 126 154 A 6 6 0 0 0 132 148 L 132 138 C 148 126, 164 110, 164 86 C 164 52, 138 26, 100 26 Z" {...sp()} />
-        <path d="M76 162 L124 162" {...lp(SW_INNER)} />
-        <path d="M82 172 L118 172" {...lp(SW_INNER)} />
-      </g>
-    ),
+    face: { cx: 100, cy: 104, w: 76 },
+    render: () => <ellipse cx="100" cy="104" rx="58" ry="66" {...shapeStyle} />,
   },
   folder: {
     name: "Folder",
-    face: { cx: 100, cy: 118, w: 90 },
+    face: { cx: 102, cy: 108, w: 80 },
     render: () => (
-      <path d="M30 64 A 10 10 0 0 1 40 54 L 84 54 L 96 66 L 160 66 A 10 10 0 0 1 170 76 L 170 158 A 10 10 0 0 1 160 168 L 40 168 A 10 10 0 0 1 30 158 Z" {...sp()} />
+      <path d="M62 144 C40 144 32 128 36 116 C32 104 40 90 54 88 C56 72 70 60 88 62 C100 50 118 50 132 58 C144 52 162 60 162 76 C172 82 174 98 166 108 C172 120 164 136 150 140 Z" {...shapeStyle} />
     ),
   },
   mountain: {
     name: "Mountain",
-    face: { cx: 100, cy: 130, w: 70 },
+    face: { cx: 100, cy: 100, w: 76 },
     render: () => (
-      <g>
-        <path d="M28 168 L100 56 L172 168 Z" {...sp()} />
-        <path d="M100 56 L100 28" {...lpf(SW_INNER)} />
-        <path d="M100 30 L122 38 L100 46" {...sp(SW_INNER)} />
-      </g>
+      <path d="M92 36 C120 32 156 48 164 78 C172 108 156 148 124 160 C92 172 48 156 38 124 C28 92 62 40 92 36 Z" {...shapeStyle} />
     ),
   },
 };
@@ -146,21 +111,47 @@ export const Shapes: Record<string, ShapeDef> = {
 export const SHAPE_KEYS = Object.keys(Shapes);
 
 // ─────────────────────────────────────────────────────────────
-// NOSES
+// NOSES (mouths)
 // ─────────────────────────────────────────────────────────────
 export interface NoseDef {
   name: string;
-  render: () => ReactNode;
+  render: (color?: string) => ReactNode;
 }
 
 export const Noses: Record<string, NoseDef> = {
-  dot:   { name: "Dot",    render: () => <circle cx="0" cy="0" r="3.2" {...fp} /> },
-  dash:  { name: "Dash",   render: () => <line x1="-8" y1="0" x2="8" y2="0" {...lpf(SW_FACE)} /> },
-  hookL: { name: "Hook",   render: () => <path d="M-4 -6 L-4 5 L7 5" {...lpf(SW_FACE)} /> },
-  smile: { name: "Smile",  render: () => <path d="M-8 -3 Q0 7 8 -3" {...lpf(SW_FACE)} /> },
-  caret: { name: "Caret",  render: () => <path d="M-8 5 L0 -5 L8 5" {...lpf(SW_FACE)} /> },
-  arrow: { name: "Arrow",  render: () => <path d="M-8 -3 L0 4 L8 -3" {...lpf(SW_FACE)} /> },
-  oh:    { name: "o",      render: () => <circle cx="0" cy="0" r="4" {...lpf(SW_FACE - 1)} /> },
+  dot: {
+    name: "Dot",
+    render: (c = DEFAULT_FACE_COLOR) => <circle cx="0" cy="0" r="3" fill={c} />,
+  },
+  dash: {
+    name: "Dash",
+    render: (c = DEFAULT_FACE_COLOR) => <line x1="-7" y1="0" x2="7" y2="0" stroke={c} strokeWidth="4" strokeLinecap="round" />,
+  },
+  hookL: {
+    name: "Hook",
+    render: (c = DEFAULT_FACE_COLOR) => <path d="M-8 0 Q-4 5 0 1 Q4 5 8 0" fill="none" stroke={c} strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />,
+  },
+  smile: {
+    name: "Smile",
+    render: (c = DEFAULT_FACE_COLOR) => <path d="M-8 0 Q0 8 8 0" fill="none" stroke={c} strokeWidth="4" strokeLinecap="round" />,
+  },
+  caret: {
+    name: "Caret",
+    render: (c = DEFAULT_FACE_COLOR) => (
+      <g>
+        <path d="M-7 0 Q0 6 7 0" fill="none" stroke={c} strokeWidth="3.5" strokeLinecap="round" />
+        <ellipse cx="2" cy="5" rx="3" ry="3.5" fill="#f472b6" />
+      </g>
+    ),
+  },
+  arrow: {
+    name: "Arrow",
+    render: (c = DEFAULT_FACE_COLOR) => <ellipse cx="0" cy="0" rx="4.5" ry="5.5" fill={c} />,
+  },
+  oh: {
+    name: "o",
+    render: (c = DEFAULT_FACE_COLOR) => <ellipse cx="0" cy="0" rx="5" ry="5.5" fill="none" stroke={c} strokeWidth="3.5" />,
+  },
 };
 
 export const NOSE_KEYS = Object.keys(Noses);
@@ -170,46 +161,65 @@ export const NOSE_KEYS = Object.keys(Noses);
 // ─────────────────────────────────────────────────────────────
 export interface EyeDef {
   name: string;
-  render: (dx: number) => ReactNode;
+  render: (dx: number, color?: string) => ReactNode;
 }
 
-const eye = (l: ReactNode, r: ReactNode = l) => {
-  const EyePair = (dx: number) => (
-  <g>
-    <g transform={`translate(${-dx}, 0)`}>{l}</g>
-    <g transform={`translate(${dx}, 0)`}>{r}</g>
-  </g>
+const eye = (l: (c: string) => ReactNode, r?: (c: string) => ReactNode) => {
+  const rFn = r ?? l;
+  const EyePair = (dx: number, c = DEFAULT_FACE_COLOR) => (
+    <g>
+      <g transform={`translate(${-dx}, 0)`}>{l(c)}</g>
+      <g transform={`translate(${dx}, 0)`}>{rFn(c)}</g>
+    </g>
   );
   EyePair.displayName = "EyePair";
   return EyePair;
 };
 
 export const Eyes: Record<string, EyeDef> = {
-  dots: { name: "Dots", render: eye(<circle cx="0" cy="0" r="4.5" {...fp} />) },
+  dots: {
+    name: "Dots",
+    render: eye((c) => <circle cx="0" cy="0" r="5" fill={c} />),
+  },
   big: {
     name: "Big",
-    render: eye(
+    render: eye((c) => (
       <g>
-        <circle cx="0" cy="0" r="7" {...sp(SW_FACE - 1)} />
-        <circle cx="2" cy="-2" r="2" {...fp} />
+        <circle cx="0" cy="0" r="7.5" fill={c} />
+        <circle cx="2" cy="-2" r="2.5" fill="rgba(255,255,255,0.9)" />
       </g>
-    ),
+    )),
   },
-  rings:  { name: "Rings",  render: eye(<circle cx="0" cy="0" r="5" {...lpf(SW_FACE - 1)} />) },
-  arches: { name: "Arches", render: eye(<path d="M-7 3 Q0 -7 7 3" {...lpf(SW_FACE)} />) },
-  lines:  { name: "Lines",  render: eye(<line x1="-7" y1="0" x2="7" y2="0" {...lpf(SW_FACE)} />) },
-  happy:  { name: "Happy",  render: eye(<path d="M-7 3 L0 -5 L7 3" {...lpf(SW_FACE)} />) },
-  sleepy: { name: "Sleepy", render: eye(<path d="M-7 -2 Q0 6 7 -2" {...lpf(SW_FACE)} />) },
+  rings: {
+    name: "Rings",
+    render: eye((c) => <ellipse cx="0" cy="0" rx="6" ry="7" fill="none" stroke={c} strokeWidth="3.5" />),
+  },
+  arches: {
+    name: "Arches",
+    render: eye((c) => <path d="M-7 2 Q0 -6 7 2" fill="none" stroke={c} strokeWidth="4" strokeLinecap="round" />),
+  },
+  lines: {
+    name: "Lines",
+    render: eye((c) => <path d="M-7 0 Q0 -4 7 0" fill="none" stroke={c} strokeWidth="4" strokeLinecap="round" />),
+  },
+  happy: {
+    name: "Happy",
+    render: eye((c) => <path d="M-7 4 Q0 -8 7 4" fill="none" stroke={c} strokeWidth="4" strokeLinecap="round" />),
+  },
+  sleepy: {
+    name: "Sleepy",
+    render: eye((c) => <path d="M-7 -2 Q0 6 7 -2" fill="none" stroke={c} strokeWidth="4" strokeLinecap="round" />),
+  },
   shy: {
     name: "Shy",
-    render: eye(<path d="M-6 -3 A6 6 0 0 1 6 -3 L6 1 A6 6 0 0 1 -6 1 Z" {...fp} />),
+    render: eye((c) => <ellipse cx="0" cy="0" rx="6" ry="7" fill={c} />),
   },
   wink: {
     name: "Wink",
-    render: (dx: number) => (
+    render: (dx: number, c = DEFAULT_FACE_COLOR) => (
       <g>
-        <g transform={`translate(${-dx}, 0)`}><circle cx="0" cy="0" r="4.5" {...fp} /></g>
-        <g transform={`translate(${dx}, 0)`}><path d="M-7 1 Q0 -6 7 1" {...lpf(SW_FACE)} /></g>
+        <g transform={`translate(${-dx}, 0)`}><circle cx="0" cy="0" r="5" fill={c} /></g>
+        <g transform={`translate(${dx}, 0)`}><path d="M-7 2 Q0 -6 7 2" fill="none" stroke={c} strokeWidth="4" strokeLinecap="round" /></g>
       </g>
     ),
   },
@@ -283,10 +293,13 @@ interface AvatarRendererProps {
 }
 
 export function AvatarRenderer({ config, size = 200, className }: AvatarRendererProps) {
+  const uid = useId().replace(/:/g, "");
   const sh = Shapes[config.shape] ?? Shapes.book!;
   const ey = Eyes[config.eye];
   const no = Noses[config.nose];
-  const bgColor = BG_COLORS[config.bg]?.value ?? BG_COLORS[0]!.value;
+  const bgEntry = BG_COLORS[config.bg] ?? BG_COLORS[0]!;
+  const [g0, g1, g2] = bgEntry.gradient;
+  const faceColor = bgEntry.faceColor;
 
   const { cx, cy, w } = sh.face;
   const eyeDx = Math.max(11, w * 0.22);
@@ -300,11 +313,26 @@ export function AvatarRenderer({ config, size = 200, className }: AvatarRenderer
       className={className}
       style={{ display: "block" }}
     >
-      <rect x="0" y="0" width="200" height="200" rx="56" fill={bgColor} />
-      <g transform="translate(100,100) scale(0.85) translate(-100,-100)">
-        <g data-avatar-shape="">{sh.render()}</g>
-        {ey && <g transform={`translate(${cx}, ${eyeY})`}><g data-avatar-eyes="">{ey.render(eyeDx)}</g></g>}
-        {no && <g transform={`translate(${cx}, ${cy + 5})`}><g data-avatar-nose="">{no.render()}</g></g>}
+      <defs>
+        <linearGradient id={`bg-${uid}`} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor={g0} />
+          <stop offset="50%" stopColor={g1} />
+          <stop offset="100%" stopColor={g2} />
+        </linearGradient>
+        <radialGradient id={`gl-${uid}`} cx="30%" cy="25%" r="60%">
+          <stop offset="0%" stopColor="rgba(255,255,255,0.32)" />
+          <stop offset="100%" stopColor="rgba(255,255,255,0)" />
+        </radialGradient>
+        <filter id={`sh-${uid}`} x="-10%" y="-5%" width="120%" height="130%">
+          <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="rgba(0,0,0,0.18)" />
+        </filter>
+      </defs>
+      <rect x="0" y="0" width="200" height="200" rx="56" fill={`url(#bg-${uid})`} />
+      <rect x="0" y="0" width="200" height="200" rx="56" fill={`url(#gl-${uid})`} />
+      <g transform="translate(100,100) scale(0.8) translate(-100,-100)">
+        <g data-avatar-shape="" filter={`url(#sh-${uid})`}>{sh.render()}</g>
+        {ey && <g transform={`translate(${cx}, ${eyeY})`}><g data-avatar-eyes="">{ey.render(eyeDx, faceColor)}</g></g>}
+        {no && <g transform={`translate(${cx}, ${cy + 5})`}><g data-avatar-nose="">{no.render(faceColor)}</g></g>}
       </g>
     </svg>
   );
@@ -335,7 +363,6 @@ export function parseAvatarUrl(avatarUrl: string | null | undefined): AvatarConf
   try {
     const parsed = JSON.parse(avatarUrl.slice(AVATAR_PREFIX.length));
     if (isValidAvatarConfig(parsed)) return parsed;
-    // Fallback for old format (had "outline"/"eyes"/"bgColor" fields)
     if (typeof parsed === "object" && parsed !== null && "outline" in parsed) {
       return DEFAULT_CONFIG;
     }
