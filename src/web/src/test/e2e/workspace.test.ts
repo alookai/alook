@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
 import { signUp, signIn, sessionRequest } from "../helpers/auth"
-import { sql } from "../helpers/db"
+import { sqlBatch } from "../helpers/db"
 
 const testEmail = `e2e_ws_${randomUUID().slice(0, 8)}@test.local`
 const testPassword = "TestPassword123!"
@@ -14,11 +14,13 @@ beforeAll(async () => {
 
 afterAll(() => {
   try {
-    sql(`DELETE FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
-    sql(`DELETE FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = '${testEmail}'))`)
-    sql(`DELETE FROM "session" WHERE userId IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
-    sql(`DELETE FROM "account" WHERE userId IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
-    sql(`DELETE FROM "user" WHERE email = '${testEmail}'`)
+    sqlBatch([
+      `DELETE FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = '${testEmail}'))`,
+      `DELETE FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = '${testEmail}')`,
+      `DELETE FROM "session" WHERE userId IN (SELECT id FROM "user" WHERE email = '${testEmail}')`,
+      `DELETE FROM "account" WHERE userId IN (SELECT id FROM "user" WHERE email = '${testEmail}')`,
+      `DELETE FROM "user" WHERE email = '${testEmail}'`,
+    ])
   } catch { /* ignore */ }
 })
 

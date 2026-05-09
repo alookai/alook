@@ -27,6 +27,8 @@ function AgentNodeInner({ data, selected, dragging }: NodeProps) {
 
   return (
     <div
+      data-agent-node-id={agent.id}
+      data-agent-working={activeTaskCount > 0 ? "true" : "false"}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className={cn(

@@ -1,20 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { existsSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { execSync } from "node:child_process"
 import { findChrome, hasChromeInstalled, ensureChrome } from "./chrome-finder"
 
 vi.mock("node:fs", () => ({
   existsSync: vi.fn(),
+  readdirSync: vi.fn(),
 }))
 vi.mock("node:child_process", () => ({
   execSync: vi.fn(),
 }))
 
 const mockExistsSync = vi.mocked(existsSync)
+const mockReaddirSync = vi.mocked(readdirSync)
 const mockExecSync = vi.mocked(execSync) as unknown as ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockReaddirSync.mockReturnValue([])
 })
 
 describe("findChrome", () => {
@@ -55,6 +58,32 @@ describe("findChrome", () => {
 
     expect(findChrome()).toBeNull()
 
+    Object.defineProperty(process, "platform", { value: originalPlatform })
+  })
+
+  it("returns cached Playwright Chromium without running dry-run", () => {
+    const originalPlatform = process.platform
+    const originalHome = process.env.HOME
+    Object.defineProperty(process, "platform", { value: "linux" })
+    process.env.HOME = "/home/tester"
+
+    mockExistsSync.mockImplementation((p) =>
+      p === "/home/tester/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome"
+    )
+    mockReaddirSync.mockReturnValue(["chromium-1217"] as unknown as ReturnType<typeof readdirSync>)
+
+    expect(findChrome()).toBe(
+      "/home/tester/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome"
+    )
+    expect(mockExecSync).toHaveBeenCalledWith("which google-chrome || which chromium", {
+      encoding: "utf8",
+    })
+    expect(mockExecSync).not.toHaveBeenCalledWith(
+      expect.stringContaining("playwright install --dry-run"),
+      expect.anything()
+    )
+
+    process.env.HOME = originalHome
     Object.defineProperty(process, "platform", { value: originalPlatform })
   })
 })

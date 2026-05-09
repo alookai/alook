@@ -96,6 +96,9 @@ pnpm test             # run all tests
 pnpm typecheck        # typecheck all packages
 ```
 
+Local browser entry is `http://127.0.0.1:3003`; keep `src/web/.dev.vars` `BETTER_AUTH_URL` exactly the same.
+Use `pnpm dev` for daily development; `@alook/web` listens on `127.0.0.1:3003`.
+
 ### Individual services
 
 ```bash

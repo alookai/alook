@@ -46,6 +46,8 @@ import { LinkSidecar } from "@/components/canvas/link-sidecar";
 import { ActiveTasksFloat } from "@/components/canvas/active-tasks-float";
 import { UpcomingEventsFloat } from "@/components/canvas/upcoming-events-float";
 import { getAutoLayout } from "@/components/canvas/auto-layout";
+import { CloudCodeMonsterPet } from "@/components/home-pet/cloud-code-monster-pet";
+import { useHomePetSettings } from "@/lib/home-pet-settings";
 
 const nodeTypes = { agent: AgentNode };
 const edgeTypes = { link: LinkEdge };
@@ -78,6 +80,8 @@ function AgentCanvas() {
   const { agents, runtimes, loading, activeTaskCounts } = useAgentContext();
   const { slug, workspaceId } = useWorkspace();
   const { zoomIn, zoomOut, fitView } = useReactFlow();
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const petSettings = useHomePetSettings();
 
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
@@ -342,7 +346,7 @@ function AgentCanvas() {
   );
 
   return (
-    <div className="flex-1 relative">
+    <div ref={canvasRef} className="flex-1 relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -365,9 +369,18 @@ function AgentCanvas() {
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} color="var(--color-border)" />
       </ReactFlow>
 
+      {petSettings.enabled ? (
+        <CloudCodeMonsterPet
+          boundaryRef={canvasRef}
+          activityTriggerMode={
+            petSettings.displayScope === "global" ? "global" : "home"
+          }
+        />
+      ) : null}
+
       {/* Custom floating toolbar */}
       <div
-        className="absolute bottom-4 left-4 bg-background/80 backdrop-blur-sm rounded-lg ring-1 ring-foreground/5 p-1 flex gap-0.5 animate-[fade-up_300ms_ease-out_both]"
+        className="absolute bottom-4 left-4 z-40 bg-background/80 backdrop-blur-sm rounded-lg ring-1 ring-foreground/5 p-1 flex gap-0.5 animate-[fade-up_300ms_ease-out_both]"
         style={{ animationDelay: "200ms" }}
       >
         <button
@@ -402,7 +415,7 @@ function AgentCanvas() {
 
       {/* No-links hint */}
       {showHint && (
-        <div className="absolute bottom-14 left-4 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm rounded-md px-3 py-1.5 ring-1 ring-foreground/5">
+        <div className="absolute bottom-14 left-4 z-40 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm rounded-md px-3 py-1.5 ring-1 ring-foreground/5">
           Drag between agent handles to create relationships.
         </div>
       )}
@@ -424,7 +437,7 @@ function AgentCanvas() {
       {/* Create agent button */}
       <button
         type="button"
-        className="absolute top-4 right-4 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors animate-[fade-up_300ms_ease-out_both]"
+        className="absolute top-4 right-4 z-40 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors animate-[fade-up_300ms_ease-out_both]"
         style={{ animationDelay: "200ms" }}
         onClick={() => router.push(`/w/${slug}/agents/new`)}
         title="Create new agent"

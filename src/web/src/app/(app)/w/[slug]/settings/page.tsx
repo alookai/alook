@@ -8,10 +8,12 @@ import { GeneralTab } from "./general-tab";
 import { InstructionTab } from "./instruction-tab";
 import { MembersTab } from "./members-tab";
 import { NotificationTab } from "./notification-tab";
+import { PetTab } from "./pet-tab";
 import { UsagesTab } from "./usages-tab";
 
 const TABS = [
   { id: "general", label: "General" },
+  { id: "pet", label: "Pet" },
   { id: "instruction", label: "Global Instruction" },
   { id: "notifications", label: "Notifications" },
   { id: "members", label: "Members" },
@@ -73,6 +75,7 @@ export default function SettingsPage() {
             ) : (
               <div className="mx-auto max-w-md">
                 {activeTab === "general" && <GeneralTab />}
+                {activeTab === "pet" && <PetTab />}
                 {activeTab === "notifications" && <NotificationTab />}
                 {activeTab === "members" && <MembersTab />}
               </div>

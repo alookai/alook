@@ -3,7 +3,7 @@ import { randomUUID } from "crypto"
 import { signUp, signIn, sessionRequest } from "../helpers/auth"
 import { sql } from "../helpers/db"
 
-const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
+const APP_URL = process.env.APP_URL ?? "http://127.0.0.1:3003"
 
 const testEmail = `e2e_auth_${randomUUID().slice(0, 8)}@test.local`
 const testPassword = "TestPassword123!"

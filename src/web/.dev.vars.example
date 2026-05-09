@@ -8,7 +8,7 @@
 
 # Session signing secret (generate with: openssl rand -base64 32)
 BETTER_AUTH_SECRET=
-BETTER_AUTH_URL=http://localhost:3000
+BETTER_AUTH_URL=http://127.0.0.1:3003
 
 # Encryption key for IMAP/SMTP credentials (generate with: openssl rand -base64 32)
 ENCRYPTION_KEY=

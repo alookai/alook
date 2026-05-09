@@ -1,5 +1,7 @@
-import { existsSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { execSync } from "node:child_process"
+import { homedir } from "node:os"
+import { join } from "node:path"
 
 const CHROME_PATHS: Record<string, string[]> = {
   darwin: [
@@ -40,22 +42,53 @@ export function findChrome(): string | null {
 }
 
 function findPlaywrightChromium(): string | null {
+  const cached = findCachedPlaywrightChromium()
+  if (cached) return cached
+
   try {
     const result = execSync("npx playwright install --dry-run chromium 2>&1", { encoding: "utf8" })
-    const match = result.match(/browser binaries.*?:\s*(.+)/i)
+    const match = result.match(/(?:browser binaries|Install location).*?:\s*(.+)/i)
     if (match) {
       const dir = match[1].trim()
-      const chromePaths = [
-        `${dir}/chrome-linux/chrome`,
-        `${dir}/chrome-mac/Chromium.app/Contents/MacOS/Chromium`,
-        `${dir}/chrome-win/chrome.exe`,
-      ]
-      for (const p of chromePaths) {
+      for (const p of getPlaywrightChromiumCandidates(dir)) {
         if (existsSync(p)) return p
       }
     }
   } catch { /* not installed */ }
   return null
+}
+
+function findCachedPlaywrightChromium(): string | null {
+  const roots = [
+    process.env.PLAYWRIGHT_BROWSERS_PATH,
+    join(homedir(), ".cache", "ms-playwright"),
+  ].filter(Boolean) as string[]
+
+  for (const root of roots) {
+    let entries: string[]
+    try {
+      entries = readdirSync(root, { encoding: "utf8" })
+    } catch {
+      continue
+    }
+
+    for (const entry of entries.filter((item) => item.startsWith("chromium-")).sort().reverse()) {
+      for (const p of getPlaywrightChromiumCandidates(join(root, entry))) {
+        if (existsSync(p)) return p
+      }
+    }
+  }
+
+  return null
+}
+
+function getPlaywrightChromiumCandidates(dir: string): string[] {
+  return [
+    join(dir, "chrome-linux64", "chrome"),
+    join(dir, "chrome-linux", "chrome"),
+    join(dir, "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"),
+    join(dir, "chrome-win", "chrome.exe"),
+  ]
 }
 
 export function ensureChrome(): string {

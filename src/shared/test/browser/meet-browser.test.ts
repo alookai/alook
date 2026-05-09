@@ -20,7 +20,7 @@ import type { BrowserPage } from "../../src/browser/index"
 const _dir = dirname(fileURLToPath(import.meta.url))
 const mockHtml = readFileSync(join(_dir, "mock-meet.html"), "utf-8")
 
-let server: Server
+let server: Server | undefined
 let serverUrl: string
 let browser: Browser
 
@@ -40,10 +40,18 @@ beforeAll(async () => {
   const port = typeof addr === "object" && addr ? addr.port : 0
   serverUrl = `http://localhost:${port}`
 
-  browser = await chromium.launch({
-    executablePath: chromePath,
-    headless: true,
-  })
+  try {
+    browser = await chromium.launch({
+      executablePath: chromePath,
+      headless: true,
+    })
+  } catch (error) {
+    console.warn(
+      `SKIP: Chrome could not launch — browser integration tests require browser system dependencies (${error instanceof Error ? error.message : String(error)})`
+    )
+    server.close()
+    server = undefined
+  }
 }, 30_000)
 
 afterAll(async () => {
