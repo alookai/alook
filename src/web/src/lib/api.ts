@@ -281,7 +281,7 @@ export const listMessages = (
   if (opts?.limit) extra.limit = String(opts.limit);
   if (opts?.before) extra.before = opts.before;
   if (opts?.beforeId) extra.before_id = opts.beforeId;
-  return apiFetch<Message[]>(
+  return apiFetch<{ messages: Message[]; has_more: boolean }>(
     `/api/conversations/${conversationId}/messages${wsQuery(workspaceId, extra)}`
   );
 };

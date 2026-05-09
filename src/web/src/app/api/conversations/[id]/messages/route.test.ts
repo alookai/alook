@@ -79,7 +79,7 @@ describe("GET /api/conversations/[id]/messages", () => {
       { id: "m2", content: "World" },
     ];
     mockGetConversation.mockResolvedValue(conv);
-    mockListMessages.mockResolvedValue(msgs);
+    mockListMessages.mockResolvedValue({ messages: msgs, has_more: false });
 
     const res = await GET(
       new NextRequest("http://localhost/api/conversations/c1/messages"),
@@ -88,10 +88,13 @@ describe("GET /api/conversations/[id]/messages", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual([
-      { id: "m1", content: "Hello" },
-      { id: "m2", content: "World" },
-    ]);
+    expect(body).toEqual({
+      messages: [
+        { id: "m1", content: "Hello" },
+        { id: "m2", content: "World" },
+      ],
+      has_more: false,
+    });
     expect(mockListMessages).toHaveBeenCalledWith({}, "c1", {
       limit: undefined,
       before: undefined,
@@ -102,7 +105,7 @@ describe("GET /api/conversations/[id]/messages", () => {
   it("passes limit and before params when provided", async () => {
     const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
     mockGetConversation.mockResolvedValue(conv);
-    mockListMessages.mockResolvedValue([]);
+    mockListMessages.mockResolvedValue({ messages: [], has_more: false });
 
     const res = await GET(
       new NextRequest(
@@ -122,7 +125,7 @@ describe("GET /api/conversations/[id]/messages", () => {
   it("passes before_id param for compound cursor", async () => {
     const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
     mockGetConversation.mockResolvedValue(conv);
-    mockListMessages.mockResolvedValue([]);
+    mockListMessages.mockResolvedValue({ messages: [], has_more: false });
 
     const res = await GET(
       new NextRequest(
@@ -142,7 +145,7 @@ describe("GET /api/conversations/[id]/messages", () => {
   it("clamps limit to max 100", async () => {
     const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
     mockGetConversation.mockResolvedValue(conv);
-    mockListMessages.mockResolvedValue([]);
+    mockListMessages.mockResolvedValue({ messages: [], has_more: false });
 
     await GET(
       new NextRequest(
@@ -156,6 +159,22 @@ describe("GET /api/conversations/[id]/messages", () => {
       before: undefined,
       beforeId: undefined,
     });
+  });
+
+  it("returns has_more true when more messages exist", async () => {
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const msgs = [{ id: "m1", content: "Hello" }];
+    mockGetConversation.mockResolvedValue(conv);
+    mockListMessages.mockResolvedValue({ messages: msgs, has_more: true });
+
+    const res = await GET(
+      new NextRequest("http://localhost/api/conversations/c1/messages"),
+      withParams("c1")
+    );
+    const body = await res.json();
+
+    expect(body.has_more).toBe(true);
+    expect(body.messages).toHaveLength(1);
   });
 });
 

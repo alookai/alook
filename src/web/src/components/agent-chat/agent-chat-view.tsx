@@ -49,6 +49,7 @@ import { AgentPreviewCard } from "@/components/agent-preview-card";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 
 const MESSAGE_LIMIT = 20;
+const MAX_CONV_FETCHES_PER_CLICK = 5;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 const MENTION_ALLOWED_TAGS = { mention: ["data-agent-id"] };
@@ -395,7 +396,7 @@ export function AgentChatView() {
       try {
         if (targetConvId) {
           try {
-            const [conv, msgs, arts, buffered] = await Promise.all([
+            const [conv, msgsResult, arts, buffered] = await Promise.all([
               getConversation(targetConvId, workspaceId),
               listMessages(targetConvId, workspaceId),
               listArtifacts(targetConvId, workspaceId).catch(() => [] as Artifact[]),
@@ -403,11 +404,11 @@ export function AgentChatView() {
             ]);
             if (ignore) return;
             setConversation(conv);
-            setMessages(msgs);
-            setHasMore(msgs.length >= MESSAGE_LIMIT);
+            setMessages(msgsResult.messages);
+            setHasMore(msgsResult.has_more);
             setArtifacts(arts);
             setBufferedMessages(buffered);
-            const taskIds = [...new Set(msgs.filter((m) => m.role === "assistant" && m.task_id).map((m) => m.task_id!))];
+            const taskIds = [...new Set(msgsResult.messages.filter((m) => m.role === "assistant" && m.task_id).map((m) => m.task_id!))];
             if (taskIds.length > 0) {
               getTaskStepCounts(taskIds, workspaceId)
                 .then((counts) => { if (!ignore) setStepCounts(counts); })
@@ -577,71 +578,101 @@ export function AgentChatView() {
     const prevScrollHeight = el?.scrollHeight ?? 0;
 
     try {
+      let phase1Messages: Message[] = [];
+      let phase2Messages: Message[] = [];
+      let remaining = MESSAGE_LIMIT;
+      let lastHasMore = false;
+      const napMarkersToAdd: { agentName: string; created_at: string; id: string }[] = [];
+
+      // --- Phase 1: Load from current/paginating conversation ---
       if (canLoadMoreInConv) {
-        const older = await listMessages(paginatingConvId, workspaceId, {
+        const result = await listMessages(paginatingConvId, workspaceId, {
           limit: MESSAGE_LIMIT,
           before: oldest!.created_at,
           beforeId: oldest!.id,
         });
-        flushSync(() => {
-          if (older.length === 0) {
-            setHasMore(false);
-          } else {
-            setHasMore(older.length >= MESSAGE_LIMIT);
-            setMessages((prev) => {
-              const existingIds = new Set(prev.map((m) => m.id));
-              const unique = older.filter((m) => !existingIds.has(m.id));
-              return [...unique, ...prev];
-            });
-          }
-        });
-      } else if (canLoadPrevConv) {
-        let consumed = 0;
-        let loadedOlder: Message[] = [];
-        let napTs = "";
-        let napId = "";
+        phase1Messages = result.messages;
+        remaining -= result.messages.length;
+        lastHasMore = result.has_more;
+      }
 
-        while (consumed < prevConvsList.length) {
+      // --- Phase 2: If current conv is exhausted AND still have quota, load from previous convs ---
+      if (!lastHasMore && remaining > 0) {
+        if (prevConvsList.length === 0 && currentHasMoreConvs) {
+          const oldestConv = oldestConversationCursorRef.current ?? { id: conversation.id, created_at: conversation.created_at };
+          try {
+            const result = await listPreviousConversations(agentId, workspaceId, {
+              exclude: conversation.id,
+              before: oldestConv.created_at,
+              channel: currentChannel,
+            });
+            prevConvsList = result.conversations;
+            setPreviousConversations(result.conversations);
+            setHasMoreConversations(result.has_more);
+          } catch {
+            setHasMoreConversations(false);
+          }
+        }
+
+        let consumed = 0;
+        let fetchCount = 0;
+
+        while (
+          consumed < prevConvsList.length &&
+          remaining > 0 &&
+          fetchCount < MAX_CONV_FETCHES_PER_CLICK
+        ) {
           const prevConv = prevConvsList[consumed]!;
           consumed++;
-          const older = await listMessages(prevConv.id, workspaceId, {
-            limit: MESSAGE_LIMIT,
+          fetchCount++;
+          const result = await listMessages(prevConv.id, workspaceId, {
+            limit: remaining,
           });
 
-          if (older.length === 0) {
+          if (result.messages.length === 0) {
             oldestConversationCursorRef.current = prevConv;
             continue;
           }
 
-          napTs = oldestConversationCursorRef.current?.created_at ?? conversation.created_at;
-          napId = `nap-${prevConv.id}`;
-          loadedOlder = older;
+          const napTs = oldestConversationCursorRef.current?.created_at ?? conversation.created_at;
+          napMarkersToAdd.push({
+            agentName: currentAgentName,
+            created_at: napTs,
+            id: `nap-${prevConv.id}`,
+          });
+
+          phase2Messages = [...result.messages, ...phase2Messages];
+          remaining -= result.messages.length;
+          lastHasMore = result.has_more;
           oldestConversationCursorRef.current = prevConv;
-          break;
         }
 
         if (consumed > 0) {
           setPreviousConversations((prev) => prev.slice(consumed));
         }
-
-        flushSync(() => {
-          if (loadedOlder.length > 0) {
-            setNapMarkers((prev) =>
-              prev.some((m) => m.id === napId)
-                ? prev
-                : [...prev, { agentName: currentAgentName, created_at: napTs, id: napId }],
-            );
-            setHasMore(loadedOlder.length >= MESSAGE_LIMIT);
-            setMessages((prev) => {
-              const existingIds = new Set(prev.map((m) => m.id));
-              const unique = loadedOlder.filter((m) => !existingIds.has(m.id));
-              return [...unique, ...prev];
-            });
-          } else {
-            setHasMore(false);
-          }
-        });
       }
+
+      // --- Final state update ---
+      const allNewMessages = [...phase2Messages, ...phase1Messages];
+      flushSync(() => {
+        if (allNewMessages.length > 0) {
+          if (napMarkersToAdd.length > 0) {
+            setNapMarkers((prev) => {
+              const existingIds = new Set(prev.map((m) => m.id));
+              const newMarkers = napMarkersToAdd.filter((m) => !existingIds.has(m.id));
+              return [...prev, ...newMarkers];
+            });
+          }
+          setHasMore(lastHasMore);
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id));
+            const unique = allNewMessages.filter((m) => !existingIds.has(m.id));
+            return [...unique, ...prev];
+          });
+        } else {
+          setHasMore(false);
+        }
+      });
 
       loadingMoreRef.current = false;
       flushSync(() => setLoadingMore(false));
@@ -738,7 +769,7 @@ export function AgentChatView() {
             if (isStale) {
               // Stale poll — still merge messages but don't touch activeTask or polling
               listMessages(conversationId, workspaceId)
-                .then((latest) => setMessages((prev) => mergeMessages(prev, latest)))
+                .then(({ messages: latest }) => setMessages((prev) => mergeMessages(prev, latest)))
                 .catch(() => { });
               return;
             }
@@ -752,11 +783,11 @@ export function AgentChatView() {
 
             const shouldScroll = isNearBottom.current;
             try {
-              const [latest, arts] = await Promise.all([
+              const [latestResult, arts] = await Promise.all([
                 listMessages(conversationId, workspaceId),
                 listArtifacts(conversationId, workspaceId).catch(() => null),
               ]);
-              setMessages((prev) => mergeMessages(prev, latest));
+              setMessages((prev) => mergeMessages(prev, latestResult.messages));
               if (arts) setArtifacts(arts);
               setActiveTask(task);
             } catch {
@@ -784,7 +815,7 @@ export function AgentChatView() {
                 ]);
                 setBufferedMessages(latestBuffered);
                 if (nextTask && nextTask.id !== taskId) {
-                  const latestMsgs = await listMessages(conversationId, workspaceId);
+                  const { messages: latestMsgs } = await listMessages(conversationId, workspaceId);
                   setMessages((prev) => mergeMessages(prev, latestMsgs));
                   setActiveTask(nextTask);
                   setTaskMessages([]);
@@ -842,7 +873,7 @@ export function AgentChatView() {
       }
       if (msg.type === "task.created" && msg.conversationId === conversation?.id) {
         listMessages(msg.conversationId, workspaceId)
-          .then((latest) => setMessages((prev) => mergeMessages(prev, latest)))
+          .then(({ messages: latest }) => setMessages((prev) => mergeMessages(prev, latest)))
           .catch(() => {});
         const task = msg.task as Task;
         activeTaskIdRef.current = task.id;
@@ -867,7 +898,7 @@ export function AgentChatView() {
         listBufferedMessages(msg.conversationId, workspaceId)
           .then(setBufferedMessages).catch(() => {});
         listMessages(msg.conversationId, workspaceId)
-          .then((latest) => setMessages((prev) => mergeMessages(prev, latest)))
+          .then(({ messages: latest }) => setMessages((prev) => mergeMessages(prev, latest)))
           .catch(() => { });
         const task = msg.task as Task;
         activeTaskIdRef.current = task.id;
@@ -1035,11 +1066,11 @@ export function AgentChatView() {
         }
         if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = null;
-        const [latest, latestBuffered] = await Promise.all([
+        const [latestResult, latestBuffered] = await Promise.all([
           listMessages(conversation.id, workspaceId),
           listBufferedMessages(conversation.id, workspaceId),
         ]);
-        setMessages((prev) => mergeMessages(prev, latest));
+        setMessages((prev) => mergeMessages(prev, latestResult.messages));
         setBufferedMessages(latestBuffered);
         setActiveTask(cancelled as Task);
         setTaskMessages([]);

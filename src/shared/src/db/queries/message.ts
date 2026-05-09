@@ -33,14 +33,12 @@ export async function listMessages(
   db: Database,
   conversationId: string,
   opts?: { limit?: number; before?: string; beforeId?: string }
-) {
+): Promise<{ messages: typeof message.$inferSelect[]; has_more: boolean }> {
   const limit = opts?.limit ?? DEFAULT_MESSAGE_LIMIT;
   const before = opts?.before;
   const beforeId = opts?.beforeId;
 
   if (before) {
-    // Compound cursor: (createdAt < before) OR (createdAt == before AND id < beforeId)
-    // This avoids skipping messages with identical timestamps
     const cursorCondition = beforeId
       ? or(
           lt(message.createdAt, before),
@@ -48,7 +46,7 @@ export async function listMessages(
         )
       : lt(message.createdAt, before);
 
-    return db
+    const rows = await db
       .select()
       .from(message)
       .where(
@@ -59,13 +57,14 @@ export async function listMessages(
         )
       )
       .orderBy(desc(message.createdAt), desc(message.id))
-      .limit(limit)
-      .then((rows) => rows.reverse());
+      .limit(limit + 1);
+
+    const has_more = rows.length > limit;
+    const messages = rows.slice(0, limit).reverse();
+    return { messages, has_more };
   }
 
-  // No cursor: fetch the latest N messages in ASC order
-  // We query DESC to get the most recent, then reverse for chronological order
-  return db
+  const rows = await db
     .select()
     .from(message)
     .where(
@@ -74,9 +73,12 @@ export async function listMessages(
         eq(message.status, "active")
       )
     )
-    .orderBy(desc(message.createdAt))
-    .limit(limit)
-    .then((rows) => rows.reverse());
+    .orderBy(desc(message.createdAt), desc(message.id))
+    .limit(limit + 1);
+
+  const has_more = rows.length > limit;
+  const messages = rows.slice(0, limit).reverse();
+  return { messages, has_more };
 }
 
 export async function getMessage(db: Database, id: string) {

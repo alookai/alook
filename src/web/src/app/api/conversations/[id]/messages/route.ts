@@ -57,8 +57,8 @@ export const GET = withAuth(async (req, ctx) => {
   const beforeId = url.searchParams.get("before_id") || undefined;
   const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 20, 1), 100) : undefined;
 
-  const messages = await queries.message.listMessages(db, id, { limit, before, beforeId });
-  return writeJSON(messages.map(messageToResponse));
+  const { messages, has_more } = await queries.message.listMessages(db, id, { limit, before, beforeId });
+  return writeJSON({ messages: messages.map(messageToResponse), has_more });
 });
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {

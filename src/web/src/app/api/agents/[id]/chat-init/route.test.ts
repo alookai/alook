@@ -130,7 +130,7 @@ function setupDefaults() {
   mockGetAgent.mockResolvedValue({ id: "a1", name: "Agent" });
   mockGetOrCreateAgentConversation.mockResolvedValue(CONV);
   mockHasPreviousConversations.mockResolvedValue(false);
-  mockListMessages.mockResolvedValue([]);
+  mockListMessages.mockResolvedValue({ messages: [], has_more: false });
   mockListArtifactsByConversation.mockResolvedValue([]);
   mockListBufferedMessages.mockResolvedValue([]);
   mockGetActiveTaskByConversation.mockResolvedValue(null);
@@ -160,7 +160,7 @@ describe("POST /api/agents/[id]/chat-init", () => {
     mockGetAgent.mockResolvedValue({ id: "a1", name: "Agent" });
     mockGetOrCreateAgentConversation.mockResolvedValue(CONV);
     mockHasPreviousConversations.mockResolvedValue(false);
-    mockListMessages.mockResolvedValue([msg]);
+    mockListMessages.mockResolvedValue({ messages: [msg], has_more: false });
     mockListArtifactsByConversation.mockResolvedValue([artifact]);
     mockListBufferedMessages.mockResolvedValue([]);
     mockGetActiveTaskByConversation.mockResolvedValue(null);
@@ -266,7 +266,7 @@ describe("POST /api/agents/[id]/chat-init", () => {
     }));
 
     setupDefaults();
-    mockListMessages.mockResolvedValue(msgs);
+    mockListMessages.mockResolvedValue({ messages: msgs, has_more: true });
 
     const res = await POST(makeReq(), makeCtx());
     const body = await res.json();

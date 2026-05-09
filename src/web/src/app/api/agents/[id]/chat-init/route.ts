@@ -63,8 +63,10 @@ export const POST = withAuth(async (req, ctx) => {
       ),
     ]);
 
-  const messages =
-    messagesResult.status === "fulfilled" ? messagesResult.value : [];
+  const { messages, has_more: hasMoreMessages } =
+    messagesResult.status === "fulfilled"
+      ? messagesResult.value
+      : { messages: [] as never[], has_more: false };
   const artifacts =
     artifactsResult.status === "fulfilled" ? artifactsResult.value : [];
   const buffered =
@@ -117,7 +119,7 @@ export const POST = withAuth(async (req, ctx) => {
     buffered_messages: resolvedBuffered.map(messageToResponse),
     active_task: resolvedActiveTask ? taskToResponse(resolvedActiveTask) : null,
     task_messages: taskMessages,
-    has_more_messages: messages.length >= MESSAGE_LIMIT,
+    has_more_messages: hasMoreMessages,
     has_more_conversations: hasMoreConvs,
     has_more_artifacts: artifacts.length >= ARTIFACT_LIMIT,
   });
