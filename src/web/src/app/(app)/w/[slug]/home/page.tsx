@@ -44,6 +44,7 @@ import { AgentNode, type AgentNodeData } from "@/components/canvas/agent-node";
 import { LinkEdge } from "@/components/canvas/link-edge";
 import { LinkSidecar } from "@/components/canvas/link-sidecar";
 import { ActiveTasksFloat } from "@/components/canvas/active-tasks-float";
+import { UpcomingEventsFloat } from "@/components/canvas/upcoming-events-float";
 import { getAutoLayout } from "@/components/canvas/auto-layout";
 
 const nodeTypes = { agent: AgentNode };
@@ -415,7 +416,10 @@ function AgentCanvas() {
         onDelete={handleSidecarDelete}
       />
 
-      <ActiveTasksFloat />
+      <div className="absolute bottom-4 right-4 z-10 flex flex-wrap justify-end items-end gap-2">
+        <ActiveTasksFloat />
+        <UpcomingEventsFloat />
+      </div>
 
       {/* Create agent button */}
       <button
