@@ -219,11 +219,11 @@ function artifact(id: string, created_at: string): Artifact {
   return {
     id,
     conversation_id: "conv1",
+    agent_id: "agent1",
     filename: "file.txt",
     content_type: "text/plain",
     size: 100,
     source: "agent",
-    r2_key: `key-${id}`,
     created_at,
   };
 }
@@ -326,7 +326,7 @@ function msgInConv(id: string, created_at: string, conversation_id: string): Mes
 }
 
 function artifactInConv(id: string, created_at: string, conversation_id: string): Artifact {
-  return { id, conversation_id, filename: "file.txt", content_type: "text/plain", size: 100, source: "agent", r2_key: `key-${id}`, created_at };
+  return { id, conversation_id, agent_id: "agent1", filename: "file.txt", content_type: "text/plain", size: 100, source: "agent", created_at };
 }
 
 describe("buildTimeline — conversation grouping", () => {

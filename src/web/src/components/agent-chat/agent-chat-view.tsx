@@ -271,7 +271,7 @@ function NapSeparator({ agentName }: { agentName: string }) {
   );
 }
 
-function ArtifactCard({ artifact, onClick }: { artifact: Artifact; onClick: (a: Artifact) => void }) {
+function ArtifactCard({ artifact, version, hasDuplicates, onClick }: { artifact: Artifact; version: number; hasDuplicates: boolean; onClick: (a: Artifact) => void }) {
   return (
     <button
       onClick={() => onClick(artifact)}
@@ -283,7 +283,14 @@ function ArtifactCard({ artifact, onClick }: { artifact: Artifact; onClick: (a: 
     >
       <FileText className="size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate">{artifact.filename}</p>
+        <p className="text-sm font-medium truncate">
+          {artifact.filename}
+          {hasDuplicates && (
+            <span className="ml-1.5 text-xs text-muted-foreground bg-muted rounded-full px-1.5 py-0.5 font-normal">
+              v{version}
+            </span>
+          )}
+        </p>
         <p className="text-xs text-muted-foreground">{formatSize(artifact.size)}</p>
       </div>
     </button>
@@ -351,6 +358,23 @@ export function AgentChatView() {
   const { listening, supported: speechSupported, toggle: toggleSpeech } = useSpeechRecognition(handleSpeechResult);
 
   const agentArtifacts = useMemo(() => artifacts.filter((a) => a.source === "agent"), [artifacts]);
+
+  const { versionMap, duplicateFilenames } = useMemo(() => {
+    const groups = new Map<string, Artifact[]>();
+    for (const a of agentArtifacts) {
+      const group = groups.get(a.filename) || [];
+      group.push(a);
+      groups.set(a.filename, group);
+    }
+    const vm = new Map<string, number>();
+    const dupes = new Set<string>();
+    for (const [filename, group] of groups) {
+      group.sort((a, b) => a.created_at.localeCompare(b.created_at));
+      if (group.length > 1) dupes.add(filename);
+      group.forEach((a, i) => vm.set(a.id, i + 1));
+    }
+    return { versionMap: vm, duplicateFilenames: dupes };
+  }, [agentArtifacts]);
 
   const timeline = useMemo(() => buildTimeline(messages, agentArtifacts, napMarkers, conversation?.id), [messages, agentArtifacts, napMarkers, conversation?.id]);
 
@@ -1513,6 +1537,8 @@ export function AgentChatView() {
                   <ArtifactCard
                     key={`artifact-${item.data.id}`}
                     artifact={item.data}
+                    version={versionMap.get(item.data.id) ?? 1}
+                    hasDuplicates={duplicateFilenames.has(item.data.filename)}
                     onClick={handleArtifactClick}
                   />
                 );
@@ -1834,6 +1860,8 @@ export function AgentChatView() {
         artifacts={agentArtifacts}
         workspaceId={workspaceId}
         initialArtifact={selectedArtifact}
+        versionMap={versionMap}
+        duplicateFilenames={duplicateFilenames}
       />
 
       <EmailEventSheet
