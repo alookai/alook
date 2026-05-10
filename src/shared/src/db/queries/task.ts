@@ -899,6 +899,68 @@ export async function listTraces(
   return { traces, hasMore };
 }
 
+export async function getTraceAgentsByTaskIds(
+  db: Database,
+  taskIds: string[],
+  workspaceId: string
+): Promise<Map<string, string[]>> {
+  if (taskIds.length === 0) return new Map();
+
+  const taskTraces = await db
+    .select({ id: agentTaskQueue.id, traceId: agentTaskQueue.traceId })
+    .from(agentTaskQueue)
+    .where(
+      and(
+        inArray(agentTaskQueue.id, taskIds),
+        sql`${agentTaskQueue.traceId} IS NOT NULL`,
+        eq(agentTaskQueue.workspaceId, workspaceId)
+      )
+    );
+
+  const traceToTaskIds = new Map<string, string[]>();
+  for (const row of taskTraces) {
+    if (!row.traceId) continue;
+    const arr = traceToTaskIds.get(row.traceId) ?? [];
+    arr.push(row.id);
+    traceToTaskIds.set(row.traceId, arr);
+  }
+
+  const traceIds = [...traceToTaskIds.keys()];
+  if (traceIds.length === 0) return new Map();
+
+  const traceAgents = await db
+    .selectDistinct({
+      traceId: agentTaskQueue.traceId,
+      agentId: agentTaskQueue.agentId,
+    })
+    .from(agentTaskQueue)
+    .where(
+      and(
+        inArray(agentTaskQueue.traceId, traceIds),
+        eq(agentTaskQueue.workspaceId, workspaceId),
+        ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
+      )
+    );
+
+  const agentsByTrace = new Map<string, Set<string>>();
+  for (const row of traceAgents) {
+    if (!row.traceId) continue;
+    const set = agentsByTrace.get(row.traceId) ?? new Set();
+    set.add(row.agentId);
+    agentsByTrace.set(row.traceId, set);
+  }
+
+  const result = new Map<string, string[]>();
+  for (const [traceId, origTaskIds] of traceToTaskIds) {
+    const agents = [...(agentsByTrace.get(traceId) ?? [])];
+    for (const taskId of origTaskIds) {
+      result.set(taskId, agents);
+    }
+  }
+
+  return result;
+}
+
 export async function getTraceTree(
   db: Database,
   traceId: string,

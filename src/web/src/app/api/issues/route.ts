@@ -52,7 +52,15 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     terminal: terminalParam === null ? undefined : terminalParam === "true",
   });
 
-  return writeJSON(rows.map(issueToResponse));
+  const taskIds = rows.map(r => r.latestTaskId).filter((id): id is string => !!id);
+  const agentMap = taskIds.length > 0
+    ? await queries.task.getTraceAgentsByTaskIds(db, taskIds, ws.workspaceId)
+    : new Map<string, string[]>();
+
+  return writeJSON(rows.map(r => ({
+    ...issueToResponse(r),
+    thread_agent_ids: agentMap.get(r.latestTaskId ?? "") ?? [],
+  })));
 });
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {

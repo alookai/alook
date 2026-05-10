@@ -10,6 +10,7 @@ const mockSetLatestTask = vi.fn();
 const mockEnqueueTask = vi.fn();
 const mockCreateArtifact = vi.fn();
 const mockR2Put = vi.fn();
+const mockGetTraceAgentsByTaskIds = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({
@@ -28,6 +29,7 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       agent: { getAgent: (...a: unknown[]) => mockGetAgent(...a) },
+      task: { getTraceAgentsByTaskIds: (...a: unknown[]) => mockGetTraceAgentsByTaskIds(...a) },
       issue: {
         listIssues: (...a: unknown[]) => mockListIssues(...a),
         createIssue: (...a: unknown[]) => mockCreateIssue(...a),
@@ -73,9 +75,10 @@ describe("GET /api/issues", () => {
   it("lists workspace issues with filters", async () => {
     mockGetAgent.mockResolvedValue({ id: "ag_1" });
     mockListIssues.mockResolvedValue([{ id: "iss_1", agentId: "ag_1", title: "Fix", status: "todo" }]);
+    mockGetTraceAgentsByTaskIds.mockResolvedValue(new Map());
     const res = await GET(new NextRequest("http://localhost/api/issues?agentId=ag_1&terminal=false"), {} as any);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([{ id: "iss_1", agent_id: "ag_1", title: "Fix", status: "todo" }]);
+    expect(await res.json()).toEqual([{ id: "iss_1", agent_id: "ag_1", title: "Fix", status: "todo", thread_agent_ids: [] }]);
     expect(mockListIssues).toHaveBeenCalledWith({}, "w1", { agentId: "ag_1", status: undefined, terminal: false });
   });
 

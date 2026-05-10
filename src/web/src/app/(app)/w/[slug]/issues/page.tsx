@@ -6,7 +6,8 @@ import { CircleDot, Eye, EyeOff, Loader2, Plus, Trash2 } from "lucide-react";
 import type { Agent, Artifact, Issue, IssueComment, Message, WsMessage } from "@alook/shared";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
-import { createIssue, deleteIssue, getIssue, getTask, getTaskMessages, listIssues, updateIssue } from "@/lib/api";
+import { createIssue, deleteIssue, getIssue, getTask, getTrace, getTaskMessages, listIssues, updateIssue } from "@/lib/api";
+import type { IssueListItem, TraceTask } from "@/lib/api";
 import type { TaskApi, TaskMessage } from "@alook/shared";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -54,15 +55,27 @@ function IssueCard({
   onClick,
   onDelete,
   agent,
+  agentsById,
   compact = false,
 }: {
-  issue: Issue;
+  issue: IssueListItem;
   selected: boolean;
   onClick: () => void;
   onDelete?: () => void;
   agent?: Agent | null;
+  agentsById?: Map<string, Agent>;
   compact?: boolean;
 }) {
+  const threadAgents = useMemo(() => {
+    const ids = issue.thread_agent_ids;
+    if (!ids || ids.length < 2 || !agentsById) return null;
+    const assignedId = issue.agent_id;
+    const sorted = assignedId
+      ? [assignedId, ...ids.filter(id => id !== assignedId)]
+      : ids;
+    return sorted.map(id => agentsById.get(id)).filter((a): a is Agent => !!a);
+  }, [issue.thread_agent_ids, issue.agent_id, agentsById]);
+
   return (
     <ContextMenu>
       <ContextMenuTrigger
@@ -99,7 +112,20 @@ function IssueCard({
             </div>
           ) : null}
           <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-[11px] text-muted-foreground">
-            {agent ? (
+            {threadAgents && threadAgents.length >= 2 ? (
+              <span className="flex items-center">
+                {threadAgents.slice(0, 3).map((a, i) => (
+                  <span key={a.id} className={cn("rounded-full border-2 border-background", i > 0 && "-ml-1.5")}>
+                    <AgentAvatar agent={a} size={16} />
+                  </span>
+                ))}
+                {threadAgents.length > 3 && (
+                  <span className="flex items-center justify-center rounded-full border-2 border-background bg-muted text-[9px] font-medium text-muted-foreground -ml-1.5" style={{ width: 16, height: 16 }}>
+                    +{threadAgents.length - 3}
+                  </span>
+                )}
+              </span>
+            ) : agent ? (
               <span className="flex items-center gap-1 truncate">
                 <AgentAvatar agent={agent} size={14} />
                 <span className="truncate">{agent.name}</span>
@@ -180,13 +206,15 @@ function DraggableIssueCard({
   onClick,
   onDelete,
   agent,
+  agentsById,
   compact = false,
 }: {
-  issue: Issue;
+  issue: IssueListItem;
   selected: boolean;
   onClick: () => void;
   onDelete?: () => void;
   agent?: Agent | null;
+  agentsById?: Map<string, Agent>;
   compact?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: issue.id });
@@ -198,7 +226,7 @@ function DraggableIssueCard({
 
   return (
     <div ref={setNodeRef} style={style} {...listeners} {...attributes}>
-      <IssueCard issue={issue} selected={selected} onClick={onClick} onDelete={onDelete} agent={agent} compact={compact} />
+      <IssueCard issue={issue} selected={selected} onClick={onClick} onDelete={onDelete} agent={agent} agentsById={agentsById} compact={compact} />
     </div>
   );
 }
@@ -209,7 +237,7 @@ export default function IssuesPage() {
   const [recentAgentId, setRecentAgentId] = useLocalStorage<string>(`issue-recent-agent-id-${workspaceId}`, "");
   const [draft, setDraft] = useLocalStorage<{ title: string; description: string; agentId: string }>(`issue-draft-${workspaceId}`, { title: "", description: "", agentId: "" });
   const [showCompleted, setShowCompleted] = useLocalStorage<boolean>("issues-show-completed", true);
-  const [issues, setIssues] = useState<Issue[]>([]);
+  const [issues, setIssues] = useState<IssueListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -219,6 +247,7 @@ export default function IssuesPage() {
   const [activeTask, setActiveTask] = useState<TaskApi | null>(null);
   const [taskLatestText, setTaskLatestText] = useState<string>("");
   const [sidecarWidth, setSidecarWidth] = useState(SIDECAR_DEFAULT_WIDTH);
+  const [traceTasks, setTraceTasks] = useState<TraceTask[] | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const pendingStatusUpdate = useRef<string | null>(null);
 
@@ -249,9 +278,15 @@ export default function IssuesPage() {
     setSelectedId(issueId);
     setSheetOpen(true);
     setDetailLoading(true);
+    setTraceTasks(null);
     try {
       const res = await getIssue(workspaceId, issueId);
       setDetail(res);
+      if (res.issue.trace_id) {
+        getTrace(res.issue.trace_id, workspaceId)
+          .then(t => setTraceTasks(t.tasks))
+          .catch(() => setTraceTasks(null));
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load issue");
     } finally {
@@ -407,6 +442,7 @@ export default function IssuesPage() {
       setDetail(null);
       setActiveTask(null);
       setTaskLatestText("");
+      setTraceTasks(null);
     }
   }, []);
 
@@ -525,7 +561,7 @@ export default function IssuesPage() {
                         </div>
                       ) : (
                         columnIssues.map((issue) => (
-                          <DraggableIssueCard key={issue.id} issue={issue} selected={selectedId === issue.id} onClick={() => openIssue(issue.id)} onDelete={() => handleDeleteIssue(issue.id)} agent={agentsById.get(issue.agent_id ?? "") ?? null} />
+                          <DraggableIssueCard key={issue.id} issue={issue} selected={selectedId === issue.id} onClick={() => openIssue(issue.id)} onDelete={() => handleDeleteIssue(issue.id)} agent={agentsById.get(issue.agent_id ?? "") ?? null} agentsById={agentsById} />
                         ))
                       )}
                     </div>
@@ -544,7 +580,7 @@ export default function IssuesPage() {
               {activeDragId ? (() => {
                 const dragIssue = issues.find((i) => i.id === activeDragId);
                 if (!dragIssue) return null;
-                return <IssueCard issue={dragIssue} selected={false} onClick={() => {}} agent={agentsById.get(dragIssue.agent_id ?? "") ?? null} />;
+                return <IssueCard issue={dragIssue} selected={false} onClick={() => {}} agent={agentsById.get(dragIssue.agent_id ?? "") ?? null} agentsById={agentsById} />;
               })() : null}
             </DragOverlay>
           </DndContext>
@@ -595,7 +631,7 @@ export default function IssuesPage() {
                   </div>
                   <div className="space-y-2 p-3">
                     {columnIssues.map((issue) => (
-                      <IssueCard key={issue.id} issue={issue} selected={selectedId === issue.id} onClick={() => openIssue(issue.id)} onDelete={() => handleDeleteIssue(issue.id)} agent={agentsById.get(issue.agent_id ?? "") ?? null} compact />
+                      <IssueCard key={issue.id} issue={issue} selected={selectedId === issue.id} onClick={() => openIssue(issue.id)} onDelete={() => handleDeleteIssue(issue.id)} agent={agentsById.get(issue.agent_id ?? "") ?? null} agentsById={agentsById} compact />
                     ))}
                   </div>
                 </section>
@@ -627,6 +663,7 @@ export default function IssuesPage() {
         detailLoading={detailLoading}
         activeTask={activeTask}
         taskLatestText={taskLatestText}
+        traceTasks={traceTasks}
         submitting={creating}
         defaultAgentId={recentAgentId}
         slug={slug}

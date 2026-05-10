@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 import type { Agent, Artifact, Issue, IssueComment, Message, TaskApi } from "@alook/shared";
 import { isTerminalIssueStatus } from "@alook/shared";
+import type { TraceTask } from "@/lib/api";
 import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
 
 // --- Constants ---
@@ -172,6 +173,7 @@ export interface IssueSheetProps {
   detailLoading?: boolean;
   activeTask?: TaskApi | null;
   taskLatestText?: string;
+  traceTasks?: TraceTask[] | null;
   submitting?: boolean;
   defaultAgentId?: string;
   slug: string;
@@ -195,6 +197,7 @@ export function IssueSheet({
   detailLoading,
   activeTask,
   taskLatestText,
+  traceTasks,
   submitting,
   defaultAgentId,
   slug,
@@ -224,6 +227,7 @@ export function IssueSheet({
   const dragging = useRef(false);
 
   const isTaskActive = activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
+  const hasActiveTraceTasks = traceTasks?.some(t => ["queued", "dispatched", "running"].includes(t.status)) ?? false;
 
   // Seed state on open/issue change
   useEffect(() => {
@@ -399,15 +403,42 @@ export function IssueSheet({
                     : <CommentRow comment={item.data} agents={agents} />}
                 </div>
               ))}
-              {isTaskActive && (
-                <div className="relative">
-                  <div className="absolute -left-4 top-2.5 size-2.5 rounded-full border-2 border-background bg-emerald-500 animate-pulse" />
-                  <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
-                    <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">Working</div>
-                    {taskLatestText && <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">{taskLatestText}</p>}
+              {(isTaskActive || hasActiveTraceTasks) && (() => {
+                const activeTraceTasks = traceTasks?.filter(t => ["queued", "dispatched", "running"].includes(t.status));
+                if (activeTraceTasks && activeTraceTasks.length > 0) {
+                  return activeTraceTasks.map(t => {
+                    const isRunning = t.status === "running";
+                    return (
+                      <div key={t.id} className="relative">
+                        <div className={cn(
+                          "absolute -left-4 top-2.5 size-2.5 rounded-full border-2 border-background",
+                          isRunning ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"
+                        )} />
+                        <div className={cn(
+                          "rounded-md border px-3 py-2",
+                          isRunning ? "border-emerald-500/30 bg-emerald-500/10" : "border-border/60 bg-muted/30"
+                        )}>
+                          <div className="flex items-center gap-2 text-xs">
+                            {t.agent && <AgentAvatar agent={{ avatar_url: t.agent.avatarUrl, name: t.agent.name } as Agent} size={16} />}
+                            <span className={isRunning ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"}>
+                              {t.agent?.name ?? "Agent"} {isRunning ? "is working" : "— queued"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  });
+                }
+                return (
+                  <div className="relative">
+                    <div className="absolute -left-4 top-2.5 size-2.5 rounded-full border-2 border-background bg-emerald-500 animate-pulse" />
+                    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
+                      <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">Working</div>
+                      {taskLatestText && <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">{taskLatestText}</p>}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           </div>
         );

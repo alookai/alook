@@ -637,6 +637,8 @@ export const deleteCalendarEvent = (
   });
 
 // Issues
+export type IssueListItem = Issue & { thread_agent_ids?: string[] };
+
 export interface IssueDetailResponse {
   issue: Issue & { trace_id?: string | null };
   messages: Message[];
@@ -652,7 +654,7 @@ export const listIssues = (
   if (opts?.agentId) extra.agentId = opts.agentId;
   if (opts?.status) extra.status = opts.status;
   if (opts?.terminal !== undefined) extra.terminal = String(opts.terminal);
-  return apiFetch<Issue[]>(`/api/issues${wsQuery(workspaceId, extra)}`);
+  return apiFetch<IssueListItem[]>(`/api/issues${wsQuery(workspaceId, extra)}`);
 };
 
 export const createIssue = async (
