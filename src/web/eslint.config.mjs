@@ -23,7 +23,7 @@ const eslintConfig = defineConfig([
       "react-hooks/refs": "warn",
       "@typescript-eslint/no-explicit-any": "warn",
       "tailwind-canonical-classes/tailwind-canonical-classes": [
-        "warn",
+        "error",
         { cssPath: "./src/app/globals.css" },
       ],
       "@next/next/no-img-element": "off",

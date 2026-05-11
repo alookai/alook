@@ -142,7 +142,7 @@ function ActivityRow({ task, slug, agentId, workspaceId, onRetry }: { task: Acti
           {relativeTime(task.created_at)}
         </span>
       </div>
-      <div className="flex items-center gap-1.5 mt-1 ml-[calc(0.875rem+0.5rem)]">
+      <div className="flex items-center gap-1.5 mt-1 ml-5.5">
         <StatusDot status={task.status} />
         <span className="text-xs text-muted-foreground">
           {STATUS_LABELS[task.status] ?? task.status}
@@ -187,7 +187,7 @@ function SkeletonRow({ promptWidth }: { promptWidth: string }) {
         <Skeleton className={`h-3.5 rounded`} style={{ width: promptWidth }} />
         <Skeleton className="h-2.5 w-10 rounded shrink-0 ml-auto" />
       </div>
-      <div className="flex items-center gap-1.5 mt-1 ml-[calc(0.875rem+0.5rem)]">
+      <div className="flex items-center gap-1.5 mt-1 ml-5.5">
         <Skeleton className="h-2.5 w-20 rounded-full" />
         <Skeleton className="h-2.5 w-8 rounded" />
       </div>
