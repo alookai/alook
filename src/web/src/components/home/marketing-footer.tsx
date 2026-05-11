@@ -12,7 +12,6 @@ gsap.registerPlugin(ScrollTrigger);
 const footerLinks = [
   { href: "/templates", label: "Templates" },
   { href: "https://discord.gg/24PHyEHU3M", label: "Discord", external: true },
-  { href: "https://github.com/alookai", label: "GitHub", external: true },
   { href: "mailto:support@alook.ai", label: "Contact", external: true },
 ];
 
@@ -114,7 +113,7 @@ export function MarketingFooter() {
               opacity: 0.5,
             }}
           >
-            &copy; 2026 Alook AI
+            &copy; {new Date().getFullYear()} Alook AI
           </span>
         </div>
       </div>
