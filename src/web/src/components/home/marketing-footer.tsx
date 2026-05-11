@@ -1,12 +1,20 @@
 "use client";
 
 import { useRef } from "react";
+import Link from "next/link";
 import Image from "next/image";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
 gsap.registerPlugin(ScrollTrigger);
+
+const footerLinks = [
+  { href: "/templates", label: "Templates" },
+  { href: "https://discord.gg/24PHyEHU3M", label: "Discord", external: true },
+  { href: "https://github.com/alookai", label: "GitHub", external: true },
+  { href: "mailto:support@alook.ai", label: "Contact", external: true },
+];
 
 export function MarketingFooter() {
   const footerRef = useRef<HTMLElement>(null);
@@ -27,6 +35,14 @@ export function MarketingFooter() {
     },
     { scope: footerRef }
   );
+
+  const linkStyle = {
+    fontFamily: "var(--font-mono)",
+    color: "var(--landing-text-muted)",
+    fontSize: "11px",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.15em",
+  };
 
   return (
     <footer
@@ -62,6 +78,32 @@ export function MarketingFooter() {
             Your Personal Company
           </span>
         </div>
+
+        <nav className="flex items-center gap-5" aria-label="Footer navigation">
+          {footerLinks.map((link) =>
+            link.external ? (
+              <a
+                key={link.label}
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="transition-opacity hover:opacity-70"
+                style={linkStyle}
+              >
+                {link.label}
+              </a>
+            ) : (
+              <Link
+                key={link.label}
+                href={link.href}
+                className="transition-opacity hover:opacity-70"
+                style={linkStyle}
+              >
+                {link.label}
+              </Link>
+            )
+          )}
+        </nav>
 
         <div className="flex items-center gap-6">
           <span

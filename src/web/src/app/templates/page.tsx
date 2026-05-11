@@ -24,6 +24,21 @@ export const metadata: Metadata = {
   },
 };
 
+const itemListJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  name: "AI Team Templates",
+  description,
+  numberOfItems: TEMPLATES.length,
+  itemListElement: TEMPLATES.map((template, index) => ({
+    "@type": "ListItem",
+    position: index + 1,
+    name: template.name,
+    description: template.description,
+    url: `https://alook.ai/templates/${template.id}`,
+  })),
+};
+
 export default async function TemplatesPage({
   searchParams,
 }: {
@@ -32,11 +47,17 @@ export default async function TemplatesPage({
   const session = await getSession();
   const params = await searchParams;
   return (
-    <TemplatesClient
-      templates={TEMPLATES}
-      categories={TEMPLATE_CATEGORIES}
-      isLoggedIn={!!session}
-      workspaceId={params.workspace_id}
-    />
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }}
+      />
+      <TemplatesClient
+        templates={TEMPLATES}
+        categories={TEMPLATE_CATEGORIES}
+        isLoggedIn={!!session}
+        workspaceId={params.workspace_id}
+      />
+    </>
   );
 }

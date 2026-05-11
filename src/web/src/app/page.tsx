@@ -10,7 +10,7 @@ const HomePage = dynamic(() => import("@/components/home/home-page").then(m => (
 export const metadata: Metadata = {
   title: "Alook — Your Personal Company",
   description:
-    "Run your personal company — AI agents that collaborate, stay always on, and learn from every task.",
+    "Run your personal company with AI agents that collaborate, stay always on, and learn from every task. Give each agent an email, assign roles, and let them work for you around the clock.",
   alternates: { canonical: "https://alook.ai" },
 };
 
