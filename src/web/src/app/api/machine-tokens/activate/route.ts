@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, ActivateTokenRequestSchema, createLogger } from "@alook/shared";
+import { queries, ActivateTokenRequestSchema, createLogger, generateWorkspaceSlug } from "@alook/shared";
 import { getDb } from "@/lib/db"
 import { writeJSON } from "@/lib/middleware/helpers";
 import { runtimeToResponse } from "@/lib/api/responses";
@@ -8,10 +8,6 @@ import { broadcastToUser } from "@/lib/broadcast";
 import { invalidate, cacheKeys } from "@/lib/cache";
 
 const log = createLogger({ service: "machine-tokens/activate" });
-
-function generateSlug(): string {
-  return `studio-${Date.now().toString(36)}`;
-}
 
 export async function POST(req: NextRequest) {
   let raw: unknown;
@@ -39,19 +35,24 @@ export async function POST(req: NextRequest) {
     return writeJSON({ error: "token already used" }, 409);
   }
 
-  // Resolve workspace: use token's workspace or create a new one
+  // Resolve workspace: use token's workspace, find existing, or create new
   let workspaceId = mt.workspaceId;
   if (!workspaceId) {
-    const ws = await queries.workspace.createWorkspace(db, {
-      name: "Personal",
-      slug: generateSlug(),
-    });
-    await queries.member.createMember(db, {
-      workspaceId: ws.id,
-      userId: mt.userId,
-      role: "owner",
-    });
-    workspaceId = ws.id;
+    const existing = await queries.workspace.listWorkspaces(db, mt.userId);
+    if (existing.length > 0) {
+      workspaceId = existing[0].id;
+    } else {
+      const ws = await queries.workspace.createWorkspace(db, {
+        name: "Personal",
+        slug: generateWorkspaceSlug(),
+      });
+      await queries.member.createMember(db, {
+        workspaceId: ws.id,
+        userId: mt.userId,
+        role: "owner",
+      });
+      workspaceId = ws.id;
+    }
   }
 
   // Use hostname as daemonId — must match what the daemon uses (os.hostname())

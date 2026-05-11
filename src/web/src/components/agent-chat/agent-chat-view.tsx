@@ -1342,7 +1342,7 @@ export function AgentChatView() {
         });
       }
     });
-  }, [issueSheetOpen, selectedIssueId, issueConvId, issueTaskId, workspaceId, subscribeWs]);  
+  }, [issueSheetOpen, selectedIssueId, issueConvId, issueTaskId, workspaceId, subscribeWs]);
 
   const [napping, setNapping] = useState(false);
 

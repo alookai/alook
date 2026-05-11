@@ -38,8 +38,13 @@ export default async function WorkspaceLayout({
   if (agents.length === 0) {
     const hdrs = await headers()
     const cookieHeader = hdrs.get("cookie") || ""
-    const skipInit = cookieHeader.includes(`skip_init=${ws.id}`)
-    if (!skipInit) {
+    const cookies = Object.fromEntries(
+      cookieHeader.split(";").map((c) => {
+        const [k, ...v] = c.trim().split("=")
+        return [k, v.join("=")]
+      })
+    )
+    if (!cookies["skip_init"] || cookies["skip_init"] !== ws.id) {
       redirect(`/studio/new?workspace_id=${ws.id}`)
     }
   }

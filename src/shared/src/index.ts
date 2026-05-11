@@ -231,4 +231,5 @@ export type { PromptAgent, PromptMention, ParseResult } from "./utils/prompt-par
 export { isValidToken, isValidEmail } from "./utils/validation";
 export { isOnline, formatStatus } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
+export { generateWorkspaceSlug } from "./utils/slug";
 export { semverGte } from "./semver";

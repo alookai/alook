@@ -188,16 +188,13 @@ export function StudioOnboardingClient({
 
   const handleCheckName = async () => {
     if (!studioName.trim()) return;
-    if (!workspaceId) {
-      setNameAvailable(true);
-      return;
-    }
     setCheckingName(true);
     setNameAvailable(null);
     try {
-      const res = await fetch(
-        `/api/studios/check-name?name=${encodeURIComponent(studioName.trim())}&workspace_id=${workspaceId}`,
-      );
+      const url = workspaceId
+        ? `/api/studios/check-name?name=${encodeURIComponent(studioName.trim())}&workspace_id=${workspaceId}`
+        : `/api/studios/check-name?name=${encodeURIComponent(studioName.trim())}`;
+      const res = await fetch(url);
       const data = (await res.json()) as { available: boolean };
       setNameAvailable(data.available);
     } catch {

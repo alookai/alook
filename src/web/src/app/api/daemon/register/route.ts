@@ -5,13 +5,9 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, parseBody } from "@/lib/middleware/helpers";
 import { runtimeToResponse } from "@/lib/api/responses";
-import { RegisterDaemonRequestSchema } from "@alook/shared";
+import { RegisterDaemonRequestSchema, generateWorkspaceSlug } from "@alook/shared";
 import { broadcastToUser } from "@/lib/broadcast";
 import { invalidate, cacheKeys } from "@/lib/cache";
-
-function generateSlug(): string {
-  return `studio-${Date.now().toString(36)}`;
-}
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
@@ -29,16 +25,22 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   if (!workspaceId) {
-    const ws = await queries.workspace.createWorkspace(db, {
-      name: "Personal",
-      slug: generateSlug(),
-    });
-    await queries.member.createMember(db, {
-      workspaceId: ws.id,
-      userId: ctx.userId,
-      role: "owner",
-    });
-    workspaceId = ws.id;
+    // Check if user already has a workspace before creating a new one
+    const existing = await queries.workspace.listWorkspaces(db, ctx.userId);
+    if (existing.length > 0) {
+      workspaceId = existing[0].id;
+    } else {
+      const ws = await queries.workspace.createWorkspace(db, {
+        name: "Personal",
+        slug: generateWorkspaceSlug(),
+      });
+      await queries.member.createMember(db, {
+        workspaceId: ws.id,
+        userId: ctx.userId,
+        role: "owner",
+      });
+      workspaceId = ws.id;
+    }
   }
 
   // When authenticated with a machine token, enforce workspace match

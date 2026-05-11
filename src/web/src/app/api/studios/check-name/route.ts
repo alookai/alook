@@ -15,8 +15,14 @@ function slugify(name: string): string {
 }
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
-  const ws = await withWorkspaceMember(req, ctx);
-  if (ws instanceof Response) return ws;
+  const wsParam = req.nextUrl.searchParams.get("workspace_id");
+  let currentWorkspaceId: string | null = null;
+
+  if (wsParam) {
+    const ws = await withWorkspaceMember(req, ctx);
+    if (ws instanceof Response) return ws;
+    currentWorkspaceId = ws.workspaceId;
+  }
 
   const name = req.nextUrl.searchParams.get("name");
   if (!name || !name.trim()) {
@@ -32,7 +38,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb((env as Env).DB);
 
   const existing = await queries.workspace.getWorkspaceBySlug(db, slug);
-  const available = !existing || existing.id === ws.workspaceId;
+  const available = !existing || (currentWorkspaceId !== null && existing.id === currentWorkspaceId);
 
   return writeJSON({
     available,

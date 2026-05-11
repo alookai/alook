@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, isNull } from "drizzle-orm";
 import { machineToken, user } from "../schema";
 import type { Database } from "../index";
 
@@ -55,6 +55,8 @@ export async function getPendingMachineToken(
   ];
   if (workspaceId) {
     conditions.push(eq(machineToken.workspaceId, workspaceId));
+  } else {
+    conditions.push(isNull(machineToken.workspaceId));
   }
   const rows = await db
     .select()
