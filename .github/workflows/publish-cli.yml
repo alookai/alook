@@ -73,3 +73,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release create "${{ steps.version.outputs.tag }}" --generate-notes --title "CLI v${{ steps.version.outputs.version }}"
+
+      - name: Notify Discord
+        if: steps.check.outputs.skip == 'false'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          BODY=$(python3 -c "
+          import json, os
+          version = os.environ['VERSION']
+          payload = {
+            'embeds': [{
+              'title': f'📦 @alook/cli v{version} published to npm',
+              'description': 'A new CLI version is available.\n\n\`\`\`\nnpx @alook/cli@latest\n\`\`\`',
+              'color': 15105570,
+              'url': f'https://www.npmjs.com/package/@alook/cli/v/{version}',
+              'footer': {'text': 'npm registry'},
+            }]
+          }
+          print(json.dumps(payload))
+          ")
+          curl -sf -H "Content-Type: application/json" -d "$BODY" "$DISCORD_WEBHOOK"
