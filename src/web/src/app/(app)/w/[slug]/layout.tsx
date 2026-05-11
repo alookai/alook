@@ -1,3 +1,4 @@
+import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
@@ -35,7 +36,12 @@ export default async function WorkspaceLayout({
 
   const agents = await queries.agent.listAgents(db, ws.id, session.user.id)
   if (agents.length === 0) {
-    redirect(`/studio/new?workspace_id=${ws.id}`)
+    const hdrs = await headers()
+    const cookieHeader = hdrs.get("cookie") || ""
+    const skipInit = cookieHeader.includes(`skip_init=${ws.id}`)
+    if (!skipInit) {
+      redirect(`/studio/new?workspace_id=${ws.id}`)
+    }
   }
 
   return (

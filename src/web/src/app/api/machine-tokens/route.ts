@@ -20,14 +20,19 @@ export const GET = withAuth(async (req, ctx) => {
 });
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const ws = await withWorkspaceMember(req, ctx);
-  if (ws instanceof Response) return ws;
-
   const { env } = getCloudflareContext()
   const db = getDb((env as Env).DB)
 
-  // Reuse existing pending token for this workspace
-  const pending = await queries.machineToken.getPendingMachineToken(db, ctx.userId, ws.workspaceId);
+  const wsParam = req.nextUrl.searchParams.get("workspace_id");
+  let workspaceId: string | null = null;
+
+  if (wsParam) {
+    const ws = await withWorkspaceMember(req, ctx);
+    if (ws instanceof Response) return ws;
+    workspaceId = ws.workspaceId;
+  }
+
+  const pending = await queries.machineToken.getPendingMachineToken(db, ctx.userId, workspaceId);
   if (pending) {
     return writeJSON({ token: pending.token, ...machineTokenToResponse(pending) });
   }
@@ -46,7 +51,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const mt = await queries.machineToken.createMachineToken(db, {
     userId: ctx.userId,
-    workspaceId: ws.workspaceId,
+    workspaceId,
     token: raw,
     name,
     status: "pending",

@@ -9,6 +9,10 @@ import { RegisterDaemonRequestSchema } from "@alook/shared";
 import { broadcastToUser } from "@/lib/broadcast";
 import { invalidate, cacheKeys } from "@/lib/cache";
 
+function generateSlug(): string {
+  return `studio-${Date.now().toString(36)}`;
+}
+
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
   const db = getDb((env as Env).DB)
@@ -16,7 +20,26 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const [body, err] = await parseBody(req, RegisterDaemonRequestSchema);
   if (err) return err;
 
-  const { workspace_id: workspaceId, daemon_id: daemonId, device_name: deviceName, cli_version: cliVersion, runtimes } = body;
+  const { daemon_id: daemonId, device_name: deviceName, cli_version: cliVersion, runtimes } = body;
+  let workspaceId = body.workspace_id;
+
+  // Resolve workspace: use provided, fall back to auth context, or create new
+  if (!workspaceId && ctx.workspaceId) {
+    workspaceId = ctx.workspaceId;
+  }
+
+  if (!workspaceId) {
+    const ws = await queries.workspace.createWorkspace(db, {
+      name: "Personal",
+      slug: generateSlug(),
+    });
+    await queries.member.createMember(db, {
+      workspaceId: ws.id,
+      userId: ctx.userId,
+      role: "owner",
+    });
+    workspaceId = ws.id;
+  }
 
   // When authenticated with a machine token, enforce workspace match
   if (ctx.workspaceId && ctx.workspaceId !== workspaceId) {
@@ -69,5 +92,5 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     workspaceId,
   }).catch(() => {});
 
-  return writeJSON({ runtimes: results.map(runtimeToResponse) });
+  return writeJSON({ runtimes: results.map(runtimeToResponse), workspaceId });
 });

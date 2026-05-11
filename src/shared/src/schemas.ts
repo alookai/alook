@@ -186,7 +186,7 @@ export const ActivateTokenRequestSchema = z.object({
 export type ActivateTokenRequest = z.infer<typeof ActivateTokenRequestSchema>;
 
 export const RegisterDaemonRequestSchema = z.object({
-  workspace_id: z.string().min(1),
+  workspace_id: z.string().min(1).optional(),
   daemon_id: z.string().min(1),
   device_name: z.string().optional().default(""),
   cli_version: z.string().optional().default(""),

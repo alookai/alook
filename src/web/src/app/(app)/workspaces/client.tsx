@@ -1,33 +1,17 @@
 "use client"
 
-import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
-import { Plus, ArrowRight, Loader2, LogOut } from "lucide-react"
+import { Plus, ArrowRight, LogOut } from "lucide-react"
 import { signOut } from "@/lib/auth-client"
-import {
-  type WorkspaceFormErrors,
-  hasWorkspaceFormErrors,
-  validateWorkspaceForm,
-} from "@/lib/form-validation"
 
 interface WorkspaceItem {
   id: string
   name: string
   slug: string
-}
-
-function deriveSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 48)
 }
 
 export function WorkspaceListClient({
@@ -36,42 +20,6 @@ export function WorkspaceListClient({
   workspaces: WorkspaceItem[]
 }) {
   const router = useRouter()
-  const [showForm, setShowForm] = useState(false)
-  const [name, setName] = useState("")
-  const [creating, setCreating] = useState(false)
-  const [error, setError] = useState("")
-  const [fieldErrors, setFieldErrors] = useState<WorkspaceFormErrors>({})
-
-  const slug = deriveSlug(name)
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-    const nextErrors = validateWorkspaceForm({ name, slug })
-    setFieldErrors(nextErrors)
-    if (hasWorkspaceFormErrors(nextErrors)) return
-
-    setError("")
-    setCreating(true)
-    try {
-      const res = await fetch("/api/workspaces", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), slug }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        setError((body as { error?: string }).error || "Failed to create workspace")
-        return
-      }
-      const ws = (await res.json()) as WorkspaceItem
-      router.push(`/studio/new?workspace_id=${ws.id}`)
-    } catch {
-      setError("Failed to create workspace")
-    } finally {
-      setCreating(false)
-    }
-  }
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center p-6">
@@ -116,78 +64,14 @@ export function WorkspaceListClient({
           ))}
         </div>
 
-        {showForm ? (
-          <form onSubmit={handleCreate} className="space-y-3">
-            <div className="space-y-2">
-              <Input
-                placeholder="Workspace name"
-                value={name}
-                onChange={(e) => {
-                  const nextName = e.target.value
-                  setName(nextName)
-                  const nextSlug = deriveSlug(nextName)
-                  if (fieldErrors.name && nextName.trim()) {
-                    setFieldErrors((prev) => ({ ...prev, name: undefined }))
-                  }
-                  if (fieldErrors.slug && nextSlug) {
-                    setFieldErrors((prev) => ({ ...prev, slug: undefined }))
-                  }
-                }}
-                autoFocus
-                aria-invalid={Boolean(fieldErrors.name || fieldErrors.slug)}
-                aria-describedby={fieldErrors.name || fieldErrors.slug ? "workspace-name-error" : undefined}
-              />
-              {slug && (
-                <p className="text-xs text-muted-foreground pl-1">
-                  Slug: {slug}
-                </p>
-              )}
-              {(fieldErrors.name || fieldErrors.slug) && (
-                <p id="workspace-name-error" className="text-xs text-destructive">
-                  {fieldErrors.name || fieldErrors.slug}
-                </p>
-              )}
-            </div>
-            {error && (
-              <p className="text-xs text-destructive">{error}</p>
-            )}
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setShowForm(false)
-                  setName("")
-                  setError("")
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={creating}
-                className="flex-1"
-              >
-                {creating ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  "Create"
-                )}
-              </Button>
-            </div>
-          </form>
-        ) : (
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => setShowForm(true)}
-          >
-            <Plus className="size-4" />
-            New workspace
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          className="w-full"
+          onClick={() => router.push("/studio/new")}
+        >
+          <Plus className="size-4" />
+          New workspace
+        </Button>
       </div>
     </div>
   )

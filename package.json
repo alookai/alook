@@ -46,6 +46,7 @@
       "esbuild",
       "msw",
       "sharp",
+      "simple-git-hooks",
       "unrs-resolver",
       "workerd"
     ]

@@ -6,13 +6,26 @@ import { SCENARIO_PRESETS, type ScenarioId } from "./scenario-presets";
 export function ScenarioPicker({
   selected,
   onSelect,
+  onBrowseTemplates,
 }: {
   selected: ScenarioId | null;
   onSelect: (id: ScenarioId) => void;
+  onBrowseTemplates?: () => void;
 }) {
   return (
     <div className="space-y-3">
-      <h2 className="text-sm font-medium">What will your studio focus on?</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium">What will your studio focus on?</h2>
+        {onBrowseTemplates && (
+          <button
+            type="button"
+            onClick={onBrowseTemplates}
+            className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+          >
+            Browse templates
+          </button>
+        )}
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {SCENARIO_PRESETS.map((s, i) => (
           <button

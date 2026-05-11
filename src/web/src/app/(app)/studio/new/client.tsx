@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,22 +21,33 @@ import type { AgentRuntime as Runtime } from "@alook/shared";
 import type { WsMessage } from "@alook/shared";
 import { listRuntimes, createMachineToken } from "@/lib/api";
 import { useUserWs } from "@/lib/use-user-ws";
+import type { TemplatePreset } from "@/lib/templates";
 
 export function StudioOnboardingClient({
-  workspaceId,
+  workspaceId: initialWorkspaceId,
   workspaceSlug,
   workspaceName,
+  initialTemplate,
 }: {
-  workspaceId: string;
+  workspaceId: string | null;
   workspaceSlug: string;
   workspaceName: string;
+  initialTemplate?: TemplatePreset;
 }) {
   const router = useRouter();
+  const isNewWorkspace = !initialWorkspaceId;
 
+  const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
+  const workspaceIdRef = useRef(workspaceId);
+  workspaceIdRef.current = workspaceId;
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
-  const [loadingRuntimes, setLoadingRuntimes] = useState(true);
-  const [scenarioId, setScenarioId] = useState<ScenarioId | null>(null);
-  const [studioName, setStudioName] = useState(workspaceName === "Personal" ? "" : workspaceName);
+  const [loadingRuntimes, setLoadingRuntimes] = useState(!!initialWorkspaceId);
+  const [scenarioId, setScenarioId] = useState<ScenarioId | null>(
+    initialTemplate ? initialTemplate.baseScenario : null,
+  );
+  const [studioName, setStudioName] = useState(
+    isNewWorkspace ? "" : (workspaceName === "Personal" ? "" : workspaceName),
+  );
   const [nameAvailable, setNameAvailable] = useState<boolean | null>(null);
   const [checkingName, setCheckingName] = useState(false);
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -52,8 +63,9 @@ export function StudioOnboardingClient({
   const hasOnlineRuntime = onlineRuntimes.length > 0;
   const onlineMachineCount = new Set(onlineRuntimes.map((r) => r.daemon_id).filter(Boolean)).size;
 
-  // Fetch runtimes on mount
+  // Fetch runtimes on mount (only if workspace exists)
   useEffect(() => {
+    if (!workspaceId) return;
     listRuntimes(workspaceId)
       .then(setRuntimes)
       .catch(() => {})
@@ -62,14 +74,24 @@ export function StudioOnboardingClient({
 
   // WebSocket for runtime registration events
   const handleWsMessage = useCallback((msg: WsMessage) => {
-    if (
-      msg.type === "runtime.registered" ||
-      (msg.type === "runtime.status" && (msg as any).payload?.status === "online")
-    ) {
+    const currentWsId = workspaceIdRef.current;
+    if (msg.type === "runtime.registered") {
       setMachineRegistered(true);
-      listRuntimes(workspaceId).then(setRuntimes).catch(() => {});
+      const eventWsId = (msg as any).workspaceId as string | undefined;
+      if (eventWsId && !currentWsId) {
+        setWorkspaceId(eventWsId);
+        listRuntimes(eventWsId).then(setRuntimes).catch(() => {});
+      } else if (currentWsId) {
+        listRuntimes(currentWsId).then(setRuntimes).catch(() => {});
+      }
+    } else if (msg.type === "runtime.status" && (msg as any).payload?.status === "online") {
+      setMachineRegistered(true);
+      const wsId = workspaceIdRef.current;
+      if (wsId) {
+        listRuntimes(wsId).then(setRuntimes).catch(() => {});
+      }
     }
-  }, [workspaceId]);
+  }, []);
 
   useUserWs(handleWsMessage);
 
@@ -98,6 +120,34 @@ export function StudioOnboardingClient({
       return null;
     }
   }, []);
+
+  // Initialize from template when runtimes are loaded
+  useEffect(() => {
+    if (!initialTemplate || loadingRuntimes) return;
+    if (members.length > 0) return;
+    const generated = shuffleMembers(initialTemplate.members.length);
+    const defaultRuntimeId = onlineRuntimes[0]?.id || "";
+    const newMembers = initialTemplate.members.map((m, i) => ({
+      name: generated[i].name,
+      role: m.role,
+      description: m.description,
+      instructions: m.instructions,
+      avatarUrl: generated[i].avatarUrl,
+      runtimeId: defaultRuntimeId,
+    }));
+    setMembers(newMembers);
+    resolveHandles(newMembers.map((m) => m.name)).then((handles) => {
+      if (handles) {
+        setMembers((prev) =>
+          prev.map((m) => {
+            const h = handles.find((r) => r.name === m.name);
+            return h ? { ...m, emailHandle: h.handle } : m;
+          }),
+        );
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTemplate, loadingRuntimes]);
 
   const handleScenarioSelect = async (id: ScenarioId) => {
     setScenarioId(id);
@@ -137,6 +187,10 @@ export function StudioOnboardingClient({
 
   const handleCheckName = async () => {
     if (!studioName.trim()) return;
+    if (!workspaceId) {
+      setNameAvailable(true);
+      return;
+    }
     setCheckingName(true);
     setNameAvailable(null);
     try {
@@ -156,7 +210,7 @@ export function StudioOnboardingClient({
   const handleGenerateToken = useCallback(async () => {
     setGeneratingToken(true);
     try {
-      const res = await createMachineToken("cli", workspaceId);
+      const res = await createMachineToken("cli", workspaceId || undefined);
       setGeneratedToken(res.token);
     } catch {
       toast.error("Failed to generate token");
@@ -174,6 +228,11 @@ export function StudioOnboardingClient({
   const handleCreate = async () => {
     setCreating(true);
     try {
+      if (!workspaceId) {
+        toast.error("Please connect a computer first");
+        setCreating(false);
+        return;
+      }
       const res = await fetch("/api/studios", {
         method: "POST",
         headers: {
@@ -209,11 +268,16 @@ export function StudioOnboardingClient({
     }
   };
 
+  const nameValid =
+    isNewWorkspace
+      ? studioName.trim() && nameAvailable === true
+      : nameAvailable !== false;
+
   const canCreate =
     scenarioId &&
     members.length > 0 &&
     members.every((m) => m.runtimeId) &&
-    nameAvailable !== false &&
+    nameValid &&
     (hasOnlineRuntime || machineRegistered);
 
   // Page 1: Scenario selection
@@ -240,14 +304,26 @@ export function StudioOnboardingClient({
         </Button>
 
         <div className="w-full max-w-3xl space-y-8">
-          <div className="text-center space-y-1">
-            <h1 className="text-lg font-semibold">What will your studio focus on?</h1>
-            <p className="text-xs text-muted-foreground">
-              Pick a scenario to assemble the right team.
-            </p>
+          <div className="text-center">
+            <h1 className="text-lg font-semibold">Pick a scenario to get started</h1>
           </div>
 
-          <ScenarioPicker selected={scenarioId} onSelect={handleScenarioSelect} />
+          <ScenarioPicker selected={scenarioId} onSelect={handleScenarioSelect} onBrowseTemplates={() => router.push(workspaceId ? `/templates?workspace_id=${workspaceId}` : "/templates")} />
+
+          {workspaceId && (
+            <div className="flex justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  document.cookie = `skip_init=${workspaceId};path=/;max-age=86400`;
+                  router.push(`/w/${workspaceSlug}/home`);
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Skip
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -290,7 +366,9 @@ export function StudioOnboardingClient({
       <div className="w-full max-w-3xl space-y-8 py-12">
         {/* Header */}
         <div className="text-center space-y-1">
-          <h1 className="text-lg font-semibold">Build your AI studio</h1>
+          <h1 className="text-lg font-semibold">
+            {!isNewWorkspace ? "Set up your AI team" : "Create a new studio"}
+          </h1>
           <p className="text-xs text-muted-foreground">
             Name your team, connect a machine, and start working.
           </p>
@@ -338,7 +416,11 @@ export function StudioOnboardingClient({
                   </span>
                 )}
                 {nameAvailable === true && <span>·</span>}
-                <span>Optional — you can always rename later.</span>
+                {!isNewWorkspace ? (
+                  <span>Optional — you can always rename later.</span>
+                ) : (
+                  <span>Required — pick a name for your new studio.</span>
+                )}
               </p>
             </div>
 
@@ -402,6 +484,8 @@ export function StudioOnboardingClient({
                   <Loader2 className="size-4 animate-spin mr-2" />
                   Creating studio...
                 </>
+              ) : isNewWorkspace && studioName.trim() && nameAvailable !== true ? (
+                "Check studio name first"
               ) : (
                 "Create studio"
               )}

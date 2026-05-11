@@ -5,8 +5,13 @@ import { getDb } from "@/lib/db"
 import { writeJSON } from "@/lib/middleware/helpers";
 import { runtimeToResponse } from "@/lib/api/responses";
 import { broadcastToUser } from "@/lib/broadcast";
+import { invalidate, cacheKeys } from "@/lib/cache";
 
 const log = createLogger({ service: "machine-tokens/activate" });
+
+function generateSlug(): string {
+  return `studio-${Date.now().toString(36)}`;
+}
 
 export async function POST(req: NextRequest) {
   let raw: unknown;
@@ -34,6 +39,21 @@ export async function POST(req: NextRequest) {
     return writeJSON({ error: "token already used" }, 409);
   }
 
+  // Resolve workspace: use token's workspace or create a new one
+  let workspaceId = mt.workspaceId;
+  if (!workspaceId) {
+    const ws = await queries.workspace.createWorkspace(db, {
+      name: "Personal",
+      slug: generateSlug(),
+    });
+    await queries.member.createMember(db, {
+      workspaceId: ws.id,
+      userId: mt.userId,
+      role: "owner",
+    });
+    workspaceId = ws.id;
+  }
+
   // Use hostname as daemonId — must match what the daemon uses (os.hostname())
   // so that daemon start's upsert hits the same records instead of creating duplicates
   const daemonId = hostname;
@@ -41,7 +61,7 @@ export async function POST(req: NextRequest) {
   // Create machine row with last_seen_at = null (offline by default until daemon starts)
   await queries.machine.upsertMachine(db, {
     daemonId,
-    workspaceId: mt.workspaceId,
+    workspaceId,
     deviceInfo: hostname,
     lastSeenAt: null,
   });
@@ -49,7 +69,7 @@ export async function POST(req: NextRequest) {
   const results = [];
   for (const rt of runtimes) {
     const result = await queries.runtime.upsertAgentRuntime(db, {
-      workspaceId: mt.workspaceId,
+      workspaceId,
       daemonId,
       runtimeMode: "local",
       provider: rt.type,
@@ -59,7 +79,9 @@ export async function POST(req: NextRequest) {
     results.push({ ...result, machineLastSeenAt: null });
   }
 
-  await queries.machineToken.activateMachineToken(db, mt.id);
+  await queries.machineToken.activateMachineToken(db, mt.id, workspaceId);
+  await invalidate(cacheKeys.machineToken(token));
+  await invalidate(cacheKeys.runtimeIds(workspaceId, daemonId));
 
   // Notify the web UI
   try {
@@ -67,7 +89,7 @@ export async function POST(req: NextRequest) {
       type: "runtime.registered",
       daemonId,
       hostname,
-      workspaceId: mt.workspaceId,
+      workspaceId,
     });
   } catch (err) {
     log.warn("broadcast after activation failed", {
@@ -79,7 +101,7 @@ export async function POST(req: NextRequest) {
 
   return writeJSON({
     daemon_id: daemonId,
-    workspace_id: mt.workspaceId,
+    workspace_id: workspaceId,
     runtimes: results.map(runtimeToResponse),
   });
 }

@@ -47,14 +47,13 @@ const faqJsonLd = {
 
 export default async function Page() {
   const session = await getSession();
-  if (session) return <WorkspaceRedirect />;
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
-      <HomePage isLoggedIn={false} />
+      <HomePage isLoggedIn={!!session} />
     </>
   );
 }

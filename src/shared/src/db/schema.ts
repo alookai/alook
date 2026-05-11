@@ -630,7 +630,6 @@ export const machineToken = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     workspaceId: text("workspace_id")
-      .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
     token: text("token").unique().notNull(),
     name: text("name").notNull().default(""),
