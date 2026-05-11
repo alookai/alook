@@ -53,6 +53,7 @@ jobs:
           VERSION: ${{ steps.detect.outputs.version }}
           CHANGES: ${{ steps.changes.outputs.logs }}
         run: |
+          export CHANGES_TEXT
           CHANGES_TEXT=$(echo "$CHANGES" | python3 -c 'import sys,json; print(json.loads(sys.stdin.read()))')
           BODY=$(python3 -c "
           import json, os
@@ -78,9 +79,11 @@ jobs:
           MSG=$(git log -1 --format='%s' "${{ github.event.workflow_run.head_sha }}")
           AUTHOR=$(git log -1 --format='%an' "${{ github.event.workflow_run.head_sha }}")
           SHORT_SHA=$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)
-          echo "msg=$(echo "$MSG" | head -c 200)" >> "$GITHUB_OUTPUT"
-          echo "author=$AUTHOR" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          {
+            echo "msg=$(echo "$MSG" | head -c 200)"
+            echo "author=$AUTHOR"
+            echo "short_sha=$SHORT_SHA"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Send push notification
         if: steps.detect.outputs.is_release == 'false'
