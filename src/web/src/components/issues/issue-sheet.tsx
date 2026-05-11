@@ -279,7 +279,7 @@ export function IssueSheet({
     }, 500);
 
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, [title, description, mode, issue, open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [title, description, mode, issue, open]);  
 
   // --- Title auto-resize ---
   const resizeTitle = useCallback((el?: HTMLTextAreaElement | null) => {

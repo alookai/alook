@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import dynamic from "next/dynamic";
 import { getSession } from "@/lib/session";
-import { WorkspaceRedirect } from "@/components/workspace-redirect";
+
 
 const HomePage = dynamic(() => import("@/components/home/home-page").then(m => ({ default: m.HomePage })), {
   ssr: true,

@@ -493,8 +493,8 @@ function MobileAgentList() {
 
 export default function HomePage() {
   const router = useRouter();
-  const { agents, runtimes, loading } = useAgentContext();
-  const { slug, workspaceId } = useWorkspace();
+  const { agents, loading } = useAgentContext();
+  const { workspaceId } = useWorkspace();
   const isMobile = useIsMobile();
 
   if (loading) {

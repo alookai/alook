@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { useLocalStorage } from "./use-local-storage";
 
 export interface AgentFolder {
