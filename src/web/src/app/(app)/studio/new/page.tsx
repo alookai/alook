@@ -19,7 +19,7 @@ export default async function StudioNewPage({
   const templateId = params.template;
   const initialTemplate = templateId ? getTemplateById(templateId) : undefined;
 
-  let workspaceId = params.workspace_id ?? null;
+  const workspaceId = params.workspace_id ?? null;
   let workspaceName = "";
   let workspaceSlug = "";
 

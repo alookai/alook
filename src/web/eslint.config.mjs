@@ -18,6 +18,8 @@ const eslintConfig = defineConfig([
     rules: {
       "react-hooks/set-state-in-effect": "off",
       "react-hooks/preserve-manual-memoization": "off",
+      "react-hooks/refs": "warn",
+      "@typescript-eslint/no-explicit-any": "warn",
       "@next/next/no-img-element": "off",
       "@next/next/no-before-interactive-script-outside-document": "off",
     },

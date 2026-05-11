@@ -39,7 +39,7 @@ export function StudioOnboardingClient({
 
   const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
   const workspaceIdRef = useRef(workspaceId);
-  workspaceIdRef.current = workspaceId;
+  useEffect(() => { workspaceIdRef.current = workspaceId; }, [workspaceId]);
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
   const [loadingRuntimes, setLoadingRuntimes] = useState(!!initialWorkspaceId);
   const [scenarioId, setScenarioId] = useState<ScenarioId | null>(
@@ -75,16 +75,17 @@ export function StudioOnboardingClient({
   // WebSocket for runtime registration events
   const handleWsMessage = useCallback((msg: WsMessage) => {
     const currentWsId = workspaceIdRef.current;
+    const extra = msg as WsMessage & { workspaceId?: string; payload?: { status?: string } };
     if (msg.type === "runtime.registered") {
       setMachineRegistered(true);
-      const eventWsId = (msg as any).workspaceId as string | undefined;
+      const eventWsId = extra.workspaceId;
       if (eventWsId && !currentWsId) {
         setWorkspaceId(eventWsId);
         listRuntimes(eventWsId).then(setRuntimes).catch(() => {});
       } else if (currentWsId) {
         listRuntimes(currentWsId).then(setRuntimes).catch(() => {});
       }
-    } else if (msg.type === "runtime.status" && (msg as any).payload?.status === "online") {
+    } else if (msg.type === "runtime.status" && extra.payload?.status === "online") {
       setMachineRegistered(true);
       const wsId = workspaceIdRef.current;
       if (wsId) {
