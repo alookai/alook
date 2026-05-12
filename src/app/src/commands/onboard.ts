@@ -13,7 +13,7 @@ import {
   activateToken,
   waitForServer,
 } from "../lib/register.js";
-import { DEFAULT_PORTS, WEB_URL } from "../lib/constants.js";
+import { DEFAULT_PORTS, WEB_URL, SELF_HOSTED_DIR } from "../lib/constants.js";
 import { patchWranglerConfigs } from "../lib/wrangler-config.js";
 
 export function onboardCommand(): Command {
@@ -53,7 +53,7 @@ export function onboardCommand(): Command {
         console.log("Installing Alook...");
         installBundled();
       } else {
-        console.log("Installation found at ~/.alook/self-hosted/");
+        console.log(`Installation found at ${SELF_HOSTED_DIR}`);
       }
 
       // 5. Generate secrets
