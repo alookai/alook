@@ -21,7 +21,6 @@
     "access": "public"
   },
   "scripts": {
-    "dev": "bun run src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external wrangler",
     "prepack": "pnpm run build",
     "bundle": "bun run scripts/bundle.ts"
