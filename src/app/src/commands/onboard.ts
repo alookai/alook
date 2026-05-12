@@ -13,6 +13,7 @@ import {
   waitForServer,
 } from "../lib/register.js";
 import { DEFAULT_PORTS, WEB_URL } from "../lib/constants.js";
+import { patchWranglerConfigs } from "../lib/wrangler-config.js";
 
 export function onboardCommand(): Command {
   return new Command("onboard")
@@ -56,6 +57,9 @@ export function onboardCommand(): Command {
 
       // 5. Generate secrets
       ensureSecrets(ports.web);
+
+      // 5.5 Patch wrangler configs for local ports
+      patchWranglerConfigs(ports);
 
       // 6. Run migrations
       runMigrations();
