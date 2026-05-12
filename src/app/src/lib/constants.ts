@@ -10,7 +10,6 @@ function resolveBaseDir(): string {
 
 export const SELF_HOSTED_DIR = resolveBaseDir();
 export const PID_FILE = join(SELF_HOSTED_DIR, ".pids.json");
-export const DEV_VARS_FILE = join(SELF_HOSTED_DIR, "web", ".dev.vars");
 
 export const DEFAULT_PORTS = {
   web: 3000,

@@ -79,11 +79,10 @@ export function onboardCommand(): Command {
       }
 
       // 8. Start services
-      const foreground = !!process.env.ALOOK_PROJECT_ROOT;
       if (isRunning()) {
         console.log("\nServices already running.");
       } else {
-        startServices(ports, { foreground });
+        startServices(ports, { foreground: devMode });
       }
 
       // 9. Wait for web server

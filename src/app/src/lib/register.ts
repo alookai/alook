@@ -1,5 +1,7 @@
 import { createInterface } from "readline";
 import { DEV_PASSWORD } from "@alook/shared";
+import { SELF_HOSTED_DIR } from "./constants.js";
+import { join } from "path";
 
 interface SignupResult {
   sessionCookie: string;
@@ -22,36 +24,18 @@ interface RuntimeInfo {
   version: string;
 }
 
-function prompt(question: string, hidden = false): Promise<string> {
+function prompt(question: string): Promise<string> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
-    if (hidden) {
-      process.stdout.write(question);
-      const stdin = process.stdin;
-      const wasRaw = stdin.isRaw;
-      if (stdin.isTTY) stdin.setRawMode(true);
-      let input = "";
-      const onData = (char: Buffer) => {
-        const c = char.toString();
-        if (c === "\n" || c === "\r") {
-          stdin.removeListener("data", onData);
-          if (stdin.isTTY) stdin.setRawMode(wasRaw ?? false);
-          process.stdout.write("\n");
-          rl.close();
-          resolve(input);
-        } else if (c === "\u0003") {
-          process.exit(0);
-        } else if (c === "\u0008") {
-          input = input.slice(0, -1);
-        } else {
-          input += c;
-        }
-      };
-      stdin.on("data", onData);
-    } else {
-      rl.question(question, (answer) => { rl.close(); resolve(answer); });
-    }
+    rl.question(question, (answer) => { rl.close(); resolve(answer); });
   });
+}
+
+function extractSession(res: Response): { sessionCookie: string; userId: string } | null {
+  const cookies = res.headers.getSetCookie?.() || [];
+  const sessionCookie = cookies.find((c) => c.includes("better-auth.session_token")) || "";
+  if (!sessionCookie) return null;
+  return { sessionCookie, userId: "" };
 }
 
 export async function collectEmail(): Promise<string> {
@@ -67,7 +51,6 @@ export async function registerUser(baseURL: string, email: string): Promise<Sign
   const name = userInfo().username || "User";
   const password = DEV_PASSWORD;
 
-  // Try signup first
   let res = await fetch(`${baseURL}/api/auth/sign-up/email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -75,7 +58,6 @@ export async function registerUser(baseURL: string, email: string): Promise<Sign
     redirect: "manual",
   });
 
-  // If user already exists, sign in instead
   if (!res.ok) {
     const text = await res.text();
     if (text.includes("already exists") || text.includes("already registered") || text.includes("User already")) {
@@ -92,35 +74,27 @@ export async function registerUser(baseURL: string, email: string): Promise<Sign
         process.exit(1);
       }
 
-      const cookies = res.headers.getSetCookie?.() || [];
-      const sessionCookie = cookies.find((c) => c.includes("better-auth.session_token")) || "";
-      if (!sessionCookie) {
+      const session = extractSession(res);
+      if (!session) {
         console.error(`\nError: account exists but could not get session.`);
         console.error(`Open ${baseURL} in browser and sign in manually.`);
         process.exit(1);
       }
-      const body = await res.json().catch(() => ({})) as Record<string, unknown>;
-      const userId = (body as { user?: { id?: string } }).user?.id || "";
       console.log(`  ✓ Signed in (${email})`);
-      return { sessionCookie, userId };
+      return session;
     }
     console.error(`\nError: signup failed (${res.status}): ${text}`);
     process.exit(1);
   }
 
-  const cookies = res.headers.getSetCookie?.() || [];
-  const sessionCookie = cookies.find((c) => c.includes("better-auth.session_token")) || "";
-
-  if (!sessionCookie) {
+  const session = extractSession(res);
+  if (!session) {
     console.error("\nError: no session cookie received after signup");
     process.exit(1);
   }
 
-  const body = await res.json().catch(() => ({})) as Record<string, unknown>;
-  const userId = (body as { user?: { id?: string } }).user?.id || "";
-
   console.log(`  ✓ Account created (${email})`);
-  return { sessionCookie, userId };
+  return session;
 }
 
 export async function createWorkspace(baseURL: string, cookie: string): Promise<WorkspaceResult> {
@@ -170,8 +144,7 @@ export async function createMachineToken(
     process.exit(1);
   }
 
-  const data = (await res.json()) as TokenResult;
-  return data;
+  return (await res.json()) as TokenResult;
 }
 
 export async function activateToken(
@@ -218,6 +191,6 @@ export async function waitForServer(baseURL: string, timeoutMs = 30000): Promise
     await new Promise((r) => setTimeout(r, 500));
   }
   console.error("Error: server did not start within 30 seconds");
-  console.error(`Check logs at ~/.alook/self-hosted/logs/web.log`);
+  console.error(`Check logs at ${join(SELF_HOSTED_DIR, "logs", "web.log")}`);
   process.exit(1);
 }

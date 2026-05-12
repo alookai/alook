@@ -9,15 +9,6 @@ export function checkNodeVersion(): void {
   }
 }
 
-export function checkWrangler(): void {
-  try {
-    execSync("npx wrangler --version", { stdio: "ignore" });
-  } catch {
-    console.error("Error: wrangler not available. This is unexpected — please reinstall @alook/app.");
-    process.exit(1);
-  }
-}
-
 export function checkAIRuntime(): { type: string; version: string }[] {
   const found: { type: string; version: string }[] = [];
   for (const type of ["claude", "codex", "opencode"]) {

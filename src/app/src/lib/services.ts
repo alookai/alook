@@ -18,17 +18,13 @@ function isDevMode(): boolean {
   return !!process.env.ALOOK_PROJECT_ROOT;
 }
 
-function projectRoot(): string {
-  return process.env.ALOOK_PROJECT_ROOT!;
-}
-
 function logDir(): string {
   const dir = join(SELF_HOSTED_DIR, "logs");
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-function spawnProcess(name: string, cmd: string, args: string[], cwd: string, foreground: boolean): ChildProcess {
+function spawnService(name: string, cmd: string, args: string[], cwd: string, foreground: boolean): ChildProcess {
   if (foreground) {
     const child = spawn(cmd, args, {
       cwd,
@@ -59,41 +55,6 @@ function spawnProcess(name: string, cmd: string, args: string[], cwd: string, fo
   return child;
 }
 
-function spawnBackground(name: string, cwd: string, port: number, extraArgs: string[] = []): ChildProcess {
-  const logPath = join(logDir(), `${name}.log`);
-  const logFd = openSync(logPath, "a", 0o600);
-
-  const args = ["wrangler", "dev", "--local", "--port", String(port), ...extraArgs];
-  const child = spawn("npx", args, {
-    cwd,
-    detached: true,
-    stdio: ["ignore", logFd, logFd],
-    env: { ...process.env, NODE_ENV: "development" },
-  });
-  child.unref();
-  closeSync(logFd);
-  return child;
-}
-
-function spawnForeground(name: string, cwd: string, port: number, extraArgs: string[] = []): ChildProcess {
-  const args = ["wrangler", "dev", "--local", "--port", String(port), ...extraArgs];
-  const child = spawn("npx", args, {
-    cwd,
-    detached: true,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, NODE_ENV: "development" },
-  });
-  child.stdout?.on("data", (data: Buffer) => {
-    const lines = data.toString().trimEnd();
-    if (lines) console.log(`[${name}] ${lines}`);
-  });
-  child.stderr?.on("data", (data: Buffer) => {
-    const lines = data.toString().trimEnd();
-    if (lines) console.log(`[${name}] ${lines}`);
-  });
-  return child;
-}
-
 export function startServices(ports: ServicePorts, opts: StartOptions = {}): void {
   const existing = readPids();
   if (existing.web && isAlive(existing.web)) {
@@ -102,8 +63,6 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
   }
 
   const foreground = opts.foreground ?? false;
-  const spawnFn = foreground ? spawnForeground : spawnBackground;
-
   console.log(`Starting services${foreground ? " (foreground)" : ""}...`);
 
   let webChild: ChildProcess;
@@ -111,19 +70,19 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
   let wsChild: ChildProcess;
 
   if (isDevMode()) {
-    const root = projectRoot();
+    const root = process.env.ALOOK_PROJECT_ROOT!;
     const webDir = join(root, "src", "web");
     const emailDir = join(root, "src", "email-worker");
     const wsDir = join(root, "src", "ws-do");
     const persistTo = ["--persist-to", join(webDir, ".wrangler", "state")];
 
-    webChild = spawnProcess("web", "npx", ["next", "dev", "--port", String(ports.web)], webDir, foreground);
-    emailChild = spawnProcess("email-worker", "npx", ["wrangler", "dev", "--local", "--port", String(ports.emailWorker), ...persistTo], emailDir, foreground);
-    wsChild = spawnProcess("ws-do", "npx", ["wrangler", "dev", "--local", "--port", String(ports.wsDo), ...persistTo], wsDir, foreground);
+    webChild = spawnService("web", "npx", ["next", "dev", "--port", String(ports.web)], webDir, foreground);
+    emailChild = spawnService("email-worker", "npx", ["wrangler", "dev", "--local", "--port", String(ports.emailWorker), ...persistTo], emailDir, foreground);
+    wsChild = spawnService("ws-do", "npx", ["wrangler", "dev", "--local", "--port", String(ports.wsDo), ...persistTo], wsDir, foreground);
   } else {
-    webChild = spawnFn("web", join(SELF_HOSTED_DIR, "web"), ports.web);
-    emailChild = spawnFn("email-worker", join(SELF_HOSTED_DIR, "email-worker"), ports.emailWorker);
-    wsChild = spawnFn("ws-do", join(SELF_HOSTED_DIR, "ws-do"), ports.wsDo);
+    webChild = spawnService("web", "npx", ["wrangler", "dev", "--local", "--port", String(ports.web)], join(SELF_HOSTED_DIR, "web"), foreground);
+    emailChild = spawnService("email-worker", "npx", ["wrangler", "dev", "--local", "--port", String(ports.emailWorker)], join(SELF_HOSTED_DIR, "email-worker"), foreground);
+    wsChild = spawnService("ws-do", "npx", ["wrangler", "dev", "--local", "--port", String(ports.wsDo)], join(SELF_HOSTED_DIR, "ws-do"), foreground);
   }
 
   writePids({
@@ -147,12 +106,11 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
           try { process.kill(-child.pid, "SIGTERM"); } catch {}
         }
       }
-      writePids({});
+      clearPids();
       process.exit(0);
     };
     process.on("SIGINT", cleanup);
     process.on("SIGTERM", cleanup);
-    process.on("exit", cleanup);
   }
 }
 

@@ -28,8 +28,7 @@ export function startCommand(): Command {
       };
 
       await checkPorts(ports);
-      const foreground = !!process.env.ALOOK_PROJECT_ROOT;
-      startServices(ports, { foreground });
+      startServices(ports, { foreground: !!process.env.ALOOK_PROJECT_ROOT });
 
       console.log(`\nDashboard: ${WEB_URL(ports.web)}`);
     });
