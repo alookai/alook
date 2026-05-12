@@ -64,7 +64,7 @@ export async function collectEmail(): Promise<string> {
 export async function registerUser(baseURL: string, email: string): Promise<SignupResult> {
   const { userInfo } = await import("os");
   const name = userInfo().username || "User";
-  const password = "alook-local-dev";
+  const password = "dev-password-000";
 
   // Try signup first
   let res = await fetch(`${baseURL}/api/auth/sign-up/email`, {
