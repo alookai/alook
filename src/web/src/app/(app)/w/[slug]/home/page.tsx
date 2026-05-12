@@ -417,8 +417,8 @@ function AgentCanvas() {
       />
 
       <div className="absolute bottom-4 right-4 z-10 flex flex-wrap justify-end items-end gap-2">
-        <ActiveTasksFloat />
         <UpcomingEventsFloat />
+        <ActiveTasksFloat />
       </div>
 
       {/* Create agent button */}
