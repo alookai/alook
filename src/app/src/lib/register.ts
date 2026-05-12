@@ -181,16 +181,21 @@ export async function activateToken(
   };
 }
 
-export async function waitForServer(baseURL: string, timeoutMs = 30000): Promise<void> {
+export async function waitForServer(baseURL: string, timeoutMs = 90000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
+  let dots = 0;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`${baseURL}/api/auth/session`, { method: "GET" });
       if (res.status < 500) return;
     } catch {}
-    await new Promise((r) => setTimeout(r, 500));
+    dots++;
+    if (dots % 10 === 0) {
+      process.stdout.write("  still starting...\n");
+    }
+    await new Promise((r) => setTimeout(r, 1000));
   }
-  console.error("Error: server did not start within 30 seconds");
+  console.error("Error: server did not start within 90 seconds");
   console.error(`Check logs at ${join(SELF_HOSTED_DIR, "logs", "web.log")}`);
   process.exit(1);
 }

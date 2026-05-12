@@ -1,7 +1,10 @@
 import { Command } from "commander";
 import { stopServices, isRunning } from "../lib/services.js";
 import { installBundled } from "../lib/install.js";
+import { ensureSecrets } from "../lib/secrets.js";
+import { patchWranglerConfigs } from "../lib/wrangler-config.js";
 import { runMigrations } from "../lib/migrate.js";
+import { DEFAULT_PORTS } from "../lib/constants.js";
 
 export function updateCommand(): Command {
   return new Command("update")
@@ -16,6 +19,9 @@ export function updateCommand(): Command {
 
       console.log("Installing latest version...");
       installBundled();
+
+      ensureSecrets(DEFAULT_PORTS.web);
+      patchWranglerConfigs(DEFAULT_PORTS);
 
       console.log("Running migrations...");
       runMigrations();

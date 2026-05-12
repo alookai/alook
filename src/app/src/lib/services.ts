@@ -85,6 +85,14 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
     wsChild = spawnService("ws-do", "npx", ["wrangler", "dev", "--local", "--port", String(ports.wsDo)], join(SELF_HOSTED_DIR, "ws-do"), foreground);
   }
 
+  if (!webChild.pid || !emailChild.pid || !wsChild.pid) {
+    console.error("Error: failed to start one or more services.");
+    for (const child of [webChild, emailChild, wsChild]) {
+      if (child.pid) try { process.kill(-child.pid, "SIGTERM"); } catch {}
+    }
+    process.exit(1);
+  }
+
   writePids({
     web: webChild.pid,
     emailWorker: emailChild.pid,
