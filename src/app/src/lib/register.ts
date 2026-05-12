@@ -1,4 +1,5 @@
 import { createInterface } from "readline";
+import { DEV_PASSWORD } from "@alook/shared";
 
 interface SignupResult {
   sessionCookie: string;
@@ -64,7 +65,7 @@ export async function collectEmail(): Promise<string> {
 export async function registerUser(baseURL: string, email: string): Promise<SignupResult> {
   const { userInfo } = await import("os");
   const name = userInfo().username || "User";
-  const password = "dev-password-000";
+  const password = DEV_PASSWORD;
 
   // Try signup first
   let res = await fetch(`${baseURL}/api/auth/sign-up/email`, {

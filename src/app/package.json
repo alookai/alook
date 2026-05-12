@@ -30,6 +30,7 @@
     "wrangler": "^4.90.0"
   },
   "devDependencies": {
+    "@alook/shared": "workspace:*",
     "@types/bun": "^1.3.13",
     "typescript": "^6.0.3"
   }

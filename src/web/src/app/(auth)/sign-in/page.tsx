@@ -25,7 +25,7 @@ import { TypewriterVisual, EMAILS_PLAYFUL } from "@/components/typewriter-visual
 
 const isProd = process.env.NODE_ENV === "production"
 
-const DEV_PASSWORD = "dev-password-000"
+import { DEV_PASSWORD } from "@alook/shared"
 const DEFAULT_POST_LOGIN = "/workspaces?auto"
 
 function safeRedirectUrl(redirect: string | null): string {

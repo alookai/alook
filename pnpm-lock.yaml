@@ -33,6 +33,9 @@ importers:
         specifier: ^4.90.0
         version: 4.90.0(@cloudflare/workers-types@4.20260510.1)
     devDependencies:
+      '@alook/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@types/bun':
         specifier: ^1.3.13
         version: 1.3.13

@@ -108,6 +108,9 @@ export const TERMINAL_MEETING_STATUSES: readonly MeetingStatusType[] = [
   MeetingStatus.FAILED,
 ] as const;
 
+// Dev mode auth (shared between web frontend and @alook/app CLI)
+export const DEV_PASSWORD = "dev-password-000";
+
 // Local dev URLs (used for service-binding fallbacks)
 export const DEV_WEB_URL = process.env.ALOOK_SERVER_URL || "http://localhost:3000";
 export const DEV_WS_DO_URL = process.env.DEV_WS_DO_URL || "http://localhost:8789";
