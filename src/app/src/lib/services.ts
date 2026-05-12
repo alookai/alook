@@ -40,6 +40,7 @@ function spawnForeground(name: string, cwd: string, port: number): ChildProcess 
   const args = ["wrangler", "dev", "--local", "--port", String(port)];
   const child = spawn("npx", args, {
     cwd,
+    detached: true,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, NODE_ENV: "development" },
   });
@@ -81,15 +82,22 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
   console.log(`  WS-DO:        port ${ports.wsDo} (pid=${wsChild.pid})`);
 
   if (foreground) {
+    let exiting = false;
     const cleanup = () => {
+      if (exiting) return;
+      exiting = true;
       console.log("\nStopping services...");
       for (const child of [webChild, emailChild, wsChild]) {
-        try { child.kill("SIGTERM"); } catch {}
+        if (child.pid) {
+          try { process.kill(-child.pid, "SIGTERM"); } catch {}
+        }
       }
       writePids({});
+      process.exit(0);
     };
     process.on("SIGINT", cleanup);
     process.on("SIGTERM", cleanup);
+    process.on("exit", cleanup);
   }
 }
 
