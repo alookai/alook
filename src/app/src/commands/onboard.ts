@@ -1,0 +1,122 @@
+import { Command } from "commander";
+import { execSync } from "child_process";
+import { checkNodeVersion, checkAIRuntime, checkPorts } from "../lib/checks.js";
+import { isInstalled, installBundled } from "../lib/install.js";
+import { ensureSecrets } from "../lib/secrets.js";
+import { runMigrations } from "../lib/migrate.js";
+import { startServices, isRunning } from "../lib/services.js";
+import {
+  interactiveSignup,
+  createWorkspace,
+  createMachineToken,
+  activateToken,
+  waitForServer,
+} from "../lib/register.js";
+import { DEFAULT_PORTS, WEB_URL } from "../lib/constants.js";
+
+export function onboardCommand(): Command {
+  return new Command("onboard")
+    .description("Set up and start Alook locally")
+    .option("--port-web <port>", "Web server port", String(DEFAULT_PORTS.web))
+    .option("--port-email <port>", "Email worker port", String(DEFAULT_PORTS.emailWorker))
+    .option("--port-ws <port>", "WebSocket worker port", String(DEFAULT_PORTS.wsDo))
+    .option("--skip-register", "Skip account creation (just start services)")
+    .action(async (opts) => {
+      const ports = {
+        web: parseInt(opts.portWeb, 10),
+        emailWorker: parseInt(opts.portEmail, 10),
+        wsDo: parseInt(opts.portWs, 10),
+      };
+
+      console.log("\n🚀 Alook Local Setup\n");
+
+      // 1. Environment checks
+      checkNodeVersion();
+
+      // 2. Check ports
+      await checkPorts(ports);
+
+      // 3. Check AI runtimes
+      console.log("Scanning for AI runtimes...");
+      const runtimes = checkAIRuntime();
+      if (runtimes.length === 0) {
+        console.error("Error: no AI runtimes found.");
+        console.error("Install one of: claude, codex, or opencode");
+        process.exit(1);
+      }
+      console.log(`  Found: ${runtimes.map((r) => r.type).join(", ")}\n`);
+
+      // 4. Install bundled assets
+      if (!isInstalled()) {
+        console.log("Installing Alook...");
+        installBundled();
+      } else {
+        console.log("Installation found at ~/.alook/self-hosted/");
+      }
+
+      // 5. Generate secrets
+      ensureSecrets(ports.web);
+
+      // 6. Run migrations
+      runMigrations();
+
+      // 7. Start services
+      if (isRunning()) {
+        console.log("\nServices already running.");
+      } else {
+        startServices(ports);
+      }
+
+      // 8. Wait for web server
+      const baseURL = WEB_URL(ports.web);
+      console.log("\nWaiting for server to be ready...");
+      await waitForServer(baseURL);
+      console.log("  ✓ Server ready\n");
+
+      // 9. Interactive registration
+      if (!opts.skipRegister) {
+        const { sessionCookie } = await interactiveSignup(baseURL);
+        const workspace = await createWorkspace(baseURL, sessionCookie);
+        const { token } = await createMachineToken(baseURL, sessionCookie, workspace.id);
+        const { runtimeIds } = await activateToken(baseURL, token, runtimes);
+
+        console.log(`  ✓ Daemon registered with ${runtimes.map((r) => r.type).join(", ")} runtime`);
+        console.log(`  ✓ Machine token activated\n`);
+
+        // Start the daemon pointing to local server
+        console.log("Starting daemon...");
+        try {
+          execSync(
+            `ALOOK_SERVER_URL=${baseURL} npx @alook/cli register --token ${token}`,
+            { stdio: "inherit" },
+          );
+          execSync(
+            `ALOOK_SERVER_URL=${baseURL} npx @alook/cli daemon start`,
+            { stdio: "inherit" },
+          );
+        } catch {
+          console.warn("  Warning: daemon auto-start failed. Start manually:");
+          console.warn(`  ALOOK_SERVER_URL=${baseURL} npx @alook/cli register --token ${token}`);
+          console.warn(`  ALOOK_SERVER_URL=${baseURL} npx @alook/cli daemon start`);
+        }
+      }
+
+      // 10. Print summary
+      console.log("\n" + "─".repeat(50));
+      console.log("\n⚠️  Local mode: email send/receive is not available.");
+      console.log("   To enable email, connect to alook.ai cloud.\n");
+      console.log("─".repeat(50));
+      console.log(`\n🎉 Alook is running!`);
+      console.log(`   Dashboard: ${baseURL}`);
+      console.log(`\n   Stop:   npx @alook/app stop`);
+      console.log(`   Start:  npx @alook/app start`);
+      console.log(`   Update: npx @alook/app update\n`);
+
+      // 11. Open browser
+      const openCmd = process.platform === "darwin" ? "open" :
+        process.platform === "win32" ? "start" : "xdg-open";
+      try {
+        execSync(`${openCmd} ${baseURL}`, { stdio: "ignore" });
+      } catch {}
+    });
+}
