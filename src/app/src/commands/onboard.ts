@@ -50,8 +50,16 @@ export function onboardCommand(): Command {
 
       const devMode = !!process.env.ALOOK_PROJECT_ROOT;
 
-      // 4. Install bundled assets (production only)
-      if (!devMode) {
+      if (devMode) {
+        // Dev mode: run predev + migrations from monorepo
+        const root = process.env.ALOOK_PROJECT_ROOT!;
+        console.log("Preparing dev environment...");
+        try {
+          execSync("pnpm predev", { cwd: root, stdio: "inherit" });
+        } catch {}
+        execSync("pnpm db:migrate", { cwd: root, stdio: "inherit" });
+      } else {
+        // Production: install bundled assets
         if (!isInstalled()) {
           console.log("Installing Alook...");
           installBundled();
@@ -59,13 +67,8 @@ export function onboardCommand(): Command {
           console.log(`Installation found at ${SELF_HOSTED_DIR}`);
         }
 
-        // 5. Generate secrets
         ensureSecrets(ports.web);
-
-        // 5.5 Patch wrangler configs for local ports
         patchWranglerConfigs(ports);
-
-        // 6. Run migrations
         runMigrations();
       }
 

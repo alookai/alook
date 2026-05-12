@@ -1,0 +1,105 @@
+name: Publish App
+
+on:
+  push:
+    branches: [main]
+    paths: [src/app/package.json]
+
+concurrency:
+  group: publish-app
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish @alook/app to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Detect version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./src/app/package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=app/v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if version already published
+        id: check
+        run: |
+          if npm view "@alook/app@${{ steps.version.outputs.version }}" version >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::@alook/app@${{ steps.version.outputs.version }} already on npm — skipping"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@v6
+        if: steps.check.outputs.skip == 'false'
+
+      - uses: oven-sh/setup-bun@v2
+        if: steps.check.outputs.skip == 'false'
+
+      - uses: actions/setup-node@v6
+        if: steps.check.outputs.skip == 'false'
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      - name: Upgrade npm for Trusted Publishers
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          npm install -g --prefix="$RUNNER_TEMP/npm-new" npm@latest
+          echo "$RUNNER_TEMP/npm-new/bin" >> "$GITHUB_PATH"
+
+      - run: pnpm install --frozen-lockfile
+        if: steps.check.outputs.skip == 'false'
+
+      - name: Build all packages
+        if: steps.check.outputs.skip == 'false'
+        run: pnpm build
+
+      - name: Bundle app (pre-build workers)
+        if: steps.check.outputs.skip == 'false'
+        run: pnpm -C src/app run bundle
+
+      - name: Build app CLI
+        if: steps.check.outputs.skip == 'false'
+        run: pnpm -C src/app run build
+
+      - name: Publish to npm (OIDC)
+        if: steps.check.outputs.skip == 'false'
+        working-directory: src/app
+        run: npm publish --access public
+
+      - name: Create GitHub release
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ steps.version.outputs.tag }}" --generate-notes --title "App v${{ steps.version.outputs.version }}"
+
+      - name: Notify Discord
+        if: steps.check.outputs.skip == 'false'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          BODY=$(python3 -c "
+          import json, os
+          version = os.environ['VERSION']
+          payload = {
+            'embeds': [{
+              'title': f'📦 @alook/app v{version} published to npm',
+              'description': 'Run Alook locally with one command:\n\n\`\`\`\nnpx @alook/app onboard\n\`\`\`',
+              'color': 5025616,
+              'url': f'https://www.npmjs.com/package/@alook/app/v/{version}',
+              'footer': {'text': 'npm registry'},
+            }]
+          }
+          print(json.dumps(payload))
+          ")
+          curl -sf -H "Content-Type: application/json" -d "$BODY" "$DISCORD_WEBHOOK"

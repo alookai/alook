@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
-const WORKSPACE_DIRS = ["src/shared", "src/cli", "src/web", "src/email-worker", "src/ws-do"];
+const WORKSPACE_DIRS = ["src/shared", "src/cli", "src/app", "src/web", "src/email-worker", "src/ws-do"];
 
 function readPkg(dir) {
   const p = join(ROOT, dir, "package.json");

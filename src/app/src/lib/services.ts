@@ -163,11 +163,17 @@ export function stopServices(): void {
   for (const [name, pid] of Object.entries(pids)) {
     if (pid && isAlive(pid)) {
       try {
-        process.kill(pid, "SIGTERM");
+        process.kill(-pid, "SIGTERM");
         stopped++;
         console.log(`  Stopped ${name} (pid=${pid})`);
       } catch {
-        console.warn(`  Could not stop ${name} (pid=${pid})`);
+        try {
+          process.kill(pid, "SIGTERM");
+          stopped++;
+          console.log(`  Stopped ${name} (pid=${pid})`);
+        } catch {
+          console.warn(`  Could not stop ${name} (pid=${pid})`);
+        }
       }
     }
   }
