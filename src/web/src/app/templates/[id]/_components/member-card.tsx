@@ -1,10 +1,30 @@
-import { Badge } from "@/components/ui/badge";
+const ROLE_STYLES: Record<string, { bg: string; text: string; label: string }> = {
+  leader: {
+    bg: "bg-amber-50 dark:bg-amber-950/30",
+    text: "text-amber-700 dark:text-amber-300",
+    label: "Leader",
+  },
+  researcher: {
+    bg: "bg-sky-50 dark:bg-sky-950/30",
+    text: "text-sky-700 dark:text-sky-300",
+    label: "Researcher",
+  },
+  engineer: {
+    bg: "bg-emerald-50 dark:bg-emerald-950/30",
+    text: "text-emerald-700 dark:text-emerald-300",
+    label: "Engineer",
+  },
+  assistant: {
+    bg: "bg-violet-50 dark:bg-violet-950/30",
+    text: "text-violet-700 dark:text-violet-300",
+    label: "Assistant",
+  },
+};
 
-const ROLE_COLORS: Record<string, string> = {
-  leader: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-  researcher: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  engineer: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
-  assistant: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+const FALLBACK_STYLE = {
+  bg: "bg-muted/40",
+  text: "text-muted-foreground",
+  label: "Agent",
 };
 
 export function MemberCard({
@@ -16,15 +36,14 @@ export function MemberCard({
   roleLabel: string;
   description: string;
 }) {
+  const style = ROLE_STYLES[role] || FALLBACK_STYLE;
+
   return (
-    <div className="rounded-lg border p-3 space-y-2">
-      <Badge
-        variant="outline"
-        className={`text-[10px] font-medium ${ROLE_COLORS[role] || ""}`}
-      >
+    <div className={`rounded-lg p-4 ${style.bg}`}>
+      <span className={`text-xs font-semibold uppercase tracking-wider ${style.text}`}>
         {roleLabel}
-      </Badge>
-      <p className="text-xs leading-relaxed text-muted-foreground">
+      </span>
+      <p className="mt-2 text-sm leading-relaxed text-foreground/80">
         {description}
       </p>
     </div>

@@ -15,7 +15,7 @@ export function ScenarioPicker({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium">What will your studio focus on?</h2>
+        <h2 className="text-base font-semibold tracking-tight">What will your company focus on?</h2>
         {onBrowseTemplates && (
           <button
             type="button"
@@ -45,7 +45,7 @@ export function ScenarioPicker({
               {s.description}
             </span>
             <span className="text-[10px] text-muted-foreground/70 mt-1">
-              {s.members.length} teammate{s.members.length > 1 ? "s" : ""}
+              {s.members.length} agent{s.members.length > 1 ? "s" : ""}
             </span>
           </button>
         ))}

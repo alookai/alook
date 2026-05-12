@@ -360,7 +360,7 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
   {
     id: "software-dev",
     label: "Software Development",
-    description: "Build and ship code with a coordinated dev team",
+    description: "Build and ship code with a coordinated dev company",
     icon: "🖥",
     members: [
       { role: "leader", description: "Coordinates work, summarizes results, and replies to you", instructions: LEADER_INSTRUCTIONS },
@@ -382,7 +382,7 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
   {
     id: "productivity",
     label: "General Productivity",
-    description: "A lean team for everyday tasks and communications",
+    description: "A lean company for everyday tasks and communications",
     icon: "🏢",
     members: [
       { role: "leader", description: "Handles tasks, coordinates work, and replies to you", instructions: LEADER_INSTRUCTIONS },
@@ -391,7 +391,7 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
   },
   {
     id: "full-team",
-    label: "Full Team",
+    label: "Full Company",
     description: "All roles covered — dev, research, and operations",
     icon: "🚀",
     members: [
@@ -404,7 +404,7 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
   {
     id: "custom",
     label: "Custom",
-    description: "Choose your own team size and roles",
+    description: "Choose your own company size and roles",
     icon: "⚙️",
     members: [
       { role: "leader", description: "Coordinates work and replies to you", instructions: LEADER_INSTRUCTIONS },

@@ -18,7 +18,7 @@ export const indieHackerShipCrew: TemplatePreset = {
     "Deployment coordination and monitoring",
   ],
   useCases: [
-    { title: "Solo founders", description: "Multiply your output by delegating implementation, docs, and user comms to your AI crew." },
+    { title: "Solo founders", description: "Multiply your output by delegating implementation, docs, and user comms to your AI company." },
     { title: "Weekend projects", description: "Keep your side project moving forward even when you only have a few hours per week." },
     { title: "Early-stage startups", description: "Move fast before you can afford to hire, with AI handling the repetitive work." },
   ],

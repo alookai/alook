@@ -254,14 +254,14 @@ export function StudioOnboardingClient({
 
       if (!res.ok) {
         const errBody = (await res.json()) as { error?: string };
-        throw new Error(errBody.error || "Failed to create studio");
+        throw new Error(errBody.error || "Failed to create company");
       }
 
       const data = (await res.json()) as { workspace: { slug: string }; leader_agent_id: string };
-      toast.success("Studio created!");
+      toast.success("Company created!");
       router.push(`/w/${data.workspace.slug}/agents/${data.leader_agent_id}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to create studio");
+      toast.error(e instanceof Error ? e.message : "Failed to create company");
       setCreating(false);
     }
   };
@@ -302,8 +302,16 @@ export function StudioOnboardingClient({
         </Button>
 
         <div className="w-full max-w-3xl space-y-8">
-          <div className="text-center">
-            <h1 className="text-lg font-semibold">Pick a scenario to get started</h1>
+          <div className="text-center space-y-2">
+            <h1
+              className="text-2xl font-semibold tracking-tight"
+              style={{ fontFamily: "var(--font-news)" }}
+            >
+              What will your company do?
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Pick a focus area. You can always add more agents later.
+            </p>
           </div>
 
           <ScenarioPicker selected={scenarioId} onSelect={handleScenarioSelect} onBrowseTemplates={() => router.push(workspaceId ? `/templates?workspace_id=${workspaceId}` : "/templates")} />
@@ -318,7 +326,7 @@ export function StudioOnboardingClient({
                 }}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                Skip
+                Skip for now
               </button>
             </div>
           )}
@@ -327,7 +335,7 @@ export function StudioOnboardingClient({
     );
   }
 
-  // Page 2: Build your AI studio
+  // Page 2: Build your company
   return (
     <div className="relative flex min-h-dvh flex-col items-center p-6">
       <div className="absolute top-4 left-4 flex items-center gap-1">
@@ -361,15 +369,15 @@ export function StudioOnboardingClient({
         Sign out
       </Button>
 
-      <div className="w-full max-w-3xl space-y-8 py-12">
+      <div className="w-full max-w-3xl space-y-10 py-14">
         {/* Header */}
-        <div className="text-center space-y-1">
-          <h1 className="text-lg font-semibold">
-            {!isNewWorkspace ? "Set up your AI team" : "Create a new studio"}
+        <div className="text-center">
+          <h1
+            className="text-2xl font-semibold tracking-tight"
+            style={{ fontFamily: "var(--font-news)" }}
+          >
+            Build your company
           </h1>
-          <p className="text-xs text-muted-foreground">
-            Name your team, connect a machine, and start working.
-          </p>
         </div>
 
         {/* Loading */}
@@ -379,9 +387,9 @@ export function StudioOnboardingClient({
           </div>
         ) : (
           <>
-            {/* Studio Name */}
+            {/* Company Name */}
             <div className="space-y-2">
-              <h2 className="text-sm font-medium">Studio name</h2>
+              <h2 className="text-base font-semibold tracking-tight">Company name</h2>
               <div className="flex gap-2">
                 <Input
                   value={studioName}
@@ -407,7 +415,7 @@ export function StudioOnboardingClient({
                   <XCircle className="size-3" /> Name is taken, try another
                 </p>
               )}
-              <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                 {nameAvailable === true && (
                   <span className="text-emerald-600 flex items-center gap-0.5">
                     <CheckCircle2 className="size-3" /> Available
@@ -417,12 +425,12 @@ export function StudioOnboardingClient({
                 {!isNewWorkspace ? (
                   <span>Optional — you can always rename later.</span>
                 ) : (
-                  <span>Required — pick a name for your new studio.</span>
+                  <span>Required — pick a name for your company.</span>
                 )}
               </p>
             </div>
 
-            {/* Team Preview (with runtime picker in each card if multiple) */}
+            {/* Team Preview */}
             <TeamPreview
               members={members}
               runtimes={onlineRuntimes as Runtime[]}
@@ -432,7 +440,7 @@ export function StudioOnboardingClient({
 
             {/* Connect Machine */}
             <div className="space-y-3">
-              <h2 className="text-sm font-medium">Connect a computer</h2>
+              <h2 className="text-base font-semibold tracking-tight">Connect a computer</h2>
               {hasOnlineRuntime ? (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
@@ -444,29 +452,33 @@ export function StudioOnboardingClient({
                       className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                       onClick={() => setShowRegister((v) => !v)}
                     >
-                      Register another computer
+                      Register another
                     </button>
                   </div>
                   {showRegister && (
+                    <div className="rounded-xl bg-muted/40 p-5">
+                      <ConnectMachineSteps
+                        generatedToken={generatedToken}
+                        generatingToken={generatingToken}
+                        onGenerateToken={handleGenerateToken}
+                        registered={machineRegistered}
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Your company needs a connected computer to run tasks.
+                  </p>
+                  <div className="rounded-xl bg-muted/40 p-5">
                     <ConnectMachineSteps
                       generatedToken={generatedToken}
                       generatingToken={generatingToken}
                       onGenerateToken={handleGenerateToken}
                       registered={machineRegistered}
                     />
-                  )}
-                </div>
-              ) : (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    Your studio needs a connected computer to run tasks.
-                  </p>
-                  <ConnectMachineSteps
-                    generatedToken={generatedToken}
-                    generatingToken={generatingToken}
-                    onGenerateToken={handleGenerateToken}
-                    registered={machineRegistered}
-                  />
+                  </div>
                 </>
               )}
             </div>
@@ -476,16 +488,17 @@ export function StudioOnboardingClient({
               onClick={handleCreate}
               disabled={!canCreate || creating}
               className="w-full"
+              size="lg"
             >
               {creating ? (
                 <>
                   <Loader2 className="size-4 animate-spin mr-2" />
-                  Creating studio...
+                  Launching...
                 </>
               ) : isNewWorkspace && studioName.trim() && nameAvailable !== true ? (
-                "Check studio name first"
+                "Check company name first"
               ) : (
-                "Create studio"
+                "Launch company"
               )}
             </Button>
           </>

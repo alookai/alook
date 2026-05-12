@@ -15,7 +15,7 @@ function StepIndicator({ step, completed }: { step: number; completed: boolean }
     );
   }
   return (
-    <span className="flex items-center justify-center size-5 rounded-full bg-foreground text-background text-[10px] font-semibold">
+    <span className="flex items-center justify-center size-5 rounded-full bg-foreground text-background text-xs font-semibold">
       {step}
     </span>
   );
@@ -59,10 +59,10 @@ export function ConnectMachineSteps({
     <div className="space-y-6">
       {/* Step 1 */}
       <div className="space-y-2">
-        <p className="text-xs font-medium flex items-center gap-2">
+        <p className="text-sm font-medium flex items-center gap-2">
           <StepIndicator step={1} completed={registered} />
           Register your CLI
-          {registered && <span className="text-[10px] text-emerald-500 font-normal">Done</span>}
+          {registered && <span className="text-xs text-emerald-500 font-normal">Done</span>}
         </p>
         <p className="text-xs text-muted-foreground pl-7">
           Run this in your terminal to link your machine.
@@ -102,7 +102,7 @@ export function ConnectMachineSteps({
       <div
         className={`space-y-2 transition-opacity duration-300 ${!registered ? "opacity-40 pointer-events-none" : ""}`}
       >
-        <p className="text-xs font-medium flex items-center gap-2">
+        <p className="text-sm font-medium flex items-center gap-2">
           <StepIndicator step={2} completed={false} />
           Start the daemon
         </p>

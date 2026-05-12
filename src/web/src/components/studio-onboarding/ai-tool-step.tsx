@@ -26,7 +26,7 @@ export function AiToolStep({
     <div className="space-y-3">
       <h2 className="text-sm font-medium">Assign execution environments</h2>
       <p className="text-xs text-muted-foreground">
-        Choose which AI tool each teammate uses.
+        Choose which AI tool each agent uses.
       </p>
       <div className="space-y-2">
         {members.map((m, i) => (

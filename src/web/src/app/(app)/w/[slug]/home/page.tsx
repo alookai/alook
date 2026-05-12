@@ -70,7 +70,7 @@ function savePositions(workspaceId: string, nodes: Node[]) {
   }
   try {
     localStorage.setItem(storageKey(workspaceId), JSON.stringify(positions));
-  } catch {}
+  } catch { }
 }
 
 function AgentCanvas() {
@@ -297,7 +297,7 @@ function AgentCanvas() {
   const handleResetLayout = useCallback(() => {
     try {
       localStorage.removeItem(storageKey(workspaceId));
-    } catch {}
+    } catch { }
     const currentEdges: Edge[] = links.map((link) => ({
       id: link.id,
       source: link.source_agent_id,
@@ -509,13 +509,13 @@ export default function HomePage() {
     return (
       <div className="flex flex-1 items-center justify-center">
         <div className="text-center animate-[fade-up_400ms_ease-out_both]">
-          <p className="text-muted-foreground text-sm">Build your AI studio to get started.</p>
+          <p className="text-muted-foreground text-sm">Build your AI company</p>
           <Button
             size="sm"
             className="mt-4 glow-border"
             onClick={() => router.push(`/studio/new?workspace_id=${workspaceId}`)}
           >
-            Build Studio
+            Get Started
           </Button>
         </div>
       </div>

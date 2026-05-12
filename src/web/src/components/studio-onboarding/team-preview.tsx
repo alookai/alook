@@ -48,7 +48,7 @@ export function TeamPreview({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium">Your team</h2>
+        <h2 className="text-base font-semibold tracking-tight">Your company</h2>
         <Button variant="ghost" size="sm" onClick={onShuffle} className="h-7 text-xs gap-1.5">
           <RefreshCw className="size-3" />
           Shuffle

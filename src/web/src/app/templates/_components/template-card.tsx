@@ -2,9 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
-import { Users } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import type { TemplatePreset } from "@/lib/templates";
+
+const ROLE_DOT_COLORS: Record<string, string> = {
+  leader: "bg-amber-500/70 dark:bg-amber-400/60",
+  researcher: "bg-sky-500/70 dark:bg-sky-400/60",
+  engineer: "bg-emerald-500/70 dark:bg-emerald-400/60",
+  assistant: "bg-violet-500/70 dark:bg-violet-400/60",
+};
 
 export function TemplateCard({
   template,
@@ -30,32 +36,37 @@ export function TemplateCard({
   return (
     <Link
       href={detailUrl}
-      className="group flex flex-col rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50"
+      className="group relative flex flex-col rounded-xl bg-card p-5 transition-all duration-200 hover:bg-accent/40 border border-transparent hover:border-border"
     >
-      {/* Icon + Category */}
-      <div className="flex items-start justify-between">
-        <span className="flex size-9 items-center justify-center rounded-md bg-muted text-lg">
-          {template.icon}
-        </span>
-        <Badge variant="outline" className="text-[10px]">
-          {template.category}
-        </Badge>
-      </div>
+      {/* Icon */}
+      <span className="flex size-10 items-center justify-center rounded-lg bg-muted/60 text-xl">
+        {template.icon}
+      </span>
 
-      {/* Name + Description */}
-      <h3 className="mt-3 text-sm font-semibold leading-tight">
+      {/* Name */}
+      <h3 className="mt-4 text-sm font-semibold leading-tight tracking-tight">
         {template.name}
       </h3>
-      <p className="mt-1.5 flex-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">
+
+      {/* Description */}
+      <p className="mt-2 flex-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">
         {template.description}
       </p>
 
       {/* Footer */}
-      <div className="mt-3 flex items-center justify-between">
-        <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-          <Users className="size-3" />
-          {template.members.length} {template.members.length === 1 ? "agent" : "agents"}
-        </span>
+      <div className="mt-4 flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          {template.members.map((member, i) => (
+            <span
+              key={i}
+              className={`size-2 rounded-full ${ROLE_DOT_COLORS[member.role] || "bg-muted-foreground/40"}`}
+            />
+          ))}
+          <span className="ml-1.5 text-xs text-muted-foreground">
+            {template.members.length} agents
+          </span>
+        </div>
+
         <button
           type="button"
           onClick={(e) => {
@@ -63,9 +74,10 @@ export function TemplateCard({
             e.stopPropagation();
             router.push(href);
           }}
-          className="rounded-md bg-foreground px-2.5 py-1 text-[11px] font-medium text-background transition-opacity hover:opacity-80"
+          className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground opacity-0 transition-all duration-150 group-hover:opacity-100 group-hover:bg-foreground group-hover:text-background"
         >
-          Get
+          Use
+          <ArrowUpRight className="size-3" />
         </button>
       </div>
     </Link>

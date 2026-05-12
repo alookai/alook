@@ -30,7 +30,7 @@ export function TemplatesClient({
     <div className="min-h-dvh bg-background">
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
+        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-3">
           <Link href="/" className="flex items-center gap-2">
             <Image src="/alook.svg" alt="Alook" width={22} height={22} />
             <span className="text-lg tracking-tight" style={{ fontFamily: "var(--font-brand)", fontWeight: 700 }}>Alook</span>
@@ -51,24 +51,29 @@ export function TemplatesClient({
       </nav>
 
       {/* Header */}
-      <div className="mx-auto max-w-5xl px-6 pt-12 pb-8">
-        <h1 className="text-2xl font-bold tracking-tight">Templates</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Pre-built AI teams ready to deploy. Pick a template, customize it, and start working in minutes.
+      <div className="mx-auto max-w-4xl px-6 pt-16 pb-2">
+        <h1
+          className="text-3xl font-semibold tracking-tight"
+          style={{ fontFamily: "var(--font-news)" }}
+        >
+          Start your company
+        </h1>
+        <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
+          Pre-configured AI companies, ready to work. Choose a template, make it yours, and deploy in minutes.
         </p>
       </div>
 
-      {/* Category Tabs */}
-      <div className="mx-auto max-w-5xl px-6 pb-6">
-        <div className="flex gap-1 overflow-x-auto border-b">
+      {/* Category Filter */}
+      <div className="mx-auto max-w-4xl px-6 pt-8 pb-6">
+        <div className="flex flex-wrap gap-2">
           {["All", ...categories].map((cat) => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat as "All" | TemplateCategory)}
-              className={`shrink-0 px-3 py-2 text-xs font-medium transition-colors ${
+              className={`rounded-full px-4 py-1.5 text-xs font-medium transition-colors duration-150 ${
                 activeCategory === cat
-                  ? "border-b-2 border-foreground text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
+                  ? "bg-foreground text-background"
+                  : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
               {cat}
@@ -78,8 +83,8 @@ export function TemplatesClient({
       </div>
 
       {/* Grid */}
-      <div className="mx-auto max-w-5xl px-6 pb-16">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mx-auto max-w-4xl px-6 pb-20">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {filtered.map((template) => (
             <TemplateCard
               key={template.id}
@@ -90,9 +95,11 @@ export function TemplatesClient({
           ))}
         </div>
         {filtered.length === 0 && (
-          <p className="py-12 text-center text-sm text-muted-foreground">
-            No templates in this category yet.
-          </p>
+          <div className="flex flex-col items-center justify-center py-20">
+            <p className="text-sm text-muted-foreground">
+              No templates in this category yet.
+            </p>
+          </div>
         )}
       </div>
     </div>

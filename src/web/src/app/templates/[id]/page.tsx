@@ -15,7 +15,7 @@ export async function generateMetadata({
   const template = getTemplateById(id);
   if (!template) return { title: "Not Found" };
 
-  const title = `${template.name} — AI Team Templates`;
+  const title = `${template.name} — AI Company Templates`;
   const url = `${SITE_URL}/templates/${id}`;
   const ogImage = `/og?title=${encodeURIComponent(template.name)}`;
 
