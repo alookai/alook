@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "child_process";
 import { join } from "path";
 import { openSync, mkdirSync, closeSync } from "fs";
 import { SELF_HOSTED_DIR } from "./constants.js";
-import { writePids, readPids, isAlive } from "./pid.js";
+import { writePids, readPids, isAlive, clearPids } from "./pid.js";
 
 interface ServicePorts {
   web: number;
@@ -182,7 +182,7 @@ export function stopServices(): void {
     console.log("No running services found.");
   }
 
-  writePids({});
+  clearPids();
 }
 
 export function isRunning(): boolean {

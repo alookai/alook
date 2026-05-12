@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdirSync } from "fs";
+import { dirname } from "path";
 import { PID_FILE } from "./constants.js";
 
 interface PidRecord {
@@ -17,6 +18,7 @@ export function readPids(): PidRecord {
 }
 
 export function writePids(pids: PidRecord): void {
+  mkdirSync(dirname(PID_FILE), { recursive: true });
   writeFileSync(PID_FILE, JSON.stringify(pids, null, 2), { mode: 0o600 });
 }
 
