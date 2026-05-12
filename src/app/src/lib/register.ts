@@ -54,12 +54,13 @@ function prompt(question: string, hidden = false): Promise<string> {
 }
 
 export async function interactiveSignup(baseURL: string): Promise<SignupResult> {
-  const defaultName = (await import("os")).userInfo().username || "User";
+  const { userInfo, hostname } = await import("os");
+  const { randomBytes } = await import("crypto");
+  const defaultName = userInfo().username || "User";
   console.log("\n📝 Create your account:\n");
-  const nameInput = await prompt(`  Name (${defaultName}): `);
-  const name = nameInput.trim() || defaultName;
   const email = await prompt("  Email: ");
-  const password = await prompt("  Password: ", true);
+  const name = defaultName;
+  const password = randomBytes(24).toString("base64");
 
   const res = await fetch(`${baseURL}/api/auth/sign-up/email`, {
     method: "POST",
