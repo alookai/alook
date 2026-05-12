@@ -30,23 +30,29 @@ function ask(question) {
   });
 }
 
-async function main() {
-  const hasBundled = existsSync(join(bundledDir, "web", "wrangler.toml"));
+const needsBundle = ["onboard", "start"];
 
-  if (!hasBundled) {
-    console.log("⚠️  No bundled/ directory found. You need to bundle first.\n");
-    const answer = await ask("Run bundle now? (Y/n) ");
-    if (answer === "n" || answer === "no") {
-      console.log("Cannot run without bundled assets. Exiting.");
-      process.exit(1);
-    }
-    console.log("\nBundling... (this may take a few minutes)\n");
-    execSync("bun run scripts/bundle.ts", { cwd: appDir, stdio: "inherit" });
-  } else {
-    const answer = await ask("Re-bundle? (y/N) ");
-    if (answer === "y" || answer === "yes") {
-      console.log("\nBundling...\n");
+async function main() {
+  const command = args[0];
+
+  if (needsBundle.includes(command)) {
+    const hasBundled = existsSync(join(bundledDir, "web", "wrangler.toml"));
+
+    if (!hasBundled) {
+      console.log("⚠️  No bundled/ directory found. You need to bundle first.\n");
+      const answer = await ask("Run bundle now? (Y/n) ");
+      if (answer === "n" || answer === "no") {
+        console.log("Cannot run without bundled assets. Exiting.");
+        process.exit(1);
+      }
+      console.log("\nBundling... (this may take a few minutes)\n");
       execSync("bun run scripts/bundle.ts", { cwd: appDir, stdio: "inherit" });
+    } else {
+      const answer = await ask("Re-bundle? (y/N) ");
+      if (answer === "y" || answer === "yes") {
+        console.log("\nBundling...\n");
+        execSync("bun run scripts/bundle.ts", { cwd: appDir, stdio: "inherit" });
+      }
     }
   }
 
