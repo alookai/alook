@@ -54,13 +54,11 @@ function prompt(question: string, hidden = false): Promise<string> {
 }
 
 export async function collectEmail(): Promise<string> {
+  const { userInfo } = await import("os");
+  const defaultEmail = `${userInfo().username || "user"}@localhost`;
   console.log("\n📝 Create your account:\n");
-  const email = await prompt("  Email: ");
-  if (!email.trim()) {
-    console.error("Error: email is required");
-    process.exit(1);
-  }
-  return email.trim();
+  const input = await prompt(`  Email (${defaultEmail}): `);
+  return input.trim() || defaultEmail;
 }
 
 export async function registerUser(baseURL: string, email: string): Promise<SignupResult> {
