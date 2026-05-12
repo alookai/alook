@@ -54,8 +54,10 @@ function prompt(question: string, hidden = false): Promise<string> {
 }
 
 export async function interactiveSignup(baseURL: string): Promise<SignupResult> {
+  const defaultName = (await import("os")).userInfo().username || "User";
   console.log("\n📝 Create your account:\n");
-  const name = await prompt("  Name: ");
+  const nameInput = await prompt(`  Name (${defaultName}): `);
+  const name = nameInput.trim() || defaultName;
   const email = await prompt("  Email: ");
   const password = await prompt("  Password: ", true);
 
