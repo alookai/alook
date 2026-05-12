@@ -48,28 +48,32 @@ export function onboardCommand(): Command {
       }
       console.log(`  Found: ${runtimes.map((r) => r.type).join(", ")}\n`);
 
-      // 4. Install bundled assets
-      if (!isInstalled()) {
-        console.log("Installing Alook...");
-        installBundled();
-      } else {
-        console.log(`Installation found at ${SELF_HOSTED_DIR}`);
+      const devMode = !!process.env.ALOOK_PROJECT_ROOT;
+
+      // 4. Install bundled assets (production only)
+      if (!devMode) {
+        if (!isInstalled()) {
+          console.log("Installing Alook...");
+          installBundled();
+        } else {
+          console.log(`Installation found at ${SELF_HOSTED_DIR}`);
+        }
+
+        // 5. Generate secrets
+        ensureSecrets(ports.web);
+
+        // 5.5 Patch wrangler configs for local ports
+        patchWranglerConfigs(ports);
+
+        // 6. Run migrations
+        runMigrations();
       }
 
-      // 5. Generate secrets
-      ensureSecrets(ports.web);
-
-      // 5.5 Patch wrangler configs for local ports
-      patchWranglerConfigs(ports);
-
-      // 6. Collect user input before starting services
+      // 7. Collect user input before starting services
       let email: string | undefined;
       if (!opts.skipRegister) {
         email = await collectEmail();
       }
-
-      // 7. Run migrations
-      runMigrations();
 
       // 8. Start services
       const foreground = !!process.env.ALOOK_PROJECT_ROOT;
