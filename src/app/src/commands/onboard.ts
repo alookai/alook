@@ -6,7 +6,8 @@ import { ensureSecrets } from "../lib/secrets.js";
 import { runMigrations } from "../lib/migrate.js";
 import { startServices, isRunning } from "../lib/services.js";
 import {
-  interactiveSignup,
+  collectEmail,
+  registerUser,
   createWorkspace,
   createMachineToken,
   activateToken,
@@ -61,10 +62,16 @@ export function onboardCommand(): Command {
       // 5.5 Patch wrangler configs for local ports
       patchWranglerConfigs(ports);
 
-      // 6. Run migrations
+      // 6. Collect user input before starting services
+      let email: string | undefined;
+      if (!opts.skipRegister) {
+        email = await collectEmail();
+      }
+
+      // 7. Run migrations
       runMigrations();
 
-      // 7. Start services
+      // 8. Start services
       const foreground = !!process.env.ALOOK_PROJECT_ROOT;
       if (isRunning()) {
         console.log("\nServices already running.");
@@ -72,15 +79,15 @@ export function onboardCommand(): Command {
         startServices(ports, { foreground });
       }
 
-      // 8. Wait for web server
+      // 9. Wait for web server
       const baseURL = WEB_URL(ports.web);
       console.log("\nWaiting for server to be ready...");
       await waitForServer(baseURL);
       console.log("  ✓ Server ready\n");
 
-      // 9. Interactive registration
-      if (!opts.skipRegister) {
-        const { sessionCookie } = await interactiveSignup(baseURL);
+      // 10. Register with collected email
+      if (email) {
+        const { sessionCookie } = await registerUser(baseURL, email);
         const workspace = await createWorkspace(baseURL, sessionCookie);
         const { token } = await createMachineToken(baseURL, sessionCookie, workspace.id);
         const { runtimeIds } = await activateToken(baseURL, token, runtimes);
@@ -110,7 +117,7 @@ export function onboardCommand(): Command {
         }
       }
 
-      // 10. Print summary
+      // 11. Print summary
       console.log("\n" + "─".repeat(50));
       console.log("\n⚠️  Local mode: email send/receive is not available.");
       console.log("   To enable email, connect to alook.ai cloud.\n");
@@ -121,7 +128,7 @@ export function onboardCommand(): Command {
       console.log(`   Start:  npx @alook/app start`);
       console.log(`   Update: npx @alook/app update\n`);
 
-      // 11. Open browser
+      // 12. Open browser
       const openCmd = process.platform === "darwin" ? "open" :
         process.platform === "win32" ? "start" : "xdg-open";
       try {

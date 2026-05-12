@@ -53,13 +53,20 @@ function prompt(question: string, hidden = false): Promise<string> {
   });
 }
 
-export async function interactiveSignup(baseURL: string): Promise<SignupResult> {
-  const { userInfo, hostname } = await import("os");
-  const { randomBytes } = await import("crypto");
-  const defaultName = userInfo().username || "User";
+export async function collectEmail(): Promise<string> {
   console.log("\n📝 Create your account:\n");
   const email = await prompt("  Email: ");
-  const name = defaultName;
+  if (!email.trim()) {
+    console.error("Error: email is required");
+    process.exit(1);
+  }
+  return email.trim();
+}
+
+export async function registerUser(baseURL: string, email: string): Promise<SignupResult> {
+  const { userInfo } = await import("os");
+  const { randomBytes } = await import("crypto");
+  const name = userInfo().username || "User";
   const password = randomBytes(24).toString("base64");
 
   const res = await fetch(`${baseURL}/api/auth/sign-up/email`, {
