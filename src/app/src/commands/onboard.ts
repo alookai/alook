@@ -88,20 +88,24 @@ export function onboardCommand(): Command {
         console.log(`  ✓ Machine token activated\n`);
 
         // Start the daemon pointing to local server
+        // Pass ALOOK_PROJECT_ROOT so CLI stores config in the same .alook/ dir
+        const envPrefix = process.env.ALOOK_PROJECT_ROOT
+          ? `ALOOK_SERVER_URL=${baseURL} ALOOK_PROJECT_ROOT=${process.env.ALOOK_PROJECT_ROOT}`
+          : `ALOOK_SERVER_URL=${baseURL}`;
         console.log("Starting daemon...");
         try {
           execSync(
-            `ALOOK_SERVER_URL=${baseURL} npx @alook/cli register --token ${token}`,
+            `${envPrefix} npx @alook/cli register --token ${token}`,
             { stdio: "inherit" },
           );
           execSync(
-            `ALOOK_SERVER_URL=${baseURL} npx @alook/cli daemon start`,
+            `${envPrefix} npx @alook/cli daemon start`,
             { stdio: "inherit" },
           );
         } catch {
           console.warn("  Warning: daemon auto-start failed. Start manually:");
-          console.warn(`  ALOOK_SERVER_URL=${baseURL} npx @alook/cli register --token ${token}`);
-          console.warn(`  ALOOK_SERVER_URL=${baseURL} npx @alook/cli daemon start`);
+          console.warn(`  ${envPrefix} npx @alook/cli register --token ${token}`);
+          console.warn(`  ${envPrefix} npx @alook/cli daemon start`);
         }
       }
 

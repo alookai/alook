@@ -51,10 +51,11 @@ async function main() {
   }
 
   // Run the CLI via bun (no build step needed)
+  // Set ALOOK_PROJECT_ROOT so @alook/app and @alook/cli share the same .alook/ dir
   const child = spawn("bun", ["run", "src/index.ts", ...args], {
     cwd: appDir,
     stdio: "inherit",
-    env: { ...process.env, NODE_ENV: "development" },
+    env: { ...process.env, NODE_ENV: "development", ALOOK_PROJECT_ROOT: root },
   });
 
   child.on("exit", (code) => process.exit(code ?? 0));
