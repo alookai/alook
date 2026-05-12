@@ -65,10 +65,11 @@ export function onboardCommand(): Command {
       runMigrations();
 
       // 7. Start services
+      const foreground = !!process.env.ALOOK_PROJECT_ROOT;
       if (isRunning()) {
         console.log("\nServices already running.");
       } else {
-        startServices(ports);
+        startServices(ports, { foreground });
       }
 
       // 8. Wait for web server
