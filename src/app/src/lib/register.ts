@@ -63,19 +63,46 @@ export async function collectEmail(): Promise<string> {
 
 export async function registerUser(baseURL: string, email: string): Promise<SignupResult> {
   const { userInfo } = await import("os");
-  const { randomBytes } = await import("crypto");
   const name = userInfo().username || "User";
-  const password = randomBytes(24).toString("base64");
+  const password = "alook-local-dev";
 
-  const res = await fetch(`${baseURL}/api/auth/sign-up/email`, {
+  // Try signup first
+  let res = await fetch(`${baseURL}/api/auth/sign-up/email`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password, name }),
     redirect: "manual",
   });
 
-  if (!res.ok && res.status !== 302) {
+  // If user already exists, sign in instead
+  if (!res.ok) {
     const text = await res.text();
+    if (text.includes("already exists") || text.includes("already registered") || text.includes("User already")) {
+      res = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+        redirect: "manual",
+      });
+
+      if (!res.ok) {
+        console.error(`\nError: account exists but could not sign in.`);
+        console.error(`Open ${baseURL} in browser and sign in manually.`);
+        process.exit(1);
+      }
+
+      const cookies = res.headers.getSetCookie?.() || [];
+      const sessionCookie = cookies.find((c) => c.includes("better-auth.session_token")) || "";
+      if (!sessionCookie) {
+        console.error(`\nError: account exists but could not get session.`);
+        console.error(`Open ${baseURL} in browser and sign in manually.`);
+        process.exit(1);
+      }
+      const body = await res.json().catch(() => ({})) as Record<string, unknown>;
+      const userId = (body as { user?: { id?: string } }).user?.id || "";
+      console.log(`  ✓ Signed in (${email})`);
+      return { sessionCookie, userId };
+    }
     console.error(`\nError: signup failed (${res.status}): ${text}`);
     process.exit(1);
   }
@@ -91,7 +118,7 @@ export async function registerUser(baseURL: string, email: string): Promise<Sign
   const body = await res.json().catch(() => ({})) as Record<string, unknown>;
   const userId = (body as { user?: { id?: string } }).user?.id || "";
 
-  console.log(`\n  ✓ Account created (${email})`);
+  console.log(`  ✓ Account created (${email})`);
   return { sessionCookie, userId };
 }
 
