@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AgentEditForm } from "@/components/agent-edit-form";
 import { ChannelBar } from "@/components/channel-bar";
+import { useChannel } from "@/contexts/channel-context";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AgentStatusBadge } from "@/components/agent-status-badge";
 import { FolderOpen, GitBranch, History, Mail, MessageSquare, MoreHorizontal, Pencil, Trash2, Video, X } from "lucide-react";
@@ -52,6 +53,13 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
   const [agentConfirmOpen, setAgentConfirmOpen] = useState(false);
   const [agentDeleting, setAgentDeleting] = useState(false);
   const [modelOptions, setModelOptions] = useState<Record<string, string[]>>({});
+
+  const { setAgentId: setChannelAgentId } = useChannel();
+
+  useEffect(() => {
+    setChannelAgentId(agentId);
+    return () => setChannelAgentId(null);
+  }, [agentId, setChannelAgentId]);
 
   useEffect(() => {
     fetchModelOptions().then(setModelOptions).catch(() => {});

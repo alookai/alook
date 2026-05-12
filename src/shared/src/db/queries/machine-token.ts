@@ -1,4 +1,4 @@
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, isNull } from "drizzle-orm";
 import { machineToken, user } from "../schema";
 import type { Database } from "../index";
 
@@ -6,7 +6,7 @@ export async function createMachineToken(
   db: Database,
   data: {
     userId: string;
-    workspaceId: string;
+    workspaceId?: string | null;
     token: string;
     name: string;
     status?: string;
@@ -16,7 +16,7 @@ export async function createMachineToken(
     .insert(machineToken)
     .values({
       userId: data.userId,
-      workspaceId: data.workspaceId,
+      workspaceId: data.workspaceId ?? null,
       token: data.token,
       name: data.name,
       status: data.status ?? "active",
@@ -47,26 +47,29 @@ export async function getMachineTokenByToken(db: Database, token: string) {
 export async function getPendingMachineToken(
   db: Database,
   userId: string,
-  workspaceId: string
+  workspaceId?: string | null
 ) {
+  const conditions = [
+    eq(machineToken.userId, userId),
+    eq(machineToken.status, "pending"),
+  ];
+  if (workspaceId) {
+    conditions.push(eq(machineToken.workspaceId, workspaceId));
+  } else {
+    conditions.push(isNull(machineToken.workspaceId));
+  }
   const rows = await db
     .select()
     .from(machineToken)
-    .where(
-      and(
-        eq(machineToken.userId, userId),
-        eq(machineToken.workspaceId, workspaceId),
-        eq(machineToken.status, "pending")
-      )
-    )
+    .where(and(...conditions))
     .limit(1);
   return rows[0] ?? null;
 }
 
-export async function activateMachineToken(db: Database, id: string) {
+export async function activateMachineToken(db: Database, id: string, workspaceId?: string) {
   await db
     .update(machineToken)
-    .set({ status: "active" })
+    .set({ status: "active", ...(workspaceId ? { workspaceId } : {}) })
     .where(eq(machineToken.id, id));
 }
 

@@ -711,7 +711,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockBroadcastToUser.mockResolvedValue(undefined);
     mockClaimTasksForRuntimes.mockResolvedValue([]);
     mockListScheduledMeetings.mockResolvedValue([
-      { id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "scheduled", agentName: "Jarvis" },
+      { id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "scheduled", agentName: "Jarvis", title: "Standup" },
     ]);
     mockClaimMeetingSessions.mockResolvedValue([{
       id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "joining",
@@ -727,7 +727,9 @@ describe("POST /api/daemon/tasks/poll", () => {
       meeting_url: "https://meet.google.com/abc",
       participants: ["alice@test.com"],
       workspace_id: "w1",
+      agent_id: "a1",
       agent_name: "Jarvis",
+      title: "Standup",
     });
   });
 

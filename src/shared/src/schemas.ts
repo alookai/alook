@@ -135,7 +135,9 @@ export const PollMeetingItemSchema = z.object({
   meeting_url: z.string(),
   participants: z.array(z.string()),
   workspace_id: z.string(),
+  agent_id: z.string(),
   agent_name: z.string(),
+  title: z.string().optional(),
 });
 export type PollMeetingItem = z.infer<typeof PollMeetingItemSchema>;
 
@@ -186,7 +188,7 @@ export const ActivateTokenRequestSchema = z.object({
 export type ActivateTokenRequest = z.infer<typeof ActivateTokenRequestSchema>;
 
 export const RegisterDaemonRequestSchema = z.object({
-  workspace_id: z.string().min(1),
+  workspace_id: z.string().min(1).optional(),
   daemon_id: z.string().min(1),
   device_name: z.string().optional().default(""),
   cli_version: z.string().optional().default(""),

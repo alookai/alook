@@ -1,13 +1,13 @@
 import React, { memo } from "react";
 import type { Agent, Artifact, Message, TaskApi as Task, TaskMessage } from "@alook/shared";
-import type { Conversation } from "@alook/shared";
+
 import { cn } from "@/lib/utils";
 import { Streamdown } from "streamdown";
 import { highlightMentions } from "@/lib/highlight-mentions";
 import { TaskStream } from "@/components/task-stream";
 import { HistoricalTaskSteps } from "@/components/agent-chat/historical-task-steps";
 import { FileText, Calendar, CircleDot, Mail } from "lucide-react";
-import { formatSize } from "@/components/agent-chat/artifact-sheet";
+
 import { getEventIconType } from "@/components/agent-chat/agent-chat-view";
 
 const MENTION_ALLOWED_TAGS = { mention: ["data-agent-id"] };

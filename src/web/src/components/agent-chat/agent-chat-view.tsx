@@ -57,8 +57,6 @@ const MESSAGE_LIMIT = 20;
 const MAX_CONV_FETCHES_PER_CLICK = 5;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
-const MENTION_ALLOWED_TAGS = { mention: ["data-agent-id"] };
-const MENTION_LITERAL_TAGS = ["mention"];
 function MentionHighlight(props: Record<string, unknown> & { children?: React.ReactNode }) {
   const { children, ...rest } = props;
   const { agents } = useAgentContext();
@@ -1344,7 +1342,7 @@ export function AgentChatView() {
         });
       }
     });
-  }, [issueSheetOpen, selectedIssueId, issueConvId, issueTaskId, workspaceId, subscribeWs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [issueSheetOpen, selectedIssueId, issueConvId, issueTaskId, workspaceId, subscribeWs]);
 
   const [napping, setNapping] = useState(false);
 

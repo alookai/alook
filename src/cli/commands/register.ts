@@ -95,21 +95,6 @@ export function registerCommand(): Command {
         process.exit(1);
       }
 
-      let workspaces: Workspace[];
-      try {
-        workspaces = await client.getJSON<Workspace[]>("/api/workspaces");
-      } catch (err) {
-        console.error(
-          `Error: failed to fetch workspaces: ${err instanceof Error ? err.message : err}`,
-        );
-        process.exit(1);
-      }
-
-      if (!workspaces.length) {
-        console.error("Error: no workspaces found for this user");
-        process.exit(1);
-      }
-
       // Detect local runtimes
       console.log("Scanning for AI runtimes...");
       const runtimes = detectRuntimes();
@@ -123,7 +108,7 @@ export function registerCommand(): Command {
         `Found: ${runtimes.map((r) => r.type).join(", ")}`,
       );
 
-      // Activate token — no auth header needed, token in body
+      // Activate token — may create workspace if none exists
       const host = hostname();
       console.log("Registering runtime...");
       let activateResp: ActivateResponse;
@@ -143,6 +128,22 @@ export function registerCommand(): Command {
         console.error(
           `Error: failed to activate: ${err instanceof Error ? err.message : err}`,
         );
+        process.exit(1);
+      }
+
+      // Fetch workspaces after activation (activation may have created one)
+      let workspaces: Workspace[];
+      try {
+        workspaces = await client.getJSON<Workspace[]>("/api/workspaces");
+      } catch (err) {
+        console.error(
+          `Error: failed to fetch workspaces: ${err instanceof Error ? err.message : err}`,
+        );
+        process.exit(1);
+      }
+
+      if (!workspaces.length) {
+        console.error("Error: no workspaces found for this user");
         process.exit(1);
       }
 

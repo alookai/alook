@@ -4,10 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import type { Agent } from "@alook/shared";
 import type { AgentFolder } from "@/hooks/use-agent-folders";
 import { AgentSidebarButton } from "./agent-sidebar-button";
-import {
-  ContextMenuItem,
-  ContextMenuSeparator,
-} from "@/components/ui/context-menu";
+import { ContextMenuItem } from "@/components/ui/context-menu";
 import { PinOffIcon } from "lucide-react";
 import {
   DndContext,
@@ -99,7 +96,8 @@ export function FolderPopover({
         popoverRef.current &&
         !popoverRef.current.contains(target) &&
         anchorRef &&
-        !anchorRef.contains(target)
+        !anchorRef.contains(target) &&
+        !(target as HTMLElement).closest?.('[data-slot="context-menu-content"]')
       ) {
         onClose();
       }
@@ -166,6 +164,7 @@ export function FolderPopover({
                   isPinned={false}
                   isOnline={isOnline}
                   taskCount={taskCounts[agent.id] ?? 0}
+                  hidePin
                   onClick={() => {
                     onAgentClick(agent.id);
                     onClose();
@@ -176,15 +175,12 @@ export function FolderPopover({
                   }}
                   onUnpin={() => {}}
                   extraContextMenuItems={
-                    <>
-                      <ContextMenuSeparator />
-                      <ContextMenuItem
-                        onClick={() => onRemoveFromFolder(agent.id)}
-                      >
-                        <PinOffIcon className="size-3.5 mr-1.5" />
-                        Remove from group
-                      </ContextMenuItem>
-                    </>
+                    <ContextMenuItem
+                      onClick={() => onRemoveFromFolder(agent.id)}
+                    >
+                      <PinOffIcon className="size-3.5 mr-1.5" />
+                      Remove from group
+                    </ContextMenuItem>
                   }
                 />
               </SortablePopoverAgent>

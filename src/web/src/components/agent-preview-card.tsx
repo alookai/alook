@@ -85,7 +85,7 @@ export function AgentPreviewCard({
               "size-1.5 rounded-full",
               !isOnline ? "bg-status-offline" : "bg-status-online"
             )} />
-            {!isOnline ? "Offline" : (activeTaskCount ?? 0) > 0 ? "Working" : "Online"}
+            {!isOnline ? "Offline" : (activeTaskCount ?? 0) > 0 ? "Working" : null}
           </span>
         )}
       </div>

@@ -22,6 +22,10 @@ export function isTextType(contentType: string): boolean {
   return false;
 }
 
+export function isHtmlType(contentType: string): boolean {
+  return contentType.startsWith("text/html");
+}
+
 export function isImageType(contentType: string): boolean {
   return contentType.startsWith("image/");
 }
@@ -52,7 +56,7 @@ export function ArtifactContentRenderer({ artifact, workspaceId }: ArtifactConte
   const url = getArtifactUrl(artifact.id, workspaceId);
 
   useEffect(() => {
-    if (isTextType(artifact.content_type)) {
+    if (isTextType(artifact.content_type) && !isHtmlType(artifact.content_type)) {
       setLoading(true);
       setContent(null);
       getArtifactContent(artifact.id, workspaceId)
@@ -82,6 +86,10 @@ export function ArtifactContentRenderer({ artifact, workspaceId }: ArtifactConte
     );
   }
 
+  if (isHtmlType(artifact.content_type)) {
+    return <HtmlArtifactFrame url={url} title={artifact.filename} />;
+  }
+
   if (isTextType(artifact.content_type)) {
     if (isMarkdown(artifact.filename)) {
       return (
@@ -109,5 +117,17 @@ export function ArtifactContentRenderer({ artifact, workspaceId }: ArtifactConte
         Download
       </a>
     </div>
+  );
+}
+
+function HtmlArtifactFrame({ url, title }: { url: string; title: string }) {
+  return (
+    <iframe
+      src={url}
+      sandbox="allow-same-origin"
+      className="w-full h-full rounded-b-xl overflow-hidden"
+      style={{ border: "none", display: "block" }}
+      title={title}
+    />
   );
 }

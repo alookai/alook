@@ -107,7 +107,7 @@ describe("POST /api/machine-tokens", () => {
     mockCreateMachineToken.mockResolvedValue(mt);
 
     const res = await POST(
-      new NextRequest("http://localhost/api/machine-tokens", {
+      new NextRequest("http://localhost/api/machine-tokens?workspace_id=w1", {
         method: "POST",
         body: JSON.stringify({ name: "my-token" }),
         headers: { "Content-Type": "application/json" },

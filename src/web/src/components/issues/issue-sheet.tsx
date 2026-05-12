@@ -113,7 +113,7 @@ function MessageRow({ message }: { message: Message }) {
         <span className="capitalize">{message.role}</span>
         <span>{new Date(message.created_at).toLocaleString()}</span>
       </div>
-      <div className="prose prose-sm dark:prose-invert max-w-none text-sm break-words">
+      <div className="prose prose-sm dark:prose-invert max-w-none text-sm wrap-break-word">
         <Streamdown>{message.content}</Streamdown>
       </div>
     </div>
@@ -130,7 +130,7 @@ function CommentRow({ comment, agents }: { comment: IssueComment; agents: Agent[
         <span className="font-medium">{authorLabel}</span>
         <span>{new Date(comment.created_at).toLocaleString()}</span>
       </div>
-      <div className="prose prose-sm dark:prose-invert max-w-none text-sm break-words">
+      <div className="prose prose-sm dark:prose-invert max-w-none text-sm wrap-break-word">
         <Streamdown>{comment.content}</Streamdown>
       </div>
     </div>
@@ -279,7 +279,7 @@ export function IssueSheet({
     }, 500);
 
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, [title, description, mode, issue, open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [title, description, mode, issue, open]);
 
   // --- Title auto-resize ---
   const resizeTitle = useCallback((el?: HTMLTextAreaElement | null) => {
@@ -458,7 +458,7 @@ export function IssueSheet({
         placeholder="Leave a comment..."
         value={commentContent}
         onChange={(e) => setCommentContent(e.target.value)}
-        className="w-full resize-none bg-transparent px-3.5 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground field-sizing-content min-h-[60px] max-h-32 thin-scrollbar overflow-y-auto"
+        className="w-full resize-none bg-transparent px-3.5 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground field-sizing-content min-h-15 max-h-32 thin-scrollbar overflow-y-auto"
         onKeyDown={(e) => { if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); handleCommentSubmit(); } }}
       />
       <div className="flex items-center justify-between px-2.5 pb-2 pt-0.5">
@@ -646,7 +646,7 @@ export function IssueSheet({
 
         {/* Timeline floating panel — desktop only, detail mode only, not for todo drafts */}
         {mode === "detail" && !isTodoDraft && (
-          <div className="hidden lg:flex absolute right-full top-0 bottom-0 mr-2 w-[360px] flex-col rounded-xl border bg-background shadow-lg overflow-hidden">
+          <div className="hidden lg:flex absolute right-full top-0 bottom-0 mr-2 w-90 flex-col rounded-xl border bg-background shadow-lg overflow-hidden">
             <div className="shrink-0 flex items-center border-b px-4 py-2.5">
               <span className="text-xs font-medium text-muted-foreground">Activity</span>
             </div>

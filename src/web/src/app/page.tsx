@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import dynamic from "next/dynamic";
 import { getSession } from "@/lib/session";
-import { WorkspaceRedirect } from "@/components/workspace-redirect";
+
 
 const HomePage = dynamic(() => import("@/components/home/home-page").then(m => ({ default: m.HomePage })), {
   ssr: true,
@@ -10,7 +10,7 @@ const HomePage = dynamic(() => import("@/components/home/home-page").then(m => (
 export const metadata: Metadata = {
   title: "Alook — Your Personal Company",
   description:
-    "Run your personal company — AI agents that collaborate, stay always on, and learn from every task.",
+    "Run your personal company with AI agents that collaborate, stay always on, and learn from every task. Give each agent an email, assign roles, and let them work for you around the clock.",
   alternates: { canonical: "https://alook.ai" },
 };
 
@@ -47,14 +47,13 @@ const faqJsonLd = {
 
 export default async function Page() {
   const session = await getSession();
-  if (session) return <WorkspaceRedirect />;
   return (
     <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
-      <HomePage isLoggedIn={false} />
+      <HomePage isLoggedIn={!!session} />
     </>
   );
 }

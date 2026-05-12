@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
@@ -206,6 +207,24 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             </svg>
             OPEN SOURCE
           </a> */}
+          <Link
+            href="/templates"
+            className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: "var(--landing-bg)",
+              backgroundColor: "var(--landing-text)",
+              letterSpacing: "0.05em",
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+            </svg>
+            TEMPLATES
+          </Link>
           {isLoggedIn ? (
             <a
               href="/workspaces?auto"

@@ -63,7 +63,7 @@ export function RelationPreview({ members, scenario }: { members: TeamMember[]; 
 
   return (
     <div className="space-y-3">
-      <h2 className="text-sm font-medium">Team collaboration</h2>
+      <h2 className="text-base font-semibold tracking-tight">How they work together</h2>
       <div className="rounded-lg border border-border p-4 space-y-3">
         <p className="text-xs text-muted-foreground">
           You email <span className="font-medium text-foreground">{leader.name}</span> with tasks.{" "}

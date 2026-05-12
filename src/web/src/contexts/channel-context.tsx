@@ -21,6 +21,7 @@ interface ChannelContextValue {
   activeChannel: string;
   loading: boolean;
   setActiveChannel: (name: string) => void;
+  setAgentId: (id: string | null) => void;
   createChannel: (name: string) => Promise<Channel>;
   renameChannel: (id: string, name: string) => Promise<void>;
   deleteChannel: (id: string) => Promise<void>;
@@ -29,8 +30,10 @@ interface ChannelContextValue {
 
 const ChannelContext = createContext<ChannelContextValue | null>(null);
 
-function storageKey(workspaceId: string) {
-  return `alook:channel:${workspaceId}`;
+function storageKey(workspaceId: string, agentId?: string | null) {
+  return agentId
+    ? `alook:channel:${workspaceId}:${agentId}`
+    : `alook:channel:${workspaceId}`;
 }
 
 export function ChannelProvider({
@@ -43,6 +46,7 @@ export function ChannelProvider({
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannel, setActiveChannelState] = useState<string>("default");
   const [loading, setLoading] = useState(true);
+  const [agentId, setAgentId] = useState<string | null>(null);
 
   const fetchChannels = useCallback(async () => {
     try {
@@ -55,24 +59,27 @@ export function ChannelProvider({
   }, [workspaceId]);
 
   useEffect(() => {
-    const stored =
-      typeof window !== "undefined"
-        ? localStorage.getItem(storageKey(workspaceId))
-        : null;
-    if (stored) {
-      setActiveChannelState(stored);
-    }
     fetchChannels().finally(() => setLoading(false));
   }, [workspaceId, fetchChannels]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem(storageKey(workspaceId, agentId));
+    setActiveChannelState(stored ?? "default");
+  }, [workspaceId, agentId]);
 
   const setActiveChannel = useCallback(
     (name: string) => {
       setActiveChannelState(name);
       if (typeof window !== "undefined") {
-        localStorage.setItem(storageKey(workspaceId), name);
+        try {
+          localStorage.setItem(storageKey(workspaceId, agentId), name);
+        } catch {
+          // localStorage quota exceeded or unavailable
+        }
       }
     },
-    [workspaceId]
+    [workspaceId, agentId]
   );
 
   const createChannel = useCallback(
@@ -115,6 +122,7 @@ export function ChannelProvider({
         activeChannel,
         loading,
         setActiveChannel,
+        setAgentId,
         createChannel,
         renameChannel,
         deleteChannel,

@@ -17,7 +17,7 @@ export async function sweepStaleState(db: Database, workspaceId: string) {
   const lockKey = `sweep:${workspaceId}`;
   let locked = false;
   try {
-    const val = await cached<string>(lockKey, SWEEP_INTERVAL_S, async () => {
+    await cached<string>(lockKey, SWEEP_INTERVAL_S, async () => {
       locked = true;
       return new Date().toISOString();
     });

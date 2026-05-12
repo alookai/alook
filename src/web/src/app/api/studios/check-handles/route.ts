@@ -7,7 +7,7 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
 
-export const POST = withAuth(async (req: NextRequest, ctx) => {
+export const POST = withAuth(async (req: NextRequest, _ctx) => {
   let body: { names: string[] };
   try {
     body = await req.json() as { names: string[] };

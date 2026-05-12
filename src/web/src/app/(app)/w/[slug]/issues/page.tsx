@@ -490,7 +490,7 @@ export default function IssuesPage() {
     } finally {
       pendingStatusUpdate.current = null;
     }
-  }, [workspaceId, issues, detail]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workspaceId, issues, detail]);
 
 
   const handleDeleteIssue = useCallback(async (issueId: string) => {

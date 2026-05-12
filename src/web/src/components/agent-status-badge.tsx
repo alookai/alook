@@ -105,13 +105,11 @@ export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBa
         }
       >
         <StatusDot online />
-        {taskCount > 0 ? (
+        {taskCount > 0 && (
           <>
             <span className="hidden sm:inline">Working</span>
             <span className="tabular-nums">{taskCount}</span>
           </>
-        ) : (
-          <span className="hidden sm:inline">Online</span>
         )}
       </PopoverTrigger>
       <PopoverContent className="w-72 p-1">
@@ -133,7 +131,7 @@ export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBa
         ) : !tasks || tasks.length === 0 ? (
           <div className="p-3 text-xs text-muted-foreground">No active tasks</div>
         ) : (
-          <div className="max-h-[300px] overflow-y-auto">
+          <div className="max-h-75 overflow-y-auto">
             {tasks.slice(0, MAX_VISIBLE_TASKS).map((task) => (
               <TaskRow key={task.id} task={task} slug={slug} agentId={agentId} />
             ))}

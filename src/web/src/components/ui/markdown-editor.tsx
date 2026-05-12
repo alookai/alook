@@ -64,7 +64,7 @@ function MentionList({
 
   return createPortal(
     <div
-      className="fixed z-[100] w-64 rounded-lg border border-border bg-popover text-popover-foreground shadow-md"
+      className="fixed z-100 w-64 rounded-lg border border-border bg-popover text-popover-foreground shadow-md"
       style={{ top: rect.top - 4, left: rect.left, transform: "translateY(-100%)" }}
     >
       <div ref={listRef} className="max-h-50 overflow-y-auto py-1 thin-scrollbar">

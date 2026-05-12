@@ -29,6 +29,16 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
         </Link>
 
         <div className="flex items-center gap-3">
+          <Link
+            href="/templates"
+            className="px-3 py-1.5 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: "var(--landing-text)",
+            }}
+          >
+            Templates
+          </Link>
           {/* <a
             href="https://github.com/alookai/alook"
             className="inline-flex items-center gap-2 px-4 py-1.5 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"

@@ -44,6 +44,7 @@ import { AgentNode, type AgentNodeData } from "@/components/canvas/agent-node";
 import { LinkEdge } from "@/components/canvas/link-edge";
 import { LinkSidecar } from "@/components/canvas/link-sidecar";
 import { ActiveTasksFloat } from "@/components/canvas/active-tasks-float";
+import { UpcomingEventsFloat } from "@/components/canvas/upcoming-events-float";
 import { getAutoLayout } from "@/components/canvas/auto-layout";
 
 const nodeTypes = { agent: AgentNode };
@@ -69,7 +70,7 @@ function savePositions(workspaceId: string, nodes: Node[]) {
   }
   try {
     localStorage.setItem(storageKey(workspaceId), JSON.stringify(positions));
-  } catch {}
+  } catch { }
 }
 
 function AgentCanvas() {
@@ -296,7 +297,7 @@ function AgentCanvas() {
   const handleResetLayout = useCallback(() => {
     try {
       localStorage.removeItem(storageKey(workspaceId));
-    } catch {}
+    } catch { }
     const currentEdges: Edge[] = links.map((link) => ({
       id: link.id,
       source: link.source_agent_id,
@@ -415,7 +416,10 @@ function AgentCanvas() {
         onDelete={handleSidecarDelete}
       />
 
-      <ActiveTasksFloat />
+      <div className="absolute bottom-4 right-4 z-10 flex flex-wrap justify-end items-end gap-2">
+        <UpcomingEventsFloat />
+        <ActiveTasksFloat />
+      </div>
 
       {/* Create agent button */}
       <button
@@ -489,8 +493,8 @@ function MobileAgentList() {
 
 export default function HomePage() {
   const router = useRouter();
-  const { agents, runtimes, loading } = useAgentContext();
-  const { slug, workspaceId } = useWorkspace();
+  const { agents, loading } = useAgentContext();
+  const { workspaceId } = useWorkspace();
   const isMobile = useIsMobile();
 
   if (loading) {
@@ -505,13 +509,13 @@ export default function HomePage() {
     return (
       <div className="flex flex-1 items-center justify-center">
         <div className="text-center animate-[fade-up_400ms_ease-out_both]">
-          <p className="text-muted-foreground text-sm">Build your AI studio to get started.</p>
+          <p className="text-muted-foreground text-sm">Build your AI company</p>
           <Button
             size="sm"
             className="mt-4 glow-border"
             onClick={() => router.push(`/studio/new?workspace_id=${workspaceId}`)}
           >
-            Build Studio
+            Get Started
           </Button>
         </div>
       </div>

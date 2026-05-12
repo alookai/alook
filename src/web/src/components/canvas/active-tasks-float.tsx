@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { X, Minus } from "lucide-react";
+import { X } from "lucide-react";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -63,8 +63,7 @@ export function ActiveTasksFloat() {
   const { activeTaskDetails } = useAgentContext();
   const { slug } = useWorkspace();
   const isMobile = useIsMobile();
-  const [minimized, setMinimized] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const prevTaskIdsRef = useRef<Set<string>>(new Set());
 
   const tasks = activeTaskDetails;
@@ -77,20 +76,20 @@ export function ActiveTasksFloat() {
     }
     const currentIds = new Set(tasks.map((t) => t.id));
     const hasNewTask = tasks.some((t) => !prevTaskIdsRef.current.has(t.id));
-    if (hasNewTask && dismissed) {
-      setDismissed(false);
+    if (hasNewTask && !expanded) {
+      setExpanded(true);
     }
     prevTaskIdsRef.current = currentIds;
-  }, [tasks, taskCount, dismissed]);
+  }, [tasks, taskCount, expanded]);
 
   if (isMobile || taskCount === 0) return null;
 
-  if (dismissed) {
+  if (!expanded) {
     return (
       <button
         type="button"
-        onClick={() => setDismissed(false)}
-        className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-background/90 backdrop-blur-sm ring-1 ring-foreground/8 shadow-sm text-xs font-medium text-muted-foreground hover:text-foreground transition-colors animate-[fade-up_300ms_ease-out_both]"
+        onClick={() => setExpanded(true)}
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-background/90 backdrop-blur-sm ring-1 ring-foreground/8 shadow-sm text-xs font-medium text-muted-foreground hover:text-foreground transition-colors animate-[fade-up_300ms_ease-out_both]"
       >
         <span className="size-1.5 rounded-full bg-primary animate-pulse" />
         {taskCount} active
@@ -102,7 +101,7 @@ export function ActiveTasksFloat() {
     <div
       role="region"
       aria-label="Active tasks"
-      className="absolute bottom-4 right-4 z-10 w-80 rounded-lg ring-1 ring-foreground/8 shadow-sm bg-background/90 backdrop-blur-sm animate-[fade-up_300ms_ease-out_both]"
+      className="w-80 rounded-lg ring-1 ring-foreground/8 shadow-sm bg-background/90 backdrop-blur-sm animate-[fade-up_300ms_ease-out_both]"
     >
       <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
         <div className="flex items-center gap-2 text-sm font-medium" aria-live="polite">
@@ -111,41 +110,29 @@ export function ActiveTasksFloat() {
             {taskCount} task{taskCount !== 1 ? "s" : ""} active
           </span>
         </div>
-        <div className="flex items-center gap-0.5">
-          <button
-            type="button"
-            aria-label={minimized ? "Expand tasks" : "Minimize tasks"}
-            className="size-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            onClick={() => setMinimized((v) => !v)}
-          >
-            <Minus className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            aria-label="Close tasks panel"
-            className="size-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            onClick={() => setDismissed(true)}
-          >
-            <X className="size-3.5" />
-          </button>
-        </div>
+        <button
+          type="button"
+          aria-label="Collapse tasks panel"
+          className="size-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          onClick={() => setExpanded(false)}
+        >
+          <X className="size-3.5" />
+        </button>
       </div>
 
-      {!minimized && (
-        <div className="max-h-75 overflow-y-auto thin-scrollbar py-1">
-          {tasks.slice(0, 8).map((task) => (
-            <TaskRow key={task.id} task={task} slug={slug} />
-          ))}
-          {taskCount > 8 && (
-            <Link
-              href={`/w/${slug}/threads?status=active`}
-              className="block text-xs text-muted-foreground hover:text-foreground text-center py-1.5 transition-colors"
-            >
-              View all {taskCount} tasks
-            </Link>
-          )}
-        </div>
-      )}
+      <div className="max-h-75 overflow-y-auto thin-scrollbar py-1">
+        {tasks.slice(0, 8).map((task) => (
+          <TaskRow key={task.id} task={task} slug={slug} />
+        ))}
+        {taskCount > 8 && (
+          <Link
+            href={`/w/${slug}/threads?status=active`}
+            className="block text-xs text-muted-foreground hover:text-foreground text-center py-1.5 transition-colors"
+          >
+            View all {taskCount} tasks
+          </Link>
+        )}
+      </div>
     </div>
   );
 }

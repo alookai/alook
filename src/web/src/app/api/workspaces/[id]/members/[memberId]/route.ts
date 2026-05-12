@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceOwner } from "@/lib/middleware/workspace";
 import { writeError } from "@/lib/middleware/helpers";
+import { invalidate, cacheKeys } from "@/lib/cache";
 
 export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   const owner = await withWorkspaceOwner(req, ctx);
@@ -21,6 +22,7 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   if (target.role === "owner") return writeError("cannot remove a workspace owner", 403);
 
   await queries.member.deleteMember(db, memberId, owner.workspaceId);
+  await invalidate(cacheKeys.member(owner.workspaceId, target.userId));
 
   return new Response(null, { status: 204 });
 });

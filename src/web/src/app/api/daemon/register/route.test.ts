@@ -57,6 +57,10 @@ describe("POST /api/daemon/register", () => {
     vi.doMock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
     vi.doMock("@/lib/broadcast", () => mocks["@/lib/broadcast"]);
     vi.doMock("@/lib/api/responses", () => mocks["@/lib/api/responses"]);
+    vi.doMock("@/lib/cache", () => ({
+      invalidate: vi.fn(),
+      cacheKeys: { runtimeIds: (...a: any[]) => a.join(":") },
+    }));
     vi.doMock("@/lib/middleware/auth", () => ({
       withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
         const params =
@@ -98,7 +102,7 @@ describe("POST /api/daemon/register", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ runtimes: [{ id: "r1" }] });
+    expect(body).toEqual({ runtimes: [{ id: "r1" }], workspaceId: "w1" });
     expect(mockUpsertMachine).toHaveBeenCalledTimes(1);
     expect(mockUpsertAgentRuntime).toHaveBeenCalledTimes(1);
   });
