@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import type { TaskMessage } from "@alook/shared";
 import type { TaskApi as Task } from "@alook/shared";
 import {
+  Check,
   ChevronRight,
   Brain,
   AlertCircle,
@@ -105,7 +106,7 @@ function groupMessages(messages: TaskMessage[]): StreamItem[] {
 
 /* ── ToolCallBlock ── */
 
-function ToolCallBlock({ item, isRunning }: { item: ToolCallGroup; isRunning: boolean }) {
+function ToolCallBlock({ item, isRunning, isLast }: { item: ToolCallGroup; isRunning: boolean; isLast: boolean }) {
   const inputStr = useMemo(() => {
     if (!item.input) return null;
     try {
@@ -126,8 +127,11 @@ function ToolCallBlock({ item, isRunning }: { item: ToolCallGroup; isRunning: bo
         <span className="font-medium text-foreground/80">
           {formatToolName(item.tool)}
         </span>
-        {isRunning && (
+        {isRunning && isLast && (
           <span className="ml-auto size-1.5 rounded-full bg-primary/60 animate-pulse" />
+        )}
+        {isRunning && !isLast && (
+          <Check className="ml-auto size-3 text-emerald-500" />
         )}
       </div>
     );
@@ -147,8 +151,11 @@ function ToolCallBlock({ item, isRunning }: { item: ToolCallGroup; isRunning: bo
         <span className="font-medium text-foreground/80">
           {formatToolName(item.tool)}
         </span>
-        {isRunning && (
+        {isRunning && isLast && (
           <span className="ml-auto size-1.5 rounded-full bg-primary/60 animate-pulse" />
+        )}
+        {isRunning && !isLast && (
+          <Check className="ml-auto size-3 text-emerald-500" />
         )}
       </summary>
 
@@ -382,10 +389,10 @@ export function TaskStream({
                 <span>Loading steps...</span>
               </div>
             )}
-            {toolItems.map((item) => {
+            {toolItems.map((item, idx) => {
               switch (item.kind) {
                 case "tool-call":
-                  return <ToolCallBlock key={item.id} item={item} isRunning={isRunning} />;
+                  return <ToolCallBlock key={item.id} item={item} isRunning={isRunning} isLast={idx === toolItems.length - 1} />;
                 case "thinking":
                   return <ThinkingBlock key={item.id} item={item as ThinkingItem} />;
                 case "status":

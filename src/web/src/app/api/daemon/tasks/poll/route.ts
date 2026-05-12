@@ -261,14 +261,19 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         now,
       );
       if (claimedRows.length > 0) {
-        const agentNameMap = new Map(scheduled.map((m) => [m.id, m.agentName || ""]));
-        meetings = claimedRows.map((row) => ({
-          id: row.id,
-          meeting_url: row.meetingUrl,
-          participants: row.participants as string[],
-          workspace_id: row.workspaceId,
-          agent_name: agentNameMap.get(row.id) || "",
-        }));
+        const scheduledMap = new Map(scheduled.map((m) => [m.id, m]));
+        meetings = claimedRows.map((row) => {
+          const sched = scheduledMap.get(row.id);
+          return {
+            id: row.id,
+            meeting_url: row.meetingUrl,
+            participants: row.participants as string[],
+            workspace_id: row.workspaceId,
+            agent_id: row.agentId,
+            agent_name: sched?.agentName || "",
+            title: sched?.title || undefined,
+          };
+        });
       }
     }
   } catch (e) {

@@ -453,6 +453,8 @@ export async function startDaemon(
         // Spawn meeting bots from merged poll response
         if (meetings) {
           for (const m of meetings) {
+            const agentBaseDir = join(config.workspacesRoot, m.workspace_id, m.agent_id, "workdir");
+            const timelineDir = join(agentBaseDir, ".context_timeline");
             spawnMeetingRunner({
               meetingId: m.id,
               meetingUrl: m.meeting_url,
@@ -461,6 +463,9 @@ export async function startDaemon(
               callbackUrl: config.serverURL,
               authToken: ws.token,
               agentName: m.agent_name,
+              agentId: m.agent_id,
+              timelineDir,
+              title: m.title,
             });
           }
         }
@@ -635,6 +640,9 @@ export function spawnMeetingRunner(input: {
   callbackUrl: string;
   authToken: string;
   agentName?: string;
+  agentId?: string;
+  timelineDir?: string;
+  title?: string;
 }): ChildProcess {
   const logDir = sessionRunnerLogDir();
   mkdirSync(logDir, { recursive: true });

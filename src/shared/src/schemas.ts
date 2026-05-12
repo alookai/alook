@@ -135,7 +135,9 @@ export const PollMeetingItemSchema = z.object({
   meeting_url: z.string(),
   participants: z.array(z.string()),
   workspace_id: z.string(),
+  agent_id: z.string(),
   agent_name: z.string(),
+  title: z.string().optional(),
 });
 export type PollMeetingItem = z.infer<typeof PollMeetingItemSchema>;
 
