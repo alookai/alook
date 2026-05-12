@@ -1,0 +1,37 @@
+{
+  "name": "@alook/app",
+  "version": "0.0.1",
+  "description": "Run Alook locally — one command, no clone needed",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "alook-app": "dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "bundled",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external wrangler",
+    "prepack": "pnpm run build",
+    "bundle": "bun run scripts/bundle.ts"
+  },
+  "dependencies": {
+    "commander": "^14.0.3",
+    "wrangler": "^4.90.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.13",
+    "typescript": "^6.0.3"
+  }
+}
