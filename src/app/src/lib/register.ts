@@ -55,7 +55,7 @@ function prompt(question: string, hidden = false): Promise<string> {
 
 export async function collectEmail(): Promise<string> {
   const { userInfo } = await import("os");
-  const defaultEmail = `${userInfo().username || "user"}@localhost`;
+  const defaultEmail = `${userInfo().username || "user"}@local.alook.ai`;
   console.log("\n📝 Create your account:\n");
   const input = await prompt(`  Email (${defaultEmail}): `);
   return input.trim() || defaultEmail;

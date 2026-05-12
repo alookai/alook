@@ -14,17 +14,37 @@ interface StartOptions {
   foreground?: boolean;
 }
 
+function resolveServiceDirs(): { web: string; emailWorker: string; wsDo: string } {
+  const projectRoot = process.env.ALOOK_PROJECT_ROOT;
+  if (projectRoot) {
+    return {
+      web: join(SELF_HOSTED_DIR, "web"),
+      emailWorker: join(projectRoot, "src", "email-worker"),
+      wsDo: join(projectRoot, "src", "ws-do"),
+    };
+  }
+  return {
+    web: join(SELF_HOSTED_DIR, "web"),
+    emailWorker: join(SELF_HOSTED_DIR, "email-worker"),
+    wsDo: join(SELF_HOSTED_DIR, "ws-do"),
+  };
+}
+
+function persistToArg(): string[] {
+  return ["--persist-to", join(SELF_HOSTED_DIR, "web", ".wrangler", "state")];
+}
+
 function logDir(): string {
   const dir = join(SELF_HOSTED_DIR, "logs");
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
-function spawnBackground(name: string, cwd: string, port: number): ChildProcess {
+function spawnBackground(name: string, cwd: string, port: number, extraArgs: string[] = []): ChildProcess {
   const logPath = join(logDir(), `${name}.log`);
   const logFd = openSync(logPath, "a", 0o600);
 
-  const args = ["wrangler", "dev", "--local", "--port", String(port)];
+  const args = ["wrangler", "dev", "--local", "--port", String(port), ...extraArgs];
   const child = spawn("npx", args, {
     cwd,
     detached: true,
@@ -36,8 +56,8 @@ function spawnBackground(name: string, cwd: string, port: number): ChildProcess 
   return child;
 }
 
-function spawnForeground(name: string, cwd: string, port: number): ChildProcess {
-  const args = ["wrangler", "dev", "--local", "--port", String(port)];
+function spawnForeground(name: string, cwd: string, port: number, extraArgs: string[] = []): ChildProcess {
+  const args = ["wrangler", "dev", "--local", "--port", String(port), ...extraArgs];
   const child = spawn("npx", args, {
     cwd,
     detached: true,
@@ -67,9 +87,12 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
 
   console.log(`Starting services${foreground ? " (foreground)" : ""}...`);
 
-  const webChild = spawnFn("web", join(SELF_HOSTED_DIR, "web"), ports.web);
-  const emailChild = spawnFn("email-worker", join(SELF_HOSTED_DIR, "email-worker"), ports.emailWorker);
-  const wsChild = spawnFn("ws-do", join(SELF_HOSTED_DIR, "ws-do"), ports.wsDo);
+  const dirs = resolveServiceDirs();
+  const persist = persistToArg();
+
+  const webChild = spawnFn("web", dirs.web, ports.web);
+  const emailChild = spawnFn("email-worker", dirs.emailWorker, ports.emailWorker, persist);
+  const wsChild = spawnFn("ws-do", dirs.wsDo, ports.wsDo, persist);
 
   writePids({
     web: webChild.pid,
