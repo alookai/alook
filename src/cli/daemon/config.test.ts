@@ -120,10 +120,10 @@ describe("daemonLogFilePath", () => {
     expect(daemonLogFilePath(d).endsWith("2026-01-05.log")).toBe(true);
   });
 
-  it("honours ALOOK_PROJECT_ROOT in dev mode", () => {
+  it("honours ALOOK_PROJECT_ROOT", () => {
     process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/proj";
-    expect(daemonLogDir()).toBe(join("/tmp/proj", ".alook", "daemon", "logs"));
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/proj/.alook";
+    expect(daemonLogDir()).toBe(join("/tmp/proj/.alook", "daemon", "logs"));
   });
 });
 
@@ -140,18 +140,18 @@ describe("workspacesRoot profile handling", () => {
     );
   });
 
-  it("defaults to <project-root>/.alook/workspaces in dev mode", () => {
+  it("defaults to <ALOOK_PROJECT_ROOT>/workspaces when set", () => {
     process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project";
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project/.alook";
     const cfg = loadDaemonConfig();
     expect(cfg.workspacesRoot).toBe(
-      join("/tmp/my-project", ".alook", "workspaces"),
+      join("/tmp/my-project/.alook", "workspaces"),
     );
   });
 
-  it("ALOOK_WORKSPACES_ROOT overrides dev mode default", () => {
+  it("ALOOK_WORKSPACES_ROOT overrides default", () => {
     process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project";
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project/.alook";
     process.env.ALOOK_WORKSPACES_ROOT = "/custom/path";
     const cfg = loadDaemonConfig();
     expect(cfg.workspacesRoot).toBe("/custom/path");
@@ -165,11 +165,11 @@ describe("sessionRunnerLogDir", () => {
     );
   });
 
-  it("honours ALOOK_PROJECT_ROOT in dev mode", () => {
+  it("honours ALOOK_PROJECT_ROOT", () => {
     process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/proj";
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/proj/.alook";
     expect(sessionRunnerLogDir()).toBe(
-      join("/tmp/proj", ".alook", "daemon", "session-runners"),
+      join("/tmp/proj/.alook", "daemon", "session-runners"),
     );
   });
 });

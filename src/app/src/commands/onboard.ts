@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { execSync, spawnSync, spawn as spawnAsync } from "child_process";
+import { join } from "path";
 import { checkNodeVersion, checkAIRuntime, checkPorts } from "../lib/checks.js";
 import { isInstalled, installBundled } from "../lib/install.js";
 import { ensureSecrets } from "../lib/secrets.js";
@@ -106,12 +107,10 @@ export function onboardCommand(): Command {
         const cliEnv: Record<string, string> = {
           ...process.env as Record<string, string>,
           ALOOK_SERVER_URL: baseURL,
+          ALOOK_PROJECT_ROOT: process.env.ALOOK_PROJECT_ROOT
+            ? join(process.env.ALOOK_PROJECT_ROOT, ".alook")
+            : SELF_HOSTED_DIR,
         };
-        if (process.env.ALOOK_PROJECT_ROOT) {
-          cliEnv.ALOOK_PROJECT_ROOT = process.env.ALOOK_PROJECT_ROOT;
-        } else {
-          cliEnv.ALOOK_ROOT = SELF_HOSTED_DIR;
-        }
         console.log("Starting daemon...");
         try {
           spawnSync("npx", ["@alook/cli", "register", "--token", token], {
