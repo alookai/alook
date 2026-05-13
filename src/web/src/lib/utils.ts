@@ -11,4 +11,5 @@ export function isLocalMode(): boolean {
   return process.env.NODE_ENV === "development"
 }
 
-export const CLI_CMD = isLocalMode() ? "pnpm dev:cli" : "npx @alook/cli";
+export const CLI_CMD =
+  process.env.NODE_ENV === "development" ? "pnpm dev:cli" : "npx @alook/cli";

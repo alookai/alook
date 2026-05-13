@@ -4,7 +4,7 @@ import { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
-import { CLI_CMD, isLocalMode } from "@/lib/utils";
+import { CLI_CMD } from "@/lib/utils";
 
 function StepIndicator({ step, completed }: { step: number; completed: boolean }) {
   if (completed) {
@@ -46,7 +46,7 @@ export function ConnectMachineSteps({
     toast.success("Copied to clipboard");
   };
 
-  const daemonCmd = isLocalMode()
+  const daemonCmd = process.env.NODE_ENV === "development"
     ? `${CLI_CMD} daemon start --foreground`
     : `${CLI_CMD} daemon start`;
 
