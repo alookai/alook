@@ -63,7 +63,7 @@ export function onboardCommand(): Command {
         try {
           execSync("pnpm predev", { cwd: root, stdio: "inherit" });
         } catch {}
-        execSync("pnpm db:migrate -- --yes", { cwd: root, stdio: "inherit" });
+        execSync("pnpm db:migrate", { cwd: root, stdio: ["pipe", "inherit", "inherit"] });
       } else {
         // Production: install bundled assets
         if (!isInstalled()) {
