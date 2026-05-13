@@ -1,9 +1,16 @@
 import { Command } from "commander";
 import { spawnSync } from "child_process";
+import { createRequire } from "module";
 import { DEFAULT_PORTS, WEB_URL, SELF_HOSTED_DIR } from "../lib/constants.js";
 
+const require = createRequire(import.meta.url);
+
+function findCliEntry(): string {
+  return require.resolve("@alook/cli/dist/index.js");
+}
+
 function runCli(args: string[]): void {
-  const result = spawnSync("npx", ["@alook/cli", ...args], {
+  const result = spawnSync("node", [findCliEntry(), ...args], {
     stdio: "inherit",
     env: {
       ...process.env as Record<string, string>,
@@ -56,4 +63,15 @@ export function daemonCommand(): Command {
     });
 
   return daemon;
+}
+
+export function cliPassthroughCommand(): Command {
+  return new Command("cli")
+    .description("Run any @alook/cli command against the local server")
+    .allowUnknownOption()
+    .passThroughOptions()
+    .argument("[args...]")
+    .action((args) => {
+      runCli(args);
+    });
 }

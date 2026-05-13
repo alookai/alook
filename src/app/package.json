@@ -1,6 +1,6 @@
 {
   "name": "@alook/app",
-  "version": "0.0.1",
+  "version": "0.0.13",
   "description": "Run Alook locally — one command, no clone needed",
   "license": "Apache-2.0",
   "homepage": "https://github.com/alookai/alook#readme",
@@ -30,13 +30,14 @@
     "access": "public"
   },
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external wrangler",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external wrangler --external @alook/cli",
     "prepack": "pnpm run build",
     "bundle": "bun run scripts/bundle.ts",
     "lint": "eslint src/",
     "test": "vitest run"
   },
   "dependencies": {
+    "@alook/cli": "workspace:*",
     "commander": "^14.0.3",
     "wrangler": "^4.90.0"
   },

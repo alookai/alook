@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { execSync, spawnSync, spawn as spawnAsync } from "child_process";
 import { join } from "path";
+import { createRequire } from "module";
 import { checkNodeVersion, checkAIRuntime, checkPorts } from "../lib/checks.js";
 import { isInstalled, installBundled } from "../lib/install.js";
 import { ensureSecrets } from "../lib/secrets.js";
@@ -98,6 +99,8 @@ export function onboardCommand(): Command {
         const { token } = await createMachineToken(baseURL, sessionCookie, workspace.id);
 
         // Let CLI register handle token activation + config save
+        const require = createRequire(import.meta.url);
+        const cliEntry = require.resolve("@alook/cli/dist/index.js");
         const cliEnv: Record<string, string> = {
           ...process.env as Record<string, string>,
           ALOOK_SERVER_URL: baseURL,
@@ -108,11 +111,11 @@ export function onboardCommand(): Command {
         };
         console.log("Starting daemon...");
         try {
-          spawnSync("npx", ["@alook/cli", "register", "--token", token], {
+          spawnSync("node", [cliEntry, "register", "--token", token], {
             stdio: "inherit",
             env: cliEnv,
           });
-          spawnSync("npx", ["@alook/cli", "daemon", "start"], {
+          spawnSync("node", [cliEntry, "daemon", "start"], {
             stdio: "inherit",
             env: cliEnv,
           });
