@@ -106,8 +106,12 @@ export function onboardCommand(): Command {
         const cliEnv: Record<string, string> = {
           ...process.env as Record<string, string>,
           ALOOK_SERVER_URL: baseURL,
-          ALOOK_PROJECT_ROOT: process.env.ALOOK_PROJECT_ROOT ?? SELF_HOSTED_DIR,
         };
+        if (process.env.ALOOK_PROJECT_ROOT) {
+          cliEnv.ALOOK_PROJECT_ROOT = process.env.ALOOK_PROJECT_ROOT;
+        } else {
+          cliEnv.ALOOK_CONFIG_DIR = SELF_HOSTED_DIR;
+        }
         console.log("Starting daemon...");
         try {
           spawnSync("npx", ["@alook/cli", "register", "--token", token], {

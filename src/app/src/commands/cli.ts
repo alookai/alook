@@ -8,7 +8,7 @@ function runCli(args: string[]): void {
     env: {
       ...process.env as Record<string, string>,
       ALOOK_SERVER_URL: WEB_URL(DEFAULT_PORTS.web),
-      ALOOK_PROJECT_ROOT: SELF_HOSTED_DIR,
+      ALOOK_CONFIG_DIR: SELF_HOSTED_DIR,
     },
   });
   process.exit(result.status ?? 1);

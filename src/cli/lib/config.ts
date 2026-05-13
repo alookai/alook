@@ -25,6 +25,9 @@ interface CLIConfig {
 export type { CLIConfig, ProfileConfig, WatchedWorkspace };
 
 export function configDir(): string {
+  if (process.env.ALOOK_CONFIG_DIR) {
+    return process.env.ALOOK_CONFIG_DIR;
+  }
   if (isDev() && process.env.ALOOK_PROJECT_ROOT) {
     return join(process.env.ALOOK_PROJECT_ROOT, ".alook");
   }

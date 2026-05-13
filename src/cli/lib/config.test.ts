@@ -29,6 +29,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.ALOOK_SERVER_URL;
   delete process.env.ALOOK_PROJECT_ROOT;
+  delete process.env.ALOOK_CONFIG_DIR;
 });
 
 describe("configDir", () => {
@@ -45,6 +46,18 @@ describe("configDir", () => {
   it("falls back to ~/.alook in dev mode without ALOOK_PROJECT_ROOT", () => {
     process.env.ALOOK_SERVER_URL = "http://localhost:3000";
     expect(configDir()).toBe(join(homedir(), ".alook"));
+  });
+
+  it("uses ALOOK_CONFIG_DIR when set", () => {
+    process.env.ALOOK_CONFIG_DIR = "/tmp/custom-config";
+    expect(configDir()).toBe("/tmp/custom-config");
+  });
+
+  it("ALOOK_CONFIG_DIR takes priority over ALOOK_PROJECT_ROOT", () => {
+    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project";
+    process.env.ALOOK_CONFIG_DIR = "/tmp/override";
+    expect(configDir()).toBe("/tmp/override");
   });
 });
 
