@@ -26,7 +26,8 @@ export function registerCommand(): Command {
 
 export function daemonCommand(): Command {
   const daemon = new Command("daemon")
-    .description("Manage the local Alook daemon");
+    .description("Manage the local Alook daemon")
+    .enablePositionalOptions();
 
   daemon
     .command("start")
