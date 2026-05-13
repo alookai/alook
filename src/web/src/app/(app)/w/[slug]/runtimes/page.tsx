@@ -26,7 +26,7 @@ import { Monitor, Plus } from "lucide-react";
 
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { semverGte } from "@alook/shared";
-import { CLI_CMD } from "@/lib/utils";
+import { cliCmd } from "@/lib/utils";
 import { ProviderLogo } from "@/components/provider-logo";
 import { triggerRuntimeUpdate, triggerRuntimeRescan, fetchLatestCliVersion } from "@/lib/api";
 import { Loader2, RefreshCw } from "lucide-react";
@@ -436,13 +436,13 @@ export default function RuntimesPage() {
                           <div
                             className="relative overflow-hidden rounded-md bg-muted px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
                             onClick={() => {
-                              navigator.clipboard.writeText(`${CLI_CMD} daemon start`);
+                              navigator.clipboard.writeText(`${cliCmd()} daemon start`);
                               toast.success("Copied to clipboard");
                             }}
                             title="Click to copy"
                           >
                             <span className="absolute inset-0 -translate-x-full animate-[shimmer_2.5s_infinite] bg-linear-to-r from-transparent via-(--shimmer-peak) to-transparent" />
-                            <span className="relative">{CLI_CMD} daemon start</span>
+                            <span className="relative">{cliCmd()} daemon start</span>
                           </div>
                         </div>
                       )}

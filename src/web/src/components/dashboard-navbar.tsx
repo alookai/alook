@@ -22,7 +22,7 @@ import { Logo } from "@/components/logo";
 import { toast } from "sonner";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { signOut } from "@/lib/auth-client";
-import { CLI_CMD } from "@/lib/utils";
+import { cliCmd } from "@/lib/utils";
 import { ProviderLogo } from "@/components/provider-logo";
 
 function OnboardingSteps({
@@ -82,12 +82,12 @@ function OnboardingSteps({
               className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
               onClick={() =>
                 copyToClipboard(
-                  `${CLI_CMD} register --token ${generatedToken}`
+                  `${cliCmd()} register --token ${generatedToken}`
                 )
               }
               title="Click to copy"
             >
-              {CLI_CMD} register --token{" "}
+              {cliCmd()} register --token{" "}
               <span className="text-foreground/70">
                 {generatedToken.slice(0, 12)}...
               </span>
@@ -96,7 +96,7 @@ function OnboardingSteps({
               size="sm"
               onClick={() => {
                 navigator.clipboard.writeText(
-                  `${CLI_CMD} register --token ${generatedToken}`
+                  `${cliCmd()} register --token ${generatedToken}`
                 );
                 toast.success("Copied to clipboard");
               }}
@@ -125,12 +125,12 @@ function OnboardingSteps({
           className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
           onClick={() =>
             copyToClipboard(process.env.NODE_ENV === "development"
-              ? `${CLI_CMD} daemon start --foreground`
-              : `${CLI_CMD} daemon start`)
+              ? `${cliCmd()} daemon start --foreground`
+              : `${cliCmd()} daemon start`)
           }
           title="Click to copy"
         >
-          {CLI_CMD} daemon start{process.env.NODE_ENV === "development" ? " --foreground" : ""}
+          {cliCmd()} daemon start{process.env.NODE_ENV === "development" ? " --foreground" : ""}
         </div>
       </div>
     </div>

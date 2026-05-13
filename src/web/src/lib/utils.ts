@@ -11,5 +11,11 @@ export function isLocalMode(): boolean {
   return process.env.NODE_ENV === "development"
 }
 
-export const CLI_CMD =
-  process.env.NODE_ENV === "development" ? "pnpm dev:cli" : "npx @alook/cli";
+export function cliCmd(): string {
+  if (process.env.NODE_ENV === "development") return "pnpm dev:cli"
+  if (typeof window !== "undefined"
+    && ["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+    return `ALOOK_SERVER_URL=${window.location.origin} npx @alook/cli`
+  }
+  return "npx @alook/cli"
+}

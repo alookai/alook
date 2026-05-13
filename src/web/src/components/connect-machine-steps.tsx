@@ -4,7 +4,7 @@ import { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
-import { CLI_CMD } from "@/lib/utils";
+import { cliCmd } from "@/lib/utils";
 
 function StepIndicator({ step, completed }: { step: number; completed: boolean }) {
   if (completed) {
@@ -42,13 +42,13 @@ export function ConnectMachineSteps({
   }, [generatedToken, generatingToken, onGenerateToken]);
 
   const copyRegister = () => {
-    navigator.clipboard.writeText(`${CLI_CMD} register --token ${generatedToken}`);
+    navigator.clipboard.writeText(`${cliCmd()} register --token ${generatedToken}`);
     toast.success("Copied to clipboard");
   };
 
   const daemonCmd = process.env.NODE_ENV === "development"
-    ? `${CLI_CMD} daemon start --foreground`
-    : `${CLI_CMD} daemon start`;
+    ? `${cliCmd()} daemon start --foreground`
+    : `${cliCmd()} daemon start`;
 
   const copyDaemon = () => {
     navigator.clipboard.writeText(daemonCmd);
@@ -80,7 +80,7 @@ export function ConnectMachineSteps({
               onClick={copyRegister}
               title="Click to copy"
             >
-              {CLI_CMD} register --token{" "}
+              {cliCmd()} register --token{" "}
               <span className="text-foreground/70">
                 {generatedToken}
               </span>
