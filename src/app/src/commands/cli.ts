@@ -16,10 +16,11 @@ function runCli(args: string[]): void {
 export function registerCommand(): Command {
   return new Command("register")
     .description("Register CLI with local Alook server")
-    .option("--token <token>", "Machine token")
     .allowUnknownOption()
-    .action((_opts, cmd) => {
-      runCli(["register", ...cmd.args]);
+    .passThroughOptions()
+    .argument("[args...]")
+    .action((args) => {
+      runCli(["register", ...args]);
     });
 }
 
@@ -31,8 +32,10 @@ export function daemonCommand(): Command {
     .command("start")
     .description("Start the daemon")
     .allowUnknownOption()
-    .action((_opts, cmd) => {
-      runCli(["daemon", "start", ...cmd.args]);
+    .passThroughOptions()
+    .argument("[args...]")
+    .action((args) => {
+      runCli(["daemon", "start", ...args]);
     });
 
   daemon
