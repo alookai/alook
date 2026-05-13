@@ -11,7 +11,6 @@ import {
   registerUser,
   createWorkspace,
   createMachineToken,
-  activateToken,
   waitForServer,
 } from "../lib/register.js";
 import { DEFAULT_PORTS, WEB_URL, SELF_HOSTED_DIR } from "../lib/constants.js";
@@ -97,13 +96,8 @@ export function onboardCommand(): Command {
         const { sessionCookie } = await registerUser(baseURL, email);
         const workspace = await createWorkspace(baseURL, sessionCookie);
         const { token } = await createMachineToken(baseURL, sessionCookie, workspace.id);
-        await activateToken(baseURL, token, runtimes);
 
-        console.log(`  ✓ Daemon registered with ${runtimes.map((r) => r.type).join(", ")} runtime`);
-        console.log(`  ✓ Machine token activated\n`);
-
-        // Start the daemon pointing to local server
-        // Pass ALOOK_PROJECT_ROOT so CLI stores config in the same .alook/ dir
+        // Let CLI register handle token activation + config save
         const cliEnv: Record<string, string> = {
           ...process.env as Record<string, string>,
           ALOOK_SERVER_URL: baseURL,
@@ -123,8 +117,8 @@ export function onboardCommand(): Command {
           });
         } catch {
           console.warn("  Warning: daemon auto-start failed. Start manually:");
-          console.warn(`  ALOOK_SERVER_URL=${baseURL} npx @alook/cli register --token ${token}`);
-          console.warn(`  ALOOK_SERVER_URL=${baseURL} npx @alook/cli daemon start`);
+          console.warn(`  npx @alook/app register --token ${token}`);
+          console.warn(`  npx @alook/app daemon start`);
         }
       }
 
