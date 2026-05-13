@@ -5,5 +5,10 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export const CLI_CMD =
-  process.env.NODE_ENV === "development" ? "pnpm dev:cli" : "npx @alook/cli";
+export function isLocalMode(): boolean {
+  if (typeof window !== "undefined"
+    && ["localhost", "127.0.0.1"].includes(window.location.hostname)) return true
+  return process.env.NODE_ENV === "development"
+}
+
+export const CLI_CMD = isLocalMode() ? "pnpm dev:cli" : "npx @alook/cli";

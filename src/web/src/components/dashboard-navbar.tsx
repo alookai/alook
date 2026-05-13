@@ -22,7 +22,7 @@ import { Logo } from "@/components/logo";
 import { toast } from "sonner";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { signOut } from "@/lib/auth-client";
-import { CLI_CMD } from "@/lib/utils";
+import { CLI_CMD, isLocalMode } from "@/lib/utils";
 import { ProviderLogo } from "@/components/provider-logo";
 
 function OnboardingSteps({
@@ -124,13 +124,13 @@ function OnboardingSteps({
         <div
           className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
           onClick={() =>
-            copyToClipboard(process.env.NODE_ENV === "development"
+            copyToClipboard(isLocalMode()
               ? `${CLI_CMD} daemon start --foreground`
               : `${CLI_CMD} daemon start`)
           }
           title="Click to copy"
         >
-          {CLI_CMD} daemon start{process.env.NODE_ENV === "development" ? " --foreground" : ""}
+          {CLI_CMD} daemon start{isLocalMode() ? " --foreground" : ""}
         </div>
       </div>
     </div>

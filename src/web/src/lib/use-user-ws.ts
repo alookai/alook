@@ -1,9 +1,9 @@
 "use client"
 import { useEffect, useRef, useCallback } from "react"
 import type { WsMessage } from "@alook/shared"
+import { isLocalMode } from "@/lib/utils"
 
-const isDev = process.env.NODE_ENV === "development"
-  || (typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname))
+const isDev = isLocalMode()
 const WS_DO_PORT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || 8789
 const WS_RECONNECT_INIT = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_DELAY_MS) || 1000
 const WS_RECONNECT_MAX = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_MAX_DELAY_MS) || 30_000
