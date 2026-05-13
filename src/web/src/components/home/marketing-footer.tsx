@@ -11,7 +11,7 @@ gsap.registerPlugin(ScrollTrigger);
 
 const footerLinks = [
   { href: "/templates", label: "Templates" },
-  { href: "https://discord.gg/24PHyEHU3M", label: "Discord", external: true },
+  { href: "https://discord.alook.ai", label: "Discord", external: true },
   { href: "mailto:support@alook.ai", label: "Contact", external: true },
 ];
 
