@@ -3,5 +3,6 @@ export function isDev(): boolean {
 }
 
 export function cmdPrefix(): string {
+  if (process.env.ALOOK_CMD_PREFIX) return process.env.ALOOK_CMD_PREFIX;
   return isDev() ? "pnpm dev:cli" : "npx @alook/cli";
 }
