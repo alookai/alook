@@ -33,6 +33,7 @@
     "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external wrangler",
     "prepack": "pnpm run build",
     "bundle": "bun run scripts/bundle.ts",
+    "lint": "eslint src/",
     "test": "vitest run"
   },
   "dependencies": {
@@ -42,6 +43,8 @@
   "devDependencies": {
     "@alook/shared": "workspace:*",
     "@types/bun": "^1.3.13",
-    "typescript": "^6.0.3"
+    "eslint": "^9.39.4",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.3"
   }
 }

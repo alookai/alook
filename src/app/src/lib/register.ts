@@ -53,7 +53,7 @@ export async function registerUser(baseURL: string, email: string): Promise<Sign
 
   let res = await fetch(`${baseURL}/api/auth/sign-up/email`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: baseURL },
     body: JSON.stringify({ email, password, name }),
     redirect: "manual",
   });
@@ -63,7 +63,7 @@ export async function registerUser(baseURL: string, email: string): Promise<Sign
     if (text.includes("already exists") || text.includes("already registered") || text.includes("User already")) {
       res = await fetch(`${baseURL}/api/auth/sign-in/email`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Origin: baseURL },
         body: JSON.stringify({ email, password }),
         redirect: "manual",
       });
@@ -102,6 +102,7 @@ export async function createWorkspace(baseURL: string, cookie: string): Promise<
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Origin: baseURL,
       Cookie: cookie,
     },
     body: JSON.stringify({ name: "Personal", slug: "personal" }),
@@ -109,7 +110,7 @@ export async function createWorkspace(baseURL: string, cookie: string): Promise<
 
   if (!res.ok) {
     const listRes = await fetch(`${baseURL}/api/workspaces`, {
-      headers: { Cookie: cookie },
+      headers: { Cookie: cookie, Origin: baseURL },
     });
     if (listRes.ok) {
       const workspaces = (await listRes.json()) as WorkspaceResult[];
@@ -133,6 +134,7 @@ export async function createMachineToken(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      Origin: baseURL,
       Cookie: cookie,
     },
     body: JSON.stringify({ name: "local-onboard" }),
@@ -156,7 +158,7 @@ export async function activateToken(
 
   const res = await fetch(`${baseURL}/api/machine-tokens/activate`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: baseURL },
     body: JSON.stringify({
       token,
       hostname: hostname(),

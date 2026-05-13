@@ -48,6 +48,12 @@ export function onboardCommand(): Command {
       }
       console.log(`  Found: ${runtimes.map((r) => r.type).join(", ")}\n`);
 
+      // 4. Collect user input before heavy install/migrate work
+      let email: string | undefined;
+      if (!opts.skipRegister) {
+        email = await collectEmail();
+      }
+
       const devMode = !!process.env.ALOOK_PROJECT_ROOT;
 
       if (devMode) {
@@ -57,7 +63,7 @@ export function onboardCommand(): Command {
         try {
           execSync("pnpm predev", { cwd: root, stdio: "inherit" });
         } catch {}
-        execSync("pnpm db:migrate", { cwd: root, stdio: "inherit" });
+        execSync("pnpm db:migrate -- --yes", { cwd: root, stdio: "inherit" });
       } else {
         // Production: install bundled assets
         if (!isInstalled()) {
@@ -70,12 +76,6 @@ export function onboardCommand(): Command {
         ensureSecrets(ports.web);
         patchWranglerConfigs(ports);
         runMigrations();
-      }
-
-      // 7. Collect user input before starting services
-      let email: string | undefined;
-      if (!opts.skipRegister) {
-        email = await collectEmail();
       }
 
       // 8. Start services
@@ -96,7 +96,7 @@ export function onboardCommand(): Command {
         const { sessionCookie } = await registerUser(baseURL, email);
         const workspace = await createWorkspace(baseURL, sessionCookie);
         const { token } = await createMachineToken(baseURL, sessionCookie, workspace.id);
-        const { runtimeIds } = await activateToken(baseURL, token, runtimes);
+        await activateToken(baseURL, token, runtimes);
 
         console.log(`  ✓ Daemon registered with ${runtimes.map((r) => r.type).join(", ")} runtime`);
         console.log(`  ✓ Machine token activated\n`);
