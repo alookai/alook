@@ -24,6 +24,7 @@ import { GradientBackground } from "@/components/gradient-background"
 import { TypewriterVisual, EMAILS_PLAYFUL } from "@/components/typewriter-visual"
 
 const isProd = process.env.NODE_ENV === "production"
+  && (typeof window === "undefined" || !["localhost", "127.0.0.1"].includes(window.location.hostname))
 
 import { DEV_PASSWORD } from "@alook/shared"
 const DEFAULT_POST_LOGIN = "/workspaces?auto"
