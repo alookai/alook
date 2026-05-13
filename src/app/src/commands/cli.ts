@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { spawnSync } from "child_process";
-import { DEFAULT_PORTS, WEB_URL } from "../lib/constants.js";
+import { DEFAULT_PORTS, WEB_URL, SELF_HOSTED_DIR } from "../lib/constants.js";
 
 function runCli(args: string[]): void {
   const result = spawnSync("npx", ["@alook/cli", ...args], {
@@ -8,6 +8,7 @@ function runCli(args: string[]): void {
     env: {
       ...process.env as Record<string, string>,
       ALOOK_SERVER_URL: WEB_URL(DEFAULT_PORTS.web),
+      ALOOK_PROJECT_ROOT: SELF_HOSTED_DIR,
     },
   });
   process.exit(result.status ?? 1);
