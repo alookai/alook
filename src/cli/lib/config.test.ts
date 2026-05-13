@@ -30,6 +30,7 @@ afterEach(() => {
   delete process.env.ALOOK_SERVER_URL;
   delete process.env.ALOOK_PROJECT_ROOT;
   delete process.env.ALOOK_CONFIG_DIR;
+  delete process.env.ALOOK_ROOT;
 });
 
 describe("configDir", () => {
@@ -48,16 +49,27 @@ describe("configDir", () => {
     expect(configDir()).toBe(join(homedir(), ".alook"));
   });
 
-  it("uses ALOOK_CONFIG_DIR when set", () => {
+  it("uses ALOOK_ROOT as base data directory", () => {
+    process.env.ALOOK_ROOT = "/tmp/custom-root";
+    expect(configDir()).toBe("/tmp/custom-root");
+  });
+
+  it("uses ALOOK_CONFIG_DIR as full override", () => {
     process.env.ALOOK_CONFIG_DIR = "/tmp/custom-config";
     expect(configDir()).toBe("/tmp/custom-config");
   });
 
-  it("ALOOK_CONFIG_DIR takes priority over ALOOK_PROJECT_ROOT", () => {
-    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project";
+  it("ALOOK_CONFIG_DIR takes priority over ALOOK_ROOT", () => {
+    process.env.ALOOK_ROOT = "/tmp/root";
     process.env.ALOOK_CONFIG_DIR = "/tmp/override";
     expect(configDir()).toBe("/tmp/override");
+  });
+
+  it("ALOOK_ROOT takes priority over ALOOK_PROJECT_ROOT", () => {
+    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project";
+    process.env.ALOOK_ROOT = "/tmp/custom-root";
+    expect(configDir()).toBe("/tmp/custom-root");
   });
 });
 

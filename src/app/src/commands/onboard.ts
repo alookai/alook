@@ -110,7 +110,7 @@ export function onboardCommand(): Command {
         if (process.env.ALOOK_PROJECT_ROOT) {
           cliEnv.ALOOK_PROJECT_ROOT = process.env.ALOOK_PROJECT_ROOT;
         } else {
-          cliEnv.ALOOK_CONFIG_DIR = SELF_HOSTED_DIR;
+          cliEnv.ALOOK_ROOT = SELF_HOSTED_DIR;
         }
         console.log("Starting daemon...");
         try {
