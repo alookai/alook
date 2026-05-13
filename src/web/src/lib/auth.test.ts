@@ -70,36 +70,29 @@ type AuthOptions = {
   }
 }
 
-async function loadCreateAuth(nodeEnv: "production" | "development" | "test") {
+async function loadCreateAuth() {
   vi.resetModules()
-  const prev = process.env.NODE_ENV
-  vi.stubEnv("NODE_ENV", nodeEnv)
-  try {
-    const mod = await import("./auth")
-    return mod.createAuth
-  } finally {
-    vi.stubEnv("NODE_ENV", prev ?? "test")
-  }
+  const mod = await import("./auth")
+  return mod.createAuth
 }
 
 describe("createAuth rate limiting", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("enables rate limiting only in production", async () => {
-    const createAuthProd = await loadCreateAuth("production")
-    const envProd = makeEnv()
-    const optsProd = (createAuthProd(envProd as never) as { __options: AuthOptions }).__options
+    const createAuth = await loadCreateAuth()
+    const envProd = makeEnv({ NODE_ENV: "production" })
+    const optsProd = (createAuth(envProd as never) as { __options: AuthOptions }).__options
     expect(optsProd.rateLimit.enabled).toBe(true)
 
-    const createAuthDev = await loadCreateAuth("development")
-    const envDev = makeEnv()
-    const optsDev = (createAuthDev(envDev as never) as { __options: AuthOptions }).__options
+    const envDev = makeEnv({ NODE_ENV: "development" })
+    const optsDev = (createAuth(envDev as never) as { __options: AuthOptions }).__options
     expect(optsDev.rateLimit.enabled).toBe(false)
   })
 
   it("uses default 5/60s for the OTP path when env vars are unset", async () => {
-    const createAuth = await loadCreateAuth("production")
-    const env = makeEnv()
+    const createAuth = await loadCreateAuth()
+    const env = makeEnv({ NODE_ENV: "production" })
     const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
     expect(opts.rateLimit.customRules["/email-otp/send-verification-otp"]).toEqual({
       window: 60,
@@ -108,8 +101,9 @@ describe("createAuth rate limiting", () => {
   })
 
   it("honours AUTH_OTP_RATE_LIMIT_MAX / _WINDOW_SEC overrides", async () => {
-    const createAuth = await loadCreateAuth("production")
+    const createAuth = await loadCreateAuth()
     const env = makeEnv({
+      NODE_ENV: "production",
       AUTH_OTP_RATE_LIMIT_MAX: "3",
       AUTH_OTP_RATE_LIMIT_WINDOW_SEC: "120",
     })
@@ -121,8 +115,9 @@ describe("createAuth rate limiting", () => {
   })
 
   it("falls back to defaults when env overrides are non-numeric or zero", async () => {
-    const createAuth = await loadCreateAuth("production")
+    const createAuth = await loadCreateAuth()
     const env = makeEnv({
+      NODE_ENV: "production",
       AUTH_OTP_RATE_LIMIT_MAX: "not-a-number",
       AUTH_OTP_RATE_LIMIT_WINDOW_SEC: "0",
     })
@@ -134,8 +129,8 @@ describe("createAuth rate limiting", () => {
   })
 
   it("customStorage round-trips values through KV with a >=60s TTL", async () => {
-    const createAuth = await loadCreateAuth("production")
-    const env = makeEnv()
+    const createAuth = await loadCreateAuth()
+    const env = makeEnv({ NODE_ENV: "production" })
     const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
     const { get, set } = opts.rateLimit.customStorage
     const kv = env.RATE_LIMIT_KV as ReturnType<typeof makeKv>
@@ -151,8 +146,8 @@ describe("createAuth rate limiting", () => {
   })
 
   it("clamps KV TTL to 60s when the configured window is shorter", async () => {
-    const createAuth = await loadCreateAuth("production")
-    const env = makeEnv({ AUTH_OTP_RATE_LIMIT_WINDOW_SEC: "10" })
+    const createAuth = await loadCreateAuth()
+    const env = makeEnv({ NODE_ENV: "production", AUTH_OTP_RATE_LIMIT_WINDOW_SEC: "10" })
     const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
     const kv = env.RATE_LIMIT_KV as ReturnType<typeof makeKv>
     await opts.rateLimit.customStorage.set("k", { count: 1, lastRequest: 0 })
@@ -160,8 +155,8 @@ describe("createAuth rate limiting", () => {
   })
 
   it("uses the configured window as TTL when it exceeds 60s", async () => {
-    const createAuth = await loadCreateAuth("production")
-    const env = makeEnv({ AUTH_OTP_RATE_LIMIT_WINDOW_SEC: "180" })
+    const createAuth = await loadCreateAuth()
+    const env = makeEnv({ NODE_ENV: "production", AUTH_OTP_RATE_LIMIT_WINDOW_SEC: "180" })
     const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
     const kv = env.RATE_LIMIT_KV as ReturnType<typeof makeKv>
     await opts.rateLimit.customStorage.set("k", { count: 1, lastRequest: 0 })
@@ -176,15 +171,15 @@ describe("createAuth session cookie cache", () => {
   // a D1 round-trip. Without it, the first request after a fresh OTP sign-up
   // can 401 because the just-written `user` row hasn't replicated yet.
   it("enables the signed session-data cookie with a positive maxAge", async () => {
-    const createAuth = await loadCreateAuth("production")
-    const opts = (createAuth(makeEnv() as never) as { __options: AuthOptions }).__options
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
     expect(opts.session?.cookieCache?.enabled).toBe(true)
     expect(opts.session?.cookieCache?.maxAge).toBeGreaterThan(0)
   })
 
   it("enables cookieCache in development too so local sign-up doesn't 401", async () => {
-    const createAuth = await loadCreateAuth("development")
-    const opts = (createAuth(makeEnv() as never) as { __options: AuthOptions }).__options
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "development" }) as never) as { __options: AuthOptions }).__options
     expect(opts.session?.cookieCache?.enabled).toBe(true)
   })
 })

@@ -3,7 +3,6 @@ import { emailOTP } from "better-auth/plugins"
 import { createLogger, DEV_EMAIL_WORKER_URL } from "@alook/shared"
 import { getOtpSubject, renderOtpEmail } from "./email-templates"
 
-const isProd = process.env.NODE_ENV === "production"
 const log = createLogger({ service: "auth" })
 
 const OTP_RATE_LIMIT_PATH = "/email-otp/send-verification-otp"
@@ -18,6 +17,7 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
 }
 
 export function createAuth(env: Env) {
+  const isProd = env.NODE_ENV !== "development"
   const otpMax = parsePositiveInt(env.AUTH_OTP_RATE_LIMIT_MAX, DEFAULT_OTP_RATE_LIMIT_MAX)
   const otpWindow = parsePositiveInt(
     env.AUTH_OTP_RATE_LIMIT_WINDOW_SEC,
