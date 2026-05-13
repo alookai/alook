@@ -134,6 +134,9 @@ export function onboardCommand(): Command {
       console.log("─".repeat(50));
       console.log(`\n🎉 Alook is running!`);
       console.log(`   Dashboard: ${baseURL}`);
+      if (email) {
+        console.log(`   Login:     ${email}`);
+      }
       console.log(`\n   Stop:   npx @alook/app stop`);
       console.log(`   Start:  npx @alook/app start`);
       console.log(`   Update: npx @alook/app update\n`);
