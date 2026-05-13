@@ -35,6 +35,7 @@ export function patchWranglerConfigs(ports: { web: number; emailWorker: number; 
 
   webContent = setVar(webContent, "DEV_WS_DO_URL", `http://localhost:${ports.wsDo}`);
   webContent = setVar(webContent, "DEV_EMAIL_WORKER_URL", `http://localhost:${ports.emailWorker}`);
+  webContent = setVar(webContent, "NODE_ENV", "development");
   writeFileSync(webToml, webContent);
 
   setDevPort(join(SELF_HOSTED_DIR, "email-worker", "wrangler.toml"), ports.emailWorker);
