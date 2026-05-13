@@ -3,6 +3,15 @@
   "version": "0.0.1",
   "description": "Run Alook locally — one command, no clone needed",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/alookai/alook#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alookai/alook.git",
+    "directory": "src/app"
+  },
+  "bugs": {
+    "url": "https://github.com/alookai/alook/issues"
+  },
   "type": "module",
   "bin": {
     "alook-app": "dist/index.js"
