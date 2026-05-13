@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { execSync } from "child_process";
+import { execSync, spawnSync, spawn as spawnAsync } from "child_process";
 import { checkNodeVersion, checkAIRuntime, checkPorts } from "../lib/checks.js";
 import { isInstalled, installBundled } from "../lib/install.js";
 import { ensureSecrets } from "../lib/secrets.js";
@@ -103,23 +103,27 @@ export function onboardCommand(): Command {
 
         // Start the daemon pointing to local server
         // Pass ALOOK_PROJECT_ROOT so CLI stores config in the same .alook/ dir
-        const envPrefix = process.env.ALOOK_PROJECT_ROOT
-          ? `ALOOK_SERVER_URL=${baseURL} ALOOK_PROJECT_ROOT=${process.env.ALOOK_PROJECT_ROOT}`
-          : `ALOOK_SERVER_URL=${baseURL}`;
+        const cliEnv: Record<string, string> = {
+          ...process.env as Record<string, string>,
+          ALOOK_SERVER_URL: baseURL,
+        };
+        if (process.env.ALOOK_PROJECT_ROOT) {
+          cliEnv.ALOOK_PROJECT_ROOT = process.env.ALOOK_PROJECT_ROOT;
+        }
         console.log("Starting daemon...");
         try {
-          execSync(
-            `${envPrefix} npx @alook/cli register --token ${token}`,
-            { stdio: "inherit" },
-          );
-          execSync(
-            `${envPrefix} npx @alook/cli daemon start`,
-            { stdio: "inherit" },
-          );
+          spawnSync("npx", ["@alook/cli", "register", "--token", token], {
+            stdio: "inherit",
+            env: cliEnv,
+          });
+          spawnSync("npx", ["@alook/cli", "daemon", "start"], {
+            stdio: "inherit",
+            env: cliEnv,
+          });
         } catch {
           console.warn("  Warning: daemon auto-start failed. Start manually:");
-          console.warn(`  ${envPrefix} npx @alook/cli register --token ${token}`);
-          console.warn(`  ${envPrefix} npx @alook/cli daemon start`);
+          console.warn(`  ALOOK_SERVER_URL=${baseURL} npx @alook/cli register --token ${token}`);
+          console.warn(`  ALOOK_SERVER_URL=${baseURL} npx @alook/cli daemon start`);
         }
       }
 
@@ -136,9 +140,12 @@ export function onboardCommand(): Command {
 
       // 12. Open browser
       const openCmd = process.platform === "darwin" ? "open" :
-        process.platform === "win32" ? "start" : "xdg-open";
+        process.platform === "win32" ? "cmd" : "xdg-open";
       try {
-        execSync(`${openCmd} ${baseURL}`, { stdio: "ignore" });
+        const openArgs = process.platform === "win32"
+          ? ["/c", "start", "", baseURL]
+          : [baseURL];
+        spawnAsync(openCmd, openArgs, { stdio: "ignore", detached: true }).unref();
       } catch {}
     });
 }

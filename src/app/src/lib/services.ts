@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from "child_process";
+import { spawn, execSync, type ChildProcess } from "child_process";
 import { join } from "path";
 import { openSync, mkdirSync, closeSync } from "fs";
 import { SELF_HOSTED_DIR } from "./constants.js";
@@ -28,7 +28,6 @@ function spawnService(name: string, cmd: string, args: string[], cwd: string, fo
   if (foreground) {
     const child = spawn(cmd, args, {
       cwd,
-      detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, NODE_ENV: "development" },
     });
@@ -55,9 +54,29 @@ function spawnService(name: string, cmd: string, args: string[], cwd: string, fo
   return child;
 }
 
+function killProcess(pid: number): boolean {
+  try {
+    if (process.platform === "win32") {
+      execSync(`taskkill /F /T /PID ${pid}`, { stdio: "ignore" });
+    } else {
+      try {
+        process.kill(-pid, "SIGTERM");
+      } catch {
+        process.kill(pid, "SIGTERM");
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function startServices(ports: ServicePorts, opts: StartOptions = {}): void {
   const existing = readPids();
-  if (existing.web && isAlive(existing.web)) {
+  const anyAlive = [existing.web, existing.emailWorker, existing.wsDo].some(
+    (pid) => pid && isAlive(pid),
+  );
+  if (anyAlive) {
     console.log("Services already running. Use 'alook-app stop' first.");
     return;
   }
@@ -88,7 +107,7 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
   if (!webChild.pid || !emailChild.pid || !wsChild.pid) {
     console.error("Error: failed to start one or more services.");
     for (const child of [webChild, emailChild, wsChild]) {
-      if (child.pid) try { process.kill(-child.pid, "SIGTERM"); } catch {}
+      if (child.pid) killProcess(child.pid);
     }
     process.exit(1);
   }
@@ -110,9 +129,7 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
       exiting = true;
       console.log("\nStopping services...");
       for (const child of [webChild, emailChild, wsChild]) {
-        if (child.pid) {
-          try { process.kill(-child.pid, "SIGTERM"); } catch {}
-        }
+        if (child.pid) killProcess(child.pid);
       }
       clearPids();
       process.exit(0);
@@ -128,18 +145,11 @@ export function stopServices(): void {
 
   for (const [name, pid] of Object.entries(pids)) {
     if (pid && isAlive(pid)) {
-      try {
-        process.kill(-pid, "SIGTERM");
+      if (killProcess(pid)) {
         stopped++;
         console.log(`  Stopped ${name} (pid=${pid})`);
-      } catch {
-        try {
-          process.kill(pid, "SIGTERM");
-          stopped++;
-          console.log(`  Stopped ${name} (pid=${pid})`);
-        } catch {
-          console.warn(`  Could not stop ${name} (pid=${pid})`);
-        }
+      } else {
+        console.warn(`  Could not stop ${name} (pid=${pid})`);
       }
     }
   }
@@ -153,5 +163,7 @@ export function stopServices(): void {
 
 export function isRunning(): boolean {
   const pids = readPids();
-  return !!(pids.web && isAlive(pids.web));
+  return [pids.web, pids.emailWorker, pids.wsDo].some(
+    (pid) => pid && isAlive(pid),
+  );
 }

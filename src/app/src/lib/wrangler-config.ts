@@ -17,7 +17,10 @@ function setVar(content: string, key: string, value: string): string {
   if (pattern.test(content)) {
     return content.replace(pattern, `${key} = "${value}"`);
   }
-  return content.replace(/\[vars\]/, `[vars]\n${key} = "${value}"`);
+  if (content.includes("[vars]")) {
+    return content.replace(/\[vars\]/, `[vars]\n${key} = "${value}"`);
+  }
+  return content + `\n[vars]\n${key} = "${value}"\n`;
 }
 
 export function patchWranglerConfigs(ports: { web: number; emailWorker: number; wsDo: number }): void {
