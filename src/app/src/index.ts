@@ -25,7 +25,8 @@ const program = new Command();
 program
   .name("alook-app")
   .description("Run Alook locally — one command, no clone needed")
-  .version(getVersion());
+  .version(getVersion())
+  .enablePositionalOptions();
 
 program.addCommand(onboardCommand());
 program.addCommand(startCommand());
