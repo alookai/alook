@@ -17,7 +17,9 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
 }
 
 export function createAuth(env: Env) {
-  const isProd = env.NODE_ENV !== "development"
+  // env.NODE_ENV comes from wrangler [vars] (runtime), process.env.NODE_ENV
+  // is inlined at build time by Next.js — only reliable during `next dev`.
+  const isProd = (env.NODE_ENV ?? process.env.NODE_ENV) !== "development"
   const otpMax = parsePositiveInt(env.AUTH_OTP_RATE_LIMIT_MAX, DEFAULT_OTP_RATE_LIMIT_MAX)
   const otpWindow = parsePositiveInt(
     env.AUTH_OTP_RATE_LIMIT_WINDOW_SEC,
