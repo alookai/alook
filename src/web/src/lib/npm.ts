@@ -3,7 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 function getPackageName(): string {
   try {
     const { env } = getCloudflareContext()
-    if ((env as Record<string, unknown>).NODE_ENV === "development") return "@alook/app"
+    if ((env as unknown as Record<string, unknown>).NODE_ENV === "development") return "@alook/app"
   } catch {}
   return "@alook/cli"
 }
