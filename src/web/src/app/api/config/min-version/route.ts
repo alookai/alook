@@ -9,8 +9,8 @@ export const GET = withAuth(async () => {
   const raw = (env as Env).MIN_CLI_VERSION;
   if (!raw) return writeJSON({ min_cli_version: null });
 
-  const latest = await fetchLatestCliVersion();
-  if (latest && !semverGte(latest, raw)) {
+  const result = await fetchLatestCliVersion();
+  if (result && !semverGte(result.version, raw)) {
     // MIN_CLI_VERSION is higher than what's published — ignore it
     return writeJSON({ min_cli_version: null });
   }

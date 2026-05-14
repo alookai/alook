@@ -24,12 +24,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   );
   if (!runtime) return writeError("runtime not found", 404);
 
-  const latestVersion = await fetchLatestCliVersion();
-  if (!latestVersion) return writeError("failed to fetch latest CLI version from npm", 502);
+  const result = await fetchLatestCliVersion();
+  if (!result) return writeError("failed to fetch latest CLI version from npm", 502);
 
-  await queries.machine.setPendingUpdateVersion(db, runtime.daemonId, latestVersion);
+  await queries.machine.setPendingUpdateVersion(db, runtime.daemonId, result.version);
 
-  return writeJSON({ pending_update_version: latestVersion });
+  return writeJSON({ pending_update_version: result.version });
 });
 
 export const DELETE = withAuth(async (req: NextRequest, ctx) => {

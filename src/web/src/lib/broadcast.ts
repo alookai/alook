@@ -16,6 +16,8 @@ async function doSend(url: string, body: string, label: Record<string, string>) 
       body,
     })
     if (res.ok) return
+    log.warn("broadcast service-binding non-ok", { ...label, status: res.status })
+    return
   } catch {
     // Service binding unavailable — fall through to HTTP
   }

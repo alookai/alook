@@ -8,7 +8,7 @@ import { GET } from "./route";
 describe("GET /api/cli/latest-version", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns version from npm registry", async () => {
+  it("returns version and package from npm registry", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: async () => ({ version: "2.0.0" }),
@@ -19,6 +19,7 @@ describe("GET /api/cli/latest-version", () => {
 
     expect(res.status).toBe(200);
     expect(body.version).toBe("2.0.0");
+    expect(body.package).toBe("@alook/cli");
   });
 
   it("returns 502 when npm registry returns non-ok", async () => {

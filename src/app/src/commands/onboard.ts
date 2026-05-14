@@ -17,6 +17,7 @@ import {
 } from "../lib/register.js";
 import { DEFAULT_PORTS, WEB_URL, SELF_HOSTED_DIR } from "../lib/constants.js";
 import { patchWranglerConfigs } from "../lib/wrangler-config.js";
+import { buildCliEnv } from "../lib/cli-env.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -103,14 +104,7 @@ export function onboardCommand(): Command {
 
         // Let CLI register handle token activation + config save
         const cliEntry = join(__dirname, "cli", "index.js");
-        const cliEnv: Record<string, string> = {
-          ...process.env as Record<string, string>,
-          ALOOK_SERVER_URL: baseURL,
-          ALOOK_PROJECT_ROOT: process.env.ALOOK_PROJECT_ROOT
-            ? join(process.env.ALOOK_PROJECT_ROOT, ".alook")
-            : SELF_HOSTED_DIR,
-          ALOOK_CMD_PREFIX: "npx @alook/app cli",
-        };
+        const cliEnv = buildCliEnv(ports.web);
         console.log("Starting daemon...");
         try {
           spawnSync("node", [cliEntry, "register", "--token", token], {

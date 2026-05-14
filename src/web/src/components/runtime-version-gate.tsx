@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, RefreshCw, Terminal } from "lucide-react";
 import { toast } from "sonner";
-import { cliCmd, isLocalMode } from "@/lib/utils";
+import { isLocalMode } from "@/lib/utils";
 import type { AgentRuntime } from "@alook/shared";
 
 const isLocal = isLocalMode();

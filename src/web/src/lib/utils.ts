@@ -19,3 +19,11 @@ export function cliCmd(): string {
   }
   return "npx @alook/cli"
 }
+
+// --foreground is only needed in monorepo dev mode (pnpm dev:cli).
+// In @alook/app mode, the daemon runs as a background process.
+export function daemonStartCmd(): string {
+  const base = `${cliCmd()} daemon start`
+  if (process.env.NODE_ENV === "development") return `${base} --foreground`
+  return base
+}

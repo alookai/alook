@@ -188,7 +188,7 @@ export const getMinCliVersion = () =>
   apiFetch<{ min_cli_version: string | null }>("/api/config/min-version");
 
 export const fetchLatestCliVersion = () =>
-  apiFetch<{ version: string }>("/api/cli/latest-version");
+  apiFetch<{ version: string; package: string }>("/api/cli/latest-version");
 
 // Channels
 export const listChannels = (workspaceId: string) =>

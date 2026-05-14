@@ -31,14 +31,20 @@ afterEach(() => {
   delete process.env.ALOOK_PROJECT_ROOT;
 });
 
-describe("configDir", () => {
-  it("returns ~/.alook by default", () => {
+describe("configDir — three ALOOK_PROJECT_ROOT scenarios", () => {
+  it("production: returns ~/.alook (ALOOK_PROJECT_ROOT unset)", () => {
+    delete process.env.ALOOK_PROJECT_ROOT;
     expect(configDir()).toBe(join(homedir(), ".alook"));
   });
 
-  it("returns ALOOK_PROJECT_ROOT when set", () => {
+  it("dev mode: returns ALOOK_PROJECT_ROOT directly", () => {
     process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project/.alook";
     expect(configDir()).toBe("/tmp/my-project/.alook");
+  });
+
+  it("app mode: returns ALOOK_PROJECT_ROOT when set to self-hosted dir", () => {
+    process.env.ALOOK_PROJECT_ROOT = join(homedir(), ".alook", "self-hosted");
+    expect(configDir()).toBe(join(homedir(), ".alook", "self-hosted"));
   });
 });
 

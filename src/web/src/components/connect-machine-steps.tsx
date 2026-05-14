@@ -4,7 +4,7 @@ import { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
-import { cliCmd } from "@/lib/utils";
+import { cliCmd, daemonStartCmd } from "@/lib/utils";
 
 function StepIndicator({ step, completed }: { step: number; completed: boolean }) {
   if (completed) {
@@ -46,9 +46,7 @@ export function ConnectMachineSteps({
     toast.success("Copied to clipboard");
   };
 
-  const daemonCmd = process.env.NODE_ENV === "development"
-    ? `${cliCmd()} daemon start --foreground`
-    : `${cliCmd()} daemon start`;
+  const daemonCmd = daemonStartCmd();
 
   const copyDaemon = () => {
     navigator.clipboard.writeText(daemonCmd);
