@@ -1,5 +1,5 @@
 export function isDev(): boolean {
-  return !!process.env.ALOOK_SERVER_URL;
+  return !!process.env.ALOOK_SERVER_URL && !process.env.ALOOK_CMD_PREFIX;
 }
 
 export function cmdPrefix(): string {
