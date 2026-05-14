@@ -15,7 +15,7 @@ export function cliCmd(): string {
   if (process.env.NODE_ENV === "development") return "pnpm dev:cli"
   if (typeof window !== "undefined"
     && ["localhost", "127.0.0.1"].includes(window.location.hostname)) {
-    return "npx @alook/app cli"
+    return "npx @alook/app"
   }
   return "npx @alook/cli"
 }

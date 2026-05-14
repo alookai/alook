@@ -107,7 +107,7 @@ export function onboardCommand(): Command {
           ALOOK_PROJECT_ROOT: process.env.ALOOK_PROJECT_ROOT
             ? join(process.env.ALOOK_PROJECT_ROOT, ".alook")
             : SELF_HOSTED_DIR,
-          ALOOK_CMD_PREFIX: "npx @alook/app cli",
+          ALOOK_CMD_PREFIX: "npx @alook/app",
         };
         console.log("Starting daemon...");
         try {
