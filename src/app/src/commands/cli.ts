@@ -16,7 +16,7 @@ function runCli(args: string[]): void {
       ...process.env as Record<string, string>,
       ALOOK_SERVER_URL: WEB_URL(DEFAULT_PORTS.web),
       ALOOK_PROJECT_ROOT: SELF_HOSTED_DIR,
-      ALOOK_CMD_PREFIX: "npx @alook/app",
+      ALOOK_CMD_PREFIX: "npx @alook/app cli",
     },
   });
   process.exit(result.status ?? 1);

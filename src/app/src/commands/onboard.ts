@@ -107,7 +107,7 @@ export function onboardCommand(): Command {
           ALOOK_PROJECT_ROOT: process.env.ALOOK_PROJECT_ROOT
             ? join(process.env.ALOOK_PROJECT_ROOT, ".alook")
             : SELF_HOSTED_DIR,
-          ALOOK_CMD_PREFIX: "npx @alook/app",
+          ALOOK_CMD_PREFIX: "npx @alook/app cli",
         };
         console.log("Starting daemon...");
         try {
@@ -121,8 +121,8 @@ export function onboardCommand(): Command {
           });
         } catch {
           console.warn("  Warning: daemon auto-start failed. Start manually:");
-          console.warn(`  npx @alook/app register --token ${token}`);
-          console.warn(`  npx @alook/app daemon start`);
+          console.warn(`  npx @alook/app cli register --token ${token}`);
+          console.warn(`  npx @alook/app cli daemon start`);
         }
       }
 
