@@ -9,7 +9,7 @@ async function sendBroadcast(url: string, body: string, label: Record<string, st
   try {
     const { env } = getCloudflareContext()
     const wsEnv = env as Env
-    wsDoUrl = (wsEnv as Record<string, unknown>).DEV_WS_DO_URL as string | undefined
+    wsDoUrl = (wsEnv as unknown as Record<string, unknown>).DEV_WS_DO_URL as string | undefined
 
     const res = await wsEnv.WS_DO_WORKER.fetch(`http://internal${url}`, {
       method: "POST",

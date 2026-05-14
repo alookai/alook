@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers })
   if (!session) return new Response("Unauthorized", { status: 401 })
 
-  const wsDoUrl = (env as Record<string, unknown>).DEV_WS_DO_URL as string | undefined
+  const wsDoUrl = (env as unknown as Record<string, unknown>).DEV_WS_DO_URL as string | undefined
   let wsPort: number | undefined
   try {
     wsPort = new URL(wsDoUrl || DEV_WS_DO_URL).port ? Number(new URL(wsDoUrl || DEV_WS_DO_URL).port) : undefined
