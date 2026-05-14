@@ -15,9 +15,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, RefreshCw, Terminal } from "lucide-react";
 import { toast } from "sonner";
+import { cliCmd, isLocalMode } from "@/lib/utils";
 import type { AgentRuntime } from "@alook/shared";
 
-const MANUAL_UPDATE_CMD = "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start";
+const isLocal = isLocalMode();
+const MANUAL_UPDATE_CMD = isLocal
+  ? "npx @alook/app stop && npx @alook/app@latest update && npx @alook/app start"
+  : "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start";
 
 export function RuntimeVersionGate() {
   const { runtimes, workspaceId } = useAgentContext();
@@ -55,6 +59,10 @@ export function RuntimeVersionGate() {
   if (outdatedMachines.size === 0) return null;
 
   const handleUpdate = async (rt: AgentRuntime) => {
+    if (isLocal) {
+      setShowManualHint(true);
+      return;
+    }
     setUpdating((prev) => new Set(prev).add(rt.id));
     if (!hintTimer.current) {
       hintTimer.current = setTimeout(() => {
@@ -86,7 +94,9 @@ export function RuntimeVersionGate() {
             Runtime Update Required
           </DialogTitle>
           <DialogDescription>
-            The following machine(s) are running an outdated CLI version (minimum required: v{minVersion}). Please update to continue.
+            {isLocal
+              ? `Your local Alook app is running an outdated version (minimum required: v${minVersion}). Please update to continue.`
+              : `The following machine(s) are running an outdated CLI version (minimum required: v${minVersion}). Please update to continue.`}
           </DialogDescription>
         </DialogHeader>
 
