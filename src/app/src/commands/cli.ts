@@ -24,6 +24,7 @@ function runCli(args: string[]): void {
       ALOOK_SERVER_URL: WEB_URL(getWebPort()),
       ALOOK_PROJECT_ROOT: SELF_HOSTED_DIR,
       ALOOK_CMD_PREFIX: "npx @alook/app cli",
+      ALOOK_HEALTH_PORT: "19515",
     },
   });
   process.exit(result.status ?? 1);
