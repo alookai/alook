@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { execSync, spawnSync, spawn as spawnAsync } from "child_process";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+import { createInterface } from "readline";
 import { checkNodeVersion, checkAIRuntime, checkPorts } from "../lib/checks.js";
 import { isInstalled, installBundled } from "../lib/install.js";
 import { ensureSecrets } from "../lib/secrets.js";
@@ -141,13 +142,34 @@ export function onboardCommand(): Command {
       console.log(`   Start:  npx @alook/app start`);
       console.log(`   Update: npx @alook/app update\n`);
 
-      // 12. Open browser
+      // 12. Copy email & open browser on Enter
+      const signInURL = `${baseURL}/sign-in`;
+      if (email) {
+        try {
+          execSync(`printf '%s' ${JSON.stringify(email)} | pbcopy`, { stdio: "ignore" });
+          console.log(`   Email copied to clipboard.\n`);
+        } catch {
+          try {
+            execSync(`printf '%s' ${JSON.stringify(email)} | xclip -selection clipboard`, { stdio: "ignore" });
+            console.log(`   Email copied to clipboard.\n`);
+          } catch {}
+        }
+      }
+
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      await new Promise<void>((resolve) => {
+        rl.question("Press Enter to open the dashboard...", () => {
+          rl.close();
+          resolve();
+        });
+      });
+
       const openCmd = process.platform === "darwin" ? "open" :
         process.platform === "win32" ? "cmd" : "xdg-open";
       try {
         const openArgs = process.platform === "win32"
-          ? ["/c", "start", "", baseURL]
-          : [baseURL];
+          ? ["/c", "start", "", signInURL]
+          : [signInURL];
         spawnAsync(openCmd, openArgs, { stdio: "ignore", detached: true }).unref();
       } catch {}
     });
