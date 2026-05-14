@@ -28,7 +28,7 @@ describe("GET /api/cli/latest-version", () => {
     const body = await res.json();
 
     expect(res.status).toBe(502);
-    expect(body.error).toContain("npm registry");
+    expect(body.error).toContain("failed to fetch");
   });
 
   it("returns 502 when fetch throws", async () => {
@@ -38,7 +38,7 @@ describe("GET /api/cli/latest-version", () => {
     const body = await res.json();
 
     expect(res.status).toBe(502);
-    expect(body.error).toContain("npm registry");
+    expect(body.error).toContain("failed to fetch");
   });
 
   it("returns 502 when response has no version field", async () => {
