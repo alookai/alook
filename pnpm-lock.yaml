@@ -26,16 +26,25 @@ importers:
 
   src/app:
     dependencies:
-      '@alook/cli':
-        specifier: workspace:*
-        version: link:../cli
+      citty:
+        specifier: ^0.2.2
+        version: 0.2.2
       commander:
         specifier: ^14.0.3
         version: 14.0.3
+      playwright-core:
+        specifier: ^1.59.1
+        version: 1.59.1
+      postal-mime:
+        specifier: ^2.7.4
+        version: 2.7.4
       wrangler:
         specifier: ^4.90.0
         version: 4.90.0(@cloudflare/workers-types@4.20260510.1)
     devDependencies:
+      '@alook/cli':
+        specifier: workspace:*
+        version: link:../cli
       '@alook/shared':
         specifier: workspace:*
         version: link:../shared
@@ -6452,8 +6461,8 @@ packages:
   third-party-web@0.26.7:
     resolution: {integrity: sha512-buUzX4sXC4efFX6xg2bw6/eZsCUh8qQwSavC4D9HpONMFlRbcHhD8Je5qwYdCpViR6q0qla2wPP+t91a2vgolg==}
 
-  third-party-web@0.29.0:
-    resolution: {integrity: sha512-nBDSJw5B7Sl1YfsATG2XkW5qgUPODbJhXw++BKygi9w6O/NKS98/uY/nR/DxDq2axEjL6halHW1v+jhm/j1DBQ==}
+  third-party-web@0.29.2:
+    resolution: {integrity: sha512-fegtha91tq2DHphyoiBXVHjVi2YG9zFaRnboT9C28tO1en9Y3wJsfspuy40F+u5wl3hHVbw7cnd1b67kEGHb8g==}
 
   through@2.3.8:
     resolution: {integrity: sha512-w89qg7PI8wAdvX60bMDP+bFoD5Dvhm9oLheFp5O4a2QF0cSBGsBX4qZmadPMvVqlLJBBci+WqGGOAPvcDeNSVg==}
@@ -8904,7 +8913,7 @@ snapshots:
   '@paulirish/trace_engine@0.0.53':
     dependencies:
       legacy-javascript: 0.0.1
-      third-party-web: 0.29.0
+      third-party-web: 0.29.2
 
   '@pkgr/core@0.1.2': {}
 
@@ -14403,7 +14412,7 @@ snapshots:
 
   third-party-web@0.26.7: {}
 
-  third-party-web@0.29.0: {}
+  third-party-web@0.29.2: {}
 
   through@2.3.8: {}
 

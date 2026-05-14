@@ -1,12 +1,13 @@
 import { Command } from "commander";
 import { spawnSync } from "child_process";
-import { createRequire } from "module";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import { DEFAULT_PORTS, WEB_URL, SELF_HOSTED_DIR } from "../lib/constants.js";
 
-const require = createRequire(import.meta.url);
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function findCliEntry(): string {
-  return require.resolve("@alook/cli/dist/index.js");
+  return join(__dirname, "cli", "index.js");
 }
 
 function runCli(args: string[]): void {

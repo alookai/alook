@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { execSync, spawnSync, spawn as spawnAsync } from "child_process";
-import { join } from "path";
-import { createRequire } from "module";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import { checkNodeVersion, checkAIRuntime, checkPorts } from "../lib/checks.js";
 import { isInstalled, installBundled } from "../lib/install.js";
 import { ensureSecrets } from "../lib/secrets.js";
@@ -16,6 +16,8 @@ import {
 } from "../lib/register.js";
 import { DEFAULT_PORTS, WEB_URL, SELF_HOSTED_DIR } from "../lib/constants.js";
 import { patchWranglerConfigs } from "../lib/wrangler-config.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export function onboardCommand(): Command {
   return new Command("onboard")
@@ -99,8 +101,7 @@ export function onboardCommand(): Command {
         const { token } = await createMachineToken(baseURL, sessionCookie, workspace.id);
 
         // Let CLI register handle token activation + config save
-        const require = createRequire(import.meta.url);
-        const cliEntry = require.resolve("@alook/cli/dist/index.js");
+        const cliEntry = join(__dirname, "cli", "index.js");
         const cliEnv: Record<string, string> = {
           ...process.env as Record<string, string>,
           ALOOK_SERVER_URL: baseURL,
