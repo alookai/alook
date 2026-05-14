@@ -6,25 +6,28 @@ const log = createLogger({ service: "broadcast" })
 
 async function sendBroadcast(url: string, body: string, label: Record<string, string>) {
   try {
-    const { env, ctx } = getCloudflareContext()
+    const { env } = getCloudflareContext()
     const wsEnv = env as Env
-    const promise = wsEnv.WS_DO_WORKER.fetch(`http://internal${url}`, {
+    const res = await wsEnv.WS_DO_WORKER.fetch(`http://internal${url}`, {
       method: "POST",
       body,
-    }).then(
-      () => {},
-      (err) => log.warn("broadcast service-binding failed", { ...label, err: String(err) }),
-    )
-    ctx.waitUntil(promise)
+    })
+    if (res.ok) return
   } catch {
+    // Service binding unavailable (not in CF context, or local mode) — fall through
+  }
+
+  try {
     const res = await fetch(`${DEV_WS_DO_URL}${url}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
     })
     if (!res.ok) {
-      log.warn("broadcast fallback failed", { ...label, status: res.status })
+      log.warn("broadcast failed", { ...label, status: res.status })
     }
+  } catch (err) {
+    log.warn("broadcast error", { ...label, err: String(err) })
   }
 }
 
