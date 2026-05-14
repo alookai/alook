@@ -6,6 +6,11 @@ interface PidRecord {
   web?: number;
   emailWorker?: number;
   wsDo?: number;
+  ports?: {
+    web?: number;
+    emailWorker?: number;
+    wsDo?: number;
+  };
 }
 
 export function readPids(): PidRecord {

@@ -12,9 +12,9 @@ export const SELF_HOSTED_DIR = resolveBaseDir();
 export const PID_FILE = join(SELF_HOSTED_DIR, ".pids.json");
 
 export const DEFAULT_PORTS = {
-  web: 3000,
-  emailWorker: 8787,
-  wsDo: 8789,
+  web: 15210,
+  emailWorker: 15211,
+  wsDo: 15212,
 } as const;
 
 export const WEB_URL = (port: number) => `http://localhost:${port}`;

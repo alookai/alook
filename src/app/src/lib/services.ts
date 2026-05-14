@@ -116,6 +116,11 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
     web: webChild.pid,
     emailWorker: emailChild.pid,
     wsDo: wsChild.pid,
+    ports: {
+      web: ports.web,
+      emailWorker: ports.emailWorker,
+      wsDo: ports.wsDo,
+    },
   });
 
   console.log(`  Web:          http://localhost:${ports.web} (pid=${webChild.pid})`);
