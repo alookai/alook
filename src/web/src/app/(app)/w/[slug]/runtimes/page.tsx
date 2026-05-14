@@ -99,6 +99,25 @@ export default function RuntimesPage() {
     });
   }, [subscribeWs, workspaceId, pathname, router]);
 
+  // Polling fallback: periodically check runtimes while sheet is open (in case WebSocket is unavailable)
+  const runtimeCountAtOpen = useRef(0);
+  useEffect(() => {
+    if (!sheetOpen || !generatedToken) return;
+    runtimeCountAtOpen.current = runtimes.length;
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/runtimes?workspace_id=${workspaceId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > runtimeCountAtOpen.current) {
+          setMachineRegistered(true);
+          clearInterval(id);
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(id);
+  }, [sheetOpen, generatedToken, workspaceId]);
+
   const openConfirm = (
     title: string,
     description: string,
