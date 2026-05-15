@@ -4,6 +4,7 @@ export type {
   Workspace,
   Agent,
   AgentRuntime,
+  RuntimeMetadata,
   Machine,
   Conversation,
   Message,

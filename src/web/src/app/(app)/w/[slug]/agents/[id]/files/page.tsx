@@ -59,7 +59,7 @@ export default function AgentFilesPage() {
   // Pending request tracking: map requestId -> { type, path, timer }
   const pendingRef = useRef<Map<string, { type: "tree" | "read"; path: string; timer: ReturnType<typeof setTimeout> }>>(new Map());
 
-  const workspacesRoot = (runtime?.metadata as Record<string, unknown>)?.workspaces_root as string | undefined;
+  const workspacesRoot = runtime?.metadata?.workspaces_root;
   const rootLabel = `${workspacesRoot || "~/.alook/workspaces"}/${workspaceId}/${agentId}/workdir`;
 
   const REQUEST_TIMEOUT_MS = 15_000;

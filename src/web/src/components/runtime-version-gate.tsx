@@ -47,7 +47,7 @@ export function RuntimeVersionGate() {
 
   const outdatedRuntimes = runtimes.filter((rt) => {
     if (rt.status !== "online") return false;
-    const cliVersion = (rt.metadata as Record<string, unknown>)?.cli_version;
+    const cliVersion = rt.metadata?.cli_version;
     if (typeof cliVersion !== "string" || !cliVersion) return true;
     return !semverGte(cliVersion, minVersion);
   });
@@ -105,7 +105,7 @@ export function RuntimeVersionGate() {
 
         <div className="space-y-3 mt-2">
           {[...outdatedMachines.entries()].map(([daemonId, rt]) => {
-            const cliVersion = (rt.metadata as Record<string, unknown>)?.cli_version as string | undefined;
+            const cliVersion = rt.metadata?.cli_version as string | undefined;
             const isUpdating = updating.has(rt.id);
 
             return (
