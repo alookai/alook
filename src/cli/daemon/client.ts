@@ -1,7 +1,9 @@
 import {
   PollResponseSchema,
   RegisterResponseSchema,
+  type CompleteTaskRequest,
   type FileRequestItem,
+  type MessageItem,
   type PollMeetingItem,
   type PollResponse,
   type RegisterDaemonRequest,
@@ -106,11 +108,7 @@ export class DaemonClient {
   completeTask(
     token: string,
     taskId: string,
-    body: {
-      output: string;
-      session_id?: string;
-      branch_name?: string;
-    },
+    body: CompleteTaskRequest,
   ) {
     return this.request(
       "POST",
@@ -177,15 +175,7 @@ export class DaemonClient {
   reportMessages(
     token: string,
     taskId: string,
-    messages: {
-      seq: number;
-      type: string;
-      tool?: string;
-      call_id?: string;
-      content?: string;
-      input?: Record<string, unknown>;
-      output?: string;
-    }[],
+    messages: MessageItem[],
   ) {
     return this.request(
       "POST",

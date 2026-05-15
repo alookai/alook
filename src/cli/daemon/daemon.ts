@@ -14,7 +14,6 @@ import { handleCliUpdate, isUpdating, readUpdateMarker, clearUpdateMarker } from
 import { findRunningPidByTaskId, findRunningEntryByContextKey } from "./execenv/timeline.js";
 import {
   writeKillIntent,
-  clearKillIntent,
   acquireSteeringLock,
   releaseSteeringLock,
   cleanupStaleIntents,
