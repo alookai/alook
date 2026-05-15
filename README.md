@@ -109,20 +109,18 @@ Start with a pre-built company template — open-source maintainer, indie hacker
   'lineColor': '#9C8E82',
   'secondaryColor': '#F0EDE8',
   'tertiaryColor': '#E8E4DE',
-  'fontFamily': 'system-ui, sans-serif',
-  'fontSize': '13px'
 }}}%%
 
 flowchart TB
     subgraph client["  Your Machine  "]
-        CLI("CLI Daemon")
-        RT("Agents  ")
+        CLI("CLI")
+        RT("Agent  ")
     end
 
     subgraph cloud["  Server-side  "]
-        WEB("App  ")
-        EML("Email  ")
-        WSK("WebSocket  ")
+        WEB("App")
+        EML("Email")
+        WSK("WebSocket")
     end
 
     subgraph store["  Storage  "]
