@@ -114,7 +114,7 @@ Start with a pre-built company template — open-source maintainer, indie hacker
 flowchart TB
     subgraph client["  Your Machine  "]
         CLI("CLI")
-        RT("Agent  ")
+        RT("Agent Workdir")
     end
 
     subgraph cloud["  Server-side  "]
@@ -124,16 +124,17 @@ flowchart TB
     end
 
     subgraph store["  Storage  "]
+        direction LR
         D1[("D1\nSQLite  ")]
         R2[("R2\nFiles  ")]
     end
 
-    CLI -- "POLL" --> WEB
+    client -- "POLL" --> cloud
     CLI -..-> RT
     EML --> WEB
     WEB <--> WSK
-    cloud --> R2
-    cloud --> D1
+    cloud <--> D1
+    cloud <--> R2
 
     style client fill:#F7F3EE,stroke:#C9BFB3,stroke-width:2px,color:#2A2520,rx:12,ry:12
     style cloud fill:#FDF5EC,stroke:#DFC9AD,stroke-width:2px,color:#2A2520,rx:12,ry:12
