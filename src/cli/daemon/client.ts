@@ -56,6 +56,7 @@ export class DaemonClient {
       daemon_id: string;
       device_name: string;
       cli_version: string;
+      workspaces_root: string;
       runtimes: {
         type: string;
         version: string;
