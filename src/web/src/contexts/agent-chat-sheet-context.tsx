@@ -16,7 +16,7 @@ import { AgentChatSheet } from "@/components/canvas/agent-chat-sheet";
 interface AgentChatSheetContextValue {
   openAgentChat: (
     agentId: string,
-    opts?: { conversationId?: string; taskId?: string },
+    opts?: { conversationId?: string; taskId?: string; messageId?: string },
   ) => void;
 }
 
@@ -42,6 +42,7 @@ export function AgentChatSheetProvider({ children }: { children: ReactNode }) {
   const [agentId, setAgentId] = useState<string | null>(null);
   const [targetConvId, setTargetConvId] = useState<string | null>(null);
   const [scrollToTaskId, setScrollToTaskId] = useState<string | null>(null);
+  const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null);
 
   const agent = agentId ? agents.find((a) => a.id === agentId) ?? null : null;
 
@@ -49,7 +50,7 @@ export function AgentChatSheetProvider({ children }: { children: ReactNode }) {
   agentsRef.current = agents;
 
   const openAgentChat = useCallback(
-    (id: string, opts?: { conversationId?: string; taskId?: string }) => {
+    (id: string, opts?: { conversationId?: string; taskId?: string; messageId?: string }) => {
       const found = agentsRef.current.find((a) => a.id === id);
       if (!found) {
         router.push(`/w/${slug}/agents/${id}`);
@@ -58,6 +59,7 @@ export function AgentChatSheetProvider({ children }: { children: ReactNode }) {
       setAgentId(id);
       setTargetConvId(opts?.conversationId ?? null);
       setScrollToTaskId(opts?.taskId ?? null);
+      setScrollToMessageId(opts?.messageId ?? null);
       setOpen(true);
     },
     [router, slug],
@@ -68,6 +70,7 @@ export function AgentChatSheetProvider({ children }: { children: ReactNode }) {
     if (!nextOpen) {
       setTargetConvId(null);
       setScrollToTaskId(null);
+      setScrollToMessageId(null);
     }
   }, []);
 
@@ -80,6 +83,7 @@ export function AgentChatSheetProvider({ children }: { children: ReactNode }) {
         agent={agent}
         targetConvId={targetConvId}
         scrollToTaskId={scrollToTaskId}
+        scrollToMessageId={scrollToMessageId}
       />
     </AgentChatSheetContext.Provider>
   );

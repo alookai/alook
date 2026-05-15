@@ -84,7 +84,7 @@ export function FlagPopover({
     e.preventDefault();
     setOpen(false);
     onNavigate?.();
-    openAgentChat(item.agent_id, { conversationId: item.conversation_id });
+    openAgentChat(item.agent_id, { conversationId: item.conversation_id, messageId: item.message_id });
   }, [onNavigate, openAgentChat]);
 
   return (

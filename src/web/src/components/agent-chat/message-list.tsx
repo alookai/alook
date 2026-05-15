@@ -158,7 +158,7 @@ export const MessageItem = memo(function MessageItem({
       {msg.role === "user" ? (() => {
         const awaitingRun = isLastMessage && !!activeTask && activeTask.status !== "running" && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
         return (
-          <div className="flex justify-end" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
+          <div className="flex justify-end" data-message-id={msg.id} {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
             <div className={cn(
               "max-w-[80%] rounded-lg px-4 py-2 bg-primary text-primary-foreground text-base relative",
             )}>
@@ -182,7 +182,7 @@ export const MessageItem = memo(function MessageItem({
         const eventIssueId = msg.metadata?.issueId as string | undefined;
         const isClickable = !!eventEmailId || !!eventIssueId;
         return (
-          <div className="flex justify-start" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
+          <div className="flex justify-start" data-message-id={msg.id} {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
             <div
               className={cn(
                 "w-full rounded-md border bg-muted/50 text-muted-foreground text-sm px-3 py-2 flex items-start gap-2",
@@ -199,7 +199,7 @@ export const MessageItem = memo(function MessageItem({
         <div className={cn(
           "group/msg flex flex-col justify-start",
           isFlagged && "bg-muted/30 rounded-lg px-2 -mx-2"
-        )} data-quote-source {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
+        )} data-message-id={msg.id} data-quote-source {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
           <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
             <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(msg.content, agents)}</Streamdown>
           </div>

@@ -200,7 +200,7 @@ export default function FlagsPage() {
                 onClick={(e) => {
                   if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
                   e.preventDefault();
-                  openAgentChat(item.agent_id, { conversationId: item.conversation_id });
+                  openAgentChat(item.agent_id, { conversationId: item.conversation_id, messageId: item.message_id });
                 }}
                 onUnflag={() => handleUnflag(item)}
               />

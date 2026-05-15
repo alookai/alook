@@ -24,13 +24,14 @@ interface AgentChatSheetProps {
   agent: Agent | null;
   targetConvId?: string | null;
   scrollToTaskId?: string | null;
+  scrollToMessageId?: string | null;
 }
 
 const MIN_WIDTH = 320;
 const MAX_WIDTH_RATIO = 0.8;
 const DEFAULT_WIDTH = 480;
 
-export function AgentChatSheet({ open, onOpenChange, agent, targetConvId, scrollToTaskId }: AgentChatSheetProps) {
+export function AgentChatSheet({ open, onOpenChange, agent, targetConvId, scrollToTaskId, scrollToMessageId }: AgentChatSheetProps) {
   const { runtimes, activeTaskCounts } = useAgentContext();
   const { slug } = useWorkspace();
   const router = useRouter();
@@ -74,6 +75,7 @@ export function AgentChatSheet({ open, onOpenChange, agent, targetConvId, scroll
           {agent && (() => {
             const params = new URLSearchParams();
             if (scrollToTaskId) params.set("task", scrollToTaskId);
+            if (scrollToMessageId) params.set("msg", scrollToMessageId);
             if (targetConvId) params.set("conv", targetConvId);
             const qs = params.toString();
             const fullPageUrl = `/w/${slug}/agents/${agent.id}${qs ? `?${qs}` : ""}`;
@@ -136,6 +138,7 @@ export function AgentChatSheet({ open, onOpenChange, agent, targetConvId, scroll
               agentId={agent.id}
               targetConvId={targetConvId}
               scrollToTaskId={scrollToTaskId}
+              scrollToMessageId={scrollToMessageId}
             />
           </div>
         )}

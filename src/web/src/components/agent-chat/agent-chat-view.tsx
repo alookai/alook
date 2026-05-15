@@ -303,10 +303,12 @@ export function AgentChatView({
   agentId: propAgentId,
   targetConvId: propTargetConvId,
   scrollToTaskId: propScrollToTaskId,
+  scrollToMessageId: propScrollToMessageId,
 }: {
   agentId?: string;
   targetConvId?: string | null;
   scrollToTaskId?: string | null;
+  scrollToMessageId?: string | null;
 }) {
   const params = useParams();
   const searchParams = useSearchParams();
@@ -316,6 +318,7 @@ export function AgentChatView({
   const { activeChannel, loading: channelLoading, setAgentId: setChannelAgentId } = useChannel();
   const agentId = propAgentId ?? (params.id as string);
   const scrollToTaskId = propScrollToTaskId !== undefined ? propScrollToTaskId : searchParams.get("task");
+  const scrollToMessageId = propScrollToMessageId !== undefined ? propScrollToMessageId : searchParams.get("msg");
   const targetConvId = propTargetConvId !== undefined ? propTargetConvId : searchParams.get("conv");
 
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -415,6 +418,7 @@ export function AgentChatView({
   const initialScrollDone = useRef(false);
   const loadingMoreRef = useRef(false);
   const isNearBottom = useRef(true);
+  const scrollTargetActiveRef = useRef(false);
   const startPollingRef = useRef<((taskId: string, conversationId: string, initialSeq?: number) => void) | null>(null);
   const oldestConversationCursorRef = useRef<PreviousConversation | null>(null);
   const backfillAttemptsRef = useRef(0);
@@ -580,46 +584,115 @@ export function AgentChatView({
     };
   }, [conversation?.id, workspaceId]);
 
-  // Scroll to bottom on initial load (skip if scroll-to-task is active)
+  // Scroll to bottom on initial load (skip if scroll-to-task/message is active)
   useEffect(() => {
     if (!loading && messages.length > 0 && !initialScrollDone.current) {
       initialScrollDone.current = true;
-      if (!scrollToTaskId) {
+      if (scrollToTaskId || scrollToMessageId) {
+        isNearBottom.current = false;
+      } else if (propTargetConvId) {
+        setTimeout(() => {
+          const assistantMsgs = scrollRef.current?.querySelectorAll('[data-quote-source]');
+          if (assistantMsgs && assistantMsgs.length > 0) {
+            const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+            lastAssistant.scrollIntoView({ behavior: "instant", block: "start" });
+          } else {
+            scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+          }
+        }, 50);
+      } else {
         setTimeout(() => {
           scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
         }, 50);
       }
     }
-  }, [loading, messages.length, scrollToTaskId]);
+  }, [loading, messages.length, scrollToTaskId, scrollToMessageId, propTargetConvId]);
 
   // Scroll to task when ?task= param is present
   useEffect(() => {
     if (!scrollToTaskId || loading || !conversation) return;
+    isNearBottom.current = false;
+    scrollTargetActiveRef.current = true;
+    let cancelled = false;
+    let highlightTimerId: ReturnType<typeof setTimeout> | undefined;
     const tryScroll = () => {
+      if (cancelled) return false;
       const el = document.querySelector(`[data-task-id="${CSS.escape(scrollToTaskId)}"]`);
       if (!el) return false;
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
       el.classList.add("task-highlight");
-      setTimeout(() => el.classList.remove("task-highlight"), 1500);
+      highlightTimerId = setTimeout(() => {
+        el.classList.remove("task-highlight");
+        if (!cancelled) scrollTargetActiveRef.current = false;
+      }, 1500);
       return true;
     };
-    setTimeout(async () => {
+    const timerId = setTimeout(async () => {
+      if (cancelled) return;
       if (tryScroll()) return;
       try {
         const around = await listMessagesAroundTask(conversation.id, workspaceId, scrollToTaskId);
+        if (cancelled) return;
         if (around.length > 0) {
           setMessages((prev) => mergeMessages(prev, around));
           requestAnimationFrame(() => {
-            setTimeout(() => tryScroll(), 100);
+            setTimeout(() => {
+              if (!tryScroll()) {
+                scrollTargetActiveRef.current = false;
+              }
+            }, 100);
           });
+        } else {
+          scrollTargetActiveRef.current = false;
         }
-      } catch { }
+      } catch {
+        if (!cancelled) scrollTargetActiveRef.current = false;
+      }
     }, 100);
+    return () => {
+      cancelled = true;
+      clearTimeout(timerId);
+      if (highlightTimerId) clearTimeout(highlightTimerId);
+    };
   }, [scrollToTaskId, loading, conversation, workspaceId]);
+
+  // Scroll to message when ?msg= param is present (skip if task scroll is active)
+  useEffect(() => {
+    if (!scrollToMessageId || scrollToTaskId || loading || !conversation) return;
+    isNearBottom.current = false;
+    scrollTargetActiveRef.current = true;
+    let cancelled = false;
+    let highlightTimerId: ReturnType<typeof setTimeout> | undefined;
+    const tryScroll = () => {
+      if (cancelled) return false;
+      const el = document.querySelector(`[data-message-id="${CSS.escape(scrollToMessageId)}"]`);
+      if (!el) return false;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.classList.add("task-highlight");
+      highlightTimerId = setTimeout(() => {
+        el.classList.remove("task-highlight");
+        if (!cancelled) scrollTargetActiveRef.current = false;
+      }, 1500);
+      return true;
+    };
+    const timerId = setTimeout(() => {
+      if (cancelled) return;
+      if (!tryScroll()) {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+        scrollTargetActiveRef.current = false;
+      }
+    }, 100);
+    return () => {
+      cancelled = true;
+      clearTimeout(timerId);
+      if (highlightTimerId) clearTimeout(highlightTimerId);
+    };
+  }, [scrollToMessageId, scrollToTaskId, loading, conversation]);
 
   // Auto-scroll when task badge appears or new task steps arrive
   const taskStatus = activeTask?.status;
   useEffect(() => {
+    if (scrollTargetActiveRef.current) return;
     const isRunning = taskStatus === "running" || taskStatus === "queued";
     if (isRunning && isNearBottom.current) {
       scrollToBottom();
@@ -885,7 +958,7 @@ export function AgentChatView({
                 .catch(() => {});
             }, 1000);
 
-            const shouldScroll = isNearBottom.current;
+            const shouldScroll = !scrollTargetActiveRef.current && isNearBottom.current;
             try {
               const [latestResult, arts] = await Promise.all([
                 listMessages(conversationId, workspaceId),
