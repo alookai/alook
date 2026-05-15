@@ -4,6 +4,7 @@ import {
   type FileRequestItem,
   type PollMeetingItem,
   type PollResponse,
+  type RegisterDaemonRequest,
   type RegisterResponse,
   type TaskApi,
   type WorkspaceFileReport,
@@ -51,17 +52,7 @@ export class DaemonClient {
 
   async register(
     token: string,
-    body: {
-      workspace_id: string;
-      daemon_id: string;
-      device_name: string;
-      cli_version: string;
-      workspaces_root: string;
-      runtimes: {
-        type: string;
-        version: string;
-      }[];
-    },
+    body: RegisterDaemonRequest,
   ): Promise<RegisterResponse> {
     const raw = await this.request<unknown>(
       "POST",
