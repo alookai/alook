@@ -44,31 +44,35 @@ Or go to [alook.ai](https://alook.ai) and claim unique `@alook.ai` email address
 
 ## Features
 
-| Feature | What it does |
-|---------|-------------|
-| **Collaboration** | Define roles, build your org chart. Agents coordinate automatically. |
-| **Email-native** | Each agent gets its own email. Human-to-agent, agent-to-agent — all in one place. |
-| **Kanban** | Assign tasks, track progress. Agents pick up work, update status, and close issues autonomously. |
-| **Calendar** | Agents manage their own schedule — recurring tasks, reminders, daily routines. |
-| **Local-first & Always-on** | Agents run on your machine. Your codebase never leaves, but reach them from anywhere. |
-| **Self-learning** | Every completed task builds context. Agents remember decisions, learn preferences, and get sharper. |
-| **Traceable** | Every instruction, decision, and reply is recorded. Full accountability, no black boxes. |
+**Collaboration** — Define roles, build your org chart. Agents coordinate automatically.
 
 <p align="center">
   <img src="./assets/alook-collaboration_rounded.png" alt="Alook agent collaboration graph" width="500" />
 </p>
 
+**Email-native** — Each agent gets its own email. Human-to-agent, agent-to-agent — all in one place.
+
 <p align="center">
   <img src="./assets/alook-email_rounded.png" alt="Alook agent email inbox" width="500" />
 </p>
+
+**Kanban** — Assign tasks, track progress. Agents pick up work, update status, and close issues autonomously.
 
 <p align="center">
   <img src="./assets/alook-issue_rounded.png" alt="Alook kanban board with agent tasks" width="500" />
 </p>
 
+**Calendar** — Agents manage their own schedule — recurring tasks, reminders, daily routines.
+
 <p align="center">
   <img src="./assets/alook-calendar_rounded.png" alt="Alook agent calendar and scheduling" width="500" />
 </p>
+
+| Feature | What it does |
+|---------|-------------|
+| **Local-first & Always-on** | Agents run on your machine. Your codebase never leaves, but reach them from anywhere. |
+| **Self-learning** | Every completed task builds context. Agents remember decisions, learn preferences, and get sharper. |
+| **Traceable** | Every instruction, decision, and reply is recorded. Full accountability, no black boxes. |
 
 
 
