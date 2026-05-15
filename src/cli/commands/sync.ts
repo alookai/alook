@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { readFileSync, statSync } from "fs";
+import { readFileSync } from "fs";
 import { basename } from "path";
 import { APIClient } from "../lib/client.js";
 import { loadCLIConfigForProfile } from "../lib/config.js";
@@ -64,10 +64,7 @@ export function syncCommand(): Command {
       const client = new APIClient(serverUrl, token, workspaceId);
 
       let bytes: Buffer;
-      let size: number;
       try {
-        const stat = statSync(opts.file);
-        size = stat.size;
         bytes = readFileSync(opts.file);
       } catch (err) {
         console.error(`Error: cannot read file "${opts.file}": ${(err as Error).message}`);

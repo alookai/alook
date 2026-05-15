@@ -41,7 +41,7 @@
     "build": "bun build src/index.ts --outdir dist --target node --format esm --external citty --external commander --external postal-mime --external playwright-core && bun build daemon/session-runner.ts --outdir dist --target node --format esm --external citty --external commander --external postal-mime && bun build daemon/meeting-runner.ts --outdir dist --target node --format esm --external playwright-core && node scripts/prepare-dist.mjs",
     "prepack": "pnpm run build",
     "test": "vitest run",
-    "lint": "eslint src/",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.build.json"
   },
   "dependencies": {

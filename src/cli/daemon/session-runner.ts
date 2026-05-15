@@ -357,7 +357,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
         if (session.pid) {
           try { process.kill(session.pid, "SIGTERM"); } catch { /* already dead */ }
         }
-        iter.return?.(undefined as any);
+        iter.return?.(undefined as never);
         break;
       }
 
