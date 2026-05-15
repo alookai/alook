@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAgentContext } from "@/contexts/agent-context";
 import { getMinCliVersion, triggerRuntimeUpdate } from "@/lib/api";
-import { semverGte } from "@alook/shared";
+import { semverGte, resolveMode } from "@alook/shared";
 import {
   Dialog,
   DialogContent,
@@ -15,11 +15,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, RefreshCw, Terminal } from "lucide-react";
 import { toast } from "sonner";
-import { isLocalMode } from "@/lib/utils";
 import type { AgentRuntime } from "@alook/shared";
 
-const isLocal = isLocalMode();
-const MANUAL_UPDATE_CMD = isLocal
+const mode = resolveMode({
+  nodeEnv: process.env.NODE_ENV,
+  hostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+});
+const MANUAL_UPDATE_CMD = mode === "app"
   ? "npx @alook/app stop && npx @alook/app@latest update && npx @alook/app start"
   : "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start";
 
@@ -40,6 +42,7 @@ export function RuntimeVersionGate() {
     };
   }, []);
 
+  if (mode === "dev") return null;
   if (!minVersion) return null;
 
   const outdatedRuntimes = runtimes.filter((rt) => {
@@ -59,7 +62,7 @@ export function RuntimeVersionGate() {
   if (outdatedMachines.size === 0) return null;
 
   const handleUpdate = async (rt: AgentRuntime) => {
-    if (isLocal) {
+    if (mode === "app") {
       setShowManualHint(true);
       return;
     }
@@ -94,7 +97,7 @@ export function RuntimeVersionGate() {
             Runtime Update Required
           </DialogTitle>
           <DialogDescription>
-            {isLocal
+            {mode === "app"
               ? `Your local Alook app is running an outdated version (minimum required: v${minVersion}). Please update to continue.`
               : `The following machine(s) are running an outdated CLI version (minimum required: v${minVersion}). Please update to continue.`}
           </DialogDescription>

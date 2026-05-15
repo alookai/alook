@@ -192,6 +192,7 @@ export const RegisterDaemonRequestSchema = z.object({
   daemon_id: z.string().min(1),
   device_name: z.string().optional().default(""),
   cli_version: z.string().optional().default(""),
+  workspaces_root: z.string().optional().default(""),
   runtimes: z.array(DaemonRuntimeItemSchema).min(1),
 });
 export type RegisterDaemonRequest = z.infer<typeof RegisterDaemonRequestSchema>;

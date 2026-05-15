@@ -16,7 +16,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const [body, err] = await parseBody(req, RegisterDaemonRequestSchema);
   if (err) return err;
 
-  const { daemon_id: daemonId, device_name: deviceName, cli_version: cliVersion, runtimes } = body;
+  const { daemon_id: daemonId, device_name: deviceName, cli_version: cliVersion, workspaces_root: workspacesRoot, runtimes } = body;
   let workspaceId = body.workspace_id;
 
   // Resolve workspace: use provided, fall back to auth context, or create new
@@ -72,6 +72,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const metadata: Record<string, unknown> = {
       version: rt.version || "",
       ...(cliVersion ? { cli_version: cliVersion } : {}),
+      ...(workspacesRoot ? { workspaces_root: workspacesRoot } : {}),
     };
 
     const result = await queries.runtime.upsertAgentRuntime(db, {

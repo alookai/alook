@@ -10,10 +10,14 @@ vi.mock("better-auth/plugins", () => ({
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
-vi.mock("@alook/shared", () => ({
-  createLogger: () => ({ info: vi.fn(), error: vi.fn() }),
-  DEV_EMAIL_WORKER_URL: "http://localhost:0",
-}))
+vi.mock("@alook/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@alook/shared")>()
+  return {
+    ...actual,
+    createLogger: () => ({ info: vi.fn(), error: vi.fn() }),
+    DEV_EMAIL_WORKER_URL: "http://localhost:0",
+  }
+})
 
 vi.mock("./email-templates", () => ({
   getOtpSubject: () => "subject",

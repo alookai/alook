@@ -1,29 +1,26 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { resolveMode, cliCommand, daemonCommand } from "@alook/shared"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+function getMode() {
+  return resolveMode({
+    nodeEnv: process.env.NODE_ENV,
+    hostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+  })
+}
+
 export function isLocalMode(): boolean {
-  if (typeof window !== "undefined"
-    && ["localhost", "127.0.0.1"].includes(window.location.hostname)) return true
-  return process.env.NODE_ENV === "development"
+  return getMode() !== "production"
 }
 
 export function cliCmd(): string {
-  if (process.env.NODE_ENV === "development") return "pnpm dev:cli"
-  if (typeof window !== "undefined"
-    && ["localhost", "127.0.0.1"].includes(window.location.hostname)) {
-    return "npx @alook/app cli"
-  }
-  return "npx @alook/cli"
+  return cliCommand(getMode())
 }
 
-// --foreground is only needed in monorepo dev mode (pnpm dev:cli).
-// In @alook/app mode, the daemon runs as a background process.
 export function daemonStartCmd(): string {
-  const base = `${cliCmd()} daemon start`
-  if (process.env.NODE_ENV === "development") return `${base} --foreground`
-  return base
+  return daemonCommand(getMode())
 }

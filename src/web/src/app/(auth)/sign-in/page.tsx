@@ -22,11 +22,14 @@ import {
 import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
 import { GradientBackground } from "@/components/gradient-background"
 import { TypewriterVisual, EMAILS_PLAYFUL } from "@/components/typewriter-visual"
-import { isLocalMode } from "@/lib/utils"
+import { resolveMode, DEV_PASSWORD } from "@alook/shared"
 
-const isProd = !isLocalMode()
+const mode = resolveMode({
+  nodeEnv: process.env.NODE_ENV,
+  hostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+})
+const isProd = mode === "production"
 
-import { DEV_PASSWORD } from "@alook/shared"
 const DEFAULT_POST_LOGIN = "/workspaces?auto"
 
 function safeRedirectUrl(redirect: string | null): string {

@@ -1,6 +1,7 @@
 import { spawn, execSync, type ChildProcess } from "child_process";
 import { join } from "path";
 import { openSync, mkdirSync, closeSync } from "fs";
+import { resolveMode } from "@alook/shared";
 import { SELF_HOSTED_DIR } from "./constants.js";
 import { writePids, readPids, isAlive, clearPids } from "./pid.js";
 
@@ -14,9 +15,7 @@ interface StartOptions {
   foreground?: boolean;
 }
 
-function isDevMode(): boolean {
-  return !!process.env.ALOOK_PROJECT_ROOT;
-}
+const isDevMode = resolveMode({ nodeEnv: process.env.NODE_ENV }) === "dev";
 
 function logDir(): string {
   const dir = join(SELF_HOSTED_DIR, "logs");
@@ -88,7 +87,7 @@ export function startServices(ports: ServicePorts, opts: StartOptions = {}): voi
   let emailChild: ChildProcess;
   let wsChild: ChildProcess;
 
-  if (isDevMode()) {
+  if (isDevMode) {
     const root = process.env.ALOOK_PROJECT_ROOT!;
     const webDir = join(root, "src", "web");
     const emailDir = join(root, "src", "email-worker");

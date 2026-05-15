@@ -1,13 +1,11 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
+import { resolveMode } from "@alook/shared"
 
-// In local mode (@alook/app), check @alook/app on npm.
-// In cloud mode, check @alook/cli.
-// Both packages are in the same monorepo and version-bumped together,
-// so the daemon's reported cli_version will match either package.
 function getPackageName(): string {
   try {
     const { env } = getCloudflareContext()
-    if ((env as unknown as Record<string, unknown>).NODE_ENV === "development") return "@alook/app"
+    const mode = resolveMode({ nodeEnv: (env as unknown as Record<string, unknown>).NODE_ENV as string | undefined })
+    if (mode !== "production") return "@alook/app"
   } catch {}
   return "@alook/cli"
 }

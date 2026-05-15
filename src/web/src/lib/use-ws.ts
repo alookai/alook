@@ -3,7 +3,7 @@ import { useEffect, useRef, useCallback } from "react"
 import type { WsMessage } from "@alook/shared"
 import { isLocalMode } from "@/lib/utils"
 
-const isDev = isLocalMode()
+const isLocal = isLocalMode()
 const WS_DO_PORT_DEFAULT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || 8789
 const WS_RECONNECT_INIT = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_DELAY_MS) || 1000
 const WS_RECONNECT_MAX = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_MAX_DELAY_MS) || 30_000
@@ -35,7 +35,7 @@ export function useAgentWs(agentId: string, onMessage: (msg: WsMessage) => void)
       return
     }
 
-    const url = isDev
+    const url = isLocal
       ? `ws://localhost:${wsPort}/?userId=${userId}&agentId=${agentId}`
       : `${location.origin.replace("http", "ws")}/api/ws?userId=${userId}&agentId=${agentId}`
 

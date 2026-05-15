@@ -300,6 +300,7 @@ export async function startDaemon(
         daemon_id: config.daemonId,
         device_name: config.deviceName,
         cli_version: config.cliVersion,
+        workspaces_root: config.workspacesRoot,
         runtimes,
       });
     } catch (e) {
@@ -574,6 +575,7 @@ export async function startDaemon(
             daemon_id: config.daemonId,
             device_name: config.deviceName,
             cli_version: config.cliVersion,
+            workspaces_root: config.workspacesRoot,
             runtimes,
           });
           const runtimeIds = resp.runtimes.map((r: { id: string }) => r.id);
