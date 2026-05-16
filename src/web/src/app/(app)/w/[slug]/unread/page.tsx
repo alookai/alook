@@ -3,10 +3,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { listInboxItems, markAllInboxRead, type InboxItem } from "@/lib/api";
 import { useInboxCount } from "@/contexts/inbox-count-context";
 import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Inbox, ListFilter, CheckCheck } from "lucide-react";
@@ -66,9 +68,12 @@ function InboxRow({ item, slug, onClick }: { item: InboxItem; slug: string; onCl
             <span className="text-sm text-foreground truncate flex-1 min-w-0">
               {item.root_prompt ?? item.title}
             </span>
-            <span className="text-xs text-muted-foreground shrink-0 ml-2" title={new Date(item.latest_response_at).toLocaleString()}>
-              {relativeTime(item.latest_response_at)}
-            </span>
+            <Tooltip>
+              <TooltipTrigger render={<span className="text-xs text-muted-foreground shrink-0 ml-2" />}>
+                {relativeTime(item.latest_response_at)}
+              </TooltipTrigger>
+              <TooltipContent>{new Date(item.latest_response_at).toLocaleString()}</TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             {item.agent_name && (
@@ -271,14 +276,15 @@ export default function InboxPage() {
             </PopoverContent>
           </Popover>
           {!loading && items.length > 0 && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={handleMarkAllRead}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              className="text-xs text-muted-foreground"
             >
               <CheckCheck className="size-3.5" />
               <span>Mark all as read</span>
-            </button>
+            </Button>
           )}
         </div>
       </div>

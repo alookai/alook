@@ -6,9 +6,11 @@ import { listFlaggedItems, unflagMessage as apiUnflagMessage, type FlaggedItem }
 import { useFlagCount } from "@/contexts/flag-count-context";
 import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { Flag, X } from "lucide-react";
 import { AgentAvatar } from "@/components/avatar";
 import { relativeTime } from "@/lib/time";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 const FLAG_LIMIT = 30;
 
@@ -36,9 +38,12 @@ function FlagRow({
             <span className="text-sm text-foreground truncate flex-1 min-w-0">
               {item.message_content}
             </span>
-            <span className="text-xs text-muted-foreground shrink-0 ml-2" title={new Date(item.flagged_at).toLocaleString()}>
-              {relativeTime(item.flagged_at)}
-            </span>
+            <Tooltip>
+              <TooltipTrigger render={<span className="text-xs text-muted-foreground shrink-0 ml-2" />}>
+                {relativeTime(item.flagged_at)}
+              </TooltipTrigger>
+              <TooltipContent>{new Date(item.flagged_at).toLocaleString()}</TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             {item.agent_name && (
@@ -52,18 +57,25 @@ function FlagRow({
             )}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onUnflag();
-          }}
-          className="flex items-center justify-center size-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0 cursor-pointer"
-          title="Unflag"
-        >
-          <X className="size-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onUnflag();
+                }}
+                className="text-muted-foreground"
+              />
+            }
+          >
+            <X className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent>Unflag</TooltipContent>
+        </Tooltip>
       </div>
     </a>
   );

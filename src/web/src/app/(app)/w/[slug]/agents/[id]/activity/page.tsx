@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { listAgentActivity, retryTask, type ActivityTask } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   Select,
   SelectTrigger,
@@ -135,12 +137,12 @@ function ActivityRow({ task, slug, agentId, workspaceId, onRetry }: { task: Acti
         <span className="text-sm text-foreground truncate flex-1 min-w-0">
           {task.prompt}
         </span>
-        <span
-          className="text-xs text-muted-foreground shrink-0 ml-2"
-          title={new Date(task.created_at).toLocaleString()}
-        >
-          {relativeTime(task.created_at)}
-        </span>
+        <Tooltip>
+          <TooltipTrigger render={<span className="text-xs text-muted-foreground shrink-0 ml-2" />}>
+            {relativeTime(task.created_at)}
+          </TooltipTrigger>
+          <TooltipContent>{new Date(task.created_at).toLocaleString()}</TooltipContent>
+        </Tooltip>
       </div>
       <div className="flex items-center gap-1.5 mt-1 ml-5.5">
         <StatusDot status={task.status} />
@@ -162,17 +164,20 @@ function ActivityRow({ task, slug, agentId, workspaceId, onRetry }: { task: Acti
           </>
         )}
         {task.status === "failed" && (
-          <button
-            type="button"
-            onClick={handleRetry}
-            disabled={retrying}
-            className="ml-auto shrink-0 text-muted-foreground hover:text-foreground transition-colors cursor-pointer disabled:opacity-50"
-            title="Retry task"
-          >
-            {retrying
-              ? <Loader2 className="size-3 animate-spin" />
-              : <RotateCw className="size-3" />}
-          </button>
+          <Tooltip>
+            <TooltipTrigger render={<Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleRetry}
+              disabled={retrying}
+              className="ml-auto text-muted-foreground"
+            />}>
+              {retrying
+                ? <Loader2 className="size-3 animate-spin" />
+                : <RotateCw className="size-3" />}
+            </TooltipTrigger>
+            <TooltipContent>Retry task</TooltipContent>
+          </Tooltip>
         )}
       </div>
     </Link>

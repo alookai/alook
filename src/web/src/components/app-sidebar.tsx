@@ -635,20 +635,26 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             </TooltipContent>
           </Tooltip>
         ) : (
-          <button
-            type="button"
-            title="New agent"
-            onClick={() => { router.push(`${prefix}/agents/new`); onNavigate?.(); }}
-            className={cn(
-              "flex shrink-0 items-center justify-center size-10 rounded-xl transition-colors duration-200 cursor-pointer",
-              "border border-dashed border-foreground/15 text-muted-foreground",
-              "hover:border-foreground/30 hover:text-foreground hover:bg-accent",
-              isCreateAgent &&
-                "border-solid border-foreground/25 bg-accent text-foreground"
-            )}
-          >
-            <Plus className="size-4" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={() => { router.push(`${prefix}/agents/new`); onNavigate?.(); }}
+                  className={cn(
+                    "flex shrink-0 items-center justify-center size-10 rounded-xl transition-colors duration-200 cursor-pointer",
+                    "border border-dashed border-foreground/15 text-muted-foreground",
+                    "hover:border-foreground/30 hover:text-foreground hover:bg-accent",
+                    isCreateAgent &&
+                      "border-solid border-foreground/25 bg-accent text-foreground"
+                  )}
+                />
+              }
+            >
+              <Plus className="size-4" />
+            </TooltipTrigger>
+            <TooltipContent>New agent</TooltipContent>
+          </Tooltip>
         )}
       </div>
 

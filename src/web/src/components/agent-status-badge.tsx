@@ -5,6 +5,7 @@ import Link from "next/link";
 import { badgeVariants } from "@/components/ui/badge";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { listWorkspaceActiveTasks, type WorkspaceActiveTask } from "@/lib/api";
@@ -82,14 +83,19 @@ export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBa
 
   if (!isOnline) {
     return (
-      <Badge
-        variant="outline"
-        render={<Link href={`/w/${slug}/runtimes`} title="Runtime offline — click to manage runtimes" />}
-        className={badgeBase}
-      >
-        <StatusDot online={false} />
-        <span className="hidden sm:inline">Offline</span>
-      </Badge>
+      <Tooltip>
+        <TooltipTrigger render={
+          <Badge
+            variant="outline"
+            render={<Link href={`/w/${slug}/runtimes`} />}
+            className={badgeBase}
+          >
+            <StatusDot online={false} />
+            <span className="hidden sm:inline">Offline</span>
+          </Badge>
+        } />
+        <TooltipContent>Runtime offline — click to manage runtimes</TooltipContent>
+      </Tooltip>
     );
   }
 

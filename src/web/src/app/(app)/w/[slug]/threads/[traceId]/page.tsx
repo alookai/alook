@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { getTrace, type TraceTask } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -133,9 +134,12 @@ function TaskNode({ node, slug }: { node: TreeNode; slug: string }) {
             <span className="text-sm text-foreground truncate flex-1 min-w-0">
               {node.prompt.split("\n")[0]}
             </span>
-            <span className="text-xs text-muted-foreground shrink-0 ml-2" title={new Date(node.created_at).toLocaleString()}>
-              {relativeTime(node.created_at)}
-            </span>
+            <Tooltip>
+              <TooltipTrigger render={<span className="text-xs text-muted-foreground shrink-0 ml-2" />}>
+                {relativeTime(node.created_at)}
+              </TooltipTrigger>
+              <TooltipContent>{new Date(node.created_at).toLocaleString()}</TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex items-center gap-1.5">
             {node.agent?.name && (

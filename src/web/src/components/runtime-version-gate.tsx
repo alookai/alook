@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { AlertTriangle, RefreshCw, Terminal } from "lucide-react";
 import { toast } from "sonner";
 import type { AgentRuntime } from "@alook/shared";
@@ -148,16 +149,22 @@ export function RuntimeVersionGate() {
               Update taking too long?
             </div>
             <p className="mb-1">Run this command on the machine to update manually:</p>
-            <code
-              className="block rounded bg-background px-2 py-1 font-mono text-[11px] cursor-pointer hover:bg-background/80 transition-colors"
-              title="Click to copy"
-              onClick={() => {
-                navigator.clipboard.writeText(MANUAL_UPDATE_CMD);
-                toast.success("Copied to clipboard");
-              }}
-            >
-              {MANUAL_UPDATE_CMD}
-            </code>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <code
+                    className="block rounded bg-background px-2 py-1 font-mono text-[11px] cursor-pointer hover:bg-background/80 transition-colors"
+                    onClick={() => {
+                      navigator.clipboard.writeText(MANUAL_UPDATE_CMD);
+                      toast.success("Copied to clipboard");
+                    }}
+                  />
+                }
+              >
+                {MANUAL_UPDATE_CMD}
+              </TooltipTrigger>
+              <TooltipContent>Click to copy</TooltipContent>
+            </Tooltip>
           </div>
         )}
       </DialogContent>

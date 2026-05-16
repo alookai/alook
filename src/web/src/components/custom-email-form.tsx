@@ -11,6 +11,7 @@ import {
   SheetTitle,
   SheetBody,
 } from "@/components/ui/sheet";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   listEmailAccounts,
@@ -364,15 +365,21 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="font-heading text-lg font-semibold">Custom Email</h2>
-                <a
-                  href={`/w/${slug}/help/email-setup`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                  title="How to get IMAP/SMTP credentials"
-                >
-                  <CircleHelp className="size-4" />
-                </a>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <a
+                        href={`/w/${slug}/help/email-setup`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                      />
+                    }
+                  >
+                    <CircleHelp className="size-4" />
+                  </TooltipTrigger>
+                  <TooltipContent>How to get IMAP/SMTP credentials</TooltipContent>
+                </Tooltip>
               </div>
               <p className="text-sm text-muted-foreground mt-1">
                 Connect your own mailbox to send and receive email as your identity.
@@ -387,24 +394,38 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
                     <span className="text-sm truncate">{existing.email_address}</span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleSync}
-                      disabled={syncing}
-                      title="Sync now"
-                      className="rounded-full p-1 text-muted-foreground hover:bg-muted transition-colors"
-                    >
-                      <RefreshCw className={cn("size-3.5", syncing && "animate-spin")} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleDelete}
-                      disabled={deleting}
-                      title="Remove"
-                      className="rounded-full p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-                    >
-                      {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <XIcon className="size-3.5" />}
-                    </button>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={handleSync}
+                            disabled={syncing}
+                            className="rounded-full text-muted-foreground"
+                          />
+                        }
+                      >
+                        <RefreshCw className={cn("size-3.5", syncing && "animate-spin")} />
+                      </TooltipTrigger>
+                      <TooltipContent>Sync now</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={handleDelete}
+                            disabled={deleting}
+                            className="rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                          />
+                        }
+                      >
+                        {deleting ? <Loader2 className="size-3.5 animate-spin" /> : <XIcon className="size-3.5" />}
+                      </TooltipTrigger>
+                      <TooltipContent>Remove</TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
                 {existing.error_message && (

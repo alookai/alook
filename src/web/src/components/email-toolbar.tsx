@@ -2,6 +2,8 @@
 
 import type { Editor } from "@tiptap/react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
   Bold,
   Italic,
@@ -38,21 +40,26 @@ function ToolbarButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      title={title}
-      disabled={disabled}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-      className={cn(
-        "flex items-center justify-center size-7 rounded-md transition-colors cursor-pointer",
-        "text-muted-foreground/70 hover:text-foreground hover:bg-accent",
-        active && "bg-accent text-foreground",
-        disabled && "opacity-40 pointer-events-none"
-      )}
-    >
-      {children}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            disabled={disabled}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onClick}
+            className={cn(
+              "text-muted-foreground/70",
+              active && "bg-accent text-foreground"
+            )}
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
+    </Tooltip>
   );
 }
 

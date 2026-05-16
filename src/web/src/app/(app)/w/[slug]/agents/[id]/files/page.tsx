@@ -6,6 +6,7 @@ import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { requestWorkspaceBrowse } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ResizablePanels } from "@/components/ui/resizable-panels";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -239,13 +240,15 @@ export default function AgentFilesPage() {
 
   const pathBar = (
     <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border/50 text-xs text-muted-foreground shrink-0 min-w-0">
-      <button
-        onClick={handleCopyPath}
-        className="hover:text-foreground transition-colors shrink-0"
-        title="Copy full path"
-      >
-        <Copy className="size-3" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger render={<button
+          onClick={handleCopyPath}
+          className="hover:text-foreground transition-colors shrink-0"
+        />}>
+          <Copy className="size-3" />
+        </TooltipTrigger>
+        <TooltipContent>Copy full path</TooltipContent>
+      </Tooltip>
       <span className="truncate opacity-60">{rootLabel}</span>
     </div>
   );

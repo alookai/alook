@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/select";
 import { GitBranch, RefreshCw } from "lucide-react";
 import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 const TRACE_LIMIT = 30;
 
@@ -99,9 +101,12 @@ function TraceRow({ trace, slug }: { trace: TraceListItem; slug: string }) {
             <span className="text-sm text-foreground truncate flex-1 min-w-0">
               {trace.root_prompt.split("\n")[0]}
             </span>
-            <span className="text-xs text-muted-foreground shrink-0 ml-2" title={new Date(trace.started_at).toLocaleString()}>
-              {relativeTime(trace.started_at)}
-            </span>
+            <Tooltip>
+              <TooltipTrigger render={<span className="text-xs text-muted-foreground shrink-0 ml-2" />}>
+                {relativeTime(trace.started_at)}
+              </TooltipTrigger>
+              <TooltipContent>{new Date(trace.started_at).toLocaleString()}</TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex items-center gap-1.5">
             {trace.root_agent?.name && (
@@ -275,14 +280,21 @@ export default function TracesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={loadInitial}
-            className="p-1.5 text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-            title="Refresh"
-          >
-            <RefreshCw className="size-3.5" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={loadInitial}
+                  className="text-muted-foreground"
+                />
+              }
+            >
+              <RefreshCw className="size-3.5" />
+            </TooltipTrigger>
+            <TooltipContent>Refresh</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

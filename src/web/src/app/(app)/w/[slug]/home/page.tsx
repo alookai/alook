@@ -32,6 +32,7 @@ import { useWorkspace } from "@/contexts/workspace-context";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
 import {
   listAgentLinks,
@@ -428,15 +429,21 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
       </div>
 
       {/* Create agent button */}
-      <button
-        type="button"
-        className="absolute top-4 right-4 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors animate-[fade-up_300ms_ease-out_both]"
-        style={{ animationDelay: "200ms" }}
-        onClick={() => router.push(`/w/${slug}/agents/new`)}
-        title="Create new agent"
-      >
-        <Plus className="size-4" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="absolute top-4 right-4 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors animate-[fade-up_300ms_ease-out_both]"
+              style={{ animationDelay: "200ms" }}
+              onClick={() => router.push(`/w/${slug}/agents/new`)}
+            />
+          }
+        >
+          <Plus className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent>Create new agent</TooltipContent>
+      </Tooltip>
     </div>
   );
 }
@@ -493,14 +500,20 @@ function MobileAgentList({ onAgentClick }: { onAgentClick?: (agent: Agent) => vo
           );
         })}
       </div>
-      <button
-        type="button"
-        className="absolute top-4 right-4 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        onClick={() => router.push(`/w/${slug}/agents/new`)}
-        title="Create new agent"
-      >
-        <Plus className="size-4" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="absolute top-4 right-4 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              onClick={() => router.push(`/w/${slug}/agents/new`)}
+            />
+          }
+        >
+          <Plus className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent>Create new agent</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

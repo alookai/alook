@@ -2,6 +2,7 @@
 
 import { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
 import { cliCmd, daemonStartCmd } from "@/lib/utils";
@@ -73,16 +74,22 @@ export function ConnectMachineSteps({
           </div>
         ) : generatedToken ? (
           <div className="pl-7 space-y-2">
-            <div
-              className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors break-all"
-              onClick={copyRegister}
-              title="Click to copy"
-            >
-              {cliCmd()} register --token{" "}
-              <span className="text-foreground/70">
-                {generatedToken}
-              </span>
-            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div
+                    className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors break-all"
+                    onClick={copyRegister}
+                  />
+                }
+              >
+                {cliCmd()} register --token{" "}
+                <span className="text-foreground/70">
+                  {generatedToken}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Click to copy</TooltipContent>
+            </Tooltip>
             {!registered && (
               <Button
                 size="sm"
@@ -107,13 +114,19 @@ export function ConnectMachineSteps({
         <p className="text-xs text-muted-foreground pl-7">
           The daemon connects your local agents to Alook.
         </p>
-        <div
-          className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-          onClick={copyDaemon}
-          title="Click to copy"
-        >
-          {daemonCmd}
-        </div>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div
+                className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                onClick={copyDaemon}
+              />
+            }
+          >
+            {daemonCmd}
+          </TooltipTrigger>
+          <TooltipContent>Click to copy</TooltipContent>
+        </Tooltip>
         {registered && (
           <div className="pl-7">
             <Button

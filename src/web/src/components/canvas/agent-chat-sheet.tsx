@@ -17,6 +17,7 @@ import { ChannelBar } from "@/components/channel-bar";
 import { AgentChatView } from "@/components/agent-chat/agent-chat-view";
 import { ArrowUpRight, XIcon } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 interface AgentChatSheetProps {
   open: boolean;
@@ -80,19 +81,25 @@ export function AgentChatSheet({ open, onOpenChange, agent, targetConvId, scroll
             const qs = params.toString();
             const fullPageUrl = `/w/${slug}/agents/${agent.id}${qs ? `?${qs}` : ""}`;
             return (
-              <a
-                href={fullPageUrl}
-                onClick={(e) => {
-                  if (e.metaKey || e.ctrlKey || e.shiftKey) return;
-                  e.preventDefault();
-                  onOpenChange(false);
-                  router.push(fullPageUrl);
-                }}
-                title="Open full page"
-                className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
-              >
-                <ArrowUpRight />
-              </a>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <a
+                      href={fullPageUrl}
+                      onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+                        e.preventDefault();
+                        onOpenChange(false);
+                        router.push(fullPageUrl);
+                      }}
+                      className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
+                    />
+                  }
+                >
+                  <ArrowUpRight />
+                </TooltipTrigger>
+                <TooltipContent>Open full page</TooltipContent>
+              </Tooltip>
             );
           })()}
           <SheetClose

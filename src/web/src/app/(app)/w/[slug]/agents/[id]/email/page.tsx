@@ -9,6 +9,7 @@ import type { Email, EmailAttachment, AgentEmailAccount } from "@alook/shared";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmailCompose } from "@/components/email-compose";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -263,19 +264,21 @@ export default function AgentEmailPage() {
       {mailboxes.length > 0 ? (
         <div className="px-3 pt-3 pb-1 relative">
           {mailboxes.length === 1 ? (
-            <button
-              type="button"
-              onClick={handleCopyAddress}
-              className="group flex items-center gap-1.5 text-left cursor-pointer w-full"
-              title="Click to copy"
-            >
-              <span className="text-xs text-muted-foreground truncate">{activeAddress}</span>
-              {copied ? (
-                <Check className="size-2.5 text-green-500 shrink-0" />
-              ) : (
-                <Copy className="size-2.5 text-muted-foreground/0 group-hover:text-muted-foreground/60 shrink-0 transition-colors" />
-              )}
-            </button>
+            <Tooltip>
+              <TooltipTrigger render={<button
+                type="button"
+                onClick={handleCopyAddress}
+                className="group flex items-center gap-1.5 text-left cursor-pointer w-full"
+              />}>
+                <span className="text-xs text-muted-foreground truncate">{activeAddress}</span>
+                {copied ? (
+                  <Check className="size-2.5 text-green-500 shrink-0" />
+                ) : (
+                  <Copy className="size-2.5 text-muted-foreground/0 group-hover:text-muted-foreground/60 shrink-0 transition-colors" />
+                )}
+              </TooltipTrigger>
+              <TooltipContent>Click to copy</TooltipContent>
+            </Tooltip>
           ) : (
             <>
               <div className="flex items-center gap-1 w-full">
@@ -287,18 +290,20 @@ export default function AgentEmailPage() {
                   <span className="text-xs text-muted-foreground truncate">{activeAddress}</span>
                   <ChevronDown className="size-2.5 text-muted-foreground shrink-0" />
                 </button>
-                <button
-                  type="button"
-                  onClick={handleCopyAddress}
-                  className="shrink-0 p-0.5"
-                  title="Copy address"
-                >
-                  {copied ? (
-                    <Check className="size-2.5 text-green-500" />
-                  ) : (
-                    <Copy className="size-2.5 text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors" />
-                  )}
-                </button>
+                <Tooltip>
+                  <TooltipTrigger render={<button
+                    type="button"
+                    onClick={handleCopyAddress}
+                    className="shrink-0 p-0.5"
+                  />}>
+                    {copied ? (
+                      <Check className="size-2.5 text-green-500" />
+                    ) : (
+                      <Copy className="size-2.5 text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors" />
+                    )}
+                  </TooltipTrigger>
+                  <TooltipContent>Copy address</TooltipContent>
+                </Tooltip>
               </div>
               {mailboxOpen && (
                 <div className="absolute left-2 right-2 top-full mt-0.5 z-10 rounded-lg border border-border bg-popover shadow-md py-1">
@@ -330,16 +335,18 @@ export default function AgentEmailPage() {
         </div>
       )}
       <div className="p-2">
-        <Button
-          size="sm"
-          className="w-full justify-start text-xs h-8 gap-1.5"
-          onClick={() => { setComposeInitial({}); setComposing(true); setSelectedId(null); }}
-          disabled={mailboxes.length === 0}
-          title={mailboxes.length === 0 ? "Configure an email in agent settings to send emails" : "Compose new email"}
-        >
-          <Plus className="size-3.5" />
-          New Email
-        </Button>
+        <Tooltip>
+          <TooltipTrigger render={<Button
+            size="sm"
+            className="w-full justify-start text-xs h-8 gap-1.5"
+            onClick={() => { setComposeInitial({}); setComposing(true); setSelectedId(null); }}
+            disabled={mailboxes.length === 0}
+          />}>
+            <Plus className="size-3.5" />
+            New Email
+          </TooltipTrigger>
+          <TooltipContent>{mailboxes.length === 0 ? "Configure an email in agent settings to send emails" : "Compose new email"}</TooltipContent>
+        </Tooltip>
       </div>
       <nav className="flex flex-col gap-0.5 px-2">
         <button
@@ -484,37 +491,43 @@ export default function AgentEmailPage() {
           {/* Detail toolbar */}
           <div className="flex items-center gap-0.5 border-b border-border/40 px-4 py-1.5">
             {folder !== "sent" && (
-              <Button
+              <Tooltip>
+                <TooltipTrigger render={<Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground/60 hover:text-foreground"
+                  onClick={() => handleReply(selected)}
+                />}>
+                  <Reply className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent>Reply</TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger render={<Button
                 variant="ghost"
                 size="icon"
                 className="size-7 text-muted-foreground/60 hover:text-foreground"
-                title="Reply"
-                onClick={() => handleReply(selected)}
-              >
-                <Reply className="size-3.5" />
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 text-muted-foreground/60 hover:text-foreground"
-              title="Forward"
-              onClick={() => handleForward(selected)}
-            >
-              <Forward className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 text-muted-foreground/60 hover:text-destructive"
-              title="Delete"
-              onClick={() => {
-                setDeleteTarget(selected.id);
-                setDeleteConfirmOpen(true);
-              }}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
+                onClick={() => handleForward(selected)}
+              />}>
+                <Forward className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipContent>Forward</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger render={<Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground/60 hover:text-destructive"
+                onClick={() => {
+                  setDeleteTarget(selected.id);
+                  setDeleteConfirmOpen(true);
+                }}
+              />}>
+                <Trash2 className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipContent>Delete</TooltipContent>
+            </Tooltip>
           </div>
 
           {/* Thread parents */}
@@ -685,18 +698,20 @@ export default function AgentEmailPage() {
                 <span className="text-xs text-muted-foreground truncate">{activeAddress}</span>
                 <ChevronDown className="size-2.5 text-muted-foreground shrink-0" />
               </button>
-              <button
-                type="button"
-                onClick={handleCopyAddress}
-                className="shrink-0 p-0.5"
-                title="Copy address"
-              >
-                {copied ? (
-                  <Check className="size-2.5 text-green-500" />
-                ) : (
-                  <Copy className="size-2.5 text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors" />
-                )}
-              </button>
+              <Tooltip>
+                <TooltipTrigger render={<button
+                  type="button"
+                  onClick={handleCopyAddress}
+                  className="shrink-0 p-0.5"
+                />}>
+                  {copied ? (
+                    <Check className="size-2.5 text-green-500" />
+                  ) : (
+                    <Copy className="size-2.5 text-muted-foreground/40 hover:text-muted-foreground/80 transition-colors" />
+                  )}
+                </TooltipTrigger>
+                <TooltipContent>Copy address</TooltipContent>
+              </Tooltip>
             </div>
             {mailboxOpen && (
               <div className="absolute left-2 right-2 top-full mt-0.5 z-10 rounded-lg border border-border bg-popover shadow-md py-1">

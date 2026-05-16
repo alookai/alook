@@ -20,6 +20,7 @@ import {
   SheetBody,
 } from "@/components/ui/sheet";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Monitor, Plus } from "lucide-react";
@@ -433,17 +434,23 @@ export default function RuntimesPage() {
                           <p className="text-[11px] text-muted-foreground mb-1.5">
                             Bring this machine online:
                           </p>
-                          <div
-                            className="relative overflow-hidden rounded-md bg-muted px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-                            onClick={() => {
-                              navigator.clipboard.writeText(`${cliCmd()} daemon start`);
-                              toast.success("Copied to clipboard");
-                            }}
-                            title="Click to copy"
-                          >
-                            <span className="absolute inset-0 -translate-x-full animate-[shimmer_2.5s_infinite] bg-linear-to-r from-transparent via-(--shimmer-peak) to-transparent" />
-                            <span className="relative">{cliCmd()} daemon start</span>
-                          </div>
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <div
+                                  className="relative overflow-hidden rounded-md bg-muted px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(`${cliCmd()} daemon start`);
+                                    toast.success("Copied to clipboard");
+                                  }}
+                                />
+                              }
+                            >
+                              <span className="absolute inset-0 -translate-x-full animate-[shimmer_2.5s_infinite] bg-linear-to-r from-transparent via-(--shimmer-peak) to-transparent" />
+                              <span className="relative">{cliCmd()} daemon start</span>
+                            </TooltipTrigger>
+                            <TooltipContent>Click to copy</TooltipContent>
+                          </Tooltip>
                         </div>
                       )}
                     </div>
