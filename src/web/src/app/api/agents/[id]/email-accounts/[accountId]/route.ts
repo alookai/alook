@@ -5,6 +5,7 @@ import { encrypt } from "@alook/shared/crypto"
 import { withAuth } from "@/lib/middleware/auth"
 import { withWorkspaceMember } from "@/lib/middleware/workspace"
 import { writeJSON, writeError, parseBody, formatTimestamp, formatTimestampNullable } from "@/lib/middleware/helpers"
+import { invalidate, cacheKeys } from "@/lib/cache"
 
 type AgentEmailAccountRow = Awaited<ReturnType<typeof queries.emailAccount.getEmailAccountsByAgent>>[number]
 
@@ -77,6 +78,8 @@ export const PATCH = withAuth(async (req, ctx) => {
   const updated = await queries.emailAccount.updateEmailAccount(db, accountId, ws.workspaceId, data)
   if (!updated) return writeError("update failed", 500)
 
+  await invalidate(cacheKeys.emailAccountsByAgent(ws.workspaceId, agentId));
+
   const hasCredentialChange = body.imapUsername || body.imapPassword || body.smtpUsername || body.smtpPassword || body.imapHost || body.smtpHost
   if (hasCredentialChange) {
     await callEmailWorker(cfEnv, `/imap/stop?accountId=${accountId}`)
@@ -105,6 +108,8 @@ export const DELETE = withAuth(async (req, ctx) => {
 
   const deleted = await queries.emailAccount.deleteEmailAccount(db, accountId, ws.workspaceId)
   if (!deleted) return writeError("delete failed", 500)
+
+  await invalidate(cacheKeys.emailAccountsByAgent(ws.workspaceId, agentId));
 
   return writeJSON({ ok: true })
 })

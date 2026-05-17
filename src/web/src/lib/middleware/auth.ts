@@ -45,7 +45,14 @@ export function withAuth(handler: AuthenticatedHandler) {
           if (!mt) {
             return NextResponse.json({ error: "invalid token" }, { status: 401 })
           }
-          queries.machineToken.updateMachineTokenLastUsed(db, mt.id).catch(() => {})
+          cached(
+            cacheKeys.machineTokenLastUsed(raw),
+            900,
+            async () => {
+              await queries.machineToken.updateMachineTokenLastUsed(db, mt.id);
+              return "1";
+            },
+          ).catch(() => {});
           const authCtx: AuthContext = {
             userId: mt.userId,
             email: mt.userEmail,

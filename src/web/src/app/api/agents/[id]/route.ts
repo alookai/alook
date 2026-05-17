@@ -99,5 +99,7 @@ export const DELETE = withAuth(async (req, ctx) => {
     return writeError("agent not found", 404);
   }
 
+  await invalidate(cacheKeys.agent(ws.workspaceId, id));
+
   return new Response(null, { status: 204 });
 });

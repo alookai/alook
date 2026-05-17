@@ -5,6 +5,7 @@ import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { agentLinkToResponse } from "@/lib/api/responses";
+import { invalidateMany, cacheKeys } from "@/lib/cache";
 
 export const PATCH = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -24,6 +25,11 @@ export const PATCH = withAuth(async (req, ctx) => {
   });
   if (!updated) return writeError("agent link not found", 404);
 
+  await invalidateMany([
+    cacheKeys.colleaguesByAgent(ws.workspaceId, updated.sourceAgentId),
+    cacheKeys.colleaguesByAgent(ws.workspaceId, updated.targetAgentId),
+  ]);
+
   return writeJSON(agentLinkToResponse(updated));
 });
 
@@ -39,6 +45,11 @@ export const DELETE = withAuth(async (req, ctx) => {
 
   const deleted = await queries.agentLink.remove(db, id, ws.workspaceId);
   if (!deleted) return writeError("agent link not found", 404);
+
+  await invalidateMany([
+    cacheKeys.colleaguesByAgent(ws.workspaceId, deleted.sourceAgentId),
+    cacheKeys.colleaguesByAgent(ws.workspaceId, deleted.targetAgentId),
+  ]);
 
   return writeJSON(agentLinkToResponse(deleted));
 });
