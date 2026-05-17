@@ -1,5 +1,6 @@
 import type { ExecOptions, AgentMessage, AgentResult } from "../types.js";
 import { ClaudeBackend } from "./claude.js";
+import { ClaudePTYBackend } from "./claude-pty.js";
 import { CodexBackend } from "./codex.js";
 import { OpenCodeBackend } from "./opencode.js";
 import { execSync } from "child_process";
@@ -21,8 +22,13 @@ export function createBackend(
   cliPath: string,
 ): AgentBackend {
   switch (provider) {
-    case "claude":
+    case "claude": {
+      const backend = process.env.ALOOK_CLAUDE_BACKEND || "pipe";
+      if (backend === "pty") {
+        return new ClaudePTYBackend(cliPath);
+      }
       return new ClaudeBackend(cliPath);
+    }
     case "codex":
       return new CodexBackend(cliPath);
     case "opencode":
