@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, PollRequestSchema, semverGte, toAlookAddress, type FileRequestItem, type PollMeetingItem } from "@alook/shared";
+import { queries, PollRequestSchema, semverGte, toAlookAddress, OFFLINE_THRESHOLD_MS, POLL_INTERVAL_MS, type FileRequestItem, type PollMeetingItem } from "@alook/shared";
 import { getDb, withD1Retry } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -36,6 +36,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   // 2. Liveness: write heartbeat to KV (fast) + D1 upsert throttled to stay under OFFLINE_THRESHOLD
   // KV is eventually consistent across colos, so D1 must stay fresh enough as fallback.
+  // Derived from timing constants so it auto-adapts if threshold or poll interval changes.
+  const D1_HEARTBEAT_THROTTLE_S = Math.floor((OFFLINE_THRESHOLD_MS - POLL_INTERVAL_MS) / 1000) - 1;
   // Non-critical — D1 transient failures should not block task polling
   const kv = (env as Env).CACHE_KV ?? null;
   if (kv) {
@@ -48,7 +50,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   try {
     await cached(
       `hb_d1:${ctx.workspaceId}:${body.daemon_id}`,
-      7,
+      D1_HEARTBEAT_THROTTLE_S,
       async () => {
         await queries.machine.upsertMachine(db, {
           daemonId: body.daemon_id,
