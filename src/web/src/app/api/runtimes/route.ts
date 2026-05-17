@@ -26,7 +26,7 @@ export const GET = withAuth(async (req, ctx) => {
     await Promise.all(runtimes.map(async (rt) => {
       if (rt.daemonId) {
         const hb = await kv.get(cacheKeys.heartbeat(ws.workspaceId, rt.daemonId)).catch(() => null);
-        if (hb) (rt as any).machineLastSeenAt = hb;
+        if (hb) rt.machineLastSeenAt = hb;
       }
     }));
   }
