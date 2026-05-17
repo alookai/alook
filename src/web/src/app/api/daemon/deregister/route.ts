@@ -6,6 +6,7 @@ import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { DeregisterRequestSchema } from "@alook/shared";
 import { broadcastToUser } from "@/lib/broadcast";
+import { log } from "@/lib/logger";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
@@ -18,12 +19,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("Forbidden: machine token required", 403);
   }
 
-  // Set machine last_seen_at to null (single write, isOnline() returns false immediately)
-  await queries.machine.setMachineLastSeenNull(
-    db,
-    body.daemon_id,
-    ctx.workspaceId,
-  );
+  // Set machine last_seen_at to null — non-critical, daemon is already shutting down
+  try {
+    await queries.machine.setMachineLastSeenNull(
+      db,
+      body.daemon_id,
+      ctx.workspaceId,
+    );
+  } catch (e) {
+    log.warn("deregister: setMachineLastSeenNull failed", { daemonId: body.daemon_id, err: String(e) });
+  }
 
   // Single broadcast at daemon level
   broadcastToUser(ctx.userId, {

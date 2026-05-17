@@ -3,7 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, WorkspaceFileReportSchema } from "@alook/shared";
 import { withAuth } from "@/lib/middleware/auth";
 import { parseBody, writeJSON, writeError } from "@/lib/middleware/helpers";
-import { getDb } from "@/lib/db";
+import { getDb, withD1Retry } from "@/lib/db";
 import { broadcastToUser } from "@/lib/broadcast";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -17,7 +17,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const [body, err] = await parseBody(req, WorkspaceFileReportSchema);
   if (err) return err;
 
-  const row = await queries.workspaceFileRequest.getRequest(db, body.request_id);
+  const row = await withD1Retry(() => queries.workspaceFileRequest.getRequest(db, body.request_id));
   if (!row) return writeError("request not found", 404);
 
   const result = {
@@ -28,7 +28,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     path: body.path,
   };
 
-  await queries.workspaceFileRequest.completeRequest(db, row.id, result);
+  await withD1Retry(() => queries.workspaceFileRequest.completeRequest(db, row.id, result));
 
   broadcastToUser(ctx.userId, {
     type: "workspace.files",

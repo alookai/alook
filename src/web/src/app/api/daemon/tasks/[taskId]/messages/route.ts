@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getDb, withD1Retry } from "@/lib/db";
 import type { TaskMessage } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -23,7 +23,7 @@ export const GET = withAuth(async (_req, ctx) => {
     return writeError("task_id is required", 400);
   }
 
-  const messages = await queries.taskMessage.listTaskMessages(db, taskId, ctx.workspaceId);
+  const messages = await withD1Retry(() => queries.taskMessage.listTaskMessages(db, taskId, ctx.workspaceId));
   return writeJSON(messages.map(taskMessageToResponse));
 });
 
@@ -40,7 +40,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("task_id is required", 400);
   }
 
-  const task = await queries.task.getTask(db, taskId, ctx.workspaceId);
+  const task = await withD1Retry(() => queries.task.getTask(db, taskId, ctx.workspaceId));
   if (!task) {
     return writeError("task not found", 404);
   }

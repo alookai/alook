@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, PollRequestSchema, semverGte, toAlookAddress, type FileRequestItem, type PollMeetingItem } from "@alook/shared";
-import { getDb } from "@/lib/db"
+import { getDb, withD1Retry } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { taskToResponse } from "@/lib/api/responses";
@@ -35,11 +35,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   // 2. Liveness: upsert machine row only when runtimes exist
-  await queries.machine.upsertMachine(db, {
-    daemonId: body.daemon_id,
-    workspaceId: ctx.workspaceId,
-    deviceInfo: body.daemon_id,
-  });
+  // Non-critical — D1 transient failures should not block task polling
+  try {
+    await queries.machine.upsertMachine(db, {
+      daemonId: body.daemon_id,
+      workspaceId: ctx.workspaceId,
+      deviceInfo: body.daemon_id,
+    });
+  } catch (e) {
+    log.warn("machine upsert failed", { daemonId: body.daemon_id, err: String(e) });
+  }
 
   broadcastToUser(ctx.userId, {
     type: "runtime.status",
@@ -48,8 +53,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     status: "online",
   }).catch(() => {});
 
-  // 3. Housekeeping: sweep stale state
-  await sweepStaleState(db, ctx.workspaceId);
+  // 3. Housekeeping: sweep stale state — non-critical
+  try {
+    await sweepStaleState(db, ctx.workspaceId);
+  } catch (e) {
+    log.warn("sweep failed", { workspaceId: ctx.workspaceId, err: String(e) });
+  }
 
   // 3b. Promote due calendar events into queued tasks before task claiming so
   // they are eligible in the same poll response.
@@ -70,19 +79,19 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   // 4. Task claiming
   const taskService = new TaskService(db);
-  const claimed = await taskService.claimTasksForRuntimes(
+  const claimed = await withD1Retry(() => taskService.claimTasksForRuntimes(
     runtimeIds,
     body.max_tasks,
     ctx.workspaceId!,
-  );
+  ));
 
   // Batch-fetch shared data before the task loop to avoid N+1 queries
   const nonKillTasks = claimed.filter((t) => t.type !== "kill_task");
   const agentIds = [...new Set(nonKillTasks.map((t) => t.agentId))];
 
   const [allAgents, allEmailAccounts, allColleagues] = await Promise.all([
-    queries.agent.getAgentsByIds(db, agentIds, ctx.workspaceId!),
-    queries.emailAccount.getEmailAccountsByAgents(db, agentIds, ctx.workspaceId!),
+    withD1Retry(() => queries.agent.getAgentsByIds(db, agentIds, ctx.workspaceId!)),
+    withD1Retry(() => queries.emailAccount.getEmailAccountsByAgents(db, agentIds, ctx.workspaceId!)),
     queries.agentLink.getColleaguesForAgents(db, agentIds, ctx.workspaceId!).catch(() => [] as Awaited<ReturnType<typeof queries.agentLink.getColleaguesForAgents>>),
   ]);
 
@@ -193,32 +202,35 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     });
   }
 
-  // 5. Pending update check
-  const machineRow = await queries.machine.getMachineByDaemon(
-    db,
-    body.daemon_id,
-    ctx.workspaceId,
-  );
+  // 5. Pending update & rescan check — non-critical
   let pendingUpdate: { version: string } | undefined;
-  if (machineRow?.pendingUpdateVersion && body.cli_version) {
-    if (semverGte(body.cli_version, machineRow.pendingUpdateVersion)) {
-      await queries.machine.clearPendingUpdateVersion(db, body.daemon_id, ctx.workspaceId);
-      broadcastToUser(ctx.userId, {
-        type: "runtime.status",
-        daemonId: body.daemon_id,
-        workspaceId: ctx.workspaceId,
-        status: "online",
-      }).catch(() => {});
-    } else {
-      pendingUpdate = { version: machineRow.pendingUpdateVersion };
-    }
-  }
-
-  // 6. Pending rescan check
   let pendingRescan: boolean | undefined;
-  if (machineRow?.pendingRescan) {
-    pendingRescan = true;
-    await queries.machine.clearPendingRescan(db, body.daemon_id, ctx.workspaceId);
+  try {
+    const machineRow = await queries.machine.getMachineByDaemon(
+      db,
+      body.daemon_id,
+      ctx.workspaceId,
+    );
+    if (machineRow?.pendingUpdateVersion && body.cli_version) {
+      if (semverGte(body.cli_version, machineRow.pendingUpdateVersion)) {
+        await queries.machine.clearPendingUpdateVersion(db, body.daemon_id, ctx.workspaceId);
+        broadcastToUser(ctx.userId, {
+          type: "runtime.status",
+          daemonId: body.daemon_id,
+          workspaceId: ctx.workspaceId,
+          status: "online",
+        }).catch(() => {});
+      } else {
+        pendingUpdate = { version: machineRow.pendingUpdateVersion };
+      }
+    }
+
+    if (machineRow?.pendingRescan) {
+      pendingRescan = true;
+      await queries.machine.clearPendingRescan(db, body.daemon_id, ctx.workspaceId);
+    }
+  } catch (e) {
+    log.warn("pending check failed", { daemonId: body.daemon_id, err: String(e) });
   }
 
   // 7. Pending file browse requests + cleanup

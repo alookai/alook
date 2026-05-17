@@ -6,3 +6,14 @@ export function getDb(d1: D1Database): Database {
   // Native Drizzle support tracked at https://github.com/drizzle-team/drizzle-orm/issues/4522
   return createDb(session as unknown as Parameters<typeof createDb>[0])
 }
+
+export async function withD1Retry<T>(fn: () => Promise<T>, retries = 1): Promise<T> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i === retries) throw err;
+    }
+  }
+  throw new Error("unreachable");
+}

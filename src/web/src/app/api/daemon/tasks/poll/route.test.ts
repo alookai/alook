@@ -25,7 +25,10 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }));
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => ({})),
+  withD1Retry: vi.fn((fn: () => Promise<any>) => fn()),
+}));
 
 vi.mock("@alook/shared", async () => {
   const real = await vi.importActual<typeof import("@alook/shared")>("@alook/shared");
@@ -762,5 +765,49 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(res.status).toBe(200);
     expect(body.tasks).toEqual([]);
     expect(body.meetings).toBeUndefined();
+  });
+
+  it("still returns tasks when upsertMachine fails (D1 transient error)", async () => {
+    mockUpsertMachine.mockRejectedValue(new Error("D1 timeout"));
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.tasks).toEqual([]);
+  });
+
+  it("still returns tasks when sweepStaleState fails (D1 transient error)", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockRejectedValue(new Error("D1 timeout"));
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.tasks).toEqual([]);
+  });
+
+  it("still returns tasks when pending check fails (D1 transient error)", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetMachineByDaemon.mockRejectedValue(new Error("D1 timeout"));
+
+    const res = await POST(postReq({ daemon_id: "d1", cli_version: "0.1.0" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.tasks).toEqual([]);
+    expect(body.pending_update).toBeUndefined();
   });
 });

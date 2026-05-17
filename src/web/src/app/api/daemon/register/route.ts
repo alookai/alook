@@ -1,13 +1,14 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getDb, withD1Retry } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, parseBody } from "@/lib/middleware/helpers";
 import { runtimeToResponse } from "@/lib/api/responses";
 import { RegisterDaemonRequestSchema, generateWorkspaceSlug } from "@alook/shared";
 import { broadcastToUser } from "@/lib/broadcast";
 import { invalidate, cacheKeys } from "@/lib/cache";
+import { log } from "@/lib/logger";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
@@ -26,19 +27,19 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   if (!workspaceId) {
     // Check if user already has a workspace before creating a new one
-    const existing = await queries.workspace.listWorkspaces(db, ctx.userId);
+    const existing = await withD1Retry(() => queries.workspace.listWorkspaces(db, ctx.userId));
     if (existing.length > 0) {
       workspaceId = existing[0].id;
     } else {
-      const ws = await queries.workspace.createWorkspace(db, {
+      const ws = await withD1Retry(() => queries.workspace.createWorkspace(db, {
         name: "Personal",
         slug: generateWorkspaceSlug(),
-      });
-      await queries.member.createMember(db, {
+      }));
+      await withD1Retry(() => queries.member.createMember(db, {
         workspaceId: ws.id,
         userId: ctx.userId,
         role: "owner",
-      });
+      }));
       workspaceId = ws.id;
     }
   }
@@ -48,21 +49,25 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeJSON({ error: "workspace_id does not match token" }, 403);
   }
 
-  const membership = await queries.member.getMemberByUserAndWorkspace(
+  const membership = await withD1Retry(() => queries.member.getMemberByUserAndWorkspace(
     db,
     ctx.userId,
     workspaceId
-  );
+  ));
   if (!membership) {
     return writeJSON({ error: "workspace not found" }, 404);
   }
 
-  // Upsert machine row (1 write for liveness)
-  await queries.machine.upsertMachine(db, {
-    daemonId,
-    workspaceId,
-    deviceInfo: deviceName.trim(),
-  });
+  // Upsert machine row (1 write for liveness) — non-critical
+  try {
+    await queries.machine.upsertMachine(db, {
+      daemonId,
+      workspaceId,
+      deviceInfo: deviceName.trim(),
+    });
+  } catch (e) {
+    log.warn("register: machine upsert failed", { daemonId, err: String(e) });
+  }
 
   const results = [];
   for (const rt of runtimes) {
@@ -75,14 +80,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       ...(workspacesRoot ? { workspaces_root: workspacesRoot } : {}),
     };
 
-    const result = await queries.runtime.upsertAgentRuntime(db, {
+    const result = await withD1Retry(() => queries.runtime.upsertAgentRuntime(db, {
       workspaceId,
       daemonId,
       runtimeMode,
       provider,
       deviceInfo,
       metadata,
-    });
+    }));
     results.push({ ...result, machineLastSeenAt: new Date().toISOString() });
   }
 
