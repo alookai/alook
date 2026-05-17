@@ -15,10 +15,10 @@
     "worker-mailer": "^1.2.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260510.1",
-    "@types/node": "^25.6.2",
+    "@cloudflare/workers-types": "^4.20260517.1",
+    "@types/node": "^25.8.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.5",
-    "wrangler": "^4.90.0"
+    "vitest": "^4.1.6",
+    "wrangler": "^4.92.0"
   }
 }

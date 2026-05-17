@@ -38,10 +38,10 @@
   },
   "devDependencies": {
     "simple-git-hooks": "^2.13.1",
-    "turbo": "^2.9.12",
+    "turbo": "^2.9.14",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.5",
-    "wrangler": "^4.90.0"
+    "vitest": "^4.1.6",
+    "wrangler": "^4.92.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -17,10 +17,10 @@
     "zod": "^4.4"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260510.1",
-    "@types/node": "^25.6.2",
-    "playwright-core": "^1.59.1",
+    "@cloudflare/workers-types": "^4.20260517.1",
+    "@types/node": "^25.8.0",
+    "playwright-core": "^1.60.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.6"
   }
 }
