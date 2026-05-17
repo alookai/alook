@@ -34,7 +34,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeJSON({ tasks: [], evicted: true });
   }
 
-  // 2. Liveness: write heartbeat to KV (fast) + throttle D1 upsert to every 60s
+  // 2. Liveness: write heartbeat to KV (fast) + D1 upsert throttled to stay under OFFLINE_THRESHOLD
+  // KV is eventually consistent across colos, so D1 must stay fresh enough as fallback.
   // Non-critical — D1 transient failures should not block task polling
   const kv = (env as Env).CACHE_KV ?? null;
   if (kv) {
@@ -47,7 +48,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   try {
     await cached(
       `hb_d1:${ctx.workspaceId}:${body.daemon_id}`,
-      60,
+      7,
       async () => {
         await queries.machine.upsertMachine(db, {
           daemonId: body.daemon_id,
