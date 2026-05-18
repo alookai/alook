@@ -29,6 +29,7 @@ vi.mock("@alook/shared", async () => {
         createAgent: (...args: unknown[]) => mockCreateAgent(...args),
         getAgentByHandle: (...args: unknown[]) => mockGetAgentByHandle(...args),
         listAgents: (...args: unknown[]) => mockListAgents(...args),
+        getAllHandlesForWorkspace: vi.fn().mockResolvedValue([]),
       },
       runtime: {
         getAgentRuntimeForWorkspace: (...args: unknown[]) => mockGetAgentRuntimeForWorkspace(...args),
