@@ -6,6 +6,7 @@ import {
   VT323,
   Literata,
 } from "next/font/google";
+import { GoogleTagManager } from "@next/third-parties/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeScript } from "@/components/theme-script";
 import { ToasterProvider } from "@/components/toaster-provider";
@@ -123,6 +124,7 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
+      <GoogleTagManager gtmId="GTM-56VHCCQZ" />
       <body className="min-h-full flex flex-col">
         <script
           type="application/ld+json"
