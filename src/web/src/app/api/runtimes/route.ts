@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries } from "@alook/shared"
+import { queries, createLogger } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
@@ -7,6 +7,8 @@ import { writeJSON } from "@/lib/middleware/helpers";
 import { runtimeToResponse } from "@/lib/api/responses";
 import { sweepStaleState } from "@/lib/services/sweep";
 import { cacheKeys } from "@/lib/cache";
+
+const log = createLogger({ service: "api:runtimes" })
 
 export const GET = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -16,7 +18,11 @@ export const GET = withAuth(async (req, ctx) => {
   const db = getDb((env as Env).DB)
 
   // Sweep stale state: mark offline runtimes, fail stuck tasks, reconcile agents
-  await sweepStaleState(db, ws.workspaceId);
+  try {
+    await sweepStaleState(db, ws.workspaceId);
+  } catch (err) {
+    log.warn("sweepStaleState failed, continuing", { workspaceId: ws.workspaceId, err: String(err) })
+  }
 
   const runtimes = await queries.runtime.listAgentRuntimes(db, ws.workspaceId);
 

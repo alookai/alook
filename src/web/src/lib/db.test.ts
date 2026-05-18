@@ -21,7 +21,7 @@ describe("withD1Retry", () => {
   it("throws after all retries exhausted", async () => {
     const fn = vi.fn().mockRejectedValue(new Error("D1 down"));
     await expect(withD1Retry(fn)).rejects.toThrow("D1 down");
-    expect(fn).toHaveBeenCalledTimes(2);
+    expect(fn).toHaveBeenCalledTimes(4);
   });
 
   it("respects custom retry count", async () => {

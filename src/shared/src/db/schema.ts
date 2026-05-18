@@ -223,6 +223,7 @@ export const agentRuntime = sqliteTable(
       t.daemonId,
       t.provider
     ),
+    index("idx_agent_runtime_workspace_daemon").on(t.workspaceId, t.daemonId),
   ]
 );
 
@@ -376,6 +377,7 @@ export const agentTaskQueue = sqliteTable(
       .on(t.conversationId, t.status),
     index("idx_task_queue_trace").on(t.traceId),
     index("idx_task_queue_parent").on(t.parentTaskId),
+    index("idx_task_queue_workspace_type_status").on(t.workspaceId, t.type, t.status),
     foreignKey({
       columns: [t.agentId, t.workspaceId],
       foreignColumns: [agent.id, agent.workspaceId],

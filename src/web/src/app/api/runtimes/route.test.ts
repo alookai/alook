@@ -12,6 +12,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
 vi.mock("@alook/shared", () => ({
   createDb: vi.fn(() => ({})),
+  createLogger: vi.fn(() => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() })),
   queries: {
     runtime: {
       listAgentRuntimes: (...args: unknown[]) => mockListAgentRuntimes(...args),
