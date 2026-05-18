@@ -196,6 +196,11 @@ export default function AgentEmailPage() {
   const handleSend = async (to: string, subject: string, htmlBody: string, attachments: EmailAttachment[], threading?: { inReplyTo?: string; references?: string }): Promise<boolean> => {
     try {
       await sendEmail(agentId, to, subject, htmlBody, workspaceId, attachments.length > 0 ? attachments : undefined, threading, activeAccountId);
+      // If editing a draft, delete the archived draft now that send succeeded
+      if (editingDraftId) {
+        deleteEmail(editingDraftId, workspaceId).catch(() => {});
+        setEditingDraftId(null);
+      }
       toast.success("Email sent");
       setComposing(false);
       switchFolder("sent");
@@ -230,7 +235,10 @@ export default function AgentEmailPage() {
     }
   };
 
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+
   const handleEditDraft = (draft: Email) => {
+    setEditingDraftId(draft.id);
     setSelectedId(null);
     setComposeInitial({
       to: draft.to_email,
@@ -241,10 +249,9 @@ export default function AgentEmailPage() {
       references: draft.references || undefined,
     });
     setComposing(true);
-    // Delete the old draft after opening editor
-    deleteEmail(draft.id, workspaceId).then(() => {
-      setEmails((prev) => prev.filter((e) => e.id !== draft.id));
-    }).catch(() => {});
+    // Soft-hide from list but don't delete — draft is preserved until send succeeds
+    updateEmailStatus(draft.id, workspaceId, "archived").catch(() => {});
+    setEmails((prev) => prev.filter((e) => e.id !== draft.id));
   };
 
   const handleDiscardDraft = async (draft: Email) => {

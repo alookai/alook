@@ -45,14 +45,19 @@ export const POST = withAuth(async (req, ctx) => {
   if (err) return err;
 
   const email = body.email.toLowerCase();
-  const entry = await queries.greylist.addGreylist(db, agentId, ws.workspaceId, email);
-  if (!entry) return writeError("email already whitelisted or greylisted", 409);
+  const result = await queries.greylist.addGreylist(db, agentId, ws.workspaceId, email);
+  if (!result.ok) {
+    const msg = result.reason === "whitelisted"
+      ? "email is already whitelisted — remove from whitelist first"
+      : "email is already greylisted";
+    return writeError(msg, 409);
+  }
 
   return writeJSON(
     {
-      id: entry.id,
-      email: entry.email,
-      created_at: formatTimestamp(entry.createdAt),
+      id: result.entry.id,
+      email: result.entry.email,
+      created_at: formatTimestamp(result.entry.createdAt),
     },
     201
   );

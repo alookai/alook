@@ -10,7 +10,11 @@ export async function getGreylist(db: Database, agentId: string, workspaceId: st
     .where(and(eq(agentGreylist.agentId, agentId), eq(agentGreylist.workspaceId, workspaceId)));
 }
 
-export async function addGreylist(db: Database, agentId: string, workspaceId: string, email: string) {
+export type AddGreylistResult =
+  | { ok: true; entry: { id: string; agentId: string; workspaceId: string; email: string; createdAt: string } }
+  | { ok: false; reason: "whitelisted" | "already_greylisted" };
+
+export async function addGreylist(db: Database, agentId: string, workspaceId: string, email: string): Promise<AddGreylistResult> {
   // Mutual exclusion: reject if already whitelisted
   const whitelisted = await db
     .select({ id: agentWhitelist.id })
@@ -23,14 +27,15 @@ export async function addGreylist(db: Database, agentId: string, workspaceId: st
       )
     )
     .limit(1);
-  if (whitelisted.length > 0) return null;
+  if (whitelisted.length > 0) return { ok: false, reason: "whitelisted" };
 
   const rows = await db
     .insert(agentGreylist)
     .values({ agentId, workspaceId, email })
     .onConflictDoNothing()
     .returning();
-  return rows[0] ?? null;
+  if (!rows[0]) return { ok: false, reason: "already_greylisted" };
+  return { ok: true, entry: rows[0] };
 }
 
 export async function removeGreylist(db: Database, id: string, agentId: string, workspaceId: string) {
