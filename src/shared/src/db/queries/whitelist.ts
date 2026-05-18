@@ -1,5 +1,5 @@
 import { eq, and } from "drizzle-orm";
-import { agentWhitelist, agent } from "../schema";
+import { agentWhitelist, agentGreylist, agent } from "../schema";
 import type { Database } from "../index";
 import { parseEmailHandle } from "../../utils/email";
 
@@ -11,6 +11,17 @@ export async function getWhitelist(db: Database, agentId: string, workspaceId: s
 }
 
 export async function addWhitelist(db: Database, agentId: string, workspaceId: string, email: string) {
+  // Auto-remove from greylist if present (whitelist takes priority)
+  await db
+    .delete(agentGreylist)
+    .where(
+      and(
+        eq(agentGreylist.agentId, agentId),
+        eq(agentGreylist.workspaceId, workspaceId),
+        eq(agentGreylist.email, email),
+      )
+    );
+
   const rows = await db
     .insert(agentWhitelist)
     .values({ agentId, workspaceId, email })

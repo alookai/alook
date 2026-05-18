@@ -272,6 +272,24 @@ export const agentWhitelist = sqliteTable(
   ]
 );
 
+export const agentGreylist = sqliteTable(
+  "agent_greylist",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    agentId: text("agent_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    email: text("email").notNull(),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    unique("agent_greylist_agent_ws_email").on(t.agentId, t.workspaceId, t.email),
+    foreignKey({
+      columns: [t.agentId, t.workspaceId],
+      foreignColumns: [agent.id, agent.workspaceId],
+    }).onDelete("cascade"),
+  ]
+);
+
 export const channel = sqliteTable(
   "channel",
   {
@@ -482,6 +500,7 @@ export const emails = sqliteTable(
     attachments: text("attachments").notNull().default("[]"),
     status: text("status").notNull().default("unread"),
     direction: text("direction").notNull().default("inbound"),
+    senderTrust: text("sender_trust").notNull().default("untrusted"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [

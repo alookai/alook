@@ -1,6 +1,8 @@
 import type { TaskApi, WorkspaceFileEntry } from "./schemas";
 
-export type EmailDirection = "inbound" | "outbound";
+export type EmailDirection = "inbound" | "outbound" | "draft";
+
+export type SenderTrust = "trusted" | "greylisted" | "untrusted";
 
 export interface User {
   id: string;
@@ -188,6 +190,7 @@ export interface Email {
   attachments: EmailAttachment[];
   status: string;
   direction: EmailDirection;
+  sender_trust: SenderTrust;
   created_at: string;
 }
 
@@ -279,6 +282,7 @@ export type WsMessage =
   | { type: "task.messages"; taskId: string; messages: TaskMessage[] }
   | { type: "email.received"; agentId: string }
   | { type: "email.sent"; agentId: string }
+  | { type: "email.draft_created"; agentId: string }
   | { type: "artifact.uploaded"; conversationId: string; artifact: Artifact }
   | { type: "followup.dispatched"; conversationId: string; message: Message; task: TaskApi }
   | { type: "followup.created"; conversationId: string; message: Message }

@@ -13,12 +13,12 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldAlert, ChevronDown } from "lucide-react";
+import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldAlert, ChevronDown, FileEdit } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ResizablePanels } from "@/components/ui/resizable-panels";
 import { EmailBodyFrame } from "@/components/email-body-frame";
 
-type Folder = "inbox" | "sent" | "untrust";
+type Folder = "inbox" | "sent" | "untrust" | "drafts";
 
 function relativeTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -112,7 +112,8 @@ export default function AgentEmailPage() {
     return subscribeWs((msg) => {
       if (
         (msg.type === "email.received" && msg.agentId === agentId) ||
-        (msg.type === "email.sent" && msg.agentId === agentId)
+        (msg.type === "email.sent" && msg.agentId === agentId) ||
+        (msg.type === "email.draft_created" && msg.agentId === agentId)
       ) {
         loadEmails(folder, activeAddress);
       }
@@ -202,6 +203,61 @@ export default function AgentEmailPage() {
     } catch {
       toast.error("Failed to send email");
       return false;
+    }
+  };
+
+  const handleSendDraft = async (draft: Email) => {
+    try {
+      const draftBody = body?.content ?? draft.html_body;
+      await sendEmail(
+        agentId,
+        draft.to_email,
+        draft.subject,
+        draftBody,
+        workspaceId,
+        draft.attachments?.length ? draft.attachments : undefined,
+        draft.in_reply_to ? { inReplyTo: draft.in_reply_to, references: draft.references } : undefined,
+        activeAccountId,
+      );
+      await deleteEmail(draft.id, workspaceId);
+      setEmails((prev) => prev.filter((e) => e.id !== draft.id));
+      setSelectedId(null);
+      setBody(null);
+      toast.success("Draft sent");
+      switchFolder("sent");
+    } catch {
+      toast.error("Failed to send draft");
+    }
+  };
+
+  const handleEditDraft = (draft: Email) => {
+    setSelectedId(null);
+    setComposeInitial({
+      to: draft.to_email,
+      subject: draft.subject,
+      body: draft.html_body || body?.content,
+      attachments: draft.attachments,
+      inReplyTo: draft.in_reply_to || undefined,
+      references: draft.references || undefined,
+    });
+    setComposing(true);
+    // Delete the old draft after opening editor
+    deleteEmail(draft.id, workspaceId).then(() => {
+      setEmails((prev) => prev.filter((e) => e.id !== draft.id));
+    }).catch(() => {});
+  };
+
+  const handleDiscardDraft = async (draft: Email) => {
+    try {
+      await updateEmailStatus(draft.id, workspaceId, "archived");
+      setEmails((prev) => prev.filter((e) => e.id !== draft.id));
+      if (selectedId === draft.id) {
+        setSelectedId(null);
+        setBody(null);
+      }
+      toast.success("Draft discarded");
+    } catch {
+      toast.error("Failed to discard draft");
     }
   };
 
@@ -382,6 +438,24 @@ export default function AgentEmailPage() {
         </button>
         <button
           type="button"
+          onClick={() => switchFolder("drafts")}
+          className={cn(
+            "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
+            folder === "drafts"
+              ? "bg-accent text-foreground font-medium"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          )}
+        >
+          <FileEdit className="size-4 shrink-0" />
+          Drafts
+          {folder === "drafts" && unreadCount > 0 && (
+            <span className="ml-auto text-xs bg-amber-500 text-white rounded-full px-1.5 py-0.5 leading-none min-w-5 text-center">
+              {unreadCount}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
           onClick={() => switchFolder("untrust")}
           className={cn(
             "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
@@ -416,7 +490,7 @@ export default function AgentEmailPage() {
         <div className="flex flex-col items-center justify-center h-full animate-[fade-up_400ms_ease-out_both]">
           <Mail className="size-8 text-muted-foreground mb-3" />
           <p className="text-sm text-muted-foreground">
-            {folder === "inbox" ? "No emails from trusted senders" : folder === "sent" ? "No emails sent yet" : "No untrusted emails"}
+            {folder === "inbox" ? "No emails from trusted senders" : folder === "drafts" ? "No drafts" : folder === "sent" ? "No emails sent yet" : "No untrusted emails"}
           </p>
         </div>
       ) : (
@@ -490,6 +564,47 @@ export default function AgentEmailPage() {
         <div className="flex flex-col h-full md:min-w-100 max-w-3xl mx-auto w-full">
           {/* Detail toolbar */}
           <div className="flex items-center gap-0.5 border-b border-border/40 px-4 py-1.5">
+            {folder === "drafts" ? (
+              <>
+                <Tooltip>
+                  <TooltipTrigger render={<Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs gap-1 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950"
+                    onClick={() => handleSendDraft(selected)}
+                  />}>
+                    <Send className="size-3.5" />
+                    Send
+                  </TooltipTrigger>
+                  <TooltipContent>Send this draft</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger render={<Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs gap-1 text-muted-foreground/60 hover:text-foreground"
+                    onClick={() => handleEditDraft(selected)}
+                  />}>
+                    <FileEdit className="size-3.5" />
+                    Edit
+                  </TooltipTrigger>
+                  <TooltipContent>Edit this draft</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger render={<Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs gap-1 text-muted-foreground/60 hover:text-destructive"
+                    onClick={() => handleDiscardDraft(selected)}
+                  />}>
+                    <Trash2 className="size-3.5" />
+                    Discard
+                  </TooltipTrigger>
+                  <TooltipContent>Discard this draft</TooltipContent>
+                </Tooltip>
+              </>
+            ) : (
+            <>
             {folder !== "sent" && (
               <Tooltip>
                 <TooltipTrigger render={<Button
@@ -528,6 +643,8 @@ export default function AgentEmailPage() {
               </TooltipTrigger>
               <TooltipContent>Delete</TooltipContent>
             </Tooltip>
+            </>
+            )}
           </div>
 
           {/* Thread parents */}
@@ -740,6 +857,7 @@ export default function AgentEmailPage() {
           <div className="flex items-center gap-0.5 flex-1 min-w-0">
             {([
               { id: "inbox" as Folder, label: "Inbox" },
+              { id: "drafts" as Folder, label: "Drafts" },
               { id: "sent" as Folder, label: "Sent" },
               { id: "untrust" as Folder, label: "Untrust" },
             ]).map((f) => (
@@ -755,7 +873,7 @@ export default function AgentEmailPage() {
                 )}
               >
                 {f.label}
-                {f.id === "inbox" && folder === "inbox" && unreadCount > 0 && (
+                {((f.id === "inbox" && folder === "inbox") || (f.id === "drafts" && folder === "drafts")) && unreadCount > 0 && (
                   <span className="ml-0.5 text-[10px] bg-blue-500 text-white rounded-full px-1 leading-none min-w-4 text-center">
                     {unreadCount}
                   </span>

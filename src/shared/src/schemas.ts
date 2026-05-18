@@ -444,6 +444,15 @@ export const AddWhitelistRequestSchema = z.object({
 export type AddWhitelistRequest = z.infer<typeof AddWhitelistRequestSchema>;
 
 // ---------------------------------------------------------------------------
+// Greylist request schema
+// ---------------------------------------------------------------------------
+
+export const AddGreylistRequestSchema = z.object({
+  email: z.string().email(),
+});
+export type AddGreylistRequest = z.infer<typeof AddGreylistRequestSchema>;
+
+// ---------------------------------------------------------------------------
 // Agent request schemas
 // ---------------------------------------------------------------------------
 
@@ -563,6 +572,7 @@ export const EmailNotifyRequestSchema = z.object({
   to: z.string().optional(),
   subject: z.string().min(1),
   isWhitelisted: z.boolean(),
+  senderTrust: z.enum(["trusted", "greylisted", "untrusted"]).optional().default("untrusted"),
   forwarded: z.boolean().optional().default(false),
   messageId: z.string().optional().default(""),
   inReplyTo: z.string().optional().default(""),

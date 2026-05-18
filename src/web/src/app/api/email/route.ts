@@ -49,6 +49,8 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     emailList = await queries.email.getSentEmails(db, agentId, agentEmail, ws.workspaceId, status, pagination);
   } else if (folder === "untrust" && agentEmail) {
     emailList = await queries.email.getRejectedEmails(db, agentId, agentEmail, ws.workspaceId, status, pagination);
+  } else if (folder === "drafts" && agentEmail) {
+    emailList = await queries.email.getDraftEmails(db, agentId, agentEmail, ws.workspaceId, status, pagination);
   } else if (folder === "all") {
     emailList = await queries.email.getEmailsByAgent(db, agentId, ws.workspaceId, status, pagination);
   } else {

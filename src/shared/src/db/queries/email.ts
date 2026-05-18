@@ -10,7 +10,7 @@ export interface EmailPagination {
 
 export async function createEmail(
   db: Database,
-  data: { agentId: string; workspaceId: string; fromEmail: string; toEmail: string; subject: string; r2Key: string; isWhitelisted: boolean; forwarded: boolean; direction: EmailDirection; messageId?: string; inReplyTo?: string; references?: string; htmlBody?: string; attachments?: string; status?: string }
+  data: { agentId: string; workspaceId: string; fromEmail: string; toEmail: string; subject: string; r2Key: string; isWhitelisted: boolean; forwarded: boolean; direction: EmailDirection; senderTrust?: string; messageId?: string; inReplyTo?: string; references?: string; htmlBody?: string; attachments?: string; status?: string }
 ) {
   const rows = await db.insert(emails).values(data).returning();
   return rows[0]!;
@@ -65,6 +65,16 @@ export async function getTrustedEmails(db: Database, agentId: string, agentEmail
 
 export async function getRejectedEmails(db: Database, agentId: string, agentEmail: string, workspaceId: string, status?: string, pagination?: EmailPagination) {
   const conditions = [eq(emails.agentId, agentId), eq(emails.toEmail, agentEmail), eq(emails.workspaceId, workspaceId), eq(emails.isWhitelisted, false), eq(emails.direction, "inbound")];
+  if (status) conditions.push(eq(emails.status, status));
+  const q = db.select().from(emails)
+    .where(and(...conditions))
+    .orderBy(desc(emails.createdAt));
+  if (pagination) return q.limit(pagination.limit).offset(pagination.offset);
+  return q;
+}
+
+export async function getDraftEmails(db: Database, agentId: string, agentEmail: string, workspaceId: string, status?: string, pagination?: EmailPagination) {
+  const conditions = [eq(emails.agentId, agentId), eq(emails.workspaceId, workspaceId), eq(emails.direction, "draft")];
   if (status) conditions.push(eq(emails.status, status));
   const q = db.select().from(emails)
     .where(and(...conditions))

@@ -18,6 +18,8 @@ export async function POST(req: NextRequest) {
 
   const agent = await queries.agent.getAgent(db, body.agentId, body.workspaceId)
 
+  const senderTrust = body.senderTrust ?? (body.isWhitelisted ? "trusted" : "untrusted");
+
   const email = await queries.email.createEmail(db, {
     agentId: body.agentId,
     workspaceId: body.workspaceId,
@@ -31,6 +33,7 @@ export async function POST(req: NextRequest) {
     inReplyTo: body.inReplyTo,
     references: body.references,
     direction: "inbound",
+    senderTrust,
     attachments: body.attachments,
   })
 
@@ -140,6 +143,22 @@ export async function POST(req: NextRequest) {
         task: taskToResponse(task),
       }).catch(() => {});
     }
+  }
+
+  // Greylisted emails: create a draft generation task for the agent
+  if (senderTrust === "greylisted" && agent && agent.runtimeId && agent.ownerId) {
+    const conv = await queries.conversation.createConversation(db, {
+      workspaceId: agent.workspaceId,
+      agentId: agent.id,
+      userId: agent.ownerId,
+      title: `Draft: ${body.subject}`.slice(0, 50),
+      type: TASK_TYPES.EMAIL_NOTIFICATION,
+    })
+
+    const prompt = `[Greylist Draft] Received greylisted email (emailId: ${email.id}) from ${body.from}: "${body.subject}". Please read the original email and draft a reply. Do NOT send it directly. Save it as a draft for the owner to review.`;
+    const taskService = new TaskService(db)
+    const traceId = body.traceId || ("tr_" + nanoid());
+    await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, prompt, TASK_TYPES.EMAIL_NOTIFICATION, { contextKey: conv.id, traceId })
   }
 
   const dateStr = new Date().toISOString().slice(0, 10);

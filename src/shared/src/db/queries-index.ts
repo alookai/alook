@@ -10,6 +10,7 @@ export * as taskMessage from "./queries/task-message";
 export * as machine from "./queries/machine";
 export * as machineToken from "./queries/machine-token";
 export * as whitelist from "./queries/whitelist";
+export * as greylist from "./queries/greylist";
 export * as email from "./queries/email";
 export * as session from "./queries/session";
 export * as calendarEvent from "./queries/calendar-event";

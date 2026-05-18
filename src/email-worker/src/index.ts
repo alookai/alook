@@ -337,6 +337,7 @@ export default {
     emailLog.info("email received", { agentId: agent.id, handle })
 
     const whitelisted = await queries.whitelist.isWhitelisted(db, agent.id, agent.workspaceId, message.from)
+    const greylisted = !whitelisted && await queries.greylist.isGreylisted(db, agent.id, agent.workspaceId, message.from)
 
     const rawBytes = await new Response(message.raw).arrayBuffer()
     const r2Id = nanoid()
@@ -366,9 +367,26 @@ export default {
         to: message.to,
         subject,
         isWhitelisted: true,
+        senderTrust: "trusted",
         ...threadingFields,
         ...attachmentsField,
       }, traceId)
+    } else if (greylisted) {
+      emailLog.info("greylisted email, notifying web for draft", { agentId: agent.id })
+      await notifyWeb(env, {
+        agentId: agent.id,
+        workspaceId: agent.workspaceId,
+        r2Key,
+        from: message.from,
+        to: message.to,
+        subject,
+        isWhitelisted: false,
+        senderTrust: "greylisted",
+        forwarded: false,
+        ...threadingFields,
+        ...attachmentsField,
+      }, traceId)
+      // Greylisted emails are silently accepted (no reject)
     } else {
       emailLog.info("non-whitelisted email, rejecting", { agentId: agent.id })
       await notifyWeb(env, {
@@ -379,6 +397,7 @@ export default {
         to: message.to,
         subject,
         isWhitelisted: false,
+        senderTrust: "untrusted",
         forwarded: false,
         ...threadingFields,
         ...attachmentsField,

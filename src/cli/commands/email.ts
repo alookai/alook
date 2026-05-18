@@ -711,5 +711,123 @@ export function emailCommand(): Command {
 
   cmd.addCommand(whitelistCmd);
 
+  // -------------------------------------------------------------------------
+  // Greylist subcommands
+  // -------------------------------------------------------------------------
+
+  const greylistCmd = new Command("greylist").description(
+    "Manage email greylist (semi-trusted senders, drafts required)",
+  );
+
+  greylistCmd
+    .command("list")
+    .description("List all greylisted emails for an agent")
+    .option("--agent_id <id>", "Agent ID")
+    .option("--workspace <id>", "Workspace ID")
+    .option("--json", "Output as JSON")
+    .action(async (opts, command) => {
+      const agentId = resolveAgentId(opts);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, {
+        workspace: opts.workspace,
+        agentId,
+      });
+      const client = new APIClient(serverUrl, token, workspaceId);
+
+      try {
+        const entries = await client.getJSON<WhitelistEntry[]>(
+          `/api/agents/${agentId}/greylist`,
+        );
+
+        if (!entries.length) {
+          console.log("No greylisted emails.");
+          return;
+        }
+
+        if (opts.json) {
+          printJSON(entries);
+          return;
+        }
+
+        printTable(
+          ["ID", "EMAIL", "CREATED AT"],
+          entries.map((e) => [e.id, e.email, e.created_at]),
+        );
+      } catch (err) {
+        console.error(`Error: ${err instanceof Error ? err.message : err}`);
+        process.exit(1);
+      }
+    });
+
+  greylistCmd
+    .command("add")
+    .description("Add an email to the greylist")
+    .option("--agent_id <id>", "Agent ID")
+    .option("--workspace <id>", "Workspace ID")
+    .argument("<email>", "Email address to greylist")
+    .action(async (email, opts, command) => {
+      const agentId = resolveAgentId(opts);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, {
+        workspace: opts.workspace,
+        agentId,
+      });
+      const client = new APIClient(serverUrl, token, workspaceId);
+
+      try {
+        const entry = await client.postJSON<WhitelistEntry>(
+          `/api/agents/${agentId}/greylist`,
+          { email: email.toLowerCase() },
+        );
+        console.log(`Added ${entry.email} to greylist (id: ${entry.id})`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("409")) {
+          console.error(`Error: ${email.toLowerCase()} is already whitelisted or greylisted`);
+        } else {
+          console.error(`Error: ${msg}`);
+        }
+        process.exit(1);
+      }
+    });
+
+  greylistCmd
+    .command("delete")
+    .description("Remove an email from the greylist")
+    .option("--agent_id <id>", "Agent ID")
+    .option("--workspace <id>", "Workspace ID")
+    .argument("<email>", "Email address to remove")
+    .action(async (email, opts, command) => {
+      const agentId = resolveAgentId(opts);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, {
+        workspace: opts.workspace,
+        agentId,
+      });
+      const client = new APIClient(serverUrl, token, workspaceId);
+      const normalizedEmail = email.toLowerCase();
+
+      try {
+        const entries = await client.getJSON<WhitelistEntry[]>(
+          `/api/agents/${agentId}/greylist`,
+        );
+        const entry = entries.find((e) => e.email === normalizedEmail);
+
+        if (!entry) {
+          console.error(`Error: ${normalizedEmail} is not in the greylist`);
+          process.exit(1);
+        }
+
+        await client.deleteJSON(
+          `/api/agents/${agentId}/greylist/${entry.id}`,
+        );
+        console.log(`Removed ${normalizedEmail} from greylist`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg === "__exit__") throw err;
+        console.error(`Error: ${msg}`);
+        process.exit(1);
+      }
+    });
+
+  cmd.addCommand(greylistCmd);
+
   return cmd;
 }
