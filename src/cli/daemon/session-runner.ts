@@ -164,7 +164,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
 
   // Compute timelineDir before prepare() so timeline entry exists even on early crashes
   const agentBaseDir = path.join(workspacesRoot, task.workspaceId, task.agentId, "workdir");
-  const timelineDir = path.join(agentBaseDir, ".context_timeline");
+  const timelineDir = path.join(agentBaseDir, ".context_timeline").replace(/\\/g, "/");
   mkdirSync(timelineDir, { recursive: true });
 
   // Timeline entry: write IMMEDIATELY so KILL_TASK can find our PID
@@ -540,7 +540,7 @@ async function main(): Promise<void> {
     await cleanupAttachments(input.task.id);
 
     // Update timeline entry to reflect failure
-    const timelineDir = path.join(input.workspacesRoot, input.task.workspaceId, input.task.agentId, "workdir", ".context_timeline");
+    const timelineDir = path.join(input.workspacesRoot, input.task.workspaceId, input.task.agentId, "workdir", ".context_timeline").replace(/\\/g, "/");
     updateEntry(timelineDir, input.task.id, (entry) => {
       entry.pid = null;
       entry.status = "failed";
