@@ -10,23 +10,35 @@
  * events while being classified as "interactive" usage by Anthropic.
  */
 
-import { spawn, type Subprocess } from "bun";
-import { openSync, readSync, closeSync, statSync, existsSync } from "fs";
+import { openSync, readSync, closeSync, statSync, existsSync, writeSync as fsWriteSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { handleTerminalQueries, stripAnsi } from "./ansi-scanner.js";
 import type { AgentBackend, AgentSession } from "./index.js";
 import type { ExecOptions, AgentMessage, AgentResult } from "../types.js";
 
+/**
+ * Access Bun APIs at runtime without a static `import from "bun"`,
+ * which would break the bundler when target !== "bun".
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const BunRuntime = globalThis as any;
+
+interface BunProc {
+  pid: number;
+  stdin: unknown;
+  exited: Promise<number>;
+  kill(): void;
+}
+
 /** Safely write to a Bun subprocess stdin (which may be number | FileSink). */
-function writeToStdin(proc: Subprocess | undefined, data: string): void {
+function writeToStdin(proc: BunProc | undefined, data: string): void {
   if (!proc?.stdin) return;
   try {
     if (typeof proc.stdin === "number") {
       // Terminal mode may expose stdin as a raw fd
-      const { writeSync } = require("fs");
-      writeSync(proc.stdin, data);
-    } else if (typeof proc.stdin === "object" && "write" in proc.stdin) {
+      fsWriteSync(proc.stdin, data);
+    } else if (typeof proc.stdin === "object" && "write" in (proc.stdin as object)) {
       (proc.stdin as { write(data: string): void }).write(data);
     }
   } catch {
@@ -77,7 +89,7 @@ export class ClaudePTYBackend implements AgentBackend {
     let resultStatus: AgentResult["status"] = "completed";
     let timedOut = false;
     let jsonlByteOffset = 0;
-    let proc: Subprocess | undefined;
+    let proc: BunProc | undefined;
 
     // Message queue (same pattern as ClaudeBackend)
     const messageQueue: AgentMessage[] = [];
@@ -226,13 +238,14 @@ export class ClaudePTYBackend implements AgentBackend {
 
       // --- Spawn PTY ---
       try {
-        proc = spawn([this.cliPath, ...args], {
+        proc = BunRuntime.Bun.spawn([this.cliPath, ...args], {
           cwd: options.cwd,
           env: { ...process.env, ...options.env, NO_COLOR: "1" },
           terminal: {
             cols: 120,
             rows: 40,
-            data(_terminal, data) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data(_terminal: any, data: any) {
               const text = data instanceof Uint8Array ? decoder.decode(data) : String(data);
               outputBuffer += text;
               lastDataTime = Date.now();
