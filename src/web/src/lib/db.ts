@@ -5,8 +5,6 @@ export function getDb(d1: D1Database): Database {
   return createDb(session as unknown as Parameters<typeof createDb>[0])
 }
 
-export const getReadDb = getDb;
-
 export async function withD1Retry<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
   for (let i = 0; i <= retries; i++) {
     try {
