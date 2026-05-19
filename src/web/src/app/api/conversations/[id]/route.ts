@@ -5,6 +5,7 @@ import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import { conversationToResponse } from "@/lib/api/responses";
+import { TaskMessageStore } from "@/lib/task-message-store";
 
 export const GET = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -43,8 +44,17 @@ export const DELETE = withAuth(async (req, ctx) => {
     return writeError("conversation not found", 404);
   }
 
-  // Delete tasks first (no cascade on FK)
-  await queries.task.deleteTasksByConversation(db, id, ws.workspaceId);
+  // Delete tasks and clean up R2/KV task message storage
+  const deletedTasks = await queries.task.deleteTasksByConversation(db, id, ws.workspaceId);
+  if (deletedTasks.length > 0) {
+    const store = new TaskMessageStore(
+      (env as Env).TASK_MESSAGE_BUCKET,
+      (env as Env).CACHE_KV ?? null,
+    );
+    await Promise.all(
+      deletedTasks.map((t) => store.deleteMessages(t.id).catch(() => {}))
+    );
+  }
   // Messages cascade automatically via schema
   await queries.conversation.deleteConversation(db, id, ws.workspaceId);
 
