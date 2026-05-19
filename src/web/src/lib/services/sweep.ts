@@ -56,6 +56,7 @@ export async function sweepStaleState(db: Database, workspaceId: string) {
     await Promise.all([
       invalidate(cacheKeys.allAgents(workspaceId)),
       invalidate(cacheKeys.overviewTaskStats(workspaceId, dateStr)),
+      invalidate(cacheKeys.activeTaskCounts(workspaceId)),
     ]).catch(() => {});
   }
 }

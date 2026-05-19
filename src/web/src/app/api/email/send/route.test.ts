@@ -32,8 +32,10 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
 vi.mock("@/lib/cache", () => ({
   cached: vi.fn((_key: string, _ttl: number, fn: () => Promise<any>) => fn()),
+  invalidate: vi.fn(() => Promise.resolve()),
   cacheKeys: {
     allEmailAccounts: (ws: string) => `ea:${ws}`,
+    overviewEmailStats: (ws: string) => `ov_email:${ws}`,
   },
 }));
 

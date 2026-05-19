@@ -27,6 +27,7 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   await Promise.all([
     invalidate(cacheKeys.allAgents(ws.workspaceId)),
     invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
+    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
   ]);
   return new Response(null, { status: 204 });
 });

@@ -47,6 +47,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   await Promise.all([
     invalidate(cacheKeys.allAgents(ws.workspaceId)),
     invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
+    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
   ]);
   return writeJSON({ id: access.id, user_id: access.userId }, 201);
 });

@@ -6,7 +6,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import { taskToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { broadcastToUser } from "@/lib/broadcast";
-import { invalidate, cacheKeys } from "@/lib/cache";
+import { invalidate, invalidateByPrefix, cacheKeys } from "@/lib/cache";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!ctx.workspaceId) {
@@ -26,6 +26,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const task = await taskService.supersedeTask(taskId, ctx.workspaceId);
     const dateStr = new Date().toISOString().slice(0, 10);
     invalidate(cacheKeys.overviewTaskStats(ctx.workspaceId, dateStr)).catch(() => {});
+    invalidateByPrefix(cacheKeys.inboxCountPrefix(ctx.userId, ctx.workspaceId)).catch(() => {});
     broadcastToUser(ctx.userId, { type: "task.updated", taskId, agentId: task.agentId, status: "superseded" }).catch(() => {});
     return writeJSON(taskToResponse(task));
   } catch (e: unknown) {
