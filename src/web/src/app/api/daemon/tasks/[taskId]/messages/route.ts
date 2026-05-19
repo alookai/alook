@@ -61,9 +61,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         type: m.type,
         tool: m.tool || "",
         callId: m.call_id || "",
-        content: m.content || "",
-        input: m.input,
-        output: m.output || "",
+        content: m.type === "tool-result" ? "" : (m.content || ""),
+        input: m.type === "tool-result" ? undefined : m.input,
+        output: m.type === "tool-result" ? "" : (m.output || ""),
       })
     )
   );

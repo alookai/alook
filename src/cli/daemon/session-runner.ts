@@ -428,9 +428,9 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
         type: msg.type,
         tool: msg.tool,
         call_id: msg.callId,
-        content: msg.content,
-        input: msg.input,
-        output: msg.output,
+        content: msg.type === "tool-result" ? "" : msg.content,
+        input: msg.type === "tool-result" ? undefined : msg.input,
+        output: msg.type === "tool-result" ? "" : msg.output,
       });
 
       // Timeline — record assistant text messages
