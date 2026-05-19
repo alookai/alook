@@ -156,10 +156,61 @@ describe("PATCH /api/email/[id]", () => {
     expect(body.details).toContainEqual(expect.stringContaining("status"));
   });
 
-  it("returns 400 for missing status", async () => {
+  it("returns 400 when neither status nor senderTrust provided", async () => {
     const req = new NextRequest("http://localhost/api/email/e1", {
       method: "PATCH",
       body: JSON.stringify({}),
+    });
+    const res = await PATCH(req, { params: Promise.resolve({ id: "e1" }) } as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  // ── senderTrust update tests ──
+
+  it("updates senderTrust to accepted (greylist approve)", async () => {
+    mockUpdateEmail.mockResolvedValue({ id: "e1", senderTrust: "accepted" });
+
+    const req = new NextRequest("http://localhost/api/email/e1", {
+      method: "PATCH",
+      body: JSON.stringify({ senderTrust: "accepted" }),
+    });
+    const res = await PATCH(req, { params: Promise.resolve({ id: "e1" }) } as any);
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateEmail).toHaveBeenCalledWith({}, "e1", "ws1", { senderTrust: "accepted" });
+  });
+
+  it("updates senderTrust to rejected (greylist reject)", async () => {
+    mockUpdateEmail.mockResolvedValue({ id: "e1", senderTrust: "rejected" });
+
+    const req = new NextRequest("http://localhost/api/email/e1", {
+      method: "PATCH",
+      body: JSON.stringify({ senderTrust: "rejected" }),
+    });
+    const res = await PATCH(req, { params: Promise.resolve({ id: "e1" }) } as any);
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateEmail).toHaveBeenCalledWith({}, "e1", "ws1", { senderTrust: "rejected" });
+  });
+
+  it("updates both status and senderTrust simultaneously", async () => {
+    mockUpdateEmail.mockResolvedValue({ id: "e1", status: "read", senderTrust: "accepted" });
+
+    const req = new NextRequest("http://localhost/api/email/e1", {
+      method: "PATCH",
+      body: JSON.stringify({ status: "read", senderTrust: "accepted" }),
+    });
+    const res = await PATCH(req, { params: Promise.resolve({ id: "e1" }) } as any);
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateEmail).toHaveBeenCalledWith({}, "e1", "ws1", { status: "read", senderTrust: "accepted" });
+  });
+
+  it("returns 400 for invalid senderTrust value", async () => {
+    const req = new NextRequest("http://localhost/api/email/e1", {
+      method: "PATCH",
+      body: JSON.stringify({ senderTrust: "invalid_value" }),
     });
     const res = await PATCH(req, { params: Promise.resolve({ id: "e1" }) } as any);
 

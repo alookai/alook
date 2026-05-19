@@ -260,6 +260,93 @@ describe("POST /api/email/notify", () => {
     expect(mockFindByKey).not.toHaveBeenCalled();
   });
 
+  // ── Greylisted email paths ──
+
+  it("creates draft and enqueues agent task for greylisted email", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: "r1", ownerId: "u1", emailHandle: "myagent" });
+    mockCreateConversation.mockResolvedValue({ id: "conv_draft" });
+    mockEnqueueTask.mockResolvedValue({ id: "t1" });
+
+    const res = await POST(makeNotifyReq({ ...baseBody, isWhitelisted: false, senderTrust: "greylisted" }));
+    expect(res.status).toBe(200);
+
+    // First call: original inbound email. Second call: draft email.
+    expect(mockCreateEmail).toHaveBeenCalledTimes(2);
+
+    const draftCall = mockCreateEmail.mock.calls[1][1];
+    expect(draftCall.direction).toBe("draft");
+    expect(draftCall.senderTrust).toBe("greylisted");
+    expect(draftCall.fromEmail).toBe("myagent@alook.ai");
+    expect(draftCall.toEmail).toBe("sender@test.com");
+    expect(draftCall.subject).toBe("Re: Test email");
+    expect(draftCall.references).toBe("e1"); // original email's DB id
+
+    // Should create conversation and enqueue agent task for draft improvement
+    expect(mockCreateConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ title: expect.stringContaining("Draft:"), type: "email_notification" }),
+    );
+    expect(mockEnqueueTask).toHaveBeenCalledWith(
+      "a1", "conv_draft", "ws1",
+      expect.stringContaining("[Greylist Draft]"),
+      "email_notification",
+      expect.objectContaining({ contextKey: "conv_draft" }),
+    );
+  });
+
+  it("creates draft but skips agent task when agent has no runtime", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: null, ownerId: "u1", emailHandle: "myagent" });
+
+    const res = await POST(makeNotifyReq({ ...baseBody, isWhitelisted: false, senderTrust: "greylisted" }));
+    expect(res.status).toBe(200);
+
+    // Draft should still be created
+    expect(mockCreateEmail).toHaveBeenCalledTimes(2);
+    const draftCall = mockCreateEmail.mock.calls[1][1];
+    expect(draftCall.direction).toBe("draft");
+
+    // But no conversation or task created (agent can't run)
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+    expect(mockEnqueueTask).not.toHaveBeenCalled();
+  });
+
+  it("greylisted email does NOT trigger whitelisted conversation/task flow", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: "r1", ownerId: "u1", emailHandle: "myagent" });
+    mockCreateConversation.mockResolvedValue({ id: "conv_draft" });
+    mockEnqueueTask.mockResolvedValue({ id: "t1" });
+
+    await POST(makeNotifyReq({ ...baseBody, isWhitelisted: false, senderTrust: "greylisted" }));
+
+    // Should NOT do thread key lookup (that's the whitelisted path)
+    expect(mockFindByKey).not.toHaveBeenCalled();
+    // Should NOT create event message (whitelisted path only)
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+  });
+
+  it("untrusted email does not create draft or enqueue task", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: "r1", ownerId: "u1" });
+
+    const res = await POST(makeNotifyReq({ ...baseBody, isWhitelisted: false, senderTrust: "untrusted" }));
+    expect(res.status).toBe(200);
+
+    // Only the original inbound email, no draft
+    expect(mockCreateEmail).toHaveBeenCalledTimes(1);
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+    expect(mockEnqueueTask).not.toHaveBeenCalled();
+  });
+
+  it("stores explicit senderTrust on the created email", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: "r1", ownerId: "u1" });
+    mockCreateConversation.mockResolvedValue({ id: "conv_new" });
+    mockEnqueueTask.mockResolvedValue({ id: "t1" });
+
+    const res = await POST(makeNotifyReq({ ...baseBody, senderTrust: "trusted" }));
+    expect(res.status).toBe(200);
+
+    const emailCall = mockCreateEmail.mock.calls[0][1];
+    expect(emailCall.senderTrust).toBe("trusted");
+  });
+
   it("uses References header thread root for mapping lookup", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: "r1", ownerId: "u1" });
     mockFindByKey.mockResolvedValue("conv_thread");
