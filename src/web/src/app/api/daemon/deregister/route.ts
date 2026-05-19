@@ -31,7 +31,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     log.warn("deregister: setMachineLastSeenNull failed", { daemonId: body.daemon_id, err: String(e) });
   }
 
-  await invalidate(cacheKeys.allRuntimes(ctx.workspaceId));
+  await Promise.all([
+    invalidate(cacheKeys.runtimeIds(ctx.workspaceId, body.daemon_id)),
+    invalidate(cacheKeys.allRuntimes(ctx.workspaceId)),
+  ]);
 
   // Single broadcast at daemon level
   broadcastToUser(ctx.userId, {

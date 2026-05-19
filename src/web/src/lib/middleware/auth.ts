@@ -3,7 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
-import { cached, cacheKeys, bindCacheKV } from "@/lib/cache"
+import { cached, cacheKeys, bindCacheKV, throttled } from "@/lib/cache"
 
 export interface AuthContext {
   userId: string
@@ -45,13 +45,10 @@ export function withAuth(handler: AuthenticatedHandler) {
           if (!mt) {
             return NextResponse.json({ error: "invalid token" }, { status: 401 })
           }
-          cached(
+          throttled(
             cacheKeys.machineTokenLastUsed(raw),
             900,
-            async () => {
-              await queries.machineToken.updateMachineTokenLastUsed(db, mt.id);
-              return "1";
-            },
+            () => queries.machineToken.updateMachineTokenLastUsed(db, mt.id),
           ).catch(() => {});
           const authCtx: AuthContext = {
             userId: mt.userId,

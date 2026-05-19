@@ -8,7 +8,7 @@ import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { emailToResponse } from "@/lib/api/responses";
 import { broadcastToUser } from "@/lib/broadcast";
-import { cached, cacheKeys } from "@/lib/cache";
+import { cached, invalidate, cacheKeys } from "@/lib/cache";
 
 async function broadcastEmailSentEvent(
   db: Parameters<typeof queries.message.createMessage>[0],
@@ -179,6 +179,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         status: "sent",
       });
 
+      invalidate(cacheKeys.overviewEmailStats(ws.workspaceId)).catch(() => {});
+
       if (validatedConversationId) {
         const threadId = extractThreadId(body.references, body.inReplyTo, messageId);
         if (threadId) {
@@ -253,6 +255,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     direction: "outbound",
     status: "sent",
   });
+
+  invalidate(cacheKeys.overviewEmailStats(ws.workspaceId)).catch(() => {});
 
   if (validatedConversationId && emailResult.messageId) {
     const threadId = extractThreadId(body.references, body.inReplyTo, emailResult.messageId);
