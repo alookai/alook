@@ -58,6 +58,10 @@ database_name = "alook-app"
 binding = "EMAIL_BUCKET"
 bucket_name = "alook-emails"
 
+[[r2_buckets]]
+binding = "TASK_MESSAGE_BUCKET"
+bucket_name = "alook-task-messages"
+
 # WS Durable Object is in a separate worker — access via Service Binding
 [[services]]
 binding = "WS_DO_WORKER"

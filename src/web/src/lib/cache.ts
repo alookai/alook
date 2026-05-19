@@ -156,4 +156,5 @@ export const cacheKeys = {
   allAgentAccess: (workspaceId: string) => `aa:${workspaceId}`,
   allRuntimes: (workspaceId: string) => `runtimes:${workspaceId}`,
   allMembers: (workspaceId: string) => `members:${workspaceId}`,
+  taskMessages: (taskId: string) => `tm:${taskId}`,
 };
