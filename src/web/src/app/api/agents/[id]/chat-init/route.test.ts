@@ -1,7 +1,9 @@
 import { NextRequest } from "next/server";
 
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
+  getCloudflareContext: vi.fn(() => ({
+    env: { DB: {}, TASK_MESSAGE_BUCKET: {}, CACHE_KV: {} },
+  })),
 }));
 
 const mockGetAgent = vi.fn();
@@ -11,7 +13,7 @@ const mockListMessages = vi.fn();
 const mockListArtifactsByConversation = vi.fn();
 const mockListBufferedMessages = vi.fn();
 const mockGetActiveTaskByConversation = vi.fn();
-const mockListTaskMessages = vi.fn();
+const mockStoreListMessages = vi.fn();
 const mockArtifactToResponse = vi.fn((r: any) => ({
   id: r.id,
   conversation_id: r.conversationId,
@@ -52,10 +54,14 @@ vi.mock("@alook/shared", () => ({
       getActiveTaskByConversation: (...args: unknown[]) =>
         mockGetActiveTaskByConversation(...args),
     },
-    taskMessage: {
-      listTaskMessages: (...args: unknown[]) =>
-        mockListTaskMessages(...args),
-    },
+  },
+}));
+
+vi.mock("@/lib/task-message-store", () => ({
+  TaskMessageStore: class {
+    listMessages(...args: any[]) { return mockStoreListMessages(...args); }
+    appendMessages() { return Promise.resolve(); }
+    deleteMessages() { return Promise.resolve(); }
   },
 }));
 
@@ -134,6 +140,7 @@ function setupDefaults() {
   mockListArtifactsByConversation.mockResolvedValue([]);
   mockListBufferedMessages.mockResolvedValue([]);
   mockGetActiveTaskByConversation.mockResolvedValue(null);
+  mockStoreListMessages.mockResolvedValue([]);
 }
 
 describe("POST /api/agents/[id]/chat-init", () => {
@@ -217,7 +224,7 @@ describe("POST /api/agents/[id]/chat-init", () => {
 
     setupDefaults();
     mockGetActiveTaskByConversation.mockResolvedValue(task);
-    mockListTaskMessages.mockResolvedValue([tmsg]);
+    mockStoreListMessages.mockResolvedValue([tmsg]);
 
     const res = await POST(makeReq(), makeCtx());
     const body = await res.json();
@@ -252,7 +259,7 @@ describe("POST /api/agents/[id]/chat-init", () => {
 
     expect(body.active_task.id).toBe("t1");
     expect(body.task_messages).toEqual([]);
-    expect(mockListTaskMessages).not.toHaveBeenCalled();
+    expect(mockStoreListMessages).not.toHaveBeenCalled();
   });
 
   it("sets has_more_messages true when messages reach limit", async () => {
