@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries } from "@alook/shared";
-import { getReadDb } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON } from "@/lib/middleware/helpers";
@@ -12,7 +12,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext();
-  const db = getReadDb((env as Env).DB);
+  const db = getDb((env as Env).DB);
 
   const VALID_TYPES = ["user_dm_message", "calendar_event", "email_notification"];
   const typesParam = req.nextUrl.searchParams.get("types");

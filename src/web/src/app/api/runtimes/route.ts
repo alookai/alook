@@ -1,6 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
-import { getReadDb } from "@/lib/db"
+import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON } from "@/lib/middleware/helpers";
@@ -12,7 +12,7 @@ export const GET = withAuth(async (req, ctx) => {
   if (ws instanceof Response) return ws;
 
   const { env } = getCloudflareContext()
-  const db = getReadDb((env as Env).DB)
+  const db = getDb((env as Env).DB)
 
   const runtimes = await cached(cacheKeys.allRuntimes(ws.workspaceId), 120, () => queries.runtime.listAgentRuntimes(db, ws.workspaceId));
 

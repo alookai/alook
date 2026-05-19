@@ -7,7 +7,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockListAgentRuntimes = vi.fn();
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})), getReadDb: vi.fn(() => ({})) }));
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
 vi.mock("@/lib/cache", () => ({
   cached: vi.fn((_key: string, _ttl: number, fn: () => any) => fn()),
