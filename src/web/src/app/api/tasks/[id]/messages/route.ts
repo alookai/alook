@@ -5,6 +5,7 @@ import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import { taskMessageToResponse } from "@/lib/api/responses";
+import { TaskMessageStore } from "@/lib/task-message-store";
 
 export const GET = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -23,18 +24,22 @@ export const GET = withAuth(async (req, ctx) => {
     return writeError("task not found", 404);
   }
 
-  const sinceParam = req.nextUrl.searchParams.get("since");
-  let messages;
+  const store = new TaskMessageStore(
+    (env as Env).TASK_MESSAGE_BUCKET,
+    (env as Env).CACHE_KV ?? null,
+  );
 
-  if (sinceParam) {
-    const afterSeq = parseInt(sinceParam, 10);
-    if (isNaN(afterSeq)) {
-      return writeError("invalid since parameter", 400);
-    }
-    messages = await queries.taskMessage.listTaskMessagesSince(db, id, afterSeq);
-  } else {
-    messages = await queries.taskMessage.listTaskMessages(db, id);
+  const sinceParam = req.nextUrl.searchParams.get("since");
+  const since = sinceParam ? parseInt(sinceParam, 10) : undefined;
+
+  if (sinceParam && isNaN(since!)) {
+    return writeError("invalid since parameter", 400);
   }
+
+  const messages = await store.listMessages(id, {
+    since,
+    excludeTypes: ["tool-result"],
+  });
 
   return writeJSON(messages.map(taskMessageToResponse));
 });

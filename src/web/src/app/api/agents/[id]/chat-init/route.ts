@@ -11,6 +11,7 @@ import {
   taskMessageToResponse,
 } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
+import { TaskMessageStore } from "@/lib/task-message-store";
 
 const MESSAGE_LIMIT = 20;
 const ARTIFACT_LIMIT = 50;
@@ -102,10 +103,13 @@ export const POST = withAuth(async (req, ctx) => {
     !["completed", "failed", "cancelled", "superseded"].includes(resolvedActiveTask.status)
   ) {
     try {
-      const tmsgs = await queries.taskMessage.listTaskMessages(
-        db,
-        resolvedActiveTask.id,
+      const store = new TaskMessageStore(
+        (env as Env).TASK_MESSAGE_BUCKET,
+        (env as Env).CACHE_KV ?? null,
       );
+      const tmsgs = await store.listMessages(resolvedActiveTask.id, {
+        excludeTypes: ["tool-result"],
+      });
       taskMessages = tmsgs.map(taskMessageToResponse);
     } catch {
       // non-critical — frontend will recover via polling

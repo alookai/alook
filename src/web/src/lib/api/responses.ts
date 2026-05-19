@@ -160,11 +160,11 @@ export function messageToResponse(m: any) {
 export function taskMessageToResponse(m: any) {
   const resp: any = {
     id: m.id,
-    task_id: m.taskId,
+    task_id: m.taskId ?? m.task_id,
     seq: m.seq,
     type: m.type,
     tool: m.tool,
-    call_id: m.callId || "",
+    call_id: m.callId ?? m.call_id ?? "",
     content: m.content,
     output: m.output,
   };

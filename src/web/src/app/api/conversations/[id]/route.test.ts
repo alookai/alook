@@ -7,7 +7,16 @@ const mockDeleteTasksByConversation = vi.fn();
 const mockConversationToResponse = vi.fn((c: any) => ({ id: c.id, title: c.title }));
 
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
+  getCloudflareContext: vi.fn(() => ({
+    env: { DB: {}, TASK_MESSAGE_BUCKET: {}, CACHE_KV: {} },
+  })),
+}));
+vi.mock("@/lib/task-message-store", () => ({
+  TaskMessageStore: class {
+    listMessages() { return Promise.resolve([]); }
+    appendMessages() { return Promise.resolve(); }
+    deleteMessages() { return Promise.resolve(); }
+  },
 }));
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
@@ -77,7 +86,7 @@ describe("DELETE /api/conversations/[id]", () => {
 
   it("returns 204 and removes conversation + tasks with workspace scoping", async () => {
     mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1" });
-    mockDeleteTasksByConversation.mockResolvedValue(undefined);
+    mockDeleteTasksByConversation.mockResolvedValue([{ id: "t1" }]);
     mockDeleteConversation.mockResolvedValue(undefined);
 
     const res = await DELETE(
@@ -95,6 +104,7 @@ describe("DELETE /api/conversations/[id]", () => {
     mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1" });
     mockDeleteTasksByConversation.mockImplementation(async () => {
       callOrder.push("tasks");
+      return [{ id: "t1" }];
     });
     mockDeleteConversation.mockImplementation(async () => {
       callOrder.push("conversation");

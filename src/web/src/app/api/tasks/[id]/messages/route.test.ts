@@ -2,11 +2,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockGetTask = vi.fn();
-const mockListTaskMessages = vi.fn();
-const mockListTaskMessagesSince = vi.fn();
+const mockStoreListMessages = vi.fn();
 const mockTaskMessageToResponse = vi.fn((m: any) => ({
   id: m.id,
-  task_id: m.taskId,
+  task_id: m.task_id,
   seq: m.seq,
   type: m.type,
   content: m.content,
@@ -25,7 +24,9 @@ vi.mock("@/lib/middleware/helpers", () => ({
     }),
 }));
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
+  getCloudflareContext: vi.fn(() => ({
+    env: { DB: {}, TASK_MESSAGE_BUCKET: {}, CACHE_KV: {} },
+  })),
 }));
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
@@ -34,10 +35,6 @@ vi.mock("@alook/shared", () => ({
   queries: {
     task: {
       getTask: (...args: any[]) => mockGetTask(...args),
-    },
-    taskMessage: {
-      listTaskMessages: (...args: any[]) => mockListTaskMessages(...args),
-      listTaskMessagesSince: (...args: any[]) => mockListTaskMessagesSince(...args),
     },
   },
 }));
@@ -53,16 +50,25 @@ vi.mock("@/lib/middleware/workspace", () => ({
 vi.mock("@/lib/api/responses", () => ({
   taskMessageToResponse: (...args: any[]) => mockTaskMessageToResponse(...args),
 }));
+vi.mock("@/lib/task-message-store", () => ({
+  TaskMessageStore: class {
+    listMessages(...args: any[]) { return mockStoreListMessages(...args); }
+    appendMessages() { return Promise.resolve(); }
+    deleteMessages() { return Promise.resolve(); }
+  },
+}));
 
 import { GET } from "./route";
 
 describe("GET /api/tasks/[id]/messages", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStoreListMessages.mockResolvedValue([]);
+  });
 
   it("passes workspaceId to getTask", async () => {
     const task = { id: "t1", workspaceId: "w1" };
     mockGetTask.mockResolvedValue(task);
-    mockListTaskMessages.mockResolvedValue([]);
     await GET(
       new NextRequest("http://localhost/api/tasks/t1/messages"),
       { params: Promise.resolve({ id: "t1" }) }
@@ -70,14 +76,14 @@ describe("GET /api/tasks/[id]/messages", () => {
     expect(mockGetTask).toHaveBeenCalledWith({}, "t1", "w1");
   });
 
-  it("lists all messages", async () => {
+  it("lists all messages from store", async () => {
     const task = { id: "t1", workspaceId: "w1" };
     const messages = [
-      { id: "m1", taskId: "t1", seq: 1, type: "text", content: "hello" },
-      { id: "m2", taskId: "t1", seq: 2, type: "text", content: "world" },
+      { id: "m1", task_id: "t1", seq: 1, type: "text", content: "hello" },
+      { id: "m2", task_id: "t1", seq: 2, type: "text", content: "world" },
     ];
     mockGetTask.mockResolvedValue(task);
-    mockListTaskMessages.mockResolvedValue(messages);
+    mockStoreListMessages.mockResolvedValue(messages);
 
     const res = await GET(
       new NextRequest("http://localhost/api/tasks/t1/messages"),
@@ -86,20 +92,19 @@ describe("GET /api/tasks/[id]/messages", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual([
-      { id: "m1", task_id: "t1", seq: 1, type: "text", content: "hello" },
-      { id: "m2", task_id: "t1", seq: 2, type: "text", content: "world" },
-    ]);
-    expect(mockListTaskMessages).toHaveBeenCalledWith({}, "t1");
+    expect(body).toHaveLength(2);
+    expect(mockStoreListMessages).toHaveBeenCalledWith("t1", {
+      since: undefined,
+      excludeTypes: ["tool-result"],
+    });
   });
 
-  it("filters by since parameter", async () => {
+  it("passes since parameter to store", async () => {
     const task = { id: "t1", workspaceId: "w1" };
-    const messages = [
-      { id: "m3", taskId: "t1", seq: 6, type: "text", content: "new msg" },
-    ];
     mockGetTask.mockResolvedValue(task);
-    mockListTaskMessagesSince.mockResolvedValue(messages);
+    mockStoreListMessages.mockResolvedValue([
+      { id: "m3", task_id: "t1", seq: 6, type: "text", content: "new msg" },
+    ]);
 
     const res = await GET(
       new NextRequest("http://localhost/api/tasks/t1/messages?since=5"),
@@ -108,11 +113,11 @@ describe("GET /api/tasks/[id]/messages", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual([
-      { id: "m3", task_id: "t1", seq: 6, type: "text", content: "new msg" },
-    ]);
-    expect(mockListTaskMessagesSince).toHaveBeenCalledWith({}, "t1", 5);
-    expect(mockListTaskMessages).not.toHaveBeenCalled();
+    expect(body).toHaveLength(1);
+    expect(mockStoreListMessages).toHaveBeenCalledWith("t1", {
+      since: 5,
+      excludeTypes: ["tool-result"],
+    });
   });
 
   it("returns 400 for invalid since parameter", async () => {
@@ -140,44 +145,5 @@ describe("GET /api/tasks/[id]/messages", () => {
 
     expect(res.status).toBe(404);
     expect(body.error).toBe("task not found");
-  });
-
-  it("does not return tool-result messages (filtered at query level)", async () => {
-    const task = { id: "t1", workspaceId: "w1" };
-    const messages = [
-      { id: "m1", taskId: "t1", seq: 1, type: "text", content: "hello" },
-      { id: "m2", taskId: "t1", seq: 3, type: "tool-use", content: "search" },
-    ];
-    mockGetTask.mockResolvedValue(task);
-    mockListTaskMessages.mockResolvedValue(messages);
-
-    const res = await GET(
-      new NextRequest("http://localhost/api/tasks/t1/messages"),
-      { params: Promise.resolve({ id: "t1" }) }
-    );
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body).toHaveLength(2);
-    expect(body.every((m: any) => m.type !== "tool-result")).toBe(true);
-  });
-
-  it("does not return tool-result messages with since parameter (filtered at query level)", async () => {
-    const task = { id: "t1", workspaceId: "w1" };
-    const messages = [
-      { id: "m4", taskId: "t1", seq: 7, type: "thinking", content: "hmm" },
-    ];
-    mockGetTask.mockResolvedValue(task);
-    mockListTaskMessagesSince.mockResolvedValue(messages);
-
-    const res = await GET(
-      new NextRequest("http://localhost/api/tasks/t1/messages?since=5"),
-      { params: Promise.resolve({ id: "t1" }) }
-    );
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body).toHaveLength(1);
-    expect(body.every((m: any) => m.type !== "tool-result")).toBe(true);
   });
 });

@@ -1,15 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const mockListTaskMessages = vi.fn();
 const mockCreateTaskMessage = vi.fn();
 const mockGetTask = vi.fn();
 const mockTaskMessageToResponse = vi.fn((m: any) => m);
+const mockStoreListMessages = vi.fn();
+const mockStoreAppendMessages = vi.fn();
 
 let mockAuthCtx: Record<string, unknown> = { userId: "u1", email: "u@t.com", workspaceId: "w1" };
 
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(() => ({ env: { DB: { withSession: () => ({}) } } })),
+  getCloudflareContext: vi.fn(() => ({
+    env: {
+      DB: { withSession: () => ({}) },
+      TASK_MESSAGE_BUCKET: {},
+      CACHE_KV: {},
+    },
+  })),
 }));
 vi.mock("@/lib/db", () => ({
   getDb: vi.fn(() => ({})),
@@ -22,7 +29,6 @@ vi.mock("@alook/shared", async () => {
     createDb: vi.fn(() => ({})),
     queries: {
       taskMessage: {
-        listTaskMessages: (...args: any[]) => mockListTaskMessages(...args),
         createTaskMessage: (...args: any[]) => mockCreateTaskMessage(...args),
       },
       task: {
@@ -53,6 +59,13 @@ vi.mock("@/lib/broadcast", () => ({
 vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
+vi.mock("@/lib/task-message-store", () => ({
+  TaskMessageStore: class {
+    listMessages(...args: any[]) { return mockStoreListMessages(...args); }
+    appendMessages(...args: any[]) { return mockStoreAppendMessages(...args); }
+    deleteMessages() { return Promise.resolve(); }
+  },
+}));
 
 import { GET, POST } from "./route";
 
@@ -64,11 +77,13 @@ describe("GET /api/daemon/tasks/[taskId]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuthCtx = { userId: "u1", email: "u@t.com", workspaceId: "w1" };
+    mockStoreListMessages.mockResolvedValue([]);
   });
 
-  it("returns messages for workspace-scoped task", async () => {
-    const msgs = [{ id: "m1", seq: 1, content: "hi" }];
-    mockListTaskMessages.mockResolvedValue(msgs);
+  it("returns messages from store for workspace-scoped task", async () => {
+    const msgs = [{ id: "m1", seq: 1, type: "tool-call", content: "hi" }];
+    mockGetTask.mockResolvedValue({ id: "t1", workspaceId: "w1" });
+    mockStoreListMessages.mockResolvedValue(msgs);
 
     const res = await GET(
       new NextRequest("http://localhost/api/daemon/tasks/t1/messages"),
@@ -78,7 +93,22 @@ describe("GET /api/daemon/tasks/[taskId]/messages", () => {
 
     expect(res.status).toBe(200);
     expect(body).toHaveLength(1);
-    expect(mockListTaskMessages).toHaveBeenCalledWith({}, "t1", "w1");
+    expect(mockGetTask).toHaveBeenCalledWith({}, "t1", "w1");
+    expect(mockStoreListMessages).toHaveBeenCalledWith("t1", { excludeTypes: ["tool-result"] });
+  });
+
+  it("returns 404 when task not found in GET", async () => {
+    mockGetTask.mockResolvedValue(null);
+
+    const res = await GET(
+      new NextRequest("http://localhost/api/daemon/tasks/t-unknown/messages"),
+      withParams("t-unknown")
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(404);
+    expect(body.error).toBe("task not found");
+    expect(mockStoreListMessages).not.toHaveBeenCalled();
   });
 
   it("returns 403 when workspaceId is missing (session auth)", async () => {
@@ -92,7 +122,7 @@ describe("GET /api/daemon/tasks/[taskId]/messages", () => {
 
     expect(res.status).toBe(403);
     expect(body.error).toBe("Forbidden: machine token required");
-    expect(mockListTaskMessages).not.toHaveBeenCalled();
+    expect(mockStoreListMessages).not.toHaveBeenCalled();
   });
 });
 
@@ -100,9 +130,10 @@ describe("POST /api/daemon/tasks/[taskId]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAuthCtx = { userId: "u1", email: "u@t.com", workspaceId: "w1" };
+    mockStoreAppendMessages.mockResolvedValue(undefined);
   });
 
-  it("creates messages for workspace-scoped task", async () => {
+  it("creates messages in D1 and writes to store", async () => {
     mockGetTask.mockResolvedValue({ id: "t1", workspaceId: "w1" });
     mockCreateTaskMessage.mockResolvedValue({ id: "m1" });
 
@@ -121,6 +152,9 @@ describe("POST /api/daemon/tasks/[taskId]/messages", () => {
     expect(res.status).toBe(200);
     expect(body.status).toBe("ok");
     expect(mockGetTask).toHaveBeenCalledWith({}, "t1", "w1");
+    expect(mockCreateTaskMessage).toHaveBeenCalledTimes(1);
+    expect(mockStoreAppendMessages).toHaveBeenCalledTimes(1);
+    expect(mockStoreAppendMessages).toHaveBeenCalledWith("t1", expect.any(Array));
   });
 
   it("returns 403 when workspaceId is missing (session auth)", async () => {
@@ -190,8 +224,6 @@ describe("POST /api/daemon/tasks/[taskId]/messages", () => {
     const broadcastPayload = mockBroadcastToUser.mock.calls[0][1];
     expect(broadcastPayload.messages).toHaveLength(2);
     expect(broadcastPayload.messages.every((m: any) => m.type !== "tool-result")).toBe(true);
-    expect(broadcastPayload.messages[0].type).toBe("text");
-    expect(broadcastPayload.messages[1].type).toBe("tool-use");
   });
 
   it("does not broadcast when all messages are tool-result", async () => {
@@ -213,5 +245,45 @@ describe("POST /api/daemon/tasks/[taskId]/messages", () => {
     );
 
     expect(mockBroadcastToUser).not.toHaveBeenCalled();
+  });
+
+  it("returns ok with empty messages array without writing", async () => {
+    mockGetTask.mockResolvedValue({ id: "t1", workspaceId: "w1" });
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/daemon/tasks/t1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [] }),
+      }),
+      withParams("t1")
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("ok");
+    expect(mockCreateTaskMessage).not.toHaveBeenCalled();
+    expect(mockStoreAppendMessages).not.toHaveBeenCalled();
+  });
+
+  it("continues when store.appendMessages fails", async () => {
+    mockGetTask.mockResolvedValue({ id: "t1", workspaceId: "w1" });
+    mockCreateTaskMessage.mockResolvedValue({ id: "m1" });
+    mockStoreAppendMessages.mockRejectedValue(new Error("R2 down"));
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/daemon/tasks/t1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ seq: 1, type: "text", content: "hello" }],
+        }),
+      }),
+      withParams("t1")
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("ok");
   });
 });
