@@ -224,6 +224,7 @@ export const agentRuntime = sqliteTable(
       t.provider
     ),
     index("idx_agent_runtime_workspace_daemon").on(t.workspaceId, t.daemonId),
+    index("idx_agent_runtime_daemon_workspace").on(t.daemonId, t.workspaceId),
   ]
 );
 
@@ -308,6 +309,7 @@ export const conversation = sqliteTable(
   (t) => [
     index("idx_conversation_agent_lookup")
       .on(t.workspaceId, t.agentId, t.userId, t.type, t.channel, t.createdAt),
+    index("idx_conversation_ws_user").on(t.workspaceId, t.userId, t.createdAt),
     foreignKey({
       columns: [t.agentId, t.workspaceId],
       foreignColumns: [agent.id, agent.workspaceId],
@@ -380,6 +382,7 @@ export const agentTaskQueue = sqliteTable(
     index("idx_task_queue_parent").on(t.parentTaskId),
     index("idx_task_queue_workspace_type_status").on(t.workspaceId, t.type, t.status),
     index("idx_task_queue_workspace_status_dispatched").on(t.workspaceId, t.status, t.dispatchedAt),
+    index("idx_task_queue_inbox").on(t.workspaceId, t.status, t.completedAt),
     foreignKey({
       columns: [t.agentId, t.workspaceId],
       foreignColumns: [agent.id, agent.workspaceId],

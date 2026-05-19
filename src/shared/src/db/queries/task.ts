@@ -625,14 +625,20 @@ export async function failStaleRunningTasks(db: Database, workspaceId: string, s
   const threshold = new Date(Date.now() - staleSeconds * 1000).toISOString();
 
   const staleRows = await db
-    .select({ id: agentTaskQueue.id })
+    .select({
+      id: agentTaskQueue.id,
+    })
     .from(agentTaskQueue)
+    .leftJoin(taskMessage, eq(taskMessage.taskId, agentTaskQueue.id))
     .where(
       and(
         eq(agentTaskQueue.workspaceId, workspaceId),
         eq(agentTaskQueue.status, "running"),
-        sql`coalesce((SELECT MAX(created_at) FROM task_message WHERE task_id = ${agentTaskQueue.id}), ${agentTaskQueue.startedAt}) < ${threshold}`
       )
+    )
+    .groupBy(agentTaskQueue.id)
+    .having(
+      sql`COALESCE(MAX(${taskMessage.createdAt}), ${agentTaskQueue.startedAt}) < ${threshold}`
     );
 
   if (staleRows.length === 0) return [];
