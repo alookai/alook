@@ -17,6 +17,7 @@ export const GET = withAuth(async (_req, ctx) => {
   }
 
   const { env } = getCloudflareContext()
+  const db = getDb((env as Env).DB)
   const store = new TaskMessageStore(
     (env as Env).TASK_MESSAGE_BUCKET,
     (env as Env).CACHE_KV ?? null,
@@ -25,6 +26,11 @@ export const GET = withAuth(async (_req, ctx) => {
   const taskId = ctx.params?.taskId;
   if (!taskId) {
     return writeError("task_id is required", 400);
+  }
+
+  const task = await withD1Retry(() => queries.task.getTask(db, taskId, ctx.workspaceId));
+  if (!task) {
+    return writeError("task not found", 404);
   }
 
   const messages = await store.listMessages(taskId, { excludeTypes: ["tool-result"] });

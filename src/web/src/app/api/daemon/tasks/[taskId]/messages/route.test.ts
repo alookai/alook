@@ -82,6 +82,7 @@ describe("GET /api/daemon/tasks/[taskId]/messages", () => {
 
   it("returns messages from store for workspace-scoped task", async () => {
     const msgs = [{ id: "m1", seq: 1, type: "tool-call", content: "hi" }];
+    mockGetTask.mockResolvedValue({ id: "t1", workspaceId: "w1" });
     mockStoreListMessages.mockResolvedValue(msgs);
 
     const res = await GET(
@@ -92,7 +93,22 @@ describe("GET /api/daemon/tasks/[taskId]/messages", () => {
 
     expect(res.status).toBe(200);
     expect(body).toHaveLength(1);
+    expect(mockGetTask).toHaveBeenCalledWith({}, "t1", "w1");
     expect(mockStoreListMessages).toHaveBeenCalledWith("t1", { excludeTypes: ["tool-result"] });
+  });
+
+  it("returns 404 when task not found in GET", async () => {
+    mockGetTask.mockResolvedValue(null);
+
+    const res = await GET(
+      new NextRequest("http://localhost/api/daemon/tasks/t-unknown/messages"),
+      withParams("t-unknown")
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(404);
+    expect(body.error).toBe("task not found");
+    expect(mockStoreListMessages).not.toHaveBeenCalled();
   });
 
   it("returns 403 when workspaceId is missing (session auth)", async () => {
