@@ -1,4 +1,4 @@
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 import { emails } from "../schema";
 import type { Database } from "../index";
 import type { EmailDirection } from "../../types";
@@ -54,7 +54,7 @@ export async function getSentEmails(db: Database, agentId: string, agentEmail: s
 }
 
 export async function getTrustedEmails(db: Database, agentId: string, agentEmail: string, workspaceId: string, status?: string, pagination?: EmailPagination) {
-  const conditions = [eq(emails.agentId, agentId), eq(emails.toEmail, agentEmail), eq(emails.workspaceId, workspaceId), eq(emails.isWhitelisted, true), eq(emails.direction, "inbound")];
+  const conditions = [eq(emails.agentId, agentId), eq(emails.toEmail, agentEmail), eq(emails.workspaceId, workspaceId), inArray(emails.senderTrust, ["trusted", "accepted"]), eq(emails.direction, "inbound")];
   if (status) conditions.push(eq(emails.status, status));
   const q = db.select().from(emails)
     .where(and(...conditions))
@@ -64,7 +64,7 @@ export async function getTrustedEmails(db: Database, agentId: string, agentEmail
 }
 
 export async function getRejectedEmails(db: Database, agentId: string, agentEmail: string, workspaceId: string, status?: string, pagination?: EmailPagination) {
-  const conditions = [eq(emails.agentId, agentId), eq(emails.toEmail, agentEmail), eq(emails.workspaceId, workspaceId), eq(emails.isWhitelisted, false), eq(emails.direction, "inbound")];
+  const conditions = [eq(emails.agentId, agentId), eq(emails.toEmail, agentEmail), eq(emails.workspaceId, workspaceId), inArray(emails.senderTrust, ["untrusted", "rejected"]), eq(emails.direction, "inbound")];
   if (status) conditions.push(eq(emails.status, status));
   const q = db.select().from(emails)
     .where(and(...conditions))
@@ -91,6 +91,11 @@ export async function getEmailByMessageId(db: Database, messageId: string, works
 
 export async function updateEmailStatus(db: Database, id: string, workspaceId: string, status: string) {
   const rows = await db.update(emails).set({ status }).where(and(eq(emails.id, id), eq(emails.workspaceId, workspaceId))).returning();
+  return rows[0] ?? null;
+}
+
+export async function updateEmail(db: Database, id: string, workspaceId: string, data: { status?: string; senderTrust?: string }) {
+  const rows = await db.update(emails).set(data).where(and(eq(emails.id, id), eq(emails.workspaceId, workspaceId))).returning();
   return rows[0] ?? null;
 }
 

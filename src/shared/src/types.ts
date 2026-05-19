@@ -2,7 +2,7 @@ import type { TaskApi, WorkspaceFileEntry } from "./schemas";
 
 export type EmailDirection = "inbound" | "outbound" | "draft";
 
-export type SenderTrust = "trusted" | "greylisted" | "untrusted";
+export type SenderTrust = "trusted" | "greylisted" | "accepted" | "rejected" | "untrusted";
 
 export interface User {
   id: string;

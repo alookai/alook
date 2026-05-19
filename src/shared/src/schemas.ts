@@ -550,7 +550,8 @@ export const SendEmailRequestSchema = z.object({
 export type SendEmailRequest = z.infer<typeof SendEmailRequestSchema>;
 
 export const UpdateEmailStatusRequestSchema = z.object({
-  status: z.enum(["unread", "read", "archived", "sent"]),
+  status: z.enum(["unread", "read", "archived", "sent"]).optional(),
+  senderTrust: z.enum(["trusted", "greylisted", "accepted", "rejected", "untrusted"]).optional(),
 });
 export type UpdateEmailStatusRequest = z.infer<
   typeof UpdateEmailStatusRequestSchema
@@ -572,7 +573,7 @@ export const EmailNotifyRequestSchema = z.object({
   to: z.string().optional(),
   subject: z.string().min(1),
   isWhitelisted: z.boolean(),
-  senderTrust: z.enum(["trusted", "greylisted", "untrusted"]).optional().default("untrusted"),
+  senderTrust: z.enum(["trusted", "greylisted", "accepted", "rejected", "untrusted"]).optional().default("untrusted"),
   forwarded: z.boolean().optional().default(false),
   messageId: z.string().optional().default(""),
   inReplyTo: z.string().optional().default(""),

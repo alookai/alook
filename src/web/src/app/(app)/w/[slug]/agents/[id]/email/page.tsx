@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
-import { listEmails, getEmailBody, getEmailThread, deleteEmail, sendEmail, listEmailAccounts, updateEmailStatus } from "@/lib/api";
+import { listEmails, getEmailBody, getEmailThread, deleteEmail, sendEmail, listEmailAccounts, updateEmailStatus, updateEmailSenderTrust } from "@/lib/api";
 import type { Email, EmailAttachment, AgentEmailAccount } from "@alook/shared";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -196,8 +196,12 @@ export default function AgentEmailPage() {
   const handleSend = async (to: string, subject: string, htmlBody: string, attachments: EmailAttachment[], threading?: { inReplyTo?: string; references?: string }): Promise<boolean> => {
     try {
       await sendEmail(agentId, to, subject, htmlBody, workspaceId, attachments.length > 0 ? attachments : undefined, threading, activeAccountId);
-      // If editing a draft, delete the archived draft now that send succeeded
+      // If editing a draft, accept the original greylisted email and clean up
       if (editingDraftId) {
+        if (editingOriginalEmailId) {
+          updateEmailSenderTrust(editingOriginalEmailId, workspaceId, "accepted").catch(() => {});
+          setEditingOriginalEmailId(null);
+        }
         deleteEmail(editingDraftId, workspaceId).catch(() => {});
         setEditingDraftId(null);
       }
@@ -224,6 +228,10 @@ export default function AgentEmailPage() {
         draft.in_reply_to ? { inReplyTo: draft.in_reply_to, references: draft.references } : undefined,
         activeAccountId,
       );
+      // Accept the original greylisted email (moves it to Inbox)
+      if (draft.references) {
+        await updateEmailSenderTrust(draft.references, workspaceId, "accepted").catch(() => {});
+      }
       await deleteEmail(draft.id, workspaceId);
       setEmails((prev) => prev.filter((e) => e.id !== draft.id));
       setSelectedId(null);
@@ -236,9 +244,11 @@ export default function AgentEmailPage() {
   };
 
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  const [editingOriginalEmailId, setEditingOriginalEmailId] = useState<string | null>(null);
 
   const handleEditDraft = (draft: Email) => {
     setEditingDraftId(draft.id);
+    setEditingOriginalEmailId(draft.references || null);
     setSelectedId(null);
     setComposeInitial({
       to: draft.to_email,
@@ -256,7 +266,11 @@ export default function AgentEmailPage() {
 
   const handleDiscardDraft = async (draft: Email) => {
     try {
-      await updateEmailStatus(draft.id, workspaceId, "archived");
+      // Reject the original greylisted email (moves it to Untrust)
+      if (draft.references) {
+        await updateEmailSenderTrust(draft.references, workspaceId, "rejected").catch(() => {});
+      }
+      await deleteEmail(draft.id, workspaceId);
       setEmails((prev) => prev.filter((e) => e.id !== draft.id));
       if (selectedId === draft.id) {
         setSelectedId(null);

@@ -53,7 +53,13 @@ export const PATCH = withAuth(async (req, ctx) => {
   const [body, valErr] = await parseBody(req, UpdateEmailStatusRequestSchema);
   if (valErr) return valErr;
 
-  const updated = await queries.email.updateEmailStatus(db, id, ws.workspaceId, body.status);
+  if (!body.status && !body.senderTrust) return writeError("status or senderTrust required", 400);
+
+  const data: { status?: string; senderTrust?: string } = {};
+  if (body.status) data.status = body.status;
+  if (body.senderTrust) data.senderTrust = body.senderTrust;
+
+  const updated = await queries.email.updateEmail(db, id, ws.workspaceId, data);
   if (!updated) return writeError("email not found", 404);
 
   return writeJSON(emailToResponse(updated));

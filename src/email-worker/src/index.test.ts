@@ -65,6 +65,7 @@ vi.mock("@alook/shared", async () => {
         getAgent: (db: unknown, id: unknown, workspaceId: unknown) => mockGetAgent(db, id, workspaceId),
       },
       whitelist: { isWhitelisted: (db: unknown, agentId: unknown, workspaceId: unknown, email: unknown) => mockIsWhitelisted(db, agentId, workspaceId, email) },
+      greylist: { isGreylisted: vi.fn().mockResolvedValue(false) },
       user: { getUser: (db: unknown, id: unknown) => mockGetUser(db, id) },
       emailAccount: { getEmailAccount: (...args: unknown[]) => mockGetEmailAccount(...args), getEmailAccountById: (...args: unknown[]) => mockGetEmailAccount(...args) },
     },

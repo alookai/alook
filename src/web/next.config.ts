@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
 	turbopack: {
 		root: path.resolve(__dirname, "../.."),
 	},
+	allowedDevOrigins: ["dev.jackyreay.xyz"],
 };
 
 export default nextConfig;

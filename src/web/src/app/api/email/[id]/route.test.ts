@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 
 const mockGetEmailById = vi.fn();
 const mockDeleteEmail = vi.fn();
-const mockUpdateEmailStatus = vi.fn();
+const mockUpdateEmail = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({
@@ -22,7 +22,7 @@ vi.mock("@alook/shared", async () => {
       email: {
         getEmailById: (...args: unknown[]) => mockGetEmailById(...args),
         deleteEmail: (...args: unknown[]) => mockDeleteEmail(...args),
-        updateEmailStatus: (...args: unknown[]) => mockUpdateEmailStatus(...args),
+        updateEmail: (...args: unknown[]) => mockUpdateEmail(...args),
       },
     },
   };
@@ -106,22 +106,20 @@ describe("PATCH /api/email/[id]", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("updates status for valid email in workspace", async () => {
-    mockUpdateEmailStatus.mockResolvedValue({ id: "e1", status: "read" });
+    mockUpdateEmail.mockResolvedValue({ id: "e1", status: "read" });
 
     const req = new NextRequest("http://localhost/api/email/e1", {
       method: "PATCH",
       body: JSON.stringify({ status: "read" }),
     });
     const res = await PATCH(req, { params: Promise.resolve({ id: "e1" }) } as any);
-    const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ id: "e1", status: "read" });
-    expect(mockUpdateEmailStatus).toHaveBeenCalledWith({}, "e1", "ws1", "read");
+    expect(mockUpdateEmail).toHaveBeenCalledWith({}, "e1", "ws1", { status: "read" });
   });
 
   it("updates status to archived", async () => {
-    mockUpdateEmailStatus.mockResolvedValue({ id: "e1", status: "archived" });
+    mockUpdateEmail.mockResolvedValue({ id: "e1", status: "archived" });
 
     const req = new NextRequest("http://localhost/api/email/e1", {
       method: "PATCH",
@@ -130,11 +128,11 @@ describe("PATCH /api/email/[id]", () => {
     const res = await PATCH(req, { params: Promise.resolve({ id: "e1" }) } as any);
 
     expect(res.status).toBe(200);
-    expect(mockUpdateEmailStatus).toHaveBeenCalledWith({}, "e1", "ws1", "archived");
+    expect(mockUpdateEmail).toHaveBeenCalledWith({}, "e1", "ws1", { status: "archived" });
   });
 
   it("returns 404 when email not in workspace", async () => {
-    mockUpdateEmailStatus.mockResolvedValue(null);
+    mockUpdateEmail.mockResolvedValue(null);
 
     const req = new NextRequest("http://localhost/api/email/e1", {
       method: "PATCH",
