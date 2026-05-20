@@ -9,6 +9,7 @@ const mockIsGreylisted = vi.fn();
 const mockGetEmailByMessageId = vi.fn();
 const mockGetEmailAccountsByAgent = vi.fn();
 const mockGetEmailAccountScoped = vi.fn();
+const mockGetTask = vi.fn();
 const mockEmailWorkerFetch = vi.fn();
 const mockEmailBucketGet = vi.fn();
 const mockEmailBucketPut = vi.fn();
@@ -59,6 +60,9 @@ vi.mock("@alook/shared", async () => {
       },
       greylist: {
         isGreylisted: (...args: unknown[]) => mockIsGreylisted(...args),
+      },
+      task: {
+        getTask: (...args: unknown[]) => mockGetTask(...args),
       },
       emailAccount: {
         getEmailAccountsByAgent: (...args: unknown[]) => mockGetEmailAccountsByAgent(...args),
@@ -764,6 +768,71 @@ describe("POST /api/email/send", () => {
       expect(createArgs.direction).toBe("draft");
       expect(createArgs.references).toBe("");
       expect(mockGetEmailByMessageId).not.toHaveBeenCalled();
+    });
+
+    it("intercepts send via sourceTaskId with greylisted context (agent sends to owner)", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent", ownerId: "u1" });
+      mockIsGreylisted.mockResolvedValue(false); // recipient is NOT greylisted (it's the owner)
+      mockGetTask.mockResolvedValue({ id: "task1", context: JSON.stringify({ isGreylisted: true, greylistedSender: "karl@example.com" }) });
+      mockCreateEmail.mockResolvedValue({ id: "draft1", direction: "draft", senderTrust: "greylisted" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "owner@example.com",
+        subject: "karl@example.com sent you a message",
+        htmlBody: "<p>Notification about greylisted email</p>",
+        sourceTaskId: "task1",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      expect(mockEmailWorkerFetch).not.toHaveBeenCalled();
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.direction).toBe("draft");
+      expect(createArgs.senderTrust).toBe("greylisted");
+    });
+
+    it("does NOT intercept when sourceTaskId has no greylisted context", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent", ownerId: "u1" });
+      mockIsGreylisted.mockResolvedValue(false);
+      mockGetTask.mockResolvedValue({ id: "task2", context: JSON.stringify({ conversationType: "user_dm_message" }) });
+      mockEmailWorkerFetch.mockResolvedValue(Response.json({ ok: true, r2Key: "emails/abc/raw" }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "owner@example.com",
+        subject: "Normal notification",
+        htmlBody: "<p>Hi</p>",
+        sourceTaskId: "task2",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+      expect(mockEmailWorkerFetch).toHaveBeenCalledOnce();
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.direction).toBe("outbound");
+    });
+
+    it("intercepts when sourceTaskId context is already parsed object", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent", ownerId: "u1" });
+      mockIsGreylisted.mockResolvedValue(false);
+      mockGetTask.mockResolvedValue({ id: "task3", context: { isGreylisted: true } });
+      mockCreateEmail.mockResolvedValue({ id: "draft1", direction: "draft" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "owner@example.com",
+        subject: "Test parsed context",
+        htmlBody: "<p>Hi</p>",
+        sourceTaskId: "task3",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.direction).toBe("draft");
     });
 
     it("broadcasts email.draft_created when intercepting", async () => {

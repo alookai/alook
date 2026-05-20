@@ -158,7 +158,7 @@ export async function POST(req: NextRequest) {
     const prompt = `New email from ${body.from}: ${body.subject}`;
     const taskService = new TaskService(db)
     const traceId = body.traceId || ("tr_" + nanoid());
-    await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, prompt, TASK_TYPES.EMAIL_NOTIFICATION, { contextKey: conv.id, traceId })
+    await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, prompt, TASK_TYPES.EMAIL_NOTIFICATION, { contextKey: conv.id, context: { isGreylisted: true, greylistedSender: body.from }, traceId })
   }
 
   const dateStr = new Date().toISOString().slice(0, 10);

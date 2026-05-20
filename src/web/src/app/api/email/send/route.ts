@@ -95,9 +95,18 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const attachments = body.attachments ?? [];
 
-  // Greylist interception: if recipient is greylisted, save as draft instead of sending
-  const isRecipientGreylisted = await queries.greylist.isGreylisted(db, body.agentId, ws.workspaceId, body.to);
-  if (isRecipientGreylisted) {
+  // Greylist interception: intercept all sends from a greylisted-email task as drafts
+  // Check 1: recipient is directly greylisted
+  // Check 2: the originating task was triggered by a greylisted inbound email
+  let isGreylistContext = await queries.greylist.isGreylisted(db, body.agentId, ws.workspaceId, body.to);
+  if (!isGreylistContext && body.sourceTaskId) {
+    const sourceTask = await queries.task.getTask(db, body.sourceTaskId);
+    if (sourceTask?.context) {
+      const ctx = typeof sourceTask.context === "string" ? JSON.parse(sourceTask.context) : sourceTask.context;
+      if (ctx?.isGreylisted) isGreylistContext = true;
+    }
+  }
+  if (isGreylistContext) {
     let originalEmailId = "";
     if (body.inReplyTo) {
       const original = await queries.email.getEmailByMessageId(db, body.inReplyTo, ws.workspaceId);

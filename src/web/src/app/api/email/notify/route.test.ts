@@ -283,7 +283,10 @@ describe("POST /api/email/notify", () => {
       "a1", "conv_grey", "ws1",
       expect.stringContaining("New email from sender@test.com"),
       "email_notification",
-      expect.objectContaining({ contextKey: "conv_grey" }),
+      expect.objectContaining({
+        contextKey: "conv_grey",
+        context: { isGreylisted: true, greylistedSender: "sender@test.com" },
+      }),
     );
   });
 
