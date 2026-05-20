@@ -5,6 +5,8 @@ const mockGetAgent = vi.fn();
 const mockGetAgentByHandle = vi.fn();
 const mockCreateEmail = vi.fn();
 const mockIsWhitelisted = vi.fn();
+const mockIsGreylisted = vi.fn();
+const mockGetEmailByMessageId = vi.fn();
 const mockGetEmailAccountsByAgent = vi.fn();
 const mockGetEmailAccountScoped = vi.fn();
 const mockEmailWorkerFetch = vi.fn();
@@ -13,6 +15,7 @@ const mockEmailBucketPut = vi.fn();
 const mockWorkerSelfRefFetch = vi.fn();
 const mockCreateMapping = vi.fn();
 const mockGetConversation = vi.fn();
+const mockBroadcastToUser = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({
@@ -45,6 +48,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       email: {
         createEmail: (...args: unknown[]) => mockCreateEmail(...args),
+        getEmailByMessageId: (...args: unknown[]) => mockGetEmailByMessageId(...args),
       },
       agent: {
         getAgent: (...args: unknown[]) => mockGetAgent(...args),
@@ -52,6 +56,9 @@ vi.mock("@alook/shared", async () => {
       },
       whitelist: {
         isWhitelisted: (...args: unknown[]) => mockIsWhitelisted(...args),
+      },
+      greylist: {
+        isGreylisted: (...args: unknown[]) => mockIsGreylisted(...args),
       },
       emailAccount: {
         getEmailAccountsByAgent: (...args: unknown[]) => mockGetEmailAccountsByAgent(...args),
@@ -91,6 +98,10 @@ vi.mock("@/lib/middleware/helpers", async () => {
 
 vi.mock("@/lib/api/responses", () => ({
   emailToResponse: (e: any) => e,
+}));
+
+vi.mock("@/lib/broadcast", () => ({
+  broadcastToUser: (...args: unknown[]) => mockBroadcastToUser(...args),
 }));
 
 import { POST } from "./route";
@@ -621,6 +632,159 @@ describe("POST /api/email/send", () => {
       const res = await POST(req, {} as any);
       expect(res.status).toBe(200);
       expect(mockCreateMapping).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Greylist send interception ──
+
+  describe("greylist send interception", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      mockIsGreylisted.mockResolvedValue(false);
+    });
+
+    it("intercepts external send to greylisted recipient as draft", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent", ownerId: "u1" });
+      mockIsGreylisted.mockResolvedValue(true);
+      mockGetEmailByMessageId.mockResolvedValue(null);
+      mockCreateEmail.mockResolvedValue({ id: "draft1", direction: "draft", senderTrust: "greylisted" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "grey@example.com",
+        subject: "Hello grey",
+        htmlBody: "<p>Hi there</p>",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      // Should NOT call EMAIL_WORKER or local delivery
+      expect(mockEmailWorkerFetch).not.toHaveBeenCalled();
+      expect(mockWorkerSelfRefFetch).not.toHaveBeenCalled();
+
+      // Should create email as draft
+      expect(mockCreateEmail).toHaveBeenCalledOnce();
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.direction).toBe("draft");
+      expect(createArgs.senderTrust).toBe("greylisted");
+      expect(createArgs.htmlBody).toBe("<p>Hi there</p>");
+      expect(createArgs.toEmail).toBe("grey@example.com");
+      expect(createArgs.status).toBe("unread");
+    });
+
+    it("intercepts local delivery to greylisted recipient as draft", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1", ownerId: "u1" });
+      mockIsGreylisted.mockResolvedValue(true);
+      mockGetEmailByMessageId.mockResolvedValue(null);
+      mockCreateEmail.mockResolvedValue({ id: "draft1", direction: "draft" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "agent-b@alook.ai",
+        subject: "Hello local grey",
+        htmlBody: "<p>Local intercepted</p>",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      // Should NOT go through local delivery or EMAIL_WORKER
+      expect(mockWorkerSelfRefFetch).not.toHaveBeenCalled();
+      expect(mockEmailWorkerFetch).not.toHaveBeenCalled();
+      expect(mockGetAgentByHandle).not.toHaveBeenCalled();
+
+      // Should create as draft
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.direction).toBe("draft");
+      expect(createArgs.senderTrust).toBe("greylisted");
+    });
+
+    it("does NOT intercept send to non-greylisted recipient", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent", ownerId: "u1" });
+      mockIsGreylisted.mockResolvedValue(false);
+      mockEmailWorkerFetch.mockResolvedValue(Response.json({ ok: true, r2Key: "emails/abc/raw" }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "normal@example.com",
+        subject: "Normal send",
+        htmlBody: "<p>Hi</p>",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      // Should go through normal EMAIL_WORKER path
+      expect(mockEmailWorkerFetch).toHaveBeenCalledOnce();
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.direction).toBe("outbound");
+      expect(createArgs.status).toBe("sent");
+    });
+
+    it("links draft to original inbound email via inReplyTo", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent", ownerId: "u1" });
+      mockIsGreylisted.mockResolvedValue(true);
+      mockGetEmailByMessageId.mockResolvedValue({ id: "orig_email_id", messageId: "<orig@test.com>" });
+      mockCreateEmail.mockResolvedValue({ id: "draft1", direction: "draft" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "grey@example.com",
+        subject: "Re: Original subject",
+        htmlBody: "<p>Reply</p>",
+        inReplyTo: "<orig@test.com>",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.references).toBe("orig_email_id");
+      expect(mockGetEmailByMessageId).toHaveBeenCalledWith(expect.anything(), "<orig@test.com>", "ws1");
+    });
+
+    it("creates draft with empty references when inReplyTo is empty (new email)", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent", ownerId: "u1" });
+      mockIsGreylisted.mockResolvedValue(true);
+      mockCreateEmail.mockResolvedValue({ id: "draft1", direction: "draft" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "grey@example.com",
+        subject: "New email to greylisted",
+        htmlBody: "<p>New mail</p>",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
+      expect(createArgs.direction).toBe("draft");
+      expect(createArgs.references).toBe("");
+      expect(mockGetEmailByMessageId).not.toHaveBeenCalled();
+    });
+
+    it("broadcasts email.draft_created when intercepting", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent", ownerId: "u1" });
+      mockIsGreylisted.mockResolvedValue(true);
+      mockGetEmailByMessageId.mockResolvedValue(null);
+      mockCreateEmail.mockResolvedValue({ id: "draft1", direction: "draft" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "grey@example.com",
+        subject: "Broadcast test",
+        htmlBody: "<p>Test</p>",
+      });
+
+      await POST(req, {} as any);
+
+      expect(mockBroadcastToUser).toHaveBeenCalledWith(
+        "u1",
+        expect.objectContaining({ type: "email.draft_created", agentId: "a1" }),
+      );
     });
   });
 });

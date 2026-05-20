@@ -95,6 +95,41 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const attachments = body.attachments ?? [];
 
+  // Greylist interception: if recipient is greylisted, save as draft instead of sending
+  const isRecipientGreylisted = await queries.greylist.isGreylisted(db, body.agentId, ws.workspaceId, body.to);
+  if (isRecipientGreylisted) {
+    let originalEmailId = "";
+    if (body.inReplyTo) {
+      const original = await queries.email.getEmailByMessageId(db, body.inReplyTo, ws.workspaceId);
+      if (original) originalEmailId = original.id;
+    }
+
+    const email = await queries.email.createEmail(db, {
+      agentId: body.agentId,
+      workspaceId: ws.workspaceId,
+      fromEmail: fromAddress,
+      toEmail: body.to,
+      subject: body.subject,
+      r2Key: "",
+      isWhitelisted: false,
+      forwarded: false,
+      direction: "draft",
+      senderTrust: "greylisted",
+      messageId: "",
+      inReplyTo: body.inReplyTo ?? "",
+      references: originalEmailId,
+      htmlBody: body.htmlBody || "",
+      attachments: JSON.stringify(attachments),
+      status: "unread",
+    });
+
+    if (agent.ownerId) {
+      broadcastToUser(agent.ownerId, { type: "email.draft_created", agentId: body.agentId }).catch(() => {});
+    }
+
+    return writeJSON(emailToResponse(email));
+  }
+
   // Local delivery shortcut: same-workspace @alook.ai → @alook.ai
   const senderHandle = parseEmailHandle(fromAddress);
   const recipientHandle = parseEmailHandle(body.to);

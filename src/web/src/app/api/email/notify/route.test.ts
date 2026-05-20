@@ -262,57 +262,48 @@ describe("POST /api/email/notify", () => {
 
   // ── Greylisted email paths ──
 
-  it("creates draft and enqueues agent task for greylisted email", async () => {
+  it("enqueues agent task for greylisted email (no placeholder draft)", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: "r1", ownerId: "u1", emailHandle: "myagent" });
-    mockCreateConversation.mockResolvedValue({ id: "conv_draft" });
+    mockCreateConversation.mockResolvedValue({ id: "conv_grey" });
     mockEnqueueTask.mockResolvedValue({ id: "t1" });
 
     const res = await POST(makeNotifyReq({ ...baseBody, isWhitelisted: false, senderTrust: "greylisted" }));
     expect(res.status).toBe(200);
 
-    // First call: original inbound email. Second call: draft email.
-    expect(mockCreateEmail).toHaveBeenCalledTimes(2);
+    // Only the original inbound email — no placeholder draft created
+    expect(mockCreateEmail).toHaveBeenCalledTimes(1);
+    expect(mockCreateEmail.mock.calls[0][1].direction).toBe("inbound");
 
-    const draftCall = mockCreateEmail.mock.calls[1][1];
-    expect(draftCall.direction).toBe("draft");
-    expect(draftCall.senderTrust).toBe("greylisted");
-    expect(draftCall.fromEmail).toBe("myagent@alook.ai");
-    expect(draftCall.toEmail).toBe("sender@test.com");
-    expect(draftCall.subject).toBe("Re: Test email");
-    expect(draftCall.references).toBe("e1"); // original email's DB id
-
-    // Should create conversation and enqueue agent task for draft improvement
+    // Should create conversation and enqueue agent task (normal prompt, no [Greylist Draft])
     expect(mockCreateConversation).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ title: expect.stringContaining("Draft:"), type: "email_notification" }),
+      expect.objectContaining({ title: expect.stringContaining("Email:"), type: "email_notification" }),
     );
     expect(mockEnqueueTask).toHaveBeenCalledWith(
-      "a1", "conv_draft", "ws1",
-      expect.stringContaining("[Greylist Draft]"),
+      "a1", "conv_grey", "ws1",
+      expect.stringContaining("New email from sender@test.com"),
       "email_notification",
-      expect.objectContaining({ contextKey: "conv_draft" }),
+      expect.objectContaining({ contextKey: "conv_grey" }),
     );
   });
 
-  it("creates draft but skips agent task when agent has no runtime", async () => {
+  it("skips agent task for greylisted email when agent has no runtime", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: null, ownerId: "u1", emailHandle: "myagent" });
 
     const res = await POST(makeNotifyReq({ ...baseBody, isWhitelisted: false, senderTrust: "greylisted" }));
     expect(res.status).toBe(200);
 
-    // Draft should still be created
-    expect(mockCreateEmail).toHaveBeenCalledTimes(2);
-    const draftCall = mockCreateEmail.mock.calls[1][1];
-    expect(draftCall.direction).toBe("draft");
+    // Only the original inbound email
+    expect(mockCreateEmail).toHaveBeenCalledTimes(1);
 
-    // But no conversation or task created (agent can't run)
+    // No conversation or task (agent can't run)
     expect(mockCreateConversation).not.toHaveBeenCalled();
     expect(mockEnqueueTask).not.toHaveBeenCalled();
   });
 
   it("greylisted email does NOT trigger whitelisted conversation/task flow", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: "r1", ownerId: "u1", emailHandle: "myagent" });
-    mockCreateConversation.mockResolvedValue({ id: "conv_draft" });
+    mockCreateConversation.mockResolvedValue({ id: "conv_grey" });
     mockEnqueueTask.mockResolvedValue({ id: "t1" });
 
     await POST(makeNotifyReq({ ...baseBody, isWhitelisted: false, senderTrust: "greylisted" }));

@@ -145,47 +145,20 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Greylisted emails: create a draft for owner review + enqueue agent task to improve it
-  if (senderTrust === "greylisted" && agent) {
-    const agentEmail = agent.emailHandle ? `${agent.emailHandle}@alook.ai` : body.to ?? "";
-
-    // Create a placeholder draft that the owner can review immediately
-    await queries.email.createEmail(db, {
-      agentId: body.agentId,
-      workspaceId: body.workspaceId,
-      fromEmail: agentEmail,
-      toEmail: body.from,
-      subject: `Re: ${body.subject}`,
-      r2Key: "",
-      isWhitelisted: false,
-      forwarded: false,
-      direction: "draft",
-      senderTrust: "greylisted",
-      messageId: "",
-      inReplyTo: body.messageId || email.messageId,
-      references: email.id,
-      htmlBody: "",
-      status: "unread",
+  // Greylisted emails: enqueue agent task to process and reply
+  // Agent's reply will be intercepted by the send route and saved as draft
+  if (senderTrust === "greylisted" && agent && agent.runtimeId && agent.ownerId) {
+    const conv = await queries.conversation.createConversation(db, {
+      workspaceId: agent.workspaceId,
+      agentId: agent.id,
+      userId: agent.ownerId,
+      title: `Email: ${body.subject}`.slice(0, 50),
+      type: TASK_TYPES.EMAIL_NOTIFICATION,
     })
-
-    // Enqueue agent task to draft a better reply (will update the draft's htmlBody)
-    if (agent.runtimeId && agent.ownerId) {
-      const conv = await queries.conversation.createConversation(db, {
-        workspaceId: agent.workspaceId,
-        agentId: agent.id,
-        userId: agent.ownerId,
-        title: `Draft: ${body.subject}`.slice(0, 50),
-        type: TASK_TYPES.EMAIL_NOTIFICATION,
-      })
-      const prompt = `[Greylist Draft] Received greylisted email (emailId: ${email.id}) from ${body.from}: "${body.subject}". Please read the original email and draft a reply. Do NOT send it directly. Save it as a draft for the owner to review.`;
-      const taskService = new TaskService(db)
-      const traceId = body.traceId || ("tr_" + nanoid());
-      await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, prompt, TASK_TYPES.EMAIL_NOTIFICATION, { contextKey: conv.id, traceId })
-    }
-
-    if (agent.ownerId) {
-      broadcastToUser(agent.ownerId, { type: "email.draft_created", agentId: body.agentId }).catch(() => {})
-    }
+    const prompt = `New email from ${body.from}: ${body.subject}`;
+    const taskService = new TaskService(db)
+    const traceId = body.traceId || ("tr_" + nanoid());
+    await taskService.enqueueTask(agent.id, conv.id, agent.workspaceId, prompt, TASK_TYPES.EMAIL_NOTIFICATION, { contextKey: conv.id, traceId })
   }
 
   const dateStr = new Date().toISOString().slice(0, 10);
