@@ -1,14 +1,12 @@
-import type { Database } from "@alook/shared";
+import type { Database, ClaimedTaskRow } from "@alook/shared";
 import { queries, TASK_TYPES, toAlookAddress } from "@alook/shared";
 import { taskToResponse } from "@/lib/api/responses";
 import { cached, cacheKeys } from "@/lib/cache";
 
-type ClaimedTask = Awaited<ReturnType<typeof queries.task.claimTasksForRuntimes>>[number];
-
 export class TaskPayloadBuilder {
   constructor(private db: Database) {}
 
-  async buildFullPayloads(tasks: ClaimedTask[], workspaceId: string) {
+  async buildFullPayloads(tasks: ClaimedTaskRow[], workspaceId: string) {
     const nonKillTasks = tasks.filter((t) => t.type !== TASK_TYPES.KILL_TASK);
     const agentIds = [...new Set(nonKillTasks.map((t) => t.agentId))];
 

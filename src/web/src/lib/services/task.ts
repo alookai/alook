@@ -423,7 +423,7 @@ export class TaskService {
     if (!dispatched) return; // already claimed by poll or another push
 
     const builder = new TaskPayloadBuilder(this.db);
-    const payloads = await builder.buildFullPayloads([dispatched as any], workspaceId);
+    const payloads = await builder.buildFullPayloads([dispatched], workspaceId);
     if (payloads.length === 0) return;
 
     broadcastToDaemon(runtime.daemonId, {
