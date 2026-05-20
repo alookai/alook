@@ -25,6 +25,7 @@ export type {
   Channel,
   WsMessage,
   WorkspaceFileResult,
+  DaemonPushMessage,
 } from "./types";
 
 // API types
@@ -158,6 +159,7 @@ export {
   WorkspaceFileEntrySchema,
   WorkspaceFileReportSchema,
   CreateStudioRequestSchema,
+  DaemonPushMessageSchema,
 } from "./schemas";
 
 export type {
@@ -200,6 +202,7 @@ export type {
   WorkspaceFileBrowseRequest,
   WorkspaceFileReport,
   CreateStudioRequest,
+  DaemonPushMessageType,
 } from "./schemas";
 
 // Database

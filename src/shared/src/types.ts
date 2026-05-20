@@ -1,4 +1,4 @@
-import type { TaskApi, WorkspaceFileEntry } from "./schemas";
+import type { TaskApi, WorkspaceFileEntry, FileRequestItem, PollMeetingItem } from "./schemas";
 
 export type EmailDirection = "inbound" | "outbound";
 
@@ -295,3 +295,13 @@ export interface WorkspaceFileResult {
   error?: string;
   path: string;
 }
+
+/** Messages pushed from server to daemon via WebSocket. */
+export type DaemonPushMessage =
+  | { type: "daemon.tasks"; tasks: TaskApi[] }
+  | { type: "daemon.file_requests"; requests: FileRequestItem[] }
+  | { type: "daemon.meetings"; meetings: PollMeetingItem[] }
+  | { type: "daemon.evict"; workspaceId: string }
+  | { type: "daemon.update"; version: string }
+  | { type: "daemon.rescan" }
+  | { type: "daemon.kill"; taskId: string; targetTaskId: string }
