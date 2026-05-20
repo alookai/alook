@@ -607,6 +607,7 @@ export async function startDaemon(
         },
         onDisconnected: () => {
           log.info("WS disconnected — reverting to high-frequency poll");
+          pollCycle();
           updatePollInterval(config.pollInterval);
         },
       })
