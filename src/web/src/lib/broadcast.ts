@@ -63,3 +63,11 @@ export function broadcastToAgent(agentId: string, message: WsMessage): Promise<v
     { agentId, type: message.type },
   )
 }
+
+export function broadcastToDaemon(daemonId: string, message: { type: string; [key: string]: unknown }): Promise<void> {
+  return sendBroadcast(
+    `/broadcast/daemon/${daemonId}`,
+    JSON.stringify(message),
+    { daemonId, type: message.type },
+  )
+}
