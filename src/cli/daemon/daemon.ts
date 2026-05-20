@@ -6,6 +6,8 @@ import { type Task, type SessionRunnerInput, fromApiTask } from "./types.js";
 import { type MarkerData, writeMarkerFile } from "./session-runner.js";
 import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
 import { createLogger } from "../lib/logger.js";
+import { DaemonWsClient } from "./ws-client.js";
+import type { DaemonPushMessage } from "@alook/shared";
 
 const log = createLogger({ module: "daemon" });
 import { cmdPrefix } from "../lib/env.js";
@@ -482,19 +484,141 @@ export async function startDaemon(
       evictWorkspace(id);
     }
 
-    try {
-      await reconcilePendingCompletions(config.workspacesRoot);
-    } catch (e) {
-      log.debug("reconciliation error", e);
-    }
-
     if (workspaceStates.length === 0) {
       log.info("All workspaces evicted — shutting down");
       shutdown();
     }
   };
 
-  const pollTimer = setInterval(pollCycle, config.pollInterval);
+  let pollTimer = setInterval(pollCycle, config.pollInterval);
+
+  // --- WS Push Channel (primary) + Poll fallback ---
+  const firstToken = workspaceStates[0]?.token;
+
+  function updatePollInterval(newInterval: number) {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(pollCycle, newInterval);
+  }
+
+  function handleWsPush(msg: DaemonPushMessage) {
+    switch (msg.type) {
+      case "daemon.tasks":
+        for (const apiTask of msg.tasks) {
+          if (activeTasks.size >= config.maxConcurrentTasks) break;
+          const task = fromApiTask(apiTask);
+          const ws = workspaceStates.find((w) => w.workspaceId === task.workspaceId);
+          if (!ws) continue;
+          syncAgentId(task.agentId, ws.workspaceId);
+          activeTasks.add(task.id);
+          handleTask(client, config, runtimeIndex, task, ws.token, activeTasks)
+            .catch((e) => { log.error("WS task error", e); activeTasks.delete(task.id); });
+        }
+        break;
+
+      case "daemon.file_requests":
+        for (const req of msg.requests) {
+          const ws = workspaceStates[0];
+          if (ws) {
+            handleFileRequest(client, config, ws.workspaceId, req, ws.token)
+              .catch((e) => log.debug("WS file request error", e));
+          }
+        }
+        break;
+
+      case "daemon.meetings":
+        for (const m of msg.meetings) {
+          const ws = workspaceStates.find((w) => w.workspaceId === m.workspace_id);
+          if (!ws) continue;
+          const agentBaseDir = join(config.workspacesRoot, m.workspace_id, m.agent_id, "workdir");
+          const timelineDir = join(agentBaseDir, ".context_timeline");
+          spawnMeetingRunner({
+            meetingId: m.id,
+            meetingUrl: m.meeting_url,
+            participants: m.participants,
+            workspaceId: m.workspace_id,
+            callbackUrl: config.serverURL,
+            authToken: ws.token,
+            agentName: m.agent_name,
+            agentId: m.agent_id,
+            timelineDir,
+            title: m.title,
+          });
+        }
+        break;
+
+      case "daemon.evict":
+        evictWorkspace(msg.workspaceId);
+        break;
+
+      case "daemon.update":
+        if (!isUpdating() && msg.version !== config.cliVersion) {
+          handleCliUpdate(msg.version, () => requestRestart(), profile);
+        }
+        break;
+
+      case "daemon.rescan":
+        log.info("WS rescan requested — restarting daemon");
+        requestRestart();
+        break;
+
+      case "daemon.kill": {
+        const ws = workspaceStates[0];
+        if (ws) {
+          const killTask = fromApiTask({
+            id: msg.taskId,
+            agent_id: "",
+            runtime_id: "",
+            conversation_id: "",
+            workspace_id: ws.workspaceId,
+            prompt: "",
+            status: "queued",
+            priority: 0,
+            dispatched_at: null,
+            started_at: null,
+            completed_at: null,
+            result: null,
+            error: null,
+            created_at: new Date().toISOString(),
+            type: "kill_task",
+            context: { target_task_id: msg.targetTaskId },
+            agent: null,
+            sender: null,
+          });
+          activeTasks.add(killTask.id);
+          handleTask(client, config, runtimeIndex, killTask, ws.token, activeTasks)
+            .catch((e) => { log.error("WS kill task error", e); activeTasks.delete(killTask.id); });
+        }
+        break;
+      }
+    }
+  }
+
+  const wsClient = firstToken
+    ? new DaemonWsClient({
+        serverURL: config.serverURL,
+        daemonId: config.daemonId,
+        machineToken: firstToken,
+        onMessage: handleWsPush,
+        onConnected: () => {
+          log.info("WS connected — switching to low-frequency poll");
+          updatePollInterval(config.wsPollInterval);
+        },
+        onDisconnected: () => {
+          log.info("WS disconnected — reverting to high-frequency poll");
+          updatePollInterval(config.pollInterval);
+        },
+      })
+    : null;
+
+  wsClient?.connect();
+
+  const reconcileTimer = setInterval(async () => {
+    try {
+      await reconcilePendingCompletions(config.workspacesRoot);
+    } catch (e) {
+      log.debug("reconciliation error", e);
+    }
+  }, 60_000);
 
   let shuttingDown = false;
   let restartRequested = false;
@@ -509,6 +633,8 @@ export async function startDaemon(
     shuttingDown = true;
     log.info(restartRequested ? "Restarting..." : "Shutting down...");
     clearInterval(pollTimer);
+    clearInterval(reconcileTimer);
+    wsClient?.close();
 
     const shutdownMs = restartRequested ? 30000 : (Number(process.env.ALOOK_SHUTDOWN_TIMEOUT_MS) || 5000);
     const timeout = setTimeout(() => process.exit(1), shutdownMs);
