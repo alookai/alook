@@ -503,6 +503,8 @@ export async function startDaemon(
   const heartbeatTimer = setInterval(heartbeatPing, config.heartbeatInterval);
 
   // --- WS Push Channel (primary) + Poll fallback ---
+  // Any active machine token suffices — WS auth validates daemon-level access,
+  // not per-workspace. Tasks are routed by workspaceId within handleWsPush.
   const firstToken = workspaceStates[0]?.token;
 
   function updatePollInterval(newInterval: number) {

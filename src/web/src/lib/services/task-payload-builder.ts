@@ -132,7 +132,7 @@ export class TaskPayloadBuilder {
           ? {
               instructions,
               name: agent.name,
-              runtime_config: agent.runtimeConfig || {},
+              runtime_config: (agent.runtimeConfig || {}) as Record<string, unknown>,
               email_handle: agent.emailHandle || null,
               email_addresses: emailAddresses,
               user_email: null as string | null,

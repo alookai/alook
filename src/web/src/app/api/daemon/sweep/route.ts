@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { HeartbeatRequestSchema } from "@alook/shared";
+import { SweepRequestSchema } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -12,7 +12,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext();
   const { throttled } = await import("@/lib/cache");
 
-  const [, err] = await parseBody(req, HeartbeatRequestSchema);
+  const [, err] = await parseBody(req, SweepRequestSchema);
   if (err) return err;
 
   if (!ctx.workspaceId) {

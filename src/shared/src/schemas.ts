@@ -120,6 +120,9 @@ export const HeartbeatRequestSchema = z.object({
 });
 export type HeartbeatRequest = z.infer<typeof HeartbeatRequestSchema>;
 
+export const SweepRequestSchema = HeartbeatRequestSchema;
+export type SweepRequest = HeartbeatRequest;
+
 // ---------------------------------------------------------------------------
 // Poll request/response (replaces heartbeat + per-runtime claim)
 // ---------------------------------------------------------------------------

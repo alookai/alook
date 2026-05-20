@@ -1,4 +1,4 @@
-import type { Database, TaskApi } from "@alook/shared";
+import type { Database } from "@alook/shared";
 import { queries, TASK_TYPES, MAX_TASKS_PER_TRACE } from "@alook/shared";
 import { log } from "@/lib/logger";
 import { broadcastToUser, broadcastToDaemon } from "@/lib/broadcast";
@@ -412,7 +412,7 @@ export class TaskService {
   }
 
   private async pushTaskToDaemon(
-    task: { id: string; agentId: string; runtimeId: string; workspaceId: string; conversationId: string; prompt: string; status: string; priority: number; type: string; contextKey?: string | null; context?: unknown; createdAt: Date; dispatchedAt: Date | null; startedAt: Date | null; completedAt: Date | null; result: unknown; error: string | null; sessionId: string | null },
+    task: Awaited<ReturnType<typeof taskQueries.createTask>>,
     workspaceId: string,
   ) {
     const runtime = await queries.runtime.getAgentRuntime(this.db, task.runtimeId);
@@ -428,7 +428,7 @@ export class TaskService {
 
     broadcastToDaemon(runtime.daemonId, {
       type: "daemon.tasks",
-      tasks: payloads as TaskApi[],
+      tasks: payloads,
     });
   }
 }
