@@ -418,17 +418,23 @@ export class TaskService {
     const runtime = await queries.runtime.getAgentRuntime(this.db, task.runtimeId);
     if (!runtime) return;
 
-    // Atomically claim (queued → dispatched) before pushing — daemon expects dispatched tasks
     const dispatched = await taskQueries.dispatchTaskById(this.db, task.id, workspaceId);
-    if (!dispatched) return; // already claimed by poll or another push
+    if (!dispatched) return;
 
     const builder = new TaskPayloadBuilder(this.db);
     const payloads = await builder.buildFullPayloads([dispatched], workspaceId);
-    if (payloads.length === 0) return;
+    if (payloads.length === 0) {
+      await taskQueries.revertDispatchedToQueued(this.db, task.id, workspaceId);
+      return;
+    }
 
-    broadcastToDaemon(runtime.daemonId, {
-      type: "daemon.tasks",
-      tasks: payloads,
-    });
+    try {
+      await broadcastToDaemon(runtime.daemonId, {
+        type: "daemon.tasks",
+        tasks: payloads,
+      });
+    } catch {
+      await taskQueries.revertDispatchedToQueued(this.db, task.id, workspaceId);
+    }
   }
 }

@@ -269,6 +269,15 @@ export async function dispatchTaskById(db: Database, id: string, workspaceId: st
   return rows[0] ? ClaimedTaskRowSchema.parse(rows[0]) : null;
 }
 
+export async function revertDispatchedToQueued(db: Database, id: string, workspaceId: string) {
+  await db
+    .update(agentTaskQueue)
+    .set({ status: "queued", dispatchedAt: null })
+    .where(
+      and(eq(agentTaskQueue.id, id), eq(agentTaskQueue.workspaceId, workspaceId), eq(agentTaskQueue.status, "dispatched"))
+    );
+}
+
 export async function startTask(db: Database, id: string, workspaceId: string) {
   const rows = await db
     .update(agentTaskQueue)
