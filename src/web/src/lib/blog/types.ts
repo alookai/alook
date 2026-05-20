@@ -5,5 +5,4 @@ export type BlogPost = {
   author: string;
   excerpt: string;
   readingTime: string;
-  content: string;
 };

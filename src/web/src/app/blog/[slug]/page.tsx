@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { getAllPosts, getPostBySlug } from "@/lib/blog/posts";
-import { highlightCodeBlocks } from "@/lib/blog/highlight";
 
 export const dynamicParams = false;
 
@@ -62,7 +61,7 @@ export default async function BlogPostPage({
   const prevPost = currentIndex < posts.length - 1 ? posts[currentIndex + 1] : null;
   const nextPost = currentIndex > 0 ? posts[currentIndex - 1] : null;
 
-  const highlightedContent = await highlightCodeBlocks(post.content);
+  const { default: PostContent } = await import(`@/content/${slug}.mdx`);
 
   const blogPostingJsonLd = {
     "@context": "https://schema.org",
@@ -116,10 +115,9 @@ export default async function BlogPostPage({
           </div>
         </header>
 
-        <div
-          className="blog-content blog-content-editorial font-sans text-lg leading-[1.7] text-foreground max-w-[65ch] [&_h2]:font-sans [&_h2]:text-[1.625rem] [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2]:mt-16 [&_h2]:mb-6 [&_p]:mb-8 [&_blockquote]:border-l-[3px] [&_blockquote]:border-foreground/20 [&_blockquote]:pl-6 [&_blockquote]:italic [&_blockquote]:text-foreground/70 [&_blockquote]:my-10 [&_blockquote]:text-xl [&_blockquote]:leading-relaxed [&_code]:font-mono [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[0.875em] [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:px-5 [&_pre]:py-4 [&_pre]:my-10 [&_pre]:overflow-x-auto [&_pre]:text-[0.875rem] [&_pre]:leading-relaxed [&_pre]:max-w-none [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_img]:rounded-lg [&_img]:my-12 [&_img]:w-full [&_img]:max-w-none [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-8 [&_ul]:mt-[-0.25rem] [&_li]:mb-3 [&_li]:leading-[1.7] [&_strong]:font-semibold [&_em]:italic [&_a]:underline [&_a]:underline-offset-3 [&_a]:decoration-foreground/30 [&_a]:hover:decoration-foreground/60 [&_a]:transition-colors"
-          dangerouslySetInnerHTML={{ __html: highlightedContent }}
-        />
+        <div className="blog-content blog-content-editorial font-sans text-lg leading-[1.7] text-foreground max-w-[65ch] [&_h2]:font-sans [&_h2]:text-[1.625rem] [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2]:mt-16 [&_h2]:mb-6 [&_p]:mb-8 [&_blockquote]:border-l-[3px] [&_blockquote]:border-foreground/20 [&_blockquote]:pl-6 [&_blockquote]:italic [&_blockquote]:text-foreground/70 [&_blockquote]:my-10 [&_blockquote]:text-xl [&_blockquote]:leading-relaxed [&_code]:font-mono [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[0.875em] [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:px-5 [&_pre]:py-4 [&_pre]:my-10 [&_pre]:overflow-x-auto [&_pre]:text-[0.875rem] [&_pre]:leading-relaxed [&_pre]:max-w-none [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_img]:rounded-lg [&_img]:my-12 [&_img]:w-full [&_img]:max-w-none [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-8 [&_ul]:mt-[-0.25rem] [&_li]:mb-3 [&_li]:leading-[1.7] [&_strong]:font-semibold [&_em]:italic [&_a]:underline [&_a]:underline-offset-3 [&_a]:decoration-foreground/30 [&_a]:hover:decoration-foreground/60 [&_a]:transition-colors">
+          <PostContent />
+        </div>
 
         <nav className="mt-20 border-t border-border pt-10 flex items-stretch justify-between gap-6">
           {prevPost ? (

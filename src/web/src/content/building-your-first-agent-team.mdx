@@ -1,0 +1,96 @@
+export const metadata = {
+  slug: "building-your-first-agent-team",
+  title: "Building Your First Agent Team",
+  date: "2026-05-20",
+  author: "Gus",
+  excerpt:
+    "You don't need to hire ten people to run like a ten-person company. Here's how to build your first AI agent team in Alook.",
+  readingTime: "5 min read",
+};
+
+Every founder hits the same wall. You have the vision, the taste, the drive — but you're one person trying to do the work of ten. So you compromise. You pick one thing to be great at and let everything else slide. Marketing waits. Code review waits. That follow-up email waits three days too long.
+
+What if you didn't have to choose?
+
+## The Solo Founder's Dilemma
+
+The traditional answer is "hire people." But hiring is slow, expensive, and comes with its own overhead. You spend weeks recruiting, onboarding, managing. For an early-stage founder, every hire is a bet — and most of your time goes to coordination rather than creation.
+
+AI tools helped, but they created a new problem: you became the router. Copy from ChatGPT, paste into Notion, email the result, check Slack, repeat. You traded people-management overhead for tool-management overhead. Progress, but not freedom.
+
+## Agents as Teammates, Not Tools
+
+The shift that changes everything: stop thinking of AI as a tool you use and start thinking of it as a colleague you delegate to. A colleague with a role, a communication channel, and the autonomy to finish work without you hovering.
+
+In Alook, that's not a metaphor. You literally set up agents with job descriptions, give them tools, and let them collaborate. Your marketing agent writes the copy. Your dev agent reviews the PR. Your ops agent handles the calendar. They talk to each other when they need to — and they leave you alone when they don't.
+
+## What a First Team Looks Like
+
+You don't need to go big on day one. Most founders start with three agents:
+
+- **A builder** — handles code, PRs, and technical execution
+- **A communicator** — drafts emails, manages outreach, follows up
+- **A planner** — breaks down goals into tasks, tracks progress, keeps things moving
+
+That's it. Three agents, three roles, and suddenly you're operating like a small team instead of a solo act. Each one stays in their lane, builds up context over time, and gets better at anticipating what you need.
+
+## The Compound Effect
+
+The magic isn't in any single agent — it's in how they compound. Your planner breaks down a launch into steps. Your builder executes the technical ones. Your communicator handles the outreach. You set the direction once, and the dominoes fall.
+
+> The best companies aren't built by people who do everything — they're built by people who know what to delegate and when.
+
+After a week, your agents have context. After a month, they have institutional memory. They know your voice, your preferences, your priorities. The gap between "I had an idea" and "it's done" shrinks from days to hours.
+
+## Getting Started
+
+Alook is open source. You can spin up your first agent team today — on your machine, with your data, under your control. No vendor lock-in, no token limits that throttle you at the worst moment, no data leaving your infrastructure.
+
+Here's how quick it is to define an agent:
+
+```typescript
+import { createAgent } from "@alook/sdk";
+
+const writer = createAgent({
+  name: "writer",
+  role: "Content Writer",
+  instructions: "Draft blog posts, social copy, and email sequences.",
+  tools: ["web-search", "email-send", "file-write"],
+});
+
+await writer.start();
+```
+
+Need agents to collaborate? They can message each other directly:
+
+```typescript
+const planner = createAgent({
+  name: "planner",
+  role: "Project Planner",
+  instructions: "Break goals into tasks. Assign to teammates.",
+  teammates: [writer, coder],
+});
+
+// Planner delegates to writer automatically
+await planner.run("Launch blog post about our new feature");
+```
+
+Or configure the whole team in a single YAML file:
+
+```yaml
+team:
+  - name: builder
+    role: Full-Stack Developer
+    tools: [github, terminal, code-review]
+
+  - name: communicator
+    role: Outreach & Comms
+    tools: [email, calendar, slack]
+
+  - name: planner
+    role: Project Manager
+    tools: [task-board, teammates]
+    teammates: [builder, communicator]
+```
+
+Start with one agent. Give it a clear role. Let it prove itself. Then add another. Before you know it, you're running a company — not just working in one.
