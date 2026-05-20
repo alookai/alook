@@ -1,9 +1,10 @@
 import type { Database } from "@alook/shared";
 import { queries, TASK_TYPES, MAX_TASKS_PER_TRACE } from "@alook/shared";
 import { log } from "@/lib/logger";
-import { broadcastToUser } from "@/lib/broadcast";
+import { broadcastToUser, broadcastToDaemon } from "@/lib/broadcast";
 import { messageToResponse, taskToResponse } from "@/lib/api/responses";
 import { invalidate, cacheKeys } from "@/lib/cache";
+import { TaskPayloadBuilder } from "@/lib/services/task-payload-builder";
 
 const taskQueries = queries.task;
 const agentQueries = queries.agent;
@@ -51,6 +52,8 @@ export class TaskService {
       parentTaskId: opts?.parentTaskId ?? null,
     });
     invalidate(cacheKeys.activeTaskCounts(workspaceId)).catch(() => {});
+    // Push task to daemon via WS (best-effort, non-blocking)
+    this.pushTaskToDaemon(task, workspaceId).catch(() => {});
     return task;
   }
 
@@ -406,5 +409,22 @@ export class TaskService {
         log.warn("cancelTrace: failed to cancel task", { traceId, convId, err });
       }
     }
+  }
+
+  private async pushTaskToDaemon(
+    task: { id: string; agentId: string; runtimeId: string; workspaceId: string; conversationId: string; prompt: string; status: string; priority: number; type: string; contextKey?: string | null; context?: unknown; createdAt: Date; dispatchedAt: Date | null; startedAt: Date | null; completedAt: Date | null; result: unknown; error: string | null; sessionId: string | null },
+    workspaceId: string,
+  ) {
+    const runtime = await queries.runtime.getAgentRuntime(this.db, task.runtimeId);
+    if (!runtime) return;
+
+    const builder = new TaskPayloadBuilder(this.db);
+    const payloads = await builder.buildFullPayloads([task as any], workspaceId);
+    if (payloads.length === 0) return;
+
+    broadcastToDaemon(runtime.daemonId, {
+      type: "daemon.tasks",
+      tasks: payloads,
+    });
   }
 }
