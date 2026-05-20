@@ -449,6 +449,37 @@ describe("DaemonClient.heartbeat() with mocked fetch", () => {
 });
 
 // ---------------------------------------------------------------------------
+// DaemonClient.sweep() tests
+// ---------------------------------------------------------------------------
+
+describe("DaemonClient.sweep() with mocked fetch", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("sends daemon_id in body to /api/daemon/sweep", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ ok: true }),
+    });
+
+    const client = new DaemonClient("http://localhost:8080");
+    await client.sweep("tok", "d1");
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:8080/api/daemon/sweep",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ daemon_id: "d1" }),
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // DaemonClient removed methods
 // ---------------------------------------------------------------------------
 

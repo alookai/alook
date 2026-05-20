@@ -6,13 +6,11 @@ import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { TaskService } from "@/lib/services/task";
 import { TaskPayloadBuilder } from "@/lib/services/task-payload-builder";
-import { sweepStaleState } from "@/lib/services/sweep";
-import { promoteDueCalendarEventsForWorkspace } from "@/lib/services/calendar";
 import { broadcastToUser } from "@/lib/broadcast";
 import { log } from "@/lib/logger";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const { env, ctx: cfCtx } = getCloudflareContext();
+  const { env } = getCloudflareContext();
   const db = getDb((env as Env).DB);
   const { cached, cacheKeys, throttled } = await import("@/lib/cache");
 
@@ -34,32 +32,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeJSON({ tasks: [], evicted: true });
   }
 
-  // 2. Housekeeping: sweep stale state — non-blocking (runs after response is sent)
-  cfCtx.waitUntil(
-    sweepStaleState(db, ctx.workspaceId).catch((e) => {
-      log.warn("sweep failed", { workspaceId: ctx.workspaceId, err: String(e) });
-    })
-  );
-
-  // 3b. Promote due calendar events — non-blocking, throttled to once per 30s per workspace
-  cfCtx.waitUntil(
-    throttled(`cal:${ctx.workspaceId}`, 30, async () => {
-      const enqueued = await promoteDueCalendarEventsForWorkspace(
-        db,
-        ctx.workspaceId!,
-      );
-      if (enqueued > 0) {
-        log.info("calendar: enqueued", { workspaceId: ctx.workspaceId, enqueued });
-      }
-    }).catch((err) => {
-      log.warn("calendar: promote failed", {
-        workspaceId: ctx.workspaceId,
-        err: String(err),
-      });
-    })
-  );
-
-  // 4. Task claiming
+  // 2. Task claiming
   const taskService = new TaskService(db);
   const claimed = await withD1Retry(() => taskService.claimTasksForRuntimes(
     runtimeIds,
@@ -75,7 +48,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     if (t.agent) t.agent.user_email = ctx.email || null;
   }
 
-  // 5. Pending update & rescan check + meeting claim — throttled to once per 30s
+  // 3. Pending update & rescan check + meeting claim — throttled to once per 30s
   let pendingUpdate: { version: string } | undefined;
   let pendingRescan: boolean | undefined;
   let meetings: PollMeetingItem[] | undefined;

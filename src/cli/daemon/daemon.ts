@@ -624,13 +624,20 @@ export async function startDaemon(
 
   wsClient?.connect();
 
-  const reconcileTimer = setInterval(async () => {
+  // --- Sweep timer: triggers server-side sweep + local reconciliation ---
+  const sweepTick = async () => {
+    for (const ws of workspaceStates) {
+      client.sweep(ws.token, config.daemonId).catch((e) => {
+        log.debug("sweep ping failed", { workspaceId: ws.workspaceId, err: String(e) });
+      });
+    }
     try {
       await reconcilePendingCompletions(config.workspacesRoot);
     } catch (e) {
       log.debug("reconciliation error", e);
     }
-  }, 60_000);
+  };
+  const sweepTimer = setInterval(sweepTick, config.sweepInterval);
 
   let shuttingDown = false;
   let restartRequested = false;
@@ -646,7 +653,7 @@ export async function startDaemon(
     log.info(restartRequested ? "Restarting..." : "Shutting down...");
     clearInterval(pollTimer);
     clearInterval(heartbeatTimer);
-    clearInterval(reconcileTimer);
+    clearInterval(sweepTimer);
     wsClient?.close();
 
     const shutdownMs = restartRequested ? 30000 : (Number(process.env.ALOOK_SHUTDOWN_TIMEOUT_MS) || 5000);

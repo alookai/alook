@@ -252,18 +252,6 @@ describe("POST /api/daemon/tasks/poll", () => {
     }));
   });
 
-  it("calls sweepStaleState", async () => {
-    mockUpsertMachine.mockResolvedValue({});
-    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
-    mockSweepStaleState.mockResolvedValue(undefined);
-    mockBroadcastToUser.mockResolvedValue(undefined);
-    mockClaimTasksForRuntimes.mockResolvedValue([]);
-
-    await POST(postReq({ daemon_id: "d1" }));
-
-    expect(mockSweepStaleState).toHaveBeenCalledWith({}, "w1");
-  });
-
   it("respects max_tasks parameter", async () => {
     mockUpsertMachine.mockResolvedValue({});
     mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
@@ -286,38 +274,6 @@ describe("POST /api/daemon/tasks/poll", () => {
     await POST(postReq({ daemon_id: "d1" }));
 
     expect(mockClaimTasksForRuntimes).toHaveBeenCalledWith(["r1"], 1, "w1");
-  });
-
-  it("invokes calendar promotion between sweep and task claim", async () => {
-    mockUpsertMachine.mockResolvedValue({});
-    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
-    mockSweepStaleState.mockResolvedValue(undefined);
-    mockBroadcastToUser.mockResolvedValue(undefined);
-    mockClaimTasksForRuntimes.mockResolvedValue([]);
-    mockPromoteDue.mockResolvedValue(2);
-
-    await POST(postReq({ daemon_id: "d1" }));
-
-    expect(mockPromoteDue).toHaveBeenCalledWith({}, "w1");
-    // Calendar promotion is scoped per-call to the authenticated workspace.
-    const promoteOrder = mockPromoteDue.mock.invocationCallOrder[0]!;
-    const sweepOrder = mockSweepStaleState.mock.invocationCallOrder[0]!;
-    const claimOrder = mockClaimTasksForRuntimes.mock.invocationCallOrder[0]!;
-    expect(sweepOrder).toBeLessThan(promoteOrder);
-    expect(promoteOrder).toBeLessThan(claimOrder);
-  });
-
-  it("does not fail the poll when calendar promotion throws", async () => {
-    mockUpsertMachine.mockResolvedValue({});
-    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
-    mockSweepStaleState.mockResolvedValue(undefined);
-    mockBroadcastToUser.mockResolvedValue(undefined);
-    mockClaimTasksForRuntimes.mockResolvedValue([]);
-    mockPromoteDue.mockRejectedValue(new Error("D1 write failed"));
-
-    const res = await POST(postReq({ daemon_id: "d1" }));
-    expect(res.status).toBe(200);
-    expect(mockClaimTasksForRuntimes).toHaveBeenCalled();
   });
 
   it("returns pending_update when pendingUpdateVersion is set and cli_version is older", async () => {
@@ -789,20 +745,6 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(res.status).toBe(200);
     expect(body.tasks).toEqual([]);
     expect(mockUpsertMachine).not.toHaveBeenCalled();
-  });
-
-  it("still returns tasks when sweepStaleState fails (D1 transient error)", async () => {
-    mockUpsertMachine.mockResolvedValue({});
-    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
-    mockSweepStaleState.mockRejectedValue(new Error("D1 timeout"));
-    mockBroadcastToUser.mockResolvedValue(undefined);
-    mockClaimTasksForRuntimes.mockResolvedValue([]);
-
-    const res = await POST(postReq({ daemon_id: "d1" }));
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.tasks).toEqual([]);
   });
 
   it("still returns tasks when pending check fails (D1 transient error)", async () => {

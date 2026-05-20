@@ -14,6 +14,7 @@ const mockClientInstance = {
   failTask: vi.fn(async () => ({})),
   supersedeTask: vi.fn(async () => ({})),
   reportMessages: vi.fn(async () => ({})),
+  sweep: vi.fn(async () => ({})),
 };
 vi.mock("./client.js", () => {
   function MockDaemonClient() { return mockClientInstance; }
@@ -38,6 +39,7 @@ vi.mock("./config.js", () => ({
     workspacesRoot: path.join("/tmp", "ws"),
     cliVersion: "0.1.0",
     wsPollInterval: 30000,
+    sweepInterval: 60000,
   })),
   sessionRunnerLogDir: vi.fn(() => path.join("/tmp", "alook", "daemon", "session-runners")),
   daemonLogFilePath: vi.fn(() => path.join("/tmp", "alook", "daemon", "logs", "2026-01-01.log")),
@@ -584,7 +586,7 @@ describe("daemon shutdown", () => {
   it("clears poll interval before calling deregister", async () => {
     await startDaemon();
 
-    expect(intervalTimers.length).toBe(3); // pollTimer + heartbeatTimer + reconcileTimer
+    expect(intervalTimers.length).toBe(3); // pollTimer + heartbeatTimer + sweepTimer
     const pollTimer = intervalTimers[0];
 
     const deregisterMock = mockClientInstance.deregister;
@@ -607,7 +609,7 @@ describe("daemon shutdown", () => {
     await shutdownHandler!();
 
     expect(clearedTimers).toContain(pollTimer);
-    expect(deregisterCalledAt).toBe(3); // After clearing all 3 timers (poll + heartbeat + reconcile)
+    expect(deregisterCalledAt).toBe(3); // After clearing all 3 timers (poll + heartbeat + sweep)
   });
 
   it("deregisters each workspace with correct token on shutdown", async () => {
