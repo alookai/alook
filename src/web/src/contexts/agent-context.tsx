@@ -208,22 +208,6 @@ export function AgentProvider({
     };
   }, [reloadRuntimes]);
 
-  // Debounced reload for runtime.status events
-  const statusDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const debouncedReload = useCallback(() => {
-    if (statusDebounceRef.current) clearTimeout(statusDebounceRef.current);
-    statusDebounceRef.current = setTimeout(() => {
-      statusDebounceRef.current = null;
-      reload();
-    }, 300);
-  }, [reload]);
-
-  // Cleanup debounce timer on unmount
-  useEffect(() => {
-    return () => {
-      if (statusDebounceRef.current) clearTimeout(statusDebounceRef.current);
-    };
-  }, []);
 
   // Listen for real-time WS events
   const handleWsMessage = useCallback(
@@ -244,14 +228,14 @@ export function AgentProvider({
         case "runtime.status":
           // Filter by workspaceId — ignore messages from other workspaces
           if (msg.workspaceId !== workspaceId) break;
-          debouncedReload();
+          reloadRuntimes();
           break;
         case "task.updated":
           fetchTaskCounts();
           break;
       }
     },
-    [reload, debouncedReload, fetchTaskCounts, workspaceId]
+    [reload, reloadRuntimes, fetchTaskCounts, workspaceId]
   );
   useUserWs(handleWsMessage, { onReconnect: reloadRuntimes });
 

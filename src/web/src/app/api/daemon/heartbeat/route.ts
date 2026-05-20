@@ -20,7 +20,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const D1_HEARTBEAT_THROTTLE_S = 15;
   const kv = (env as Env).CACHE_KV ?? null;
+  let wasOffline = false;
   if (kv) {
+    const prev = await kv.get(cacheKeys.heartbeat(ctx.workspaceId, body.daemon_id));
+    wasOffline = !prev;
     kv.put(
       cacheKeys.heartbeat(ctx.workspaceId, body.daemon_id),
       new Date().toISOString(),
@@ -45,12 +48,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     log.warn("heartbeat: machine upsert failed", { daemonId: body.daemon_id, err: String(e) });
   }
 
-  broadcastToUser(ctx.userId, {
-    type: "runtime.status",
-    daemonId: body.daemon_id,
-    workspaceId: ctx.workspaceId,
-    status: "online",
-  }).catch(() => {});
+  if (wasOffline) {
+    broadcastToUser(ctx.userId, {
+      type: "runtime.status",
+      daemonId: body.daemon_id,
+      workspaceId: ctx.workspaceId,
+      status: "online",
+    }).catch(() => {});
+  }
 
   return writeJSON({ ok: true });
 });

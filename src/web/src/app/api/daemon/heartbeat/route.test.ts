@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const mockUpsertMachine = vi.fn();
 const mockBroadcastToUser = vi.fn();
 const mockKvPut = vi.fn().mockResolvedValue(undefined);
+const mockKvGet = vi.fn().mockResolvedValue(null);
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({
@@ -11,7 +12,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
       DB: {},
       CACHE_KV: {
         put: (...args: unknown[]) => mockKvPut(...args),
-        get: vi.fn().mockResolvedValue(null),
+        get: (...args: unknown[]) => mockKvGet(...args),
         delete: vi.fn().mockResolvedValue(undefined),
       },
     },
@@ -114,7 +115,8 @@ describe("POST /api/daemon/heartbeat", () => {
     });
   });
 
-  it("broadcasts runtime.status online", async () => {
+  it("broadcasts runtime.status when daemon transitions from offline to online", async () => {
+    mockKvGet.mockResolvedValue(null);
     await POST(postReq({ daemon_id: "d1" }));
 
     expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
@@ -123,6 +125,13 @@ describe("POST /api/daemon/heartbeat", () => {
       workspaceId: "w1",
       status: "online",
     });
+  });
+
+  it("does not broadcast when daemon was already online", async () => {
+    mockKvGet.mockResolvedValue("2026-05-20T10:00:00.000Z");
+    await POST(postReq({ daemon_id: "d1" }));
+
+    expect(mockBroadcastToUser).not.toHaveBeenCalled();
   });
 
   it("does not fail when upsertMachine throws", async () => {
