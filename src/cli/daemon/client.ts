@@ -65,6 +65,12 @@ export class DaemonClient {
     return RegisterResponseSchema.parse(raw);
   }
 
+  heartbeat(token: string, daemonId: string): Promise<unknown> {
+    return this.request("POST", "/api/daemon/heartbeat", token, {
+      daemon_id: daemonId,
+    });
+  }
+
   deregister(token: string, daemonId: string) {
     return this.request("POST", "/api/daemon/deregister", token, {
       daemon_id: daemonId,

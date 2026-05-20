@@ -170,7 +170,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockGetAllColleaguesForWorkspace.mockResolvedValue([]);
   });
 
-  it("returns evicted: true and skips heartbeat when daemon has no runtimes", async () => {
+  it("returns evicted: true when daemon has no runtimes", async () => {
     mockGetRuntimeIdsByDaemon.mockResolvedValue([]);
 
     const res = await POST(postReq({ daemon_id: "d1" }));
@@ -179,12 +179,9 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(res.status).toBe(200);
     expect(body.tasks).toEqual([]);
     expect(body.evicted).toBe(true);
-    expect(mockUpsertMachine).not.toHaveBeenCalled();
-    expect(mockBroadcastToUser).not.toHaveBeenCalled();
   });
 
   it("omits evicted field for normal polls with active runtimes", async () => {
-    mockUpsertMachine.mockResolvedValue({});
     mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
     mockSweepStaleState.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
@@ -195,12 +192,9 @@ describe("POST /api/daemon/tasks/poll", () => {
 
     expect(res.status).toBe(200);
     expect(body.evicted).toBeUndefined();
-    expect(mockUpsertMachine).toHaveBeenCalled();
-    expect(mockBroadcastToUser).toHaveBeenCalled();
   });
 
-  it("resolves runtime IDs from daemon_id and upserts machine liveness", async () => {
-    mockUpsertMachine.mockResolvedValue({});
+  it("resolves runtime IDs from daemon_id", async () => {
     mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1", "r2"]);
     mockSweepStaleState.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
@@ -209,12 +203,6 @@ describe("POST /api/daemon/tasks/poll", () => {
     await POST(postReq({ daemon_id: "d1" }));
 
     expect(mockGetRuntimeIdsByDaemon).toHaveBeenCalledWith({}, "d1", "w1");
-    expect(mockUpsertMachine).toHaveBeenCalledTimes(1);
-    expect(mockUpsertMachine).toHaveBeenCalledWith({}, {
-      daemonId: "d1",
-      workspaceId: "w1",
-      deviceInfo: "d1",
-    });
   });
 
   it("returns tasks with agent data for claimed tasks", async () => {
@@ -250,8 +238,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     });
   });
 
-  it("broadcasts single runtime.status with daemonId and workspaceId", async () => {
-    mockUpsertMachine.mockResolvedValue({});
+  it("does not broadcast runtime.status (heartbeat handles that)", async () => {
     mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1", "r2", "r3"]);
     mockSweepStaleState.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
@@ -259,14 +246,10 @@ describe("POST /api/daemon/tasks/poll", () => {
 
     await POST(postReq({ daemon_id: "d1" }));
 
-    // Single broadcast, not per-runtime
-    expect(mockBroadcastToUser).toHaveBeenCalledTimes(1);
-    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
+    expect(mockBroadcastToUser).not.toHaveBeenCalledWith("u1", expect.objectContaining({
       type: "runtime.status",
-      daemonId: "d1",
-      workspaceId: "w1",
       status: "online",
-    });
+    }));
   });
 
   it("calls sweepStaleState", async () => {
@@ -794,8 +777,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(body.meetings).toBeUndefined();
   });
 
-  it("still returns tasks when upsertMachine fails (D1 transient error)", async () => {
-    mockUpsertMachine.mockRejectedValue(new Error("D1 timeout"));
+  it("poll works without heartbeat logic (upsertMachine no longer called)", async () => {
     mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
     mockSweepStaleState.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
@@ -806,6 +788,7 @@ describe("POST /api/daemon/tasks/poll", () => {
 
     expect(res.status).toBe(200);
     expect(body.tasks).toEqual([]);
+    expect(mockUpsertMachine).not.toHaveBeenCalled();
   });
 
   it("still returns tasks when sweepStaleState fails (D1 transient error)", async () => {
@@ -838,10 +821,9 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(body.pending_update).toBeUndefined();
   });
 
-  // --- Heartbeat cache invalidation ---
+  // --- Heartbeat is now a separate endpoint ---
 
-  it("does NOT invalidate allRuntimes cache on poll heartbeat (prevents cache thrashing)", async () => {
-    mockUpsertMachine.mockResolvedValue({});
+  it("poll does not write KV heartbeat (moved to /api/daemon/heartbeat)", async () => {
     mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
     mockSweepStaleState.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
@@ -849,45 +831,10 @@ describe("POST /api/daemon/tasks/poll", () => {
 
     await POST(postReq({ daemon_id: "d1" }));
 
-    expect(mockInvalidate).not.toHaveBeenCalledWith("runtimes:w1");
-  });
-
-  it("writes KV heartbeat with 120s TTL", async () => {
-    mockUpsertMachine.mockResolvedValue({});
-    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
-    mockSweepStaleState.mockResolvedValue(undefined);
-    mockBroadcastToUser.mockResolvedValue(undefined);
-    mockClaimTasksForRuntimes.mockResolvedValue([]);
-
-    await POST(postReq({ daemon_id: "d1" }));
-
-    expect(mockKvPut).toHaveBeenCalledWith(
+    expect(mockKvPut).not.toHaveBeenCalledWith(
       "hb:w1:d1",
       expect.any(String),
-      { expirationTtl: 120 },
+      expect.anything(),
     );
-  });
-
-  it("poll does not crash when invalidate throws", async () => {
-    mockInvalidate.mockRejectedValue(new Error("KV delete failed"));
-    mockUpsertMachine.mockResolvedValue({});
-    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
-    mockSweepStaleState.mockResolvedValue(undefined);
-    mockBroadcastToUser.mockResolvedValue(undefined);
-    mockClaimTasksForRuntimes.mockResolvedValue([]);
-
-    const res = await POST(postReq({ daemon_id: "d1" }));
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.tasks).toEqual([]);
-  });
-
-  it("does not invalidate cache when daemon has no runtimes (evicted early)", async () => {
-    mockGetRuntimeIdsByDaemon.mockResolvedValue([]);
-
-    await POST(postReq({ daemon_id: "d1" }));
-
-    expect(mockInvalidate).not.toHaveBeenCalled();
   });
 });

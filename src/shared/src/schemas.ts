@@ -112,6 +112,15 @@ export const TaskApiSchema = TaskApiBaseSchema.extend({
 export type TaskApi = z.infer<typeof TaskApiSchema>;
 
 // ---------------------------------------------------------------------------
+// Heartbeat (lightweight liveness ping, independent of poll)
+// ---------------------------------------------------------------------------
+
+export const HeartbeatRequestSchema = z.object({
+  daemon_id: z.string().min(1),
+});
+export type HeartbeatRequest = z.infer<typeof HeartbeatRequestSchema>;
+
+// ---------------------------------------------------------------------------
 // Poll request/response (replaces heartbeat + per-runtime claim)
 // ---------------------------------------------------------------------------
 

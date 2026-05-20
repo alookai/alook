@@ -492,6 +492,16 @@ export async function startDaemon(
 
   let pollTimer = setInterval(pollCycle, config.pollInterval);
 
+  // --- Heartbeat timer (independent of poll and WS state) ---
+  const heartbeatPing = () => {
+    for (const ws of workspaceStates) {
+      client.heartbeat(ws.token, config.daemonId).catch((e) => {
+        log.debug("heartbeat failed", { workspaceId: ws.workspaceId, err: String(e) });
+      });
+    }
+  };
+  const heartbeatTimer = setInterval(heartbeatPing, config.heartbeatInterval);
+
   // --- WS Push Channel (primary) + Poll fallback ---
   const firstToken = workspaceStates[0]?.token;
 
@@ -607,7 +617,6 @@ export async function startDaemon(
         },
         onDisconnected: () => {
           log.info("WS disconnected — reverting to high-frequency poll");
-          pollCycle();
           updatePollInterval(config.pollInterval);
         },
       })
@@ -636,6 +645,7 @@ export async function startDaemon(
     shuttingDown = true;
     log.info(restartRequested ? "Restarting..." : "Shutting down...");
     clearInterval(pollTimer);
+    clearInterval(heartbeatTimer);
     clearInterval(reconcileTimer);
     wsClient?.close();
 

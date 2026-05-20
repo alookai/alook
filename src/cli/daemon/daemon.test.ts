@@ -584,7 +584,7 @@ describe("daemon shutdown", () => {
   it("clears poll interval before calling deregister", async () => {
     await startDaemon();
 
-    expect(intervalTimers.length).toBe(2); // pollTimer + reconcileTimer
+    expect(intervalTimers.length).toBe(3); // pollTimer + heartbeatTimer + reconcileTimer
     const pollTimer = intervalTimers[0];
 
     const deregisterMock = mockClientInstance.deregister;
@@ -607,7 +607,7 @@ describe("daemon shutdown", () => {
     await shutdownHandler!();
 
     expect(clearedTimers).toContain(pollTimer);
-    expect(deregisterCalledAt).toBe(2); // After clearing both timers
+    expect(deregisterCalledAt).toBe(3); // After clearing all 3 timers (poll + heartbeat + reconcile)
   });
 
   it("deregisters each workspace with correct token on shutdown", async () => {

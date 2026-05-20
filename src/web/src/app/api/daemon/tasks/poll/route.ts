@@ -34,43 +34,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeJSON({ tasks: [], evicted: true });
   }
 
-  // 2. Liveness: write heartbeat to KV (fast) + D1 upsert throttled via timestamp.
-  // KV heartbeat is the primary source; D1 is the cross-colo fallback.
-  // 15s throttle is safe: KV heartbeat (120s TTL) handles realtime liveness,
-  // D1 only needs to be fresh enough for cross-colo failover detection.
-  const D1_HEARTBEAT_THROTTLE_S = 15;
-  const kv = (env as Env).CACHE_KV ?? null;
-  if (kv) {
-    kv.put(
-      cacheKeys.heartbeat(ctx.workspaceId, body.daemon_id),
-      new Date().toISOString(),
-      { expirationTtl: 120 },
-    ).catch(() => {});
-  }
-  try {
-    await throttled(
-      `hb_d1:${ctx.workspaceId}:${body.daemon_id}`,
-      D1_HEARTBEAT_THROTTLE_S,
-      async () => {
-        await queries.machine.upsertMachine(db, {
-          daemonId: body.daemon_id,
-          workspaceId: ctx.workspaceId!,
-          deviceInfo: body.daemon_id,
-        });
-      },
-    );
-  } catch (e) {
-    log.warn("machine upsert failed", { daemonId: body.daemon_id, err: String(e) });
-  }
-
-  broadcastToUser(ctx.userId, {
-    type: "runtime.status",
-    daemonId: body.daemon_id,
-    workspaceId: ctx.workspaceId,
-    status: "online",
-  }).catch(() => {});
-
-  // 3. Housekeeping: sweep stale state — non-blocking (runs after response is sent)
+  // 2. Housekeeping: sweep stale state — non-blocking (runs after response is sent)
   cfCtx.waitUntil(
     sweepStaleState(db, ctx.workspaceId).catch((e) => {
       log.warn("sweep failed", { workspaceId: ctx.workspaceId, err: String(e) });
