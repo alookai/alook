@@ -37,6 +37,7 @@ vi.mock("./config.js", () => ({
     deviceName: "test-host",
     workspacesRoot: path.join("/tmp", "ws"),
     cliVersion: "0.1.0",
+    wsPollInterval: 30000,
   })),
   sessionRunnerLogDir: vi.fn(() => path.join("/tmp", "alook", "daemon", "session-runners")),
   daemonLogFilePath: vi.fn(() => path.join("/tmp", "alook", "daemon", "logs", "2026-01-01.log")),
@@ -51,6 +52,15 @@ vi.mock("./health.js", () => ({
     server: { close: vi.fn((cb?: () => void) => { if (cb) cb(); }) },
   })),
 }));
+
+vi.mock("./ws-client.js", () => {
+  class MockDaemonWsClient {
+    connect = vi.fn();
+    close = vi.fn();
+    isConnected = vi.fn(() => false);
+  }
+  return { DaemonWsClient: MockDaemonWsClient };
+});
 
 vi.mock("./agent/index.js", () => ({
   detectVersion: vi.fn(async () => "1.0.0"),

@@ -258,6 +258,17 @@ export async function claimTask(db: Database, agentId: string, workspaceId: stri
   return null;
 }
 
+export async function dispatchTaskById(db: Database, id: string, workspaceId: string) {
+  const rows = await db
+    .update(agentTaskQueue)
+    .set({ status: "dispatched", dispatchedAt: new Date().toISOString() })
+    .where(
+      and(eq(agentTaskQueue.id, id), eq(agentTaskQueue.workspaceId, workspaceId), eq(agentTaskQueue.status, "queued"))
+    )
+    .returning();
+  return rows[0] ? ClaimedTaskRowSchema.parse(rows[0]) : null;
+}
+
 export async function startTask(db: Database, id: string, workspaceId: string) {
   const rows = await db
     .update(agentTaskQueue)
