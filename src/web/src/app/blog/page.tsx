@@ -44,7 +44,7 @@ export default function BlogPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(collectionJsonLd) }}
       />
-      <div className="mx-auto max-w-3xl px-6 pt-20 pb-24">
+      <div className="mx-auto max-w-3xl px-6 pt-10 sm:pt-20 pb-24">
         <header className="mb-16">
           <h1 className="font-news text-5xl sm:text-6xl font-semibold tracking-[-0.025em] leading-none">
             Blog

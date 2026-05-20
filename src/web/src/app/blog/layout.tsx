@@ -61,7 +61,7 @@ export default function BlogLayout({
             </span>
           </div>
 
-          <nav className="flex items-center gap-5" aria-label="Footer navigation">
+          <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2" aria-label="Footer navigation">
             {footerLinks.map((link) =>
               link.external ? (
                 <a

@@ -87,16 +87,16 @@ export default async function BlogPostPage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(blogPostingJsonLd) }}
       />
-      <article className="mx-auto max-w-3xl px-6 pt-24 pb-28">
+      <article className="mx-auto max-w-3xl px-6 pt-12 sm:pt-24 pb-28">
         <Link
           href="/blog"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-14"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-8 sm:mb-14"
         >
           <ArrowLeft className="size-3.5" />
           All posts
         </Link>
 
-        <header className="mb-16">
+        <header className="mb-10 sm:mb-16">
           <h1 className="font-news text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.12]">
             {post.title}
           </h1>
