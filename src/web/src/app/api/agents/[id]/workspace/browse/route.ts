@@ -41,6 +41,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     if (runtime) {
       broadcastToDaemon(runtime.daemonId, {
         type: "daemon.file_requests",
+        workspaceId,
         requests: [{ id: row.id, agent_id: agentId, request_type: body.request_type, path: body.path }],
       }).catch(() => {});
     }

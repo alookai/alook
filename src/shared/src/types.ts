@@ -299,9 +299,9 @@ export interface WorkspaceFileResult {
 /** Messages pushed from server to daemon via WebSocket. */
 export type DaemonPushMessage =
   | { type: "daemon.tasks"; tasks: TaskApi[] }
-  | { type: "daemon.file_requests"; requests: FileRequestItem[] }
+  | { type: "daemon.file_requests"; workspaceId: string; requests: FileRequestItem[] }
   | { type: "daemon.meetings"; meetings: PollMeetingItem[] }
   | { type: "daemon.evict"; workspaceId: string }
   | { type: "daemon.update"; version: string }
   | { type: "daemon.rescan" }
-  | { type: "daemon.kill"; taskId: string; targetTaskId: string }
+  | { type: "daemon.kill"; workspaceId: string; taskId: string; targetTaskId: string }

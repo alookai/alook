@@ -1,4 +1,5 @@
 import { createLogger } from "../lib/logger.js";
+import { DaemonPushMessageSchema } from "@alook/shared";
 import type { DaemonPushMessage } from "@alook/shared";
 
 const log = createLogger({ module: "ws-client" });
@@ -6,7 +7,7 @@ const log = createLogger({ module: "ws-client" });
 const WS_RECONNECT_INIT = 1000;
 const WS_RECONNECT_MAX = 30_000;
 const WS_PING_INTERVAL = 25_000;
-const WS_LIVENESS_TIMEOUT = 30_000;
+const WS_LIVENESS_TIMEOUT = 50_000;
 const WS_DO_DEV_PORT = 8789;
 
 export interface DaemonWsClientOptions {
@@ -83,7 +84,12 @@ export class DaemonWsClient {
           this.opts.onConnected();
           return;
         }
-        this.opts.onMessage(msg as DaemonPushMessage);
+        const parsed = DaemonPushMessageSchema.safeParse(msg);
+        if (!parsed.success) {
+          log.warn("invalid push message", { err: parsed.error.message });
+          return;
+        }
+        this.opts.onMessage(parsed.data);
       } catch (err) {
         log.debug("message parse error", { err: String(err) });
       }

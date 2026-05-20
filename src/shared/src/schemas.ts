@@ -157,12 +157,12 @@ export type PollResponse = z.infer<typeof PollResponseSchema>;
 
 export const DaemonPushMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("daemon.tasks"), tasks: z.array(TaskApiSchema) }),
-  z.object({ type: z.literal("daemon.file_requests"), requests: z.array(FileRequestItemSchema) }),
+  z.object({ type: z.literal("daemon.file_requests"), workspaceId: z.string(), requests: z.array(FileRequestItemSchema) }),
   z.object({ type: z.literal("daemon.meetings"), meetings: z.array(PollMeetingItemSchema) }),
   z.object({ type: z.literal("daemon.evict"), workspaceId: z.string() }),
   z.object({ type: z.literal("daemon.update"), version: z.string() }),
   z.object({ type: z.literal("daemon.rescan") }),
-  z.object({ type: z.literal("daemon.kill"), taskId: z.string(), targetTaskId: z.string() }),
+  z.object({ type: z.literal("daemon.kill"), workspaceId: z.string(), taskId: z.string(), targetTaskId: z.string() }),
 ]);
 export type DaemonPushMessageType = z.infer<typeof DaemonPushMessageSchema>;
 

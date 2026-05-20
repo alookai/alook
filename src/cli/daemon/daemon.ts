@@ -506,6 +506,7 @@ export async function startDaemon(
         for (const apiTask of msg.tasks) {
           if (activeTasks.size >= config.maxConcurrentTasks) break;
           const task = fromApiTask(apiTask);
+          if (activeTasks.has(task.id)) continue;
           const ws = workspaceStates.find((w) => w.workspaceId === task.workspaceId);
           if (!ws) continue;
           syncAgentId(task.agentId, ws.workspaceId);
@@ -515,15 +516,16 @@ export async function startDaemon(
         }
         break;
 
-      case "daemon.file_requests":
-        for (const req of msg.requests) {
-          const ws = workspaceStates[0];
-          if (ws) {
+      case "daemon.file_requests": {
+        const ws = workspaceStates.find((w) => w.workspaceId === msg.workspaceId);
+        if (ws) {
+          for (const req of msg.requests) {
             handleFileRequest(client, config, ws.workspaceId, req, ws.token)
               .catch((e) => log.debug("WS file request error", e));
           }
         }
         break;
+      }
 
       case "daemon.meetings":
         for (const m of msg.meetings) {
@@ -562,7 +564,7 @@ export async function startDaemon(
         break;
 
       case "daemon.kill": {
-        const ws = workspaceStates[0];
+        const ws = workspaceStates.find((w) => w.workspaceId === msg.workspaceId);
         if (ws) {
           const killTask = fromApiTask({
             id: msg.taskId,

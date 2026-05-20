@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import type { WsMessage } from "@alook/shared"
+import type { WsMessage, DaemonPushMessage } from "@alook/shared"
 import { DEV_WS_DO_URL, createLogger } from "@alook/shared"
 
 const log = createLogger({ service: "broadcast" })
@@ -64,7 +64,7 @@ export function broadcastToAgent(agentId: string, message: WsMessage): Promise<v
   )
 }
 
-export function broadcastToDaemon(daemonId: string, message: { type: string; [key: string]: unknown }): Promise<void> {
+export function broadcastToDaemon(daemonId: string, message: DaemonPushMessage): Promise<void> {
   return sendBroadcast(
     `/broadcast/daemon/${daemonId}`,
     JSON.stringify(message),

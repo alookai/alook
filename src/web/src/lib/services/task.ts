@@ -1,4 +1,4 @@
-import type { Database } from "@alook/shared";
+import type { Database, TaskApi } from "@alook/shared";
 import { queries, TASK_TYPES, MAX_TASKS_PER_TRACE } from "@alook/shared";
 import { log } from "@/lib/logger";
 import { broadcastToUser, broadcastToDaemon } from "@/lib/broadcast";
@@ -428,7 +428,7 @@ export class TaskService {
 
     broadcastToDaemon(runtime.daemonId, {
       type: "daemon.tasks",
-      tasks: payloads,
+      tasks: payloads as TaskApi[],
     });
   }
 }
