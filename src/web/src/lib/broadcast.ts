@@ -17,23 +17,18 @@ async function doSend(url: string, body: string, label: Record<string, string>) 
     })
     if (res.ok) return
     log.warn("broadcast service-binding non-ok", { ...label, status: res.status })
-    return
   } catch {
     // Service binding unavailable — fall through to HTTP
   }
 
   const fallbackUrl = wsDoUrl || DEV_WS_DO_URL
-  try {
-    const res = await fetch(`${fallbackUrl}${url}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
-    })
-    if (!res.ok) {
-      log.warn("broadcast failed", { ...label, status: res.status })
-    }
-  } catch (err) {
-    log.warn("broadcast error", { ...label, err: String(err) })
+  const res = await fetch(`${fallbackUrl}${url}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body,
+  })
+  if (!res.ok) {
+    throw new Error(`broadcast failed: ${res.status}`)
   }
 }
 

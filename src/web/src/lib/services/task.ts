@@ -1,5 +1,5 @@
 import type { Database } from "@alook/shared";
-import { queries, TASK_TYPES, MAX_TASKS_PER_TRACE } from "@alook/shared";
+import { queries, TASK_TYPES, MAX_TASKS_PER_TRACE, ClaimedTaskRowSchema } from "@alook/shared";
 import { log } from "@/lib/logger";
 import { broadcastToUser, broadcastToDaemon } from "@/lib/broadcast";
 import { messageToResponse, taskToResponse } from "@/lib/api/responses";
@@ -93,9 +93,17 @@ export class TaskService {
     const triedAgents = new Set<string>();
     const claimed: NonNullable<Awaited<ReturnType<typeof this.claimTask>>>[] = [...killTasks];
 
+    // Include already-dispatched tasks (pre-pushed via WS) directly
+    const alreadyDispatched = tasks.filter((t) => t.status === "dispatched");
+    for (const t of alreadyDispatched) {
+      if (claimed.length >= remaining + killTasks.length) break;
+      claimed.push(ClaimedTaskRowSchema.parse(t));
+      triedAgents.add(`${t.agentId}:${t.workspaceId}`);
+    }
+
     const uniqueCandidates: { agentId: string; workspaceId: string }[] = [];
     for (const candidate of tasks) {
-      if (uniqueCandidates.length >= remaining) break;
+      if (uniqueCandidates.length + claimed.length >= maxTasks) break;
       const key = `${candidate.agentId}:${candidate.workspaceId}`;
       if (triedAgents.has(key)) continue;
       triedAgents.add(key);
