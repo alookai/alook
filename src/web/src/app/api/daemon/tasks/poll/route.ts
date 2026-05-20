@@ -36,8 +36,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   // 2. Liveness: write heartbeat to KV (fast) + D1 upsert throttled via timestamp.
   // KV heartbeat is the primary source; D1 is the cross-colo fallback.
-  // Uses timestamp-based throttle (not KV TTL) so the interval can be < 60s.
-  const D1_HEARTBEAT_THROTTLE_S = Math.floor((OFFLINE_THRESHOLD_MS - POLL_INTERVAL_MS) / 1000) - 1;
+  // 15s throttle is safe: KV heartbeat (120s TTL) handles realtime liveness,
+  // D1 only needs to be fresh enough for cross-colo failover detection.
+  const D1_HEARTBEAT_THROTTLE_S = 15;
   const kv = (env as Env).CACHE_KV ?? null;
   if (kv) {
     kv.put(
@@ -317,21 +318,27 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
-  // File browse requests — expireStale throttled to 5s, but check pending every poll
+  // File browse requests — skip D1 if KV negative cache says "no pending"
   let fileRequests: FileRequestItem[] | undefined;
   try {
     await throttled(`expire_fr:${ctx.workspaceId}`, 5, async () => {
       await queries.workspaceFileRequest.expireStale(db, ctx.workspaceId!);
     });
-    const pending = await queries.workspaceFileRequest.getPendingByWorkspace(db, ctx.workspaceId);
-    if (pending.length > 0) {
-      fileRequests = pending.map((r) => ({
-        id: r.id,
-        agent_id: r.agentId,
-        request_type: r.requestType as "tree" | "read",
-        path: r.path,
-      }));
-      await queries.workspaceFileRequest.markDispatched(db, pending.map((r) => r.id));
+    const kv = (env as Env).CACHE_KV ?? null;
+    const frFlag = kv ? await kv.get(cacheKeys.hasPendingFileRequest(ctx.workspaceId!)) : null;
+    if (frFlag !== "0") {
+      const pending = await queries.workspaceFileRequest.getPendingByWorkspace(db, ctx.workspaceId);
+      if (pending.length > 0) {
+        fileRequests = pending.map((r) => ({
+          id: r.id,
+          agent_id: r.agentId,
+          request_type: r.requestType as "tree" | "read",
+          path: r.path,
+        }));
+        await queries.workspaceFileRequest.markDispatched(db, pending.map((r) => r.id));
+      } else if (kv) {
+        kv.put(cacheKeys.hasPendingFileRequest(ctx.workspaceId!), "0", { expirationTtl: 60 }).catch(() => {});
+      }
     }
   } catch (e) {
     log.warn("file-requests: poll failed", { err: String(e) });

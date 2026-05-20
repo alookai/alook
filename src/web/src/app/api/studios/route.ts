@@ -254,6 +254,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       workspaceId: ws.workspaceId,
       userId: ctx.userId,
     });
+    invalidate(cacheKeys.pins(ws.workspaceId, ctx.userId)).catch(() => {});
   } catch {
     // Best-effort
   }

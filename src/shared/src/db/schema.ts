@@ -383,6 +383,15 @@ export const agentTaskQueue = sqliteTable(
     index("idx_task_queue_workspace_type_status").on(t.workspaceId, t.type, t.status),
     index("idx_task_queue_workspace_status_dispatched").on(t.workspaceId, t.status, t.dispatchedAt),
     index("idx_task_queue_inbox").on(t.workspaceId, t.status, t.completedAt),
+    index("idx_task_queue_runtime_pending")
+      .on(t.workspaceId, t.runtimeId, t.status)
+      .where(sql`status IN ('queued', 'dispatched')`),
+    index("idx_task_queue_agent_running")
+      .on(t.agentId, t.workspaceId, t.status)
+      .where(sql`status IN ('dispatched', 'running')`),
+    index("idx_task_queue_inbox_convo")
+      .on(t.workspaceId, t.status, t.conversationId, t.completedAt)
+      .where(sql`status IN ('completed', 'failed') AND parent_task_id IS NULL`),
     foreignKey({
       columns: [t.agentId, t.workspaceId],
       foreignColumns: [agent.id, agent.workspaceId],

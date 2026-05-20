@@ -131,6 +131,7 @@ vi.mock("@/lib/cache", () => ({
     member: (wsId: string, userId: string) => `mem:${wsId}:${userId}`,
     allHandles: (wsId: string) => `handles:${wsId}`,
     allMembers: (wsId: string) => `members:${wsId}`,
+    hasPendingFileRequest: (wsId: string) => `fr_p:${wsId}`,
   },
   throttled: vi.fn((_key: string, _interval: number, fn: () => Promise<void>) => fn().then(() => true)),
   invalidate: (...args: unknown[]) => mockInvalidate(...args),

@@ -25,9 +25,12 @@ export async function middleware(request: NextRequest) {
   if (needsAuth) {
     const { env } = await getCloudflareContext({ async: true })
     const auth = createAuth(env as Env)
-    const session = await auth.api.getSession({ headers: request.headers })
+    const result = await auth.api.getSession({
+      headers: request.headers,
+      returnHeaders: true,
+    }) as { headers: Headers; response: unknown } | null
 
-    if (!session) {
+    if (!result?.response) {
       const signInUrl = new URL("/sign-in", request.url)
       const returnTo = pathname + request.nextUrl.search
       if (returnTo !== "/workspaces") {
@@ -35,19 +38,32 @@ export async function middleware(request: NextRequest) {
       }
       return NextResponse.redirect(signInUrl)
     }
+
+    const res = NextResponse.next()
+    for (const cookie of result.headers.getSetCookie()) {
+      res.headers.append("Set-Cookie", cookie)
+    }
+    return res
   }
 
   if (pathname === "/sign-in" || pathname === "/sign-up") {
     const { env } = await getCloudflareContext({ async: true })
     const auth = createAuth(env as Env)
-    const session = await auth.api.getSession({ headers: request.headers })
+    const result = await auth.api.getSession({
+      headers: request.headers,
+      returnHeaders: true,
+    }) as { headers: Headers; response: unknown } | null
 
-    if (session) {
+    if (result?.response) {
       const redirect = request.nextUrl.searchParams.get("redirect")
-      if (redirect && isSafeRedirect(redirect)) {
-        return NextResponse.redirect(new URL(redirect, request.url))
+      const target = redirect && isSafeRedirect(redirect)
+        ? new URL(redirect, request.url)
+        : new URL("/workspaces?auto", request.url)
+      const res = NextResponse.redirect(target)
+      for (const cookie of result.headers.getSetCookie()) {
+        res.headers.append("Set-Cookie", cookie)
       }
-      return NextResponse.redirect(new URL("/workspaces?auto", request.url))
+      return res
     }
   }
 

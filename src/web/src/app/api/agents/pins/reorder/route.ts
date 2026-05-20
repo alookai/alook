@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeError } from "@/lib/middleware/helpers";
+import { invalidate, cacheKeys } from "@/lib/cache";
 
 export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -32,5 +33,6 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   }
 
   await queries.agentPin.reorderPins(db, ws.workspaceId, ctx.userId, ids);
+  invalidate(cacheKeys.pins(ws.workspaceId, ctx.userId)).catch(() => {});
   return new Response(null, { status: 204 });
 });
