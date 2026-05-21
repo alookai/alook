@@ -138,12 +138,20 @@ export async function invalidateMany(keys: string[]): Promise<void> {
   })));
 }
 
-export async function invalidateByPrefix(prefix: string): Promise<void> {
-  const kv = getKV();
-  if (!kv) return;
-  const listed = await kv.list({ prefix }).catch(() => null);
-  if (!listed || listed.keys.length === 0) return;
-  await Promise.all(listed.keys.map((k) => kv.delete(k.name).catch(() => {})));
+const INBOX_TYPE_COMBOS = [
+  "*",
+  "user_dm_message",
+  "calendar_event",
+  "email_notification",
+  "calendar_event,email_notification",
+  "calendar_event,user_dm_message",
+  "email_notification,user_dm_message",
+  "calendar_event,email_notification,user_dm_message",
+];
+
+export function invalidateInboxCounts(userId: string, workspaceId: string): Promise<void> {
+  const prefix = `inbox:${userId}:${workspaceId}:`;
+  return invalidateMany(INBOX_TYPE_COMBOS.map((combo) => `${prefix}${combo}`));
 }
 
 export const cacheKeys = {
@@ -159,6 +167,7 @@ export const cacheKeys = {
   allColleagues: (workspaceId: string) => `col:${workspaceId}`,
   agentLinks: (workspaceId: string) => `al:${workspaceId}`,
   allHandles: (workspaceId: string) => `handles:${workspaceId}`,
+  overviewEmailAccounts: (workspaceId: string) => `ov_ea:${workspaceId}`,
   overviewEmailStats: (workspaceId: string) => `ov_email:${workspaceId}`,
   overviewTaskStats: (workspaceId: string, dateStr: string) => `ov_task:${workspaceId}:${dateStr}`,
   allAgentAccess: (workspaceId: string) => `aa:${workspaceId}`,
@@ -167,7 +176,6 @@ export const cacheKeys = {
   activeTaskCounts: (workspaceId: string) => `atc:${workspaceId}`,
   inboxCount: (userId: string, workspaceId: string, types?: string[]) =>
     `inbox:${userId}:${workspaceId}:${types ? [...types].sort().join(",") : "*"}`,
-  inboxCountPrefix: (userId: string, workspaceId: string) => `inbox:${userId}:${workspaceId}:`,
   hasPendingFileRequest: (workspaceId: string) => `fr_p:${workspaceId}`,
   pins: (workspaceId: string, userId: string) => `pins:${workspaceId}:${userId}`,
 };

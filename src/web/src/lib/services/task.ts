@@ -61,16 +61,18 @@ export class TaskService {
 
   async claimTask(agentId: string, workspaceId: string) {
     const agent = await agentQueries.getAgent(this.db, agentId, workspaceId);
+    return this.claimTaskWithAgent(agentId, workspaceId, agent);
+  }
+
+  private async claimTaskWithAgent(agentId: string, workspaceId: string, agent: Awaited<ReturnType<typeof agentQueries.getAgent>>) {
     if (!agent) {
       return null;
     }
 
     const running = await taskQueries.countRunningTasks(this.db, agentId, workspaceId);
     if (running >= agent.maxConcurrentTasks) {
-      // At max capacity — check if a steerable replacement exists to bypass the limit
       const steerable = await taskQueries.findSteerableReplacement(this.db, agentId, workspaceId);
       if (!steerable) return null;
-      // Re-check excluding the predecessor being replaced
       const runningExcluding = await taskQueries.countRunningTasks(this.db, agentId, workspaceId, steerable.predecessorId);
       if (runningExcluding >= agent.maxConcurrentTasks) return null;
     }
@@ -104,8 +106,14 @@ export class TaskService {
       uniqueCandidates.push(candidate);
     }
 
+    if (uniqueCandidates.length === 0) return claimed;
+
+    const agentIds = [...new Set(uniqueCandidates.map((c) => c.agentId))];
+    const agents = await agentQueries.getAgentsByIds(this.db, agentIds, workspaceId);
+    const agentMap = new Map(agents.map((a) => [a.id, a]));
+
     const results = await Promise.all(
-      uniqueCandidates.map((c) => this.claimTask(c.agentId, c.workspaceId))
+      uniqueCandidates.map((c) => this.claimTaskWithAgent(c.agentId, c.workspaceId, agentMap.get(c.agentId) ?? null))
     );
 
     for (const task of results) {

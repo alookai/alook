@@ -7,7 +7,7 @@ import { taskToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { FailTaskRequestSchema } from "@alook/shared";
 import { broadcastToUser } from "@/lib/broadcast";
-import { invalidate, invalidateByPrefix, cacheKeys } from "@/lib/cache";
+import { invalidate, invalidateInboxCounts, cacheKeys } from "@/lib/cache";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!ctx.workspaceId) {
@@ -30,7 +30,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const task = await taskService.failTask(taskId, ctx.workspaceId, body.error);
     const dateStr = new Date().toISOString().slice(0, 10);
     invalidate(cacheKeys.overviewTaskStats(ctx.workspaceId, dateStr)).catch(() => {});
-    invalidateByPrefix(cacheKeys.inboxCountPrefix(ctx.userId, ctx.workspaceId)).catch(() => {});
+    invalidateInboxCounts(ctx.userId, ctx.workspaceId).catch(() => {});
     broadcastToUser(ctx.userId, { type: "task.updated", taskId, agentId: task.agentId, status: "failed" }).catch(() => {});
     return writeJSON(taskToResponse(task));
   } catch (e: unknown) {

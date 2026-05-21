@@ -1,4 +1,4 @@
-import { eq, and, desc, ne, lt, sql, count as drizzleCount } from "drizzle-orm";
+import { eq, and, desc, ne, lt, sql, count as drizzleCount, inArray } from "drizzle-orm";
 import { conversation, message } from "../schema";
 import type { Database } from "../index";
 import { TASK_TYPES, type TaskType } from "../../constants";
@@ -35,6 +35,14 @@ export async function getConversation(db: Database, id: string, workspaceId: str
     .from(conversation)
     .where(and(eq(conversation.id, id), eq(conversation.workspaceId, workspaceId)));
   return rows[0] ?? null;
+}
+
+export async function getConversationsByIds(db: Database, ids: string[], workspaceId: string) {
+  if (ids.length === 0) return [];
+  return db
+    .select()
+    .from(conversation)
+    .where(and(inArray(conversation.id, ids), eq(conversation.workspaceId, workspaceId)));
 }
 
 export async function listConversations(

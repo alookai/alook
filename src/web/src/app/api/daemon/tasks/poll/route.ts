@@ -59,71 +59,74 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   } catch { runMisc = true; }
 
   if (runMisc) {
-    try {
-      const machineRow = await queries.machine.getMachineByDaemon(
-        db,
-        body.daemon_id,
-        ctx.workspaceId,
-      );
-      if (machineRow?.pendingUpdateVersion && body.cli_version) {
-        pendingUpdate = semverGte(body.cli_version, machineRow.pendingUpdateVersion)
-          ? undefined
-          : { version: machineRow.pendingUpdateVersion };
-        await queries.machine.clearPendingUpdateVersion(db, body.daemon_id, ctx.workspaceId);
-        broadcastToUser(ctx.userId, {
-          type: "runtime.status",
-          daemonId: body.daemon_id,
-          workspaceId: ctx.workspaceId,
-          status: "online",
-        }).catch(() => {});
-      }
+    const CLAIM_WINDOW_MS = 5 * 60 * 1000;
+    const windowEnd = new Date(Date.now() + CLAIM_WINDOW_MS);
+    const now = new Date().toISOString();
 
-      if (machineRow?.pendingRescan) {
-        pendingRescan = true;
-        await queries.machine.clearPendingRescan(db, body.daemon_id, ctx.workspaceId);
+    const [machineResult, meetingResult] = await Promise.allSettled([
+      queries.machine.getMachineByDaemon(db, body.daemon_id, ctx.workspaceId),
+      queries.meetingSession.listScheduledMeetings(db, ctx.workspaceId, windowEnd.toISOString()),
+    ]);
+
+    if (machineResult.status === "fulfilled") {
+      const machineRow = machineResult.value;
+      try {
+        if (machineRow?.pendingUpdateVersion && body.cli_version) {
+          pendingUpdate = semverGte(body.cli_version, machineRow.pendingUpdateVersion)
+            ? undefined
+            : { version: machineRow.pendingUpdateVersion };
+          await queries.machine.clearPendingUpdateVersion(db, body.daemon_id, ctx.workspaceId);
+          broadcastToUser(ctx.userId, {
+            type: "runtime.status",
+            daemonId: body.daemon_id,
+            workspaceId: ctx.workspaceId,
+            status: "online",
+          }).catch(() => {});
+        }
+
+        if (machineRow?.pendingRescan) {
+          pendingRescan = true;
+          await queries.machine.clearPendingRescan(db, body.daemon_id, ctx.workspaceId);
+        }
+      } catch (e) {
+        log.warn("pending check failed", { daemonId: body.daemon_id, err: String(e) });
       }
-    } catch (e) {
-      log.warn("pending check failed", { daemonId: body.daemon_id, err: String(e) });
+    } else {
+      log.warn("pending check failed", { daemonId: body.daemon_id, err: String(machineResult.reason) });
     }
 
-    // Meeting claim — 5min claim window, 30s throttle is safe
-    try {
-      const CLAIM_WINDOW_MS = 5 * 60 * 1000;
-      const windowEnd = new Date(Date.now() + CLAIM_WINDOW_MS);
-      const now = new Date().toISOString();
-
-      const scheduled = await queries.meetingSession.listScheduledMeetings(
-        db,
-        ctx.workspaceId,
-        windowEnd.toISOString(),
-      );
-
-      if (scheduled.length > 0) {
-        const ids = scheduled.map((m) => m.id);
-        const claimedRows = await queries.meetingSession.claimMeetingSessions(
-          db,
-          ids,
-          ctx.workspaceId,
-          now,
-        );
-        if (claimedRows.length > 0) {
-          const scheduledMap = new Map(scheduled.map((m) => [m.id, m]));
-          meetings = claimedRows.map((row) => {
-            const sched = scheduledMap.get(row.id);
-            return {
-              id: row.id,
-              meeting_url: row.meetingUrl,
-              participants: row.participants as string[],
-              workspace_id: row.workspaceId,
-              agent_id: row.agentId,
-              agent_name: sched?.agentName || "",
-              title: sched?.title || undefined,
-            };
-          });
+    if (meetingResult.status === "fulfilled") {
+      const scheduled = meetingResult.value;
+      try {
+        if (scheduled.length > 0) {
+          const ids = scheduled.map((m) => m.id);
+          const claimedRows = await queries.meetingSession.claimMeetingSessions(
+            db,
+            ids,
+            ctx.workspaceId,
+            now,
+          );
+          if (claimedRows.length > 0) {
+            const scheduledMap = new Map(scheduled.map((m) => [m.id, m]));
+            meetings = claimedRows.map((row) => {
+              const sched = scheduledMap.get(row.id);
+              return {
+                id: row.id,
+                meeting_url: row.meetingUrl,
+                participants: row.participants as string[],
+                workspace_id: row.workspaceId,
+                agent_id: row.agentId,
+                agent_name: sched?.agentName || "",
+                title: sched?.title || undefined,
+              };
+            });
+          }
         }
+      } catch (e) {
+        log.warn("meeting-claim: failed in poll", { err: String(e) });
       }
-    } catch (e) {
-      log.warn("meeting-claim: failed in poll", { err: String(e) });
+    } else {
+      log.warn("meeting-claim: failed in poll", { err: String(meetingResult.reason) });
     }
   }
 

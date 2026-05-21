@@ -39,9 +39,14 @@ export class TaskPayloadBuilder {
       colleaguesByAgent.set(c.agentId, list);
     }
 
+    const convoIds = [...new Set(nonKillTasks.map((t) => t.conversationId).filter(Boolean))];
+    const convos = convoIds.length > 0
+      ? await queries.conversation.getConversationsByIds(this.db, convoIds, workspaceId)
+      : [];
+    const convoMap = new Map(convos.map((c) => [c.id, c]));
+
     const memberCache = new Map<string, { globalInstruction: string } | null>();
     const userCache = new Map<string, { name: string; email: string } | null>();
-    const convoCache = new Map<string, Awaited<ReturnType<typeof queries.conversation.getConversation>> | null>();
 
     const results = [];
     for (const task of tasks) {
@@ -87,11 +92,7 @@ export class TaskPayloadBuilder {
         ownerName = userCache.get(agent.ownerId)?.name ?? null;
       }
 
-      let convo = convoCache.get(task.conversationId) ?? null;
-      if (task.conversationId && !convoCache.has(task.conversationId)) {
-        convo = await queries.conversation.getConversation(this.db, task.conversationId, workspaceId);
-        convoCache.set(task.conversationId, convo);
-      }
+      const convo = convoMap.get(task.conversationId) ?? null;
       const taskChannel = convo?.channel ?? "default";
 
       let sender: { name: string; email: string; is_owner: boolean } | null = null;

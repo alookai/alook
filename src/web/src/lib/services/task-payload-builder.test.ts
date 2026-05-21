@@ -6,6 +6,7 @@ const mockGetAllColleaguesForWorkspace = vi.fn();
 const mockGetMemberByUserAndWorkspace = vi.fn();
 const mockGetUser = vi.fn();
 const mockGetConversation = vi.fn();
+const mockGetConversationsByIds = vi.fn();
 
 vi.mock("@alook/shared", async () => {
   const real = await vi.importActual<typeof import("@alook/shared")>("@alook/shared");
@@ -29,6 +30,7 @@ vi.mock("@alook/shared", async () => {
       },
       conversation: {
         getConversation: (...args: unknown[]) => mockGetConversation(...args),
+        getConversationsByIds: (...args: unknown[]) => mockGetConversationsByIds(...args),
       },
     },
   };
@@ -95,6 +97,7 @@ describe("TaskPayloadBuilder", () => {
     mockGetAllAgentsForWorkspace.mockResolvedValue([]);
     mockGetAllEmailAccountsForWorkspace.mockResolvedValue([]);
     mockGetAllColleaguesForWorkspace.mockResolvedValue([]);
+    mockGetConversationsByIds.mockResolvedValue([]);
   });
 
   it("returns empty array for empty input", async () => {
@@ -126,7 +129,7 @@ describe("TaskPayloadBuilder", () => {
     ]);
     mockGetUser.mockResolvedValue({ name: "Owner", email: "owner@ex.com" });
     mockGetMemberByUserAndWorkspace.mockResolvedValue({ globalInstruction: "" });
-    mockGetConversation.mockResolvedValue({ userId: "sender1", channel: "slack" });
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "sender1", channel: "slack" }]);
     mockGetUser
       .mockResolvedValueOnce({ name: "Owner", email: "owner@ex.com" })
       .mockResolvedValueOnce({ name: "Sender", email: "sender@ex.com" });
@@ -155,7 +158,7 @@ describe("TaskPayloadBuilder", () => {
     mockGetAllColleaguesForWorkspace.mockResolvedValue([]);
     mockGetMemberByUserAndWorkspace.mockResolvedValue({ globalInstruction: "speak english" });
     mockGetUser.mockResolvedValue({ name: "Owner", email: "owner@ex.com" });
-    mockGetConversation.mockResolvedValue(null);
+    mockGetConversationsByIds.mockResolvedValue([]);
 
     const task = makeTask();
     const result = await builder.buildFullPayloads([task], "w1");
@@ -167,7 +170,7 @@ describe("TaskPayloadBuilder", () => {
     mockGetAllAgentsForWorkspace.mockResolvedValue([]);
     mockGetAllEmailAccountsForWorkspace.mockResolvedValue([]);
     mockGetAllColleaguesForWorkspace.mockResolvedValue([]);
-    mockGetConversation.mockResolvedValue(null);
+    mockGetConversationsByIds.mockResolvedValue([]);
 
     const task = makeTask({ agentId: "nonexistent" });
     const result = await builder.buildFullPayloads([task], "w1");
@@ -184,7 +187,7 @@ describe("TaskPayloadBuilder", () => {
     mockGetAllColleaguesForWorkspace.mockResolvedValue([]);
     mockGetMemberByUserAndWorkspace.mockResolvedValue({ globalInstruction: "" });
     mockGetUser.mockResolvedValue({ name: "Owner", email: "owner@ex.com" });
-    mockGetConversation.mockResolvedValue(null);
+    mockGetConversationsByIds.mockResolvedValue([]);
 
     const task1 = makeTask({ id: "t1", agentId: "a1" });
     const task2 = makeTask({ id: "t2", agentId: "a1" });

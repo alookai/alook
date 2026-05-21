@@ -10,6 +10,7 @@ const mockGetAgentsByIds = vi.fn();
 const mockGetAllAgentsForWorkspace = vi.fn();
 const mockGetMemberByUserAndWorkspace = vi.fn();
 const mockGetConversation = vi.fn();
+const mockGetConversationsByIds = vi.fn();
 const mockGetUser = vi.fn();
 const mockClaimTasksForRuntimes = vi.fn();
 const mockSweepStaleState = vi.fn();
@@ -57,6 +58,7 @@ vi.mock("@alook/shared", async () => {
       },
       conversation: {
         getConversation: (...args: unknown[]) => mockGetConversation(...args),
+        getConversationsByIds: (...args: unknown[]) => mockGetConversationsByIds(...args),
       },
       user: {
         getUser: (...args: unknown[]) => mockGetUser(...args),
@@ -168,6 +170,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockGetAllAgentsForWorkspace.mockResolvedValue([]);
     mockGetAllEmailAccountsForWorkspace.mockResolvedValue([]);
     mockGetAllColleaguesForWorkspace.mockResolvedValue([]);
+    mockGetConversationsByIds.mockResolvedValue([]);
   });
 
   it("returns evicted: true when daemon has no runtimes", async () => {
@@ -487,7 +490,7 @@ describe("POST /api/daemon/tasks/poll", () => {
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "hi", status: "dispatched", type: "user_dm_message" },
     ]);
     mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
-    mockGetConversation.mockResolvedValue({ userId: "u1" });
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u1" }]);
     mockGetUser.mockResolvedValue({ name: "Gus", email: "gus@ex.com" });
 
     const res = await POST(postReq({ daemon_id: "d1" }));
@@ -505,7 +508,7 @@ describe("POST /api/daemon/tasks/poll", () => {
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "hi", status: "dispatched", type: "user_dm_message" },
     ]);
     mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "owner1", instructions: "", name: "Bot", runtimeConfig: {} }]);
-    mockGetConversation.mockResolvedValue({ userId: "u2" });
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u2" }]);
     mockGetUser.mockResolvedValue({ name: "Alice", email: "alice@ex.com" });
 
     const res = await POST(postReq({ daemon_id: "d1" }));
@@ -523,6 +526,7 @@ describe("POST /api/daemon/tasks/poll", () => {
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "standup", status: "dispatched", type: "calendar_event" },
     ]);
     mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u1" }]);
 
     const res = await POST(postReq({ daemon_id: "d1" }));
     const body = await res.json();
@@ -539,6 +543,7 @@ describe("POST /api/daemon/tasks/poll", () => {
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "new email", status: "dispatched", type: "email_notification" },
     ]);
     mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u1" }]);
 
     const res = await POST(postReq({ daemon_id: "d1" }));
     const body = await res.json();
@@ -555,7 +560,7 @@ describe("POST /api/daemon/tasks/poll", () => {
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "hi", status: "dispatched", type: "user_dm_message" },
     ]);
     mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
-    mockGetConversation.mockResolvedValue(null);
+    mockGetConversationsByIds.mockResolvedValue([]);
 
     const res = await POST(postReq({ daemon_id: "d1" }));
     const body = await res.json();
@@ -572,7 +577,7 @@ describe("POST /api/daemon/tasks/poll", () => {
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "hi", status: "dispatched", type: "user_dm_message" },
     ]);
     mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
-    mockGetConversation.mockResolvedValue({ userId: "u1" });
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u1" }]);
     mockGetUser.mockResolvedValue(null);
 
     const res = await POST(postReq({ daemon_id: "d1" }));
@@ -591,7 +596,7 @@ describe("POST /api/daemon/tasks/poll", () => {
       { id: "t2", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c2", prompt: "yo", status: "dispatched", type: "user_dm_message" },
     ]);
     mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "owner1", instructions: "", name: "Bot", runtimeConfig: {} }]);
-    mockGetConversation.mockResolvedValue({ userId: "u1" });
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u1" }, { id: "c2", userId: "u1" }]);
     mockGetUser.mockResolvedValue({ name: "Gus", email: "gus@ex.com" });
 
     const res = await POST(postReq({ daemon_id: "d1" }));

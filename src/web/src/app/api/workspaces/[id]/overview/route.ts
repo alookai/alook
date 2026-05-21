@@ -42,7 +42,7 @@ export const GET = withAuth(async (req, ctx) => {
     calendarEvents,
   ] = await Promise.all([
     cached(cacheKeys.overviewEmailStats(ws.workspaceId), 60, () => queries.overview.getEmailStatsByWorkspace(db, ws.workspaceId)),
-    queries.overview.getEmailAccountsByWorkspace(db, ws.workspaceId),
+    cached(cacheKeys.overviewEmailAccounts(ws.workspaceId), 300, () => queries.overview.getEmailAccountsByWorkspace(db, ws.workspaceId)),
     cached(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr), 60, () => queries.overview.getTaskStatsByWorkspace(db, ws.workspaceId, todayISO)),
     queries.overview.getRecentTerminalTasks(db, ws.workspaceId, visibleAgentIds, 15),
     queries.overview.getConversationCountsByAgent(db, ws.workspaceId, visibleAgentIds),

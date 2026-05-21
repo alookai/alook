@@ -97,6 +97,7 @@ export const POST = withAuth(async (req, ctx) => {
   }
 
   await invalidate(cacheKeys.allEmailAccounts(ws.workspaceId));
+  await invalidate(cacheKeys.overviewEmailAccounts(ws.workspaceId));
 
   return writeJSON(accountToResponse(account), 201)
 })
