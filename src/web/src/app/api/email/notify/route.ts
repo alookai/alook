@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, TASK_TYPES, MeetingStatus, extractThreadId, buildEmailMapKey, EmailNotifyRequestSchema } from "@alook/shared"
+import { queries, TASK_TYPES, MeetingStatus, extractThreadId, buildEmailMapKey, EmailNotifyRequestSchema, EmailMailbox } from "@alook/shared"
 import { nanoid } from "nanoid"
 import { getDb } from "@/lib/db"
 import { writeJSON, parseBody } from "@/lib/middleware/helpers"
@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
     references: body.references,
     direction: "inbound",
     attachments: body.attachments,
+    mailbox: body.isWhitelisted ? EmailMailbox.INBOX : EmailMailbox.DRAFT,
   })
 
   if (body.meetingInfo && agent) {
@@ -49,6 +50,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // If the email is whitelisted, we need to create a conversation for the email
   if (body.isWhitelisted && agent && agent.runtimeId && agent.ownerId) {
     const threadId = extractThreadId(body.references, body.inReplyTo, body.messageId);
     const mapKey = threadId ? buildEmailMapKey(agent.id, threadId) : null;

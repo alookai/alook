@@ -234,9 +234,27 @@ describe("POST /api/email/notify", () => {
     const res = await POST(makeNotifyReq({ ...baseBody, isWhitelisted: false }));
     expect(res.status).toBe(200);
 
+    expect(mockCreateEmail).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ mailbox: "draft", isWhitelisted: false }),
+    );
     expect(mockCreateConversation).not.toHaveBeenCalled();
     expect(mockEnqueueTask).not.toHaveBeenCalled();
     expect(mockFindByKey).not.toHaveBeenCalled();
+  });
+
+  it("stores whitelisted inbound email in the inbox mailbox", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: "r1", ownerId: "u1" });
+    mockCreateConversation.mockResolvedValue({ id: "conv_new" });
+    mockEnqueueTask.mockResolvedValue({ id: "t1" });
+
+    const res = await POST(makeNotifyReq(baseBody));
+    expect(res.status).toBe(200);
+
+    expect(mockCreateEmail).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ mailbox: "inbox", isWhitelisted: true }),
+    );
   });
 
   it("does not create conversation or task when agent has no runtime", async () => {

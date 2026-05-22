@@ -356,35 +356,21 @@ export default {
     const threadingFields = { messageId, inReplyTo, references }
     const attachmentsField = attachmentsMeta.length > 0 ? { attachments: JSON.stringify(attachmentsMeta) } : {}
 
-    if (whitelisted) {
-      emailLog.info("whitelisted email, notifying web", { agentId: agent.id })
-      await notifyWeb(env, {
-        agentId: agent.id,
-        workspaceId: agent.workspaceId,
-        r2Key,
-        from: message.from,
-        to: message.to,
-        subject,
-        isWhitelisted: true,
-        ...threadingFields,
-        ...attachmentsField,
-      }, traceId)
-    } else {
-      emailLog.info("non-whitelisted email, rejecting", { agentId: agent.id })
-      await notifyWeb(env, {
-        agentId: agent.id,
-        workspaceId: agent.workspaceId,
-        r2Key,
-        from: message.from,
-        to: message.to,
-        subject,
-        isWhitelisted: false,
-        forwarded: false,
-        ...threadingFields,
-        ...attachmentsField,
-      }, traceId)
-
-      message.setReject("Sender not whitelisted")
-    }
+    emailLog.info(
+      whitelisted ? "whitelisted email, notifying web" : "non-whitelisted email, holding for review",
+      { agentId: agent.id },
+    )
+    await notifyWeb(env, {
+      agentId: agent.id,
+      workspaceId: agent.workspaceId,
+      r2Key,
+      from: message.from,
+      to: message.to,
+      subject,
+      isWhitelisted: whitelisted,
+      forwarded: false,
+      ...threadingFields,
+      ...attachmentsField,
+    }, traceId)
   },
 }

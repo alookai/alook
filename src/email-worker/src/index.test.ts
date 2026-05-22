@@ -200,7 +200,7 @@ describe("whitelisted path", () => {
     expect(body.from).toBe("owner@example.com")
     expect(body.subject).toBe("Hello")
     expect(body.isWhitelisted).toBe(true)
-    expect(body.forwarded).toBeUndefined()
+    expect(body.forwarded).toBe(false)
   })
 
   it("defaults subject to empty string when header is missing", async () => {
@@ -258,9 +258,9 @@ describe("whitelisted path", () => {
   })
 })
 
-// ─── Group 4: Non-whitelisted path (rejected) ───
+// ─── Group 4: Non-whitelisted greylist path ───
 
-describe("non-whitelisted path", () => {
+describe("non-whitelisted greylist path", () => {
   const strangerOpts = {
     messageOpts: { from: "stranger@example.com", to: "jarvis@alook.ai", subject: "Spam" } as const,
   }
@@ -279,7 +279,7 @@ describe("non-whitelisted path", () => {
     expect(body.forwarded).toBe(false)
   })
 
-  it("rejects email with setReject", async () => {
+  it("does NOT call setReject for non-whitelisted sender", async () => {
     const { env, message, setReject } = setup({
       ...strangerOpts,
       isWhitelisted: false,
@@ -287,7 +287,7 @@ describe("non-whitelisted path", () => {
 
     await handler.email(message, env)
 
-    expect(setReject).toHaveBeenCalledWith("Sender not whitelisted")
+    expect(setReject).not.toHaveBeenCalled()
   })
 
   it("does NOT forward email", async () => {
