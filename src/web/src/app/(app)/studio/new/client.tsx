@@ -282,7 +282,7 @@ export function StudioOnboardingClient({
   // Page 1: Scenario selection
   if (!scenarioId) {
     return (
-      <div className="relative flex min-h-dvh flex-col items-center justify-center p-6">
+      <div className="relative flex min-h-dvh flex-col items-center justify-center px-6 pt-14 pb-6 sm:p-6">
         <Button
           variant="ghost"
           size="sm"
