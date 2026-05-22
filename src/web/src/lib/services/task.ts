@@ -439,10 +439,13 @@ export class TaskService {
     }
 
     try {
-      await broadcastToDaemon(runtime.daemonId, {
+      const { sent } = await broadcastToDaemon(runtime.daemonId, {
         type: "daemon.tasks",
         tasks: payloads,
       });
+      if (sent === 0) {
+        await taskQueries.revertDispatchedToQueued(this.db, task.id, workspaceId);
+      }
     } catch {
       await taskQueries.revertDispatchedToQueued(this.db, task.id, workspaceId);
     }

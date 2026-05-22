@@ -10,12 +10,15 @@ import { readPids } from "./pid.js";
  *   3. App mode (npx):       ~/.alook/self-hosted  (same as 1)
  */
 export function buildCliEnv(webPort?: number): Record<string, string> {
-  const port = webPort ?? (readPids().ports?.web ?? DEFAULT_PORTS.web);
+  const pids = readPids();
+  const port = webPort ?? (pids.ports?.web ?? DEFAULT_PORTS.web);
+  const wsDoPort = pids.ports?.wsDo ?? DEFAULT_PORTS.wsDo;
   return {
     ...(process.env as Record<string, string>),
     ALOOK_SERVER_URL: WEB_URL(port),
     ALOOK_PROJECT_ROOT: SELF_HOSTED_DIR,
     ALOOK_CMD_PREFIX: "npx @alook/app cli",
     ALOOK_HEALTH_PORT: "19515",
+    ALOOK_WS_DO_PORT: String(wsDoPort),
   };
 }

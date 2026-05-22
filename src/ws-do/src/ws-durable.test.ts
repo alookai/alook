@@ -152,10 +152,26 @@ describe("WebSocketDurableObject", () => {
       const res = await durable.fetch(req)
 
       expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 1 })
       expect(wsAuth.send).toHaveBeenCalledWith(
         JSON.stringify({ type: "runtime.status", daemonId: "d1", workspaceId: "w1", status: "online" })
       )
       expect(wsUnauth.send).not.toHaveBeenCalled()
+    })
+
+    it("returns sent: 0 when no connections exist", async () => {
+      const { durable, ctx } = createDO()
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([])
+
+      const req = new Request("http://internal/broadcast", {
+        method: "POST",
+        body: '{"type":"test"}',
+      })
+
+      const res = await durable.fetch(req)
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 0 })
     })
 
     it("skips connections that are not OPEN", async () => {
