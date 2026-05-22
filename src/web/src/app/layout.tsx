@@ -94,6 +94,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
+    site: "@alook_ai",
     title: "Alook — Your Personal Company",
     description:
       "Your AI agents, always on. Give them an email, let them work for you around the clock.",

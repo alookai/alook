@@ -1,10 +1,16 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { getTemplateById } from "@/lib/templates";
+import { TEMPLATES, getTemplateById } from "@/lib/templates";
 import { TemplateDetailClient } from "./client";
 
 const SITE_URL = "https://alook.ai";
+
+export const dynamicParams = false;
+
+export function generateStaticParams(): { id: string }[] {
+  return TEMPLATES.map((t) => ({ id: t.id }));
+}
 
 export async function generateMetadata({
   params,
