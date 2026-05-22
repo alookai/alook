@@ -60,7 +60,7 @@ vi.mock("@/lib/logger", () => ({
 }));
 
 vi.mock("@/lib/broadcast", () => ({
-  broadcastToDaemon: vi.fn(() => Promise.resolve()),
+  broadcastToDaemon: vi.fn(() => Promise.resolve({ sent: 1 })),
 }));
 
 // Mock global fetch for npm registry

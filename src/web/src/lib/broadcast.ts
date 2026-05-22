@@ -59,13 +59,19 @@ export function broadcastToAgent(agentId: string, message: WsMessage): Promise<v
   )
 }
 
-export async function broadcastToDaemon(daemonId: string, message: DaemonPushMessage): Promise<{ sent: number }> {
-  const result = await sendBroadcastWithResult(
+export function broadcastToDaemon(daemonId: string, message: DaemonPushMessage): Promise<{ sent: number }> {
+  const promise = sendBroadcastWithResult(
     `/broadcast/daemon/${daemonId}`,
     JSON.stringify(message),
     { daemonId, type: message.type },
   )
-  return result
+  try {
+    const { ctx } = getCloudflareContext()
+    ctx.waitUntil(promise.catch(() => {}))
+  } catch {
+    // Not in CF context — promise runs on its own
+  }
+  return promise
 }
 
 async function sendBroadcastWithResult(url: string, body: string, label: Record<string, string>): Promise<{ sent: number }> {
