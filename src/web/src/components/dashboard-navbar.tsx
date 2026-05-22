@@ -297,7 +297,7 @@ export function DashboardNavbar() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="text-[11px] text-muted-foreground h-6 px-2 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                    className="text-[11px] text-muted-foreground h-6 px-2 hover:text-destructive md:opacity-0 md:group-hover:opacity-100 transition-opacity"
                                     onClick={() => {
                                       openConfirm(
                                         "Remove machine",
