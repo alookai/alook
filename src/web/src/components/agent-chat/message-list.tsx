@@ -171,7 +171,7 @@ export const MessageItem = memo(function MessageItem({
                 "self-start mb-1",
                 copied
                   ? "text-green-500 opacity-100"
-                  : "text-muted-foreground opacity-0 group-hover/msg:opacity-100"
+                  : "text-muted-foreground md:opacity-0 md:group-hover/msg:opacity-100"
               )}
             />
           }
@@ -192,7 +192,7 @@ export const MessageItem = memo(function MessageItem({
                   "self-start mb-1",
                   isFlagged
                     ? "text-primary opacity-100"
-                    : "text-muted-foreground opacity-0 group-hover/msg:opacity-100"
+                    : "text-muted-foreground md:opacity-0 md:group-hover/msg:opacity-100"
                 )}
               />
             }
