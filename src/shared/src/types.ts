@@ -1,4 +1,4 @@
-import type { TaskApi, WorkspaceFileEntry, FileRequestItem, PollMeetingItem } from "./schemas";
+import type { TaskApi, WorkspaceFileEntry, FileRequestItem, SkillRequestItem, SkillEntry, PollMeetingItem } from "./schemas";
 
 export type EmailDirection = "inbound" | "outbound";
 
@@ -287,6 +287,7 @@ export type WsMessage =
   | { type: "conversation.message"; conversationId: string; message: Message }
   | { type: "issue.comment"; issueId: string; comment: IssueComment }
   | { type: "workspace.files"; agentId: string; requestId: string; requestType: "tree" | "read"; result: WorkspaceFileResult }
+  | { type: "workspace.skills"; agentId: string; requestId: string; skills: SkillEntry[] }
 
 export interface WorkspaceFileResult {
   entries?: WorkspaceFileEntry[];
@@ -300,6 +301,7 @@ export interface WorkspaceFileResult {
 export type DaemonPushMessage =
   | { type: "daemon.tasks"; tasks: TaskApi[] }
   | { type: "daemon.file_requests"; workspaceId: string; requests: FileRequestItem[] }
+  | { type: "daemon.skill_requests"; workspaceId: string; requests: SkillRequestItem[] }
   | { type: "daemon.meetings"; meetings: PollMeetingItem[] }
   | { type: "daemon.evict"; workspaceId: string }
   | { type: "daemon.update"; version: string }

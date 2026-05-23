@@ -177,5 +177,6 @@ export const cacheKeys = {
   inboxCount: (userId: string, workspaceId: string, types?: string[]) =>
     `inbox:${userId}:${workspaceId}:${types ? [...types].sort().join(",") : "*"}`,
   hasPendingFileRequest: (workspaceId: string) => `fr_p:${workspaceId}`,
+  hasPendingSkillRequest: (workspaceId: string) => `sr_p:${workspaceId}`,
   pins: (workspaceId: string, userId: string) => `pins:${workspaceId}:${userId}`,
 };

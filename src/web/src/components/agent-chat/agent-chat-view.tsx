@@ -31,10 +31,11 @@ import {
   listFlaggedMessageIds,
   flagMessage as apiFlagMessage,
   unflagMessage as apiUnflagMessage,
+  requestSkillsBrowse,
 } from "@/lib/api";
 import { appendCachedMessage, getCachedMessages, getCachedMessagesBefore, getCacheMeta, mergeCachedMessages } from "@/lib/chat-cache";
 import type { PreviousConversation, TraceTask } from "@/lib/api";
-import type { Artifact, Conversation, Issue, IssueComment, Message, TaskApi as Task, TaskMessage, WsMessage } from "@alook/shared";
+import type { Artifact, Conversation, Issue, IssueComment, Message, SkillEntry, TaskApi as Task, TaskMessage, WsMessage } from "@alook/shared";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useInboxCount } from "@/contexts/inbox-count-context";
 import { useFlagCount } from "@/contexts/flag-count-context";
@@ -47,6 +48,8 @@ import { ArrowUp, BedDouble, Box, FileText, Loader2, Mail, MessageSquareQuote, P
 import { useCachedMessages } from "@/hooks/use-cached-messages";
 import { useMentionPopup } from "@/hooks/use-mention-popup";
 import { MentionPopup } from "@/components/agent-chat/mention-popup";
+import { useSlashCommand } from "@/hooks/use-slash-command";
+import { SlashCommandPopup } from "@/components/agent-chat/slash-command-popup";
 import { highlightMentions } from "@/lib/highlight-mentions";
 import { ArtifactSheet, formatSize } from "@/components/agent-chat/artifact-sheet";
 import { EmailEventSheet } from "@/components/agent-chat/email-event-sheet";
@@ -315,7 +318,7 @@ export function AgentChatView({
   const params = useParams();
   const searchParams = useSearchParams();
   const { workspaceId, slug } = useWorkspace();
-  const { agents, agentLinks, activeTaskCounts, subscribeWs } = useAgentContext();
+  const { agents, agentLinks, runtimes, activeTaskCounts, subscribeWs } = useAgentContext();
   const { refresh: refreshInboxCount } = useInboxCount();
   const { activeChannel, loading: channelLoading, setAgentId: setChannelAgentId } = useChannel();
   const agentId = propAgentId ?? (params.id as string);
@@ -445,6 +448,40 @@ export function AgentChatView({
     agents: otherAgents,
     agentLinks,
     currentAgentId: agentId,
+    onInputChange: setInput,
+  });
+
+  // Slash command skills
+  const [agentSkills, setAgentSkills] = useState<SkillEntry[]>([]);
+  const skillsRequestedRef = useRef(false);
+
+  const agentRuntime = useMemo(() => {
+    const agent = agents.find((a) => a.id === agentId);
+    if (!agent?.runtime_id) return null;
+    return runtimes.find((r) => r.id === agent.runtime_id) ?? null;
+  }, [agents, agentId, runtimes]);
+
+  useEffect(() => {
+    if (skillsRequestedRef.current || !agentRuntime?.provider) return;
+    const runtime = agentRuntime.provider as "claude" | "codex" | "opencode";
+    if (!["claude", "codex", "opencode"].includes(runtime)) return;
+    skillsRequestedRef.current = true;
+    requestSkillsBrowse(agentId, workspaceId, runtime).catch(() => {});
+  }, [agentId, workspaceId, agentRuntime]);
+
+  useEffect(() => {
+    return subscribeWs((msg: WsMessage) => {
+      if (msg.type === "workspace.skills" && msg.agentId === agentId) {
+        setAgentSkills(msg.skills);
+      }
+    });
+  }, [subscribeWs, agentId]);
+
+  const slashCommand = useSlashCommand({
+    input,
+    caretIndex,
+    textareaRef,
+    skills: agentSkills,
     onInputChange: setInput,
   });
 
@@ -1626,6 +1663,7 @@ export function AgentChatView({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (mentionPopup.handleMentionKeyDown(e)) return;
+    if (slashCommand.handleSlashKeyDown(e)) return;
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
@@ -1879,6 +1917,13 @@ export function AgentChatView({
               selectedIndex={mentionPopup.selectedIndex}
               onSelect={mentionPopup.selectAgent}
               anchorPos={mentionPopup.anchorPos}
+            />
+            <SlashCommandPopup
+              isOpen={slashCommand.isOpen}
+              skills={slashCommand.skills}
+              selectedIndex={slashCommand.selectedIndex}
+              onSelect={slashCommand.selectSkill}
+              anchorPos={slashCommand.anchorPos}
             />
             <div className="relative">
               <div

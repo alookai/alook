@@ -8,6 +8,7 @@ import {
   type PollResponse,
   type RegisterDaemonRequest,
   type RegisterResponse,
+  type SkillReport,
   type TaskApi,
   type WorkspaceFileReport,
 } from "@alook/shared";
@@ -201,6 +202,15 @@ export class DaemonClient {
     return this.request(
       "POST",
       "/api/daemon/workspace/report",
+      token,
+      body,
+    );
+  }
+
+  reportSkillData(token: string, body: SkillReport) {
+    return this.request(
+      "POST",
+      "/api/daemon/skills/report",
       token,
       body,
     );

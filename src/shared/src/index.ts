@@ -160,6 +160,10 @@ export {
   WorkspaceFileBrowseRequestSchema,
   WorkspaceFileEntrySchema,
   WorkspaceFileReportSchema,
+  SkillRequestItemSchema,
+  SkillEntrySchema,
+  SkillBrowseRequestSchema,
+  SkillReportSchema,
   CreateStudioRequestSchema,
   DaemonPushMessageSchema,
 } from "./schemas";
@@ -205,6 +209,10 @@ export type {
   WorkspaceFileEntry,
   WorkspaceFileBrowseRequest,
   WorkspaceFileReport,
+  SkillRequestItem,
+  SkillEntry,
+  SkillBrowseRequest,
+  SkillReport,
   CreateStudioRequest,
   DaemonPushMessageType,
 } from "./schemas";

@@ -763,3 +763,22 @@ export const workspaceFileRequest = sqliteTable(
     index("idx_wfr_workspace_status").on(t.workspaceId, t.status),
   ]
 );
+
+export const workspaceSkillRequest = sqliteTable(
+  "workspace_skill_request",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "wsk_" + nanoid()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    agentId: text("agent_id").notNull(),
+    runtime: text("runtime").notNull(),
+    status: text("status").notNull().default("pending"),
+    result: text("result"),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+    updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    index("idx_wsk_workspace_status").on(t.workspaceId, t.status),
+  ]
+);

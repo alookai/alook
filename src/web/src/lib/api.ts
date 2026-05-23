@@ -1066,6 +1066,20 @@ export const requestWorkspaceBrowse = (
     },
   );
 
+// Skill browsing
+export const requestSkillsBrowse = (
+  agentId: string,
+  workspaceId: string,
+  runtime: "claude" | "codex" | "opencode",
+) =>
+  apiFetch<{ request_id: string }>(
+    `/api/agents/${agentId}/skills/browse${wsQuery(workspaceId)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ runtime }),
+    },
+  );
+
 // Meetings
 export const listMeetings = (agentId: string, workspaceId: string) =>
   apiFetch<MeetingSession[]>(`/api/agents/${agentId}/meetings${wsQuery(workspaceId)}`);

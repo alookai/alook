@@ -22,6 +22,7 @@ import {
 } from "./execenv/steering.js";
 import { TASK_TYPES } from "@alook/shared";
 import { readDirectoryTree, readFileContent, validatePath } from "./workspace-files.js";
+import { startSkillScanner, stopSkillScanner, readSkillCache } from "./skill-scanner.js";
 import { resolveLoginShellEnv } from "../lib/shell-env.js";
 import { existsSync, mkdirSync, openSync, closeSync, readdirSync, statSync, unlinkSync } from "fs";
 import { readdir, readFile, unlink, stat as fsStat } from "fs/promises";
@@ -407,7 +408,7 @@ export async function startDaemon(
       }
 
       try {
-        const { tasks: apiTasks, evicted, pending_update, pending_rescan, file_requests, meetings } = await client.poll(
+        const { tasks: apiTasks, evicted, pending_update, pending_rescan, file_requests, skill_requests, meetings } = await client.poll(
           ws.token,
           config.daemonId,
           remaining,
@@ -449,6 +450,14 @@ export async function startDaemon(
           for (const req of file_requests) {
             handleFileRequest(client, config, ws.workspaceId, req, ws.token)
               .catch((e) => log.debug("File request error", e));
+          }
+        }
+
+        // Handle skill browse requests
+        if (skill_requests) {
+          for (const req of skill_requests) {
+            handleSkillRequest(client, req, ws.token)
+              .catch((e) => log.debug("Skill request error", e));
           }
         }
 
@@ -534,6 +543,17 @@ export async function startDaemon(
           for (const req of msg.requests) {
             handleFileRequest(client, config, ws.workspaceId, req, ws.token)
               .catch((e) => log.debug("WS file request error", e));
+          }
+        }
+        break;
+      }
+
+      case "daemon.skill_requests": {
+        const ws = workspaceStates.find((w) => w.workspaceId === msg.workspaceId);
+        if (ws) {
+          for (const req of msg.requests) {
+            handleSkillRequest(client, req, ws.token)
+              .catch((e) => log.debug("WS skill request error", e));
           }
         }
         break;
@@ -641,6 +661,9 @@ export async function startDaemon(
   };
   const sweepTimer = setInterval(sweepTick, config.sweepInterval);
 
+  // --- Skill scanner: scans global skill paths every 60s ---
+  startSkillScanner(60_000);
+
   let shuttingDown = false;
   let restartRequested = false;
 
@@ -656,6 +679,7 @@ export async function startDaemon(
     clearInterval(pollTimer);
     clearInterval(heartbeatTimer);
     clearInterval(sweepTimer);
+    stopSkillScanner();
     wsClient?.close();
 
     const shutdownMs = restartRequested ? 30000 : (Number(process.env.ALOOK_SHUTDOWN_TIMEOUT_MS) || 5000);
@@ -844,6 +868,23 @@ async function handleFileRequest(
       request_id: req.id,
       error: e instanceof Error ? e.message : String(e),
       path: req.path,
+    });
+  }
+}
+
+async function handleSkillRequest(
+  client: DaemonClient,
+  req: { id: string; agent_id: string; runtime: string },
+  token: string,
+): Promise<void> {
+  try {
+    const runtime = req.runtime as "claude" | "codex" | "opencode";
+    const skills = readSkillCache(runtime);
+    await client.reportSkillData(token, { request_id: req.id, skills });
+  } catch (e) {
+    await client.reportSkillData(token, {
+      request_id: req.id,
+      error: e instanceof Error ? e.message : String(e),
     });
   }
 }
