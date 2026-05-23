@@ -7,7 +7,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import {
   conversationToResponse,
   messageToResponse,
-  taskToResponse,
+  taskToResponseWithChannel,
   taskMessageToResponse,
 } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
@@ -117,7 +117,7 @@ export const POST = withAuth(async (req, ctx) => {
     messages: messages.map(messageToResponse),
     artifacts: artifacts.map(queries.artifact.artifactToResponse),
     buffered_messages: resolvedBuffered.map(messageToResponse),
-    active_task: resolvedActiveTask ? taskToResponse(resolvedActiveTask) : null,
+    active_task: resolvedActiveTask ? taskToResponseWithChannel(resolvedActiveTask, conversation.channel) : null,
     task_messages: taskMessages,
     has_more_messages: hasMoreMessages,
     has_more_conversations: hasMoreConvs,

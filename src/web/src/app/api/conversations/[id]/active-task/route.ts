@@ -4,7 +4,7 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
-import { taskToResponse } from "@/lib/api/responses";
+import { taskToResponseWithChannel } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { broadcastToUser } from "@/lib/broadcast";
 import { invalidate, cacheKeys } from "@/lib/cache";
@@ -31,7 +31,7 @@ export const GET = withAuth(async (req, ctx) => {
     return new Response(null, { status: 204 });
   }
 
-  return writeJSON(taskToResponse(task));
+  return writeJSON(taskToResponseWithChannel(task, conversation.channel));
 });
 
 export const DELETE = withAuth(async (req, ctx) => {
@@ -67,5 +67,5 @@ export const DELETE = withAuth(async (req, ctx) => {
     status: "cancelled",
   }).catch(() => {});
 
-  return writeJSON(taskToResponse(cancelled));
+  return writeJSON(taskToResponseWithChannel(cancelled, conversation.channel));
 });

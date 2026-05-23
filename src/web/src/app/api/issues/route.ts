@@ -6,7 +6,7 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { parseBody, writeError, writeJSON } from "@/lib/middleware/helpers";
-import { issueToResponse, messageToResponse, taskToResponse } from "@/lib/api/responses";
+import { issueToResponse, messageToResponse, taskToResponseWithChannel } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { broadcastToUser } from "@/lib/broadcast";
 import { invalidate, cacheKeys } from "@/lib/cache";
@@ -217,7 +217,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       {
         issue: issueToResponse(issue),
         message: messageToResponse(eventMessage),
-        task: taskToResponse(task),
+        task: taskToResponseWithChannel(task, conversation.channel),
       },
       201
     );

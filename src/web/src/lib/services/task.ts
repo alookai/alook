@@ -2,7 +2,7 @@ import type { Database } from "@alook/shared";
 import { queries, TASK_TYPES, MAX_TASKS_PER_TRACE } from "@alook/shared";
 import { log } from "@/lib/logger";
 import { broadcastToUser, broadcastToDaemon } from "@/lib/broadcast";
-import { messageToResponse, taskToResponse } from "@/lib/api/responses";
+import { messageToResponse, taskToResponseWithChannel } from "@/lib/api/responses";
 import { invalidate, cacheKeys } from "@/lib/cache";
 import { TaskPayloadBuilder } from "@/lib/services/task-payload-builder";
 
@@ -386,7 +386,7 @@ export class TaskService {
         type: "followup.dispatched",
         conversationId,
         message: messageToResponse(activated),
-        task: taskToResponse(task),
+        task: taskToResponseWithChannel(task, conversation.channel),
       }).catch(() => {});
 
       return task;

@@ -75,6 +75,11 @@ vi.mock("@/lib/broadcast", () => ({
 
 vi.mock("@/lib/api/responses", () => ({
   taskToResponse: (t: unknown) => t,
+  taskToResponseWithChannel: (t: any, channel?: string | null) => ({
+    ...t,
+    channel: channel ?? "default",
+    channel_tag: channel ?? "default",
+  }),
 }));
 
 import { POST } from "./route";

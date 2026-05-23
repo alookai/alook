@@ -1,6 +1,6 @@
 import type { Database, ClaimedTaskRow } from "@alook/shared";
 import { queries, TASK_TYPES, toAlookAddress } from "@alook/shared";
-import { taskToResponse } from "@/lib/api/responses";
+import { taskToResponse, taskToResponseWithChannel } from "@/lib/api/responses";
 import { cached, cacheKeys } from "@/lib/cache";
 
 export class TaskPayloadBuilder {
@@ -124,8 +124,7 @@ export class TaskPayloadBuilder {
       }));
 
       results.push({
-        ...taskToResponse(task),
-        channel: taskChannel,
+        ...taskToResponseWithChannel(task, taskChannel),
         sender,
         agent: agent
           ? {

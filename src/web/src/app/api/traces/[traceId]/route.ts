@@ -50,5 +50,5 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     completed_at: t.completedAt,
   }));
 
-  return writeJSON({ trace_id: traceId, channel, tasks: traceTasks });
+  return writeJSON({ trace_id: traceId, channel, channel_tag: channel, tasks: traceTasks });
 });

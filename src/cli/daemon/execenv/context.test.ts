@@ -15,6 +15,9 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     priority: 0,
     type: "user_dm_message",
     createdAt: "2024-01-01T00:00:00Z",
+    traceId: null,
+    parentTaskId: null,
+    channel: "default",
     ...overrides,
   };
 }

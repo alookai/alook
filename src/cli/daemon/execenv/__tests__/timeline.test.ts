@@ -265,6 +265,11 @@ describe("timeline", () => {
       const entry = createTimelineEntry("t_c2", "test", "user_dm_message");
       expect(entry.context_key).toBeNull();
     });
+
+    it("includes channel_tag snapshot when provided", () => {
+      const entry = createTimelineEntry("t_tag", "test", "user_dm_message", undefined, 1234, "claude", "conv_abc", null, "ops");
+      expect(entry.channel_tag).toBe("ops");
+    });
   });
 
   describe("findRunningPidByTaskId", () => {

@@ -39,7 +39,11 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     prompt: "do something",
     status: "running",
     priority: 0,
+    type: "user_dm_message",
     createdAt: "2026-01-01T00:00:00Z",
+    traceId: null,
+    parentTaskId: null,
+    channel: "default",
     agent: { name: "test-agent", instructions: "Be helpful and concise." },
     ...overrides,
   };

@@ -14,6 +14,9 @@ function makeTask(prompt: string, type = "user_dm_message"): Task {
     status: "pending",
     priority: 1,
     createdAt: new Date().toISOString(),
+    traceId: null,
+    parentTaskId: null,
+    channel: "default",
   };
 }
 
@@ -22,7 +25,17 @@ describe("buildPrompt", () => {
     const task = makeTask("Fix the login bug");
     const parsed = JSON.parse(buildPrompt(task));
     expect(parsed.type).toBe("user_dm_message");
+    expect(parsed.channel_tag).toBe("default");
     expect(parsed.instruction).toBe("Fix the login bug");
+  });
+
+  it("includes channel_tag as a structured field", () => {
+    const task: Task = {
+      ...makeTask("Fix the login bug"),
+      channel: "ops",
+    };
+    const parsed = JSON.parse(buildPrompt(task));
+    expect(parsed.channel_tag).toBe("ops");
   });
 
   it("handles empty prompt", () => {
@@ -35,7 +48,7 @@ describe("buildPrompt", () => {
   it("includes the task type in output", () => {
     const task = makeTask("Check inbox", "email_inbound");
     expect(buildPrompt(task)).toBe(
-      JSON.stringify({ type: "email_inbound", instruction: "Check inbox" }),
+      JSON.stringify({ type: "email_inbound", channel_tag: "default", instruction: "Check inbox" }),
     );
   });
 

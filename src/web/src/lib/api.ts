@@ -522,6 +522,7 @@ export interface WorkspaceActiveTask {
   type: string;
   conversation_id: string;
   channel: string;
+  channel_tag?: string | null;
   created_at: string;
 }
 
@@ -1201,6 +1202,7 @@ export interface TraceListItem {
   started_at: string;
   completed_at: string | null;
   channel: string;
+  channel_tag?: string | null;
 }
 
 export interface TraceTask {
@@ -1233,6 +1235,6 @@ export const listTraces = (
 };
 
 export const getTrace = (traceId: string, workspaceId: string) =>
-  apiFetch<{ trace_id: string; channel: string; tasks: TraceTask[] }>(
+  apiFetch<{ trace_id: string; channel: string; channel_tag?: string | null; tasks: TraceTask[] }>(
     `/api/traces/${traceId}${wsQuery(workspaceId)}`
   );

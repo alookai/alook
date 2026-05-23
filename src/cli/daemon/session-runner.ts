@@ -170,7 +170,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
   // Timeline entry: write IMMEDIATELY so KILL_TASK can find our PID
   await initEntryAsync(
     timelineDir,
-    createTimelineEntry(task.id, task.prompt, task.type, undefined, process.pid, provider, task.contextKey, input.logFilePath),
+    createTimelineEntry(task.id, task.prompt, task.type, undefined, process.pid, provider, task.contextKey, input.logFilePath, task.channel ?? "default"),
   );
 
   const { workDir, env } = prepare(

@@ -59,6 +59,12 @@ vi.mock("@/lib/middleware/workspace", () => ({
 vi.mock("@/lib/api/responses", () => ({
   issueToResponse: (i: any) => ({ id: i.id, status: i.status, conversation_id: i.conversationId }),
   messageToResponse: (m: any) => ({ id: m.id, role: m.role, content: m.content }),
+  taskToResponseWithChannel: (t: any, channel?: string | null) => ({
+    id: t.id,
+    status: t.status,
+    channel: channel ?? "default",
+    channel_tag: channel ?? "default",
+  }),
 }));
 
 vi.mock("@/lib/logger", () => ({
