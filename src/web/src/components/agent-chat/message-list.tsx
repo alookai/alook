@@ -1,14 +1,17 @@
-import React, { memo } from "react";
+import React, { memo, useState } from "react";
 import type { Agent, Artifact, Message, TaskApi as Task, TaskMessage } from "@alook/shared";
-import type { Conversation } from "@alook/shared";
+
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Streamdown } from "streamdown";
 import { highlightMentions } from "@/lib/highlight-mentions";
 import { TaskStream } from "@/components/task-stream";
 import { HistoricalTaskSteps } from "@/components/agent-chat/historical-task-steps";
-import { FileText, Calendar, CircleDot, Mail } from "lucide-react";
-import { formatSize } from "@/components/agent-chat/artifact-sheet";
+import { FileText, Calendar, CircleDot, Mail, Flag, Copy, Check } from "lucide-react";
+
 import { getEventIconType } from "@/components/agent-chat/agent-chat-view";
+import { toast } from "sonner";
 
 const MENTION_ALLOWED_TAGS = { mention: ["data-agent-id"] };
 const MENTION_LITERAL_TAGS = ["mention"];
@@ -29,8 +32,11 @@ export interface MessageItemProps {
   onArtifactClick: (a: Artifact) => void;
   onEmailClick: (emailId: string) => void;
   onIssueClick: (issueId: string) => void;
+  onCalendarEventClick: (calendarEventId: string) => void;
   onRetry?: () => void;
   mentionComponents: Record<string, React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }>>;
+  isFlagged?: boolean;
+  onToggleFlag?: (messageId: string) => void;
 }
 
 function EventMessageIcon({ content, conversationType }: { content: string; conversationType?: string | null }) {
@@ -115,13 +121,19 @@ export const MessageItem = memo(function MessageItem({
   onArtifactClick,
   onEmailClick,
   onIssueClick,
+  onCalendarEventClick,
   onRetry,
   mentionComponents,
+  isFlagged,
+  onToggleFlag,
 }: MessageItemProps) {
+  const [copied, setCopied] = useState(false);
+
   const hasTaskStream =
     activeTask &&
     msg.role === "assistant" &&
     msg.task_id === activeTask.id &&
+    msg.conversation_id === activeTask.conversation_id &&
     taskMessages.length > 0;
 
   const historicalStepCount =
@@ -133,15 +145,81 @@ export const MessageItem = memo(function MessageItem({
       ? stepCount
       : 0;
 
+  const isTaskDone = hasTaskStream && activeTask && ["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
+
+  const actionButtons = msg.role === "assistant" ? (
+    <div className="flex flex-row items-center gap-1">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={copied ? "Copied" : "Copy message"}
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  await navigator.clipboard.writeText(msg.content);
+                  setCopied(true);
+                  toast.success("Copied to clipboard");
+                  setTimeout(() => setCopied(false), 2000);
+                } catch {
+                  toast.error("Failed to copy");
+                }
+              }}
+              className={cn(
+                "self-start mb-1",
+                copied
+                  ? "text-green-500 opacity-100"
+                  : "text-muted-foreground md:opacity-0 md:group-hover/msg:opacity-100"
+              )}
+            />
+          }
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </TooltipTrigger>
+        <TooltipContent>{copied ? "Copied" : "Copy"}</TooltipContent>
+      </Tooltip>
+      {onToggleFlag && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => onToggleFlag(msg.id)}
+                className={cn(
+                  "self-start mb-1",
+                  isFlagged
+                    ? "text-primary opacity-100"
+                    : "text-muted-foreground md:opacity-0 md:group-hover/msg:opacity-100"
+                )}
+              />
+            }
+          >
+            <Flag className={cn("size-3.5", isFlagged && "fill-current")} />
+          </TooltipTrigger>
+          <TooltipContent>{isFlagged ? "Unflag" : "Flag"}</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  ) : null;
+
   return (
     <React.Fragment>
       {hasTaskStream && (
-        <TaskStream
-          task={activeTask}
-          messages={taskMessages}
-          connectionLost={connectionLost}
-          onRetry={onRetry}
-        />
+        <div className={cn(
+          "group/msg",
+          isFlagged && "bg-muted/30 rounded-lg px-2 -mx-2"
+        )}>
+          <TaskStream
+            task={activeTask}
+            messages={taskMessages}
+            connectionLost={connectionLost}
+            onRetry={onRetry}
+          />
+          {isTaskDone && actionButtons}
+        </div>
       )}
       {historicalStepCount > 0 && msg.task_id && (
         <HistoricalTaskSteps
@@ -153,7 +231,7 @@ export const MessageItem = memo(function MessageItem({
       {msg.role === "user" ? (() => {
         const awaitingRun = isLastMessage && !!activeTask && activeTask.status !== "running" && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
         return (
-          <div className="flex justify-end" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
+          <div className="flex justify-end" data-message-id={msg.id} {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
             <div className={cn(
               "max-w-[80%] rounded-lg px-4 py-2 bg-primary text-primary-foreground text-base relative",
             )}>
@@ -175,26 +253,31 @@ export const MessageItem = memo(function MessageItem({
       })() : msg.role === "event" ? (() => {
         const eventEmailId = msg.metadata?.emailId as string | undefined;
         const eventIssueId = msg.metadata?.issueId as string | undefined;
-        const isClickable = !!eventEmailId || !!eventIssueId;
+        const eventCalendarEventId = msg.metadata?.calendarEventId as string | undefined;
+        const isClickable = !!eventEmailId || !!eventIssueId || !!eventCalendarEventId;
         return (
-          <div className="flex justify-start" {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
+          <div className="flex justify-start" data-message-id={msg.id} {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
             <div
               className={cn(
                 "w-full rounded-md border bg-muted/50 text-muted-foreground text-sm px-3 py-2 flex items-start gap-2",
                 isClickable && "cursor-pointer hover:bg-muted transition-colors"
               )}
-              onClick={eventEmailId ? () => onEmailClick(eventEmailId) : eventIssueId ? () => onIssueClick(eventIssueId) : undefined}
+              onClick={eventEmailId ? () => onEmailClick(eventEmailId) : eventIssueId ? () => onIssueClick(eventIssueId) : eventCalendarEventId ? () => onCalendarEventClick(eventCalendarEventId) : undefined}
             >
               <EventMessageIcon content={msg.content} conversationType={conversationType} />
-              <span>{msg.content}</span>
+              <span className="min-w-0 wrap-anywhere">{msg.content}</span>
             </div>
           </div>
         );
       })() : !hasTaskStream ? (
-        <div className="flex justify-start" data-quote-source {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
+        <div className={cn(
+          "group/msg flex flex-col justify-start min-w-0 overflow-hidden",
+          isFlagged && "bg-muted/30 rounded-lg px-2 -mx-2"
+        )} data-message-id={msg.id} data-quote-source {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
           <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
             <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(msg.content, agents)}</Streamdown>
           </div>
+          {actionButtons}
         </div>
       ) : null}
     </React.Fragment>

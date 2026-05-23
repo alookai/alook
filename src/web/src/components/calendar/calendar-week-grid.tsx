@@ -16,7 +16,8 @@ import {
 } from "./calendar-week-utils";
 import { dateKey, sameDay } from "./calendar-month-grid";
 
-const HOUR_HEIGHT = 48;
+const HOUR_HEIGHT_DEFAULT = 48;
+const HOUR_HEIGHT_COMPACT = 36;
 const EVENT_HEIGHT = 24;
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
@@ -44,6 +45,7 @@ export interface CalendarWeekGridProps {
   agents: Agent[];
   loading: boolean;
   focusedDate: Date;
+  compact?: boolean;
   onPrevWeek: () => void;
   onNextWeek: () => void;
   onJumpToToday: () => void;
@@ -59,6 +61,7 @@ export function CalendarWeekGrid({
   agents,
   loading,
   focusedDate,
+  compact = false,
   onPrevWeek,
   onNextWeek,
   onJumpToToday,
@@ -67,6 +70,8 @@ export function CalendarWeekGrid({
   onSelectEvent,
   headerExtras,
 }: CalendarWeekGridProps) {
+  const hourHeight = compact ? HOUR_HEIGHT_COMPACT : HOUR_HEIGHT_DEFAULT;
+  const gutterWidth = compact ? "2.5rem" : "3.5rem";
   const scrollRef = useRef<HTMLDivElement>(null);
   const didAutoScroll = useRef(false);
 
@@ -126,10 +131,10 @@ export function CalendarWeekGrid({
     if (didAutoScroll.current) return;
     if (!scrollRef.current) return;
     const now = new Date();
-    const scrollTo = Math.max(0, (now.getHours() - 1) * HOUR_HEIGHT);
+    const scrollTo = Math.max(0, (now.getHours() - 1) * hourHeight);
     scrollRef.current.scrollTop = scrollTo;
     didAutoScroll.current = true;
-  }, []);
+  }, [hourHeight]);
 
   const currentFractionalHour = useMemo(() => {
     const now = new Date();
@@ -137,6 +142,7 @@ export function CalendarWeekGrid({
   }, []);
 
   if (loading && events.length === 0) {
+    const skelCols = `${gutterWidth} repeat(7, 1fr)`;
     return (
       <div className="flex flex-1 flex-col gap-3 min-h-0">
         <div className="flex items-center justify-between flex-wrap gap-2 shrink-0">
@@ -144,7 +150,7 @@ export function CalendarWeekGrid({
           <Skeleton className="h-7 w-32" />
         </div>
         <div className="flex-1 min-h-0 flex flex-col rounded-lg border border-border/50 overflow-hidden">
-          <div className="grid grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border/30 shrink-0">
+          <div className="border-b border-border/30 shrink-0" style={{ display: "grid", gridTemplateColumns: skelCols }}>
             <div className="h-8" />
             {Array.from({ length: 7 }).map((_, i) => (
               <Skeleton key={i} className="h-5 mx-2 my-1.5" />
@@ -154,8 +160,8 @@ export function CalendarWeekGrid({
             {Array.from({ length: 12 }).map((_, i) => (
               <div
                 key={i}
-                className="grid grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border/10"
-                style={{ height: HOUR_HEIGHT }}
+                className="border-b border-border/10"
+                style={{ display: "grid", gridTemplateColumns: skelCols, height: hourHeight }}
               >
                 <Skeleton className="h-3 w-8 mx-1 my-2" />
                 {Array.from({ length: 7 }).map((_, j) => (
@@ -239,12 +245,12 @@ export function CalendarWeekGrid({
           {/* Sticky day headers */}
           <div
             role="row"
-            className="sticky top-0 z-10 grid grid-cols-[3.5rem_repeat(7,1fr)] border-b border-border/30 bg-background"
+            className="sticky top-0 z-10 border-b border-border/30 bg-background"
+            style={{ display: "grid", gridTemplateColumns: `${gutterWidth} repeat(7, 1fr)` }}
           >
             <div role="columnheader" className="h-8" />
             {days.map((day) => {
               const isToday = sameDay(day, today);
-              const compact = false; // TODO: responsive via media query hook if needed
               return (
                 <div
                   key={dateKey(day)}
@@ -275,17 +281,17 @@ export function CalendarWeekGrid({
             ref={scrollRef}
             className="flex-1 min-h-0 overflow-y-auto thin-scrollbar"
           >
-            <div className="relative grid grid-cols-[3.5rem_repeat(7,1fr)]">
+            <div className="relative" style={{ display: "grid", gridTemplateColumns: `${gutterWidth} repeat(7, 1fr)` }}>
               {/* Time gutter */}
               <div role="rowheader" className="relative">
                 {HOURS.map((hour) => (
                   <div
                     key={hour}
                     className="flex items-start justify-end pr-2 text-[10px] text-muted-foreground tabular-nums"
-                    style={{ height: HOUR_HEIGHT }}
+                    style={{ height: hourHeight }}
                   >
                     <span className="-mt-1.5">
-                      {hour === 0 ? "" : formatHourLabel(hour, false)}
+                      {hour === 0 ? "" : formatHourLabel(hour, compact)}
                     </span>
                   </div>
                 ))}
@@ -301,14 +307,14 @@ export function CalendarWeekGrid({
                   <div
                     key={key}
                     className="relative border-l border-border/20"
-                    style={{ height: HOUR_HEIGHT * 24 }}
+                    style={{ height: hourHeight * 24 }}
                   >
                     {/* Hour slots */}
                     {HOURS.map((hour) => (
                       <div
                         key={hour}
                         className="absolute inset-x-0 border-t border-border/15 cursor-pointer hover:bg-accent/30 transition-colors"
-                        style={{ top: hour * HOUR_HEIGHT, height: HOUR_HEIGHT }}
+                        style={{ top: hour * hourHeight, height: hourHeight }}
                         onClick={() => onSelectSlot(day, hour)}
                       />
                     ))}
@@ -317,7 +323,7 @@ export function CalendarWeekGrid({
                     {isToday && (
                       <div
                         className="absolute inset-x-0 z-10 pointer-events-none"
-                        style={{ top: currentFractionalHour * HOUR_HEIGHT }}
+                        style={{ top: currentFractionalHour * hourHeight }}
                       >
                         <div className="h-px bg-foreground/40" />
                         <div className="absolute -left-0.5 -top-0.75 size-1.75 rounded-full bg-foreground/40" />
@@ -329,7 +335,7 @@ export function CalendarWeekGrid({
                       const fracHour = getLocalFractionalHour(
                         event.scheduled_at
                       );
-                      const top = fracHour * HOUR_HEIGHT;
+                      const top = fracHour * hourHeight;
                       const widthPercent = 100 / columnCount;
                       const leftPercent = columnIndex * widthPercent;
                       const agentName = agentNameById.get(event.agent_id);
@@ -352,7 +358,8 @@ export function CalendarWeekGrid({
                             onSelectEvent(event);
                           }}
                           className={cn(
-                            "absolute rounded-sm px-1.5 text-[10px] font-medium truncate text-left transition-colors hover:opacity-80 cursor-pointer",
+                            "absolute rounded-sm font-medium truncate text-left transition-colors hover:opacity-80 cursor-pointer",
+                            compact ? "text-[9px] px-1" : "text-[10px] px-1.5",
                             agentColor(event.agent_id)
                           )}
                           style={{

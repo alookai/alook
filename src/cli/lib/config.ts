@@ -1,7 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { isDev } from "./env.js";
 
 interface WatchedWorkspace {
   id: string;
@@ -25,10 +24,7 @@ interface CLIConfig {
 export type { CLIConfig, ProfileConfig, WatchedWorkspace };
 
 export function configDir(): string {
-  if (isDev() && process.env.ALOOK_PROJECT_ROOT) {
-    return join(process.env.ALOOK_PROJECT_ROOT, ".alook");
-  }
-  return join(homedir(), ".alook");
+  return process.env.ALOOK_PROJECT_ROOT || join(homedir(), ".alook");
 }
 
 export function configPath(): string {

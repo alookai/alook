@@ -7,8 +7,10 @@ const mockGetMachineByDaemon = vi.fn();
 const mockClearPendingUpdateVersion = vi.fn();
 const mockClearPendingRescan = vi.fn();
 const mockGetAgentsByIds = vi.fn();
+const mockGetAllAgentsForWorkspace = vi.fn();
 const mockGetMemberByUserAndWorkspace = vi.fn();
 const mockGetConversation = vi.fn();
+const mockGetConversationsByIds = vi.fn();
 const mockGetUser = vi.fn();
 const mockClaimTasksForRuntimes = vi.fn();
 const mockSweepStaleState = vi.fn();
@@ -18,14 +20,19 @@ const mockMarkFileRequestsDispatched = vi.fn();
 const mockExpireStaleFileRequests = vi.fn();
 const mockListScheduledMeetings = vi.fn();
 const mockClaimMeetingSessions = vi.fn();
-const mockGetEmailAccountsByAgents = vi.fn();
-const mockGetColleaguesForAgents = vi.fn();
+const mockGetAllEmailAccountsForWorkspace = vi.fn();
+const mockGetAllColleaguesForWorkspace = vi.fn();
+const mockInvalidate = vi.fn().mockResolvedValue(undefined);
+const mockKvPut = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
+  getCloudflareContext: vi.fn(() => ({ env: { DB: {}, CACHE_KV: { put: (...args: unknown[]) => mockKvPut(...args), get: vi.fn().mockResolvedValue(null), delete: vi.fn().mockResolvedValue(undefined) } }, ctx: { waitUntil: vi.fn() } })),
 }));
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => ({})),
+  withD1Retry: vi.fn((fn: () => Promise<any>) => fn()),
+}));
 
 vi.mock("@alook/shared", async () => {
   const real = await vi.importActual<typeof import("@alook/shared")>("@alook/shared");
@@ -44,18 +51,21 @@ vi.mock("@alook/shared", async () => {
       },
       agent: {
         getAgentsByIds: (...args: unknown[]) => mockGetAgentsByIds(...args),
+        getAllAgentsForWorkspace: (...args: unknown[]) => mockGetAllAgentsForWorkspace(...args),
       },
       member: {
         getMemberByUserAndWorkspace: (...args: unknown[]) => mockGetMemberByUserAndWorkspace(...args),
       },
       conversation: {
         getConversation: (...args: unknown[]) => mockGetConversation(...args),
+        getConversationsByIds: (...args: unknown[]) => mockGetConversationsByIds(...args),
       },
       user: {
         getUser: (...args: unknown[]) => mockGetUser(...args),
       },
       emailAccount: {
-        getEmailAccountsByAgents: (...args: unknown[]) => mockGetEmailAccountsByAgents(...args),
+        getEmailAccountsByAgents: (...args: unknown[]) => mockGetAllEmailAccountsForWorkspace(...args),
+        getAllEmailAccountsForWorkspace: (...args: unknown[]) => mockGetAllEmailAccountsForWorkspace(...args),
       },
       workspaceFileRequest: {
         getPendingByWorkspace: (...args: unknown[]) => mockGetPendingFileRequests(...args),
@@ -67,7 +77,8 @@ vi.mock("@alook/shared", async () => {
         claimMeetingSessions: (...args: unknown[]) => mockClaimMeetingSessions(...args),
       },
       agentLink: {
-        getColleaguesForAgents: (...args: unknown[]) => mockGetColleaguesForAgents(...args),
+        getColleaguesForAgents: (...args: unknown[]) => mockGetAllColleaguesForWorkspace(...args),
+        getAllColleaguesForWorkspace: (...args: unknown[]) => mockGetAllColleaguesForWorkspace(...args),
       },
     },
   };
@@ -107,6 +118,27 @@ vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock("@/lib/cache", () => ({
+  cached: vi.fn((_key: string, _ttl: number, fn: () => Promise<any>) => fn()),
+  cacheKeys: {
+    machineToken: (token: string) => `mt:${token.slice(0, 20)}`,
+    runtimeIds: (wsId: string, daemonId: string) => `rt:${wsId}:${daemonId}`,
+    agent: (wsId: string, agentId: string) => `ag:${wsId}:${agentId}`,
+    heartbeat: (wsId: string, daemonId: string) => `hb:${wsId}:${daemonId}`,
+    user: (userId: string) => `usr:${userId}`,
+    allAgents: (wsId: string) => `agents:${wsId}`,
+    allEmailAccounts: (wsId: string) => `ea:${wsId}`,
+    allColleagues: (wsId: string) => `col:${wsId}`,
+    allRuntimes: (wsId: string) => `runtimes:${wsId}`,
+    member: (wsId: string, userId: string) => `mem:${wsId}:${userId}`,
+    allHandles: (wsId: string) => `handles:${wsId}`,
+    allMembers: (wsId: string) => `members:${wsId}`,
+    hasPendingFileRequest: (wsId: string) => `fr_p:${wsId}`,
+  },
+  throttled: vi.fn((_key: string, _interval: number, fn: () => Promise<void>) => fn().then(() => true)),
+  invalidate: (...args: unknown[]) => mockInvalidate(...args),
+}));
+
 vi.mock("@/lib/api/responses", () => ({
   taskToResponse: (t: any) => ({
     id: t.id,
@@ -135,12 +167,13 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockGetPendingFileRequests.mockResolvedValue([]);
     mockExpireStaleFileRequests.mockResolvedValue(undefined);
     mockListScheduledMeetings.mockResolvedValue([]);
-    mockGetAgentsByIds.mockResolvedValue([]);
-    mockGetEmailAccountsByAgents.mockResolvedValue([]);
-    mockGetColleaguesForAgents.mockResolvedValue([]);
+    mockGetAllAgentsForWorkspace.mockResolvedValue([]);
+    mockGetAllEmailAccountsForWorkspace.mockResolvedValue([]);
+    mockGetAllColleaguesForWorkspace.mockResolvedValue([]);
+    mockGetConversationsByIds.mockResolvedValue([]);
   });
 
-  it("returns evicted: true and skips heartbeat when daemon has no runtimes", async () => {
+  it("returns evicted: true when daemon has no runtimes", async () => {
     mockGetRuntimeIdsByDaemon.mockResolvedValue([]);
 
     const res = await POST(postReq({ daemon_id: "d1" }));
@@ -149,12 +182,9 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(res.status).toBe(200);
     expect(body.tasks).toEqual([]);
     expect(body.evicted).toBe(true);
-    expect(mockUpsertMachine).not.toHaveBeenCalled();
-    expect(mockBroadcastToUser).not.toHaveBeenCalled();
   });
 
   it("omits evicted field for normal polls with active runtimes", async () => {
-    mockUpsertMachine.mockResolvedValue({});
     mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
     mockSweepStaleState.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
@@ -165,12 +195,9 @@ describe("POST /api/daemon/tasks/poll", () => {
 
     expect(res.status).toBe(200);
     expect(body.evicted).toBeUndefined();
-    expect(mockUpsertMachine).toHaveBeenCalled();
-    expect(mockBroadcastToUser).toHaveBeenCalled();
   });
 
-  it("resolves runtime IDs from daemon_id and upserts machine liveness", async () => {
-    mockUpsertMachine.mockResolvedValue({});
+  it("resolves runtime IDs from daemon_id", async () => {
     mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1", "r2"]);
     mockSweepStaleState.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
@@ -179,12 +206,6 @@ describe("POST /api/daemon/tasks/poll", () => {
     await POST(postReq({ daemon_id: "d1" }));
 
     expect(mockGetRuntimeIdsByDaemon).toHaveBeenCalledWith({}, "d1", "w1");
-    expect(mockUpsertMachine).toHaveBeenCalledTimes(1);
-    expect(mockUpsertMachine).toHaveBeenCalledWith({}, {
-      daemonId: "d1",
-      workspaceId: "w1",
-      deviceInfo: "d1",
-    });
   });
 
   it("returns tasks with agent data for claimed tasks", async () => {
@@ -195,7 +216,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "do it", status: "dispatched" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{
       id: "a1",
       instructions: "be helpful",
       name: "Bot",
@@ -220,8 +241,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     });
   });
 
-  it("broadcasts single runtime.status with daemonId and workspaceId", async () => {
-    mockUpsertMachine.mockResolvedValue({});
+  it("does not broadcast runtime.status (heartbeat handles that)", async () => {
     mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1", "r2", "r3"]);
     mockSweepStaleState.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
@@ -229,26 +249,10 @@ describe("POST /api/daemon/tasks/poll", () => {
 
     await POST(postReq({ daemon_id: "d1" }));
 
-    // Single broadcast, not per-runtime
-    expect(mockBroadcastToUser).toHaveBeenCalledTimes(1);
-    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
+    expect(mockBroadcastToUser).not.toHaveBeenCalledWith("u1", expect.objectContaining({
       type: "runtime.status",
-      daemonId: "d1",
-      workspaceId: "w1",
       status: "online",
-    });
-  });
-
-  it("calls sweepStaleState", async () => {
-    mockUpsertMachine.mockResolvedValue({});
-    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
-    mockSweepStaleState.mockResolvedValue(undefined);
-    mockBroadcastToUser.mockResolvedValue(undefined);
-    mockClaimTasksForRuntimes.mockResolvedValue([]);
-
-    await POST(postReq({ daemon_id: "d1" }));
-
-    expect(mockSweepStaleState).toHaveBeenCalledWith({}, "w1");
+    }));
   });
 
   it("respects max_tasks parameter", async () => {
@@ -273,38 +277,6 @@ describe("POST /api/daemon/tasks/poll", () => {
     await POST(postReq({ daemon_id: "d1" }));
 
     expect(mockClaimTasksForRuntimes).toHaveBeenCalledWith(["r1"], 1, "w1");
-  });
-
-  it("invokes calendar promotion between sweep and task claim", async () => {
-    mockUpsertMachine.mockResolvedValue({});
-    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
-    mockSweepStaleState.mockResolvedValue(undefined);
-    mockBroadcastToUser.mockResolvedValue(undefined);
-    mockClaimTasksForRuntimes.mockResolvedValue([]);
-    mockPromoteDue.mockResolvedValue(2);
-
-    await POST(postReq({ daemon_id: "d1" }));
-
-    expect(mockPromoteDue).toHaveBeenCalledWith({}, "w1");
-    // Calendar promotion is scoped per-call to the authenticated workspace.
-    const promoteOrder = mockPromoteDue.mock.invocationCallOrder[0]!;
-    const sweepOrder = mockSweepStaleState.mock.invocationCallOrder[0]!;
-    const claimOrder = mockClaimTasksForRuntimes.mock.invocationCallOrder[0]!;
-    expect(sweepOrder).toBeLessThan(promoteOrder);
-    expect(promoteOrder).toBeLessThan(claimOrder);
-  });
-
-  it("does not fail the poll when calendar promotion throws", async () => {
-    mockUpsertMachine.mockResolvedValue({});
-    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
-    mockSweepStaleState.mockResolvedValue(undefined);
-    mockBroadcastToUser.mockResolvedValue(undefined);
-    mockClaimTasksForRuntimes.mockResolvedValue([]);
-    mockPromoteDue.mockRejectedValue(new Error("D1 write failed"));
-
-    const res = await POST(postReq({ daemon_id: "d1" }));
-    expect(res.status).toBe(200);
-    expect(mockClaimTasksForRuntimes).toHaveBeenCalled();
   });
 
   it("returns pending_update when pendingUpdateVersion is set and cli_version is older", async () => {
@@ -351,7 +323,7 @@ describe("POST /api/daemon/tasks/poll", () => {
 
     expect(res.status).toBe(200);
     expect(body.pending_update).toBeUndefined();
-    expect(mockClearPendingUpdateVersion).toHaveBeenCalledWith({}, "d1");
+    expect(mockClearPendingUpdateVersion).toHaveBeenCalledWith({}, "d1", "w1");
   });
 
   it("does not attach pending_update when cli_version is missing (backward compat)", async () => {
@@ -394,7 +366,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "hi", status: "dispatched" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{
       id: "a1",
       ownerId: "owner1",
       instructions: "you are a planner",
@@ -421,7 +393,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "hi", status: "dispatched" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{
       id: "a1",
       ownerId: "owner1",
       instructions: "you are a planner",
@@ -446,7 +418,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "hi", status: "dispatched" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{
       id: "a1",
       ownerId: null,
       instructions: "just agent",
@@ -470,7 +442,7 @@ describe("POST /api/daemon/tasks/poll", () => {
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "hi", status: "dispatched" },
       { id: "t2", agentId: "a2", runtimeId: "r1", workspaceId: "w1", prompt: "yo", status: "dispatched" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([
+    mockGetAllAgentsForWorkspace.mockResolvedValue([
       { id: "a1", ownerId: "owner1", instructions: "inst1", name: "Bot1", runtimeConfig: {} },
       { id: "a2", ownerId: "owner1", instructions: "inst2", name: "Bot2", runtimeConfig: {} },
     ]);
@@ -492,7 +464,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", prompt: "hi", status: "dispatched" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{
       id: "a1",
       ownerId: "owner1",
       instructions: "",
@@ -517,8 +489,8 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "hi", status: "dispatched", type: "user_dm_message" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
-    mockGetConversation.mockResolvedValue({ userId: "u1" });
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u1" }]);
     mockGetUser.mockResolvedValue({ name: "Gus", email: "gus@ex.com" });
 
     const res = await POST(postReq({ daemon_id: "d1" }));
@@ -535,8 +507,8 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "hi", status: "dispatched", type: "user_dm_message" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{ id: "a1", ownerId: "owner1", instructions: "", name: "Bot", runtimeConfig: {} }]);
-    mockGetConversation.mockResolvedValue({ userId: "u2" });
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "owner1", instructions: "", name: "Bot", runtimeConfig: {} }]);
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u2" }]);
     mockGetUser.mockResolvedValue({ name: "Alice", email: "alice@ex.com" });
 
     const res = await POST(postReq({ daemon_id: "d1" }));
@@ -553,7 +525,8 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "standup", status: "dispatched", type: "calendar_event" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u1" }]);
 
     const res = await POST(postReq({ daemon_id: "d1" }));
     const body = await res.json();
@@ -569,7 +542,8 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "new email", status: "dispatched", type: "email_notification" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u1" }]);
 
     const res = await POST(postReq({ daemon_id: "d1" }));
     const body = await res.json();
@@ -585,8 +559,8 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "hi", status: "dispatched", type: "user_dm_message" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
-    mockGetConversation.mockResolvedValue(null);
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
+    mockGetConversationsByIds.mockResolvedValue([]);
 
     const res = await POST(postReq({ daemon_id: "d1" }));
     const body = await res.json();
@@ -602,8 +576,8 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockClaimTasksForRuntimes.mockResolvedValue([
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "hi", status: "dispatched", type: "user_dm_message" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
-    mockGetConversation.mockResolvedValue({ userId: "u1" });
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "u1", instructions: "", name: "Bot", runtimeConfig: {} }]);
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u1" }]);
     mockGetUser.mockResolvedValue(null);
 
     const res = await POST(postReq({ daemon_id: "d1" }));
@@ -621,8 +595,8 @@ describe("POST /api/daemon/tasks/poll", () => {
       { id: "t1", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c1", prompt: "hi", status: "dispatched", type: "user_dm_message" },
       { id: "t2", agentId: "a1", runtimeId: "r1", workspaceId: "w1", conversationId: "c2", prompt: "yo", status: "dispatched", type: "user_dm_message" },
     ]);
-    mockGetAgentsByIds.mockResolvedValue([{ id: "a1", ownerId: "owner1", instructions: "", name: "Bot", runtimeConfig: {} }]);
-    mockGetConversation.mockResolvedValue({ userId: "u1" });
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "a1", ownerId: "owner1", instructions: "", name: "Bot", runtimeConfig: {} }]);
+    mockGetConversationsByIds.mockResolvedValue([{ id: "c1", userId: "u1" }, { id: "c2", userId: "u1" }]);
     mockGetUser.mockResolvedValue({ name: "Gus", email: "gus@ex.com" });
 
     const res = await POST(postReq({ daemon_id: "d1" }));
@@ -711,7 +685,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     mockBroadcastToUser.mockResolvedValue(undefined);
     mockClaimTasksForRuntimes.mockResolvedValue([]);
     mockListScheduledMeetings.mockResolvedValue([
-      { id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "scheduled", agentName: "Jarvis" },
+      { id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "scheduled", agentName: "Jarvis", title: "Standup" },
     ]);
     mockClaimMeetingSessions.mockResolvedValue([{
       id: "ms1", agentId: "a1", workspaceId: "w1", meetingUrl: "https://meet.google.com/abc", participants: ["alice@test.com"], status: "joining",
@@ -727,7 +701,9 @@ describe("POST /api/daemon/tasks/poll", () => {
       meeting_url: "https://meet.google.com/abc",
       participants: ["alice@test.com"],
       workspace_id: "w1",
+      agent_id: "a1",
       agent_name: "Jarvis",
+      title: "Standup",
     });
   });
 
@@ -760,5 +736,52 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(res.status).toBe(200);
     expect(body.tasks).toEqual([]);
     expect(body.meetings).toBeUndefined();
+  });
+
+  it("poll works without heartbeat logic (upsertMachine no longer called)", async () => {
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.tasks).toEqual([]);
+    expect(mockUpsertMachine).not.toHaveBeenCalled();
+  });
+
+  it("still returns tasks when pending check fails (D1 transient error)", async () => {
+    mockUpsertMachine.mockResolvedValue({});
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetMachineByDaemon.mockRejectedValue(new Error("D1 timeout"));
+
+    const res = await POST(postReq({ daemon_id: "d1", cli_version: "0.1.0" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.tasks).toEqual([]);
+    expect(body.pending_update).toBeUndefined();
+  });
+
+  // --- Heartbeat is now a separate endpoint ---
+
+  it("poll does not write KV heartbeat (moved to /api/daemon/heartbeat)", async () => {
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+
+    await POST(postReq({ daemon_id: "d1" }));
+
+    expect(mockKvPut).not.toHaveBeenCalledWith(
+      "hb:w1:d1",
+      expect.any(String),
+      expect.anything(),
+    );
   });
 });

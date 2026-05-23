@@ -24,6 +24,7 @@ export const GET = withAuth(async (req, ctx) => {
           id: "ch_default",
           workspaceId: ws.workspaceId,
           name: "default",
+          position: 0,
           createdAt: new Date().toISOString(),
         },
         ...channels,

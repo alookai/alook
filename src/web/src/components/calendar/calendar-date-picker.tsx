@@ -91,7 +91,7 @@ export function CalendarDatePicker({
         )}
       >
         {!hideIcon && <CalendarDays className="size-3.5 opacity-70" />}
-        <span className="tabular-nums">{label}</span>
+        <span className="hidden sm:inline tabular-nums">{label}</span>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 p-3">
         <div className="flex items-center justify-between pb-2">

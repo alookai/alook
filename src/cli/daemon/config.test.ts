@@ -119,57 +119,91 @@ describe("daemonLogFilePath", () => {
     const d = new Date(2026, 0, 5); // 2026-01-05 local
     expect(daemonLogFilePath(d).endsWith("2026-01-05.log")).toBe(true);
   });
+});
 
-  it("honours ALOOK_PROJECT_ROOT in dev mode", () => {
-    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/proj";
-    expect(daemonLogDir()).toBe(join("/tmp/proj", ".alook", "daemon", "logs"));
+describe("daemonLogDir — three ALOOK_PROJECT_ROOT scenarios", () => {
+  it("production: ~/.alook/daemon/logs", () => {
+    delete process.env.ALOOK_PROJECT_ROOT;
+    expect(daemonLogDir()).toBe(join(homedir(), ".alook", "daemon", "logs"));
+  });
+
+  it("dev mode: <PROJECT>/.alook/daemon/logs", () => {
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project/.alook";
+    expect(daemonLogDir()).toBe(join("/tmp/my-project/.alook", "daemon", "logs"));
+  });
+
+  it("app mode: ~/.alook/self-hosted/daemon/logs", () => {
+    process.env.ALOOK_PROJECT_ROOT = join(homedir(), ".alook", "self-hosted");
+    expect(daemonLogDir()).toBe(join(homedir(), ".alook", "self-hosted", "daemon", "logs"));
   });
 });
 
-describe("workspacesRoot profile handling", () => {
-  it("defaults to ~/.alook/workspaces without profile in production", () => {
+describe("workspacesRoot — three ALOOK_PROJECT_ROOT scenarios", () => {
+  it("production: ~/.alook/workspaces", () => {
+    delete process.env.ALOOK_PROJECT_ROOT;
     const cfg = loadDaemonConfig();
     expect(cfg.workspacesRoot).toBe(join(homedir(), ".alook", "workspaces"));
   });
 
-  it("uses ~/.alook/workspaces_{profile} with profile in production", () => {
+  it("production + profile: ~/.alook/workspaces_{profile}", () => {
+    delete process.env.ALOOK_PROJECT_ROOT;
     const cfg = loadDaemonConfig("dev");
     expect(cfg.workspacesRoot).toBe(
       join(homedir(), ".alook", "workspaces_dev"),
     );
   });
 
-  it("defaults to <project-root>/.alook/workspaces in dev mode", () => {
-    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project";
+  it("dev mode: <PROJECT>/.alook/workspaces", () => {
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project/.alook";
     const cfg = loadDaemonConfig();
     expect(cfg.workspacesRoot).toBe(
-      join("/tmp/my-project", ".alook", "workspaces"),
+      join("/tmp/my-project/.alook", "workspaces"),
     );
   });
 
-  it("ALOOK_WORKSPACES_ROOT overrides dev mode default", () => {
-    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project";
+  it("dev mode + profile: <PROJECT>/.alook/workspaces_{profile}", () => {
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project/.alook";
+    const cfg = loadDaemonConfig("staging");
+    expect(cfg.workspacesRoot).toBe(
+      join("/tmp/my-project/.alook", "workspaces_staging"),
+    );
+  });
+
+  it("app mode: ~/.alook/self-hosted/workspaces", () => {
+    process.env.ALOOK_PROJECT_ROOT = join(homedir(), ".alook", "self-hosted");
+    const cfg = loadDaemonConfig();
+    expect(cfg.workspacesRoot).toBe(
+      join(homedir(), ".alook", "self-hosted", "workspaces"),
+    );
+  });
+
+  it("ALOOK_WORKSPACES_ROOT overrides all defaults", () => {
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project/.alook";
     process.env.ALOOK_WORKSPACES_ROOT = "/custom/path";
     const cfg = loadDaemonConfig();
     expect(cfg.workspacesRoot).toBe("/custom/path");
   });
 });
 
-describe("sessionRunnerLogDir", () => {
-  it("returns <configDir>/daemon/session-runners", () => {
+describe("sessionRunnerLogDir — three ALOOK_PROJECT_ROOT scenarios", () => {
+  it("production: ~/.alook/daemon/session-runners", () => {
+    delete process.env.ALOOK_PROJECT_ROOT;
     expect(sessionRunnerLogDir()).toBe(
       join(homedir(), ".alook", "daemon", "session-runners"),
     );
   });
 
-  it("honours ALOOK_PROJECT_ROOT in dev mode", () => {
-    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/proj";
+  it("dev mode: <PROJECT>/.alook/daemon/session-runners", () => {
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project/.alook";
     expect(sessionRunnerLogDir()).toBe(
-      join("/tmp/proj", ".alook", "daemon", "session-runners"),
+      join("/tmp/my-project/.alook", "daemon", "session-runners"),
+    );
+  });
+
+  it("app mode: ~/.alook/self-hosted/daemon/session-runners", () => {
+    process.env.ALOOK_PROJECT_ROOT = join(homedir(), ".alook", "self-hosted");
+    expect(sessionRunnerLogDir()).toBe(
+      join(homedir(), ".alook", "self-hosted", "daemon", "session-runners"),
     );
   });
 });

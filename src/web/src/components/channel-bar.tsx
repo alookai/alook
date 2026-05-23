@@ -2,6 +2,22 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Plus, Pencil, Trash2 } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { useChannel } from "@/contexts/channel-context";
 import { cn } from "@/lib/utils";
 import {
@@ -29,11 +45,34 @@ export function ChannelBar() {
     createChannel,
     renameChannel,
     deleteChannel,
+    reorderChannels,
   } = useChannel();
 
   const [creating, setCreating] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const defaultChannel = channels.find((c) => c.name === "default");
+  const nonDefaultChannels = channels.filter((c) => c.name !== "default");
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const oldIndex = nonDefaultChannels.findIndex((c) => c.id === active.id);
+      const newIndex = nonDefaultChannels.findIndex((c) => c.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const reordered = arrayMove(nonDefaultChannels, oldIndex, newIndex);
+      reorderChannels(reordered.map((c) => c.id));
+    },
+    [nonDefaultChannels, reorderChannels],
+  );
 
   if (loading) {
     return (
@@ -47,43 +86,70 @@ export function ChannelBar() {
 
   return (
     <div className="h-8 flex items-center gap-1.5 px-2 mb-1 overflow-x-auto thin-scrollbar shrink-0">
-      {channels.map((ch) =>
-        renamingId === ch.id ? (
-          <RenameInput
-            key={ch.id}
-            currentName={ch.name}
-            onSave={async (name) => {
-              try {
-                await renameChannel(ch.id, name);
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : "Failed to rename");
-              }
-              setRenamingId(null);
-            }}
-            onCancel={() => setRenamingId(null)}
-          />
-        ) : (
-          <ChannelPill
-            key={ch.id}
-            id={ch.id}
-            name={ch.name}
-            active={ch.name === activeChannel}
-            deleting={deletingId === ch.id}
-            onSelect={() => setActiveChannel(ch.name)}
-            onRename={() => setRenamingId(ch.id)}
-            onDeleteRequest={() => setDeletingId(ch.id)}
-            onDeleteCancel={() => setDeletingId(null)}
-            onDeleteConfirm={async () => {
-              try {
-                await deleteChannel(ch.id);
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : "Failed to delete");
-              }
-              setDeletingId(null);
-            }}
-          />
-        )
+      {defaultChannel && (
+        <ChannelPill
+          id={defaultChannel.id}
+          name={defaultChannel.name}
+          active={defaultChannel.name === activeChannel}
+          deleting={false}
+          onSelect={() => setActiveChannel(defaultChannel.name)}
+          onRename={() => {}}
+          onDeleteRequest={() => {}}
+          onDeleteCancel={() => {}}
+          onDeleteConfirm={() => {}}
+        />
       )}
+
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToHorizontalAxis]}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={nonDefaultChannels.map((c) => c.id)}
+          strategy={horizontalListSortingStrategy}
+        >
+          {nonDefaultChannels.map((ch) =>
+            renamingId === ch.id ? (
+              <RenameInput
+                key={ch.id}
+                currentName={ch.name}
+                onSave={async (name) => {
+                  try {
+                    await renameChannel(ch.id, name);
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : "Failed to rename");
+                  }
+                  setRenamingId(null);
+                }}
+                onCancel={() => setRenamingId(null)}
+              />
+            ) : (
+              <SortableChannelPill
+                key={ch.id}
+                id={ch.id}
+                name={ch.name}
+                active={ch.name === activeChannel}
+                deleting={deletingId === ch.id}
+                disabled={renamingId !== null}
+                onSelect={() => setActiveChannel(ch.name)}
+                onRename={() => setRenamingId(ch.id)}
+                onDeleteRequest={() => setDeletingId(ch.id)}
+                onDeleteCancel={() => setDeletingId(null)}
+                onDeleteConfirm={async () => {
+                  try {
+                    await deleteChannel(ch.id);
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : "Failed to delete");
+                  }
+                  setDeletingId(null);
+                }}
+              />
+            ),
+          )}
+        </SortableContext>
+      </DndContext>
 
       {creating ? (
         <CreateInput
@@ -115,6 +181,49 @@ export function ChannelBar() {
           </TooltipContent>
         </Tooltip>
       )}
+    </div>
+  );
+}
+
+function SortableChannelPill({
+  id,
+  disabled,
+  ...props
+}: {
+  id: string;
+  name: string;
+  active: boolean;
+  deleting: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+  onRename: () => void;
+  onDeleteRequest: () => void;
+  onDeleteCancel: () => void;
+  onDeleteConfirm: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id, disabled });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+    >
+      <ChannelPill id={id} {...props} />
     </div>
   );
 }
@@ -264,7 +373,6 @@ function RenameInput({
   const [value, setValue] = useState(currentName);
 
   useEffect(() => {
-    // Delay focus so the ContextMenu finishes its close transition first
     const id = requestAnimationFrame(() => {
       ref.current?.focus();
       ref.current?.select();
@@ -297,4 +405,3 @@ function RenameInput({
     />
   );
 }
-

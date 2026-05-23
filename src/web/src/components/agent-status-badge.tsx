@@ -5,6 +5,7 @@ import Link from "next/link";
 import { badgeVariants } from "@/components/ui/badge";
 import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { listWorkspaceActiveTasks, type WorkspaceActiveTask } from "@/lib/api";
@@ -82,14 +83,19 @@ export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBa
 
   if (!isOnline) {
     return (
-      <Badge
-        variant="outline"
-        render={<Link href={`/w/${slug}/runtimes`} title="Runtime offline — click to manage runtimes" />}
-        className={badgeBase}
-      >
-        <StatusDot online={false} />
-        <span className="hidden sm:inline">Offline</span>
-      </Badge>
+      <Tooltip>
+        <TooltipTrigger render={
+          <Badge
+            variant="outline"
+            render={<Link href={`/w/${slug}/runtimes`} />}
+            className={badgeBase}
+          >
+            <StatusDot online={false} />
+            <span className="hidden sm:inline">Offline</span>
+          </Badge>
+        } />
+        <TooltipContent>Runtime offline — click to manage runtimes</TooltipContent>
+      </Tooltip>
     );
   }
 
@@ -111,7 +117,7 @@ export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBa
             <span className="tabular-nums">{taskCount}</span>
           </>
         ) : (
-          <span className="hidden sm:inline">Online</span>
+          <span className="hidden sm:inline text-muted-foreground/40">Online</span>
         )}
       </PopoverTrigger>
       <PopoverContent className="w-72 p-1">
@@ -133,7 +139,7 @@ export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBa
         ) : !tasks || tasks.length === 0 ? (
           <div className="p-3 text-xs text-muted-foreground">No active tasks</div>
         ) : (
-          <div className="max-h-[300px] overflow-y-auto">
+          <div className="max-h-75 overflow-y-auto">
             {tasks.slice(0, MAX_VISIBLE_TASKS).map((task) => (
               <TaskRow key={task.id} task={task} slug={slug} agentId={agentId} />
             ))}

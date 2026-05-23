@@ -73,14 +73,26 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       if (!existing) {
         const fromAddr = "no-reply@alook.ai"
         const toAddr = `${agent.emailHandle}@alook.ai`
-        const subject = `Meeting transcript: ${meeting.title || "Untitled"}`
+        const meetingTitle = meeting.title || "Untitled"
+        const subject = `Meeting completed: ${meetingTitle} — please summarize`
+
+        const emailBody = [
+          `Meeting "${meetingTitle}" has ended. The transcript is below.`,
+          `Transcript R2 key: ${transcriptR2Key}`,
+          "",
+          "Please summarize this meeting and send the summary to the owner.",
+          "",
+          "--- Transcript ---",
+          "",
+          body.transcript,
+        ].join("\n")
 
         const rawMime = buildMimeMessage({
           from: fromAddr,
           to: toAddr,
           subject,
           messageId,
-          body: body.transcript,
+          body: emailBody,
           bodyType: "text/plain",
         })
 

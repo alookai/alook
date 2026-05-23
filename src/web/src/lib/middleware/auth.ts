@@ -3,7 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
-import { cached, cacheKeys, bindCacheKV } from "@/lib/cache"
+import { cached, cacheKeys, bindCacheKV, throttled } from "@/lib/cache"
 
 export interface AuthContext {
   userId: string
@@ -45,7 +45,11 @@ export function withAuth(handler: AuthenticatedHandler) {
           if (!mt) {
             return NextResponse.json({ error: "invalid token" }, { status: 401 })
           }
-          queries.machineToken.updateMachineTokenLastUsed(db, mt.id).catch(() => {})
+          throttled(
+            cacheKeys.machineTokenLastUsed(raw),
+            900,
+            () => queries.machineToken.updateMachineTokenLastUsed(db, mt.id),
+          ).catch(() => {});
           const authCtx: AuthContext = {
             userId: mt.userId,
             email: mt.userEmail,
@@ -58,14 +62,17 @@ export function withAuth(handler: AuthenticatedHandler) {
       }
     }
 
-    // Fall back to Better Auth session
+    // Fall back to Better Auth session (with returnHeaders to propagate cookie cache refresh)
     const auth = createAuth(cloudflareEnv)
-    let session: Awaited<ReturnType<typeof auth.api.getSession>> = null
+    let sessionResult: { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> } | null = null
     let lastErr: unknown
 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        session = await auth.api.getSession({ headers: req.headers })
+        sessionResult = await auth.api.getSession({
+          headers: req.headers,
+          returnHeaders: true,
+        }) as { headers: Headers; response: Awaited<ReturnType<typeof auth.api.getSession>> }
         lastErr = undefined
         break
       } catch (err) {
@@ -76,14 +83,26 @@ export function withAuth(handler: AuthenticatedHandler) {
     if (lastErr) {
       return NextResponse.json({ error: "session validation failed" }, { status: 503 })
     }
-    if (!session) {
+    if (!sessionResult?.response) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 })
     }
 
     const authCtx: AuthContext = {
-      userId: session.user.id,
-      email: session.user.email,
+      userId: sessionResult.response.user.id,
+      email: sessionResult.response.user.email,
     }
-    return handler(req, { ...authCtx, params: resolvedParams })
+    const res = await handler(req, { ...authCtx, params: resolvedParams })
+
+    // Forward Set-Cookie headers from Better Auth to refresh session_data cookie cache
+    const setCookies = sessionResult.headers.getSetCookie()
+    if (setCookies.length > 0) {
+      const mutableRes = new NextResponse(res.body, res)
+      for (const cookie of setCookies) {
+        mutableRes.headers.append("Set-Cookie", cookie)
+      }
+      return mutableRes
+    }
+
+    return res
   }
 }

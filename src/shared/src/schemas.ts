@@ -112,6 +112,18 @@ export const TaskApiSchema = TaskApiBaseSchema.extend({
 export type TaskApi = z.infer<typeof TaskApiSchema>;
 
 // ---------------------------------------------------------------------------
+// Heartbeat (lightweight liveness ping, independent of poll)
+// ---------------------------------------------------------------------------
+
+export const HeartbeatRequestSchema = z.object({
+  daemon_id: z.string().min(1),
+});
+export type HeartbeatRequest = z.infer<typeof HeartbeatRequestSchema>;
+
+export const SweepRequestSchema = HeartbeatRequestSchema;
+export type SweepRequest = HeartbeatRequest;
+
+// ---------------------------------------------------------------------------
 // Poll request/response (replaces heartbeat + per-runtime claim)
 // ---------------------------------------------------------------------------
 
@@ -135,7 +147,9 @@ export const PollMeetingItemSchema = z.object({
   meeting_url: z.string(),
   participants: z.array(z.string()),
   workspace_id: z.string(),
+  agent_id: z.string(),
   agent_name: z.string(),
+  title: z.string().optional(),
 });
 export type PollMeetingItem = z.infer<typeof PollMeetingItemSchema>;
 
@@ -148,6 +162,21 @@ export const PollResponseSchema = z.object({
   meetings: z.array(PollMeetingItemSchema).optional(),
 });
 export type PollResponse = z.infer<typeof PollResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Daemon push messages (server -> daemon WebSocket)
+// ---------------------------------------------------------------------------
+
+export const DaemonPushMessageSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("daemon.tasks"), tasks: z.array(TaskApiSchema) }),
+  z.object({ type: z.literal("daemon.file_requests"), workspaceId: z.string(), requests: z.array(FileRequestItemSchema) }),
+  z.object({ type: z.literal("daemon.meetings"), meetings: z.array(PollMeetingItemSchema) }),
+  z.object({ type: z.literal("daemon.evict"), workspaceId: z.string() }),
+  z.object({ type: z.literal("daemon.update"), version: z.string() }),
+  z.object({ type: z.literal("daemon.rescan") }),
+  z.object({ type: z.literal("daemon.kill"), workspaceId: z.string(), taskId: z.string(), targetTaskId: z.string() }),
+]);
+export type DaemonPushMessageType = z.infer<typeof DaemonPushMessageSchema>;
 
 // ---------------------------------------------------------------------------
 // Register response
@@ -186,10 +215,11 @@ export const ActivateTokenRequestSchema = z.object({
 export type ActivateTokenRequest = z.infer<typeof ActivateTokenRequestSchema>;
 
 export const RegisterDaemonRequestSchema = z.object({
-  workspace_id: z.string().min(1),
+  workspace_id: z.string().min(1).optional(),
   daemon_id: z.string().min(1),
   device_name: z.string().optional().default(""),
   cli_version: z.string().optional().default(""),
+  workspaces_root: z.string().optional().default(""),
   runtimes: z.array(DaemonRuntimeItemSchema).min(1),
 });
 export type RegisterDaemonRequest = z.infer<typeof RegisterDaemonRequestSchema>;
@@ -255,6 +285,7 @@ export const CreateCalendarEventRequestSchema = z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .optional(),
+    conversation_id: z.string().optional(),
   })
   .refine(
     (data) =>
@@ -568,6 +599,7 @@ export const EmailNotifyRequestSchema = z.object({
   attachments: z.string().optional(),
   traceId: z.string().optional(),
   sourceTaskId: z.string().optional(),
+  isInternal: z.boolean().optional().default(false),
 });
 export type EmailNotifyRequest = z.infer<typeof EmailNotifyRequestSchema>;
 

@@ -5,7 +5,7 @@ import {
 } from "../src/constants"
 
 describe("constants", () => {
-  it("OFFLINE_THRESHOLD_MS is 3x POLL_INTERVAL", () => expect(OFFLINE_THRESHOLD_MS).toBe(POLL_INTERVAL_MS * 3))
+  it("OFFLINE_THRESHOLD_MS is 30s", () => expect(OFFLINE_THRESHOLD_MS).toBe(30_000))
   it("AGENT_HANDLE_MIN_LENGTH is 4", () => expect(AGENT_HANDLE_MIN_LENGTH).toBe(4))
   it("EVENT_POLL < POLL_INTERVAL", () => expect(EVENT_POLL_INTERVAL_MS).toBeLessThan(POLL_INTERVAL_MS))
 })

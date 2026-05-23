@@ -66,7 +66,7 @@ describe("withAuth middleware", () => {
       headers: { Authorization: "Bearer " },
     });
 
-    mockGetSession.mockResolvedValue(null);
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
 
     const res = await wrapped(req);
     const body = await res.json();
@@ -77,7 +77,8 @@ describe("withAuth middleware", () => {
 
   it("authenticates valid Better Auth session and passes userId/email to handler", async () => {
     mockGetSession.mockResolvedValue({
-      user: { id: "user-1", email: "user@example.com" },
+      headers: new Headers(),
+      response: { user: { id: "user-1", email: "user@example.com" } },
     });
 
     const req = new NextRequest("http://localhost/api/test", {
@@ -94,7 +95,7 @@ describe("withAuth middleware", () => {
   });
 
   it("returns 401 when Better Auth session is null", async () => {
-    mockGetSession.mockResolvedValue(null);
+    mockGetSession.mockResolvedValue({ headers: new Headers(), response: null });
 
     const req = new NextRequest("http://localhost/api/test", {
       headers: { Authorization: "Bearer some-session-token" },
@@ -161,7 +162,8 @@ describe("withAuth middleware", () => {
 
   it("resolves dynamic params from context", async () => {
     mockGetSession.mockResolvedValue({
-      user: { id: "user-p", email: "p@example.com" },
+      headers: new Headers(),
+      response: { user: { id: "user-p", email: "p@example.com" } },
     });
 
     const req = new NextRequest("http://localhost/api/test");

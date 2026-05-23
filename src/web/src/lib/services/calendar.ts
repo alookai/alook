@@ -41,6 +41,7 @@ export async function promoteDueCalendarEventsForWorkspace(
   nowIso: string = new Date().toISOString(),
 ): Promise<number> {
   const candidates = await listDueCalendarEvents(db, workspaceId, nowIso);
+  const ownerCache = new Map<string, { name: string; email: string } | null>();
   let enqueued = 0;
 
   for (const ev of candidates) {
@@ -80,18 +81,40 @@ export async function promoteDueCalendarEventsForWorkspace(
         conversationId: conv.id,
         role: "event",
         content: ev.title,
+        metadata: JSON.stringify({ calendarEventId: ev.id }),
       });
+
+      if (!ownerCache.has(agent.ownerId)) {
+        const u = await queries.user.getUser(db, agent.ownerId);
+        ownerCache.set(agent.ownerId, u ? { name: u.name, email: u.email } : null);
+      }
+      const ownerInfo = ownerCache.get(agent.ownerId)!;
+
+      const taskContext: Record<string, unknown> = {
+        event_id: ev.id,
+        datetime: ev.scheduledAt,
+        is_recurring: !!ev.repeatInterval,
+        repeat_interval: ev.repeatInterval ?? null,
+      };
+      if (ev.description) {
+        taskContext.description = ev.description;
+      }
+      if (ownerInfo) {
+        taskContext.scheduled_by = ownerInfo;
+      }
 
       await queries.task.createTask(db, {
         agentId: ev.agentId,
         runtimeId: agent.runtimeId,
         workspaceId: ev.workspaceId,
         conversationId: conv.id,
+        contextKey: conv.id,
         prompt: ev.title,
         type: TASK_TYPES.CALENDAR_EVENT,
         priority: 0,
         traceId: "tr_" + nanoid(),
         parentTaskId: null,
+        context: taskContext,
       });
 
       if (ev.repeatInterval) {

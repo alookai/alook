@@ -6,6 +6,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import { taskToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { broadcastToUser } from "@/lib/broadcast";
+import { invalidate, cacheKeys } from "@/lib/cache";
 
 export const POST = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -22,6 +23,8 @@ export const POST = withAuth(async (req, ctx) => {
   const taskService = new TaskService(db);
   try {
     const { oldTask, newTask } = await taskService.retryTask(id, ws.workspaceId);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)).catch(() => {});
     broadcastToUser(ctx.userId, { type: "task.updated", taskId: oldTask.id, agentId: oldTask.agentId, status: "superseded" }).catch(() => {});
     broadcastToUser(ctx.userId, { type: "task.updated", taskId: newTask.id, agentId: newTask.agentId, status: "queued" }).catch(() => {});
     return writeJSON(taskToResponse(newTask));

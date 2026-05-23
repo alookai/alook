@@ -3,6 +3,7 @@ import { isDev, cmdPrefix } from "./env.js";
 
 afterEach(() => {
   delete process.env.ALOOK_SERVER_URL;
+  delete process.env.ALOOK_CMD_PREFIX;
 });
 
 describe("isDev", () => {
@@ -14,6 +15,12 @@ describe("isDev", () => {
     process.env.ALOOK_SERVER_URL = "http://localhost:3000";
     expect(isDev()).toBe(true);
   });
+
+  it("returns false when ALOOK_CMD_PREFIX is set (app mode)", () => {
+    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
+    process.env.ALOOK_CMD_PREFIX = "npx @alook/app cli";
+    expect(isDev()).toBe(false);
+  });
 });
 
 describe("cmdPrefix", () => {
@@ -24,5 +31,11 @@ describe("cmdPrefix", () => {
   it("returns 'pnpm dev:cli' in dev", () => {
     process.env.ALOOK_SERVER_URL = "http://localhost:3000";
     expect(cmdPrefix()).toBe("pnpm dev:cli");
+  });
+
+  it("returns ALOOK_CMD_PREFIX when set", () => {
+    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
+    process.env.ALOOK_CMD_PREFIX = "npx @alook/app cli";
+    expect(cmdPrefix()).toBe("npx @alook/app cli");
   });
 });

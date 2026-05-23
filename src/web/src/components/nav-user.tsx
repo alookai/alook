@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
+import { clearAllCache } from "@/lib/chat-cache";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,6 +71,7 @@ export function NavUser() {
         <DropdownMenuGroup>
           <DropdownMenuItem
             onClick={async () => {
+              await clearAllCache();
               await signOut();
               router.push("/sign-in");
             }}

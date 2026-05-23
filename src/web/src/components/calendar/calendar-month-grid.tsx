@@ -149,7 +149,7 @@ export function CalendarMonthGrid({
               type="button"
               aria-label="Previous month"
               onClick={onPrev}
-              className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              className="flex size-9 sm:size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
               <ChevronLeft className="size-4" />
             </button>
@@ -166,7 +166,7 @@ export function CalendarMonthGrid({
               type="button"
               aria-label="Next month"
               onClick={onNext}
-              className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              className="flex size-9 sm:size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
               <ChevronRight className="size-4" />
             </button>
@@ -181,8 +181,9 @@ export function CalendarMonthGrid({
 
       <div className="grid grid-cols-7 text-[11px] text-muted-foreground">
         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-          <div key={d} className="px-2 py-1 font-medium">
-            {d}
+          <div key={d} className="px-1 sm:px-2 py-1 font-medium">
+            <span className="sm:hidden">{d[0]}</span>
+            <span className="hidden sm:inline">{d}</span>
           </div>
         ))}
       </div>
@@ -232,7 +233,7 @@ export function CalendarMonthGrid({
                 }
               }}
               className={cn(
-                "group flex min-h-24 flex-col gap-1 p-2 text-left transition-colors bg-background outline-none cursor-pointer",
+                "group flex min-h-16 sm:min-h-24 flex-col gap-1 p-1 sm:p-2 text-left transition-colors bg-background outline-none cursor-pointer",
                 !cell.inMonth && "bg-muted/40 text-muted-foreground",
                 isFocused &&
                   "ring-2 ring-inset ring-ring/60 relative z-10"
@@ -249,7 +250,7 @@ export function CalendarMonthGrid({
                   {cell.date.getDate()}
                 </span>
               </div>
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1 [&>:nth-child(3)]:hidden [&>:nth-child(3)]:sm:flex">
                 {dayEvents.slice(0, 3).map((ev) => {
                     const isRecurring = Boolean(ev.repeat_interval);
                     return (
@@ -267,7 +268,7 @@ export function CalendarMonthGrid({
                             onSelectEvent(ev);
                           }
                         }}
-                        className="flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-[10px] font-medium text-foreground/85 hover:bg-accent/60 transition-colors cursor-pointer"
+                        className="flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-[9px] sm:text-[10px] font-medium text-foreground/85 hover:bg-accent/60 transition-colors cursor-pointer"
                         title={`${isRecurring ? "Recurring · " : ""}${ev.title}${
                           agentNameById.get(ev.agent_id)
                             ? ` — ${agentNameById.get(ev.agent_id)}`

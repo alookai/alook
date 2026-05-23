@@ -6,6 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }));
 
 const mockDeleteMachineToken = vi.fn();
+const mockListMachineTokens = vi.fn();
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
@@ -14,6 +15,7 @@ vi.mock("@alook/shared", () => ({
   queries: {
     machineToken: {
       deleteMachineToken: (...args: unknown[]) => mockDeleteMachineToken(...args),
+      listMachineTokens: (...args: unknown[]) => mockListMachineTokens(...args),
     },
   },
 }));
@@ -37,12 +39,18 @@ vi.mock("@/lib/middleware/helpers", () => {
   };
 });
 
+vi.mock("@/lib/cache", () => ({
+  invalidate: vi.fn(),
+  cacheKeys: { machineToken: (t: string) => `mt:${t.slice(0, 20)}` },
+}));
+
 import { DELETE } from "./route";
 
 describe("DELETE /api/machine-tokens/[id]", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("deletes token and returns 204", async () => {
+    mockListMachineTokens.mockResolvedValue([{ id: "tok1", token: "al_testtoken123" }]);
     mockDeleteMachineToken.mockResolvedValue(undefined);
 
     const req = new NextRequest("http://localhost/api/machine-tokens/tok1", {

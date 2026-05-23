@@ -2,9 +2,10 @@
 
 import { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
-import { CLI_CMD } from "@/lib/utils";
+import { cliCmd, daemonStartCmd } from "@/lib/utils";
 
 function StepIndicator({ step, completed }: { step: number; completed: boolean }) {
   if (completed) {
@@ -15,7 +16,7 @@ function StepIndicator({ step, completed }: { step: number; completed: boolean }
     );
   }
   return (
-    <span className="flex items-center justify-center size-5 rounded-full bg-foreground text-background text-[10px] font-semibold">
+    <span className="flex items-center justify-center size-5 rounded-full bg-foreground text-background text-xs font-semibold">
       {step}
     </span>
   );
@@ -42,13 +43,11 @@ export function ConnectMachineSteps({
   }, [generatedToken, generatingToken, onGenerateToken]);
 
   const copyRegister = () => {
-    navigator.clipboard.writeText(`${CLI_CMD} register --token ${generatedToken}`);
+    navigator.clipboard.writeText(`${cliCmd()} register --token ${generatedToken}`);
     toast.success("Copied to clipboard");
   };
 
-  const daemonCmd = process.env.NODE_ENV === "development"
-    ? `${CLI_CMD} daemon start --foreground`
-    : `${CLI_CMD} daemon start`;
+  const daemonCmd = daemonStartCmd();
 
   const copyDaemon = () => {
     navigator.clipboard.writeText(daemonCmd);
@@ -59,10 +58,10 @@ export function ConnectMachineSteps({
     <div className="space-y-6">
       {/* Step 1 */}
       <div className="space-y-2">
-        <p className="text-xs font-medium flex items-center gap-2">
+        <p className="text-sm font-medium flex items-center gap-2">
           <StepIndicator step={1} completed={registered} />
           Register your CLI
-          {registered && <span className="text-[10px] text-emerald-500 font-normal">Done</span>}
+          {registered && <span className="text-xs text-emerald-500 font-normal">Done</span>}
         </p>
         <p className="text-xs text-muted-foreground pl-7">
           Run this in your terminal to link your machine.
@@ -75,16 +74,22 @@ export function ConnectMachineSteps({
           </div>
         ) : generatedToken ? (
           <div className="pl-7 space-y-2">
-            <div
-              className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors break-all"
-              onClick={copyRegister}
-              title="Click to copy"
-            >
-              {CLI_CMD} register --token{" "}
-              <span className="text-foreground/70">
-                {generatedToken}
-              </span>
-            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div
+                    className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors break-all"
+                    onClick={copyRegister}
+                  />
+                }
+              >
+                {cliCmd()} register --token{" "}
+                <span className="text-foreground/70">
+                  {generatedToken}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Click to copy</TooltipContent>
+            </Tooltip>
             {!registered && (
               <Button
                 size="sm"
@@ -102,20 +107,26 @@ export function ConnectMachineSteps({
       <div
         className={`space-y-2 transition-opacity duration-300 ${!registered ? "opacity-40 pointer-events-none" : ""}`}
       >
-        <p className="text-xs font-medium flex items-center gap-2">
+        <p className="text-sm font-medium flex items-center gap-2">
           <StepIndicator step={2} completed={false} />
           Start the daemon
         </p>
         <p className="text-xs text-muted-foreground pl-7">
           The daemon connects your local agents to Alook.
         </p>
-        <div
-          className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-          onClick={copyDaemon}
-          title="Click to copy"
-        >
-          {daemonCmd}
-        </div>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div
+                className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                onClick={copyDaemon}
+              />
+            }
+          >
+            {daemonCmd}
+          </TooltipTrigger>
+          <TooltipContent>Click to copy</TooltipContent>
+        </Tooltip>
         {registered && (
           <div className="pl-7">
             <Button

@@ -276,10 +276,10 @@ describe("email send subcommand shape", () => {
     expect(send).toBeDefined();
   });
 
-  it("requires --agent_id, --to, --subject, --body-file", () => {
+  it("requires --to, --subject, --body-file; --agent_id is optional (env fallback)", () => {
     const opts = (send as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
     const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
-    expect(mandatory).toContain("--agent_id");
+    expect(mandatory).not.toContain("--agent_id");
     expect(mandatory).toContain("--to");
     expect(mandatory).toContain("--subject");
     expect(mandatory).toContain("--body-file");
@@ -598,10 +598,10 @@ describe("email forward subcommand shape", () => {
     expect(forward).toBeDefined();
   });
 
-  it("requires --agent_id, --email_id, --to", () => {
+  it("requires --email_id, --to; --agent_id is optional (env fallback)", () => {
     const opts = (forward as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
     const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
-    expect(mandatory).toContain("--agent_id");
+    expect(mandatory).not.toContain("--agent_id");
     expect(mandatory).toContain("--email_id");
     expect(mandatory).toContain("--to");
   });
@@ -967,12 +967,14 @@ describe("whitelist command registration", () => {
     expect(subNames).toContain("delete");
   });
 
-  it("--agent_id is required on all three subcommands", () => {
+  it("--agent_id is optional on all three subcommands (env fallback)", () => {
     for (const name of ["list", "add", "delete"]) {
       const sub = whitelistCmd.commands.find((c) => c.name() === name)!;
       const opts = (sub as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
       const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
-      expect(mandatory).toContain("--agent_id");
+      const longs = opts.map((o) => o.long);
+      expect(longs).toContain("--agent_id");
+      expect(mandatory).not.toContain("--agent_id");
     }
   });
 

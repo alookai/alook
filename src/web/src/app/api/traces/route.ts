@@ -5,6 +5,8 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON } from "@/lib/middleware/helpers";
+import { cached, cacheKeys } from "@/lib/cache";
+import { filterVisibleAgents } from "@/lib/agent-visibility";
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -24,7 +26,11 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channel = req.nextUrl.searchParams.get("channel") ?? undefined;
   const result = await queries.task.listTraces(db, ws.workspaceId, { status, limit, before, multiAgent, agentId, channel });
 
-  const agents = await queries.agent.listAgents(db, ws.workspaceId, ctx.userId);
+  const [allAgents, allAccess] = await Promise.all([
+    cached(cacheKeys.allAgents(ws.workspaceId), 300, () => queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId)),
+    cached(cacheKeys.allAgentAccess(ws.workspaceId), 300, () => queries.agentAccess.getAllAgentAccessForWorkspace(db, ws.workspaceId)),
+  ]);
+  const agents = filterVisibleAgents(allAgents, ctx.userId, allAccess);
   const agentMap = new Map(agents.map(a => [a.id, { name: a.name, avatarUrl: a.avatarUrl }]));
 
   const traces = result.traces.map(t => ({

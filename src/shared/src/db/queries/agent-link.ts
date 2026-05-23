@@ -177,3 +177,40 @@ export async function getColleaguesForAgents(
 
   return [...asSource, ...asTarget];
 }
+
+export async function getAllColleaguesForWorkspace(
+  db: Database,
+  workspaceId: string,
+) {
+  const asSource = await db
+    .select({
+      agentId: agentLink.sourceAgentId,
+      name: agent.name,
+      emailHandle: agent.emailHandle,
+      description: agent.description,
+      instruction: agentLink.instruction,
+    })
+    .from(agentLink)
+    .innerJoin(
+      agent,
+      and(eq(agent.id, agentLink.targetAgentId), eq(agent.workspaceId, agentLink.workspaceId)),
+    )
+    .where(eq(agentLink.workspaceId, workspaceId));
+
+  const asTarget = await db
+    .select({
+      agentId: agentLink.targetAgentId,
+      name: agent.name,
+      emailHandle: agent.emailHandle,
+      description: agent.description,
+      instruction: agentLink.instruction,
+    })
+    .from(agentLink)
+    .innerJoin(
+      agent,
+      and(eq(agent.id, agentLink.sourceAgentId), eq(agent.workspaceId, agentLink.workspaceId)),
+    )
+    .where(eq(agentLink.workspaceId, workspaceId));
+
+  return [...asSource, ...asTarget];
+}

@@ -6,15 +6,17 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "predev": "[ -f src/web/.dev.vars ] || (cp src/web/.dev.vars.example src/web/.dev.vars && sed -i '' \"s|^BETTER_AUTH_SECRET=$|BETTER_AUTH_SECRET=$(openssl rand -base64 32)|\" src/web/.dev.vars && sed -i '' \"s|^ENCRYPTION_KEY=$|ENCRYPTION_KEY=$(openssl rand -base64 32)|\" src/web/.dev.vars && echo '✓ Generated src/web/.dev.vars (fill in OAuth keys if needed)'); [ -f src/email-worker/.dev.vars ] || (cp src/email-worker/.dev.vars.example src/email-worker/.dev.vars && KEY=$(grep '^ENCRYPTION_KEY=' src/web/.dev.vars | cut -d= -f2-) && sed -i '' \"s|^ENCRYPTION_KEY=$|ENCRYPTION_KEY=$KEY|\" src/email-worker/.dev.vars && echo '✓ Generated src/email-worker/.dev.vars (synced ENCRYPTION_KEY from web)')",
-    "dev": "turbo run dev --filter='!@alook/cli'",
+    "dev": "turbo run dev --filter='!@alook/cli' --filter='!@alook/app'",
     "clean": "rm -rf node_modules src/*/node_modules src/*/dist src/*/.turbo .turbo src/web/.next src/web/.open-next src/*/.wrangler .alook",
     "clean:builds": "rm -rf src/*/dist src/web/.next src/web/.open-next .turbo src/*/.turbo",
     "reinstall": "pnpm run clean && pnpm install",
     "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
     "dev:web": "pnpm --filter @alook/web dev",
-    "dev:cli": "ALOOK_SERVER_URL=http://localhost:3000 ALOOK_PROJECT_ROOT=$PWD ALOOK_HEALTH_PORT=19515 pnpm --filter @alook/cli dev",
+    "dev:cli": "ALOOK_SERVER_URL=http://localhost:3000 ALOOK_PROJECT_ROOT=$PWD/.alook ALOOK_HEALTH_PORT=19515 pnpm --filter @alook/cli dev",
     "dev:email": "pnpm --filter @alook/email-worker dev",
     "dev:ws": "pnpm --filter @alook/ws-do dev",
+    "dev:app": "node scripts/dev-app.mjs",
     "dev:meeting": "node scripts/dev-meeting.mjs",
     "dev:send": "node -e \"const c=require('crypto');const a=process.argv.slice(1);const[f,t,s='Test',b='Hello from dev']=a;if(!f||!t){console.error('Usage: pnpm dev:send <from> <to> [subject] [body]');process.exit(1)}const raw=['From: '+f,'To: '+t,'Subject: '+s,'Message-ID: <'+c.randomUUID()+'@dev.local>','Date: '+new Date().toUTCString(),'MIME-Version: 1.0','Content-Type: text/plain; charset=utf-8','',b].join('\\r\\n');fetch('http://localhost:8787/cdn-cgi/handler/email?from='+encodeURIComponent(f)+'&to='+encodeURIComponent(t),{method:'POST',headers:{'Content-Type':'application/json'},body:raw}).then(r=>{if(r.ok)console.log('Email delivered to worker');else return r.text().then(t=>{throw new Error(t)})}).catch(e=>console.error('Email worker not running?',e.message))\"",
     "test:shared": "pnpm --filter @alook/shared test",
@@ -32,20 +34,21 @@
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {
-    "pre-commit": "pnpm test"
+    "pre-commit": "pnpm lint && pnpm test"
   },
   "devDependencies": {
     "simple-git-hooks": "^2.13.1",
-    "turbo": "^2.9.12",
+    "turbo": "^2.9.14",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.5",
-    "wrangler": "^4.90.0"
+    "vitest": "^4.1.6",
+    "wrangler": "^4.92.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
       "msw",
       "sharp",
+      "simple-git-hooks",
       "unrs-resolver",
       "workerd"
     ]

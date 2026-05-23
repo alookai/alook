@@ -16,9 +16,11 @@ export class ImapError extends Error {
 }
 
 export class ImapAuthError extends ImapError {
-  constructor(message: string) {
+  readonly permanent: boolean
+  constructor(message: string, permanent = false) {
     super(message)
     this.name = "ImapAuthError"
+    this.permanent = permanent
   }
 }
 
@@ -61,7 +63,11 @@ export class ImapClient {
     try {
       await this.sendCommand(tag, `LOGIN ${user} ${pass}`)
     } catch (err) {
-      if (err instanceof ImapError) throw new ImapAuthError(err.message)
+      if (err instanceof ImapError) {
+        const upper = err.message.toUpperCase()
+        const permanent = upper.includes("[AUTHENTICATIONFAILED]") || upper.includes("INVALID CREDENTIALS")
+        throw new ImapAuthError(err.message, permanent)
+      }
       throw err
     }
   }

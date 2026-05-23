@@ -1,4 +1,4 @@
-import { eq, and, desc, ne, lt, sql } from "drizzle-orm";
+import { eq, and, desc, ne, lt, sql, count as drizzleCount, inArray } from "drizzle-orm";
 import { conversation, message } from "../schema";
 import type { Database } from "../index";
 import { TASK_TYPES, type TaskType } from "../../constants";
@@ -35,6 +35,14 @@ export async function getConversation(db: Database, id: string, workspaceId: str
     .from(conversation)
     .where(and(eq(conversation.id, id), eq(conversation.workspaceId, workspaceId)));
   return rows[0] ?? null;
+}
+
+export async function getConversationsByIds(db: Database, ids: string[], workspaceId: string) {
+  if (ids.length === 0) return [];
+  return db
+    .select()
+    .from(conversation)
+    .where(and(inArray(conversation.id, ids), eq(conversation.workspaceId, workspaceId)));
 }
 
 export async function listConversations(
@@ -82,10 +90,12 @@ export async function listConversationsByAgent(
       channel: conversation.channel,
       createdAt: conversation.createdAt,
       messageCount:
-        sql<number>`(SELECT COUNT(*) FROM message WHERE ${message.conversationId} = ${conversation.id} AND ${message.status} = 'active')`.mapWith(Number),
+        sql<number>`COUNT(CASE WHEN ${message.status} = 'active' THEN 1 END)`.mapWith(Number),
     })
     .from(conversation)
+    .leftJoin(message, eq(message.conversationId, conversation.id))
     .where(and(...conditions))
+    .groupBy(conversation.id)
     .orderBy(desc(conversation.createdAt));
 }
 

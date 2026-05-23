@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { X } from "lucide-react";
 import { useAgentContext } from "@/contexts/agent-context";
@@ -9,6 +9,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
 import type { WorkspaceActiveTask } from "@/lib/api";
 import { relativeTime } from "@/lib/time";
+import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 
 function AgentAvatar({ name, avatarUrl, size = 20 }: { name?: string; avatarUrl?: string | null; size?: number }) {
   const config = parseAvatarUrl(avatarUrl);
@@ -23,12 +24,31 @@ function AgentAvatar({ name, avatarUrl, size = 20 }: { name?: string; avatarUrl?
   );
 }
 
-function TaskRow({ task, slug }: { task: WorkspaceActiveTask; slug: string }) {
+function TaskRow({
+  task,
+  slug,
+  onOpenChat,
+}: {
+  task: WorkspaceActiveTask;
+  slug: string;
+  onOpenChat: (agentId: string, opts: { conversationId?: string; taskId?: string }) => void;
+}) {
   const isRunning = task.status === "running";
+  const href = `/w/${slug}/agents/${task.agent_id}?task=${task.id}&conv=${task.conversation_id}`;
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    onOpenChat(task.agent_id, {
+      conversationId: task.conversation_id,
+      taskId: task.id,
+    });
+  }, [task.agent_id, task.conversation_id, task.id, onOpenChat]);
 
   return (
-    <Link
-      href={`/w/${slug}/agents/${task.agent_id}?task=${task.id}&conv=${task.conversation_id}`}
+    <a
+      href={href}
+      onClick={handleClick}
       className="flex items-center gap-2.5 px-3 py-2 hover:bg-accent/50 transition-colors cursor-pointer rounded-md"
     >
       <div className="relative shrink-0">
@@ -55,7 +75,7 @@ function TaskRow({ task, slug }: { task: WorkspaceActiveTask; slug: string }) {
       <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
         {relativeTime(task.created_at)}
       </span>
-    </Link>
+    </a>
   );
 }
 
@@ -63,6 +83,7 @@ export function ActiveTasksFloat() {
   const { activeTaskDetails } = useAgentContext();
   const { slug } = useWorkspace();
   const isMobile = useIsMobile();
+  const { openAgentChat } = useAgentChatSheet();
   const [expanded, setExpanded] = useState(false);
   const prevTaskIdsRef = useRef<Set<string>>(new Set());
 
@@ -122,7 +143,7 @@ export function ActiveTasksFloat() {
 
       <div className="max-h-75 overflow-y-auto thin-scrollbar py-1">
         {tasks.slice(0, 8).map((task) => (
-          <TaskRow key={task.id} task={task} slug={slug} />
+          <TaskRow key={task.id} task={task} slug={slug} onOpenChat={openAgentChat} />
         ))}
         {taskCount > 8 && (
           <Link

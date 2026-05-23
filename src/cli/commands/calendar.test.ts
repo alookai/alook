@@ -13,11 +13,11 @@ describe("calendarCommand", () => {
     expect(names).toContain("delete");
   });
 
-  it("calendar set requires --agent_id, --event_title, --datetime", () => {
+  it("calendar set requires --event_title, --datetime; --agent_id is optional (env fallback)", () => {
     const set = cmd.commands.find((c) => c.name() === "set")!;
     const opts = (set as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
     const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
-    expect(mandatory).toContain("--agent_id");
+    expect(mandatory).not.toContain("--agent_id");
     expect(mandatory).toContain("--event_title");
     expect(mandatory).toContain("--datetime");
     // not mandatory
@@ -41,29 +41,30 @@ describe("calendarCommand", () => {
     expect(descOpt?.mandatory).not.toBe(true);
   });
 
-  it("calendar list requires --agent_id; supports --future_days and --past_days", () => {
+  it("calendar list has optional --agent_id (env fallback); supports --future_days and --past_days", () => {
     const list = cmd.commands.find((c) => c.name() === "list")!;
     const opts = (list as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
     const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
-    expect(mandatory).toContain("--agent_id");
+    expect(mandatory).not.toContain("--agent_id");
     const longs = opts.map((o) => o.long);
+    expect(longs).toContain("--agent_id");
     expect(longs).toContain("--future_days");
     expect(longs).toContain("--past_days");
   });
 
-  it("calendar show requires --agent_id and --event_id", () => {
+  it("calendar show requires --event_id; --agent_id is optional (env fallback)", () => {
     const show = cmd.commands.find((c) => c.name() === "show")!;
     const opts = (show as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
     const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
-    expect(mandatory).toContain("--agent_id");
+    expect(mandatory).not.toContain("--agent_id");
     expect(mandatory).toContain("--event_id");
   });
 
-  it("calendar update requires --agent_id and --event_id and accepts mutating flags as optional", () => {
+  it("calendar update requires --event_id; --agent_id is optional (env fallback); accepts mutating flags", () => {
     const update = cmd.commands.find((c) => c.name() === "update")!;
     const opts = (update as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
     const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
-    expect(mandatory).toContain("--agent_id");
+    expect(mandatory).not.toContain("--agent_id");
     expect(mandatory).toContain("--event_id");
     const longs = opts.map((o) => o.long);
     for (const flag of [
@@ -81,11 +82,11 @@ describe("calendarCommand", () => {
     }
   });
 
-  it("calendar delete requires --agent_id and --event_id", () => {
+  it("calendar delete requires --event_id; --agent_id is optional (env fallback)", () => {
     const del = cmd.commands.find((c) => c.name() === "delete")!;
     const opts = (del as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
     const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
-    expect(mandatory).toContain("--agent_id");
+    expect(mandatory).not.toContain("--agent_id");
     expect(mandatory).toContain("--event_id");
   });
 

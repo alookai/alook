@@ -5,6 +5,7 @@ import { encrypt } from "@alook/shared/crypto"
 import { withAuth } from "@/lib/middleware/auth"
 import { withWorkspaceMember } from "@/lib/middleware/workspace"
 import { writeJSON, writeError, parseBody, formatTimestamp, formatTimestampNullable } from "@/lib/middleware/helpers"
+import { invalidate, cacheKeys } from "@/lib/cache"
 
 type AgentEmailAccountRow = Awaited<ReturnType<typeof queries.emailAccount.getEmailAccountsByAgent>>[number]
 
@@ -94,6 +95,9 @@ export const POST = withAuth(async (req, ctx) => {
       method: "POST",
     }).catch(() => {})
   }
+
+  await invalidate(cacheKeys.allEmailAccounts(ws.workspaceId));
+  await invalidate(cacheKeys.overviewEmailAccounts(ws.workspaceId));
 
   return writeJSON(accountToResponse(account), 201)
 })

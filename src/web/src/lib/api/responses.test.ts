@@ -382,18 +382,19 @@ describe("ConversationResponse shape", () => {
 
 describe("channelToResponse", () => {
   it("maps DB fields to API response format", () => {
-    const res = channelToResponse({ id: "ch_1", workspaceId: "w1", name: "work", createdAt: ts });
+    const res = channelToResponse({ id: "ch_1", workspaceId: "w1", name: "work", position: 0, createdAt: ts });
     expect(res).toEqual({
       id: "ch_1",
       workspace_id: "w1",
       name: "work",
+      position: 0,
       created_at: tsFormatted,
     });
   });
 
   it("has expected keys: id, workspace_id, name, created_at", () => {
-    const res = channelToResponse({ id: "ch_1", workspaceId: "w1", name: "personal", createdAt: ts });
-    expect(Object.keys(res).sort()).toEqual(["created_at", "id", "name", "workspace_id"]);
+    const res = channelToResponse({ id: "ch_1", workspaceId: "w1", name: "personal", position: 1, createdAt: ts });
+    expect(Object.keys(res).sort()).toEqual(["created_at", "id", "name", "position", "workspace_id"]);
   });
 });
 

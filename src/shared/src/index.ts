@@ -4,6 +4,7 @@ export type {
   Workspace,
   Agent,
   AgentRuntime,
+  RuntimeMetadata,
   Machine,
   Conversation,
   Message,
@@ -24,6 +25,7 @@ export type {
   Channel,
   WsMessage,
   WorkspaceFileResult,
+  DaemonPushMessage,
 } from "./types";
 
 // API types
@@ -82,6 +84,7 @@ export {
   EVENT_POLL_INTERVAL_MS,
   AGENT_HANDLE_MIN_LENGTH,
   MAX_TASKS_PER_TRACE,
+  DEV_PASSWORD,
   DEV_WEB_URL,
   DEV_WS_DO_URL,
   DEV_EMAIL_WORKER_URL,
@@ -106,6 +109,8 @@ export {
   TaskAgentDataApiSchema,
   TaskApiBaseSchema,
   TaskApiSchema,
+  HeartbeatRequestSchema,
+  SweepRequestSchema,
   PollRequestSchema,
   PollResponseSchema,
   PollMeetingItemSchema,
@@ -156,6 +161,7 @@ export {
   WorkspaceFileEntrySchema,
   WorkspaceFileReportSchema,
   CreateStudioRequestSchema,
+  DaemonPushMessageSchema,
 } from "./schemas";
 
 export type {
@@ -163,6 +169,8 @@ export type {
   TaskAgentDataApi,
   TaskApiBase,
   TaskApi,
+  HeartbeatRequest,
+  SweepRequest,
   PollRequest,
   PollResponse,
   PollMeetingItem,
@@ -198,6 +206,7 @@ export type {
   WorkspaceFileBrowseRequest,
   WorkspaceFileReport,
   CreateStudioRequest,
+  DaemonPushMessageType,
 } from "./schemas";
 
 // Database
@@ -231,4 +240,7 @@ export type { PromptAgent, PromptMention, ParseResult } from "./utils/prompt-par
 export { isValidToken, isValidEmail } from "./utils/validation";
 export { isOnline, formatStatus } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
+export { generateWorkspaceSlug } from "./utils/slug";
 export { semverGte } from "./semver";
+export { resolveMode, cliCommand, daemonCommand } from "./mode";
+export type { AlookMode, ModeSignals } from "./mode";

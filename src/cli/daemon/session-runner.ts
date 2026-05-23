@@ -7,6 +7,7 @@
  */
 
 import { mkdir, writeFile, rm, rename } from "fs/promises";
+import { mkdirSync } from "fs";
 import path from "path";
 import { DaemonClient } from "./client.js";
 import { createBackend } from "./agent/index.js";
@@ -59,20 +60,59 @@ export async function writeMarkerFile(
   await rename(tmpPath, finalPath);
 }
 
+function isRetryableError(e: unknown): boolean {
+  if (!(e instanceof Error)) return true;
+  const msg = e.message;
+  if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|EAI_AGAIN/.test(msg)) return true;
+  const httpMatch = msg.match(/^HTTP (\d+):/);
+  if (httpMatch) {
+    const status = Number(httpMatch[1]);
+    if (status >= 500) return true;
+    if (status === 408 || status === 429) return true;
+    return false;
+  }
+  return true;
+}
+
+function isClientError(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  const match = e.message.match(/^HTTP (\d+):/);
+  if (!match) return false;
+  const status = Number(match[1]);
+  if (status === 408 || status === 429) return false;
+  return status >= 400 && status < 500;
+}
+
 export async function reportToServer(
   fn: () => Promise<unknown>,
   markerData: MarkerData,
   workspacesRoot: string,
 ): Promise<void> {
-  try {
-    await fn();
-  } catch (e) {
-    log.warn(`server report failed for task ${markerData.taskId}, writing marker: ${e}`);
+  const RETRY_DELAYS = [1000, 3000, 9000];
+  let lastErr: unknown;
+
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
     try {
-      await writeMarkerFile(workspacesRoot, markerData);
-    } catch (writeErr) {
-      log.error(`marker write also failed for task ${markerData.taskId}: ${writeErr}`);
+      await fn();
+      return;
+    } catch (e) {
+      lastErr = e;
+      if (isClientError(e)) {
+        log.info(`server report for task ${markerData.taskId}: task already in terminal state (${e})`);
+        return;
+      }
+      if (attempt < RETRY_DELAYS.length && isRetryableError(e)) {
+        log.debug(`server report attempt ${attempt + 1} failed for task ${markerData.taskId}, retrying in ${RETRY_DELAYS[attempt]}ms`);
+        await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt]));
+      }
     }
+  }
+
+  log.warn(`server report failed for task ${markerData.taskId} after retries, writing marker: ${lastErr}`);
+  try {
+    await writeMarkerFile(workspacesRoot, markerData);
+  } catch (writeErr) {
+    log.error(`marker write also failed for task ${markerData.taskId}: ${writeErr}`);
   }
 }
 
@@ -122,17 +162,20 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
   const client = new DaemonClient(serverURL);
   const backend = createBackend(provider, cliPath);
 
-  const { workDir, timelineDir, env } = prepare(
-    { workspacesRoot },
-    task,
-  );
-
-  const agentBaseDir = path.dirname(timelineDir);
+  // Compute timelineDir before prepare() so timeline entry exists even on early crashes
+  const agentBaseDir = path.join(workspacesRoot, task.workspaceId, task.agentId, "workdir");
+  const timelineDir = path.join(agentBaseDir, ".context_timeline").replace(/\\/g, "/");
+  mkdirSync(timelineDir, { recursive: true });
 
   // Timeline entry: write IMMEDIATELY so KILL_TASK can find our PID
   await initEntryAsync(
     timelineDir,
     createTimelineEntry(task.id, task.prompt, task.type, undefined, process.pid, provider, task.contextKey, input.logFilePath),
+  );
+
+  const { workDir, env } = prepare(
+    { workspacesRoot },
+    task,
   );
 
   let killed = false;
@@ -204,7 +247,11 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
         entry.status = "failed";
         entry.errmsg = errMsg;
       });
-      await client.failTask(token, task.id, errMsg);
+      await reportToServer(
+        () => client.failTask(token, task.id, errMsg),
+        { taskId: task.id, type: "fail", payload: { error: errMsg }, token, serverURL, createdAt: new Date().toISOString() },
+        workspacesRoot,
+      );
       process.removeListener("SIGTERM", earlyOnKill);
       process.removeListener("SIGINT", earlyOnKill);
       return;
@@ -357,7 +404,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
         if (session.pid) {
           try { process.kill(session.pid, "SIGTERM"); } catch { /* already dead */ }
         }
-        iter.return?.(undefined as any);
+        iter.return?.(undefined as never);
         break;
       }
 
@@ -366,15 +413,6 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
 
       const msg = iterResult.value;
       seq++;
-      pendingMessages.push({
-        seq,
-        type: msg.type,
-        tool: msg.tool,
-        call_id: msg.callId,
-        content: msg.content,
-        input: msg.input,
-        output: msg.output,
-      });
 
       if (msg.type === "tool-use") toolCount++;
       if (msg.type === "tool-result" && msg.output && msg.output.length > 500) {
@@ -382,6 +420,18 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
       } else {
         log.info(JSON.stringify({ role: "assistant", ...msg }));
       }
+
+      if (msg.type === "status" || msg.type === "log") continue;
+
+      pendingMessages.push({
+        seq,
+        type: msg.type,
+        tool: msg.tool,
+        call_id: msg.callId,
+        content: msg.type === "tool-result" ? "" : msg.content,
+        input: msg.type === "tool-result" ? undefined : msg.input,
+        output: msg.type === "tool-result" ? "" : msg.output,
+      });
 
       // Timeline — record assistant text messages
       if (msg.type === "text" && msg.content) {
@@ -491,6 +541,15 @@ async function main(): Promise<void> {
   } catch (e) {
     log.error(`session-runner: unhandled error for task ${input.task.id}`, e);
     await cleanupAttachments(input.task.id);
+
+    // Update timeline entry to reflect failure
+    const timelineDir = path.join(input.workspacesRoot, input.task.workspaceId, input.task.agentId, "workdir", ".context_timeline").replace(/\\/g, "/");
+    updateEntry(timelineDir, input.task.id, (entry) => {
+      entry.pid = null;
+      entry.status = "failed";
+      entry.errmsg = `session-runner crash: ${e}`;
+    });
+
     const errorMsg = `session-runner crash: ${e}`;
     await reportToServer(
       () => client.failTask(input.token, input.task.id, errorMsg),

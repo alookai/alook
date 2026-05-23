@@ -4,6 +4,8 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON } from "@/lib/middleware/helpers";
+import { cached, cacheKeys } from "@/lib/cache";
+import { filterVisibleAgents } from "@/lib/agent-visibility";
 
 export const GET = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -20,7 +22,13 @@ export const GET = withAuth(async (req, ctx) => {
   weekEnd.setDate(weekEnd.getDate() + 7);
   const weekEndISO = weekEnd.toISOString();
 
-  const visibleAgents = await queries.agent.listAgents(db, ws.workspaceId, ctx.userId);
+  const dateStr = todayStart.toISOString().slice(0, 10);
+
+  const [allAgents, allAccess] = await Promise.all([
+    cached(cacheKeys.allAgents(ws.workspaceId), 300, () => queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId)),
+    cached(cacheKeys.allAgentAccess(ws.workspaceId), 300, () => queries.agentAccess.getAllAgentAccessForWorkspace(db, ws.workspaceId)),
+  ]);
+  const visibleAgents = filterVisibleAgents(allAgents, ctx.userId, allAccess);
   const visibleAgentIds = visibleAgents.map((a) => a.id);
 
   const [
@@ -33,12 +41,12 @@ export const GET = withAuth(async (req, ctx) => {
     invites,
     calendarEvents,
   ] = await Promise.all([
-    queries.overview.getEmailStatsByWorkspace(db, ws.workspaceId),
-    queries.overview.getEmailAccountsByWorkspace(db, ws.workspaceId),
-    queries.overview.getTaskStatsByWorkspace(db, ws.workspaceId, todayISO),
+    cached(cacheKeys.overviewEmailStats(ws.workspaceId), 60, () => queries.overview.getEmailStatsByWorkspace(db, ws.workspaceId)),
+    cached(cacheKeys.overviewEmailAccounts(ws.workspaceId), 300, () => queries.overview.getEmailAccountsByWorkspace(db, ws.workspaceId)),
+    cached(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr), 60, () => queries.overview.getTaskStatsByWorkspace(db, ws.workspaceId, todayISO)),
     queries.overview.getRecentTerminalTasks(db, ws.workspaceId, visibleAgentIds, 15),
     queries.overview.getConversationCountsByAgent(db, ws.workspaceId, visibleAgentIds),
-    queries.member.listMembers(db, ws.workspaceId),
+    cached(cacheKeys.allMembers(ws.workspaceId), 600, () => queries.member.listMembers(db, ws.workspaceId)),
     queries.workspaceInvite.listActiveInvites(db, ws.workspaceId),
     queries.calendarEvent.listCalendarEvents(db, ws.workspaceId, {
       from: todayISO,

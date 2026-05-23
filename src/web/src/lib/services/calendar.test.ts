@@ -14,6 +14,7 @@ const mockClaim = vi.fn();
 const mockRevert = vi.fn();
 const mockUpdateSchedule = vi.fn();
 const mockGetAgent = vi.fn();
+const mockGetUser = vi.fn();
 const mockCreateConv = vi.fn();
 const mockCreateMessage = vi.fn();
 const mockCreateTask = vi.fn();
@@ -26,6 +27,7 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
+      user: { getUser: (...args: unknown[]) => mockGetUser(...args) },
       conversation: {
         createConversation: (...args: unknown[]) => mockCreateConv(...args),
       },
@@ -71,6 +73,7 @@ function mkEvent(over?: Partial<Record<string, unknown>>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockGetUser.mockResolvedValue({ id: "u_1", name: "Gus", email: "gus@memodb.io" });
 });
 
 describe("promoteDueCalendarEventsForWorkspace", () => {
@@ -260,6 +263,101 @@ describe("promoteDueCalendarEventsForWorkspace", () => {
       "ce_1",
       "2026-04-18T09:00:00.000Z"
     );
+  });
+
+  it("passes description and scheduled_by in task context when both exist", async () => {
+    mockListDue.mockResolvedValue([mkEvent({ description: "Check PRs" })]);
+    mockGetAgent.mockResolvedValue({
+      id: "ag_1",
+      workspaceId: "ws_1",
+      runtimeId: "rt_1",
+      ownerId: "u_1",
+    });
+    mockClaim.mockResolvedValue({ id: "ce_1" });
+    mockCreateConv.mockResolvedValue({ id: "cv_1" });
+    mockCreateTask.mockResolvedValue({ id: "t_1" });
+
+    await promoteDueCalendarEventsForWorkspace(fakeDb, "ws_1", "2026-04-17T09:05:00.000Z");
+
+    expect(mockCreateTask.mock.calls[0][1].contextKey).toBe("cv_1");
+    expect(mockCreateTask.mock.calls[0][1].context).toEqual({
+      event_id: "ce_1",
+      datetime: "2026-04-17T09:00:00.000Z",
+      is_recurring: false,
+      repeat_interval: null,
+      description: "Check PRs",
+      scheduled_by: { name: "Gus", email: "gus@memodb.io" },
+    });
+  });
+
+  it("omits description from task context when event has no description", async () => {
+    mockListDue.mockResolvedValue([mkEvent({ description: null })]);
+    mockGetAgent.mockResolvedValue({
+      id: "ag_1",
+      workspaceId: "ws_1",
+      runtimeId: "rt_1",
+      ownerId: "u_1",
+    });
+    mockClaim.mockResolvedValue({ id: "ce_1" });
+    mockCreateConv.mockResolvedValue({ id: "cv_1" });
+    mockCreateTask.mockResolvedValue({ id: "t_1" });
+
+    await promoteDueCalendarEventsForWorkspace(fakeDb, "ws_1", "2026-04-17T09:05:00.000Z");
+
+    const ctx = mockCreateTask.mock.calls[0][1].context;
+    expect(ctx.event_id).toBe("ce_1");
+    expect(ctx.datetime).toBe("2026-04-17T09:00:00.000Z");
+    expect(ctx.is_recurring).toBe(false);
+    expect(ctx.repeat_interval).toBeNull();
+    expect(ctx.description).toBeUndefined();
+    expect(ctx.scheduled_by).toEqual({ name: "Gus", email: "gus@memodb.io" });
+  });
+
+  it("omits scheduled_by from task context when getUser returns null", async () => {
+    mockListDue.mockResolvedValue([mkEvent({ description: "Check PRs" })]);
+    mockGetAgent.mockResolvedValue({
+      id: "ag_1",
+      workspaceId: "ws_1",
+      runtimeId: "rt_1",
+      ownerId: "u_deleted",
+    });
+    mockGetUser.mockResolvedValue(null);
+    mockClaim.mockResolvedValue({ id: "ce_1" });
+    mockCreateConv.mockResolvedValue({ id: "cv_1" });
+    mockCreateTask.mockResolvedValue({ id: "t_1" });
+
+    await promoteDueCalendarEventsForWorkspace(fakeDb, "ws_1", "2026-04-17T09:05:00.000Z");
+
+    const ctx = mockCreateTask.mock.calls[0][1].context;
+    expect(ctx.event_id).toBe("ce_1");
+    expect(ctx.datetime).toBe("2026-04-17T09:00:00.000Z");
+    expect(ctx.is_recurring).toBe(false);
+    expect(ctx.repeat_interval).toBeNull();
+    expect(ctx.description).toBe("Check PRs");
+    expect(ctx.scheduled_by).toBeUndefined();
+  });
+
+  it("includes is_recurring=true and repeat_interval for recurring events", async () => {
+    mockListDue.mockResolvedValue([
+      mkEvent({ repeatInterval: "1week", description: null }),
+    ]);
+    mockGetAgent.mockResolvedValue({
+      id: "ag_1",
+      workspaceId: "ws_1",
+      runtimeId: "rt_1",
+      ownerId: "u_1",
+    });
+    mockClaim.mockResolvedValue({ id: "ce_1" });
+    mockCreateConv.mockResolvedValue({ id: "cv_1" });
+    mockCreateTask.mockResolvedValue({ id: "t_1" });
+
+    await promoteDueCalendarEventsForWorkspace(fakeDb, "ws_1", "2026-04-17T09:05:00.000Z");
+
+    const ctx = mockCreateTask.mock.calls[0][1].context;
+    expect(ctx.event_id).toBe("ce_1");
+    expect(ctx.datetime).toBe("2026-04-17T09:00:00.000Z");
+    expect(ctx.is_recurring).toBe(true);
+    expect(ctx.repeat_interval).toBe("1week");
   });
 
   it("does not advance the schedule when the next occurrence would exceed repeat_stop_at", async () => {

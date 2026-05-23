@@ -27,14 +27,16 @@ import {
   Loader2,
   Plus,
 } from "lucide-react";
-import type { AgentLink } from "@alook/shared";
+import type { Agent, AgentLink } from "@alook/shared";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
+import { AnimatedAvatar, parseAvatarUrl } from "@/components/avatar";
 import {
-  listAgentLinks,
   createAgentLink,
   updateAgentLink,
   deleteAgentLink,
@@ -81,12 +83,12 @@ function savePositions(workspaceId: string, nodes: Node[]) {
   }
   try {
     localStorage.setItem(storageKey(workspaceId), JSON.stringify(positions));
-  } catch {}
+  } catch { }
 }
 
-function AgentCanvas() {
+function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }) {
   const router = useRouter();
-  const { agents, runtimes, loading, activeTaskCounts } = useAgentContext();
+  const { agents, runtimes, loading, activeTaskCounts, agentLinks } = useAgentContext();
   const { slug, workspaceId } = useWorkspace();
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -95,29 +97,17 @@ function AgentCanvas() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [links, setLinks] = useState<AgentLink[]>([]);
-  const [linksLoaded, setLinksLoaded] = useState(false);
+  const linksLoaded = !loading;
   const [sidecarLink, setSidecarLink] = useState<AgentLink | null>(null);
   const [sidecarOpen, setSidecarOpen] = useState(false);
   const [showHint, setShowHint] = useState(false);
   const initialLayoutDone = useRef(false);
   const handleMap = useRef<Record<string, { sourceHandle: string; targetHandle: string }>>({});
 
-  // Fetch links
+  // Sync links from context
   useEffect(() => {
-    if (!workspaceId || loading || agents.length === 0) return;
-    let cancelled = false;
-    listAgentLinks(workspaceId)
-      .then((data) => {
-        if (!cancelled) {
-          setLinks(data);
-          setLinksLoaded(true);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLinksLoaded(true);
-      });
-    return () => { cancelled = true; };
-  }, [workspaceId, loading, agents.length]);
+    if (!loading) setLinks(agentLinks);
+  }, [agentLinks, loading]);
 
   // Build edges from links
   useEffect(() => {
@@ -200,6 +190,14 @@ function AgentCanvas() {
 
     const hasAnyPosition = Object.keys(validPositions).length > 0;
     const newAgentIds = agents.filter((a) => !validPositions[a.id]).map((a) => a.id);
+
+    // Case 1: No saved positions and links not loaded yet — wait for links before setting nodes
+    if (!hasAnyPosition && !linksLoaded) return;
+
+    // Case 2: Some saved positions but new agents need layout — only show positioned nodes until links load
+    if (hasAnyPosition && newAgentIds.length > 0 && !linksLoaded) {
+      newNodes = newNodes.filter((n) => validPositions[n.id]);
+    }
 
     if (!hasAnyPosition) {
       // First visit — auto-layout all
@@ -310,7 +308,7 @@ function AgentCanvas() {
   const handleResetLayout = useCallback(() => {
     try {
       localStorage.removeItem(storageKey(workspaceId));
-    } catch {}
+    } catch { }
     const currentEdges: Edge[] = links.map((link) => ({
       id: link.id,
       source: link.source_agent_id,
@@ -339,9 +337,14 @@ function AgentCanvas() {
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
       const nodeData = node.data as unknown as AgentNodeData;
-      router.push(`/w/${slug}/agents/${nodeData.agent.id}`);
+      setSidecarOpen(false);
+      if (onAgentClick) {
+        onAgentClick(nodeData.agent);
+      } else {
+        router.push(`/w/${slug}/agents/${nodeData.agent.id}`);
+      }
     },
-    [router, slug],
+    [router, slug, onAgentClick],
   );
 
   const connectionLineStyle = useMemo(
@@ -439,25 +442,31 @@ function AgentCanvas() {
       />
 
       <div className="absolute bottom-4 right-4 z-10 flex flex-wrap justify-end items-end gap-2">
-        <ActiveTasksFloat />
         <UpcomingEventsFloat />
+        <ActiveTasksFloat />
       </div>
 
       {/* Create agent button */}
-      <button
-        type="button"
-        className="absolute top-4 right-4 z-40 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors animate-[fade-up_300ms_ease-out_both]"
-        style={{ animationDelay: "200ms" }}
-        onClick={() => router.push(`/w/${slug}/agents/new`)}
-        title="Create new agent"
-      >
-        <Plus className="size-4" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="absolute top-4 right-4 z-40 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors animate-[fade-up_300ms_ease-out_both]"
+              style={{ animationDelay: "200ms" }}
+              onClick={() => router.push(`/w/${slug}/agents/new`)}
+            />
+          }
+        >
+          <Plus className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent>Create new agent</TooltipContent>
+      </Tooltip>
     </div>
   );
 }
 
-function MobileAgentList() {
+function MobileAgentList({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }) {
   const router = useRouter();
   const { agents, runtimes, loading, activeTaskCounts } = useAgentContext();
   const { slug } = useWorkspace();
@@ -472,6 +481,14 @@ function MobileAgentList() {
     );
   }
 
+  const handleClick = (agent: Agent) => {
+    if (onAgentClick) {
+      onAgentClick(agent);
+    } else {
+      router.push(`/w/${slug}/agents/${agent.id}`);
+    }
+  };
+
   return (
     <div className="relative flex-1 flex flex-col">
       <div className="flex flex-col gap-1 p-4 overflow-y-auto thin-scrollbar">
@@ -483,41 +500,65 @@ function MobileAgentList() {
               key={agent.id}
               role="button"
               tabIndex={0}
-              className="flex items-center w-full rounded-xl px-3 py-2.5 hover:bg-accent/50 active:bg-accent/70 transition-colors cursor-pointer text-left"
-              onClick={() => router.push(`/w/${slug}/agents/${agent.id}`)}
+              className="flex items-center gap-3 w-full rounded-xl px-3 py-2.5 hover:bg-accent/50 active:bg-accent/70 transition-colors cursor-pointer text-left"
+              onClick={() => handleClick(agent)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  router.push(`/w/${slug}/agents/${agent.id}`);
+                  handleClick(agent);
                 }
               }}
             >
-              <AgentPreviewCard
-                agent={agent}
-                isOnline={isOnline}
-                activeTaskCount={activeTaskCounts[agent.id] ?? 0}
-              />
+              {(() => {
+                const avatarConfig = parseAvatarUrl(agent.avatar_url);
+                if (avatarConfig) {
+                  return <AnimatedAvatar config={avatarConfig} size={36} className="shrink-0 rounded-xl" isHovered={false} isWorking={isOnline && (activeTaskCounts[agent.id] ?? 0) > 0} />;
+                }
+                return (
+                  <div className="flex items-center justify-center size-9 rounded-xl bg-secondary text-secondary-foreground text-sm font-medium shrink-0">
+                    {agent.name.charAt(0).toUpperCase()}
+                  </div>
+                );
+              })()}
+              <div className="min-w-0 flex-1">
+                <AgentPreviewCard
+                  agent={agent}
+                  isOnline={isOnline}
+                  activeTaskCount={activeTaskCounts[agent.id] ?? 0}
+                />
+              </div>
             </div>
           );
         })}
       </div>
-      <button
-        type="button"
-        className="absolute top-4 right-4 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        onClick={() => router.push(`/w/${slug}/agents/new`)}
-        title="Create new agent"
-      >
-        <Plus className="size-4" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="absolute top-4 right-4 size-8 rounded-lg bg-background/80 backdrop-blur-sm ring-1 ring-foreground/5 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              onClick={() => router.push(`/w/${slug}/agents/new`)}
+            />
+          }
+        >
+          <Plus className="size-4" />
+        </TooltipTrigger>
+        <TooltipContent>Create new agent</TooltipContent>
+      </Tooltip>
     </div>
   );
 }
 
 export default function HomePage() {
   const router = useRouter();
-  const { agents, runtimes, loading } = useAgentContext();
-  const { slug, workspaceId } = useWorkspace();
+  const { agents, loading } = useAgentContext();
+  const { workspaceId } = useWorkspace();
   const isMobile = useIsMobile();
+  const { openAgentChat } = useAgentChatSheet();
+
+  const handleAgentClick = useCallback((agent: Agent) => {
+    openAgentChat(agent.id);
+  }, [openAgentChat]);
 
   if (loading) {
     return (
@@ -531,13 +572,13 @@ export default function HomePage() {
     return (
       <div className="flex flex-1 items-center justify-center">
         <div className="text-center animate-[fade-up_400ms_ease-out_both]">
-          <p className="text-muted-foreground text-sm">Build your AI studio to get started.</p>
+          <p className="text-muted-foreground text-sm">Build your AI company</p>
           <Button
             size="sm"
             className="mt-4 glow-border"
             onClick={() => router.push(`/studio/new?workspace_id=${workspaceId}`)}
           >
-            Build Studio
+            Get Started
           </Button>
         </div>
       </div>
@@ -545,12 +586,12 @@ export default function HomePage() {
   }
 
   if (isMobile) {
-    return <MobileAgentList />;
+    return <MobileAgentList onAgentClick={handleAgentClick} />;
   }
 
   return (
     <ReactFlowProvider>
-      <AgentCanvas />
+      <AgentCanvas onAgentClick={handleAgentClick} />
     </ReactFlowProvider>
   );
 }

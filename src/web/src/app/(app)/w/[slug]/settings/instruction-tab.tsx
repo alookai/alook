@@ -71,6 +71,8 @@ export function InstructionTab() {
     fetchInstruction();
   }, [fetchInstruction]);
 
+  const scheduleSaveRef = useRef<() => void>(() => {});
+
   const flushSave = useCallback(async () => {
     if (savingRef.current) return;
     const current = valueRef.current;
@@ -83,6 +85,9 @@ export function InstructionTab() {
       toast.error(err instanceof Error ? err.message : "Failed to save");
     } finally {
       savingRef.current = false;
+      if (valueRef.current !== savedValueRef.current) {
+        scheduleSaveRef.current();
+      }
     }
   }, [workspaceId]);
 
@@ -90,6 +95,10 @@ export function InstructionTab() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(flushSave, DEBOUNCE_MS);
   }, [flushSave]);
+
+  useEffect(() => {
+    scheduleSaveRef.current = scheduleSave;
+  }, [scheduleSave]);
 
   const handleChange = useCallback(
     (next: string) => {
@@ -120,10 +129,16 @@ export function InstructionTab() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       if (valueRef.current !== savedValueRef.current) {
-        void flushSave();
+        const params = new URLSearchParams({ workspace_id: workspaceId });
+        fetch(`/api/members/me?${params}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ global_instruction: valueRef.current }),
+          keepalive: true,
+        });
       }
     };
-  }, [flushSave]);
+  }, [workspaceId]);
 
   const ratio = value.length / MAX_LENGTH;
 

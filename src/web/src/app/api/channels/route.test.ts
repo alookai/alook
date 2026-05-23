@@ -7,6 +7,7 @@ const mockChannelToResponse = vi.fn((c: any) => ({
   id: c.id,
   workspace_id: c.workspaceId,
   name: c.name,
+  position: c.position ?? 0,
   created_at: c.createdAt,
 }));
 
@@ -76,6 +77,7 @@ describe("GET /api/channels", () => {
     expect(body).toHaveLength(2);
     expect(body[0].name).toBe("default");
     expect(body[0].id).toBe("ch_default");
+    expect(body[0].position).toBe(0);
     expect(body[1].name).toBe("work");
   });
 

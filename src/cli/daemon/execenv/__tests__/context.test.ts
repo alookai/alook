@@ -1,4 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+vi.mock("fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("fs")>();
+  return { ...actual, symlinkSync: vi.fn(actual.symlinkSync) };
+});
+
 import {
   mkdirSync,
   writeFileSync,
@@ -8,6 +14,7 @@ import {
   lstatSync,
   readlinkSync,
   symlinkSync,
+  unlinkSync,
 } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -149,11 +156,13 @@ describe("ensureSymlinks", () => {
   let workDir: string;
 
   beforeEach(() => {
+    vi.mocked(symlinkSync).mockRestore();
     workDir = join(tmpdir(), `execenv-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     mkdirSync(workDir, { recursive: true });
   });
 
   afterEach(() => {
+    vi.mocked(symlinkSync).mockRestore();
     rmSync(workDir, { recursive: true, force: true });
   });
 
@@ -205,6 +214,99 @@ describe("ensureSymlinks", () => {
     const aliasPath = join(workDir, "CLAUDE.md");
     expect(lstatSync(aliasPath).isSymbolicLink()).toBe(true);
     expect(readlinkSync(aliasPath)).toBe(CANONICAL_FILE);
+  });
+
+  it("falls back to file copy when symlinkSync throws EPERM", () => {
+    writeFileSync(join(workDir, CANONICAL_FILE), "canonical content", "utf-8");
+    vi.mocked(symlinkSync).mockImplementation(() => {
+      const err = new Error("EPERM: operation not permitted, symlink") as NodeJS.ErrnoException;
+      err.code = "EPERM";
+      throw err;
+    });
+
+    ensureSymlinks(workDir);
+
+    const aliasPath = join(workDir, "CLAUDE.md");
+    expect(lstatSync(aliasPath).isFile()).toBe(true);
+    expect(lstatSync(aliasPath).isSymbolicLink()).toBe(false);
+    expect(readFileSync(aliasPath, "utf-8")).toBe("canonical content");
+  });
+
+  it("falls back to file copy when symlinkSync throws EACCES", () => {
+    writeFileSync(join(workDir, CANONICAL_FILE), "canonical content", "utf-8");
+    vi.mocked(symlinkSync).mockImplementation(() => {
+      const err = new Error("EACCES: permission denied, symlink") as NodeJS.ErrnoException;
+      err.code = "EACCES";
+      throw err;
+    });
+
+    ensureSymlinks(workDir);
+
+    const aliasPath = join(workDir, "CLAUDE.md");
+    expect(lstatSync(aliasPath).isFile()).toBe(true);
+    expect(readFileSync(aliasPath, "utf-8")).toBe("canonical content");
+  });
+
+  it("re-throws non-EPERM/EACCES errors from symlinkSync", () => {
+    writeFileSync(join(workDir, CANONICAL_FILE), "content", "utf-8");
+    vi.mocked(symlinkSync).mockImplementation(() => {
+      const err = new Error("EIO: i/o error, symlink") as NodeJS.ErrnoException;
+      err.code = "EIO";
+      throw err;
+    });
+
+    expect(() => ensureSymlinks(workDir)).toThrow("EIO");
+  });
+
+  it("existing regular file copy with matching content is left untouched", () => {
+    writeFileSync(join(workDir, CANONICAL_FILE), "same content", "utf-8");
+    writeFileSync(join(workDir, "CLAUDE.md"), "same content", "utf-8");
+    const mtimeBefore = lstatSync(join(workDir, "CLAUDE.md")).mtimeMs;
+
+    ensureSymlinks(workDir);
+
+    const aliasPath = join(workDir, "CLAUDE.md");
+    expect(lstatSync(aliasPath).isFile()).toBe(true);
+    expect(lstatSync(aliasPath).isSymbolicLink()).toBe(false);
+    expect(readFileSync(aliasPath, "utf-8")).toBe("same content");
+    expect(lstatSync(aliasPath).mtimeMs).toBe(mtimeBefore);
+  });
+
+  it("existing regular file copy with stale content is refreshed", () => {
+    writeFileSync(join(workDir, CANONICAL_FILE), "new content", "utf-8");
+    writeFileSync(join(workDir, "CLAUDE.md"), "old content", "utf-8");
+    vi.mocked(symlinkSync).mockImplementation(() => {
+      const err = new Error("EPERM: operation not permitted, symlink") as NodeJS.ErrnoException;
+      err.code = "EPERM";
+      throw err;
+    });
+
+    ensureSymlinks(workDir);
+
+    const aliasPath = join(workDir, "CLAUDE.md");
+    expect(readFileSync(aliasPath, "utf-8")).toBe("new content");
+  });
+
+  it("transitions from symlink to copy when permissions change", () => {
+    writeFileSync(join(workDir, CANONICAL_FILE), "content", "utf-8");
+    // First call creates a real symlink (symlinkSync uses real implementation by default)
+    ensureSymlinks(workDir);
+    expect(lstatSync(join(workDir, "CLAUDE.md")).isSymbolicLink()).toBe(true);
+
+    // Simulate permission loss — remove symlink and mock EPERM
+    unlinkSync(join(workDir, "CLAUDE.md"));
+    vi.mocked(symlinkSync).mockImplementation(() => {
+      const err = new Error("EPERM: operation not permitted, symlink") as NodeJS.ErrnoException;
+      err.code = "EPERM";
+      throw err;
+    });
+
+    ensureSymlinks(workDir);
+
+    const aliasPath = join(workDir, "CLAUDE.md");
+    expect(lstatSync(aliasPath).isFile()).toBe(true);
+    expect(lstatSync(aliasPath).isSymbolicLink()).toBe(false);
+    expect(readFileSync(aliasPath, "utf-8")).toBe("content");
   });
 });
 

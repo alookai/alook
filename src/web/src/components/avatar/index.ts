@@ -10,3 +10,4 @@ export {
 export { AnimatedAvatar } from "./animated-avatar";
 export { AvatarGenerator } from "./avatar-generator";
 export { AvatarPickerDialog } from "./avatar-picker-dialog";
+export { AgentAvatar } from "./agent-avatar";

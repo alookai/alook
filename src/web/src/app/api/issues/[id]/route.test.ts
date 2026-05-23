@@ -65,6 +65,11 @@ vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+const mockBroadcastToUser = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/broadcast", () => ({
+  broadcastToUser: (...a: unknown[]) => mockBroadcastToUser(...a),
+}));
+
 const mockCancelActiveTask = vi.fn();
 const mockCancelTrace = vi.fn();
 vi.mock("@/lib/services/task", () => ({
@@ -100,6 +105,7 @@ describe("PATCH /api/issues/[id]", () => {
   it("updates status and records status transition", async () => {
     mockGetIssue.mockResolvedValue({ id: "iss_1", status: "todo", conversationId: "c1" });
     mockUpdateIssue.mockResolvedValue({ id: "iss_1", status: "in_progress", conversationId: "c1" });
+    mockCreateMessage.mockResolvedValue({ id: "m1", role: "event", content: "Issue status changed: todo -> in_progress" });
     const req = new NextRequest("http://localhost/api/issues/iss_1", {
       method: "PATCH",
       body: JSON.stringify({ status: "in_progress" }),
@@ -108,6 +114,7 @@ describe("PATCH /api/issues/[id]", () => {
     expect(res.status).toBe(200);
     expect(mockUpdateIssue).toHaveBeenCalledWith({}, "iss_1", "w1", { title: undefined, description: undefined, status: "in_progress" });
     expect(mockCreateMessage).toHaveBeenCalledWith({}, expect.objectContaining({ role: "event", content: "Issue status changed: todo -> in_progress" }));
+    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", expect.objectContaining({ type: "conversation.message", conversationId: "c1" }));
   });
 });
 

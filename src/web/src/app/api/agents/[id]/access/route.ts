@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
+import { invalidate, cacheKeys } from "@/lib/cache";
 
 async function requireAgentOwner(db: Database, agentId: string, workspaceId: string, userId: string) {
   const ag = await queries.agent.getAgent(db, agentId, workspaceId, userId);
@@ -43,5 +44,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (member?.userEmail) {
     await queries.whitelist.addWhitelist(db, id, ws.workspaceId, member.userEmail);
   }
+  await Promise.all([
+    invalidate(cacheKeys.allAgents(ws.workspaceId)),
+    invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
+    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
+  ]);
   return writeJSON({ id: access.id, user_id: access.userId }, 201);
 });

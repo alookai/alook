@@ -5,6 +5,8 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
+import { cached, cacheKeys } from "@/lib/cache";
+import { filterVisibleAgents } from "@/lib/agent-visibility";
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -28,7 +30,11 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     if (conv) channel = conv.channel;
   }
 
-  const agents = await queries.agent.listAgents(db, ws.workspaceId, ctx.userId);
+  const [allAgents, allAccess] = await Promise.all([
+    cached(cacheKeys.allAgents(ws.workspaceId), 300, () => queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId)),
+    cached(cacheKeys.allAgentAccess(ws.workspaceId), 300, () => queries.agentAccess.getAllAgentAccessForWorkspace(db, ws.workspaceId)),
+  ]);
+  const agents = filterVisibleAgents(allAgents, ctx.userId, allAccess);
   const agentMap = new Map(agents.map(a => [a.id, { name: a.name, email_handle: a.emailHandle, avatarUrl: a.avatarUrl }]));
 
   const traceTasks = tasks.map(t => ({

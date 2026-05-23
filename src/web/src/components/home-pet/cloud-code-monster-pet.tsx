@@ -366,6 +366,23 @@ export function CloudCodeMonsterPet({
     peekTargetsRef.current = peekTargets;
   }, [peekTargets]);
 
+  const pushFootprint = useCallback((nextPosition: PetPoint, intensity: number) => {
+    const side = nextFootSideRef.current;
+    nextFootSideRef.current = side === "left" ? "right" : "left";
+    const sideOffset = side === "left" ? 25 : 52;
+
+    setFootprints((current) => [
+      ...current.slice(-13),
+      {
+        id: nextFootprintIdRef.current++,
+        x: nextPosition.x + sideOffset,
+        y: nextPosition.y + CLOUD_CODE_MONSTER_SIZE.height - 7,
+        side,
+        intensity,
+      },
+    ]);
+  }, []);
+
   useEffect(() => {
     if (
       !hasPosition ||
@@ -441,6 +458,7 @@ export function CloudCodeMonsterPet({
     isPeeking,
     reacting,
     clearPetTimer,
+    pushFootprint,
     shaken,
     shouldAutoWalk,
     setPetTimer,
@@ -501,23 +519,6 @@ export function CloudCodeMonsterPet({
     shaken,
     setPetTimer,
   ]);
-
-  const pushFootprint = (nextPosition: PetPoint, intensity: number) => {
-    const side = nextFootSideRef.current;
-    nextFootSideRef.current = side === "left" ? "right" : "left";
-    const sideOffset = side === "left" ? 25 : 52;
-
-    setFootprints((current) => [
-      ...current.slice(-13),
-      {
-        id: nextFootprintIdRef.current++,
-        x: nextPosition.x + sideOffset,
-        y: nextPosition.y + CLOUD_CODE_MONSTER_SIZE.height - 7,
-        side,
-        intensity,
-      },
-    ]);
-  };
 
   const wakeMonsterToDefault = () => {
     setActivityState((current) => {

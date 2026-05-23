@@ -73,7 +73,13 @@ export const PATCH = withAuth(async (req, ctx) => {
     return writeError("agent not found", 404);
   }
 
-  await invalidate(cacheKeys.agent(ws.workspaceId, id));
+  await Promise.all([
+    invalidate(cacheKeys.agent(ws.workspaceId, id)),
+    invalidate(cacheKeys.allAgents(ws.workspaceId)),
+    invalidate(cacheKeys.allHandles(ws.workspaceId)),
+    invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
+    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
+  ]);
 
   return writeJSON(agentToResponse(updated));
 });
@@ -98,6 +104,14 @@ export const DELETE = withAuth(async (req, ctx) => {
   if (!deleted) {
     return writeError("agent not found", 404);
   }
+
+  await Promise.all([
+    invalidate(cacheKeys.agent(ws.workspaceId, id)),
+    invalidate(cacheKeys.allAgents(ws.workspaceId)),
+    invalidate(cacheKeys.allHandles(ws.workspaceId)),
+    invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
+    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
+  ]);
 
   return new Response(null, { status: 204 });
 });

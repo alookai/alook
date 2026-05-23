@@ -108,3 +108,10 @@ export async function getEmailAccountsByAgents(db: Database, agentIds: string[],
     .from(agentEmailAccount)
     .where(and(inArray(agentEmailAccount.agentId, agentIds), eq(agentEmailAccount.workspaceId, workspaceId)));
 }
+
+export async function getAllEmailAccountsForWorkspace(db: Database, workspaceId: string) {
+  return db
+    .select()
+    .from(agentEmailAccount)
+    .where(eq(agentEmailAccount.workspaceId, workspaceId));
+}

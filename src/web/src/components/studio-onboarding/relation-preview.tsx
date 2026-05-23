@@ -26,24 +26,20 @@ const SCENARIO_RELATIONS: Record<string, Record<string, RelationText>> = {
       reports: "publication status and next steps",
     },
   },
-  productivity: {
+  "sales-outreach": {
+    researcher: {
+      receives: "prospect research tasks with target criteria and market focus",
+      reports: "actionable intelligence with prospect lists and confidence levels",
+    },
     assistant: {
-      receives: "actions with targets, deadlines, and tone guidance",
-      reports: "completion status with next steps and escalation flags",
+      receives: "outreach tasks with prospect details, messaging angle, and timeline",
+      reports: "outreach status with responses received and follow-up schedule",
     },
   },
-  "full-team": {
-    researcher: {
-      receives: "research briefs with clear questions and scope",
-      reports: "structured findings with sources and confidence levels",
-    },
-    engineer: {
-      receives: "coding tasks with requirements and context",
-      reports: "verified code changes with test results and self-review",
-    },
+  "customer-support": {
     assistant: {
-      receives: "operational tasks with actions, targets, and deadlines",
-      reports: "completion status with next steps and escalation flags",
+      receives: "support tickets with customer context and urgency level",
+      reports: "resolution status with customer response and follow-up needs",
     },
   },
 };
@@ -63,7 +59,7 @@ export function RelationPreview({ members, scenario }: { members: TeamMember[]; 
 
   return (
     <div className="space-y-3">
-      <h2 className="text-sm font-medium">Team collaboration</h2>
+      <h2 className="text-base font-semibold tracking-tight">How they work together</h2>
       <div className="rounded-lg border border-border p-4 space-y-3">
         <p className="text-xs text-muted-foreground">
           You email <span className="font-medium text-foreground">{leader.name}</span> with tasks.{" "}

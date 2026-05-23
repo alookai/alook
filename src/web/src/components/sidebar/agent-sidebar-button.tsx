@@ -25,6 +25,7 @@ export function AgentSidebarButton({
   onPin,
   onUnpin,
   extraContextMenuItems,
+  hidePin,
 }: {
   agent: Agent;
   isActive: boolean;
@@ -35,6 +36,7 @@ export function AgentSidebarButton({
   onPin: () => void;
   onUnpin: () => void;
   extraContextMenuItems?: React.ReactNode;
+  hidePin?: boolean;
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   return (
@@ -79,7 +81,7 @@ export function AgentSidebarButton({
           )} />
         </PopoverTrigger>
         <ContextMenuContent>
-          {isPinned ? (
+          {!hidePin && (isPinned ? (
             <ContextMenuItem onClick={onUnpin}>
               <PinOffIcon className="size-3.5 mr-1.5" />
               Unpin
@@ -89,7 +91,7 @@ export function AgentSidebarButton({
               <PinIcon className="size-3.5 mr-1.5" />
               Pin to top
             </ContextMenuItem>
-          )}
+          ))}
           {extraContextMenuItems}
         </ContextMenuContent>
       </ContextMenu>

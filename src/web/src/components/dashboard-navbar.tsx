@@ -18,11 +18,13 @@ import {
   deleteMachine,
 } from "@/lib/api";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Logo } from "@/components/logo";
 import { toast } from "sonner";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { signOut } from "@/lib/auth-client";
-import { CLI_CMD } from "@/lib/utils";
+import { clearAllCache } from "@/lib/chat-cache";
+import { cliCmd, daemonStartCmd } from "@/lib/utils";
 import { ProviderLogo } from "@/components/provider-logo";
 
 function OnboardingSteps({
@@ -78,25 +80,31 @@ function OnboardingSteps({
           </div>
         ) : generatedToken ? (
           <div className="pl-7 space-y-2">
-            <div
-              className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-              onClick={() =>
-                copyToClipboard(
-                  `${CLI_CMD} register --token ${generatedToken}`
-                )
-              }
-              title="Click to copy"
-            >
-              {CLI_CMD} register --token{" "}
-              <span className="text-foreground/70">
-                {generatedToken.slice(0, 12)}...
-              </span>
-            </div>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div
+                    className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                    onClick={() =>
+                      copyToClipboard(
+                        `${cliCmd()} register --token ${generatedToken}`
+                      )
+                    }
+                  />
+                }
+              >
+                {cliCmd()} register --token{" "}
+                <span className="text-foreground/70">
+                  {generatedToken.slice(0, 12)}...
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Click to copy</TooltipContent>
+            </Tooltip>
             <Button
               size="sm"
               onClick={() => {
                 navigator.clipboard.writeText(
-                  `${CLI_CMD} register --token ${generatedToken}`
+                  `${cliCmd()} register --token ${generatedToken}`
                 );
                 toast.success("Copied to clipboard");
               }}
@@ -121,17 +129,21 @@ function OnboardingSteps({
         <p className="text-[11px] text-muted-foreground pl-7">
           The daemon connects your local agents to Alook.
         </p>
-        <div
-          className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-          onClick={() =>
-            copyToClipboard(process.env.NODE_ENV === "development"
-              ? `${CLI_CMD} daemon start --foreground`
-              : `${CLI_CMD} daemon start`)
-          }
-          title="Click to copy"
-        >
-          {CLI_CMD} daemon start{process.env.NODE_ENV === "development" ? " --foreground" : ""}
-        </div>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div
+                className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                onClick={() =>
+                  copyToClipboard(daemonStartCmd())
+                }
+              />
+            }
+          >
+            {daemonStartCmd()}
+          </TooltipTrigger>
+          <TooltipContent>Click to copy</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );
@@ -393,6 +405,7 @@ export function DashboardNavbar() {
               variant="ghost"
               size="sm"
               onClick={async () => {
+                await clearAllCache();
                 await signOut();
               }}
             >

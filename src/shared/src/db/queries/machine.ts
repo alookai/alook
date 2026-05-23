@@ -102,24 +102,30 @@ export async function deleteMachine(
 export async function setPendingUpdateVersion(
   db: Database,
   daemonId: string,
+  workspaceId: string,
   version: string
 ) {
   const now = new Date().toISOString();
   await db
     .update(machine)
     .set({ pendingUpdateVersion: version, updatedAt: now })
-    .where(eq(machine.daemonId, daemonId));
+    .where(
+      and(eq(machine.daemonId, daemonId), eq(machine.workspaceId, workspaceId))
+    );
 }
 
 export async function clearPendingUpdateVersion(
   db: Database,
-  daemonId: string
+  daemonId: string,
+  workspaceId: string
 ) {
   const now = new Date().toISOString();
   await db
     .update(machine)
     .set({ pendingUpdateVersion: null, updatedAt: now })
-    .where(eq(machine.daemonId, daemonId));
+    .where(
+      and(eq(machine.daemonId, daemonId), eq(machine.workspaceId, workspaceId))
+    );
 }
 
 export async function setPendingRescan(

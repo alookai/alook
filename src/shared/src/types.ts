@@ -1,4 +1,4 @@
-import type { TaskApi, WorkspaceFileEntry } from "./schemas";
+import type { TaskApi, WorkspaceFileEntry, FileRequestItem, PollMeetingItem } from "./schemas";
 
 export type EmailDirection = "inbound" | "outbound";
 
@@ -38,6 +38,13 @@ export interface Agent {
   updated_at: string;
 }
 
+export interface RuntimeMetadata {
+  version?: string;
+  cli_version?: string;
+  workspaces_root?: string;
+  [key: string]: unknown;
+}
+
 export interface AgentRuntime {
   id: string;
   workspace_id: string;
@@ -46,7 +53,7 @@ export interface AgentRuntime {
   provider: string;
   status: string;
   device_info: string;
-  metadata: Record<string, unknown>;
+  metadata: RuntimeMetadata;
   pending_update_version?: string | null;
   pending_rescan?: boolean;
   last_seen_at: string | null;
@@ -68,6 +75,7 @@ export interface Channel {
   id: string;
   workspace_id: string;
   name: string;
+  position: number;
   created_at: string;
 }
 
@@ -287,3 +295,13 @@ export interface WorkspaceFileResult {
   error?: string;
   path: string;
 }
+
+/** Messages pushed from server to daemon via WebSocket. */
+export type DaemonPushMessage =
+  | { type: "daemon.tasks"; tasks: TaskApi[] }
+  | { type: "daemon.file_requests"; workspaceId: string; requests: FileRequestItem[] }
+  | { type: "daemon.meetings"; meetings: PollMeetingItem[] }
+  | { type: "daemon.evict"; workspaceId: string }
+  | { type: "daemon.update"; version: string }
+  | { type: "daemon.rescan" }
+  | { type: "daemon.kill"; workspaceId: string; taskId: string; targetTaskId: string }

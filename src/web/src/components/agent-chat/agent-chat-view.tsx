@@ -8,15 +8,15 @@ import { Button } from "@/components/ui/button";
 import { TaskStream } from "@/components/task-stream";
 import {
   chatInit,
+  checkFreshness,
+  conversationInit,
   createConversation,
-  getConversation,
   listMessages,
   listMessagesAroundTask,
   listPreviousConversations,
   sendMessage,
   getTask,
   getTaskMessages,
-  getTaskStepCounts,
   listArtifacts,
   listBufferedMessages,
   createBufferedMessage,
@@ -28,11 +28,16 @@ import {
   getIssue,
   getTrace,
   updateIssue,
+  listFlaggedMessageIds,
+  flagMessage as apiFlagMessage,
+  unflagMessage as apiUnflagMessage,
 } from "@/lib/api";
+import { appendCachedMessage, getCachedMessages, getCachedMessagesBefore, getCacheMeta, mergeCachedMessages } from "@/lib/chat-cache";
 import type { PreviousConversation, TraceTask } from "@/lib/api";
 import type { Artifact, Conversation, Issue, IssueComment, Message, TaskApi as Task, TaskMessage, WsMessage } from "@alook/shared";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useInboxCount } from "@/contexts/inbox-count-context";
+import { useFlagCount } from "@/contexts/flag-count-context";
 import { useChannel } from "@/contexts/channel-context";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -40,13 +45,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { ArrowUp, BedDouble, Box, FileText, Loader2, Mail, MessageSquareQuote, Mic, Paperclip, Square, X } from "lucide-react";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
+import { useCachedMessages } from "@/hooks/use-cached-messages";
 import { useMentionPopup } from "@/hooks/use-mention-popup";
 import { MentionPopup } from "@/components/agent-chat/mention-popup";
 import { highlightMentions } from "@/lib/highlight-mentions";
 import { ArtifactSheet, formatSize } from "@/components/agent-chat/artifact-sheet";
 import { EmailEventSheet } from "@/components/agent-chat/email-event-sheet";
+import { CalendarEventSheet } from "@/components/calendar/calendar-event-sheet";
 import { IssueSheet } from "@/components/issues/issue-sheet";
-import { isPreviewable, getArtifactUrl } from "@/components/artifact-content-renderer";
+import { isPreviewable, getArtifactUrl, computeArtifactVersions } from "@/components/artifact-content-renderer";
 import { FollowUpBuffer } from "@/components/agent-chat/follow-up-buffer";
 import { ScrollToBottomButton } from "@/components/ui/scroll-to-bottom-button";
 import { MessageItem } from "@/components/agent-chat/message-list";
@@ -57,8 +64,6 @@ const MESSAGE_LIMIT = 20;
 const MAX_CONV_FETCHES_PER_CLICK = 5;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
-const MENTION_ALLOWED_TAGS = { mention: ["data-agent-id"] };
-const MENTION_LITERAL_TAGS = ["mention"];
 function MentionHighlight(props: Record<string, unknown> & { children?: React.ReactNode }) {
   const { children, ...rest } = props;
   const { agents } = useAgentContext();
@@ -297,16 +302,27 @@ function ArtifactCard({ artifact, version, hasDuplicates, onClick }: { artifact:
   );
 }
 
-export function AgentChatView() {
+export function AgentChatView({
+  agentId: propAgentId,
+  targetConvId: propTargetConvId,
+  scrollToTaskId: propScrollToTaskId,
+  scrollToMessageId: propScrollToMessageId,
+}: {
+  agentId?: string;
+  targetConvId?: string | null;
+  scrollToTaskId?: string | null;
+  scrollToMessageId?: string | null;
+}) {
   const params = useParams();
   const searchParams = useSearchParams();
   const { workspaceId, slug } = useWorkspace();
   const { agents, agentLinks, activeTaskCounts, subscribeWs } = useAgentContext();
   const { refresh: refreshInboxCount } = useInboxCount();
-  const { activeChannel, loading: channelLoading } = useChannel();
-  const agentId = params.id as string;
-  const scrollToTaskId = searchParams.get("task");
-  const targetConvId = searchParams.get("conv");
+  const { activeChannel, loading: channelLoading, setAgentId: setChannelAgentId } = useChannel();
+  const agentId = propAgentId ?? (params.id as string);
+  const scrollToTaskId = propScrollToTaskId !== undefined ? propScrollToTaskId : searchParams.get("task");
+  const scrollToMessageId = propScrollToMessageId !== undefined ? propScrollToMessageId : searchParams.get("msg");
+  const targetConvId = propTargetConvId !== undefined ? propTargetConvId : searchParams.get("conv");
 
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -318,15 +334,18 @@ export function AgentChatView() {
   const [cancelling, setCancelling] = useState(false);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [taskMessages, setTaskMessages] = useState<TaskMessage[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(true);
   const [connectionLost, setConnectionLost] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [artifactSheetOpen, setArtifactSheetOpen] = useState(false);
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
+  const [artifactSheetSource, setArtifactSheetSource] = useState<"agent" | "issue" | null>(null);
   const [emailSheetOpen, setEmailSheetOpen] = useState(false);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const [calendarEventSheetOpen, setCalendarEventSheetOpen] = useState(false);
+  const [selectedCalendarEventId, setSelectedCalendarEventId] = useState<string | null>(null);
   const [issueSheetOpen, setIssueSheetOpen] = useState(false);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const [issueDetail, setIssueDetail] = useState<{
@@ -351,6 +370,19 @@ export function AgentChatView() {
   const [pendingFilesByMessage, setPendingFilesByMessage] = useState<Map<string, File[]>>(() => new Map());
   const [quotedText, setQuotedText] = useState<string | null>(null);
   const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number } | null>(null);
+  const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set());
+  const flaggedIdsRef = useRef(flaggedIds);
+  useEffect(() => { flaggedIdsRef.current = flaggedIds; });
+
+  const { increment: flagIncrement, decrement: flagDecrement, refresh: flagRefresh } = useFlagCount();
+
+  const { writeToCache } = useCachedMessages(targetConvId ?? null, workspaceId);
+  const writeToCacheRef = useRef(writeToCache);
+  useEffect(() => { writeToCacheRef.current = writeToCache; }, [writeToCache]);
+
+  useEffect(() => {
+    setChannelAgentId(agentId);
+  }, [agentId, setChannelAgentId]);
 
   const handleSpeechResult = useCallback((text: string) => {
     setInput((prev) => (prev ? prev + " " + text : text));
@@ -359,28 +391,33 @@ export function AgentChatView() {
 
   const agentArtifacts = useMemo(() => artifacts.filter((a) => a.source === "agent"), [artifacts]);
 
-  const { versionMap, duplicateFilenames } = useMemo(() => {
-    const groups = new Map<string, Artifact[]>();
-    for (const a of agentArtifacts) {
-      const group = groups.get(a.filename) || [];
-      group.push(a);
-      groups.set(a.filename, group);
-    }
-    const vm = new Map<string, number>();
-    const dupes = new Set<string>();
-    for (const [filename, group] of groups) {
-      group.sort((a, b) => a.created_at.localeCompare(b.created_at));
-      if (group.length > 1) dupes.add(filename);
-      group.forEach((a, i) => vm.set(a.id, i + 1));
-    }
-    return { versionMap: vm, duplicateFilenames: dupes };
-  }, [agentArtifacts]);
+  const { versionMap, duplicateFilenames } = useMemo(() => computeArtifactVersions(agentArtifacts), [agentArtifacts]);
+
+  const artifactSheetArtifacts = useMemo(
+    () => artifactSheetSource === "agent" ? agentArtifacts : artifactSheetSource === "issue" ? (issueDetail?.artifacts ?? []) : [],
+    [artifactSheetSource, agentArtifacts, issueDetail?.artifacts],
+  );
+  const { versionMap: artifactSheetVersionMap, duplicateFilenames: artifactSheetDuplicateFilenames } = useMemo(
+    () => computeArtifactVersions(artifactSheetArtifacts),
+    [artifactSheetArtifacts],
+  );
 
   const timeline = useMemo(() => buildTimeline(messages, agentArtifacts, napMarkers, conversation?.id), [messages, agentArtifacts, napMarkers, conversation?.id]);
 
   const handleArtifactClick = useCallback((artifact: Artifact) => {
     if (isPreviewable(artifact)) {
       setSelectedArtifact(artifact);
+      setArtifactSheetSource("agent");
+      setArtifactSheetOpen(true);
+    } else {
+      window.open(getArtifactUrl(artifact.id, workspaceId, true), "_blank");
+    }
+  }, [workspaceId]);
+
+  const handleIssueArtifactClick = useCallback((artifact: Artifact) => {
+    if (isPreviewable(artifact)) {
+      setSelectedArtifact(artifact);
+      setArtifactSheetSource("issue");
       setArtifactSheetOpen(true);
     } else {
       window.open(getArtifactUrl(artifact.id, workspaceId, true), "_blank");
@@ -389,12 +426,14 @@ export function AgentChatView() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollTaskIdRef = useRef<string | null>(null);
   const lastSeqRef = useRef(0);
   const pollFailures = useRef(0);
   const initialScrollDone = useRef(false);
   const loadingMoreRef = useRef(false);
   const isNearBottom = useRef(true);
+  const scrollTargetActiveRef = useRef(false);
   const startPollingRef = useRef<((taskId: string, conversationId: string, initialSeq?: number) => void) | null>(null);
   const oldestConversationCursorRef = useRef<PreviousConversation | null>(null);
   const backfillAttemptsRef = useRef(0);
@@ -446,77 +485,117 @@ export function AgentChatView() {
     pollRef.current = null;
     pollTaskIdRef.current = null;
     let ignore = false;
-    queueMicrotask(() => {
-      if (ignore) return;
-      setLoading(true);
-      initialScrollDone.current = false;
-      setActiveTask(null);
-      setTaskMessages([]);
-      setBufferedMessages([]);
-      setPendingFilesByMessage(new Map());
-      setNapMarkers([]);
-      setStepCounts({});
-      setPreviousConversations([]);
-      setHasMoreConversations(false);
-      oldestConversationCursorRef.current = null;
-      setInput(localStorage.getItem(`chat-draft:${agentId}:${targetConvId ?? 'default'}`) ?? "");
-    });
+    setMessagesLoading(true);
+    initialScrollDone.current = false;
+    setActiveTask(null);
+    setTaskMessages([]);
+    setBufferedMessages([]);
+    setPendingFilesByMessage(new Map());
+    setNapMarkers([]);
+    setStepCounts({});
+    setPreviousConversations([]);
+    setHasMoreConversations(false);
+    oldestConversationCursorRef.current = null;
+    setInput(localStorage.getItem(`chat-draft:${agentId}:${targetConvId ?? 'default'}`) ?? "");
+    setMessages([]);
     async function load() {
+      let hasCachedMessages = false;
       try {
+        let convId: string | null = null;
+        let cacheMeta: Awaited<ReturnType<typeof getCacheMeta>> = null;
+
         if (targetConvId) {
-          try {
-            const [conv, msgsResult, arts, buffered] = await Promise.all([
-              getConversation(targetConvId, workspaceId),
-              listMessages(targetConvId, workspaceId),
-              listArtifacts(targetConvId, workspaceId).catch(() => [] as Artifact[]),
-              listBufferedMessages(targetConvId, workspaceId).catch(() => [] as Message[]),
-            ]);
+          // Fast path: we already know the conv ID — render from cache immediately, no network needed
+          convId = targetConvId;
+          cacheMeta = await getCacheMeta(convId, workspaceId);
+          if (cacheMeta?.newestMessageId) {
+            const cached = await getCachedMessages(convId, workspaceId);
             if (ignore) return;
-            setConversation(conv);
-            setMessages(msgsResult.messages);
-            setHasMore(msgsResult.has_more);
-            setArtifacts(arts);
-            setBufferedMessages(buffered);
-            const taskIds = [...new Set(msgsResult.messages.filter((m) => m.role === "assistant" && m.task_id).map((m) => m.task_id!))];
-            if (taskIds.length > 0) {
-              getTaskStepCounts(taskIds, workspaceId)
-                .then((counts) => { if (!ignore) setStepCounts(counts); })
-                .catch(() => {});
+            if (cached && cached.length > 0) {
+              hasCachedMessages = true;
+              setMessages(cached);
+              setHasMore(cacheMeta.hasMore);
+              setMessagesLoading(false);
             }
-            if (scrollToTaskId) {
-              const task = await getTask(scrollToTaskId, workspaceId).catch(() => null);
+          }
+        } else {
+          // Slow path: need server to resolve conv ID first
+          try {
+            const fresh = await checkFreshness({ agentId, channel: activeChannel }, workspaceId);
+            if (ignore) return;
+            convId = fresh.conversation_id;
+            cacheMeta = await getCacheMeta(convId, workspaceId);
+            const cacheValid = !!(cacheMeta?.newestMessageId && cacheMeta.newestMessageId === fresh.newest_message_id);
+            if (cacheValid) {
+              const cached = await getCachedMessages(convId, workspaceId);
               if (ignore) return;
-              if (task && !["completed", "failed", "cancelled", "superseded"].includes(task.status)) {
-                setActiveTask(task);
-                const tmsgs = await getTaskMessages(scrollToTaskId, workspaceId).catch(() => [] as TaskMessage[]);
-                if (ignore) return;
-                setTaskMessages(tmsgs);
-                if (tmsgs.length > 0) {
-                  lastSeqRef.current = Math.max(...tmsgs.map((m) => m.seq));
-                }
-                startPollingRef.current?.(task.id, targetConvId, lastSeqRef.current);
+              if (cached && cached.length > 0) {
+                hasCachedMessages = true;
+                setMessages(cached);
+                setHasMore(cacheMeta!.hasMore);
+                setMessagesLoading(false);
               }
             }
           } catch {
-            const data = await chatInit(agentId, workspaceId, activeChannel);
-            if (ignore) return;
-            setConversation(data.conversation);
-            setMessages(data.messages);
+            // checkFreshness failed — fall back to chatInit below
+          }
+        }
+
+        // Phase B: full data fetch (background hydration or stale-cache refresh)
+        if (convId) {
+          const data = await conversationInit(convId, workspaceId, {
+            newestMessageId: cacheMeta?.newestMessageId ?? undefined,
+          });
+          if (ignore) return;
+          setConversation(data.conversation);
+          setHasMoreConversations(data.has_more_conversations);
+          if (!data.cache_valid && data.messages) {
+            setMessages((prev) => mergeMessages(prev, data.messages!));
+            writeToCacheRef.current(data.messages, data.has_more_messages).catch(() => {});
             setHasMore(data.has_more_messages);
-            setArtifacts(data.artifacts);
-            setBufferedMessages(data.buffered_messages);
-            setHasMoreConversations(data.has_more_conversations);
+          } else if (cacheMeta) {
+            setHasMore(cacheMeta.hasMore);
+          }
+          setStepCounts(data.step_counts);
+          setArtifacts(data.artifacts);
+          setBufferedMessages(data.buffered_messages);
+          setFlaggedIds(new Set(data.flagged_message_ids));
+          if (data.active_task) {
+            setActiveTask(data.active_task);
+            setTaskMessages(data.task_messages);
+            if (data.task_messages.length > 0) {
+              lastSeqRef.current = Math.max(...data.task_messages.map((m) => m.seq));
+            }
+            startPollingRef.current?.(data.active_task.id, convId, lastSeqRef.current);
+          }
+          if (scrollToTaskId) {
+            const task = await getTask(scrollToTaskId, workspaceId).catch(() => null);
+            if (ignore) return;
+            if (task && !["completed", "failed", "cancelled", "superseded"].includes(task.status)) {
+              setActiveTask(task);
+              const tmsgs = await getTaskMessages(scrollToTaskId, workspaceId).catch(() => [] as TaskMessage[]);
+              if (ignore) return;
+              setTaskMessages(tmsgs);
+              if (tmsgs.length > 0) {
+                lastSeqRef.current = Math.max(...tmsgs.map((m) => m.seq));
+              }
+              startPollingRef.current?.(task.id, convId, lastSeqRef.current);
+            }
           }
         } else {
+          // checkFreshness failed entirely — fall back to chatInit
           const data = await chatInit(agentId, workspaceId, activeChannel);
           if (ignore) return;
           setConversation(data.conversation);
-          setMessages(data.messages);
+          setMessages((prev) => prev.length > 0 ? mergeMessages(prev, data.messages) : data.messages);
           setHasMore(data.has_more_messages);
           setArtifacts(data.artifacts);
           setBufferedMessages(data.buffered_messages);
           setHasMoreConversations(data.has_more_conversations);
-
+          writeToCacheRef.current(data.messages, data.has_more_messages).catch(() => {});
+          listFlaggedMessageIds(workspaceId, data.conversation.id)
+            .then((r) => { if (!ignore) setFlaggedIds(new Set(r.message_ids)); })
+            .catch(() => {});
           if (data.active_task) {
             setActiveTask(data.active_task);
             if (data.task_messages.length > 0) {
@@ -529,65 +608,147 @@ export function AgentChatView() {
           }
         }
       } catch {
-        toast.error("Failed to load conversation");
+        if (!hasCachedMessages) {
+          toast.error("Failed to load conversation");
+        } else {
+          toast.error("Couldn't refresh conversation");
+        }
       } finally {
-        if (!ignore) setLoading(false);
+        if (!ignore) setMessagesLoading(false);
       }
     }
     load();
     return () => { ignore = true; };
   }, [agentId, workspaceId, targetConvId, scrollToTaskId, activeChannel, channelLoading]);
 
+  const refreshInboxCountRef = useRef(refreshInboxCount);
+  useEffect(() => { refreshInboxCountRef.current = refreshInboxCount; }, [refreshInboxCount]);
+
   const markedReadRef = useRef<string | null>(null);
   useEffect(() => {
     if (!conversation?.id || !workspaceId) return;
     if (markedReadRef.current === conversation.id) return;
     markedReadRef.current = conversation.id;
-    markInboxRead(conversation.id, workspaceId)
-      .then(() => refreshInboxCount())
-      .catch(() => {});
-  }, [conversation?.id, workspaceId, refreshInboxCount]);
+    const timer = setTimeout(() => {
+      markInboxRead(conversation.id, workspaceId)
+        .then(() => refreshInboxCountRef.current())
+        .catch(() => {});
+    }, 1000);
+    return () => {
+      markedReadRef.current = null;
+      clearTimeout(timer);
+    };
+  }, [conversation?.id, workspaceId]);
 
-  // Scroll to bottom on initial load (skip if scroll-to-task is active)
+  // Scroll to bottom on initial load (skip if scroll-to-task/message is active)
   useEffect(() => {
-    if (!loading && messages.length > 0 && !initialScrollDone.current) {
+    if (!messagesLoading && messages.length > 0 && !initialScrollDone.current) {
       initialScrollDone.current = true;
-      if (!scrollToTaskId) {
+      if (scrollToTaskId || scrollToMessageId) {
+        isNearBottom.current = false;
+      } else if (propTargetConvId) {
+        setTimeout(() => {
+          const assistantMsgs = scrollRef.current?.querySelectorAll('[data-quote-source]');
+          if (assistantMsgs && assistantMsgs.length > 0) {
+            const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+            lastAssistant.scrollIntoView({ behavior: "instant", block: "start" });
+          } else {
+            scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+          }
+        }, 50);
+      } else {
         setTimeout(() => {
           scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
         }, 50);
       }
     }
-  }, [loading, messages.length, scrollToTaskId]);
+  }, [messagesLoading, messages.length, scrollToTaskId, scrollToMessageId, propTargetConvId]);
 
   // Scroll to task when ?task= param is present
   useEffect(() => {
-    if (!scrollToTaskId || loading || !conversation) return;
+    if (!scrollToTaskId || messagesLoading || !conversation) return;
+    isNearBottom.current = false;
+    scrollTargetActiveRef.current = true;
+    let cancelled = false;
+    let highlightTimerId: ReturnType<typeof setTimeout> | undefined;
     const tryScroll = () => {
+      if (cancelled) return false;
       const el = document.querySelector(`[data-task-id="${CSS.escape(scrollToTaskId)}"]`);
       if (!el) return false;
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
       el.classList.add("task-highlight");
-      setTimeout(() => el.classList.remove("task-highlight"), 1500);
+      highlightTimerId = setTimeout(() => {
+        el.classList.remove("task-highlight");
+        if (!cancelled) scrollTargetActiveRef.current = false;
+      }, 1500);
       return true;
     };
-    setTimeout(async () => {
+    const timerId = setTimeout(async () => {
+      if (cancelled) return;
       if (tryScroll()) return;
       try {
         const around = await listMessagesAroundTask(conversation.id, workspaceId, scrollToTaskId);
+        if (cancelled) return;
         if (around.length > 0) {
           setMessages((prev) => mergeMessages(prev, around));
           requestAnimationFrame(() => {
-            setTimeout(() => tryScroll(), 100);
+            setTimeout(() => {
+              if (!tryScroll()) {
+                scrollTargetActiveRef.current = false;
+              }
+            }, 100);
           });
+        } else {
+          scrollTargetActiveRef.current = false;
         }
-      } catch { }
+      } catch {
+        if (!cancelled) scrollTargetActiveRef.current = false;
+      }
     }, 100);
-  }, [scrollToTaskId, loading, conversation, workspaceId]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timerId);
+      if (highlightTimerId) clearTimeout(highlightTimerId);
+    };
+  }, [scrollToTaskId, messagesLoading, conversation, workspaceId]);
+
+  // Scroll to message when ?msg= param is present (skip if task scroll is active)
+  useEffect(() => {
+    if (!scrollToMessageId || scrollToTaskId || messagesLoading || !conversation) return;
+    isNearBottom.current = false;
+    scrollTargetActiveRef.current = true;
+    let cancelled = false;
+    let highlightTimerId: ReturnType<typeof setTimeout> | undefined;
+    const tryScroll = () => {
+      if (cancelled) return false;
+      const el = document.querySelector(`[data-message-id="${CSS.escape(scrollToMessageId)}"]`);
+      if (!el) return false;
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.classList.add("task-highlight");
+      highlightTimerId = setTimeout(() => {
+        el.classList.remove("task-highlight");
+        if (!cancelled) scrollTargetActiveRef.current = false;
+      }, 1500);
+      return true;
+    };
+    const timerId = setTimeout(() => {
+      if (cancelled) return;
+      if (!tryScroll()) {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+        scrollTargetActiveRef.current = false;
+      }
+    }, 100);
+    return () => {
+      cancelled = true;
+      clearTimeout(timerId);
+      if (highlightTimerId) clearTimeout(highlightTimerId);
+    };
+  }, [scrollToMessageId, scrollToTaskId, messagesLoading, conversation]);
 
   // Auto-scroll when task badge appears or new task steps arrive
   const taskStatus = activeTask?.status;
   useEffect(() => {
+    if (scrollTargetActiveRef.current) return;
     const isRunning = taskStatus === "running" || taskStatus === "queued";
     if (isRunning && isNearBottom.current) {
       scrollToBottom();
@@ -612,13 +773,14 @@ export function AgentChatView() {
     const currentHasMoreConvs = hasMoreConvsRef.current;
     const currentAgentName = agentNameRef.current;
     const currentChannel = activeChannelRef.current;
+    const isSingleConvView = !!targetConvId;
 
     const oldest = currentMessages[0];
     const paginatingConvId = oldestConversationCursorRef.current?.id ?? conversation.id;
     const canLoadMoreInConv = currentHasMore && oldest;
     let prevConvsList = prevConvsRef.current;
 
-    if (!canLoadMoreInConv && prevConvsList.length === 0 && currentHasMoreConvs) {
+    if (!isSingleConvView && !canLoadMoreInConv && prevConvsList.length === 0 && currentHasMoreConvs) {
       const oldestConv = oldestConversationCursorRef.current ?? { id: conversation.id, created_at: conversation.created_at };
       try {
         const result = await listPreviousConversations(agentId, workspaceId, {
@@ -634,7 +796,7 @@ export function AgentChatView() {
       }
     }
 
-    const canLoadPrevConv = prevConvsList.length > 0;
+    const canLoadPrevConv = !isSingleConvView && prevConvsList.length > 0;
 
     if (!canLoadMoreInConv && !canLoadPrevConv) {
       loadingMoreRef.current = false;
@@ -654,19 +816,31 @@ export function AgentChatView() {
       const napMarkersToAdd: { agentName: string; created_at: string; id: string }[] = [];
 
       // --- Phase 1: Load from current/paginating conversation ---
+      let phase1HasMore = false;
       if (canLoadMoreInConv) {
-        const result = await listMessages(paginatingConvId, workspaceId, {
-          limit: MESSAGE_LIMIT,
-          before: oldest!.created_at,
-          beforeId: oldest!.id,
-        });
-        phase1Messages = result.messages;
-        remaining -= result.messages.length;
-        lastHasMore = result.has_more;
+        const cached = paginatingConvId === conversation.id
+          ? await getCachedMessagesBefore(paginatingConvId, oldest!.created_at, oldest!.id, MESSAGE_LIMIT, workspaceId)
+          : null;
+
+        if (cached) {
+          phase1Messages = cached.messages;
+          remaining -= cached.messages.length;
+          lastHasMore = cached.hasMore;
+        } else {
+          const result = await listMessages(paginatingConvId, workspaceId, {
+            limit: MESSAGE_LIMIT,
+            before: oldest!.created_at,
+            beforeId: oldest!.id,
+          });
+          phase1Messages = result.messages;
+          remaining -= result.messages.length;
+          lastHasMore = result.has_more;
+        }
+        phase1HasMore = lastHasMore;
       }
 
-      // --- Phase 2: If current conv is exhausted AND still have quota, load from previous convs ---
-      if (!lastHasMore && remaining > 0) {
+      // --- Phase 2: Load from previous conversations (only in timeline mode) ---
+      if (!isSingleConvView && !lastHasMore && remaining > 0) {
         if (prevConvsList.length === 0 && currentHasMoreConvs) {
           const oldestConv = oldestConversationCursorRef.current ?? { id: conversation.id, created_at: conversation.created_at };
           try {
@@ -743,6 +917,13 @@ export function AgentChatView() {
         }
       });
 
+      if (allNewMessages.length > 0 && conversation) {
+        const currentConvMessages = allNewMessages.filter((m) => m.conversation_id === conversation.id);
+        if (currentConvMessages.length > 0) {
+          mergeCachedMessages(conversation.id, currentConvMessages, phase1HasMore, workspaceId).catch(() => {});
+        }
+      }
+
       loadingMoreRef.current = false;
       flushSync(() => setLoadingMore(false));
 
@@ -765,6 +946,7 @@ export function AgentChatView() {
     conversation,
     workspaceId,
     agentId,
+    targetConvId,
     messagesRef,
     hasMoreRef,
     hasMoreConvsRef,
@@ -773,7 +955,9 @@ export function AgentChatView() {
     prevConvsRef,
   ]);
 
-  const canLoadMore = hasMore || previousConversations.length > 0 || hasMoreConversations;
+  const canLoadMore = targetConvId
+    ? hasMore
+    : hasMore || previousConversations.length > 0 || hasMoreConversations;
 
   useEffect(() => {
     if (conversation?.id === prevConversationIdRef.current) return;
@@ -783,13 +967,14 @@ export function AgentChatView() {
 
   const MIN_MESSAGES = 10;
   useEffect(() => {
-    if (loading || !conversation) return;
+    if (messagesLoading || !conversation) return;
+    if (scrollToTaskId || targetConvId) return;
     if (messages.length >= MIN_MESSAGES || !canLoadMore) return;
     if (loadingMore) return;
     if (backfillAttemptsRef.current >= 3) return;
     backfillAttemptsRef.current += 1;
     loadOlderMessages(true);
-  }, [loading, messages.length, canLoadMore, loadingMore, conversation, loadOlderMessages]);
+  }, [messagesLoading, messages.length, canLoadMore, loadingMore, conversation, loadOlderMessages, scrollToTaskId, targetConvId]);
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -838,7 +1023,10 @@ export function AgentChatView() {
             if (isStale) {
               // Stale poll — still merge messages but don't touch activeTask or polling
               listMessages(conversationId, workspaceId)
-                .then(({ messages: latest }) => setMessages((prev) => mergeMessages(prev, latest)))
+                .then(({ messages: latest }) => {
+                  setMessages((prev) => mergeMessages(prev, latest));
+                  mergeCachedMessages(conversationId, latest, null, workspaceId).catch(() => {});
+                })
                 .catch(() => { });
               return;
             }
@@ -846,17 +1034,21 @@ export function AgentChatView() {
             if (pollRef.current) clearInterval(pollRef.current);
             pollRef.current = null;
 
-            markInboxRead(conversationId, workspaceId)
-              .then(() => refreshInboxCount())
-              .catch(() => {});
+            if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
+            markReadTimerRef.current = setTimeout(() => {
+              markInboxRead(conversationId, workspaceId)
+                .then(() => refreshInboxCountRef.current())
+                .catch(() => {});
+            }, 1000);
 
-            const shouldScroll = isNearBottom.current;
+            const shouldScroll = !scrollTargetActiveRef.current && isNearBottom.current;
             try {
               const [latestResult, arts] = await Promise.all([
                 listMessages(conversationId, workspaceId),
                 listArtifacts(conversationId, workspaceId).catch(() => null),
               ]);
               setMessages((prev) => mergeMessages(prev, latestResult.messages));
+              mergeCachedMessages(conversationId, latestResult.messages, null, workspaceId).catch(() => {});
               if (arts) setArtifacts(arts);
               setActiveTask(task);
             } catch {
@@ -886,6 +1078,7 @@ export function AgentChatView() {
                 if (nextTask && nextTask.id !== taskId) {
                   const { messages: latestMsgs } = await listMessages(conversationId, workspaceId);
                   setMessages((prev) => mergeMessages(prev, latestMsgs));
+                  mergeCachedMessages(conversationId, latestMsgs, null, workspaceId).catch(() => {});
                   setActiveTask(nextTask);
                   setTaskMessages([]);
                   startPollingRef.current?.(nextTask.id, conversationId);
@@ -918,6 +1111,7 @@ export function AgentChatView() {
   useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
+      if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current);
     };
   }, []);
 
@@ -942,7 +1136,10 @@ export function AgentChatView() {
       }
       if (msg.type === "task.created" && msg.conversationId === conversation?.id) {
         listMessages(msg.conversationId, workspaceId)
-          .then(({ messages: latest }) => setMessages((prev) => mergeMessages(prev, latest)))
+          .then(({ messages: latest }) => {
+            setMessages((prev) => mergeMessages(prev, latest));
+            mergeCachedMessages(msg.conversationId, latest, null, workspaceId).catch(() => {});
+          })
           .catch(() => {});
         const task = msg.task as Task;
         activeTaskIdRef.current = task.id;
@@ -953,6 +1150,10 @@ export function AgentChatView() {
       }
       if (msg.type === "conversation.message" && msg.conversationId === conversation?.id) {
         setMessages((prev) => mergeMessages(prev, [msg.message]));
+        appendCachedMessage(msg.conversationId, msg.message, workspaceId).catch(() => {});
+      }
+      if (msg.type === "task.updated" && msg.taskId === activeTaskIdRef.current) {
+        setActiveTask((prev) => prev ? { ...prev, status: msg.status } : prev);
       }
       if (msg.type === "artifact.uploaded" && msg.conversationId === conversation?.id) {
         setArtifacts((prev) => {
@@ -967,7 +1168,10 @@ export function AgentChatView() {
         listBufferedMessages(msg.conversationId, workspaceId)
           .then(setBufferedMessages).catch(() => {});
         listMessages(msg.conversationId, workspaceId)
-          .then(({ messages: latest }) => setMessages((prev) => mergeMessages(prev, latest)))
+          .then(({ messages: latest }) => {
+            setMessages((prev) => mergeMessages(prev, latest));
+            mergeCachedMessages(msg.conversationId, latest, null, workspaceId).catch(() => {});
+          })
           .catch(() => { });
         const task = msg.task as Task;
         activeTaskIdRef.current = task.id;
@@ -1140,6 +1344,7 @@ export function AgentChatView() {
           listBufferedMessages(conversation.id, workspaceId),
         ]);
         setMessages((prev) => mergeMessages(prev, latestResult.messages));
+        mergeCachedMessages(conversation.id, latestResult.messages, null, workspaceId).catch(() => {});
         setBufferedMessages(latestBuffered);
         setActiveTask(cancelled as Task);
         setTaskMessages([]);
@@ -1284,6 +1489,37 @@ export function AgentChatView() {
     startPolling(newTask.id, conversation.id);
   }, [activeTask, conversation, workspaceId, startPolling]);
 
+  const handleToggleFlag = useCallback(async (messageId: string) => {
+    const wasFlagged = flaggedIdsRef.current.has(messageId);
+    setFlaggedIds((prev) => {
+      const next = new Set(prev);
+      if (wasFlagged) next.delete(messageId);
+      else next.add(messageId);
+      return next;
+    });
+    if (wasFlagged) {
+      flagDecrement();
+      apiUnflagMessage(workspaceId, messageId)
+        .then(() => { flagRefresh(); })
+        .catch(() => {
+          setFlaggedIds((prev) => new Set(prev).add(messageId));
+          flagIncrement();
+        });
+    } else {
+      flagIncrement();
+      apiFlagMessage(workspaceId, messageId)
+        .then(() => { flagRefresh(); })
+        .catch(() => {
+          setFlaggedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(messageId);
+            return next;
+          });
+          flagDecrement();
+        });
+    }
+  }, [workspaceId, flagIncrement, flagDecrement, flagRefresh]);
+
   const openIssue = useCallback(async (issueId: string) => {
     setSelectedIssueId(issueId);
     setIssueSheetOpen(true);
@@ -1344,7 +1580,7 @@ export function AgentChatView() {
         });
       }
     });
-  }, [issueSheetOpen, selectedIssueId, issueConvId, issueTaskId, workspaceId, subscribeWs]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [issueSheetOpen, selectedIssueId, issueConvId, issueTaskId, workspaceId, subscribeWs]);
 
   const [napping, setNapping] = useState(false);
 
@@ -1403,7 +1639,7 @@ export function AgentChatView() {
 
   const isTaskActive = !!activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
 
-  if (loading) {
+  if (messagesLoading) {
     return (
       <>
         <div className="flex-1 overflow-y-auto px-3 md:px-5">
@@ -1442,7 +1678,7 @@ export function AgentChatView() {
     );
   }
 
-  if (!conversation) {
+  if (!messagesLoading && !conversation && messages.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
         Failed to load conversation
@@ -1478,8 +1714,8 @@ export function AgentChatView() {
             if (btn) toast.success("Copied to clipboard");
           }}
         >
-          <div className="mx-auto max-w-2xl py-6 space-y-4">
-            {canLoadMore && !loadingMore && (
+          <div className="mx-auto max-w-2xl py-6 space-y-4 min-w-0">
+            {conversation && canLoadMore && !loadingMore && (
               <div className="flex justify-center py-2">
                 <button
                   onClick={() => loadOlderMessages()}
@@ -1565,15 +1801,21 @@ export function AgentChatView() {
                     setSelectedEmailId(emailId);
                     setEmailSheetOpen(true);
                   }}
+                  onCalendarEventClick={(id) => {
+                    setSelectedCalendarEventId(id);
+                    setCalendarEventSheetOpen(true);
+                  }}
                   onIssueClick={(issueId) => openIssue(issueId)}
                   onRetry={handleRetryTask}
                   mentionComponents={MENTION_COMPONENTS}
+                  isFlagged={flaggedIds.has(msg.id)}
+                  onToggleFlag={msg.role === "assistant" ? handleToggleFlag : undefined}
                 />
               );
             })}
 
             {/* Show trace while task is in progress (no assistant message yet) */}
-            {activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status) && (
+            {activeTask && activeTask.conversation_id === conversation?.id && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status) && (
               <TaskStream
                 task={activeTask}
                 messages={taskMessages}
@@ -1662,6 +1904,7 @@ export function AgentChatView() {
               <textarea
                 ref={textareaRef}
                 value={input}
+                enterKeyHint="send"
                 onChange={(e) => {
                   setInput(e.target.value);
                   setCaretIndex(e.target.selectionStart);
@@ -1746,7 +1989,7 @@ export function AgentChatView() {
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      onClick={() => setArtifactSheetOpen(true)}
+                      onClick={() => { setArtifactSheetSource("agent"); setArtifactSheetOpen(true); }}
                       className="relative rounded-lg text-muted-foreground/60 hover:text-foreground transition-colors duration-200"
                     />
                   }>
@@ -1855,13 +2098,13 @@ export function AgentChatView() {
         open={artifactSheetOpen}
         onOpenChange={(v) => {
           setArtifactSheetOpen(v);
-          if (!v) setTimeout(() => setSelectedArtifact(null), 300);
+          if (!v) setTimeout(() => { setSelectedArtifact(null); setArtifactSheetSource(null); }, 300);
         }}
-        artifacts={agentArtifacts}
+        artifacts={artifactSheetArtifacts}
         workspaceId={workspaceId}
         initialArtifact={selectedArtifact}
-        versionMap={versionMap}
-        duplicateFilenames={duplicateFilenames}
+        versionMap={artifactSheetVersionMap}
+        duplicateFilenames={artifactSheetDuplicateFilenames}
       />
 
       <EmailEventSheet
@@ -1871,6 +2114,17 @@ export function AgentChatView() {
           if (!v) setTimeout(() => setSelectedEmailId(null), 300);
         }}
         emailId={selectedEmailId}
+        workspaceId={workspaceId}
+      />
+
+      <CalendarEventSheet
+        readonly
+        open={calendarEventSheetOpen}
+        onOpenChange={(v) => {
+          setCalendarEventSheetOpen(v);
+          if (!v) setTimeout(() => setSelectedCalendarEventId(null), 300);
+        }}
+        calendarEventId={selectedCalendarEventId}
         workspaceId={workspaceId}
       />
 
@@ -1918,6 +2172,7 @@ export function AgentChatView() {
         onCommented={() => {
           if (selectedIssueId) openIssue(selectedIssueId);
         }}
+        onArtifactClick={handleIssueArtifactClick}
       />
     </>
   );

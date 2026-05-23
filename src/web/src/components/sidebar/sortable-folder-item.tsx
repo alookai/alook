@@ -5,7 +5,6 @@ import type { AgentFolder } from "@/hooks/use-agent-folders";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { FolderCollapsed } from "./folder-collapsed";
-import { cn } from "@/lib/utils";
 
 export function SortableFolderItem({
   folder,

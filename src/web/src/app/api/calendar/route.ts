@@ -13,6 +13,7 @@ import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { calendarEventToResponse } from "@/lib/api/responses";
 import { repeatStopDateToStopAt } from "@/lib/services/calendar";
+import { broadcastToUser } from "@/lib/broadcast";
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -173,6 +174,34 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     repeatInterval: body.repeat_interval ?? null,
     repeatStopAt: repeatStopAtIso,
   });
+
+  if (body.conversation_id && agent.ownerId) {
+    const conv = await queries.conversation.getConversation(db, body.conversation_id, ws.workspaceId);
+    if (conv) {
+      const eventContent = `${body.title}`;
+      const metadata = JSON.stringify({ calendarEventId: created.id });
+      const eventMsg = await queries.message.createMessage(db, {
+        conversationId: body.conversation_id,
+        role: "event",
+        content: eventContent,
+        metadata,
+      });
+      broadcastToUser(agent.ownerId, {
+        type: "conversation.message",
+        conversationId: body.conversation_id,
+        message: {
+          id: eventMsg.id,
+          conversation_id: eventMsg.conversationId,
+          role: eventMsg.role as "event",
+          content: eventMsg.content,
+          task_id: eventMsg.taskId,
+          attachment_ids: null,
+          metadata: { calendarEventId: created.id },
+          created_at: eventMsg.createdAt,
+        },
+      }).catch(() => { });
+    }
+  }
 
   return writeJSON(calendarEventToResponse(created), 201);
 });

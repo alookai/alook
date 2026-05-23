@@ -92,6 +92,7 @@ export function AgentProvider({
   const loadedRef = useRef(false);
   const subscribersRef = useRef(new Set<WsSubscriber>());
   const taskCountsMountedRef = useRef(true);
+  const isReloadingRuntimesRef = useRef(false);
 
   const subscribeWs = useCallback((fn: WsSubscriber) => {
     subscribersRef.current.add(fn);
@@ -137,7 +138,7 @@ export function AgentProvider({
   useEffect(() => {
     taskCountsMountedRef.current = true;
     fetchTaskCounts();
-    const id = setInterval(fetchTaskCounts, 5000);
+    const id = setInterval(fetchTaskCounts, 15000);
     return () => {
       taskCountsMountedRef.current = false;
       clearInterval(id);
@@ -165,26 +166,48 @@ export function AgentProvider({
     }
   }, [workspaceId]);
 
+  const reloadRuntimes = useCallback(async () => {
+    if (isReloadingRuntimesRef.current) return;
+    isReloadingRuntimesRef.current = true;
+    try {
+      const r = await listRuntimes(workspaceId);
+      setRuntimes(r);
+    } catch {
+      // ignore — next tick will retry
+    } finally {
+      isReloadingRuntimesRef.current = false;
+    }
+  }, [workspaceId]);
+
   useEffect(() => {
     reload();
   }, [reload]);
 
-  // Debounced reload for runtime.status events
-  const statusDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const debouncedReload = useCallback(() => {
-    if (statusDebounceRef.current) clearTimeout(statusDebounceRef.current);
-    statusDebounceRef.current = setTimeout(() => {
-      statusDebounceRef.current = null;
-      reload();
-    }, 300);
-  }, [reload]);
-
-  // Cleanup debounce timer on unmount
+  // Periodic runtime polling (30s, visibility-aware)
   useEffect(() => {
-    return () => {
-      if (statusDebounceRef.current) clearTimeout(statusDebounceRef.current);
+    let jitterTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        reloadRuntimes();
+      }
+    }, 30_000);
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        const jitter = Math.random() * 2000;
+        jitterTimer = setTimeout(() => reloadRuntimes(), jitter);
+      }
     };
-  }, []);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      clearInterval(intervalId);
+      if (jitterTimer) clearTimeout(jitterTimer);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [reloadRuntimes]);
+
 
   // Listen for real-time WS events
   const handleWsMessage = useCallback(
@@ -205,16 +228,16 @@ export function AgentProvider({
         case "runtime.status":
           // Filter by workspaceId — ignore messages from other workspaces
           if (msg.workspaceId !== workspaceId) break;
-          debouncedReload();
+          reloadRuntimes();
           break;
         case "task.updated":
           fetchTaskCounts();
           break;
       }
     },
-    [reload, debouncedReload, fetchTaskCounts, workspaceId]
+    [reload, reloadRuntimes, fetchTaskCounts, workspaceId]
   );
-  useUserWs(handleWsMessage);
+  useUserWs(handleWsMessage, { onReconnect: reloadRuntimes });
 
   const handleCreateAgent = useCallback(
     async (req: CreateAgentRequest): Promise<Agent | null> => {

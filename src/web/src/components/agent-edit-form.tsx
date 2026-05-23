@@ -8,13 +8,15 @@ import type { AgentRuntime as Runtime } from "@alook/shared";
 import { cn } from "@/lib/utils";
 import { LockIcon } from "lucide-react";
 import { CustomEmailForm } from "@/components/custom-email-form";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
+import { RuntimeSelect } from "@/components/runtime-select";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { updateAgent as updateAgentApi } from "@/lib/api";
 import { toast } from "sonner";
 import {
   GeneralFields,
-  PinToggle,
   AllowedSendersTab,
   AgentAccessTab,
 } from "@/components/agent-form-fields";
@@ -55,6 +57,62 @@ function UsageRing({ ratio, size = 16, stroke = 1.5 }: { ratio: number; size?: n
   );
 }
 
+function RuntimeTab({
+  model,
+  setModel,
+  runtimeId,
+  setRuntimeId,
+  runtimes,
+  providerModels,
+}: {
+  model: string;
+  setModel: (v: string) => void;
+  runtimeId: string;
+  setRuntimeId: (v: string) => void;
+  runtimes: Runtime[];
+  providerModels: string[];
+}) {
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">Runtime</Label>
+        <RuntimeSelect
+          value={runtimeId}
+          onValueChange={(newId) => {
+            const oldProvider = runtimes.find((r) => r.id === runtimeId)?.provider;
+            const newProvider = runtimes.find((r) => r.id === newId)?.provider;
+            setRuntimeId(newId);
+            if (oldProvider && oldProvider !== newProvider) {
+              setModel("");
+            }
+          }}
+          runtimes={runtimes}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">Model</Label>
+        <Input
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          placeholder="Default (runtime model)"
+          list="agent-model-options-edit"
+        />
+        {providerModels.length > 0 && (
+          <datalist id="agent-model-options-edit">
+            {providerModels.map((m) => (
+              <option key={m} value={m} />
+            ))}
+          </datalist>
+        )}
+        <p className="text-xs text-muted-foreground/70">
+          Optional. Leave blank to use the runtime&apos;s default model.
+        </p>
+      </div>
+    </>
+  );
+}
+
 interface AgentEditFormProps {
   agent: Agent;
   runtimes: Runtime[];
@@ -70,7 +128,7 @@ interface AgentEditFormProps {
   saving: boolean;
 }
 
-type TabId = "general" | "instruction" | "email" | "permission";
+type TabId = "general" | "instruction" | "runtime" | "email" | "permission";
 
 export function AgentEditForm({
   agent,
@@ -107,6 +165,8 @@ export function AgentEditForm({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingInstructionsRef = useRef(false);
 
+  const scheduleInstructionSaveRef = useRef<() => void>(() => {});
+
   const flushInstructions = useCallback(async () => {
     if (savingInstructionsRef.current) return;
     const current = instructionsRef.current;
@@ -119,6 +179,9 @@ export function AgentEditForm({
       toast.error(err instanceof Error ? err.message : "Failed to save instructions");
     } finally {
       savingInstructionsRef.current = false;
+      if (instructionsRef.current !== savedInstructionsRef.current) {
+        scheduleInstructionSaveRef.current();
+      }
     }
   }, [agent.id, workspaceId]);
 
@@ -126,6 +189,10 @@ export function AgentEditForm({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(flushInstructions, DEBOUNCE_MS);
   }, [flushInstructions]);
+
+  useEffect(() => {
+    scheduleInstructionSaveRef.current = scheduleInstructionSave;
+  }, [scheduleInstructionSave]);
 
   const handleInstructionChange = useCallback(
     (next: string) => {
@@ -156,10 +223,16 @@ export function AgentEditForm({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
       if (instructionsRef.current !== savedInstructionsRef.current) {
-        void flushInstructions();
+        const params = new URLSearchParams({ workspace_id: workspaceId });
+        fetch(`/api/agents/${agent.id}?${params}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ instructions: instructionsRef.current }),
+          keepalive: true,
+        });
       }
     };
-  }, [flushInstructions]);
+  }, [agent.id, workspaceId]);
 
   const selectedRuntime = runtimes.find((r) => r.id === runtimeId);
   const providerModels =
@@ -181,11 +254,12 @@ export function AgentEditForm({
   const tabs: { id: TabId; label: string }[] = [
     { id: "general", label: "General" },
     { id: "instruction", label: "Instruction" },
+    { id: "runtime", label: "Runtime" },
     { id: "email", label: "Email" },
     { id: "permission", label: "Permission" },
   ];
 
-  const isFormTab = activeTab === "general" || activeTab === "email";
+  const isFormTab = activeTab === "general" || activeTab === "runtime" || activeTab === "email";
   const instructionRatio = instructions.length / MAX_INSTRUCTION_LENGTH;
 
   return (
@@ -266,11 +340,21 @@ export function AgentEditForm({
                       setModel={setModel}
                       runtimeId={runtimeId}
                       setRuntimeId={setRuntimeId}
-                      runtimes={runtimes}
-                      providerModels={providerModels}
+                      runtimes={[]}
+                      providerModels={[]}
                     />
-                    <PinToggle agentId={agent.id} />
                   </>
+                )}
+
+                {activeTab === "runtime" && (
+                  <RuntimeTab
+                    model={model}
+                    setModel={setModel}
+                    runtimeId={runtimeId}
+                    setRuntimeId={setRuntimeId}
+                    runtimes={runtimes}
+                    providerModels={providerModels}
+                  />
                 )}
 
                 {activeTab === "email" && (

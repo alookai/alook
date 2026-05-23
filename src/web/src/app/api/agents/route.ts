@@ -7,7 +7,8 @@ import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { agentToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
-import { sweepStaleState } from "@/lib/services/sweep";
+import { invalidate, cached, cacheKeys } from "@/lib/cache";
+import { filterVisibleAgents } from "@/lib/agent-visibility";
 
 export const GET = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -16,10 +17,11 @@ export const GET = withAuth(async (req, ctx) => {
   const { env } = getCloudflareContext()
   const db = getDb((env as Env).DB)
 
-  // Sweep stale state: catches stuck tasks even when all daemons are dead
-  await sweepStaleState(db, ws.workspaceId);
-
-  const agents = await queries.agent.listAgents(db, ws.workspaceId, ctx.userId);
+  const [allAgents, allAccess] = await Promise.all([
+    cached(cacheKeys.allAgents(ws.workspaceId), 300, () => queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId)),
+    cached(cacheKeys.allAgentAccess(ws.workspaceId), 300, () => queries.agentAccess.getAllAgentAccessForWorkspace(db, ws.workspaceId)),
+  ]);
+  const agents = filterVisibleAgents(allAgents, ctx.userId, allAccess);
   return writeJSON(agents.map(agentToResponse));
 });
 
@@ -83,6 +85,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     await queries.whitelist.addWhitelist(db, newAgent.id, ws.workspaceId, ctx.email.toLowerCase());
   }
 
+  await Promise.all([
+    invalidate(cacheKeys.allAgents(ws.workspaceId)),
+    invalidate(cacheKeys.allHandles(ws.workspaceId)),
+    invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
+  ]);
+
   // Send welcome email to owner
   if (newAgent.runtimeId && newAgent.emailHandle && ctx.email && isOnline(runtime.machineLastSeenAt)) {
     try {
@@ -101,6 +109,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         `You have just been created by your owner (${ctx.email}). Please send them a welcome email introducing yourself as "${name}". In the email: 1) Introduce yourself warmly — your name, your email address, and what you can help with. 2) Briefly introduce the Alook platform — a personal AI agent platform where agents can handle emails, schedule tasks, and work autonomously. 3) Let them know they can chat with you directly or email you anytime. Be warm, professional, and concise.`,
         TASK_TYPES.EMAIL_NOTIFICATION,
       );
+      const dateStr = new Date().toISOString().slice(0, 10);
+      invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)).catch(() => {});
+      invalidate(cacheKeys.activeTaskCounts(ws.workspaceId)).catch(() => {});
     } catch {
       // Best-effort — don't fail agent creation
     }

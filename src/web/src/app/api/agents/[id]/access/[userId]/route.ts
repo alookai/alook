@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeError } from "@/lib/middleware/helpers";
+import { invalidate, cacheKeys } from "@/lib/cache";
 
 export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -23,5 +24,10 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   if (removeWhitelist && member?.userEmail) {
     await queries.whitelist.removeWhitelistByEmail(db, agentId, ws.workspaceId, member.userEmail);
   }
+  await Promise.all([
+    invalidate(cacheKeys.allAgents(ws.workspaceId)),
+    invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
+    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
+  ]);
   return new Response(null, { status: 204 });
 });

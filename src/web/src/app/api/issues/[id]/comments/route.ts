@@ -12,6 +12,7 @@ import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { parseBody, writeError, writeJSON } from "@/lib/middleware/helpers";
 import { broadcastToUser } from "@/lib/broadcast";
 import { TaskService } from "@/lib/services/task";
+import { invalidate, cacheKeys } from "@/lib/cache";
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -97,6 +98,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
           }
         );
         await queries.issue.setLatestTask(db, id, ws.workspaceId, task.id);
+        const dateStr = new Date().toISOString().slice(0, 10);
+        invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)).catch(() => {});
       } catch {
         // Non-fatal: comment is saved, dispatch failure doesn't block
       }

@@ -13,6 +13,7 @@ import Image from "@tiptap/extension-image";
 import { EmailToolbar } from "@/components/email-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { EmailAttachment } from "@alook/shared";
 import { toast } from "sonner";
 import { Send, X, Loader2, Paperclip, File as FileIcon } from "lucide-react";
@@ -204,20 +205,27 @@ export function EmailCompose({
             className="hidden"
             onChange={handleFileSelect}
           />
-          <button
-            type="button"
-            title="Attach file"
-            disabled={uploading}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center justify-center size-7 rounded-md transition-colors cursor-pointer text-muted-foreground/70 hover:text-foreground hover:bg-accent disabled:opacity-40"
-          >
-            {uploading ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Paperclip className="size-3.5" />
-            )}
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={uploading}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-muted-foreground/70"
+                />
+              }
+            >
+              {uploading ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Paperclip className="size-3.5" />
+              )}
+            </TooltipTrigger>
+            <TooltipContent>Attach file</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

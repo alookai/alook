@@ -33,7 +33,7 @@ export function EmailEventSheet({ open, onOpenChange, emailId, workspaceId }: Em
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const dragging = useRef(false);
   const onOpenChangeRef = useRef(onOpenChange);
-  onOpenChangeRef.current = onOpenChange;
+  useEffect(() => { onOpenChangeRef.current = onOpenChange; });
 
   useEffect(() => {
     if (!open || !emailId) return;

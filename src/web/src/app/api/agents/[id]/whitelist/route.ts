@@ -5,6 +5,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { withWorkspaceMember } from "@/lib/middleware/workspace"
 import { writeJSON, writeError, parseBody, formatTimestamp } from "@/lib/middleware/helpers"
 import { TaskService } from "@/lib/services/task"
+import { invalidate, cacheKeys } from "@/lib/cache"
 
 export const GET = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -66,6 +67,9 @@ export const POST = withAuth(async (req, ctx) => {
         `Your owner (${ctx.email}) has added a new contact to your whitelist: ${email}. Please compose and send them a welcome email introducing yourself as "${agent.name}". Be warm and professional. Let them know they can reach you at your email address and briefly describe how you can help them.`,
         TASK_TYPES.EMAIL_NOTIFICATION,
       );
+      const dateStr = new Date().toISOString().slice(0, 10);
+      invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)).catch(() => {});
+      invalidate(cacheKeys.activeTaskCounts(ws.workspaceId)).catch(() => {});
     } catch {
       // Best-effort — don't fail the whitelist operation
     }

@@ -11,7 +11,10 @@ let mockAuthCtx: Record<string, unknown> = { userId: "u1", email: "u@t.com", wor
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: { withSession: () => ({}) } } })),
 }));
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+vi.mock("@/lib/db", () => ({
+  getDb: vi.fn(() => ({})),
+  withD1Retry: vi.fn((fn: () => Promise<any>) => fn()),
+}));
 vi.mock("@alook/shared", async () => {
   const real = await vi.importActual<typeof import("@alook/shared")>("@alook/shared");
   return {

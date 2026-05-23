@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, asc, sql } from "drizzle-orm";
 import { channel, conversation } from "../schema";
 import type { Database } from "../index";
 
@@ -6,11 +6,17 @@ export async function createChannel(
   db: Database,
   data: { workspaceId: string; name: string }
 ) {
+  const [maxRow] = await db
+    .select({ maxPos: sql<number>`COALESCE(MAX(${channel.position}), -1)` })
+    .from(channel)
+    .where(eq(channel.workspaceId, data.workspaceId));
+  const nextPos = (maxRow?.maxPos ?? -1) + 1;
   const rows = await db
     .insert(channel)
     .values({
       workspaceId: data.workspaceId,
       name: data.name,
+      position: nextPos,
     })
     .returning();
   return rows[0]!;
@@ -20,7 +26,8 @@ export async function listChannels(db: Database, workspaceId: string) {
   return db
     .select()
     .from(channel)
-    .where(eq(channel.workspaceId, workspaceId));
+    .where(eq(channel.workspaceId, workspaceId))
+    .orderBy(asc(channel.position));
 }
 
 export async function getChannelByName(
@@ -100,4 +107,24 @@ export async function renameChannel(
   ]);
 
   return { ...row, name: newName };
+}
+
+export async function reorderChannels(
+  db: Database,
+  workspaceId: string,
+  orderedChannelIds: string[],
+) {
+  await (db as any).batch(
+    orderedChannelIds.map((id, i) =>
+      db
+        .update(channel)
+        .set({ position: i })
+        .where(
+          and(
+            eq(channel.id, id),
+            eq(channel.workspaceId, workspaceId),
+          )
+        )
+    )
+  );
 }

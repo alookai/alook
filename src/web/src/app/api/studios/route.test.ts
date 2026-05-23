@@ -18,17 +18,32 @@ const mockEnqueueTask = vi.fn();
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
+vi.mock("@/lib/cache", () => ({
+  invalidate: vi.fn(),
+  cached: vi.fn((_key: string, _ttl: number, fn: () => Promise<any>) => fn()),
+  cacheKeys: {
+    allAgents: (ws: string) => `agents:${ws}`,
+    allHandles: (ws: string) => `handles:${ws}`,
+    allColleagues: (ws: string) => `col:${ws}`,
+    allAgentAccess: (ws: string) => `aa:${ws}`,
+    allMembers: (ws: string) => `members:${ws}`,
+    overviewTaskStats: (ws: string, d: string) => `ov_task:${ws}:${d}`,
+    agentLinks: (ws: string) => `al:${ws}`,
+  },
+}));
+
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   return {
     ...actual,
     createDb: vi.fn(() => ({})),
-    isOnline: vi.fn((t: string | null) => !!t && Date.now() - new Date(t).getTime() < 9000),
+    isOnline: vi.fn((t: string | null) => !!t && Date.now() - new Date(t).getTime() < 30_000),
     queries: {
       agent: {
         createAgent: (...args: unknown[]) => mockCreateAgent(...args),
         getAgentByHandle: (...args: unknown[]) => mockGetAgentByHandle(...args),
         listAgents: (...args: unknown[]) => mockListAgents(...args),
+        getAllHandlesForWorkspace: vi.fn().mockResolvedValue([]),
       },
       runtime: {
         getAgentRuntimeForWorkspace: (...args: unknown[]) => mockGetAgentRuntimeForWorkspace(...args),

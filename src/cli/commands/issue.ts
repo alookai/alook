@@ -4,6 +4,7 @@ import { APIClient } from "../lib/client.js";
 import { loadCLIConfigForProfile } from "../lib/config.js";
 import { printJSON } from "../lib/output.js";
 import { cmdPrefix } from "../lib/env.js";
+import { resolveAgentId } from "../lib/flags.js";
 
 const VALID_STATUSES = ["todo", "in_progress", "review", "done", "closed", "canceled", "failed"];
 
@@ -99,18 +100,19 @@ export function issueCommand(): Command {
   cmd
     .command("create")
     .description("Create and dispatch an issue to an agent")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .requiredOption("--title <title>", "Issue title")
     .option("--description <text>", "Issue description")
     .option("--body-file <path>", "Read issue description from a file")
     .option("--json", "Output as JSON")
     .action(async (opts, command) => {
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, opts.agent_id);
+      const agentId = resolveAgentId(opts);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, agentId);
       const client = new APIClient(serverUrl, token, workspaceId);
       const description = readBody({ body: opts.description, bodyFile: opts.bodyFile });
       try {
         const res = await client.postJSON<{ issue: IssueResponse }>("/api/issues", {
-          agent_id: opts.agent_id,
+          agent_id: agentId,
           title: opts.title,
           description,
         });
@@ -125,7 +127,7 @@ export function issueCommand(): Command {
   cmd
     .command("list")
     .description("List issues for an agent")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .option("--status <status>", `Filter by status (${VALID_STATUSES.join(", ")})`)
     .option("--completed", "Show completed/closed/canceled/failed issues")
     .option("--all", "Show all issues")
@@ -135,9 +137,10 @@ export function issueCommand(): Command {
         console.error(`Error: invalid status "${opts.status}"`);
         process.exit(1);
       }
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, opts.agent_id);
+      const agentId = resolveAgentId(opts);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, agentId);
       const client = new APIClient(serverUrl, token, workspaceId);
-      const params = new URLSearchParams({ agentId: opts.agent_id });
+      const params = new URLSearchParams({ agentId });
       if (opts.status) params.set("status", opts.status);
       if (!opts.all && !opts.status) params.set("terminal", opts.completed ? "true" : "false");
       try {
@@ -157,16 +160,17 @@ export function issueCommand(): Command {
   cmd
     .command("show")
     .description("Show issue details and conversation")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .requiredOption("--issue_id <id>", "Issue ID")
     .option("--json", "Output as JSON")
     .action(async (opts, command) => {
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, opts.agent_id);
+      const agentId = resolveAgentId(opts);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, agentId);
       const client = new APIClient(serverUrl, token, workspaceId);
       try {
-        const res = await client.getJSON<{ issue: IssueResponse; messages: MessageResponse[]; comments: CommentResponse[] }>(`/api/issues/${opts.issue_id}?agentId=${encodeURIComponent(opts.agent_id)}`);
-        if (res.issue.agent_id !== opts.agent_id) {
-          console.error(`Error: issue ${res.issue.id} does not belong to agent ${opts.agent_id}`);
+        const res = await client.getJSON<{ issue: IssueResponse; messages: MessageResponse[]; comments: CommentResponse[] }>(`/api/issues/${opts.issue_id}?agentId=${encodeURIComponent(agentId)}`);
+        if (res.issue.agent_id !== agentId) {
+          console.error(`Error: issue ${res.issue.id} does not belong to agent ${agentId}`);
           process.exit(1);
         }
         if (opts.json) return printJSON(res);
@@ -180,7 +184,7 @@ export function issueCommand(): Command {
   cmd
     .command("update")
     .description("Update issue status or text")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .requiredOption("--issue_id <id>", "Issue ID")
     .option("--status <status>", `New status (${VALID_STATUSES.join(", ")})`)
     .option("--title <title>", "New title")
@@ -201,10 +205,11 @@ export function issueCommand(): Command {
         console.error("Error: pass at least one of --status, --title, --description, --body-file");
         process.exit(1);
       }
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, opts.agent_id);
+      const agentId = resolveAgentId(opts);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, agentId);
       const client = new APIClient(serverUrl, token, workspaceId);
       try {
-        const issue = await client.patchJSON<IssueResponse>(`/api/issues/${opts.issue_id}?agentId=${encodeURIComponent(opts.agent_id)}`, body);
+        const issue = await client.patchJSON<IssueResponse>(`/api/issues/${opts.issue_id}?agentId=${encodeURIComponent(agentId)}`, body);
         if (opts.json) return printJSON(issue);
         printIssue(issue);
       } catch (err) {
@@ -216,7 +221,7 @@ export function issueCommand(): Command {
   cmd
     .command("comment")
     .description("Append a comment to an issue")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .requiredOption("--issue_id <id>", "Issue ID")
     .option("--body <text>", "Comment text")
     .option("--body-file <path>", "Read comment from a file")
@@ -227,10 +232,11 @@ export function issueCommand(): Command {
         console.error("Error: pass --body or --body-file");
         process.exit(1);
       }
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, opts.agent_id);
+      const agentId = resolveAgentId(opts);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, agentId);
       const client = new APIClient(serverUrl, token, workspaceId);
       try {
-        const res = await client.postJSON<{ comment: CommentResponse }>(`/api/issues/${opts.issue_id}/comments?agentId=${encodeURIComponent(opts.agent_id)}`, { content });
+        const res = await client.postJSON<{ comment: CommentResponse }>(`/api/issues/${opts.issue_id}/comments?agentId=${encodeURIComponent(agentId)}`, { content });
         if (opts.json) return printJSON(res);
         console.log(`Commented on ${opts.issue_id}`);
       } catch (err) {

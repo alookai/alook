@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getDb, withD1Retry } from "@/lib/db";
 import type { TaskMessage } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -23,7 +23,7 @@ export const GET = withAuth(async (_req, ctx) => {
     return writeError("task_id is required", 400);
   }
 
-  const messages = await queries.taskMessage.listTaskMessages(db, taskId, ctx.workspaceId);
+  const messages = await withD1Retry(() => queries.taskMessage.listTaskMessages(db, taskId, ctx.workspaceId));
   return writeJSON(messages.map(taskMessageToResponse));
 });
 
@@ -40,7 +40,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("task_id is required", 400);
   }
 
-  const task = await queries.task.getTask(db, taskId, ctx.workspaceId);
+  const task = await withD1Retry(() => queries.task.getTask(db, taskId, ctx.workspaceId));
   if (!task) {
     return writeError("task not found", 404);
   }
@@ -48,21 +48,22 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const [body, err] = await parseBody(req, ReportMessagesRequestSchema);
   if (err) return err;
 
-  if (body.messages.length === 0) {
+  const filtered = body.messages.filter((m) => m.type !== "log" && m.type !== "status");
+  if (filtered.length === 0) {
     return writeJSON({ status: "ok" });
   }
 
   const results = await Promise.allSettled(
-    body.messages.map((m) =>
+    filtered.map((m) =>
       queries.taskMessage.createTaskMessage(db, {
         taskId,
         seq: m.seq,
         type: m.type,
         tool: m.tool || "",
         callId: m.call_id || "",
-        content: m.content || "",
-        input: m.input,
-        output: m.output || "",
+        content: m.type === "tool-result" ? "" : (m.content || ""),
+        input: m.type === "tool-result" ? undefined : m.input,
+        output: m.type === "tool-result" ? "" : (m.output || ""),
       })
     )
   );
@@ -73,7 +74,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   });
 
-  const succeeded = body.messages.filter((_, i) => results[i].status === "fulfilled");
+  const succeeded = filtered.filter((_, i) => results[i].status === "fulfilled");
   const broadcastable = succeeded.filter((m) => m.type !== "tool-result");
   if (broadcastable.length > 0) {
     const wsMessages: TaskMessage[] = broadcastable.map((m) => ({

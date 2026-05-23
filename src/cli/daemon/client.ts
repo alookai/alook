@@ -1,9 +1,12 @@
 import {
   PollResponseSchema,
   RegisterResponseSchema,
+  type CompleteTaskRequest,
   type FileRequestItem,
+  type MessageItem,
   type PollMeetingItem,
   type PollResponse,
+  type RegisterDaemonRequest,
   type RegisterResponse,
   type TaskApi,
   type WorkspaceFileReport,
@@ -51,16 +54,7 @@ export class DaemonClient {
 
   async register(
     token: string,
-    body: {
-      workspace_id: string;
-      daemon_id: string;
-      device_name: string;
-      cli_version: string;
-      runtimes: {
-        type: string;
-        version: string;
-      }[];
-    },
+    body: RegisterDaemonRequest,
   ): Promise<RegisterResponse> {
     const raw = await this.request<unknown>(
       "POST",
@@ -69,6 +63,18 @@ export class DaemonClient {
       body,
     );
     return RegisterResponseSchema.parse(raw);
+  }
+
+  heartbeat(token: string, daemonId: string): Promise<unknown> {
+    return this.request("POST", "/api/daemon/heartbeat", token, {
+      daemon_id: daemonId,
+    });
+  }
+
+  sweep(token: string, daemonId: string): Promise<unknown> {
+    return this.request("POST", "/api/daemon/sweep", token, {
+      daemon_id: daemonId,
+    });
   }
 
   deregister(token: string, daemonId: string) {
@@ -114,11 +120,7 @@ export class DaemonClient {
   completeTask(
     token: string,
     taskId: string,
-    body: {
-      output: string;
-      session_id?: string;
-      branch_name?: string;
-    },
+    body: CompleteTaskRequest,
   ) {
     return this.request(
       "POST",
@@ -185,15 +187,7 @@ export class DaemonClient {
   reportMessages(
     token: string,
     taskId: string,
-    messages: {
-      seq: number;
-      type: string;
-      tool?: string;
-      call_id?: string;
-      content?: string;
-      input?: Record<string, unknown>;
-      output?: string;
-    }[],
+    messages: MessageItem[],
   ) {
     return this.request(
       "POST",

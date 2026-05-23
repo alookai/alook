@@ -13,20 +13,20 @@ describe("issueCommand", () => {
     expect(names).toContain("comment");
   });
 
-  it("create requires agent_id and title", () => {
+  it("create requires title; --agent_id is optional (env fallback)", () => {
     const create = cmd.commands.find((c) => c.name() === "create")!;
     const opts = (create as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
     const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
-    expect(mandatory).toContain("--agent_id");
+    expect(mandatory).not.toContain("--agent_id");
     expect(mandatory).toContain("--title");
   });
 
-  it("show/update/comment require agent_id and issue_id", () => {
+  it("show/update/comment require issue_id; --agent_id is optional (env fallback)", () => {
     for (const name of ["show", "update", "comment"]) {
       const sub = cmd.commands.find((c) => c.name() === name)!;
       const opts = (sub as unknown as { options: { long: string; mandatory?: boolean }[] }).options;
       const mandatory = opts.filter((o) => o.mandatory).map((o) => o.long);
-      expect(mandatory).toContain("--agent_id");
+      expect(mandatory).not.toContain("--agent_id");
       expect(mandatory).toContain("--issue_id");
     }
   });

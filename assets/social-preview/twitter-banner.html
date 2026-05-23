@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600&family=VT323&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  width: 1500px;
+  height: 500px;
+  overflow: hidden;
+  font-family: 'DM Sans', sans-serif;
+  background: linear-gradient(135deg, #f5f0e8 0%, #ddd5c8 100%);
+}
+
+.banner {
+  width: 1500px;
+  height: 500px;
+  display: flex;
+  align-items: center;
+}
+
+/* Left side — avoid Twitter avatar at bottom-left */
+.left {
+  flex: 1;
+  padding-left: 200px;
+  padding-right: 20px;
+  padding-bottom: 80px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.logo {
+  font-size: 36px;
+  font-weight: 600;
+  color: #3d3428;
+  margin-bottom: 20px;
+}
+
+.title {
+  font-size: 48px;
+  font-weight: 600;
+  color: #2a231a;
+  line-height: 1.15;
+}
+
+.tagline {
+  font-size: 20px;
+  color: #8a7e6e;
+  margin-top: 14px;
+}
+
+/* Right side — typewriter container */
+.right {
+  width: 560px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-right: 40px;
+}
+
+/* ─── 3D Typewriter (from homepage) ─── */
+
+:root {
+  --tw-body: oklch(0.25 0.01 60);
+  --tw-body-hi: oklch(0.30 0.01 60);
+  --tw-body-lo: oklch(0.18 0.01 55);
+  --tw-body-top: oklch(0.28 0.01 60);
+  --tw-chrome: oklch(0.72 0.01 75);
+  --tw-chrome-hi: oklch(0.82 0.005 80);
+  --tw-paper: oklch(0.97 0.008 80);
+  --tw-blob: oklch(0.88 0.025 82);
+  --tw-roller: oklch(0.15 0.01 55);
+}
+
+.typewriter-visual {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: visible;
+  zoom: 0.72;
+  transform: translateX(-50px);
+  /* Explicit height = body(260) + paper(~200) so flex centering includes paper */
+  height: 460px;
+}
+
+.typewriter-blob {
+  pointer-events: none;
+  position: absolute;
+  bottom: -10%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 150%;
+  height: 95%;
+  background-color: var(--tw-blob);
+  mask-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='%23000' d='M44.7,-76.4C58.9,-69.2,71.8,-59.1,81.1,-46.1C90.4,-33.1,96.1,-16.6,96.6,-0.1C97.1,16.4,92.5,32.8,82.8,45.8C73.1,58.8,58.4,68.4,42.7,75.4C27,82.4,10.3,86.8,-5.5,88.4C-21.3,90,-36.2,88.8,-49.6,81.8C-63,74.8,-74.9,62.1,-82.1,47.4C-89.3,32.7,-91.8,16.3,-90.1,0.9C-88.4,-14.4,-82.5,-28.9,-73.6,-40.8C-64.7,-52.7,-52.9,-62,-40.1,-69.4C-27.3,-76.8,-13.6,-82.3,1.3,-84.6C16.2,-86.9,30.5,-83.6,44.7,-76.4Z' transform='translate(100 100)' /%3E%3C/svg%3E");
+  mask-size: contain;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  z-index: 1;
+  opacity: 0.45;
+}
+
+.typewriter-scene {
+  position: relative;
+  z-index: 2;
+  perspective: 2500px;
+  transform-style: preserve-3d;
+  transform: rotateY(-14deg) rotateX(8deg);
+}
+
+.tw-machine {
+  position: relative;
+  width: 420px;
+  transform-style: preserve-3d;
+}
+
+.tw-paper-track {
+  position: absolute;
+  bottom: calc(100% - 20px);
+  left: 50%;
+  transform: translateX(-50%) translateZ(81px);
+  width: 100%;
+  height: 400px;
+  overflow: hidden;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.tw-paper {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 24px 28px 44px;
+  background: var(--tw-paper);
+  box-shadow:
+    0 4px 20px rgba(0,0,0,0.08),
+    0 1px 4px rgba(0,0,0,0.05);
+  border-radius: 2px 2px 0 0;
+  /* Static: visible immediately */
+  opacity: 1;
+}
+
+.tw-body {
+  position: relative;
+  width: 100%;
+  height: 260px;
+  transform-style: preserve-3d;
+}
+
+.tw-body-front {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    var(--tw-body-hi) 0%,
+    var(--tw-body) 30%,
+    var(--tw-body-lo) 100%
+  );
+  border-radius: 24px;
+  transform: translateZ(80px);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 6%),
+    inset -5px -5px 15px oklch(0 0 0 / 10%),
+    inset 2px 2px 10px oklch(1 0 0 / 5%);
+  overflow: visible;
+}
+
+.tw-body-back {
+  position: absolute;
+  inset: 0;
+  background: var(--tw-body-lo);
+  border-radius: 24px;
+  transform: translateZ(-80px) rotateY(180deg);
+}
+
+.tw-body-left {
+  position: absolute;
+  width: 160px;
+  height: 260px;
+  background: oklch(0.22 0.01 58);
+  border-radius: 24px;
+  transform: rotateY(-90deg) translateZ(80px);
+  box-shadow: inset 10px 0 30px oklch(0 0 0 / 6%);
+}
+
+.tw-body-right {
+  position: absolute;
+  width: 160px;
+  height: 260px;
+  background: var(--tw-body-lo);
+  border-radius: 24px;
+  transform: rotateY(90deg) translateZ(340px);
+}
+
+.tw-body-top {
+  position: absolute;
+  width: 420px;
+  height: 160px;
+  background: oklch(0.30 0.01 60);
+  border-radius: 24px;
+  transform: rotateX(90deg) translateZ(80px);
+}
+
+.tw-body-bottom {
+  position: absolute;
+  width: 420px;
+  height: 160px;
+  background: oklch(0.14 0.01 55);
+  border-radius: 24px;
+  transform: rotateX(-90deg) translateZ(180px);
+  box-shadow: 0 60px 100px oklch(0 0 0 / 20%);
+}
+
+.tw-roller-assembly {
+  position: absolute;
+  top: -6px;
+  left: -24px;
+  right: -24px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  z-index: 6;
+}
+
+.tw-roller {
+  flex: 1;
+  height: 22px;
+  background: var(--tw-roller);
+  border-radius: 11px;
+  box-shadow:
+    inset 0 -5px 10px rgba(0,0,0,0.5),
+    inset 0 4px 6px rgba(255,255,255,0.05),
+    0 2px 8px rgba(0,0,0,0.3);
+}
+
+.tw-knob {
+  width: 20px;
+  height: 32px;
+  background: oklch(0.20 0.01 55);
+  border-radius: 4px;
+  box-shadow:
+    inset 0 -3px 5px rgba(0,0,0,0.4),
+    inset 0 1px 2px rgba(255,255,255,0.06),
+    0 2px 4px rgba(0,0,0,0.3);
+  flex-shrink: 0;
+  border: 1px solid oklch(0.30 0.01 55);
+}
+.tw-knob-left { margin-right: -3px; }
+.tw-knob-right { margin-left: -3px; }
+
+.tw-typebar-fan {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  height: 38px;
+  z-index: 5;
+  overflow: hidden;
+}
+
+.tw-typebar-fan::before {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 200px;
+  height: 76px;
+  border-radius: 50%;
+  border: 6px solid oklch(0.40 0.01 55);
+  border-bottom: none;
+  clip-path: inset(0 0 50% 0);
+}
+
+.tw-typebar-fan::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 180px;
+  height: 36px;
+  background: repeating-conic-gradient(
+    from 155deg at 50% 100%,
+    oklch(0.46 0.01 60) 0deg 1deg,
+    transparent 1deg 4.5deg
+  );
+  mask-image: radial-gradient(ellipse 90px 36px at 50% 100%, black 40%, transparent 90%);
+}
+
+.tw-keys-layer {
+  position: absolute;
+  top: 60px;
+  left: 0; right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 0 36px;
+  z-index: 4;
+}
+
+.tw-key-row {
+  display: flex;
+  gap: 12px;
+}
+
+.tw-key-row:nth-child(2) { margin-left: 18px; }
+.tw-key-row:nth-child(3) { margin-left: 0; }
+
+.tw-key {
+  width: 32px;
+  height: 26px;
+  background: oklch(0.92 0.005 80);
+  border-radius: 50%;
+  box-shadow:
+    0 3px 0 oklch(0.55 0.015 65),
+    0 4px 8px rgba(0,0,0,0.25),
+    inset 0 1px 3px rgba(255,255,255,0.7);
+  position: relative;
+}
+
+.tw-key::after {
+  content: "";
+  position: absolute;
+  top: 4px; left: 4px; right: 4px; bottom: 4px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 42% 38%,
+    rgba(255,255,255,0.5),
+    rgba(0,0,0,0.04) 70%
+  );
+  border: 1px solid rgba(0,0,0,0.08);
+}
+
+.tw-bars {
+  position: absolute;
+  bottom: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  z-index: 4;
+}
+
+.tw-bar {
+  height: 10px;
+  background: oklch(0.88 0.005 80);
+  border-radius: 5px;
+  box-shadow:
+    0 2px 0 oklch(0.55 0.015 65),
+    0 3px 6px rgba(0,0,0,0.15),
+    inset 0 1px 2px rgba(255,255,255,0.5);
+}
+
+.tw-bar-long { width: 210px; }
+.tw-bar-short { width: 170px; }
+
+/* Email content on paper */
+.tw-email-headers {
+  font-family: 'VT323', monospace;
+  font-size: 15px;
+  color: oklch(0.45 0.01 55);
+  line-height: 1.7;
+  border-bottom: 1px solid oklch(0.15 0.01 55 / 10%);
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+}
+
+.tw-email-line span {
+  color: oklch(0.15 0.01 55);
+}
+
+.tw-email-body {
+  font-family: 'VT323', monospace;
+  color: oklch(0.45 0.01 55);
+  font-size: 17px;
+  line-height: 1.6;
+}
+</style>
+</head>
+<body>
+<div class="banner">
+  <!-- Left side -->
+  <div class="left">
+    <div class="logo">alook.ai</div>
+    <div class="title">Your Personal Company</div>
+    <div class="tagline">AI agents that collaborate, stay always on, and learn.</div>
+  </div>
+
+  <!-- Right side — full 3D typewriter -->
+  <div class="right">
+    <div class="typewriter-visual">
+      <div class="typewriter-blob"></div>
+      <div class="typewriter-scene">
+        <div class="tw-machine">
+          <div class="tw-body">
+            <div class="tw-body-back"></div>
+            <div class="tw-body-left"></div>
+            <div class="tw-body-right"></div>
+            <div class="tw-body-top"></div>
+            <div class="tw-body-bottom"></div>
+
+            <div class="tw-body-front">
+              <!-- Paper track -->
+              <div class="tw-paper-track">
+                <div class="tw-paper">
+                  <div class="tw-email-headers">
+                    <div class="tw-email-line"><span>From:</span> jarvis@alook.ai</div>
+                    <div class="tw-email-line"><span>To:</span> you@email.com</div>
+                    <div class="tw-email-line"><span>Subject:</span> Good morning!</div>
+                  </div>
+                  <div class="tw-email-body">
+                    Your agents are always on. I handled everything overnight.
+                  </div>
+                </div>
+              </div>
+
+              <!-- Roller with knobs -->
+              <div class="tw-roller-assembly">
+                <div class="tw-knob tw-knob-left"></div>
+                <div class="tw-roller"></div>
+                <div class="tw-knob tw-knob-right"></div>
+              </div>
+
+              <!-- Type-bar fan -->
+              <div class="tw-typebar-fan"></div>
+
+              <!-- Key rows -->
+              <div class="tw-keys-layer">
+                <div class="tw-key-row">
+                  <div class="tw-key"></div><div class="tw-key"></div><div class="tw-key"></div>
+                  <div class="tw-key"></div><div class="tw-key"></div><div class="tw-key"></div>
+                  <div class="tw-key"></div><div class="tw-key"></div><div class="tw-key"></div>
+                </div>
+                <div class="tw-key-row">
+                  <div class="tw-key"></div><div class="tw-key"></div><div class="tw-key"></div>
+                  <div class="tw-key"></div><div class="tw-key"></div><div class="tw-key"></div>
+                  <div class="tw-key"></div>
+                </div>
+                <div class="tw-key-row">
+                  <div class="tw-key"></div><div class="tw-key"></div><div class="tw-key"></div>
+                  <div class="tw-key"></div><div class="tw-key"></div><div class="tw-key"></div>
+                  <div class="tw-key"></div><div class="tw-key"></div><div class="tw-key"></div>
+                </div>
+              </div>
+
+              <!-- Bars -->
+              <div class="tw-bars">
+                <div class="tw-bar tw-bar-long"></div>
+                <div class="tw-bar tw-bar-short"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

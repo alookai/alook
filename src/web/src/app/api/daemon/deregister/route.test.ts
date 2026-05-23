@@ -44,8 +44,14 @@ describe("POST /api/daemon/deregister", () => {
 
     vi.doMock("@opennextjs/cloudflare", () => mocks["@opennextjs/cloudflare"]);
     vi.doMock("@alook/shared", mocks["@alook/shared"]);
-    vi.doMock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+    vi.doMock("@/lib/db", () => ({
+      getDb: vi.fn(() => ({})),
+      withD1Retry: vi.fn((fn: () => Promise<any>) => fn()),
+    }));
     vi.doMock("@/lib/broadcast", () => mocks["@/lib/broadcast"]);
+    vi.doMock("@/lib/logger", () => ({
+      log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
+    }));
     vi.doMock("@/lib/middleware/auth", () => ({
       withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
         const params =
@@ -107,5 +113,18 @@ describe("POST /api/daemon/deregister", () => {
 
     expect(res.status).toBe(403);
     expect(body.error).toContain("machine token required");
+  });
+
+  it("still returns ok when setMachineLastSeenNull fails (D1 transient error)", async () => {
+    const POST = await loadRoute(daemonAuth);
+
+    mockSetMachineLastSeenNull.mockRejectedValue(new Error("D1 timeout"));
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    const res = await POST(makeReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ status: "ok" });
   });
 });

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAgentContext } from "@/contexts/agent-context";
 import { getMinCliVersion, triggerRuntimeUpdate } from "@/lib/api";
-import { semverGte } from "@alook/shared";
+import { semverGte, resolveMode } from "@alook/shared";
 import {
   Dialog,
   DialogContent,
@@ -13,11 +13,18 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { AlertTriangle, RefreshCw, Terminal } from "lucide-react";
 import { toast } from "sonner";
 import type { AgentRuntime } from "@alook/shared";
 
-const MANUAL_UPDATE_CMD = "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start";
+const mode = resolveMode({
+  nodeEnv: process.env.NODE_ENV,
+  hostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+});
+const MANUAL_UPDATE_CMD = mode === "app"
+  ? "npx @alook/app stop && npx @alook/app@latest update && npx @alook/app start"
+  : "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start";
 
 export function RuntimeVersionGate() {
   const { runtimes, workspaceId } = useAgentContext();
@@ -36,11 +43,12 @@ export function RuntimeVersionGate() {
     };
   }, []);
 
+  if (mode === "dev") return null;
   if (!minVersion) return null;
 
   const outdatedRuntimes = runtimes.filter((rt) => {
     if (rt.status !== "online") return false;
-    const cliVersion = (rt.metadata as Record<string, unknown>)?.cli_version;
+    const cliVersion = rt.metadata?.cli_version;
     if (typeof cliVersion !== "string" || !cliVersion) return true;
     return !semverGte(cliVersion, minVersion);
   });
@@ -55,6 +63,10 @@ export function RuntimeVersionGate() {
   if (outdatedMachines.size === 0) return null;
 
   const handleUpdate = async (rt: AgentRuntime) => {
+    if (mode === "app") {
+      setShowManualHint(true);
+      return;
+    }
     setUpdating((prev) => new Set(prev).add(rt.id));
     if (!hintTimer.current) {
       hintTimer.current = setTimeout(() => {
@@ -86,13 +98,15 @@ export function RuntimeVersionGate() {
             Runtime Update Required
           </DialogTitle>
           <DialogDescription>
-            The following machine(s) are running an outdated CLI version (minimum required: v{minVersion}). Please update to continue.
+            {mode === "app"
+              ? `Your local Alook app is running an outdated version (minimum required: v${minVersion}). Please update to continue.`
+              : `The following machine(s) are running an outdated CLI version (minimum required: v${minVersion}). Please update to continue.`}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 mt-2">
           {[...outdatedMachines.entries()].map(([daemonId, rt]) => {
-            const cliVersion = (rt.metadata as Record<string, unknown>)?.cli_version as string | undefined;
+            const cliVersion = rt.metadata?.cli_version as string | undefined;
             const isUpdating = updating.has(rt.id);
 
             return (
@@ -135,16 +149,22 @@ export function RuntimeVersionGate() {
               Update taking too long?
             </div>
             <p className="mb-1">Run this command on the machine to update manually:</p>
-            <code
-              className="block rounded bg-background px-2 py-1 font-mono text-[11px] cursor-pointer hover:bg-background/80 transition-colors"
-              title="Click to copy"
-              onClick={() => {
-                navigator.clipboard.writeText(MANUAL_UPDATE_CMD);
-                toast.success("Copied to clipboard");
-              }}
-            >
-              {MANUAL_UPDATE_CMD}
-            </code>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <code
+                    className="block rounded bg-background px-2 py-1 font-mono text-[11px] cursor-pointer hover:bg-background/80 transition-colors"
+                    onClick={() => {
+                      navigator.clipboard.writeText(MANUAL_UPDATE_CMD);
+                      toast.success("Copied to clipboard");
+                    }}
+                  />
+                }
+              >
+                {MANUAL_UPDATE_CMD}
+              </TooltipTrigger>
+              <TooltipContent>Click to copy</TooltipContent>
+            </Tooltip>
           </div>
         )}
       </DialogContent>

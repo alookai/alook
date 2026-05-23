@@ -6,8 +6,8 @@ import {
   VT323,
   Literata,
 } from "next/font/google";
+import { GoogleTagManager } from "@next/third-parties/google";
 import { ThemeProvider } from "@/components/theme-provider";
-import { ThemeScript } from "@/components/theme-script";
 import { ToasterProvider } from "@/components/toaster-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
@@ -94,6 +94,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
+    site: "@alook_ai",
     title: "Alook — Your Personal Company",
     description:
       "Your AI agents, always on. Give them an email, let them work for you around the clock.",
@@ -116,13 +117,13 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <ThemeScript />
         <link rel="manifest" href="/manifest.json" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
+      <GoogleTagManager gtmId="GTM-56VHCCQZ" />
       <body className="min-h-full flex flex-col">
         <script
           type="application/ld+json"

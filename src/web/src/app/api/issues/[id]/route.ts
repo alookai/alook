@@ -14,6 +14,7 @@ import { parseBody, writeError, writeJSON } from "@/lib/middleware/helpers";
 import { issueToResponse, messageToResponse, taskToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { broadcastToUser } from "@/lib/broadcast";
+import { invalidate, cacheKeys } from "@/lib/cache";
 import { log } from "@/lib/logger";
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
@@ -118,6 +119,8 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
         }
       );
       const issue = await queries.issue.setLatestTask(db, id, ws.workspaceId, task.id) ?? updated;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)).catch(() => {});
       broadcastToUser(ctx.userId, { type: "task.updated", taskId: task.id, agentId: task.agentId, status: "queued" }).catch(() => {});
       return writeJSON({
         ...issueToResponse(issue),
@@ -143,12 +146,17 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (!updated) return writeError("issue not found", 404);
 
   if (body.status && body.status !== existing.status && existing.conversationId) {
-    await queries.message.createMessage(db, {
+    const eventMsg = await queries.message.createMessage(db, {
       conversationId: existing.conversationId,
       role: "event",
       content: `Issue status changed: ${existing.status} -> ${body.status}`,
       metadata: JSON.stringify({ issueId: existing.id }),
     });
+    broadcastToUser(ctx.userId, {
+      type: "conversation.message",
+      conversationId: existing.conversationId,
+      message: messageToResponse(eventMsg),
+    }).catch(() => {});
   }
 
   return writeJSON(issueToResponse(updated));

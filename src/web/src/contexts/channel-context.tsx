@@ -14,7 +14,9 @@ import {
   createChannelApi,
   renameChannelApi,
   deleteChannelApi,
+  reorderChannelsApi,
 } from "@/lib/api";
+import { toast } from "sonner";
 
 interface ChannelContextValue {
   channels: Channel[];
@@ -25,6 +27,7 @@ interface ChannelContextValue {
   createChannel: (name: string) => Promise<Channel>;
   renameChannel: (id: string, name: string) => Promise<void>;
   deleteChannel: (id: string) => Promise<void>;
+  reorderChannels: (orderedIds: string[]) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -64,6 +67,7 @@ export function ChannelProvider({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!agentId) return;
     const stored = localStorage.getItem(storageKey(workspaceId, agentId));
     setActiveChannelState(stored ?? "default");
   }, [workspaceId, agentId]);
@@ -115,6 +119,27 @@ export function ChannelProvider({
     [workspaceId, channels, activeChannel, setActiveChannel, fetchChannels]
   );
 
+  const reorderChannels = useCallback(
+    async (orderedIds: string[]) => {
+      setChannels((current) => {
+        const idToChannel = new Map(current.map((c) => [c.id, c]));
+        const reordered = orderedIds
+          .map((id) => idToChannel.get(id))
+          .filter((c): c is Channel => c !== undefined);
+        const reorderedSet = new Set(orderedIds);
+        const preserved = current.filter((c) => !reorderedSet.has(c.id));
+        return [...preserved, ...reordered];
+      });
+      try {
+        await reorderChannelsApi(workspaceId, orderedIds);
+      } catch {
+        await fetchChannels();
+        toast.error("Failed to reorder channels");
+      }
+    },
+    [workspaceId, fetchChannels]
+  );
+
   return (
     <ChannelContext.Provider
       value={{
@@ -126,6 +151,7 @@ export function ChannelProvider({
         createChannel,
         renameChannel,
         deleteChannel,
+        reorderChannels,
         refresh: fetchChannels,
       }}
     >

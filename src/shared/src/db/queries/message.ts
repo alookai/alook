@@ -29,6 +29,19 @@ export async function createMessage(
 
 const DEFAULT_MESSAGE_LIMIT = 20;
 
+export async function getNewestMessageId(
+  db: Database,
+  conversationId: string
+): Promise<string | null> {
+  const rows = await db
+    .select({ id: message.id })
+    .from(message)
+    .where(and(eq(message.conversationId, conversationId), eq(message.status, "active")))
+    .orderBy(desc(message.createdAt), desc(message.id))
+    .limit(1);
+  return rows[0]?.id ?? null;
+}
+
 export async function listMessages(
   db: Database,
   conversationId: string,

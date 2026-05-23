@@ -41,3 +41,13 @@ export async function hasAgentAccess(db: Database, agentId: string, workspaceId:
     .where(and(eq(agentAccess.agentId, agentId), eq(agentAccess.workspaceId, workspaceId), eq(agentAccess.userId, userId)));
   return rows.length > 0;
 }
+
+export async function getAllAgentAccessForWorkspace(db: Database, workspaceId: string) {
+  return db
+    .select({
+      agentId: agentAccess.agentId,
+      userId: agentAccess.userId,
+    })
+    .from(agentAccess)
+    .where(eq(agentAccess.workspaceId, workspaceId));
+}

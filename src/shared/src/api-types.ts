@@ -60,6 +60,7 @@ export interface CreateCalendarEventRequest {
   scheduled_at: string;
   repeat_interval?: string;
   repeat_stop_date?: string;
+  conversation_id?: string;
 }
 
 export interface UpdateCalendarEventRequest {

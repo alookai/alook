@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetTitle,
   SheetBody,
@@ -21,12 +22,15 @@ import {
   Loader2,
   MessageSquare,
   User,
+  XIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 import type { Agent, Artifact, Issue, IssueComment, Message, TaskApi } from "@alook/shared";
+import { isPreviewable, getArtifactUrl } from "@/components/artifact-content-renderer";
+import { formatSize } from "@/components/agent-chat/artifact-sheet";
 import { isTerminalIssueStatus } from "@alook/shared";
 import type { TraceTask } from "@/lib/api";
 import { updateIssue } from "@/lib/api";
@@ -113,7 +117,7 @@ function MessageRow({ message }: { message: Message }) {
         <span className="capitalize">{message.role}</span>
         <span>{new Date(message.created_at).toLocaleString()}</span>
       </div>
-      <div className="prose prose-sm dark:prose-invert max-w-none text-sm break-words">
+      <div className="prose prose-sm dark:prose-invert max-w-none text-sm wrap-break-word">
         <Streamdown>{message.content}</Streamdown>
       </div>
     </div>
@@ -130,36 +134,48 @@ function CommentRow({ comment, agents }: { comment: IssueComment; agents: Agent[
         <span className="font-medium">{authorLabel}</span>
         <span>{new Date(comment.created_at).toLocaleString()}</span>
       </div>
-      <div className="prose prose-sm dark:prose-invert max-w-none text-sm break-words">
+      <div className="prose prose-sm dark:prose-invert max-w-none text-sm wrap-break-word">
         <Streamdown>{comment.content}</Streamdown>
       </div>
     </div>
   );
 }
 
-function AttachmentList({ artifacts, workspaceId }: { artifacts: Artifact[]; workspaceId: string }) {
+function AttachmentList({ artifacts, workspaceId, onArtifactClick }: { artifacts: Artifact[]; workspaceId: string; onArtifactClick?: (artifact: Artifact) => void }) {
   if (artifacts.length === 0) return null;
+  const baseCls = "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent";
   return (
     <div className="space-y-1">
-      {artifacts.map((artifact) => (
-        <a
-          key={artifact.id}
-          href={`/api/artifacts/${artifact.id}/content?workspace_id=${workspaceId}&download=1`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
-        >
-          <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">{artifact.filename}</span>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {artifact.size < 1024
-              ? `${artifact.size} B`
-              : artifact.size < 1024 * 1024
-                ? `${(artifact.size / 1024).toFixed(1)} KB`
-                : `${(artifact.size / (1024 * 1024)).toFixed(1)} MB`}
-          </span>
-        </a>
-      ))}
+      {artifacts.map((artifact) => {
+        const canPreview = onArtifactClick && isPreviewable(artifact);
+        const inner = (
+          <>
+            <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{artifact.filename}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{formatSize(artifact.size)}</span>
+          </>
+        );
+        return canPreview ? (
+          <button
+            key={artifact.id}
+            type="button"
+            onClick={() => onArtifactClick(artifact)}
+            className={cn(baseCls, "w-full text-left")}
+          >
+            {inner}
+          </button>
+        ) : (
+          <a
+            key={artifact.id}
+            href={getArtifactUrl(artifact.id, workspaceId, true)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={baseCls}
+          >
+            {inner}
+          </a>
+        );
+      })}
     </div>
   );
 }
@@ -188,6 +204,7 @@ export interface IssueSheetProps {
   onStatusChange?: (issueId: string, status: string) => Promise<void>;
   onCommented?: () => void;
   onDispatched?: (issueId: string) => void;
+  onArtifactClick?: (artifact: Artifact) => void;
 }
 
 export function IssueSheet({
@@ -212,6 +229,7 @@ export function IssueSheet({
   onStatusChange,
   onCommented,
   onDispatched,
+  onArtifactClick,
 }: IssueSheetProps) {
   const mode = issue ? "detail" : "create";
 
@@ -263,6 +281,28 @@ export function IssueSheet({
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onUpdateRef = useRef(onUpdate);
   useEffect(() => { onUpdateRef.current = onUpdate; }, [onUpdate]);
+  const titleRef2 = useRef(title);
+  useEffect(() => { titleRef2.current = title; }, [title]);
+  const descriptionRef2 = useRef(description);
+  useEffect(() => { descriptionRef2.current = description; }, [description]);
+  const issueRef = useRef(issue);
+  useEffect(() => { issueRef.current = issue; }, [issue]);
+
+  const flushAutoSave = useCallback(() => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = null;
+    const iss = issueRef.current;
+    if (!iss) return;
+    const titleChanged = titleRef2.current !== iss.title;
+    const descChanged = descriptionRef2.current !== (iss.description ?? "");
+    if (!titleChanged && !descChanged) return;
+    if (!titleRef2.current.trim()) return;
+    const patch: { title?: string; description?: string } = {};
+    if (titleChanged) patch.title = titleRef2.current.trim();
+    if (descChanged) patch.description = descriptionRef2.current.trim();
+    onUpdateRef.current?.(iss.id, patch);
+  }, []);
+
   useEffect(() => {
     if (mode !== "detail" || !issue || !open) return;
     const titleChanged = title !== issue.title;
@@ -271,15 +311,19 @@ export function IssueSheet({
     if (!title.trim()) return;
 
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(() => {
-      const patch: { title?: string; description?: string } = {};
-      if (titleChanged) patch.title = title.trim();
-      if (descChanged) patch.description = description.trim();
-      onUpdateRef.current?.(issue.id, patch);
-    }, 500);
+    autoSaveTimer.current = setTimeout(flushAutoSave, 500);
 
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, [title, description, mode, issue, open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [title, description, mode, issue, open, flushAutoSave]);
+
+  // Flush pending auto-save when sheet closes
+  const prevOpenRef = useRef(open);
+  useEffect(() => {
+    if (prevOpenRef.current && !open && mode === "detail") {
+      flushAutoSave();
+    }
+    prevOpenRef.current = open;
+  }, [open, mode, flushAutoSave]);
 
   // --- Title auto-resize ---
   const resizeTitle = useCallback((el?: HTMLTextAreaElement | null) => {
@@ -458,7 +502,7 @@ export function IssueSheet({
         placeholder="Leave a comment..."
         value={commentContent}
         onChange={(e) => setCommentContent(e.target.value)}
-        className="w-full resize-none bg-transparent px-3.5 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground field-sizing-content min-h-[60px] max-h-32 thin-scrollbar overflow-y-auto"
+        className="w-full resize-none bg-transparent px-3.5 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground field-sizing-content min-h-15 max-h-32 thin-scrollbar overflow-y-auto"
         onKeyDown={(e) => { if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); handleCommentSubmit(); } }}
       />
       <div className="flex items-center justify-between px-2.5 pb-2 pt-0.5">
@@ -621,7 +665,7 @@ export function IssueSheet({
       {/* Attachments (detail mode) */}
       {mode === "detail" && detail?.artifacts && detail.artifacts.length > 0 && (
         <div className="shrink-0 px-2 sm:px-3 py-2">
-          <AttachmentList artifacts={detail.artifacts} workspaceId={workspaceId} />
+          <AttachmentList artifacts={detail.artifacts} workspaceId={workspaceId} onArtifactClick={onArtifactClick} />
         </div>
       )}
     </>
@@ -644,9 +688,18 @@ export function IssueSheet({
           className="hidden sm:block absolute -left-px top-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-primary/20 active:bg-primary/30 transition-colors rounded-l-xl"
         />
 
+        {/* Mobile close button */}
+        <SheetClose
+          render={<Button variant="ghost" size="icon-sm" />}
+          className="absolute top-3 right-3 z-10 sm:hidden"
+        >
+          <XIcon />
+          <span className="sr-only">Close</span>
+        </SheetClose>
+
         {/* Timeline floating panel — desktop only, detail mode only, not for todo drafts */}
         {mode === "detail" && !isTodoDraft && (
-          <div className="hidden lg:flex absolute right-full top-0 bottom-0 mr-2 w-[360px] flex-col rounded-xl border bg-background shadow-lg overflow-hidden">
+          <div className="hidden lg:flex absolute right-full top-0 bottom-0 mr-2 w-90 flex-col rounded-xl border bg-background shadow-lg overflow-hidden">
             <div className="shrink-0 flex items-center border-b px-4 py-2.5">
               <span className="text-xs font-medium text-muted-foreground">Activity</span>
             </div>

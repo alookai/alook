@@ -1,8 +1,10 @@
 import type { Database } from "@alook/shared";
 import { queries, TASK_TYPES, MAX_TASKS_PER_TRACE } from "@alook/shared";
 import { log } from "@/lib/logger";
-import { broadcastToUser } from "@/lib/broadcast";
+import { broadcastToUser, broadcastToDaemon } from "@/lib/broadcast";
 import { messageToResponse, taskToResponse } from "@/lib/api/responses";
+import { invalidate, cacheKeys } from "@/lib/cache";
+import { TaskPayloadBuilder } from "@/lib/services/task-payload-builder";
 
 const taskQueries = queries.task;
 const agentQueries = queries.agent;
@@ -36,7 +38,7 @@ export class TaskService {
       }
     }
 
-    return taskQueries.createTask(this.db, {
+    const task = await taskQueries.createTask(this.db, {
       agentId,
       runtimeId: agent.runtimeId,
       workspaceId,
@@ -49,20 +51,28 @@ export class TaskService {
       traceId: opts?.traceId ?? null,
       parentTaskId: opts?.parentTaskId ?? null,
     });
+    invalidate(cacheKeys.activeTaskCounts(workspaceId)).catch(() => {});
+    // Push task to daemon via WS (best-effort). Awaited to ensure task state
+    // settles (dispatched on success, reverted to queued on failure) before
+    // the HTTP response returns, preventing races with subsequent poll calls.
+    await this.pushTaskToDaemon(task, workspaceId).catch(() => {});
+    return task;
   }
 
   async claimTask(agentId: string, workspaceId: string) {
     const agent = await agentQueries.getAgent(this.db, agentId, workspaceId);
+    return this.claimTaskWithAgent(agentId, workspaceId, agent);
+  }
+
+  private async claimTaskWithAgent(agentId: string, workspaceId: string, agent: Awaited<ReturnType<typeof agentQueries.getAgent>>) {
     if (!agent) {
       return null;
     }
 
     const running = await taskQueries.countRunningTasks(this.db, agentId, workspaceId);
     if (running >= agent.maxConcurrentTasks) {
-      // At max capacity — check if a steerable replacement exists to bypass the limit
       const steerable = await taskQueries.findSteerableReplacement(this.db, agentId, workspaceId);
       if (!steerable) return null;
-      // Re-check excluding the predecessor being replaced
       const runningExcluding = await taskQueries.countRunningTasks(this.db, agentId, workspaceId, steerable.predecessorId);
       if (runningExcluding >= agent.maxConcurrentTasks) return null;
     }
@@ -78,7 +88,7 @@ export class TaskService {
 
   async claimTasksForRuntimes(runtimeIds: string[], maxTasks: number, workspaceId: string) {
     const killTasks = await taskQueries.claimKillTasks(this.db, runtimeIds, workspaceId, maxTasks);
-    let remaining = maxTasks - killTasks.length;
+    const remaining = maxTasks - killTasks.length;
 
     const tasks = remaining > 0
       ? await taskQueries.listPendingTasksByRuntimes(this.db, runtimeIds, workspaceId)
@@ -87,17 +97,28 @@ export class TaskService {
     const triedAgents = new Set<string>();
     const claimed: NonNullable<Awaited<ReturnType<typeof this.claimTask>>>[] = [...killTasks];
 
+    const uniqueCandidates: { agentId: string; workspaceId: string }[] = [];
     for (const candidate of tasks) {
-      if (remaining <= 0) break;
-
+      if (uniqueCandidates.length >= remaining) break;
       const key = `${candidate.agentId}:${candidate.workspaceId}`;
       if (triedAgents.has(key)) continue;
       triedAgents.add(key);
+      uniqueCandidates.push(candidate);
+    }
 
-      const task = await this.claimTask(candidate.agentId, candidate.workspaceId);
+    if (uniqueCandidates.length === 0) return claimed;
+
+    const agentIds = [...new Set(uniqueCandidates.map((c) => c.agentId))];
+    const agents = await agentQueries.getAgentsByIds(this.db, agentIds, workspaceId);
+    const agentMap = new Map(agents.map((a) => [a.id, a]));
+
+    const results = await Promise.all(
+      uniqueCandidates.map((c) => this.claimTaskWithAgent(c.agentId, c.workspaceId, agentMap.get(c.agentId) ?? null))
+    );
+
+    for (const task of results) {
       if (task && runtimeIdSet.has(task.runtimeId)) {
         claimed.push(task);
-        remaining--;
       }
     }
 
@@ -142,12 +163,25 @@ export class TaskService {
       typeof payload?.output === "string" ? payload.output : "";
 
     if (output) {
-      await messageQueries.createMessage(this.db, {
+      const msg = await messageQueries.createMessage(this.db, {
         conversationId: task.conversationId,
         role: "assistant",
         content: output,
         taskId,
       });
+
+      try {
+        const conversation = await conversationQueries.getConversation(this.db, task.conversationId, workspaceId);
+        if (conversation) {
+          broadcastToUser(conversation.userId, {
+            type: "conversation.message",
+            conversationId: task.conversationId,
+            message: messageToResponse(msg),
+          }).catch(() => {});
+        }
+      } catch {
+        // non-critical: don't let broadcast failure block task lifecycle
+      }
     }
 
     await this.reconcileAgentStatus(task.agentId, task.workspaceId);
@@ -170,12 +204,25 @@ export class TaskService {
     }
 
     if (error) {
-      await messageQueries.createMessage(this.db, {
+      const msg = await messageQueries.createMessage(this.db, {
         conversationId: task.conversationId,
         role: "assistant",
         content: `Error: ${error}`,
         taskId,
       });
+
+      try {
+        const conversation = await conversationQueries.getConversation(this.db, task.conversationId, workspaceId);
+        if (conversation) {
+          broadcastToUser(conversation.userId, {
+            type: "conversation.message",
+            conversationId: task.conversationId,
+            message: messageToResponse(msg),
+          }).catch(() => {});
+        }
+      } catch {
+        // non-critical: don't let broadcast failure block task lifecycle
+      }
     }
 
     await this.reconcileAgentStatus(task.agentId, task.workspaceId);
@@ -196,13 +243,26 @@ export class TaskService {
     const updated = await issueQueries.updateIssue(this.db, issue.id, task.workspaceId, { status });
     if (!updated) return;
 
-    await messageQueries.createMessage(this.db, {
+    const eventMsg = await messageQueries.createMessage(this.db, {
       conversationId: task.conversationId,
       role: "event",
       content: `Issue status changed: ${issue.status} -> ${status}`,
       taskId: task.id,
       metadata: JSON.stringify({ issueId: issue.id }),
     });
+
+    try {
+      const conversation = await conversationQueries.getConversation(this.db, task.conversationId, task.workspaceId);
+      if (conversation) {
+        broadcastToUser(conversation.userId, {
+          type: "conversation.message",
+          conversationId: task.conversationId,
+          message: messageToResponse(eventMsg),
+        }).catch(() => {});
+      }
+    } catch {
+      // non-critical: don't let broadcast failure block task lifecycle
+    }
   }
 
   async supersedeTask(taskId: string, workspaceId: string) {
@@ -283,6 +343,7 @@ export class TaskService {
     const running = await taskQueries.countRunningTasks(this.db, agentId, workspaceId);
     const status = running > 0 ? "working" : "idle";
     await agentQueries.updateAgentStatus(this.db, agentId, workspaceId, status);
+    invalidate(cacheKeys.activeTaskCounts(workspaceId)).catch(() => {});
   }
 
   async dispatchNextBufferedMessage(conversationId: string, workspaceId: string) {
@@ -357,6 +418,36 @@ export class TaskService {
       } catch (err) {
         log.warn("cancelTrace: failed to cancel task", { traceId, convId, err });
       }
+    }
+  }
+
+  private async pushTaskToDaemon(
+    task: Awaited<ReturnType<typeof taskQueries.createTask>>,
+    workspaceId: string,
+  ) {
+    const runtime = await queries.runtime.getAgentRuntime(this.db, task.runtimeId);
+    if (!runtime) return;
+
+    const dispatched = await taskQueries.dispatchTaskById(this.db, task.id, workspaceId);
+    if (!dispatched) return;
+
+    const builder = new TaskPayloadBuilder(this.db);
+    const payloads = await builder.buildFullPayloads([dispatched], workspaceId);
+    if (payloads.length === 0) {
+      await taskQueries.revertDispatchedToQueued(this.db, task.id, workspaceId);
+      return;
+    }
+
+    try {
+      const { sent } = await broadcastToDaemon(runtime.daemonId, {
+        type: "daemon.tasks",
+        tasks: payloads,
+      });
+      if (sent === 0) {
+        await taskQueries.revertDispatchedToQueued(this.db, task.id, workspaceId);
+      }
+    } catch {
+      await taskQueries.revertDispatchedToQueued(this.db, task.id, workspaceId);
     }
   }
 }

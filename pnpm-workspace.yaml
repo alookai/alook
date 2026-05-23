@@ -4,3 +4,4 @@ packages:
   - "src/web"
   - "src/email-worker"
   - "src/ws-do"
+  - "src/app"

@@ -2,12 +2,21 @@ name = "alook-email-worker"
 main = "src/index.ts"
 compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = false
 
 [observability]
 enabled = true
+head_sampling_rate = 0.1
+
+[observability.logs]
+invocation_logs = true
+head_sampling_rate = 0.1
+destinations = ["grafana-logs"]
 
 [observability.traces]
 enabled = true
+head_sampling_rate = 0.05
+destinations = ["grafana-traces"]
 
 [dev]
 port = 8787

@@ -4,6 +4,8 @@ import { queries, WorkspaceFileBrowseRequestSchema } from "@alook/shared";
 import { withAuth } from "@/lib/middleware/auth";
 import { parseBody, writeJSON, writeError } from "@/lib/middleware/helpers";
 import { getDb } from "@/lib/db";
+import { cacheKeys } from "@/lib/cache";
+import { broadcastToDaemon } from "@/lib/broadcast";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext();
@@ -27,6 +29,23 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     requestType: body.request_type,
     path: body.path,
   });
+
+  const kv = (env as Env).CACHE_KV ?? null;
+  if (kv) {
+    kv.put(cacheKeys.hasPendingFileRequest(workspaceId), "1", { expirationTtl: 60 }).catch(() => {});
+  }
+
+  // Push file request to daemon (best-effort)
+  if (agent.runtimeId) {
+    const runtime = await queries.runtime.getAgentRuntime(db, agent.runtimeId);
+    if (runtime) {
+      broadcastToDaemon(runtime.daemonId, {
+        type: "daemon.file_requests",
+        workspaceId,
+        requests: [{ id: row.id, agent_id: agentId, request_type: body.request_type, path: body.path }],
+      }).catch(() => {});
+    }
+  }
 
   return writeJSON({ request_id: row.id });
 });

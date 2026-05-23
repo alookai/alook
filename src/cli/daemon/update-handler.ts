@@ -50,6 +50,11 @@ export async function handleCliUpdate(
   if (updating) return;
   if (retryCount >= MAX_RETRIES) return;
 
+  if (process.env.ALOOK_CMD_PREFIX) {
+    log.info(`Skipping auto-update in app mode — user should run: npx @alook/app@latest update`);
+    return;
+  }
+
   const marker = readUpdateMarker(profile);
   if (marker === version) {
     log.info(`Skipping update to v${version} — already attempted (marker exists)`);

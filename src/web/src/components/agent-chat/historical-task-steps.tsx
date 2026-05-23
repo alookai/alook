@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { TaskStream } from "@/components/task-stream";
 import { getTaskMessages } from "@/lib/api";
 import type { TaskMessage, TaskApi } from "@alook/shared";
@@ -49,9 +49,6 @@ export function HistoricalTaskSteps({
       setFetched(true);
     }
   }, [fetched, loading, taskId, workspaceId]);
-
-  // Auto-load messages so intermediate text ("Thinking") is available
-  useEffect(() => { fetchMessages(); }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <TaskStream

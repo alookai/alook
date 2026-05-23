@@ -1,31 +1,30 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import Link from "next/link";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { listInboxItems, markAllInboxRead, type InboxItem } from "@/lib/api";
 import { useInboxCount } from "@/contexts/inbox-count-context";
+import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Inbox } from "lucide-react";
-import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Inbox, ListFilter, CheckCheck } from "lucide-react";
+import { AgentAvatar } from "@/components/avatar";
+import { relativeTime } from "@/lib/time";
+import {
+  INBOX_FILTER_TYPES,
+  INBOX_FILTER_LABELS,
+  MANDATORY_INBOX_TYPES,
+  getInboxFilterTypes,
+  setInboxFilterTypes,
+  type InboxFilterType,
+} from "@/lib/inbox-filter";
 import type { WsMessage } from "@alook/shared";
 
 const INBOX_LIMIT = 30;
-
-function relativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}h ago`;
-  const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
 
 function StatusDot({ status }: { status: string | null }) {
   const colorClass =
@@ -37,22 +36,10 @@ function StatusDot({ status }: { status: string | null }) {
   return <span className={`size-1.5 rounded-full shrink-0 ${colorClass}`} />;
 }
 
-function AgentAvatar({ name, avatarUrl, size = 32 }: { name?: string | null; avatarUrl?: string | null; size?: number }) {
-  const config = parseAvatarUrl(avatarUrl);
-  if (config) return <AvatarRenderer config={config} size={size} className="rounded-full shrink-0" />;
-  return (
-    <span
-      className="flex items-center justify-center rounded-full bg-secondary text-xs font-medium shrink-0"
-      style={{ width: size, height: size }}
-    >
-      {(name ?? "?").charAt(0).toUpperCase()}
-    </span>
-  );
-}
-
 const TYPE_LABELS: Record<string, string> = {
   user_dm_message: "DM",
   calendar_event: "Calendar",
+  email_notification: "Email",
 };
 
 function TypeBadge({ type }: { type: string | null }) {
@@ -65,11 +52,11 @@ function TypeBadge({ type }: { type: string | null }) {
   );
 }
 
-function InboxRow({ item, slug, onClick }: { item: InboxItem; slug: string; onClick?: () => void }) {
+function InboxRow({ item, slug, onClick }: { item: InboxItem; slug: string; onClick?: (e: React.MouseEvent) => void }) {
   const statusLabel = item.root_task_status === "failed" ? "Failed" : "Completed";
 
   return (
-    <Link
+    <a
       href={`/w/${slug}/agents/${item.agent_id}?conv=${item.id}`}
       onClick={onClick}
       className="block px-4 py-3 border-b border-border/30 hover:bg-accent/30 transition-colors duration-150 cursor-pointer"
@@ -81,9 +68,12 @@ function InboxRow({ item, slug, onClick }: { item: InboxItem; slug: string; onCl
             <span className="text-sm text-foreground truncate flex-1 min-w-0">
               {item.root_prompt ?? item.title}
             </span>
-            <span className="text-xs text-muted-foreground shrink-0 ml-2" title={new Date(item.latest_response_at).toLocaleString()}>
-              {relativeTime(item.latest_response_at)}
-            </span>
+            <Tooltip>
+              <TooltipTrigger render={<span className="text-xs text-muted-foreground shrink-0 ml-2" />}>
+                {relativeTime(item.latest_response_at)}
+              </TooltipTrigger>
+              <TooltipContent>{new Date(item.latest_response_at).toLocaleString()}</TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             {item.agent_name && (
@@ -101,7 +91,7 @@ function InboxRow({ item, slug, onClick }: { item: InboxItem; slug: string; onCl
           </p>
         </div>
       </div>
-    </Link>
+    </a>
   );
 }
 
@@ -127,19 +117,23 @@ export default function InboxPage() {
   const { slug, workspaceId } = useWorkspace();
   const { subscribeWs } = useAgentContext();
   const { count, refresh: refreshInboxCount, decrement: decrementInboxCount } = useInboxCount();
+  const { openAgentChat } = useAgentChatSheet();
 
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [filterTypes, setFilterTypes] = useState<InboxFilterType[]>(getInboxFilterTypes);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const isFetchingRef = useRef(false);
+  const filterTypesRef = useRef(filterTypes);
+  useEffect(() => { filterTypesRef.current = filterTypes; });
 
   const loadInitial = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     try {
-      const result = await listInboxItems(workspaceId, { limit: INBOX_LIMIT });
+      const result = await listInboxItems(workspaceId, { limit: INBOX_LIMIT, types: filterTypesRef.current });
       setItems(result.items);
       setHasMore(result.has_more);
     } catch {
@@ -150,7 +144,7 @@ export default function InboxPage() {
   }, [workspaceId]);
 
   const refreshInboxCountRef = useRef(refreshInboxCount);
-  refreshInboxCountRef.current = refreshInboxCount;
+  useEffect(() => { refreshInboxCountRef.current = refreshInboxCount; });
 
   useEffect(() => {
     loadInitial();
@@ -188,6 +182,7 @@ export default function InboxPage() {
       const result = await listInboxItems(workspaceId, {
         limit: INBOX_LIMIT,
         before: oldest.latest_response_at,
+        types: filterTypesRef.current,
       });
       if (result.items.length === 0) {
         setHasMore(false);
@@ -225,6 +220,19 @@ export default function InboxPage() {
     }
   }, [workspaceId, loadInitial, refreshInboxCount]);
 
+  const handleFilterToggle = useCallback((type: InboxFilterType, checked: boolean) => {
+    const next = checked
+      ? [...filterTypesRef.current, type]
+      : filterTypesRef.current.filter((t) => t !== type);
+    setFilterTypes(next);
+    setInboxFilterTypes(next);
+    filterTypesRef.current = next;
+    loadInitial();
+    refreshInboxCount();
+  }, [loadInitial, refreshInboxCount]);
+
+  const activeFilterCount = filterTypes.length - MANDATORY_INBOX_TYPES.length;
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5 gap-3">
@@ -235,14 +243,48 @@ export default function InboxPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {!loading && items.length > 0 && (
-            <button
-              type="button"
-              onClick={handleMarkAllRead}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          <Popover>
+            <PopoverTrigger
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
-              Mark all as read
-            </button>
+              <ListFilter className="size-3.5" />
+              <span>Filter</span>
+              {activeFilterCount > 0 && (
+                <span className="size-4 flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-medium leading-none">
+                  {activeFilterCount}
+                </span>
+              )}
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="end" className="w-48">
+              <p className="text-xs font-medium text-muted-foreground mb-2">Show in inbox:</p>
+              <div className="flex flex-col gap-2">
+                {INBOX_FILTER_TYPES.map((type) => {
+                  const isMandatory = MANDATORY_INBOX_TYPES.includes(type);
+                  const isChecked = filterTypes.includes(type);
+                  return (
+                    <label key={type} className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={isChecked}
+                        disabled={isMandatory}
+                        onCheckedChange={(checked) => handleFilterToggle(type, !!checked)}
+                      />
+                      <span className="text-sm">{INBOX_FILTER_LABELS[type]}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+          {!loading && items.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleMarkAllRead}
+              className="text-xs text-muted-foreground"
+            >
+              <CheckCheck className="size-3.5" />
+              <span>Mark all as read</span>
+            </Button>
           )}
         </div>
       </div>
@@ -267,7 +309,17 @@ export default function InboxPage() {
         ) : (
           <>
             {items.map((item) => (
-              <InboxRow key={item.id} item={item} slug={slug} onClick={decrementInboxCount} />
+              <InboxRow
+                key={item.id}
+                item={item}
+                slug={slug}
+                onClick={(e) => {
+                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+                  e.preventDefault();
+                  decrementInboxCount();
+                  openAgentChat(item.agent_id, { conversationId: item.id });
+                }}
+              />
             ))}
             {loadingMore && <SkeletonRow promptWidth="50%" />}
           </>

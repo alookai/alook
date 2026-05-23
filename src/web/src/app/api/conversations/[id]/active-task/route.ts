@@ -7,6 +7,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import { taskToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { broadcastToUser } from "@/lib/broadcast";
+import { invalidate, cacheKeys } from "@/lib/cache";
 
 export const GET = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -55,6 +56,9 @@ export const DELETE = withAuth(async (req, ctx) => {
   if (!cancelled) {
     return writeError("no active task to cancel", 404);
   }
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)).catch(() => {});
 
   broadcastToUser(ctx.userId, {
     type: "task.updated",

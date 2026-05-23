@@ -9,6 +9,7 @@ import { parseBody, writeError, writeJSON } from "@/lib/middleware/helpers";
 import { issueToResponse, messageToResponse, taskToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { broadcastToUser } from "@/lib/broadcast";
+import { invalidate, cacheKeys } from "@/lib/cache";
 import type { IssueStatusType } from "@alook/shared";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -209,6 +210,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     );
     queries.message.updateMessageTaskId(db, eventMessage.id, task.id).catch(() => {});
     const issue = await queries.issue.setLatestTask(db, created.id, ws.workspaceId, task.id) ?? created;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)).catch(() => {});
     broadcastToUser(ctx.userId, { type: "task.updated", taskId: task.id, agentId: task.agentId, status: "queued" }).catch(() => {});
     return writeJSON(
       {

@@ -40,6 +40,23 @@ export function getArtifactUrl(id: string, workspaceId: string, download?: boole
   return `/api/artifacts/${id}/content?${params}`;
 }
 
+export function computeArtifactVersions(artifacts: Artifact[]): { versionMap: Map<string, number>; duplicateFilenames: Set<string> } {
+  const groups = new Map<string, Artifact[]>();
+  for (const a of artifacts) {
+    const group = groups.get(a.filename) || [];
+    group.push(a);
+    groups.set(a.filename, group);
+  }
+  const versionMap = new Map<string, number>();
+  const duplicateFilenames = new Set<string>();
+  for (const [filename, group] of groups) {
+    group.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    if (group.length > 1) duplicateFilenames.add(filename);
+    group.forEach((a, i) => versionMap.set(a.id, i + 1));
+  }
+  return { versionMap, duplicateFilenames };
+}
+
 function isMarkdown(filename: string): boolean {
   return /\.md$/i.test(filename);
 }

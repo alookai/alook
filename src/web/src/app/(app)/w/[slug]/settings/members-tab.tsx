@@ -16,6 +16,7 @@ import {
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 function getInviteLink(token: string) {
@@ -157,25 +158,29 @@ export function MembersTab() {
                     </div>
                     <div className="flex items-center gap-1 ml-2 shrink-0">
                       {!isExpired && (
-                        <Button
+                        <Tooltip>
+                          <TooltipTrigger render={<Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0"
+                            onClick={() => handleCopyInvite(invite.token)}
+                          />}>
+                            <Copy className="size-3.5" />
+                          </TooltipTrigger>
+                          <TooltipContent>Copy invite link</TooltipContent>
+                        </Tooltip>
+                      )}
+                      <Tooltip>
+                        <TooltipTrigger render={<Button
                           size="sm"
                           variant="ghost"
-                          className="h-7 w-7 p-0"
-                          onClick={() => handleCopyInvite(invite.token)}
-                          title="Copy invite link"
-                        >
-                          <Copy className="size-3.5" />
-                        </Button>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                        onClick={() => handleRevokeInvite(invite.id)}
-                        title="Revoke invite"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
+                          className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                          onClick={() => handleRevokeInvite(invite.id)}
+                        />}>
+                          <Trash2 className="size-3.5" />
+                        </TooltipTrigger>
+                        <TooltipContent>Revoke invite</TooltipContent>
+                      </Tooltip>
                     </div>
                   </div>
                 );
@@ -241,15 +246,17 @@ export function MembersTab() {
 
                 {/* Remove button — owner only, not on self */}
                 {isOwner && !isSelf && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                    onClick={() => handleRemoveMember(member.id)}
-                    title="Remove member"
-                  >
-                    <UserMinus className="size-3.5" />
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger render={<Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={() => handleRemoveMember(member.id)}
+                    />}>
+                      <UserMinus className="size-3.5" />
+                    </TooltipTrigger>
+                    <TooltipContent>Remove member</TooltipContent>
+                  </Tooltip>
                 )}
               </div>
             );

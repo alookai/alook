@@ -160,6 +160,14 @@
   --tw-roller: oklch(0.15 0.01 55);
 }
 
+/* ─── Feature flip cards ─── */
+.flip-card:hover .flip-card-inner {
+  transform: rotateY(180deg);
+}
+.flip-card:hover .flip-card-front {
+  pointer-events: none;
+}
+
 /* ─── Front-Facing Typewriter Illustration ───
 
   Classic front-view typewriter (Olivetti-inspired):
@@ -834,6 +842,8 @@
 /* Markdown content styles */
 .markdown {
   line-height: 1.7;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .markdown > *:first-child {
   margin-top: 0;
@@ -858,6 +868,7 @@
   margin-top: 0.5em;
   margin-bottom: 0.5em;
   max-width: 65ch;
+  overflow-wrap: anywhere;
 }
 .markdown ul,
 .markdown ol {
@@ -871,7 +882,8 @@
   margin-top: 0.2em;
   margin-bottom: 0.2em;
 }
-.markdown li > p {
+.markdown li > p,
+.markdown li > [data-md-p] {
   display: inline;
 }
 .markdown li > ul,
@@ -1033,31 +1045,92 @@
 /* ── Thin scrollbar (code blocks, tool panels, chat scroll) ── */
 .markdown pre,
 [data-streamdown] pre,
-.task-stream-pre {
+.task-stream-pre,
+.blog-content pre {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
 .markdown pre::-webkit-scrollbar,
 [data-streamdown] pre::-webkit-scrollbar,
-.task-stream-pre::-webkit-scrollbar {
+.task-stream-pre::-webkit-scrollbar,
+.blog-content pre::-webkit-scrollbar {
   height: 4px;
   width: 4px;
 }
 .markdown pre::-webkit-scrollbar-track,
 [data-streamdown] pre::-webkit-scrollbar-track,
-.task-stream-pre::-webkit-scrollbar-track {
+.task-stream-pre::-webkit-scrollbar-track,
+.blog-content pre::-webkit-scrollbar-track {
   background: transparent;
 }
 .markdown pre::-webkit-scrollbar-thumb,
 [data-streamdown] pre::-webkit-scrollbar-thumb,
-.task-stream-pre::-webkit-scrollbar-thumb {
+.task-stream-pre::-webkit-scrollbar-thumb,
+.blog-content pre::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 2px;
 }
 .markdown pre::-webkit-scrollbar-thumb:hover,
 [data-streamdown] pre::-webkit-scrollbar-thumb:hover,
-.task-stream-pre::-webkit-scrollbar-thumb:hover {
+.task-stream-pre::-webkit-scrollbar-thumb:hover,
+.blog-content pre::-webkit-scrollbar-thumb:hover {
   background: var(--muted-foreground);
+}
+
+/* ── Blog: Editorial body text ── */
+.blog-content-editorial {
+  font-family: var(--font-dm-sans);
+  word-spacing: 0.045em;
+  letter-spacing: 0.007em;
+}
+.blog-content-editorial h2 {
+  font-family: var(--font-dm-sans);
+  word-spacing: normal;
+  letter-spacing: -0.02em;
+}
+
+/* ── Blog: Editorial drop cap ── */
+.blog-content-editorial > p:first-of-type::first-letter {
+  font-family: var(--font-dm-sans);
+  font-size: 3.6em;
+  font-weight: 600;
+  float: left;
+  line-height: 0.75;
+  margin-right: 0.04em;
+  margin-top: 0.06em;
+  padding-bottom: 0.03em;
+  color: var(--foreground);
+}
+
+/* ── Blog: responsive h2 (arbitrary variants don't support sm: inside [&_]) ── */
+@media (min-width: 640px) {
+  .blog-content-editorial h2 {
+    font-size: 1.875rem;
+  }
+}
+
+/* ── Blog: Shiki syntax highlighting (rehype-pretty-code v0.14+) ── */
+.blog-content [data-rehype-pretty-code-figure] pre {
+  background-color: var(--muted) !important;
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+  font-family: var(--font-dm-mono);
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+.blog-content [data-rehype-pretty-code-figure] code {
+  background: transparent !important;
+  padding: 0;
+  font-size: inherit;
+}
+html.light .blog-content [data-rehype-pretty-code-figure] span,
+html:not(.dark) .blog-content [data-rehype-pretty-code-figure] span {
+  color: var(--shiki-light) !important;
+}
+html.dark .blog-content [data-rehype-pretty-code-figure] span {
+  color: var(--shiki-dark) !important;
 }
 
 /* ── Streamdown code block: everything inside the dark area ── */

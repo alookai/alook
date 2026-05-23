@@ -11,17 +11,23 @@ const EMAIL_NOTICE =
   " If you need more information or confirmation from the human, send them an email asking for it and then exit." +
   " Do not wait — when the human replies, a new task will be triggered automatically and you will be woken up with their response.";
 
+const CALENDAR_NOTICE =
+  "This task was triggered by a scheduled calendar event. There is no human in this session." +
+  " If you need to communicate with a human, you MUST send an email using the email sending tool." +
+  " If you need more information or confirmation, send an email asking for it and then exit." +
+  " Do not wait — when the human replies, a new task will be triggered automatically and you will be woken up with their response.";
+
 const ISSUE_NOTICE =
   "This task was triggered by an assigned issue. The issue_id is provided in this message." +
-  " Use `alook issue show --agent_id <your_agent_id> --issue_id <issue_id>` to read full context." +
-  " Use `alook issue update --agent_id <your_agent_id> --issue_id <issue_id> --status <status>` to change status." +
-  " Use `alook issue comment --agent_id <your_agent_id> --issue_id <issue_id> --body <text>` to leave a comment." +
-  " CRITICAL — You MUST update the issue status before you finish. This is NOT optional:" +
+  " Use `alook issue show --issue_id <issue_id>` to read full context." +
+  " Use `alook issue update --issue_id <issue_id> --status <status>` to change status." +
+  " Use `alook issue comment --issue_id <issue_id> --body <text>` to leave a comment." +
+  " CRITICAL — You MUST manage the issue status correctly. This is NOT optional:" +
   " 1. Set status to 'in_progress' when you start working." +
-  " 2. Set status to 'review' as your LAST action before exiting — this means your work is done and ready for the owner to review. You cannot improve the issue further without user feedback." +
-  " If you delegated work to colleagues, wait for their responses, then set 'review' once everything is complete." +
-  " NEVER exit without updating the status. A task left in 'in_progress' is a failed task." +
-  " Always leave a comment summarizing what you did before changing status to 'review'.";
+  " 2. If you complete the work yourself: leave a summary comment, then set status to 'review' as your last action. 'review' means there is actual completed work (code, artifact, result) ready for the owner to look at." +
+  " 3. If you delegated work to colleagues and are waiting for their response: KEEP status as 'in_progress' and exit. This is expected — you will be woken up when they reply. Set 'review' only after all delegated work is confirmed complete." +
+  " 4. NEVER set 'review' unless there is concrete completed work for the owner to review. Sending a plan to a colleague is NOT completed work." +
+  " NEVER exit without doing at least one of: updating the status, or leaving a comment explaining what you did and what you're waiting for.";
 
 function buildDmNotice(name: string, email: string): string {
   return (
@@ -43,6 +49,28 @@ export function buildPrompt(task: Task, attachments?: Attachment[]): string {
       obj.notice = buildDmNotice(dmUser.name, dmUser.email);
     } else {
       obj.notice = EMAIL_NOTICE;
+    }
+  }
+  if (task.type === "calendar_event") {
+    obj.notice = CALENDAR_NOTICE;
+    const ctx = task.context as Record<string, unknown> | undefined;
+    if (ctx?.event_id != null) {
+      obj.event_id = ctx.event_id;
+    }
+    if (ctx?.datetime != null) {
+      obj.datetime = ctx.datetime;
+    }
+    if (ctx?.is_recurring !== undefined) {
+      obj.is_recurring = ctx.is_recurring;
+    }
+    if (ctx?.repeat_interval !== undefined) {
+      obj.repeat_interval = ctx.repeat_interval;
+    }
+    if (ctx?.description) {
+      obj.description = ctx.description;
+    }
+    if (ctx?.scheduled_by) {
+      obj.scheduled_by = ctx.scheduled_by;
     }
   }
   if (task.type === "issue_event") {

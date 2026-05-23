@@ -32,6 +32,7 @@ vi.mock("@alook/shared", () => ({
     },
     agent: {
       getAgent: vi.fn(),
+      getAgentsByIds: vi.fn(),
       updateAgentStatus: vi.fn(),
     },
     message: {
@@ -207,10 +208,10 @@ describe("TaskService", () => {
         { agentId: "a1", workspaceId: "w1", id: "t1", runtimeId: "r1" },
         { agentId: "a1", workspaceId: "w1", id: "t2", runtimeId: "r1" },
       ]);
-      agentQ.getAgent.mockResolvedValue({
+      agentQ.getAgentsByIds.mockResolvedValue([{
         id: "a1",
         maxConcurrentTasks: 5,
-      });
+      }]);
       taskQ.countRunningTasks.mockResolvedValue(0);
       taskQ.claimTask.mockResolvedValue({
         id: "t1",
@@ -230,7 +231,10 @@ describe("TaskService", () => {
         { agentId: "a2", workspaceId: "w1", id: "t2", runtimeId: "r1" },
         { agentId: "a3", workspaceId: "w1", id: "t3", runtimeId: "r1" },
       ]);
-      agentQ.getAgent.mockResolvedValue({ id: "a1", maxConcurrentTasks: 5 });
+      agentQ.getAgentsByIds.mockResolvedValue([
+        { id: "a1", maxConcurrentTasks: 5 },
+        { id: "a2", maxConcurrentTasks: 5 },
+      ]);
       taskQ.countRunningTasks.mockResolvedValue(0);
 
       let callCount = 0;
@@ -247,7 +251,7 @@ describe("TaskService", () => {
       taskQ.listPendingTasksByRuntimes.mockResolvedValue([
         { agentId: "a1", workspaceId: "w1", id: "t1", runtimeId: "r1" },
       ]);
-      agentQ.getAgent.mockResolvedValue({ id: "a1", maxConcurrentTasks: 5 });
+      agentQ.getAgentsByIds.mockResolvedValue([{ id: "a1", maxConcurrentTasks: 5 }]);
       taskQ.countRunningTasks.mockResolvedValue(0);
       taskQ.claimTask.mockResolvedValue({
         id: "t1",
@@ -264,7 +268,10 @@ describe("TaskService", () => {
         { agentId: "a1", workspaceId: "w1", id: "t1", runtimeId: "r1" },
         { agentId: "a2", workspaceId: "w1", id: "t2", runtimeId: "r2" },
       ]);
-      agentQ.getAgent.mockResolvedValue({ id: "a1", maxConcurrentTasks: 5 });
+      agentQ.getAgentsByIds.mockResolvedValue([
+        { id: "a1", maxConcurrentTasks: 5 },
+        { id: "a2", maxConcurrentTasks: 5 },
+      ]);
       taskQ.countRunningTasks.mockResolvedValue(0);
 
       let callCount = 0;
@@ -486,6 +493,9 @@ describe("TaskService", () => {
       agentQ.updateAgentStatus.mockResolvedValue(undefined);
       issueQ.getIssueByConversation.mockResolvedValue({ id: "iss_1", status: "in_progress", conversationId: "c1" });
       issueQ.updateIssue.mockResolvedValue({ id: "iss_1", status: "failed", conversationId: "c1" });
+      const eventMsg = { id: "m1", conversationId: "c1", role: "event", content: "Issue status changed: in_progress -> failed" };
+      messageQ.createMessage.mockResolvedValueOnce(undefined).mockResolvedValueOnce(eventMsg);
+      conversationQ.getConversation.mockResolvedValue({ id: "c1", userId: "u1", workspaceId: "w1" });
 
       await service.failTask("t1", "w1", "something went wrong");
 
@@ -503,6 +513,11 @@ describe("TaskService", () => {
         taskId: "t1",
         metadata: JSON.stringify({ issueId: "iss_1" }),
       });
+      expect(broadcastToUser).toHaveBeenCalledWith("u1", expect.objectContaining({
+        type: "conversation.message",
+        conversationId: "c1",
+        message: eventMsg,
+      }));
     });
   });
 

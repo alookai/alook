@@ -20,12 +20,16 @@ import {
   FieldSeparator,
 } from "@/components/ui/field"
 import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
+import Image from "next/image"
 import { GradientBackground } from "@/components/gradient-background"
-import { TypewriterVisual, EMAILS_PLAYFUL } from "@/components/typewriter-visual"
+import { resolveMode, DEV_PASSWORD } from "@alook/shared"
 
-const isProd = process.env.NODE_ENV === "production"
+const mode = resolveMode({
+  nodeEnv: process.env.NODE_ENV,
+  hostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+})
+const isProd = mode === "production"
 
-const DEV_PASSWORD = "dev-password-000"
 const DEFAULT_POST_LOGIN = "/workspaces?auto"
 
 function safeRedirectUrl(redirect: string | null): string {
@@ -284,6 +288,69 @@ function SignInForm({ postLoginUrl }: { postLoginUrl: string }) {
   )
 }
 
+const galleryImages = [
+  { src: "/gallery/collaboration.png", label: "Collaboration" },
+  { src: "/gallery/email.png", label: "Email Inbox" },
+  { src: "/gallery/issues.png", label: "Kanban Board" },
+  { src: "/gallery/calendar.png", label: "Calendar" },
+  { src: "/gallery/local-agent.png", label: "Local Agent" },
+]
+
+function ProductGallery() {
+  const [active, setActive] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActive((i) => (i + 1) % galleryImages.length)
+    }, 3500)
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <div className="flex h-full flex-col items-center justify-center p-6">
+      <div className="relative w-full rounded-lg overflow-hidden shadow-lg">
+        {galleryImages.map((img, i) => (
+          <Image
+            key={img.src}
+            src={img.src}
+            alt={img.label}
+            width={600}
+            height={450}
+            className="w-full h-auto transition-opacity duration-500"
+            style={{
+              opacity: i === active ? 1 : 0,
+              position: i === 0 ? "relative" : "absolute",
+              top: 0,
+              left: 0,
+            }}
+            priority={i === 0}
+          />
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground font-medium tracking-wide">
+        {galleryImages[active].label}
+      </p>
+      <div className="mt-2 flex gap-1.5">
+        {galleryImages.map((_, i) => (
+          <button
+            key={i}
+            onClick={() => setActive(i)}
+            className="h-1.5 rounded-full transition-all duration-300"
+            style={{
+              width: i === active ? 16 : 6,
+              backgroundColor: i === active
+                ? "var(--foreground)"
+                : "var(--muted-foreground)",
+              opacity: i === active ? 1 : 0.3,
+            }}
+            aria-label={`Show ${galleryImages[i].label}`}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function SignInPage() {
   const searchParams = useSearchParams()
   const postLoginUrl = safeRedirectUrl(searchParams.get("redirect"))
@@ -298,8 +365,8 @@ export default function SignInPage() {
               <div className="p-6 md:p-8 md:min-h-105 flex flex-col justify-center">
                 <SignInForm postLoginUrl={postLoginUrl} />
               </div>
-              <div className="hidden bg-muted md:flex items-center justify-center overflow-visible min-h-80 pt-24">
-                <TypewriterVisual className="scale-[0.65] shrink-0" emails={EMAILS_PLAYFUL} blobScale={2.5} blobBottom="30%" />
+              <div className="hidden bg-muted md:block relative overflow-hidden min-h-105">
+                <ProductGallery />
               </div>
             </CardContent>
           </Card>

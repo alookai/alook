@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import path from "path";
 
 // --- Mocks ---
@@ -265,7 +265,7 @@ describe("session-runner runSession", () => {
       undefined,
     );
     expect(mockInitEntryAsync).toHaveBeenCalledWith(
-      "/tmp/ws/ws1/agent1/workdir/.context_timeline",
+      "/tmp/ws/ws1/a1/workdir/.context_timeline",
       expect.objectContaining({ task_id: "t1", pid: process.pid, session_id: null }),
     );
   });
@@ -283,7 +283,7 @@ describe("session-runner runSession", () => {
 
     // The first updateEntry call should set session_id
     const firstCall = mockUpdateEntry.mock.calls[0];
-    expect(firstCall[0]).toBe("/tmp/ws/ws1/agent1/workdir/.context_timeline");
+    expect(firstCall[0]).toBe("/tmp/ws/ws1/a1/workdir/.context_timeline");
     expect(firstCall[1]).toBe("t1");
     const entry = { session_id: null as string | null };
     firstCall[2](entry);
@@ -430,7 +430,7 @@ describe("session-runner runSession", () => {
     await runSession(makeInput());
 
     expect(mockFindResumableSessionByContextKey).toHaveBeenCalledWith(
-      "/tmp/ws/ws1/agent1/workdir/.context_timeline",
+      "/tmp/ws/ws1/a1/workdir/.context_timeline",
       "c1",
       "claude",
     );
@@ -751,7 +751,7 @@ describe("session-runner runSession", () => {
     await runSession(makeInput({ provider: "codex" }));
 
     expect(mockFindResumableSessionByContextKey).toHaveBeenCalledWith(
-      "/tmp/ws/ws1/agent1/workdir/.context_timeline",
+      "/tmp/ws/ws1/a1/workdir/.context_timeline",
       "c1",
       "codex",
     );
@@ -790,7 +790,7 @@ describe("session-runner runSession", () => {
     await runSession(makeInput({ provider: "opencode" }));
 
     expect(mockFindResumableSessionByContextKey).toHaveBeenCalledWith(
-      "/tmp/ws/ws1/agent1/workdir/.context_timeline",
+      "/tmp/ws/ws1/a1/workdir/.context_timeline",
       "c1",
       "opencode",
     );
@@ -1240,6 +1240,11 @@ describe("writeMarkerFile", () => {
 describe("reportToServer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   const marker: MarkerData = {
@@ -1257,7 +1262,9 @@ describe("reportToServer", () => {
   });
 
   it("writes marker on fn failure", async () => {
-    await reportToServer(async () => { throw new Error("network"); }, marker, "/tmp/ws");
+    const promise = reportToServer(async () => { throw new Error("network"); }, marker, "/tmp/ws");
+    await vi.runAllTimersAsync();
+    await promise;
     expect(mockWriteFile).toHaveBeenCalled();
     const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
     expect(written.taskId).toBe("t1");
@@ -1265,26 +1272,49 @@ describe("reportToServer", () => {
   });
 
   it("does not throw when fn fails", async () => {
-    await expect(
-      reportToServer(async () => { throw new Error("network"); }, marker, "/tmp/ws"),
-    ).resolves.toBeUndefined();
+    const promise = reportToServer(async () => { throw new Error("network"); }, marker, "/tmp/ws");
+    await vi.runAllTimersAsync();
+    await expect(promise).resolves.toBeUndefined();
   });
 
   it("does not throw when both fn and marker write fail", async () => {
     mockWriteFile.mockRejectedValueOnce(new Error("ENOSPC"));
-    await expect(
-      reportToServer(async () => { throw new Error("network"); }, marker, "/tmp/ws"),
-    ).resolves.toBeUndefined();
+    const promise = reportToServer(async () => { throw new Error("network"); }, marker, "/tmp/ws");
+    await vi.runAllTimersAsync();
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  it("does not retry on HTTP 4xx (client error)", async () => {
+    await reportToServer(async () => { throw new Error("HTTP 400: bad request"); }, marker, "/tmp/ws");
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("retries on retryable error and succeeds on 2nd attempt", async () => {
+    let attempt = 0;
+    const fn = async () => {
+      attempt++;
+      if (attempt === 1) throw new Error("ECONNREFUSED");
+    };
+    const promise = reportToServer(fn, marker, "/tmp/ws");
+    await vi.runAllTimersAsync();
+    await promise;
+    expect(attempt).toBe(2);
+    expect(mockWriteFile).not.toHaveBeenCalled();
   });
 });
 
 describe("session-runner marker integration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("completeTask failure writes 'complete' marker", async () => {
-    mockClientInstance.completeTask.mockRejectedValueOnce(new Error("server down"));
+    mockClientInstance.completeTask.mockRejectedValue(new Error("server down"));
     setupBackend([], {
       status: "completed",
       output: "Done!",
@@ -1293,17 +1323,20 @@ describe("session-runner marker integration", () => {
       sessionId: "sess-1",
     });
 
-    await runSession(makeInput());
+    const promise = runSession(makeInput());
+    await vi.runAllTimersAsync();
+    await promise;
 
     expect(mockWriteFile).toHaveBeenCalled();
     const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
     expect(written.type).toBe("complete");
     expect(written.taskId).toBe("t1");
     expect(written.payload.output).toBe("Done!");
+    mockClientInstance.completeTask.mockResolvedValue({});
   });
 
   it("failTask failure writes 'fail' marker", async () => {
-    mockClientInstance.failTask.mockRejectedValueOnce(new Error("server down"));
+    mockClientInstance.failTask.mockRejectedValue(new Error("server down"));
     setupBackend([], {
       status: "failed",
       output: "",
@@ -1312,19 +1345,22 @@ describe("session-runner marker integration", () => {
       sessionId: "sess-1",
     });
 
-    await runSession(makeInput());
+    const promise = runSession(makeInput());
+    await vi.runAllTimersAsync();
+    await promise;
 
     expect(mockWriteFile).toHaveBeenCalled();
     const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
     expect(written.type).toBe("fail");
     expect(written.taskId).toBe("t1");
     expect(written.payload.error).toBe("something broke");
+    mockClientInstance.failTask.mockResolvedValue({});
   });
 
   it("onKill cancel writes marker on failure", async () => {
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
-    mockClientInstance.failTask.mockRejectedValueOnce(new Error("server down"));
+    mockClientInstance.failTask.mockRejectedValue(new Error("server down"));
     mockReadKillIntent.mockReturnValueOnce({ reason: "cancelled", targetTaskId: "t1", expectedPid: process.pid });
 
     let resolveMessage: (() => void) | null = null;
@@ -1339,10 +1375,10 @@ describe("session-runner marker integration", () => {
     });
 
     const sessionPromise = runSession(makeInput());
-    await new Promise((r) => setTimeout(r, 50));
+    await vi.advanceTimersByTimeAsync(50);
     process.emit("SIGTERM", "SIGTERM");
     if (resolveMessage) resolveMessage();
-    await new Promise((r) => setTimeout(r, 50));
+    await vi.runAllTimersAsync();
 
     expect(mockWriteFile).toHaveBeenCalled();
     const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
@@ -1351,12 +1387,13 @@ describe("session-runner marker integration", () => {
 
     killSpy.mockRestore();
     exitSpy.mockRestore();
+    mockClientInstance.failTask.mockResolvedValue({});
   });
 
   it("onKill kill writes marker on failure", async () => {
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
-    mockClientInstance.failTask.mockRejectedValueOnce(new Error("server down"));
+    mockClientInstance.failTask.mockRejectedValue(new Error("server down"));
     mockReadKillIntent.mockReturnValueOnce(null);
 
     let resolveMessage: (() => void) | null = null;
@@ -1371,10 +1408,10 @@ describe("session-runner marker integration", () => {
     });
 
     const sessionPromise = runSession(makeInput());
-    await new Promise((r) => setTimeout(r, 50));
+    await vi.advanceTimersByTimeAsync(50);
     process.emit("SIGTERM", "SIGTERM");
     if (resolveMessage) resolveMessage();
-    await new Promise((r) => setTimeout(r, 50));
+    await vi.runAllTimersAsync();
 
     expect(mockWriteFile).toHaveBeenCalled();
     const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
@@ -1383,6 +1420,7 @@ describe("session-runner marker integration", () => {
 
     killSpy.mockRestore();
     exitSpy.mockRestore();
+    mockClientInstance.failTask.mockResolvedValue({});
   });
 });
 

@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { AgentEditForm } from "@/components/agent-edit-form";
 import { ChannelBar } from "@/components/channel-bar";
-import { useChannel } from "@/contexts/channel-context";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AgentStatusBadge } from "@/components/agent-status-badge";
 import { FolderOpen, GitBranch, History, Mail, MessageSquare, MoreHorizontal, Pencil, Trash2, Video, X } from "lucide-react";
@@ -20,6 +19,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { fetchModelOptions } from "@/lib/api";
 
 export default function AgentDetailLayout({ children }: { children: ReactNode }) {
@@ -54,13 +54,6 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
   const [agentDeleting, setAgentDeleting] = useState(false);
   const [modelOptions, setModelOptions] = useState<Record<string, string[]>>({});
 
-  const { setAgentId: setChannelAgentId } = useChannel();
-
-  useEffect(() => {
-    setChannelAgentId(agentId);
-    return () => setChannelAgentId(null);
-  }, [agentId, setChannelAgentId]);
-
   useEffect(() => {
     fetchModelOptions().then(setModelOptions).catch(() => {});
   }, []);
@@ -80,15 +73,18 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
             <Skeleton className="size-2 rounded-full shrink-0" />
           )}
           {agent ? (
-            <Link
-              href={`/w/${slug}/agents/${agentId}`}
-              onClick={() => setEditing(false)}
-              className="text-sm font-medium truncate hover:text-foreground/80 transition-colors"
-            >
-              <span title={agent.description || "No description"}>
+            <Tooltip>
+              <TooltipTrigger render={
+                <Link
+                  href={`/w/${slug}/agents/${agentId}`}
+                  onClick={() => setEditing(false)}
+                  className="text-sm font-medium truncate hover:text-foreground/80 transition-colors"
+                />
+              }>
                 {agent.name}
-              </span>
-            </Link>
+              </TooltipTrigger>
+              <TooltipContent>{agent.description || "No description"}</TooltipContent>
+            </Tooltip>
           ) : (
             <Skeleton className="h-3.5 w-24" />
           )}

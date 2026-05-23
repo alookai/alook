@@ -8,6 +8,7 @@ import { printJSON, printTable } from "../lib/output.js";
 import { cmdPrefix } from "../lib/env.js";
 import { tempDir } from "../lib/platform.js";
 import { createLogger } from "../lib/logger.js";
+import { resolveAgentId } from "../lib/flags.js";
 
 const log = createLogger({ module: "email" });
 
@@ -135,7 +136,7 @@ export function emailCommand(): Command {
   cmd
     .command("pull")
     .description("Download and parse emails to /tmp/alook-emails/{workspaceId}/{agentId}/")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .option("--status <status>", "Filter by status (unread, read, archived)")
     .option("--folder <folder>", "Email folder (inbox, sent, untrust)")
     .option("--limit <n>", "Maximum number of emails to download")
@@ -143,7 +144,8 @@ export function emailCommand(): Command {
     .option("--workspace <id>", "Workspace ID")
     .option("--json", "Output as JSON instead of files")
     .action(async (opts, command) => {
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { workspace: opts.workspace, agentId: opts.agent_id });
+      const agentId = resolveAgentId(opts);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { workspace: opts.workspace, agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
 
       if (opts.status && !VALID_STATUSES.includes(opts.status)) {
@@ -176,10 +178,10 @@ export function emailCommand(): Command {
         }
       }
 
-      const emailDir_base = join(EMAIL_BASE, workspaceId, opts.agent_id);
+      const emailDir_base = join(EMAIL_BASE, workspaceId, agentId);
 
       try {
-        let query = `/api/email?agentId=${opts.agent_id}`;
+        let query = `/api/email?agentId=${agentId}`;
         if (opts.status) query += `&status=${opts.status}`;
         if (opts.folder) query += `&folder=${opts.folder}`;
         if (opts.limit) query += `&limit=${opts.limit}`;
@@ -291,12 +293,13 @@ export function emailCommand(): Command {
   cmd
     .command("set")
     .description("Update email status")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .requiredOption("--email_id <id>", "Email ID")
     .requiredOption("--status <status>", "New status (unread, read, archived)")
     .option("--workspace <id>", "Workspace ID")
     .action(async (opts, command) => {
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { workspace: opts.workspace, agentId: opts.agent_id });
+      const agentId = resolveAgentId(opts);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { workspace: opts.workspace, agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
 
       if (!VALID_STATUSES.includes(opts.status)) {
@@ -320,7 +323,7 @@ export function emailCommand(): Command {
   cmd
     .command("send")
     .description("Send an email from the agent")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .requiredOption("--to <addr>", "Recipient email address")
     .requiredOption("--subject <s>", "Subject line")
     .requiredOption("--body-file <path>", "Path to HTML body file")
@@ -334,9 +337,10 @@ export function emailCommand(): Command {
     )
     .option("--workspace <id>", "Workspace ID")
     .action(async (opts, command) => {
+      const agentId = resolveAgentId(opts);
       const { serverUrl, token, workspaceId } = resolveClientOpts(command, {
         workspace: opts.workspace,
-        agentId: opts.agent_id,
+        agentId,
       });
       const client = new APIClient(serverUrl, token, workspaceId);
 
@@ -409,7 +413,7 @@ export function emailCommand(): Command {
         const traceId = process.env.ALOOK_TRACE_ID;
         const sourceTaskId = process.env.ALOOK_TASK_ID;
         const res = await client.postJSON<SendResponse>("/api/email/send", {
-          agentId: opts.agent_id,
+          agentId,
           to: opts.to,
           subject: opts.subject,
           htmlBody,
@@ -430,7 +434,7 @@ export function emailCommand(): Command {
   cmd
     .command("forward")
     .description("Forward an email to a new recipient")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .requiredOption("--email_id <id>", "Source email ID to forward")
     .requiredOption("--to <addr>", "Recipient email address")
     .option("--from <addr>", "Send from a specific email address (custom mailbox)")
@@ -443,9 +447,10 @@ export function emailCommand(): Command {
     )
     .option("--workspace <id>", "Workspace ID")
     .action(async (opts, command) => {
+      const agentId = resolveAgentId(opts);
       const { serverUrl, token, workspaceId } = resolveClientOpts(command, {
         workspace: opts.workspace,
-        agentId: opts.agent_id,
+        agentId,
       });
       const client = new APIClient(serverUrl, token, workspaceId);
 
@@ -573,7 +578,7 @@ export function emailCommand(): Command {
         const traceId = process.env.ALOOK_TRACE_ID;
         const sourceTaskId = process.env.ALOOK_TASK_ID;
         const res = await client.postJSON<SendResponse>("/api/email/send", {
-          agentId: opts.agent_id,
+          agentId,
           to: opts.to,
           subject,
           htmlBody,
@@ -599,19 +604,20 @@ export function emailCommand(): Command {
   whitelistCmd
     .command("list")
     .description("List all whitelisted emails for an agent")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .option("--workspace <id>", "Workspace ID")
     .option("--json", "Output as JSON")
     .action(async (opts, command) => {
+      const agentId = resolveAgentId(opts);
       const { serverUrl, token, workspaceId } = resolveClientOpts(command, {
         workspace: opts.workspace,
-        agentId: opts.agent_id,
+        agentId,
       });
       const client = new APIClient(serverUrl, token, workspaceId);
 
       try {
         const entries = await client.getJSON<WhitelistEntry[]>(
-          `/api/agents/${opts.agent_id}/whitelist`,
+          `/api/agents/${agentId}/whitelist`,
         );
 
         if (!entries.length) {
@@ -637,19 +643,20 @@ export function emailCommand(): Command {
   whitelistCmd
     .command("add")
     .description("Add an email to the whitelist")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .option("--workspace <id>", "Workspace ID")
     .argument("<email>", "Email address to whitelist")
     .action(async (email, opts, command) => {
+      const agentId = resolveAgentId(opts);
       const { serverUrl, token, workspaceId } = resolveClientOpts(command, {
         workspace: opts.workspace,
-        agentId: opts.agent_id,
+        agentId,
       });
       const client = new APIClient(serverUrl, token, workspaceId);
 
       try {
         const entry = await client.postJSON<WhitelistEntry>(
-          `/api/agents/${opts.agent_id}/whitelist`,
+          `/api/agents/${agentId}/whitelist`,
           { email: email.toLowerCase() },
         );
         console.log(`Added ${entry.email} to whitelist (id: ${entry.id})`);
@@ -667,20 +674,21 @@ export function emailCommand(): Command {
   whitelistCmd
     .command("delete")
     .description("Remove an email from the whitelist")
-    .requiredOption("--agent_id <id>", "Agent ID")
+    .option("--agent_id <id>", "Agent ID")
     .option("--workspace <id>", "Workspace ID")
     .argument("<email>", "Email address to remove")
     .action(async (email, opts, command) => {
+      const agentId = resolveAgentId(opts);
       const { serverUrl, token, workspaceId } = resolveClientOpts(command, {
         workspace: opts.workspace,
-        agentId: opts.agent_id,
+        agentId,
       });
       const client = new APIClient(serverUrl, token, workspaceId);
       const normalizedEmail = email.toLowerCase();
 
       try {
         const entries = await client.getJSON<WhitelistEntry[]>(
-          `/api/agents/${opts.agent_id}/whitelist`,
+          `/api/agents/${agentId}/whitelist`,
         );
         const entry = entries.find((e) => e.email === normalizedEmail);
 
@@ -690,7 +698,7 @@ export function emailCommand(): Command {
         }
 
         await client.deleteJSON(
-          `/api/agents/${opts.agent_id}/whitelist/${entry.id}`,
+          `/api/agents/${agentId}/whitelist/${entry.id}`,
         );
         console.log(`Removed ${normalizedEmail} from whitelist`);
       } catch (err) {

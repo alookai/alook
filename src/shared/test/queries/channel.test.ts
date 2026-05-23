@@ -25,6 +25,10 @@ describe("channel query module exports", () => {
   it("exports renameChannel", () => {
     expect(typeof channelQueries.renameChannel).toBe("function");
   });
+
+  it("exports reorderChannels", () => {
+    expect(typeof channelQueries.reorderChannels).toBe("function");
+  });
 });
 
 describe("channel query function signatures", () => {
@@ -50,5 +54,9 @@ describe("channel query function signatures", () => {
 
   it("renameChannel accepts (db, id, workspaceId, newName)", () => {
     expect(channelQueries.renameChannel.length).toBe(4);
+  });
+
+  it("reorderChannels accepts (db, workspaceId, orderedChannelIds)", () => {
+    expect(channelQueries.reorderChannels.length).toBe(3);
   });
 });

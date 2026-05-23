@@ -30,6 +30,15 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
+vi.mock("@/lib/cache", () => ({
+  cached: vi.fn((_key: string, _ttl: number, fn: () => Promise<any>) => fn()),
+  invalidate: vi.fn(() => Promise.resolve()),
+  cacheKeys: {
+    allEmailAccounts: (ws: string) => `ea:${ws}`,
+    overviewEmailStats: (ws: string) => `ov_email:${ws}`,
+  },
+}));
+
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   return {
@@ -49,6 +58,7 @@ vi.mock("@alook/shared", async () => {
       emailAccount: {
         getEmailAccountsByAgent: (...args: unknown[]) => mockGetEmailAccountsByAgent(...args),
         getEmailAccountScoped: (...args: unknown[]) => mockGetEmailAccountScoped(...args),
+        getAllEmailAccountsForWorkspace: (...args: unknown[]) => mockGetEmailAccountsByAgent(...args),
       },
       conversation: {
         getConversation: (...args: unknown[]) => mockGetConversation(...args),
@@ -457,7 +467,7 @@ describe("POST /api/email/send", () => {
     it("skips local delivery when sender uses custom SMTP account", async () => {
       mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
       mockGetEmailAccountsByAgent.mockResolvedValue([
-        { id: "acct1", emailAddress: "agent@company.com" },
+        { id: "acct1", agentId: "a1", emailAddress: "agent@company.com" },
       ]);
       mockEmailWorkerFetch.mockResolvedValue(Response.json({ ok: true, r2Key: "emails/x/raw" }));
       mockCreateEmail.mockResolvedValue({ id: "e1" });

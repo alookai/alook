@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectTrigger,
@@ -26,7 +25,7 @@ import { ProviderLogo } from "@/components/provider-logo";
 import { isValidHandle } from "@alook/shared";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { cn } from "@/lib/utils";
-import { InfoIcon, XIcon } from "lucide-react";
+import { InfoIcon, XIcon, Dices, ChevronDown } from "lucide-react";
 import { useWorkspace } from "@/contexts/workspace-context";
 import {
   listWhitelist,
@@ -74,6 +73,9 @@ interface GeneralFieldsProps {
     runtimeId?: string;
   };
   runtimeAsRadio?: boolean;
+  onShuffle?: () => void;
+  emailHandleSlot?: React.ReactNode;
+  advancedSection?: React.ReactNode;
 }
 
 export function GeneralFields({
@@ -91,73 +93,69 @@ export function GeneralFields({
   providerModels,
   errors,
   runtimeAsRadio = false,
+  onShuffle,
+  emailHandleSlot,
+  advancedSection,
 }: GeneralFieldsProps) {
   return (
     <>
-      <div className="space-y-1.5">
-        <Label htmlFor="agent-name">Name <span className="text-destructive">*</span></Label>
-        <Input
-          id="agent-name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="My Agent"
-          required
-          aria-invalid={Boolean(errors?.name)}
-          aria-describedby={errors?.name ? "agent-name-error" : undefined}
-        />
+      {/* Name — large frameless input */}
+      <div>
+        <div className="relative">
+          <input
+            id="agent-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Agent name"
+            required
+            autoFocus
+            aria-invalid={Boolean(errors?.name)}
+            aria-describedby={errors?.name ? "agent-name-error" : undefined}
+            className="w-full border-0 bg-transparent px-0 py-1 text-2xl font-medium leading-[1.2] tracking-tight shadow-none outline-none placeholder:text-muted-foreground/40 placeholder:font-normal focus-visible:ring-0"
+          />
+          {onShuffle && (
+            <button
+              type="button"
+              onClick={onShuffle}
+              aria-label="Randomize name"
+              className="absolute right-0 top-1/2 -translate-y-1/2 rounded p-1.5 text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
+            >
+              <Dices className="size-4" />
+            </button>
+          )}
+        </div>
         {errors?.name && (
-          <p id="agent-name-error" className="text-xs text-destructive">
+          <p id="agent-name-error" className="text-xs text-destructive mt-1">
             {errors.name}
           </p>
         )}
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="agent-description">Description</Label>
-        <Input
-          id="agent-description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="What does this agent do?"
-        />
-      </div>
+      {/* Description — frameless, auto-growing */}
+      <textarea
+        id="agent-description"
+        value={description}
+        onChange={(e) => {
+          setDescription(e.target.value);
+          e.target.style.height = "auto";
+          e.target.style.height = `${e.target.scrollHeight}px`;
+        }}
+        ref={(el) => {
+          if (el) {
+            el.style.height = "auto";
+            el.style.height = `${el.scrollHeight}px`;
+          }
+        }}
+        placeholder="Add a description…"
+        rows={1}
+        className="w-full resize-none overflow-hidden border-0 bg-transparent px-0 py-0.5 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+      />
 
-      {setInstructions && (
-        <div className="space-y-1.5">
-          <Label htmlFor="agent-instructions">Instructions</Label>
-          <Textarea
-            id="agent-instructions"
-            value={instructions ?? ""}
-            onChange={(e) => setInstructions(e.target.value)}
-            placeholder="System prompt or instructions..."
-            rows={6}
-          />
-        </div>
-      )}
+      {emailHandleSlot}
 
-      <div className="space-y-1.5">
-        <Label htmlFor="agent-model">Model</Label>
-        <Input
-          id="agent-model"
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          placeholder="Default (runtime model)"
-          list="agent-model-options"
-        />
-        {providerModels.length > 0 && (
-          <datalist id="agent-model-options">
-            {providerModels.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-        )}
-        <p className="text-xs text-muted-foreground/70">
-          Optional. Leave blank to use the runtime&apos;s default model.
-        </p>
-      </div>
-
-      <div id="agent-runtime-select" className="space-y-1.5">
-        <Label>Runtime <span className="text-destructive">*</span></Label>
+      {/* Runtime */}
+      {(runtimeAsRadio || runtimes.length > 0) && <div id="agent-runtime-select" className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">Runtime</Label>
         {runtimeAsRadio ? (
           <div className="space-y-1.5" role="radiogroup" aria-label="Runtime">
             {runtimes.length === 0 ? (
@@ -174,7 +172,7 @@ export function GeneralFields({
                       "flex items-center gap-2.5 rounded-lg border p-2.5 cursor-pointer transition-colors",
                       isSelected
                         ? "border-primary bg-primary/5"
-                        : "border-border hover:border-foreground/20",
+                        : "border-border/50 hover:border-foreground/20",
                       !isOnline && "opacity-40 pointer-events-none"
                     )}
                   >
@@ -232,8 +230,77 @@ export function GeneralFields({
             {errors.runtimeId}
           </p>
         )}
-      </div>
+      </div>}
+
+      {/* Advanced — collapsible */}
+      {(setInstructions || advancedSection) && (
+        <AdvancedSection>
+          {setInstructions && (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Instructions</Label>
+              <textarea
+                id="agent-instructions"
+                value={instructions ?? ""}
+                onChange={(e) => {
+                  setInstructions(e.target.value);
+                  e.target.style.height = "auto";
+                  e.target.style.height = `${e.target.scrollHeight}px`;
+                }}
+                ref={(el) => {
+                  if (el) {
+                    el.style.height = "auto";
+                    el.style.height = `${el.scrollHeight}px`;
+                  }
+                }}
+                placeholder="System prompt or instructions..."
+                rows={3}
+                className="w-full resize-none overflow-hidden border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+              />
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Model</Label>
+            <input
+              id="agent-model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="Default (runtime model)"
+              list="agent-model-options"
+              className="w-full border-0 bg-transparent px-0 py-0.5 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+            />
+            {providerModels.length > 0 && (
+              <datalist id="agent-model-options">
+                {providerModels.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            )}
+          </div>
+
+          {advancedSection}
+        </AdvancedSection>
+      )}
     </>
+  );
+}
+
+// --- Advanced Section (collapsible) ---
+
+function AdvancedSection({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="pt-1">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} />
+        Advanced
+      </button>
+      {open && <div className="mt-3 space-y-4">{children}</div>}
+    </div>
   );
 }
 
@@ -257,33 +324,23 @@ export function EmailHandleField({
       : "";
 
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor="agent-handle">Email Handle</Label>
-      <div className="flex items-center gap-0">
-        <Input
+    <div className="space-y-1">
+      <Label className="text-xs text-muted-foreground">Email</Label>
+      <div className="flex items-center">
+        <input
           id="agent-handle"
           value={emailHandle}
           onChange={(e) => setEmailHandle(e.target.value.toLowerCase())}
           placeholder={derivedHandle || "my-agent"}
-          className="rounded-r-none"
+          className="w-full border-0 bg-transparent px-0 py-0.5 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
         />
-        <span className="inline-flex h-8 items-center rounded-r-lg border border-l-0 border-input bg-muted px-2.5 text-sm text-muted-foreground">
+        <span className="shrink-0 text-sm text-muted-foreground/70">
           @alook.ai
         </span>
       </div>
-      {effectiveHandle && (
-        <p
-          className={cn(
-            "text-xs",
-            handleError ? "text-destructive" : "text-muted-foreground"
-          )}
-        >
-          {handleError || `${effectiveHandle}@alook.ai`}
-        </p>
+      {handleError && (
+        <p className="text-xs text-destructive">{handleError}</p>
       )}
-      <p className="text-xs text-muted-foreground/70">
-        This cannot be changed after creation.
-      </p>
     </div>
   );
 }

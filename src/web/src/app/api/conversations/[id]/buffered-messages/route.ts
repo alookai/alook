@@ -13,6 +13,7 @@ import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { messageToResponse } from "@/lib/api/responses";
 import { broadcastToUser } from "@/lib/broadcast";
 import { TaskService } from "@/lib/services/task";
+import { invalidate, cacheKeys } from "@/lib/cache";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MAX_FILES = 10;
@@ -150,6 +151,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!activeTask) {
     const taskService = new TaskService(db);
     taskService.dispatchNextBufferedMessage(id, ws.workspaceId).catch(() => {});
+    const dateStr = new Date().toISOString().slice(0, 10);
+    invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)).catch(() => {});
   }
 
   return writeJSON({ message: messageToResponse(message) }, 201);

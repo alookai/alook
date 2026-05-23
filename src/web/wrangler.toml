@@ -11,9 +11,15 @@ keep_names = false
 enabled = true
 head_sampling_rate = 0.1
 
+[observability.logs]
+invocation_logs = true
+head_sampling_rate = 0.1
+destinations = ["grafana-logs"]
+
 [observability.traces]
 enabled = true
 head_sampling_rate = 0.05
+destinations = ["grafana-traces"]
 
 # OpenNext required bindings
 [assets]
@@ -71,4 +77,4 @@ id = "3aaa92b4c2c74185b888977e5552e9bf"
 
 [vars]
 RUNTIME_MODEL_OPTIONS = '{"claude":["claude-opus-4-6","claude-sonnet-4-6","claude-haiku-4-5"],"codex":["gpt-5.4","gpt-5.3-codex"]}'
-MIN_CLI_VERSION = "0.0.53"
+MIN_CLI_VERSION = "0.0.81"

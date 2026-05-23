@@ -8,6 +8,8 @@ import { AgentCreateForm } from "@/components/agent-create-form";
 import { fetchModelOptions, createEmailAccount } from "@/lib/api";
 import { toast } from "sonner";
 import { CircleHelp } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 
 export default function CreateAgentPage() {
@@ -36,14 +38,21 @@ export default function CreateAgentPage() {
     <>
       <div className="flex items-center gap-2 border-b border-border/50 px-3 md:px-5 py-2.5">
         <h1 className="text-sm font-medium">Create Agent</h1>
-        <button
-          type="button"
-          title="Show guided tour"
-          onClick={() => startTourRef.current?.()}
-          className="text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <CircleHelp className="size-3.5" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => startTourRef.current?.()}
+                className="text-muted-foreground"
+              />
+            }
+          >
+            <CircleHelp className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent>Show guided tour</TooltipContent>
+        </Tooltip>
       </div>
 
       <AgentCreateForm

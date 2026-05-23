@@ -9,6 +9,7 @@ import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { agentToResponse, workspaceToResponse, agentLinkToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
+import { invalidate, cached, cacheKeys } from "@/lib/cache";
 
 function slugify(name: string): string {
   return name
@@ -18,23 +19,27 @@ function slugify(name: string): string {
     .slice(0, 60);
 }
 
-async function generateUniqueHandle(
-  db: ReturnType<typeof getDb>,
+function generateUniqueHandleFromSet(
+  handleSet: Set<string>,
   baseName: string,
-): Promise<string> {
+): string {
   const base = baseName.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30);
-  if (isValidHandle(base)) {
-    const existing = await queries.agent.getAgentByHandle(db, base);
-    if (!existing) return base;
+  if (isValidHandle(base) && !handleSet.has(base)) {
+    handleSet.add(base);
+    return base;
   }
   for (let i = 0; i < 5; i++) {
     const suffix = uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "lowerCase" });
     const candidate = `${base}-${suffix}`.slice(0, 30);
     if (!isValidHandle(candidate)) continue;
-    const existing = await queries.agent.getAgentByHandle(db, candidate);
-    if (!existing) return candidate;
+    if (!handleSet.has(candidate)) {
+      handleSet.add(candidate);
+      return candidate;
+    }
   }
-  return `${base}-${nanoid(6)}`;
+  const fallback = `${base}-${nanoid(6)}`;
+  handleSet.add(fallback);
+  return fallback;
 }
 
 type LinkInstruction = { fromLeader: string; toLeader: string };
@@ -60,24 +65,20 @@ const SCENARIO_LINK_INSTRUCTIONS: Record<string, Record<string, LinkInstruction>
       toLeader: "Report with: Status, what was done (formatted, published, submitted), next step (awaiting review, scheduled for X), and any blockers (platform issues, access problems).",
     },
   },
-  productivity: {
+  "sales-outreach": {
+    researcher: {
+      fromLeader: "Delegate prospect research: target criteria, market/industry focus, what intelligence is needed, and how it will be used (outreach, pitch, proposal).",
+      toLeader: "Report with: Status, prospect list with context and suggested angles, market signals, source reliability, and confidence levels.",
+    },
     assistant: {
-      fromLeader: "Delegate operational tasks: what action, who's the target, what's the deadline, and tone guidance for external communications.",
-      toLeader: "Report with: Status, action taken, next step (waiting for reply, follow-up on X date), and escalation flags (no response, bounced email, conflicting info).",
+      fromLeader: "Delegate outreach tasks: who to contact, messaging angle, follow-up cadence, and desired outcome.",
+      toLeader: "Report with: Status, emails sent/scheduled, responses received, pipeline updates, and deals needing attention.",
     },
   },
-  "full-team": {
-    researcher: {
-      fromLeader: "Delegate research tasks with: clear question, decision context, scope boundary, and expected output format.",
-      toLeader: "Report with: Status, summary, evidence with sources, recommendation, and confidence level. Flag low-confidence conclusions.",
-    },
-    engineer: {
-      fromLeader: "Delegate coding tasks with: clear requirement, relevant context (file paths, patterns), and expected behavior.",
-      toLeader: "Report with: Status, files changed, tests run + results, self-review findings, and concerns about correctness.",
-    },
+  "customer-support": {
     assistant: {
-      fromLeader: "Delegate operational tasks: action needed, target person/system, deadline, and tone guidance.",
-      toLeader: "Report with: Status, action taken, next step, and escalation flags.",
+      fromLeader: "Delegate support tasks: customer issue summary, urgency level, prior interaction context, and resolution approach.",
+      toLeader: "Report with: Status, response drafted/sent, issue resolution status, follow-up schedule, and recurring patterns flagged.",
     },
   },
 };
@@ -170,11 +171,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // Create agents
   const createdAgents: Array<{ id: string; role: string; name: string; emailHandle: string | null; runtimeId: string | null }> = [];
 
+  const allHandles = await cached(cacheKeys.allHandles(ws.workspaceId), 120, () => queries.agent.getAllHandlesForWorkspace(db, ws.workspaceId));
+  const handleSet = new Set(allHandles.map((h) => h.emailHandle).filter(Boolean) as string[]);
+
   for (const member of body.members) {
     const agentName = member.name || `Agent-${nanoid(4)}`;
-    const handle = member.email_handle && isValidHandle(member.email_handle)
-      ? member.email_handle
-      : await generateUniqueHandle(db, agentName);
+    const handle = member.email_handle && isValidHandle(member.email_handle) && !handleSet.has(member.email_handle)
+      ? (handleSet.add(member.email_handle), member.email_handle)
+      : generateUniqueHandleFromSet(handleSet, agentName);
 
     const rc = member.runtime_config;
     const sanitizedRc: Record<string, unknown> | null = rc
@@ -232,6 +236,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
+  const dateStr = new Date().toISOString().slice(0, 10);
+  await Promise.all([
+    invalidate(cacheKeys.allAgents(ws.workspaceId)),
+    invalidate(cacheKeys.allHandles(ws.workspaceId)),
+    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
+    invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
+    invalidate(cacheKeys.allMembers(ws.workspaceId)),
+    invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)),
+    invalidate(cacheKeys.agentLinks(ws.workspaceId)),
+  ]);
+
   // Pin leader agent by default
   try {
     await queries.agentPin.pinAgent(db, {
@@ -239,6 +254,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       workspaceId: ws.workspaceId,
       userId: ctx.userId,
     });
+    invalidate(cacheKeys.pins(ws.workspaceId, ctx.userId)).catch(() => {});
   } catch {
     // Best-effort
   }

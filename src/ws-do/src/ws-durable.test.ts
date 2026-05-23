@@ -129,7 +129,7 @@ describe("WebSocketDurableObject", () => {
 
       const acceptCall = (ctx.acceptWebSocket as ReturnType<typeof vi.fn>).mock.calls[0]
       const serverWs = acceptCall[0]
-      expect(serverWs.deserializeAttachment()).toEqual({ userId: "", authenticated: false })
+      expect(serverWs.deserializeAttachment()).toEqual({ type: "user", userId: "", authenticated: false })
     })
   })
 
@@ -139,9 +139,9 @@ describe("WebSocketDurableObject", () => {
 
       // Set up two WebSockets: one authenticated, one not
       const wsAuth = createMockWebSocket()
-      wsAuth.serializeAttachment({ userId: "u1", authenticated: true })
+      wsAuth.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
       const wsUnauth = createMockWebSocket()
-      wsUnauth.serializeAttachment({ userId: "", authenticated: false })
+      wsUnauth.serializeAttachment({ type: "user", userId: "", authenticated: false })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth, wsUnauth])
 
       const req = new Request("http://internal/broadcast", {
@@ -152,19 +152,35 @@ describe("WebSocketDurableObject", () => {
       const res = await durable.fetch(req)
 
       expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 1 })
       expect(wsAuth.send).toHaveBeenCalledWith(
         JSON.stringify({ type: "runtime.status", daemonId: "d1", workspaceId: "w1", status: "online" })
       )
       expect(wsUnauth.send).not.toHaveBeenCalled()
     })
 
+    it("returns sent: 0 when no connections exist", async () => {
+      const { durable, ctx } = createDO()
+      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([])
+
+      const req = new Request("http://internal/broadcast", {
+        method: "POST",
+        body: '{"type":"test"}',
+      })
+
+      const res = await durable.fetch(req)
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 0 })
+    })
+
     it("skips connections that are not OPEN", async () => {
       const { durable, ctx } = createDO()
 
       const wsOpen = createMockWebSocket(WebSocket.OPEN)
-      wsOpen.serializeAttachment({ userId: "u1", authenticated: true })
+      wsOpen.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
       const wsClosed = createMockWebSocket(WebSocket.CLOSED)
-      wsClosed.serializeAttachment({ userId: "u1", authenticated: true })
+      wsClosed.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsOpen, wsClosed])
 
       const req = new Request("http://internal/broadcast", {
@@ -185,13 +201,13 @@ describe("WebSocketDurableObject", () => {
       mockGetValidSession.mockResolvedValue("user-42")
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ userId: "", authenticated: false })
+      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
 
       await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "valid-token" }))
 
       expect(mockGetValidSession).toHaveBeenCalledWith({}, "valid-token")
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
-      expect(ws.deserializeAttachment()).toEqual({ userId: "user-42", authenticated: true })
+      expect(ws.deserializeAttachment()).toEqual({ type: "user", userId: "user-42", authenticated: true })
     })
 
     it("closes with 1008 on invalid token", async () => {
@@ -199,7 +215,7 @@ describe("WebSocketDurableObject", () => {
       mockGetValidSession.mockResolvedValue(null)
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ userId: "", authenticated: false })
+      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
 
       await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "bad" }))
 
@@ -207,11 +223,37 @@ describe("WebSocketDurableObject", () => {
       expect(ws.send).not.toHaveBeenCalled()
     })
 
+    it("closes with 1008 when auth message has no token", async () => {
+      const { durable } = createDO()
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
+
+      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth" }))
+
+      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
+      expect(ws.send).not.toHaveBeenCalled()
+      expect(mockGetValidSession).not.toHaveBeenCalled()
+    })
+
+    it("closes with 1008 when auth message has empty string token", async () => {
+      const { durable } = createDO()
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
+
+      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "" }))
+
+      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
+      expect(ws.send).not.toHaveBeenCalled()
+      expect(mockGetValidSession).not.toHaveBeenCalled()
+    })
+
     it("closes unauthenticated connection sending non-auth message", async () => {
       const { durable } = createDO()
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ userId: "", authenticated: false })
+      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
 
       await durable.webSocketMessage(ws as any, JSON.stringify({ type: "some-event" }))
 
@@ -223,13 +265,13 @@ describe("WebSocketDurableObject", () => {
       mockGetValidSession.mockResolvedValue(null)
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ userId: "", authenticated: false })
+      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
 
       await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "expired-token" }))
 
       expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
       expect(ws.send).not.toHaveBeenCalled()
-      expect(ws.deserializeAttachment()).toEqual({ userId: "", authenticated: false })
+      expect(ws.deserializeAttachment()).toEqual({ type: "user", userId: "", authenticated: false })
     })
 
     it("closes on invalid JSON", async () => {

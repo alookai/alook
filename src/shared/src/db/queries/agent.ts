@@ -155,3 +155,14 @@ export async function getAgentsByIds(db: Database, ids: string[], workspaceId: s
     .from(agent)
     .where(and(inArray(agent.id, ids), eq(agent.workspaceId, workspaceId)));
 }
+
+export async function getAllAgentsForWorkspace(db: Database, workspaceId: string) {
+  return db.select().from(agent).where(eq(agent.workspaceId, workspaceId)).orderBy(desc(agent.createdAt));
+}
+
+export async function getAllHandlesForWorkspace(db: Database, workspaceId: string) {
+  return db
+    .select({ id: agent.id, emailHandle: agent.emailHandle })
+    .from(agent)
+    .where(eq(agent.workspaceId, workspaceId));
+}

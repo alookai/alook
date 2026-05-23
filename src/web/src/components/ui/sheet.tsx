@@ -48,7 +48,7 @@ function SheetContent({
 }) {
   return (
     <SheetPortal>
-      <SheetOverlay />
+      <SheetOverlay forceRender />
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
@@ -97,7 +97,7 @@ function SheetBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-body"
-      className={cn("flex-1 overflow-y-auto px-4 sm:px-6 py-5", className)}
+      className={cn("flex-1 overflow-y-auto thin-scrollbar px-4 sm:px-6 py-5", className)}
       {...props}
     />
   )
@@ -121,7 +121,7 @@ function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
     <SheetPrimitive.Title
       data-slot="sheet-title"
       className={cn(
-        "font-heading text-lg leading-none font-semibold",
+        "font-heading text-lg leading-tight font-semibold",
         className
       )}
       {...props}

@@ -42,7 +42,10 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   );
   if (!updated) return writeError("member not found", 404);
 
-  await invalidate(cacheKeys.member(ws.workspaceId, ctx.userId));
+  await Promise.all([
+    invalidate(cacheKeys.member(ws.workspaceId, ctx.userId)),
+    invalidate(cacheKeys.allMembers(ws.workspaceId)),
+  ]);
 
   return writeJSON({ global_instruction: updated.globalInstruction });
 });

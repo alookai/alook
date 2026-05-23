@@ -1,7 +1,7 @@
 import type { Database } from "@alook/shared";
 import { queries } from "@alook/shared";
 import { TaskService } from "./task";
-import { cached } from "@/lib/cache";
+import { throttled, invalidate, cacheKeys } from "@/lib/cache";
 
 const SWEEP_INTERVAL_S = 30;
 
@@ -11,20 +11,17 @@ export function _resetSweepThrottle() {}
 /**
  * Unified workspace housekeeping. Any code path that wants to ensure
  * stale state is cleaned up just calls this one function.
- * Rate-limited to once per 30s per workspace via KV.
+ * Rate-limited to once per 30s per workspace via KV (timestamp-based).
  */
 export async function sweepStaleState(db: Database, workspaceId: string) {
   const lockKey = `sweep:${workspaceId}`;
-  let locked = false;
+  let shouldRun = false;
   try {
-    const val = await cached<string>(lockKey, SWEEP_INTERVAL_S, async () => {
-      locked = true;
-      return new Date().toISOString();
-    });
-    if (!locked) return;
+    shouldRun = await throttled(lockKey, SWEEP_INTERVAL_S, async () => {});
   } catch {
-    locked = true;
+    shouldRun = true;
   }
+  if (!shouldRun) return;
 
   // 1. Fail tasks stuck in "dispatched" for >20s (daemon crashed between claim and start)
   const staleDispatched = await queries.task.failStaleDispatchedTasks(db, workspaceId);
@@ -53,5 +50,13 @@ export async function sweepStaleState(db: Database, workspaceId: string) {
       seenConversations.add(r.conversationId);
       await taskService.dispatchNextBufferedMessage(r.conversationId, r.workspaceId);
     }
+
+    // Invalidate caches that sweep modified
+    const dateStr = new Date().toISOString().slice(0, 10);
+    await Promise.all([
+      invalidate(cacheKeys.allAgents(workspaceId)),
+      invalidate(cacheKeys.overviewTaskStats(workspaceId, dateStr)),
+      invalidate(cacheKeys.activeTaskCounts(workspaceId)),
+    ]).catch(() => {});
   }
 }

@@ -3,18 +3,19 @@ import { type DaemonConfig, loadDaemonConfig, sessionRunnerLogDir, daemonLogFile
 import { createHealthServer } from "./health.js";
 import { detectVersion } from "./agent/index.js";
 import { type Task, type SessionRunnerInput, fromApiTask } from "./types.js";
-import type { MarkerData } from "./session-runner.js";
+import { type MarkerData, writeMarkerFile } from "./session-runner.js";
 import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
 import { createLogger } from "../lib/logger.js";
+import { DaemonWsClient } from "./ws-client.js";
+import type { DaemonPushMessage } from "@alook/shared";
 
 const log = createLogger({ module: "daemon" });
 import { cmdPrefix } from "../lib/env.js";
 import { acquireDaemonPid, releaseDaemonPid } from "./pidfile.js";
 import { handleCliUpdate, isUpdating, readUpdateMarker, clearUpdateMarker } from "./update-handler.js";
-import { findRunningPidByTaskId, findRunningEntryByContextKey } from "./execenv/timeline.js";
+import { findRunningPidByTaskId, findRunningEntryByContextKey, updateEntry } from "./execenv/timeline.js";
 import {
   writeKillIntent,
-  clearKillIntent,
   acquireSteeringLock,
   releaseSteeringLock,
   cleanupStaleIntents,
@@ -300,6 +301,7 @@ export async function startDaemon(
         daemon_id: config.daemonId,
         device_name: config.deviceName,
         cli_version: config.cliVersion,
+        workspaces_root: config.workspacesRoot,
         runtimes,
       });
     } catch (e) {
@@ -453,6 +455,8 @@ export async function startDaemon(
         // Spawn meeting bots from merged poll response
         if (meetings) {
           for (const m of meetings) {
+            const agentBaseDir = join(config.workspacesRoot, m.workspace_id, m.agent_id, "workdir");
+            const timelineDir = join(agentBaseDir, ".context_timeline");
             spawnMeetingRunner({
               meetingId: m.id,
               meetingUrl: m.meeting_url,
@@ -461,6 +465,9 @@ export async function startDaemon(
               callbackUrl: config.serverURL,
               authToken: ws.token,
               agentName: m.agent_name,
+              agentId: m.agent_id,
+              timelineDir,
+              title: m.title,
             });
           }
         }
@@ -477,19 +484,162 @@ export async function startDaemon(
       evictWorkspace(id);
     }
 
-    try {
-      await reconcilePendingCompletions(config.workspacesRoot);
-    } catch (e) {
-      log.debug("reconciliation error", e);
-    }
-
     if (workspaceStates.length === 0) {
       log.info("All workspaces evicted — shutting down");
       shutdown();
     }
   };
 
-  const pollTimer = setInterval(pollCycle, config.pollInterval);
+  let pollTimer = setInterval(pollCycle, config.pollInterval);
+
+  // --- Heartbeat timer (independent of poll and WS state) ---
+  const heartbeatPing = () => {
+    for (const ws of workspaceStates) {
+      client.heartbeat(ws.token, config.daemonId).catch((e) => {
+        log.debug("heartbeat failed", { workspaceId: ws.workspaceId, err: String(e) });
+      });
+    }
+  };
+  const heartbeatTimer = setInterval(heartbeatPing, config.heartbeatInterval);
+
+  // --- WS Push Channel (primary) + Poll fallback ---
+  // Any active machine token suffices — WS auth validates daemon-level access,
+  // not per-workspace. Tasks are routed by workspaceId within handleWsPush.
+  const firstToken = workspaceStates[0]?.token;
+
+  function updatePollInterval(newInterval: number) {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(pollCycle, newInterval);
+  }
+
+  function handleWsPush(msg: DaemonPushMessage) {
+    switch (msg.type) {
+      case "daemon.tasks":
+        for (const apiTask of msg.tasks) {
+          if (activeTasks.size >= config.maxConcurrentTasks) break;
+          const task = fromApiTask(apiTask);
+          if (activeTasks.has(task.id)) continue;
+          const ws = workspaceStates.find((w) => w.workspaceId === task.workspaceId);
+          if (!ws) continue;
+          syncAgentId(task.agentId, ws.workspaceId);
+          activeTasks.add(task.id);
+          handleTask(client, config, runtimeIndex, task, ws.token, activeTasks)
+            .catch((e) => { log.error("WS task error", e); activeTasks.delete(task.id); });
+        }
+        break;
+
+      case "daemon.file_requests": {
+        const ws = workspaceStates.find((w) => w.workspaceId === msg.workspaceId);
+        if (ws) {
+          for (const req of msg.requests) {
+            handleFileRequest(client, config, ws.workspaceId, req, ws.token)
+              .catch((e) => log.debug("WS file request error", e));
+          }
+        }
+        break;
+      }
+
+      case "daemon.meetings":
+        for (const m of msg.meetings) {
+          const ws = workspaceStates.find((w) => w.workspaceId === m.workspace_id);
+          if (!ws) continue;
+          const agentBaseDir = join(config.workspacesRoot, m.workspace_id, m.agent_id, "workdir");
+          const timelineDir = join(agentBaseDir, ".context_timeline");
+          spawnMeetingRunner({
+            meetingId: m.id,
+            meetingUrl: m.meeting_url,
+            participants: m.participants,
+            workspaceId: m.workspace_id,
+            callbackUrl: config.serverURL,
+            authToken: ws.token,
+            agentName: m.agent_name,
+            agentId: m.agent_id,
+            timelineDir,
+            title: m.title,
+          });
+        }
+        break;
+
+      case "daemon.evict":
+        evictWorkspace(msg.workspaceId);
+        break;
+
+      case "daemon.update":
+        if (!isUpdating() && msg.version !== config.cliVersion) {
+          handleCliUpdate(msg.version, () => requestRestart(), profile);
+        }
+        break;
+
+      case "daemon.rescan":
+        log.info("WS rescan requested — restarting daemon");
+        requestRestart();
+        break;
+
+      case "daemon.kill": {
+        const ws = workspaceStates.find((w) => w.workspaceId === msg.workspaceId);
+        if (ws) {
+          const killTask = fromApiTask({
+            id: msg.taskId,
+            agent_id: "",
+            runtime_id: "",
+            conversation_id: "",
+            workspace_id: ws.workspaceId,
+            prompt: "",
+            status: "queued",
+            priority: 0,
+            dispatched_at: null,
+            started_at: null,
+            completed_at: null,
+            result: null,
+            error: null,
+            created_at: new Date().toISOString(),
+            type: "kill_task",
+            context: { target_task_id: msg.targetTaskId },
+            agent: null,
+            sender: null,
+          });
+          activeTasks.add(killTask.id);
+          handleTask(client, config, runtimeIndex, killTask, ws.token, activeTasks)
+            .catch((e) => { log.error("WS kill task error", e); activeTasks.delete(killTask.id); });
+        }
+        break;
+      }
+    }
+  }
+
+  const wsClient = firstToken
+    ? new DaemonWsClient({
+        serverURL: config.serverURL,
+        daemonId: config.daemonId,
+        machineToken: firstToken,
+        onMessage: handleWsPush,
+        onConnected: () => {
+          log.info("WS connected — switching to low-frequency poll");
+          updatePollInterval(config.wsPollInterval);
+        },
+        onDisconnected: () => {
+          log.info("WS disconnected — reverting to high-frequency poll");
+          updatePollInterval(config.pollInterval);
+        },
+      })
+    : null;
+
+  wsClient?.connect();
+
+  // --- Sweep timer: triggers server-side sweep + local reconciliation ---
+  const sweepTick = async () => {
+    for (const ws of workspaceStates) {
+      client.sweep(ws.token, config.daemonId).catch((e) => {
+        log.debug("sweep ping failed", { workspaceId: ws.workspaceId, err: String(e) });
+      });
+    }
+    try {
+      await reconcilePendingCompletions(config.workspacesRoot);
+    } catch (e) {
+      log.debug("reconciliation error", e);
+    }
+  };
+  const sweepTimer = setInterval(sweepTick, config.sweepInterval);
 
   let shuttingDown = false;
   let restartRequested = false;
@@ -504,6 +654,9 @@ export async function startDaemon(
     shuttingDown = true;
     log.info(restartRequested ? "Restarting..." : "Shutting down...");
     clearInterval(pollTimer);
+    clearInterval(heartbeatTimer);
+    clearInterval(sweepTimer);
+    wsClient?.close();
 
     const shutdownMs = restartRequested ? 30000 : (Number(process.env.ALOOK_SHUTDOWN_TIMEOUT_MS) || 5000);
     const timeout = setTimeout(() => process.exit(1), shutdownMs);
@@ -569,6 +722,7 @@ export async function startDaemon(
             daemon_id: config.daemonId,
             device_name: config.deviceName,
             cli_version: config.cliVersion,
+            workspaces_root: config.workspacesRoot,
             runtimes,
           });
           const runtimeIds = resp.runtimes.map((r: { id: string }) => r.id);
@@ -635,6 +789,9 @@ export function spawnMeetingRunner(input: {
   callbackUrl: string;
   authToken: string;
   agentName?: string;
+  agentId?: string;
+  timelineDir?: string;
+  title?: string;
 }): ChildProcess {
   const logDir = sessionRunnerLogDir();
   mkdirSync(logDir, { recursive: true });
@@ -856,6 +1013,42 @@ async function handleTask(
   };
 
   const child = spawnSessionRunner(input);
-  child.on("close", () => activeTasks.delete(task.id));
+  child.on("close", async (code) => {
+    activeTasks.delete(task.id);
+    if (code !== 0) {
+      const msg = code === null
+        ? `session-runner killed by signal (task ${task.id})`
+        : `session-runner crashed (exit code ${code}, task ${task.id})`;
+      log.warn(msg);
+
+      // Update timeline JSONL as fallback
+      const timelineDir = join(config.workspacesRoot, task.workspaceId, task.agentId, "workdir", ".context_timeline");
+      updateEntry(timelineDir, task.id, (entry) => {
+        entry.pid = null;
+        entry.status = "failed";
+        entry.errmsg = msg;
+      });
+
+      try {
+        await client.failTask(token, task.id, msg);
+      } catch (e) {
+        if (isClientError(e)) {
+          log.info(`Backstop: task ${task.id} already in terminal state`);
+          return;
+        }
+        log.error(`Backstop: failed to report crash for task ${task.id}`, e);
+        try {
+          await writeMarkerFile(config.workspacesRoot, {
+            taskId: task.id,
+            type: "fail",
+            payload: { error: msg },
+            token,
+            serverURL: config.serverURL,
+            createdAt: new Date().toISOString(),
+          });
+        } catch { /* best-effort */ }
+      }
+    }
+  });
   log.info(`Task ${task.id} dispatched to session-runner (pid=${child.pid})`);
 }

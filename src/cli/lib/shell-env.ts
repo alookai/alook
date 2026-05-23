@@ -1,6 +1,8 @@
 import { execSync } from "child_process";
 import { isWindows } from "./platform.js";
 
+const PASSTHROUGH_VARS = ["ALOOK_PROJECT_ROOT", "ALOOK_SERVER_URL", "ALOOK_CMD_PREFIX", "ALOOK_HEALTH_PORT"];
+
 export function resolveLoginShellEnv(): NodeJS.ProcessEnv {
   if (isWindows) {
     return { ...process.env };
@@ -20,7 +22,12 @@ export function resolveLoginShellEnv(): NodeJS.ProcessEnv {
         env[line.slice(0, idx)] = line.slice(idx + 1);
       }
     }
-    if (env.PATH) return env;
+    if (env.PATH) {
+      for (const key of PASSTHROUGH_VARS) {
+        if (process.env[key]) env[key] = process.env[key];
+      }
+      return env;
+    }
   } catch {
     // fall through
   }

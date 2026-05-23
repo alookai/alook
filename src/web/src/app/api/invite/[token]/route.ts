@@ -4,6 +4,7 @@ import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
+import { invalidate, cacheKeys } from "@/lib/cache";
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const { token } = ctx.params!;
@@ -45,6 +46,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     userId: ctx.userId,
     role: "member",
   });
+
+  await invalidate(cacheKeys.allMembers(invite.workspaceId));
 
   return writeJSON({ workspace_id: invite.workspaceId, workspace_slug: invite.workspaceSlug });
 });

@@ -13,6 +13,7 @@ interface Feature {
   spec: string;
   description: string;
   terminal: string[];
+  cta: { tagline: string; label: string; href: string };
 }
 
 const features: Feature[] = [
@@ -32,6 +33,7 @@ const features: Feature[] = [
       "▓  R&D  ▓░░░░░░░░░░░▓ SALES ▓░░░░░░░░░░░▓  BIZ  ▓",
       "▓▓▓▓▓▓▓▓▓           ▓▓▓▓▓▓▓▓▓           ▓▓▓▓▓▓▓▓▓",
     ],
+    cta: { tagline: "Design your org chart", label: "BUILD YOUR TEAM", href: "/sign-in" },
   },
   {
     number: "II",
@@ -51,6 +53,7 @@ const features: Feature[] = [
       "█                       █",
       "█████████████████████████",
     ],
+    cta: { tagline: "Full audit trail, zero black boxes", label: "SEE EVERY DECISION", href: "/sign-in" },
   },
   {
     number: "III",
@@ -69,6 +72,7 @@ const features: Feature[] = [
       "▓  ░  ░  ░  ░  ░  ░  ░  ▓",
       "▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓",
     ],
+    cta: { tagline: "Agents that show up on time", label: "SET UP SCHEDULES", href: "/sign-in" },
   },
   {
     number: "IV",
@@ -88,6 +92,7 @@ const features: Feature[] = [
       "                         ",
       "                         ",
     ],
+    cta: { tagline: "Ship while you sleep", label: "START THE DAEMON", href: "/sign-in" },
   },
   {
     number: "V",
@@ -107,6 +112,7 @@ const features: Feature[] = [
       "     ░░░░░▒▓█▓▒░░░░░     ",
       "                         ",
     ],
+    cta: { tagline: "Smarter with every task", label: "GROW YOUR TEAM", href: "/sign-in" },
   },
 ];
 
@@ -238,43 +244,95 @@ function FeaturePanel({ feature, reversed }: { feature: Feature; reversed: boole
         </p>
       </div>
 
-      {/* CRT terminal */}
-      <div
-        className={`panel-crt rounded-lg p-2 ${reversed ? "lg:[direction:ltr]" : ""}`}
-        style={{
-          backgroundColor: "oklch(0.82 0.02 75)",
-          boxShadow:
-            "0 4px 16px oklch(0.15 0.01 55 / 15%), inset 0 1px 0 oklch(0.95 0.01 80 / 40%)",
-        }}
-      >
+      {/* Flip card */}
+      <div className={`mx-auto w-full max-w-sm sm:max-w-md ${reversed ? "lg:[direction:ltr]" : ""}`}>
+        <FlipCard feature={feature} />
+      </div>
+    </div>
+  );
+}
+
+function FlipCard({ feature }: { feature: Feature }) {
+  return (
+    <div
+      className="flip-card panel-crt cursor-pointer"
+      style={{ perspective: "1200px" }}
+    >
+      <div className="flip-card-inner relative w-full transition-transform duration-500 ease-out [transform-style:preserve-3d]">
+        {/* Front — ASCII art */}
         <div
-          className="relative overflow-hidden rounded p-5"
+          className="flip-card-front rounded-lg p-2"
           style={{
-            backgroundColor: "var(--landing-crt-bg)",
-            boxShadow: "inset 0 0 40px oklch(0.04 0.003 55)",
+            backfaceVisibility: "hidden",
+            backgroundColor: "oklch(0.82 0.02 75)",
+            boxShadow:
+              "0 4px 16px oklch(0.15 0.01 55 / 15%), inset 0 1px 0 oklch(0.95 0.01 80 / 40%)",
           }}
         >
-          {/* Scan lines */}
           <div
-            className="pointer-events-none absolute inset-0 z-10"
+            className="relative overflow-hidden rounded p-5"
             style={{
-              backgroundImage:
-                "repeating-linear-gradient(to bottom, transparent 0px, transparent 1px, oklch(0 0 0 / 6%) 1px, oklch(0 0 0 / 6%) 2px)",
-              backgroundSize: "100% 2px",
+              backgroundColor: "var(--landing-crt-bg)",
+              boxShadow: "inset 0 0 40px oklch(0.04 0.003 55)",
             }}
-          />
-          {/* Vignette */}
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(ellipse at center, transparent 60%, oklch(0.04 0.003 55 / 50%) 100%)",
-            }}
-          />
-          {/* ASCII art */}
-          <div className="relative z-20 flex items-center justify-center min-h-35">
-            <AnimatedArt lines={feature.terminal} />
+          >
+            {/* Scan lines */}
+            <div
+              className="pointer-events-none absolute inset-0 z-10"
+              style={{
+                backgroundImage:
+                  "repeating-linear-gradient(to bottom, transparent 0px, transparent 1px, oklch(0 0 0 / 6%) 1px, oklch(0 0 0 / 6%) 2px)",
+                backgroundSize: "100% 2px",
+              }}
+            />
+            {/* Vignette */}
+            <div
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background:
+                  "radial-gradient(ellipse at center, transparent 60%, oklch(0.04 0.003 55 / 50%) 100%)",
+              }}
+            />
+            {/* ASCII art */}
+            <div className="relative z-20 flex items-center justify-center min-h-35">
+              <AnimatedArt lines={feature.terminal} />
+            </div>
           </div>
+        </div>
+
+        {/* Back — CTA */}
+        <div
+          className="flip-card-back absolute inset-0 flex flex-col items-center justify-center rounded-lg p-6"
+          style={{
+            backfaceVisibility: "hidden",
+            transform: "rotateY(180deg)",
+            backgroundColor: "var(--landing-crt-bg)",
+            boxShadow:
+              "0 4px 16px oklch(0.15 0.01 55 / 15%)",
+          }}
+        >
+          <p
+            className="mb-5 text-center text-sm"
+            style={{
+              fontFamily: "var(--font-crt)",
+              color: "var(--landing-phosphor)",
+              textShadow: "0 0 6px oklch(0.75 0.18 80 / 30%)",
+            }}
+          >
+            {feature.cta.tagline}
+          </p>
+          <a
+            href={feature.cta.href}
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-xs uppercase tracking-[0.1em] transition-opacity hover:opacity-80"
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: "var(--landing-crt-bg)",
+              backgroundColor: "var(--landing-phosphor)",
+              boxShadow: "0 0 12px oklch(0.75 0.18 80 / 40%)",
+            }}
+          >
+            {feature.cta.label}
+          </a>
         </div>
       </div>
     </div>

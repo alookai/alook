@@ -31,32 +31,31 @@ afterEach(() => {
   delete process.env.ALOOK_PROJECT_ROOT;
 });
 
-describe("configDir", () => {
-  it("returns ~/.alook in production", () => {
+describe("configDir — three ALOOK_PROJECT_ROOT scenarios", () => {
+  it("production: returns ~/.alook (ALOOK_PROJECT_ROOT unset)", () => {
+    delete process.env.ALOOK_PROJECT_ROOT;
     expect(configDir()).toBe(join(homedir(), ".alook"));
   });
 
-  it("returns <project-root>/.alook in dev mode", () => {
-    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project";
-    expect(configDir()).toBe(join("/tmp/my-project", ".alook"));
+  it("dev mode: returns ALOOK_PROJECT_ROOT directly", () => {
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project/.alook";
+    expect(configDir()).toBe("/tmp/my-project/.alook");
   });
 
-  it("falls back to ~/.alook in dev mode without ALOOK_PROJECT_ROOT", () => {
-    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    expect(configDir()).toBe(join(homedir(), ".alook"));
+  it("app mode: returns ALOOK_PROJECT_ROOT when set to self-hosted dir", () => {
+    process.env.ALOOK_PROJECT_ROOT = join(homedir(), ".alook", "self-hosted");
+    expect(configDir()).toBe(join(homedir(), ".alook", "self-hosted"));
   });
 });
 
 describe("configPath", () => {
-  it("returns ~/.alook/config.json in production", () => {
+  it("returns ~/.alook/config.json by default", () => {
     expect(configPath()).toBe(join(homedir(), ".alook", "config.json"));
   });
 
-  it("returns <project-root>/.alook/config.json in dev mode", () => {
-    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project";
-    expect(configPath()).toBe(join("/tmp/my-project", ".alook", "config.json"));
+  it("returns <ALOOK_PROJECT_ROOT>/config.json when set", () => {
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project/.alook";
+    expect(configPath()).toBe(join("/tmp/my-project/.alook", "config.json"));
   });
 });
 
@@ -139,19 +138,18 @@ describe("saveCLIConfig", () => {
     );
   });
 
-  it("writes to <project-root>/.alook in dev mode", () => {
-    process.env.ALOOK_SERVER_URL = "http://localhost:3000";
-    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project";
+  it("writes to ALOOK_PROJECT_ROOT when set", () => {
+    process.env.ALOOK_PROJECT_ROOT = "/tmp/my-project/.alook";
 
     const cfg = { server_url: "http://localhost:3000", watched_workspaces: [] };
     saveCLIConfig(cfg);
 
     expect(mockedMkdirSync).toHaveBeenCalledWith(
-      join("/tmp/my-project", ".alook"),
+      "/tmp/my-project/.alook",
       { recursive: true, mode: 0o700 },
     );
     expect(mockedWriteFileSync).toHaveBeenCalledWith(
-      join("/tmp/my-project", ".alook", "config.json"),
+      join("/tmp/my-project/.alook", "config.json"),
       JSON.stringify(cfg, null, 2),
       { mode: 0o600 },
     );

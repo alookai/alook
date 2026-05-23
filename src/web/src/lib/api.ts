@@ -188,7 +188,7 @@ export const getMinCliVersion = () =>
   apiFetch<{ min_cli_version: string | null }>("/api/config/min-version");
 
 export const fetchLatestCliVersion = () =>
-  apiFetch<{ version: string }>("/api/cli/latest-version");
+  apiFetch<{ version: string; package: string }>("/api/cli/latest-version");
 
 // Channels
 export const listChannels = (workspaceId: string) =>
@@ -209,6 +209,12 @@ export const renameChannelApi = (id: string, workspaceId: string, name: string) 
 export const deleteChannelApi = (id: string, workspaceId: string) =>
   apiFetch<{ ok: boolean }>(`/api/channels/${id}${wsQuery(workspaceId)}`, {
     method: "DELETE",
+  });
+
+export const reorderChannelsApi = (workspaceId: string, orderedChannelIds: string[]) =>
+  apiFetch<void>(`/api/channels/reorder${wsQuery(workspaceId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ ordered_channel_ids: orderedChannelIds }),
   });
 
 // Conversations
@@ -268,6 +274,51 @@ export const chatInit = (agentId: string, workspaceId: string, channel?: string)
     method: "POST",
     body: JSON.stringify({ ...(channel ? { channel } : {}) }),
   });
+
+export interface ConversationInitResponse {
+  conversation: Conversation;
+  messages: Message[] | null;
+  has_more_messages: boolean;
+  has_more_conversations: boolean;
+  has_more_artifacts: boolean;
+  artifacts: Artifact[];
+  buffered_messages: Message[];
+  flagged_message_ids: string[];
+  step_counts: Record<string, number>;
+  active_task: TaskApi | null;
+  task_messages: TaskMessage[];
+  cache_valid: boolean;
+}
+
+export const conversationInit = (
+  conversationId: string,
+  workspaceId: string,
+  opts?: { newestMessageId?: string },
+) => {
+  const extra: Record<string, string> = {};
+  if (opts?.newestMessageId) extra.newest_message_id = opts.newestMessageId;
+  return apiFetch<ConversationInitResponse>(
+    `/api/conversations/${conversationId}/init${wsQuery(workspaceId, extra)}`,
+  );
+};
+
+export interface FreshnessCheckResponse {
+  conversation_id: string;
+  newest_message_id: string | null;
+}
+
+export const checkFreshness = (
+  opts: { conversationId?: string; agentId?: string; channel?: string },
+  workspaceId: string,
+) => {
+  const extra: Record<string, string> = {};
+  if (opts.conversationId) extra.conversation_id = opts.conversationId;
+  if (opts.agentId) extra.agent_id = opts.agentId;
+  if (opts.channel) extra.channel = opts.channel;
+  return apiFetch<FreshnessCheckResponse>(
+    `/api/conversations/check-fresh${wsQuery(workspaceId, extra)}`,
+  );
+};
 
 export const deleteConversation = (id: string, workspaceId: string) =>
   apiFetch<void>(`/api/conversations/${id}${wsQuery(workspaceId)}`, { method: "DELETE" });
@@ -601,6 +652,9 @@ export const listCalendarEvents = (
   if (opts?.to) extra.to = opts.to;
   return apiFetch<CalendarEvent[]>(`/api/calendar${wsQuery(workspaceId, extra)}`);
 };
+
+export const getCalendarEvent = (id: string, workspaceId: string) =>
+  apiFetch<CalendarEvent>(`/api/calendar/${id}${wsQuery(workspaceId)}`);
 
 export const createCalendarEvent = (
   req: CreateCalendarEventRequest,
@@ -1061,18 +1115,22 @@ export interface InboxItem {
 
 export const listInboxItems = (
   workspaceId: string,
-  opts?: { limit?: number; before?: string }
+  opts?: { limit?: number; before?: string; types?: string[] }
 ) => {
   const extra: Record<string, string> = {};
   if (opts?.limit) extra.limit = String(opts.limit);
   if (opts?.before) extra.before = opts.before;
+  if (opts?.types?.length) extra.types = opts.types.join(",");
   return apiFetch<{ items: InboxItem[]; has_more: boolean }>(
     `/api/inbox${wsQuery(workspaceId, extra)}`
   );
 };
 
-export const getInboxCount = (workspaceId: string) =>
-  apiFetch<{ count: number }>(`/api/inbox/count${wsQuery(workspaceId)}`);
+export const getInboxCount = (workspaceId: string, opts?: { types?: string[] }) => {
+  const extra: Record<string, string> = {};
+  if (opts?.types?.length) extra.types = opts.types.join(",");
+  return apiFetch<{ count: number }>(`/api/inbox/count${wsQuery(workspaceId, extra)}`);
+};
 
 export const markInboxRead = (conversationId: string, workspaceId: string) =>
   apiFetch<void>(`/api/inbox/read${wsQuery(workspaceId)}`, {
@@ -1084,6 +1142,52 @@ export const markAllInboxRead = (workspaceId: string) =>
   apiFetch<void>(`/api/inbox/read-all${wsQuery(workspaceId)}`, {
     method: "POST",
   });
+
+// Flags
+export interface FlaggedItem {
+  id: string;
+  message_id: string;
+  message_content: string;
+  message_role: string;
+  message_created_at: string;
+  conversation_id: string;
+  conversation_title: string;
+  agent_id: string;
+  agent_name: string | null;
+  agent_avatar_url: string | null;
+  flagged_at: string;
+}
+
+export const listFlaggedItems = (
+  workspaceId: string,
+  opts?: { limit?: number; before?: string }
+) => {
+  const extra: Record<string, string> = {};
+  if (opts?.limit) extra.limit = String(opts.limit);
+  if (opts?.before) extra.before = opts.before;
+  return apiFetch<{ items: FlaggedItem[]; has_more: boolean }>(
+    `/api/flags${wsQuery(workspaceId, extra)}`
+  );
+};
+
+export const getFlaggedCount = (workspaceId: string) =>
+  apiFetch<{ count: number }>(`/api/flags/count${wsQuery(workspaceId)}`);
+
+export const flagMessage = (workspaceId: string, messageId: string) =>
+  apiFetch<{ flagged: boolean }>(`/api/flags${wsQuery(workspaceId)}`, {
+    method: "POST",
+    body: JSON.stringify({ messageId }),
+  });
+
+export const unflagMessage = (workspaceId: string, messageId: string) =>
+  apiFetch<void>(`/api/flags/${messageId}${wsQuery(workspaceId)}`, {
+    method: "DELETE",
+  });
+
+export const listFlaggedMessageIds = (workspaceId: string, conversationId: string) =>
+  apiFetch<{ message_ids: string[] }>(
+    `/api/flags${wsQuery(workspaceId, { conversation_id: conversationId, ids_only: "true" })}`
+  );
 
 // Traces
 export interface TraceListItem {

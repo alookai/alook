@@ -50,7 +50,16 @@ export class CodexBackend implements AgentBackend {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, ...options.env },
+      shell: process.platform === "win32",
+      windowsHide: true,
     });
+
+    if (!proc.pid) {
+      const error = `Failed to start ${this.cliPath}: binary not found or not executable. Is 'codex' installed and on PATH?`;
+      const failedResult: AgentResult = { status: "failed", output: "", error, durationMs: 0, sessionId: "" };
+      const emptyMessages: AsyncIterable<AgentMessage> = { [Symbol.asyncIterator]() { return { async next() { return { value: undefined as unknown as AgentMessage, done: true }; } }; } };
+      return { pid: undefined, messages: emptyMessages, sessionId: Promise.resolve(""), result: Promise.resolve(failedResult) };
+    }
 
     let timedOut = false;
     let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
@@ -501,6 +510,26 @@ export class CodexBackend implements AgentBackend {
       };
 
       startHandshake();
+
+      proc.on("error", (err: Error) => {
+        resultStatus = "failed";
+        lastError = `spawn error: ${err.message}`;
+        closeAllPending("spawn error");
+        resolveSessionId(sessionId);
+        messageDone = true;
+        if (messageResolve) {
+          const r = messageResolve;
+          messageResolve = null;
+          r();
+        }
+        resolve({
+          status: "failed",
+          output: "",
+          error: lastError,
+          durationMs: Date.now() - startTime,
+          sessionId,
+        });
+      });
 
       proc.on("close", (code: number | null) => {
         if (timeoutTimer) clearTimeout(timeoutTimer);

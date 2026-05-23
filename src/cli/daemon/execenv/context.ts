@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { toAlookAddress } from "@alook/shared";
 import { tempDir } from "../../lib/platform.js";
+import { cmdPrefix } from "../../lib/env.js";
 import {
   writeFileSync,
   readFileSync,
@@ -9,6 +10,7 @@ import {
   unlinkSync,
   existsSync,
   readlinkSync,
+  copyFileSync,
 } from "fs";
 import { join } from "path";
 import type { Task } from "../types.js";
@@ -107,26 +109,30 @@ ${task.agent.instructions}
   }
 
   if (task.agent?.colleagues?.length) {
-    content += `\n## Your Colleagues
-Below are your direct colleagues. You can reach them via email.
+    content += `\n## YOUR COLLEAGUES — CHECK BEFORE ACTING
+> **STOP. Before you start ANY task, scan the colleague list below.**
+> If a colleague's delegation criteria match the current task, you MUST delegate to them via email **instead of doing it yourself**.
+> Do NOT attempt work that belongs to a colleague. Delegate first, then wait for their response or coordinate.
 
-**Important:**
-- When communicating with a colleague on the **same topic** as an existing email thread, reply to that thread (use --in-reply-to) to keep context together.
-- **When starting a NEW topic or task that is unrelated to any previous email thread, you MUST compose a brand new email (do NOT use --in-reply-to). Never hijack an unrelated thread just because you recently emailed that colleague.** Judge by topic/task relevance, not by recency of communication.
-  - Make sure to send follow-up emails to your colleagues to stop the previous wrong directions or instructions you sent before, don't make your colleague running for nothing.
 `;
     for (let i = 0; i < task.agent.colleagues.length; i++) {
       const c = task.agent.colleagues[i];
       content += `### ${c.name}${c.email ? ` (${c.email})` : ""}\n`;
       if (c.description) content += `${c.description}\n`;
-      if (c.instruction) content += `**When to involve:** ${resolveInstruction(c.instruction, task.agentId)}\n`;
+      if (c.instruction) content += `**DELEGATE when:** ${resolveInstruction(c.instruction, task.agentId)}\n`;
       if (i < task.agent.colleagues.length - 1) content += "\n";
     }
+    content += `
+**Email threading rules:**
+- When communicating with a colleague on the **same topic** as an existing email thread, reply to that thread (use --in-reply-to) to keep context together.
+- **When starting a NEW topic or task that is unrelated to any previous email thread, you MUST compose a brand new email (do NOT use --in-reply-to). Never hijack an unrelated thread just because you recently emailed that colleague.** Judge by topic/task relevance, not by recency of communication.
+  - Make sure to send follow-up emails to your colleagues to stop the previous wrong directions or instructions you sent before, don't make your colleague running for nothing.
+`;
   }
 
   content += `\n## Alook CLI Tools
 You can communicate with the world through Alook CLI.
-Your alook agent id is '${task.agentId}'. remember this, most of alook cli will requires you input your agent id.
+The CLI auto-detects your identity from the environment. No need to pass \`--agent_id\`.
 `;
 
   if (alookAddr || customAddrs.length > 0) {
@@ -137,12 +143,12 @@ Your alook agent id is '${task.agentId}'. remember this, most of alook cli will 
 
 ### Emails
 ---
-Run 'npx @alook/cli email pull --agent_id ${task.agentId} --status unread' to download unread emails from inbox to '${tempDir("alook-emails")}/${task.workspaceId}/${task.agentId}/'.
+Run '${cmdPrefix()} email pull --status unread' to download unread emails from inbox to '${tempDir("alook-emails")}/${task.workspaceId}/${task.agentId}/'.
 ---
-To download sent emails, add '--folder sent': 'npx @alook/cli email pull --agent_id ${task.agentId} --folder sent'
+To download sent emails, add '--folder sent': '${cmdPrefix()} email pull --folder sent'
 Valid folders: inbox (default), sent, untrust.
 To limit the number of emails downloaded, add '--limit <N>' (e.g. '--limit 20'). Use '--offset <N>' to skip emails for pagination.
-Example: 'npx @alook/cli email pull --agent_id ${task.agentId} --status unread --limit 20 --offset 0'
+Example: '${cmdPrefix()} email pull --status unread --limit 20 --offset 0'
 ---
 Each email is saved to '${tempDir("alook-emails")}/${task.workspaceId}/${task.agentId}/<emailId>/' with:
 - 'metadata.json' — sender, recipient, subject, date, status, message_id, in_reply_to, references
@@ -151,40 +157,40 @@ Each email is saved to '${tempDir("alook-emails")}/${task.workspaceId}/${task.ag
 - 'attachments/' — extracted attachment files (if any)
 ---
 Before starting to process an INBOX email, mark it as read:
-- Run 'npx @alook/cli email set --agent_id ${task.agentId} --email_id <EMAIL_ID> --status read'
+- Run '${cmdPrefix()} email set --email_id <EMAIL_ID> --status read'
 ---
 
 #### Sending a new email
 Write the HTML body to a file first, then send it. The body is forwarded as-is (HTML).
-- Run 'npx @alook/cli email send --agent_id ${task.agentId} --to <ADDRESS> --subject "<SUBJECT>" --body-file <PATH_TO_HTML>'
+- Run '${cmdPrefix()} email send --to <ADDRESS> --subject "<SUBJECT>" --body-file <PATH_TO_HTML>'
 - To send from a specific mailbox, add '--from <YOUR_EMAIL_ADDRESS>'. Without '--from', the default Alook address is used.
 - Attach files with '--attachment <PATH>' — repeat the flag for multiple attachments. Each file is uploaded before sending.
-- Example: 'npx @alook/cli email send --agent_id ${task.agentId} --to foo@bar.com --subject "Weekly report" --body-file /tmp/body.html --from alice@company.com --attachment /tmp/report.pdf'
+- Example: '${cmdPrefix()} email send --to foo@bar.com --subject "Weekly report" --body-file /tmp/body.html --from alice@company.com --attachment /tmp/report.pdf'
 
 #### Replying to an email
 To reply to an email, add '--in-reply-to <EMAIL_ID>' to the send command. This sets the correct email threading headers so the recipient's email client groups the reply into the same conversation thread.
 - Use 'Re: <original subject>' as the subject.
 - Quote the original email body in your reply (wrap it in a blockquote).
 - The <EMAIL_ID> is the Alook email id from metadata.json (not the message_id header).
-- Example: 'npx @alook/cli email send --agent_id ${task.agentId} --to sender@example.com --subject "Re: Bug report" --body-file /tmp/reply.html --in-reply-to <EMAIL_ID>'
+- Example: '${cmdPrefix()} email send --to sender@example.com --subject "Re: Bug report" --body-file /tmp/reply.html --in-reply-to <EMAIL_ID>'
 Tips:
 - If you think the task will take a while, consider sending a short "I'm on it" style email reply first to reassure the sender.
 ---
 
 #### Forwarding an email
 Forward any email to a new recipient, with an optional note prepended above the original content. All original attachments are re-attached automatically.
-- Run 'npx @alook/cli email forward --agent_id ${task.agentId} --email_id <EMAIL_ID> --to <RECIPIENT>'
+- Run '${cmdPrefix()} email forward --email_id <EMAIL_ID> --to <RECIPIENT>'
 - Add '--note "FYI, see the request below."' to prepend a note above the forwarded body.
 - Add '--from <YOUR_EMAIL_ADDRESS>' to send from a specific mailbox.
 - Add '--attachment <PATH>' to attach extra files (repeatable).
-- Example: 'npx @alook/cli email forward --agent_id ${task.agentId} --email_id em_abc --to boss@company.com --note "FYI" --attachment /tmp/summary.pdf'
+- Example: '${cmdPrefix()} email forward --email_id em_abc --to boss@company.com --note "FYI" --attachment /tmp/summary.pdf'
 ---
 
 #### Email Whitelist (Allowed Senders)
 Manage which email addresses are allowed to send you emails.
-- List: 'npx @alook/cli email whitelist list --agent_id ${task.agentId}' (add '--json' for machine-readable output)
-- Add: 'npx @alook/cli email whitelist add --agent_id ${task.agentId} <EMAIL_ADDRESS>'
-- Remove: 'npx @alook/cli email whitelist delete --agent_id ${task.agentId} <EMAIL_ADDRESS>'
+- List: '${cmdPrefix()} email whitelist list' (add '--json' for machine-readable output)
+- Add: '${cmdPrefix()} email whitelist add <EMAIL_ADDRESS>'
+- Remove: '${cmdPrefix()} email whitelist delete <EMAIL_ADDRESS>'
 ---
 `;
   }
@@ -192,7 +198,7 @@ Manage which email addresses are allowed to send you emails.
   content += `\n### Artifacts
 Upload files for your owner to review in the app.
 - Your current conversation id is available via env var: $ALOOK_CONVERSATION_ID
-- Run 'npx @alook/cli sync upload-artifact --agent_id ${task.agentId} --conversation_id $ALOOK_CONVERSATION_ID --file <PATH>'
+- Run '${cmdPrefix()} sync upload-artifact --conversation_id $ALOOK_CONVERSATION_ID --file <PATH>'
 - Use this after generating plans, reports, or any file the owner should review.
 - You response will be rendered in remote server, so don't output link format with local path in your response (cause user can click it and jump to nowheres)
 - If you think user may need to know any file detail, use upload-artifact tool to send the file to user.
@@ -214,26 +220,26 @@ Schedule future tasks for yourself. At the scheduled time, a new task is dispatc
 Keep the event title informative and concise, less than 20 words.
 Place the event details in description.
 Create a one-off event:
-- Run 'npx @alook/cli calendar set --agent_id ${task.agentId} --event_title "<TASK_TITLE>" --description "<TASK_BODY>" --datetime <YYYY-MM-DDTHH:MM>'
+- Run '${cmdPrefix()} calendar set --event_title "<TASK_TITLE>" --description "<TASK_BODY>" --datetime <YYYY-MM-DDTHH:MM>'
   - '--datetime' is LOCAL time, format 'YYYY-MM-DDTHH:MM' (e.g. '2026-04-17T09:30'). Do NOT pass UTC / ISO strings with 'Z'.
   - '--event_title' becomes the task prompt when the event fires — write it as the instruction you want future-you to receive.
 
 Create a repeating event:
 - Add '--repeat <interval>' where interval is like '1day', '2hour', '1week', '1month'.
 - Optionally add '--repeat_stop_date <YYYY-MM-DD>' to stop the recurrence (local date).
-- Example: 'npx @alook/cli calendar set --agent_id ${task.agentId} --event_title "<REPEAT_TASK_TITLE>" --description "<REPEAT_TASK_BODY>" --datetime 2026-04-18T09:00 --repeat 1day --repeat_stop_date 2026-05-18'
+- Example: '${cmdPrefix()} calendar set --event_title "<REPEAT_TASK_TITLE>" --description "<REPEAT_TASK_BODY>" --datetime 2026-04-18T09:00 --repeat 1day --repeat_stop_date 2026-05-18'
 ---
 List upcoming events:
-- Run 'npx @alook/cli calendar list --agent_id ${task.agentId}' (defaults: next 30 days, past 0 days).
+- Run '${cmdPrefix()} calendar list' (defaults: next 30 days, past 0 days).
 - Tune the window with '--future_days <N>' and '--past_days <N>'. Add '--json' for machine-readable output.
 - 'list' shows a '[has description]' badge instead of the full description — use 'show' (below) to read it.
 
 Show full detail of one event (use this to read the description):
-- Run 'npx @alook/cli calendar show --agent_id ${task.agentId} --event_id <EVENT_ID>'
+- Run '${cmdPrefix()} calendar show --event_id <EVENT_ID>'
 - Add '--json' for machine-readable output.
 
 Edit an existing event (preserves event id and recurring state):
-- Run 'npx @alook/cli calendar update --agent_id ${task.agentId} --event_id <EVENT_ID> [flags]'
+- Run '${cmdPrefix()} calendar update --event_id <EVENT_ID> [flags]'
 - Supply only the fields you want to change. Available flags:
   - '--event_title "<t>"' — rename the event / change the fire-time prompt
   - '--description "<d>"' to set, or '--clear_description' to remove
@@ -243,7 +249,7 @@ Edit an existing event (preserves event id and recurring state):
 - Passing no mutating flag is an error. Do NOT use 'delete' + 'set' to edit — that loses the event id and the recurring 'last fired' state.
 
 Delete an event:
-- Run 'npx @alook/cli calendar delete --agent_id ${task.agentId} --event_id <EVENT_ID>'
+- Run '${cmdPrefix()} calendar delete --event_id <EVENT_ID>'
 ---
 `;
 
@@ -283,7 +289,10 @@ export function ensureSymlinks(workDir: string): void {
         if (target === CANONICAL_FILE) continue; // already correct
         unlinkSync(aliasPath);
       } else {
-        // regular file — remove it
+        // regular file — check if content already matches (copy fallback fast-path)
+        const aliasContent = readFileSync(aliasPath, "utf-8");
+        const canonicalContent = readFileSync(canonicalPath, "utf-8");
+        if (aliasContent === canonicalContent) continue;
         unlinkSync(aliasPath);
       }
     } catch (err: unknown) {
@@ -291,7 +300,16 @@ export function ensureSymlinks(workDir: string): void {
       // doesn't exist — will create below
     }
 
-    symlinkSync(CANONICAL_FILE, aliasPath);
+    try {
+      symlinkSync(CANONICAL_FILE, aliasPath);
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code === "EPERM" || code === "EACCES") {
+        copyFileSync(canonicalPath, aliasPath);
+      } else {
+        throw err;
+      }
+    }
   }
 }
 

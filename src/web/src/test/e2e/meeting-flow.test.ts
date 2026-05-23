@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import { randomUUID } from "crypto"
 import { seedTestData, cleanupTestData, type TestSeed } from "../helpers/seed"
 import { tokenRequest } from "../helpers/auth"
 import { sql, sqlQuery } from "../helpers/db"
@@ -21,6 +22,32 @@ function req(path: string, opts?: RequestInit) {
 }
 
 describe("meeting claim via poll", () => {
+  // Use a separate daemon for the claim test to avoid 30s misc-throttle
+  const claimDaemonId = `daemon_claim_${randomUUID().slice(0, 8)}`
+
+  beforeAll(async () => {
+    const res = await req("/api/daemon/register", {
+      method: "POST",
+      body: JSON.stringify({
+        workspace_id: seed.workspaceId,
+        daemon_id: claimDaemonId,
+        device_name: "claim-test-machine",
+        cli_version: "0.0.1",
+        runtimes: [
+          { provider: "claude", runtime_mode: "local", version: "4.0" },
+        ],
+      }),
+    })
+    expect(res.status).toBe(200)
+  })
+
+  afterAll(() => {
+    try {
+      sql(`DELETE FROM agent_runtime WHERE daemon_id = '${claimDaemonId}'`)
+      sql(`DELETE FROM machine WHERE daemon_id = '${claimDaemonId}'`)
+    } catch { /* ignore */ }
+  })
+
   it("poll returns no meetings when none are scheduled", async () => {
     const res = await req("/api/daemon/tasks/poll", {
       method: "POST",
@@ -38,7 +65,7 @@ describe("meeting claim via poll", () => {
 
     const res = await req("/api/daemon/tasks/poll", {
       method: "POST",
-      body: JSON.stringify({ daemon_id: seed.daemonId }),
+      body: JSON.stringify({ daemon_id: claimDaemonId }),
     })
     expect(res.status).toBe(200)
     const data = await res.json() as { meetings?: { id: string; meeting_url: string; agent_name: string }[] }

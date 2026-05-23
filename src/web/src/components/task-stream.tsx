@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import type { TaskMessage } from "@alook/shared";
 import type { TaskApi as Task } from "@alook/shared";
 import {
+  Check,
   ChevronRight,
   Brain,
   AlertCircle,
@@ -105,7 +106,7 @@ function groupMessages(messages: TaskMessage[]): StreamItem[] {
 
 /* ── ToolCallBlock ── */
 
-function ToolCallBlock({ item, isRunning }: { item: ToolCallGroup; isRunning: boolean }) {
+function ToolCallBlock({ item, isRunning, isLast }: { item: ToolCallGroup; isRunning: boolean; isLast: boolean }) {
   const inputStr = useMemo(() => {
     if (!item.input) return null;
     try {
@@ -126,8 +127,11 @@ function ToolCallBlock({ item, isRunning }: { item: ToolCallGroup; isRunning: bo
         <span className="font-medium text-foreground/80">
           {formatToolName(item.tool)}
         </span>
-        {isRunning && (
+        {isRunning && isLast && (
           <span className="ml-auto size-1.5 rounded-full bg-primary/60 animate-pulse" />
+        )}
+        {isRunning && !isLast && (
+          <Check className="ml-auto size-3 text-emerald-500" />
         )}
       </div>
     );
@@ -147,8 +151,11 @@ function ToolCallBlock({ item, isRunning }: { item: ToolCallGroup; isRunning: bo
         <span className="font-medium text-foreground/80">
           {formatToolName(item.tool)}
         </span>
-        {isRunning && (
+        {isRunning && isLast && (
           <span className="ml-auto size-1.5 rounded-full bg-primary/60 animate-pulse" />
+        )}
+        {isRunning && !isLast && (
+          <Check className="ml-auto size-3 text-emerald-500" />
         )}
       </summary>
 
@@ -329,7 +336,7 @@ export function TaskStream({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 min-w-0 max-w-full">
       {/* Status badge */}
       <div className="flex items-center gap-2">
         {task.status === "running" ? (
@@ -382,17 +389,17 @@ export function TaskStream({
                 <span>Loading steps...</span>
               </div>
             )}
-            {toolItems.map((item) => {
+            {toolItems.map((item, idx) => {
               switch (item.kind) {
                 case "tool-call":
-                  return <ToolCallBlock key={item.id} item={item} isRunning={isRunning} />;
+                  return <ToolCallBlock key={item.id} item={item} isRunning={isRunning} isLast={idx === toolItems.length - 1} />;
                 case "thinking":
                   return <ThinkingBlock key={item.id} item={item as ThinkingItem} />;
                 case "status":
                   return (
                     <p
                       key={item.id}
-                      className="text-xs text-muted-foreground px-1"
+                      className="text-xs text-muted-foreground px-1 wrap-anywhere"
                     >
                       {item.type === "error" && (
                         <AlertCircle className="inline size-3 mr-1 -mt-0.5 text-destructive" />
@@ -440,10 +447,10 @@ export function TaskStream({
 
       {/* Error display */}
       {task.status === "failed" && task.error && (
-        <div className="flex items-center gap-2 mt-2">
-          <p className="text-sm text-destructive flex items-center gap-1.5">
-            <AlertCircle className="size-3.5 shrink-0" />
-            {task.error}
+        <div className="flex items-start gap-2 mt-2 max-w-full overflow-hidden">
+          <p className="text-sm text-destructive flex items-start gap-1.5 min-w-0">
+            <AlertCircle className="size-3.5 shrink-0 mt-0.5" />
+            <span className="wrap-anywhere">{task.error}</span>
           </p>
           {onRetry && (
             <button

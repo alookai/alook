@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { getTrace, type TraceTask } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -133,9 +134,12 @@ function TaskNode({ node, slug }: { node: TreeNode; slug: string }) {
             <span className="text-sm text-foreground truncate flex-1 min-w-0">
               {node.prompt.split("\n")[0]}
             </span>
-            <span className="text-xs text-muted-foreground shrink-0 ml-2" title={new Date(node.created_at).toLocaleString()}>
-              {relativeTime(node.created_at)}
-            </span>
+            <Tooltip>
+              <TooltipTrigger render={<span className="text-xs text-muted-foreground shrink-0 ml-2" />}>
+                {relativeTime(node.created_at)}
+              </TooltipTrigger>
+              <TooltipContent>{new Date(node.created_at).toLocaleString()}</TooltipContent>
+            </Tooltip>
           </div>
           <div className="flex items-center gap-1.5">
             {node.agent?.name && (
@@ -204,7 +208,7 @@ export default function TraceDetailPage() {
                   <Skeleton className="h-3.5 rounded" style={{ width: `${w}%` }} />
                   <Skeleton className="h-2.5 w-10 rounded shrink-0 ml-auto" />
                 </div>
-                <div className="flex items-center gap-1.5 mt-1 ml-[calc(0.875rem+0.5rem)]">
+                <div className="flex items-center gap-1.5 mt-1 ml-5.5">
                   <Skeleton className="h-2.5 w-20 rounded-full" />
                 </div>
               </div>

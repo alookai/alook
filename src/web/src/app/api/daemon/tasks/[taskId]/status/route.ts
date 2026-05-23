@@ -1,6 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
-import { getDb } from "@/lib/db"
+import { getDb, withD1Retry } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
 
@@ -17,7 +17,7 @@ export const GET = withAuth(async (_req, ctx) => {
     return writeError("task_id is required", 400);
   }
 
-  const status = await queries.task.getTaskStatus(db, taskId, ctx.workspaceId);
+  const status = await withD1Retry(() => queries.task.getTaskStatus(db, taskId, ctx.workspaceId));
   if (!status) {
     return writeError("task not found", 404);
   }

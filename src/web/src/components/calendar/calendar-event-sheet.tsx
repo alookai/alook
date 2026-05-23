@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { getCalendarEvent } from "@/lib/api";
 import {
   Sheet,
   SheetContent,
@@ -22,6 +23,7 @@ import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import {
   CalendarDays,
   CalendarOff,
+  Loader2,
   Repeat as RepeatIcon,
   User,
   X,
@@ -56,9 +58,14 @@ export interface CreateFormValues {
 export interface CalendarEventSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  agents: Agent[];
+  agents?: Agent[];
   /** When provided, the sheet is in edit mode. */
   event?: CalendarEvent | null;
+  /** When provided (without `event`), the sheet self-fetches the event data. */
+  calendarEventId?: string | null;
+  workspaceId?: string;
+  /** When true, all fields render as non-editable display. */
+  readonly?: boolean;
   defaultDate?: Date;
   defaultAgentId?: string;
   submitting?: boolean;
@@ -227,11 +234,18 @@ function RecurringScopeDialog({
   );
 }
 
+const DRAG_MIN_WIDTH = 320;
+const DRAG_MAX_WIDTH_RATIO = 0.8;
+const DRAG_DEFAULT_WIDTH = 500;
+
 export function CalendarEventSheet({
   open,
   onOpenChange,
-  agents,
+  agents = [],
   event,
+  calendarEventId,
+  workspaceId,
+  readonly,
   defaultDate,
   defaultAgentId,
   submitting,
@@ -241,7 +255,58 @@ export function CalendarEventSheet({
   onUpdate,
   onDelete,
 }: CalendarEventSheetProps) {
-  const mode = event ? "edit" : "create";
+  // --- Self-fetch logic ---
+  const [fetchedEvent, setFetchedEvent] = useState<CalendarEvent | null>(null);
+  const [fetchLoading, setFetchLoading] = useState(false);
+  const onOpenChangeRef = useRef(onOpenChange);
+  useEffect(() => { onOpenChangeRef.current = onOpenChange; });
+
+  useEffect(() => {
+    if (!open || !calendarEventId || event) return;
+    let cancelled = false;
+    setFetchLoading(true);
+    setFetchedEvent(null);
+    getCalendarEvent(calendarEventId, workspaceId ?? "")
+      .then((ev) => { if (!cancelled) setFetchedEvent(ev); })
+      .catch(() => {
+        if (cancelled) return;
+        toast.error("Calendar event not found");
+        onOpenChangeRef.current(false);
+      })
+      .finally(() => { if (!cancelled) setFetchLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, calendarEventId, workspaceId, event]);
+
+  const resolvedEvent = event ?? fetchedEvent;
+
+  const handleOpenChange = (v: boolean) => {
+    onOpenChange(v);
+    if (!v) {
+      setTimeout(() => setFetchedEvent(null), 300);
+    }
+  };
+
+  // --- Resizable drag handle ---
+  const [sheetWidth, setSheetWidth] = useState(DRAG_DEFAULT_WIDTH);
+  const draggingRef = useRef(false);
+
+  const onDragPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    draggingRef.current = true;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
+
+  const onDragPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!draggingRef.current) return;
+    const maxW = window.innerWidth * DRAG_MAX_WIDTH_RATIO;
+    setSheetWidth(Math.min(maxW, Math.max(DRAG_MIN_WIDTH, window.innerWidth - e.clientX)));
+  }, []);
+
+  const onDragPointerUp = useCallback(() => {
+    draggingRef.current = false;
+  }, []);
+
+  const mode = resolvedEvent ? "edit" : "create";
 
   const [agentId, setAgentId] = useState("");
   const [title, setTitle] = useState("");
@@ -275,14 +340,14 @@ export function CalendarEventSheet({
 
   useEffect(() => {
     if (!open) return;
-    if (event) {
-      const scheduled = new Date(event.scheduled_at);
-      setAgentId(event.agent_id);
-      setTitle(event.title);
-      setDescription(event.description ?? "");
+    if (resolvedEvent) {
+      const scheduled = new Date(resolvedEvent.scheduled_at);
+      setAgentId(resolvedEvent.agent_id);
+      setTitle(resolvedEvent.title);
+      setDescription(resolvedEvent.description ?? "");
       setDateValue(scheduled);
       setTimeValue(parseTime(scheduled));
-      const parsed = parseRepeatInterval(event.repeat_interval ?? "");
+      const parsed = parseRepeatInterval(resolvedEvent.repeat_interval ?? "");
       if (parsed) {
         setRepeatEnabled(true);
         setRepeatCount(String(parsed.count));
@@ -293,7 +358,7 @@ export function CalendarEventSheet({
         setRepeatUnit("day");
       }
       setStopDate(
-        event.repeat_stop_at ? new Date(event.repeat_stop_at) : null
+        resolvedEvent.repeat_stop_at ? new Date(resolvedEvent.repeat_stop_at) : null
       );
     } else {
       setAgentId(defaultAgentId || agents[0]?.id || "");
@@ -308,25 +373,25 @@ export function CalendarEventSheet({
     }
     // Seed only on open transition / event id change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, event?.id]);
+  }, [open, resolvedEvent?.id]);
 
   const dirty = useMemo(() => {
-    if (!event) return true;
-    const scheduled = new Date(event.scheduled_at);
+    if (!resolvedEvent) return true;
+    const scheduled = new Date(resolvedEvent.scheduled_at);
     return (
-      title.trim() !== event.title ||
+      title.trim() !== resolvedEvent.title ||
       normalizedDescription(description) !==
-        normalizedDescription(event.description) ||
-      agentId !== event.agent_id ||
+        normalizedDescription(resolvedEvent.description) ||
+      agentId !== resolvedEvent.agent_id ||
       dateValue.getFullYear() !== scheduled.getFullYear() ||
       dateValue.getMonth() !== scheduled.getMonth() ||
       dateValue.getDate() !== scheduled.getDate() ||
       timeValue !== parseTime(scheduled) ||
-      repeat !== (event.repeat_interval ?? "") ||
+      repeat !== (resolvedEvent.repeat_interval ?? "") ||
       (stopDate ? toYYYYMMDD(stopDate) : null) !==
-        (event.repeat_stop_at ? toYYYYMMDD(new Date(event.repeat_stop_at)) : null)
+        (resolvedEvent.repeat_stop_at ? toYYYYMMDD(new Date(resolvedEvent.repeat_stop_at)) : null)
     );
-  }, [agentId, title, description, dateValue, timeValue, repeat, stopDate, event]);
+  }, [agentId, title, description, dateValue, timeValue, repeat, stopDate, resolvedEvent]);
 
   function validate(): string | null {
     if (!agentId) return "Select an agent";
@@ -369,28 +434,28 @@ export function CalendarEventSheet({
   };
 
   function buildEditPatch(): UpdateCalendarEventRequest | null {
-    if (!event) return null;
+    if (!resolvedEvent) return null;
     const patch: UpdateCalendarEventRequest = {};
     const scheduled = combineDateTime(dateValue, timeValue);
     const scheduledIso = scheduled.toISOString();
     const nextTitle = title.trim();
-    if (nextTitle !== event.title) patch.title = nextTitle;
+    if (nextTitle !== resolvedEvent.title) patch.title = nextTitle;
     const nextDesc = normalizedDescription(description);
-    const prevDesc = normalizedDescription(event.description);
+    const prevDesc = normalizedDescription(resolvedEvent.description);
     if (nextDesc !== prevDesc) patch.description = nextDesc === "" ? null : nextDesc;
-    if (agentId !== event.agent_id) patch.agent_id = agentId;
+    if (agentId !== resolvedEvent.agent_id) patch.agent_id = agentId;
     if (
-      scheduledIso !== new Date(event.scheduled_at).toISOString()
+      scheduledIso !== new Date(resolvedEvent.scheduled_at).toISOString()
     ) {
       patch.scheduled_at = scheduledIso;
     }
-    const prevRepeat = event.repeat_interval ?? "";
+    const prevRepeat = resolvedEvent.repeat_interval ?? "";
     if (repeat !== prevRepeat) {
       patch.repeat_interval = repeat === "" ? null : repeat;
     }
     const nextStop = stopDate ? toYYYYMMDD(stopDate) : null;
-    const prevStop = event.repeat_stop_at
-      ? toYYYYMMDD(new Date(event.repeat_stop_at))
+    const prevStop = resolvedEvent.repeat_stop_at
+      ? toYYYYMMDD(new Date(resolvedEvent.repeat_stop_at))
       : null;
     if (nextStop !== prevStop) {
       patch.repeat_stop_date = nextStop;
@@ -409,17 +474,17 @@ export function CalendarEventSheet({
   }
 
   const commitEdit = async (patch: UpdateCalendarEventRequest) => {
-    if (!event) return;
-    await onUpdate?.(event, patch);
+    if (!resolvedEvent) return;
+    await onUpdate?.(resolvedEvent, patch);
   };
 
   const handleEditSave = async () => {
-    if (!event) return;
+    if (!resolvedEvent) return;
     const err = validate();
     if (err) return toast.error(err);
     const patch = buildEditPatch();
     if (!patch) return;
-    if (event.repeat_interval) {
+    if (resolvedEvent.repeat_interval) {
       setScopeOpen(true);
       return;
     }
@@ -433,27 +498,27 @@ export function CalendarEventSheet({
       return;
     }
     patch.scope = scope;
-    if (scope === "this" && event?.occurrence_at) {
-      patch.occurrence_at = event.occurrence_at;
+    if (scope === "this" && resolvedEvent?.occurrence_at) {
+      patch.occurrence_at = resolvedEvent.occurrence_at;
     }
     await commitEdit(patch);
     setScopeOpen(false);
   };
 
   const handleDeleteClick = () => {
-    if (!event) return;
-    if (event.repeat_interval) {
+    if (!resolvedEvent) return;
+    if (resolvedEvent.repeat_interval) {
       setDeleteScopeOpen(true);
       return;
     }
-    onDelete?.(event);
+    onDelete?.(resolvedEvent);
   };
 
   const handleDeleteScopeConfirm = (scope: "this" | "following") => {
-    if (!event) return;
-    onDelete?.(event, {
+    if (!resolvedEvent) return;
+    onDelete?.(resolvedEvent, {
       scope,
-      occurrence_at: event.occurrence_at ?? undefined,
+      occurrence_at: resolvedEvent.occurrence_at ?? undefined,
     });
     setDeleteScopeOpen(false);
   };
@@ -502,7 +567,11 @@ export function CalendarEventSheet({
     resizeTitle(titleRef.current);
   }, [title]);
 
-  const titleInput = (
+  const titleInput = readonly ? (
+    <p className="w-full px-0 py-1 font-news text-xl sm:text-2xl md:text-3xl font-medium leading-[1.2] tracking-tight">
+      {title || "Untitled event"}
+    </p>
+  ) : (
     <textarea
       ref={(el) => {
         titleRef.current = el;
@@ -524,14 +593,37 @@ export function CalendarEventSheet({
       autoFocus={mode === "create"}
       rows={1}
       className={cn(
-        "w-full resize-none overflow-hidden rounded-none border-0 bg-transparent px-0 py-1 font-news text-2xl md:text-3xl font-medium leading-[1.2] tracking-tight",
+        "w-full resize-none overflow-hidden rounded-none border-0 bg-transparent px-0 py-1 font-news text-xl sm:text-2xl md:text-3xl font-medium leading-[1.2] tracking-tight",
         "shadow-none outline-none focus-visible:border-0 focus-visible:ring-0 focus-visible:ring-offset-0",
         "placeholder:text-muted-foreground/40 placeholder:font-normal"
       )}
     />
   );
 
-  const properties = (
+  const properties = readonly ? (
+    <div className="flex flex-col gap-1.5">
+      <PropertyRow icon={<CalendarDays className="size-3.5" />}>
+        <span className="text-sm text-foreground">
+          {dateValue.toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
+        </span>
+      </PropertyRow>
+      <PropertyRow icon={<CalendarDays className="size-3.5" />}>
+        <span className="text-sm text-foreground">{timeValue}</span>
+      </PropertyRow>
+      <PropertyRow icon={<RepeatIcon className="size-3.5" />}>
+        <span className="text-sm text-foreground">
+          {repeatEnabled ? `Every ${repeatCount} ${unitLabel(repeatUnit, parseInt(repeatCount, 10) || 1)}` : "Does not repeat"}
+        </span>
+      </PropertyRow>
+      {repeatEnabled && stopDate && (
+        <PropertyRow icon={<CalendarOff className="size-3.5" />}>
+          <span className="text-sm text-foreground">
+            Until {stopDate.toLocaleDateString()}
+          </span>
+        </PropertyRow>
+      )}
+    </div>
+  ) : (
     <div className="flex flex-col gap-1.5">
       <PropertyRow icon={<User className="size-3.5" />}>
         <select
@@ -681,10 +773,14 @@ export function CalendarEventSheet({
     </div>
   );
 
-  const descriptionEditor = (
+  const descriptionEditor = readonly ? (
+    description ? (
+      <pre className="whitespace-pre-wrap font-sans text-sm">{description}</pre>
+    ) : null
+  ) : (
     <div ref={descriptionRef}>
       <MarkdownEditor
-        key={event?.id ?? "new"}
+        key={resolvedEvent?.id ?? "new"}
         contentType="markdown"
         value={description}
         onChange={setDescription}
@@ -697,28 +793,53 @@ export function CalendarEventSheet({
     </div>
   );
 
+  const dragHandle = (
+    <div
+      onPointerDown={onDragPointerDown}
+      onPointerMove={onDragPointerMove}
+      onPointerUp={onDragPointerUp}
+      className="hidden sm:block absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-primary/20 active:bg-primary/30 transition-colors rounded-l-xl"
+    />
+  );
+
+  const sheetBody = fetchLoading ? (
+    <SheetBody className="flex items-center justify-center py-12">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </SheetBody>
+  ) : (
+    <SheetBody className="flex flex-col gap-6 px-4 pt-6 pb-4 sm:px-8 sm:pt-10 sm:pb-6">
+      {titleInput}
+      {properties}
+      {descriptionEditor}
+    </SheetBody>
+  );
+
   return (
     <>
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border">
+      <Sheet open={open} onOpenChange={handleOpenChange}>
+        <SheetContent
+          style={{ width: `min(${sheetWidth}px, 100vw)`, maxWidth: "none" }}
+          className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border"
+        >
+          {dragHandle}
           <SheetTitle className="sr-only">{a11yTitle}</SheetTitle>
-          {mode === "create" ? (
+          {readonly ? (
+            <div className="flex flex-1 flex-col min-h-0">
+              {sheetBody}
+            </div>
+          ) : mode === "create" ? (
             <form
               ref={formRef}
               onSubmit={handleCreateSubmit}
               onKeyDownCapture={handleSubmitShortcut}
               className="flex flex-1 flex-col min-h-0"
             >
-              <SheetBody className="flex flex-col gap-6 px-8 pt-10 pb-6">
-                {titleInput}
-                {properties}
-                {descriptionEditor}
-              </SheetBody>
+              {sheetBody}
               <SheetFooter>
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => onOpenChange(false)}
+                  onClick={() => handleOpenChange(false)}
                 >
                   Cancel
                 </Button>
@@ -737,11 +858,7 @@ export function CalendarEventSheet({
               onKeyDownCapture={handleSubmitShortcut}
               className="flex flex-1 flex-col min-h-0"
             >
-              <SheetBody className="flex flex-col gap-6 px-8 pt-10 pb-6">
-                {titleInput}
-                {properties}
-                {descriptionEditor}
-              </SheetBody>
+              {sheetBody}
               <SheetFooter className="sm:justify-between">
                 <Button
                   variant="destructive"
@@ -753,7 +870,7 @@ export function CalendarEventSheet({
                 <div className="flex items-center gap-2 sm:justify-end">
                   <Button
                     variant="outline"
-                    onClick={() => onOpenChange(false)}
+                    onClick={() => handleOpenChange(false)}
                     disabled={saving}
                   >
                     Cancel

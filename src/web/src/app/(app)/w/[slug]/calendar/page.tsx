@@ -33,6 +33,7 @@ import { CalendarEventSheet } from "@/components/calendar/calendar-event-sheet";
 import { getWeekStart, weekRangeIso } from "@/components/calendar/calendar-week-utils";
 import type { CalendarEvent, UpdateCalendarEventRequest } from "@alook/shared";
 import { isTypingTarget } from "@/components/calendar/keyboard";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 /**
  * The month grid always renders six full weeks (42 cells), which means the
@@ -71,6 +72,7 @@ export default function CalendarPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const isMobile = useIsMobile();
 
   const now = new Date();
   const initialYear = Number(searchParams.get("y")) || now.getFullYear();
@@ -512,15 +514,16 @@ export default function CalendarPage() {
               setCreateOpen(true);
             }}
             disabled={agents.length === 0}
+            className="min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0"
           >
             <Plus className="size-3.5" />
-            New event
+            <span className="hidden sm:inline">New event</span>
           </Button>
         </div>
       </div>
 
       <div className={cn(
-        "flex flex-1 flex-col gap-4 px-5 py-5",
+        "flex flex-1 flex-col gap-4 px-3 py-3 sm:px-5 sm:py-5",
         view === "week" ? "min-h-0 overflow-hidden" : "overflow-y-auto"
       )}>
         <CalendarAgentFilter
@@ -555,6 +558,7 @@ export default function CalendarPage() {
             agents={agents}
             loading={loading}
             focusedDate={focusedDate}
+            compact={isMobile}
             onPrevWeek={handlePrevWeek}
             onNextWeek={handleNextWeek}
             onJumpToToday={handleJumpToToday}

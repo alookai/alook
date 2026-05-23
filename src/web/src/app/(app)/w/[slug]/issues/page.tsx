@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, useDraggable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { IssueSheet } from "@/components/issues/issue-sheet";
+import { ArtifactSheet } from "@/components/agent-chat/artifact-sheet";
+import { isPreviewable, getArtifactUrl, computeArtifactVersions } from "@/components/artifact-content-renderer";
 
 const SIDECAR_DEFAULT_WIDTH = 448;
 
@@ -239,7 +241,7 @@ export default function IssuesPage() {
   const [showCompleted, setShowCompleted] = useLocalStorage<boolean>("issues-show-completed", true);
   const [issues, setIssues] = useState<IssueListItem[]>([]);
   const issuesRef = useRef<IssueListItem[]>([]);
-  issuesRef.current = issues;
+  useEffect(() => { issuesRef.current = issues; });
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -250,12 +252,29 @@ export default function IssuesPage() {
   const [sidecarWidth, setSidecarWidth] = useState(SIDECAR_DEFAULT_WIDTH);
   const [traceTasks, setTraceTasks] = useState<TraceTask[] | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [artifactSheetOpen, setArtifactSheetOpen] = useState(false);
+  const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
   const pendingStatusUpdate = useRef<string | null>(null);
   const refreshSeqRef = useRef(0);
   const selectedIdRef = useRef<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const agentsById = useMemo(() => new Map(agents.map(a => [a.id, a])), [agents]);
+
+  const issueArtifacts = useMemo(() => detail?.artifacts ?? [], [detail?.artifacts]);
+  const { versionMap: artifactVersionMap, duplicateFilenames: artifactDuplicateFilenames } = useMemo(
+    () => computeArtifactVersions(issueArtifacts),
+    [issueArtifacts],
+  );
+
+  const handleArtifactClick = useCallback((artifact: Artifact) => {
+    if (isPreviewable(artifact)) {
+      setSelectedArtifact(artifact);
+      setArtifactSheetOpen(true);
+    } else {
+      window.open(getArtifactUrl(artifact.id, workspaceId, true), "_blank");
+    }
+  }, [workspaceId]);
 
   async function reload() {
     setLoading(true);
@@ -344,8 +363,8 @@ export default function IssuesPage() {
           .then(task => { if (seq === refreshSeqRef.current && selectedIdRef.current === issueId) setActiveTask(task); })
           .catch(() => {});
       }
-    } catch (err: any) {
-      if (err?.status === 404) {
+    } catch (err: unknown) {
+      if (err && typeof err === "object" && "status" in err && (err as { status: number }).status === 404) {
         handleSheetOpenChange(false);
       }
     }
@@ -353,13 +372,13 @@ export default function IssuesPage() {
 
   const detailConvId = detail?.issue.conversation_id ?? null;
   const detailConvIdRef = useRef<string | null>(null);
-  detailConvIdRef.current = detailConvId;
+  useEffect(() => { detailConvIdRef.current = detailConvId; });
   const detailTaskId = detail?.issue.latest_task_id ?? null;
   const detailTaskIdRef = useRef<string | null>(null);
-  detailTaskIdRef.current = detailTaskId;
+  useEffect(() => { detailTaskIdRef.current = detailTaskId; });
   const detailAgentId = detail?.issue.agent_id ?? null;
   const detailAgentIdRef = useRef<string | null>(null);
-  detailAgentIdRef.current = detailAgentId;
+  useEffect(() => { detailAgentIdRef.current = detailAgentId; });
 
   useEffect(() => {
     if (!detailTaskId) { setActiveTask(null); return; }
@@ -369,12 +388,6 @@ export default function IssuesPage() {
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [detailTaskId, workspaceId]);
-
-  const isTaskActive = activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
-  const hasActiveTraceTasks = traceTasks?.some(t =>
-    ["queued", "dispatched", "running"].includes(t.status)
-  ) ?? false;
-
 
   useEffect(() => {
     const unsub = subscribeWs((msg: WsMessage) => {
@@ -391,6 +404,21 @@ export default function IssuesPage() {
             setDetail((prev) => prev ? { ...prev, issue: { ...prev.issue, status: newStatus } } : prev);
             setIssues((prev) => prev.map((i) => i.conversation_id === detailConvIdRef.current ? { ...i, status: newStatus, updated_at: msg.message.created_at } : i));
           }
+        }
+      }
+      if (msg.type === "conversation.message"
+          && msg.message.role === "event"
+          && msg.message.content.startsWith("Issue status changed:")
+          && !pendingStatusUpdate.current
+          && msg.conversationId !== detailConvIdRef.current) {
+        const match = msg.message.content.match(/-> (\w+)/);
+        if (match) {
+          const newStatus = match[1] as Issue["status"];
+          setIssues((prev) => prev.map((i) =>
+            i.conversation_id === msg.conversationId
+              ? { ...i, status: newStatus, updated_at: msg.message.created_at }
+              : i
+          ));
         }
       }
       if (msg.type === "issue.comment" && selectedIdRef.current === msg.issueId) {
@@ -490,7 +518,7 @@ export default function IssuesPage() {
     } finally {
       pendingStatusUpdate.current = null;
     }
-  }, [workspaceId, issues, detail]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [workspaceId, issues, detail]);
 
 
   const handleDeleteIssue = useCallback(async (issueId: string) => {
@@ -786,6 +814,20 @@ export default function IssuesPage() {
         onStatusChange={handleStatusChange}
         onCommented={() => selectedId && openIssue(selectedId)}
         onDispatched={(id) => { silentReload(); openIssue(id); }}
+        onArtifactClick={handleArtifactClick}
+      />
+
+      <ArtifactSheet
+        open={artifactSheetOpen}
+        onOpenChange={(v) => {
+          setArtifactSheetOpen(v);
+          if (!v) setTimeout(() => setSelectedArtifact(null), 300);
+        }}
+        artifacts={issueArtifacts}
+        workspaceId={workspaceId}
+        initialArtifact={selectedArtifact}
+        versionMap={artifactVersionMap}
+        duplicateFilenames={artifactDuplicateFilenames}
       />
     </div>
   );

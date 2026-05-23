@@ -5,10 +5,11 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import type { Agent } from "@alook/shared";
-import { useInboxCount } from "@/contexts/inbox-count-context";
+import { InboxPopover } from "@/components/inbox-popover";
+import { FlagPopover } from "@/components/flag-popover";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
-import { Monitor, SunMoon, Plus, CalendarDays, Settings, ArrowLeftRight, Home, CircleDot, Inbox, Folder, Ungroup, ArrowRightToLine } from "lucide-react";
+import { Monitor, SunMoon, Plus, CalendarDays, Settings, ArrowLeftRight, Home, CircleDot, Folder, Ungroup, ArrowRightToLine } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useTheme } from "next-themes";
@@ -56,7 +57,6 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
 
   const { resolvedTheme, setTheme } = useTheme();
   const { activeTaskCounts: taskCounts } = useAgentContext();
-  const { count: inboxCount } = useInboxCount();
 
   // --- Folder state (applies to unpinned section only) ---
   const {
@@ -248,6 +248,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const isRuntimes = pathname === `${prefix}/runtimes`;
   const isCalendar = pathname === `${prefix}/calendar`;
   const isInbox = pathname.startsWith(`${prefix}/unread`);
+  const isFlags = pathname.startsWith(`${prefix}/flags`);
   const isIssues = pathname.startsWith(`${prefix}/issues`);
   const isSettings = pathname === `${prefix}/settings`;
   const isCreateAgent = pathname === `${prefix}/agents/new`;
@@ -409,27 +410,9 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           <TooltipContent side="right">Home</TooltipContent>
         </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger render={
-            <button
-              type="button"
-              onClick={() => { router.push(`${prefix}/unread`); onNavigate?.(); }}
-              className={cn(
-                "relative flex items-center justify-center size-10 rounded-xl transition-colors duration-200 cursor-pointer",
-                "text-muted-foreground hover:text-foreground hover:bg-accent",
-                isInbox && "bg-accent text-foreground"
-              )}
-            />
-          }>
-            <Inbox className="size-4" />
-            {inboxCount > 0 && (
-              <span className="absolute top-1 right-1 flex items-center justify-center min-w-3.5 h-3.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-0.5">
-                {inboxCount > 99 ? "99+" : inboxCount}
-              </span>
-            )}
-          </TooltipTrigger>
-          <TooltipContent side="right">Unread</TooltipContent>
-        </Tooltip>
+        <InboxPopover isActive={isInbox} onNavigate={onNavigate} />
+
+        <FlagPopover isActive={isFlags} onNavigate={onNavigate} />
 
         <Tooltip>
           <TooltipTrigger render={
@@ -652,20 +635,26 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
             </TooltipContent>
           </Tooltip>
         ) : (
-          <button
-            type="button"
-            title="New agent"
-            onClick={() => { router.push(`${prefix}/agents/new`); onNavigate?.(); }}
-            className={cn(
-              "flex shrink-0 items-center justify-center size-10 rounded-xl transition-colors duration-200 cursor-pointer",
-              "border border-dashed border-foreground/15 text-muted-foreground",
-              "hover:border-foreground/30 hover:text-foreground hover:bg-accent",
-              isCreateAgent &&
-                "border-solid border-foreground/25 bg-accent text-foreground"
-            )}
-          >
-            <Plus className="size-4" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={() => { router.push(`${prefix}/agents/new`); onNavigate?.(); }}
+                  className={cn(
+                    "flex shrink-0 items-center justify-center size-10 rounded-xl transition-colors duration-200 cursor-pointer",
+                    "border border-dashed border-foreground/15 text-muted-foreground",
+                    "hover:border-foreground/30 hover:text-foreground hover:bg-accent",
+                    isCreateAgent &&
+                      "border-solid border-foreground/25 bg-accent text-foreground"
+                  )}
+                />
+              }
+            >
+              <Plus className="size-4" />
+            </TooltipTrigger>
+            <TooltipContent>New agent</TooltipContent>
+          </Tooltip>
         )}
       </div>
 
@@ -677,6 +666,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           activeAgentId={activeAgentId}
           isOnline={hasOnlineRuntime}
           taskCounts={taskCounts}
+          // eslint-disable-next-line react-hooks/refs -- stable DOM ref read, useEffect would cause anchor flash
           anchorRef={folderAnchorRefs.current.get(expandedFolder.id) ?? null}
           onAgentClick={handleAgentClick}
           onRemoveFromFolder={(agentId) =>

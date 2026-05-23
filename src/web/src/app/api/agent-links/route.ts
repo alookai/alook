@@ -10,6 +10,7 @@ import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { agentLinkToResponse } from "@/lib/api/responses";
+import { cached, invalidate, cacheKeys } from "@/lib/cache";
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -21,6 +22,14 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const url = new URL(req.url);
   const limit = Math.min(Number(url.searchParams.get("limit")) || 200, 500);
   const offset = Number(url.searchParams.get("offset")) || 0;
+
+  if (offset === 0 && !url.searchParams.has("limit")) {
+    const data = await cached(cacheKeys.agentLinks(ws.workspaceId), 120, async () => {
+      const rows = await queries.agentLink.listByWorkspace(db, ws.workspaceId, { limit, offset });
+      return rows.map(agentLinkToResponse);
+    });
+    return writeJSON(data);
+  }
 
   const rows = await queries.agentLink.listByWorkspace(db, ws.workspaceId, { limit, offset });
   return writeJSON(rows.map(agentLinkToResponse));
@@ -54,6 +63,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       targetAgentId: body.target_agent_id,
       instruction: body.instruction,
     });
+    await Promise.all([
+      invalidate(cacheKeys.allColleagues(ws.workspaceId)),
+      invalidate(cacheKeys.agentLinks(ws.workspaceId)),
+    ]);
     return writeJSON(agentLinkToResponse(created), 201);
   } catch (e) {
     if (isUniqueConstraintError(e)) {

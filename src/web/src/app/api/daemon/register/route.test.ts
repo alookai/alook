@@ -54,9 +54,22 @@ describe("POST /api/daemon/register", () => {
 
     vi.doMock("@opennextjs/cloudflare", () => mocks["@opennextjs/cloudflare"]);
     vi.doMock("@alook/shared", mocks["@alook/shared"]);
-    vi.doMock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+    vi.doMock("@/lib/db", () => ({
+      getDb: vi.fn(() => ({})),
+      withD1Retry: vi.fn((fn: () => Promise<any>) => fn()),
+    }));
     vi.doMock("@/lib/broadcast", () => mocks["@/lib/broadcast"]);
     vi.doMock("@/lib/api/responses", () => mocks["@/lib/api/responses"]);
+    vi.doMock("@/lib/cache", () => ({
+      invalidate: vi.fn(),
+      cacheKeys: {
+        runtimeIds: (...a: any[]) => a.join(":"),
+        allRuntimes: (ws: string) => `runtimes:${ws}`,
+      },
+    }));
+    vi.doMock("@/lib/logger", () => ({
+      log: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
+    }));
     vi.doMock("@/lib/middleware/auth", () => ({
       withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
         const params =
@@ -98,7 +111,7 @@ describe("POST /api/daemon/register", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ runtimes: [{ id: "r1" }] });
+    expect(body).toEqual({ runtimes: [{ id: "r1" }], workspaceId: "w1" });
     expect(mockUpsertMachine).toHaveBeenCalledTimes(1);
     expect(mockUpsertAgentRuntime).toHaveBeenCalledTimes(1);
   });
@@ -173,5 +186,21 @@ describe("POST /api/daemon/register", () => {
     const res = await POST(makeReq(validBody));
 
     expect(res.status).toBe(200);
+  });
+
+  it("still registers runtimes when upsertMachine fails (D1 transient error)", async () => {
+    const POST = await loadRoute(authCtx);
+
+    mockGetMember.mockResolvedValue({ userId: "u1", workspaceId: "w1" });
+    mockUpsertMachine.mockRejectedValue(new Error("D1 timeout"));
+    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1" });
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    const res = await POST(makeReq(validBody));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.runtimes).toEqual([{ id: "r1" }]);
+    expect(mockUpsertAgentRuntime).toHaveBeenCalledTimes(1);
   });
 });

@@ -135,6 +135,7 @@ export function channelToResponse(c: any) {
     id: c.id,
     workspace_id: c.workspaceId,
     name: c.name,
+    position: c.position ?? 0,
     created_at: formatTimestamp(c.createdAt),
   };
 }

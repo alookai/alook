@@ -15,6 +15,7 @@ import {
   randomConfig,
 } from "./avatar-parts";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 // ─────────────────────────────────────────────────────────────
 // CYCLER — left/right carousel for picking a part
@@ -315,20 +316,25 @@ export function AvatarGenerator({ config, onChange, layout = "vertical", mobile 
             </div>
             <div className={cn("flex flex-wrap p-1", mobile ? "gap-3" : "gap-2")}>
               {BG_COLORS.map((c, i) => (
-                <button
-                  key={c.value}
-                  type="button"
-                  onClick={() => setField("bg", i)}
-                  title={c.name}
-                  className={cn(
-                    "rounded-full transition-shadow",
-                    mobile ? "size-8" : "size-7",
-                    config.bg === i
-                      ? "ring-2 ring-primary ring-offset-2"
-                      : "ring-1 ring-border"
-                  )}
-                  style={{ background: `linear-gradient(135deg, ${c.gradient[0]}, ${c.gradient[1]}, ${c.gradient[2]})` }}
-                />
+                <Tooltip key={c.value}>
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        onClick={() => setField("bg", i)}
+                        className={cn(
+                          "rounded-full transition-shadow",
+                          mobile ? "size-8" : "size-7",
+                          config.bg === i
+                            ? "ring-2 ring-primary ring-offset-2"
+                            : "ring-1 ring-border"
+                        )}
+                        style={{ background: `linear-gradient(135deg, ${c.gradient[0]}, ${c.gradient[1]}, ${c.gradient[2]})` }}
+                      />
+                    }
+                  />
+                  <TooltipContent>{c.name}</TooltipContent>
+                </Tooltip>
               ))}
             </div>
           </div>

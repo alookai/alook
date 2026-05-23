@@ -283,6 +283,7 @@ describe("DaemonClient.register() with mocked fetch", () => {
       daemon_id: "d1",
       device_name: "mac",
       cli_version: "1.0",
+      workspaces_root: "/home/.alook/workspaces",
       runtimes: [{ type: "claude", version: "1.0" }],
     });
     expect(resp.runtimes[0].id).toBe("rt1");
@@ -301,6 +302,7 @@ describe("DaemonClient.register() with mocked fetch", () => {
       daemon_id: "d1",
       device_name: "mac",
       cli_version: "1.0",
+      workspaces_root: "/home/.alook/workspaces",
       runtimes: [{ type: "claude", version: "1.0" }],
     });
 
@@ -416,15 +418,72 @@ describe("DaemonClient retries on TypeError (network failure)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// DaemonClient has no heartbeat() or claimTask() methods
+// DaemonClient.heartbeat() tests
+// ---------------------------------------------------------------------------
+
+describe("DaemonClient.heartbeat() with mocked fetch", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("sends daemon_id in body to /api/daemon/heartbeat", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ ok: true }),
+    });
+
+    const client = new DaemonClient("http://localhost:8080");
+    await client.heartbeat("tok", "d1");
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:8080/api/daemon/heartbeat",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ daemon_id: "d1" }),
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DaemonClient.sweep() tests
+// ---------------------------------------------------------------------------
+
+describe("DaemonClient.sweep() with mocked fetch", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("sends daemon_id in body to /api/daemon/sweep", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ ok: true }),
+    });
+
+    const client = new DaemonClient("http://localhost:8080");
+    await client.sweep("tok", "d1");
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "http://localhost:8080/api/daemon/sweep",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ daemon_id: "d1" }),
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DaemonClient removed methods
 // ---------------------------------------------------------------------------
 
 describe("DaemonClient removed methods", () => {
-  it("does not have heartbeat method", () => {
-    const client = new DaemonClient("http://localhost:8080");
-    expect((client as any).heartbeat).toBeUndefined();
-  });
-
   it("does not have claimTask method", () => {
     const client = new DaemonClient("http://localhost:8080");
     expect((client as any).claimTask).toBeUndefined();

@@ -9,7 +9,7 @@ import {
   SheetBody,
 } from "@/components/ui/sheet";
 import type { Artifact } from "@alook/shared";
-import { FileText, Download, X, ArrowLeft } from "lucide-react";
+import { FileText, Download, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ArtifactContentRenderer, getArtifactUrl, isHtmlType } from "@/components/artifact-content-renderer";
 import { cn } from "@/lib/utils";
@@ -121,7 +121,7 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
             </SheetHeader>
             <SheetBody className={cn(
               "thin-scrollbar",
-              isHtmlType(selectedArtifact.content_type) && "!p-0 !overflow-hidden"
+              isHtmlType(selectedArtifact.content_type) && "p-0! overflow-hidden!"
             )}>
               <ArtifactContentRenderer artifact={selectedArtifact} workspaceId={workspaceId} />
             </SheetBody>

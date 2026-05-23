@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import {
@@ -20,6 +20,7 @@ import {
   randomConfig,
   serializeAvatarConfig,
 } from "@/components/avatar";
+import { uniqueNamesGenerator, names } from "unique-names-generator";
 import {
   type AgentCreateFieldErrors,
   hasAgentCreateFieldErrors,
@@ -134,13 +135,19 @@ export function AgentCreateForm({
   const [model, setModel] = useState("");
   const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(INITIAL_AVATAR);
 
-  // Randomize avatar on client mount to avoid hydration mismatch
+  // Randomize avatar and name on client mount to avoid hydration mismatch
   const avatarInitialized = useRef(false);
   useEffect(() => {
     if (!avatarInitialized.current) {
       avatarInitialized.current = true;
       setAvatarConfig(randomConfig());
+      setName(uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" }));
     }
+  }, []);
+
+  const shuffleName = useCallback(() => {
+    setName(uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" }));
+    setFieldErrors((prev) => ({ ...prev, name: undefined }));
   }, []);
 
   const selectedRuntime = runtimes.find((r) => r.id === runtimeId);
@@ -206,8 +213,8 @@ export function AgentCreateForm({
   };
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar px-5 py-6">
-      <form onSubmit={handleSubmit} noValidate className="mx-auto max-w-md space-y-4">
+    <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar">
+      <form onSubmit={handleSubmit} noValidate className="mx-auto max-w-md flex flex-col gap-5 px-8 pt-8 pb-6">
         <AvatarPickerDialog
           config={avatarConfig}
           onChange={setAvatarConfig}
@@ -227,21 +234,22 @@ export function AgentCreateForm({
           providerModels={providerModels}
           errors={fieldErrors}
           runtimeAsRadio
+          onShuffle={shuffleName}
+          emailHandleSlot={
+            <EmailHandleField
+              emailHandle={emailHandle}
+              setEmailHandle={setEmailHandle}
+              derivedHandle={derivedHandle}
+            />
+          }
+          advancedSection={
+            <CustomEmailForm
+              workspaceId={workspaceId}
+              onDataChange={setCustomEmailData}
+              getDataRef={customEmailGetDataRef}
+            />
+          }
         />
-
-        <div className="border-t border-border/50 pt-4 mt-4 space-y-4">
-          <EmailHandleField
-            emailHandle={emailHandle}
-            setEmailHandle={setEmailHandle}
-            derivedHandle={derivedHandle}
-          />
-
-          <CustomEmailForm
-            workspaceId={workspaceId}
-            onDataChange={setCustomEmailData}
-            getDataRef={customEmailGetDataRef}
-          />
-        </div>
 
         <div className="flex items-center gap-2 pt-2">
           <Button type="button" variant="ghost" size="sm" onClick={onCancel}>

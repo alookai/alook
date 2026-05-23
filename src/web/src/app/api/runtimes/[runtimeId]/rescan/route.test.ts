@@ -56,6 +56,10 @@ vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+vi.mock("@/lib/broadcast", () => ({
+  broadcastToDaemon: vi.fn(() => Promise.resolve({ sent: 1 })),
+}));
+
 import { POST } from "./route";
 
 function makeReq(runtimeId: string, workspaceId: string) {

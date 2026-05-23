@@ -10,6 +10,7 @@ import { messageToResponse, taskToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { log } from "@/lib/logger";
 import { broadcastToUser } from "@/lib/broadcast";
+import { invalidate, cacheKeys } from "@/lib/cache";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_FILES = 10;
@@ -204,6 +205,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       },
     );
     queries.message.updateMessageTaskId(db, message.id, task.id).catch(() => {});
+    const dateStr = new Date().toISOString().slice(0, 10);
+    invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)).catch(() => {});
     broadcastToUser(ctx.userId, { type: "task.updated", taskId: task.id, agentId: task.agentId, status: "queued" }).catch(() => {});
     return writeJSON(
       { message: messageToResponse(message), task: taskToResponse(task) },

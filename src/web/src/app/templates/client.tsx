@@ -1,0 +1,107 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import Image from "next/image";
+import { ArrowLeft } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
+import { TemplateCard } from "./_components/template-card";
+import type { TemplatePreset, TemplateCategory } from "@/lib/templates";
+
+export function TemplatesClient({
+  templates,
+  categories,
+  isLoggedIn,
+  workspaceId,
+}: {
+  templates: TemplatePreset[];
+  categories: TemplateCategory[];
+  isLoggedIn: boolean;
+  workspaceId?: string;
+}) {
+  const [activeCategory, setActiveCategory] = useState<"All" | TemplateCategory>("All");
+
+  const filtered =
+    activeCategory === "All"
+      ? templates
+      : templates.filter((t) => t.category === activeCategory);
+
+  return (
+    <div className="min-h-dvh bg-background">
+      {/* Nav */}
+      <nav className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-3">
+          <Link href="/" className="flex items-center gap-2">
+            <Image src="/alook.svg" alt="Alook" width={22} height={22} />
+            <span className="text-lg tracking-tight" style={{ fontFamily: "var(--font-brand)", fontWeight: 700 }}>Alook</span>
+          </Link>
+          <div className="flex items-center gap-2">
+            {isLoggedIn ? (
+              <Link href="/workspaces?auto" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                <ArrowLeft className="mr-1.5 size-3" />
+                Back to App
+              </Link>
+            ) : (
+              <Link href="/sign-in" className={buttonVariants({ size: "sm" })}>
+                Sign In
+              </Link>
+            )}
+          </div>
+        </div>
+      </nav>
+
+      {/* Header */}
+      <div className="mx-auto max-w-4xl px-6 pt-16 pb-2">
+        <h1
+          className="text-3xl font-semibold tracking-tight"
+          style={{ fontFamily: "var(--font-news)" }}
+        >
+          Start your company
+        </h1>
+        <p className="mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
+          Pre-configured AI companies, ready to work. Choose a template, make it yours, and deploy in minutes.
+        </p>
+      </div>
+
+      {/* Category Filter */}
+      <div className="mx-auto max-w-4xl px-6 pt-8 pb-6">
+        <div className="flex flex-wrap gap-2">
+          {["All", ...categories].map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setActiveCategory(cat as "All" | TemplateCategory)}
+              className={`rounded-full px-4 py-1.5 text-xs font-medium transition-colors duration-150 ${
+                activeCategory === cat
+                  ? "bg-foreground text-background"
+                  : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Grid */}
+      <div className="mx-auto max-w-4xl px-6 pb-20">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {filtered.map((template) => (
+            <TemplateCard
+              key={template.id}
+              template={template}
+              isLoggedIn={isLoggedIn}
+              workspaceId={workspaceId}
+            />
+          ))}
+        </div>
+        {filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20">
+            <p className="text-sm text-muted-foreground">
+              No templates in this category yet.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

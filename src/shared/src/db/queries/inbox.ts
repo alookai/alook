@@ -6,12 +6,15 @@ export async function listUnreadConversations(
   db: Database,
   userId: string,
   workspaceId: string,
-  opts?: { limit?: number; before?: string }
+  opts?: { limit?: number; before?: string; types?: string[] }
 ) {
   const limit = opts?.limit ?? 30;
   const beforeClause = opts?.before
     ? sql`AND t.completed_at < ${opts.before}`
     : sql``;
+
+  const types = opts?.types?.length ? opts.types : ["user_dm_message"];
+  const typePlaceholders = sql.join(types.map(t => sql`${t}`), sql`, `);
 
   const rows = await db.all<{
     id: string;
@@ -60,17 +63,19 @@ export async function listUnreadConversations(
     WHERE t.workspace_id = ${workspaceId}
       AND t.parent_task_id IS NULL
       AND t.trace_id IS NOT NULL
-      AND t.type IN ('user_dm_message', 'calendar_event')
+      AND t.type IN (${typePlaceholders})
       AND t.status IN ('completed', 'failed')
       AND t.completed_at > COALESCE(crs.last_read_at, '1970-01-01T00:00:00.000Z')
+      AND NOT (t.type = 'email_notification' AND COALESCE(json_extract(t.context, '$.isInternal'), 0) = 1)
       AND t.id = (
         SELECT id FROM agent_task_queue
         WHERE workspace_id = ${workspaceId}
           AND conversation_id = c.id
           AND parent_task_id IS NULL
           AND trace_id IS NOT NULL
-          AND type IN ('user_dm_message', 'calendar_event')
+          AND type IN (${typePlaceholders})
           AND status IN ('completed', 'failed')
+          AND NOT (type = 'email_notification' AND COALESCE(json_extract(context, '$.isInternal'), 0) = 1)
         ORDER BY completed_at DESC LIMIT 1
       )
       ${beforeClause}
@@ -88,7 +93,11 @@ export async function getUnreadCount(
   db: Database,
   userId: string,
   workspaceId: string,
+  types?: string[],
 ) {
+  const validTypes = types?.length ? types : ["user_dm_message"];
+  const typePlaceholders = sql.join(validTypes.map(t => sql`${t}`), sql`, `);
+
   const rows = await db.all<{ count: number }>(sql`
     SELECT COUNT(DISTINCT t.conversation_id) AS count
     FROM agent_task_queue t
@@ -101,9 +110,10 @@ export async function getUnreadCount(
     WHERE t.workspace_id = ${workspaceId}
       AND t.parent_task_id IS NULL
       AND t.trace_id IS NOT NULL
-      AND t.type IN ('user_dm_message', 'calendar_event')
+      AND t.type IN (${typePlaceholders})
       AND t.status IN ('completed', 'failed')
       AND t.completed_at > COALESCE(crs.last_read_at, '1970-01-01T00:00:00.000Z')
+      AND NOT (t.type = 'email_notification' AND COALESCE(json_extract(t.context, '$.isInternal'), 0) = 1)
   `);
 
   return rows[0]?.count ?? 0;

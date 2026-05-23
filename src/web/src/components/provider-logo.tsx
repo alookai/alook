@@ -18,9 +18,9 @@ function CodexLogo({ className }: { className: string }) {
 
 function OpenCodeLogo({ className }: { className: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className}>
-      <path d="M18 18H6V6H18V18Z" fill="#CFCECD" />
-      <path d="M18 3H6V18H18V3ZM24 24H0V0H24V24Z" fill="#656363" />
+    <svg viewBox="0 0 240 300" fill="none" className={className}>
+      <path d="M180 240H60V120H180V240Z" fill="#CFCECD" />
+      <path d="M180 60H60V240H180V60ZM240 300H0V0H240V300Z" fill="#211E1E" />
     </svg>
   );
 }

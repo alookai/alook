@@ -15,8 +15,10 @@ import {
 } from "@alook/shared/browser"
 import type { TranscriptEntry } from "@alook/shared/browser"
 import { join } from "path"
+import { mkdirSync } from "fs"
 import { tempDir } from "../lib/platform.js"
 import { createLogger } from "../lib/logger.js"
+import { createTimelineEntry, initEntry, updateEntry } from "./execenv/timeline.js"
 
 const log = createLogger({ module: "meeting-runner" })
 
@@ -33,6 +35,9 @@ export interface MeetingRunnerInput {
   callbackUrl: string
   authToken: string
   agentName?: string
+  agentId?: string
+  timelineDir?: string
+  title?: string
 }
 
 async function callbackWeb(
@@ -166,8 +171,43 @@ async function tryJoinAndRecord(input: MeetingRunnerInput, chromePath: string): 
   }
 }
 
+function writeTimeline(
+  input: MeetingRunnerInput,
+  status: "running" | "completed" | "failed",
+  responses?: string[],
+  errmsg?: string,
+): void {
+  if (!input.timelineDir) return
+  try {
+    mkdirSync(input.timelineDir, { recursive: true })
+    const taskId = `meeting-${input.meetingId}`
+    if (status === "running") {
+      const meetingLabel = input.title || input.meetingUrl
+      const entry = createTimelineEntry(
+        taskId,
+        `Meeting: ${meetingLabel} (participants: ${input.participants.join(", ")})`,
+        "meeting",
+        undefined,
+        process.pid,
+      )
+      initEntry(input.timelineDir, entry)
+    } else {
+      updateEntry(input.timelineDir, taskId, (entry) => {
+        entry.status = status
+        entry.pid = null
+        if (responses) entry.agent_responses = responses
+        if (errmsg) entry.errmsg = errmsg
+      })
+    }
+  } catch (err) {
+    log.debug(`timeline write failed: ${err instanceof Error ? err.message : err}`)
+  }
+}
+
 async function run(input: MeetingRunnerInput): Promise<void> {
   log.info(`starting meeting: url=${input.meetingUrl}`, { meeting: input.meetingId, workspace: input.workspaceId })
+
+  writeTimeline(input, "running")
 
   let chromePath: string
   try {
@@ -176,6 +216,7 @@ async function run(input: MeetingRunnerInput): Promise<void> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     log.error(`chrome setup failed: ${msg}`, { meeting: input.meetingId })
+    writeTimeline(input, "failed", undefined, `Chrome setup failed: ${msg}`)
     await callbackWeb(input, "failed", undefined, `Chrome setup failed: ${msg}`)
     process.exit(1)
   }
@@ -192,6 +233,13 @@ async function run(input: MeetingRunnerInput): Promise<void> {
     if (result.status === "completed") {
       const transcriptText = formatTranscript(result.transcript)
       log.info(`completed: ${result.transcript.length} transcript entries`, { meeting: input.meetingId })
+
+      const transcriptR2Key = `meetings/${input.meetingId}/transcript`
+      writeTimeline(input, "completed", [
+        `Meeting completed. ${result.transcript.length} transcript entries captured.`,
+        `Transcript stored at: ${transcriptR2Key}`,
+      ])
+
       await callbackWeb(input, "completed", transcriptText)
       return
     }
@@ -200,6 +248,7 @@ async function run(input: MeetingRunnerInput): Promise<void> {
       const elapsed = Date.now() - startTime
       if (elapsed >= MAX_RETRY_DURATION_MS) {
         log.warn(`giving up after ${Math.round(elapsed / 60_000)}min of retries`, { meeting: input.meetingId })
+        writeTimeline(input, "failed", undefined, result.error)
         await callbackWeb(input, "failed", undefined, result.error)
         return
       }
@@ -210,6 +259,7 @@ async function run(input: MeetingRunnerInput): Promise<void> {
     }
 
     // Other errors — don't retry
+    writeTimeline(input, "failed", undefined, result.error)
     await callbackWeb(input, "failed", undefined, result.error)
     return
   }
