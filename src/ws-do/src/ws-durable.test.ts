@@ -223,6 +223,32 @@ describe("WebSocketDurableObject", () => {
       expect(ws.send).not.toHaveBeenCalled()
     })
 
+    it("closes with 1008 when auth message has no token", async () => {
+      const { durable } = createDO()
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
+
+      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth" }))
+
+      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
+      expect(ws.send).not.toHaveBeenCalled()
+      expect(mockGetValidSession).not.toHaveBeenCalled()
+    })
+
+    it("closes with 1008 when auth message has empty string token", async () => {
+      const { durable } = createDO()
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "", authenticated: false })
+
+      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "auth", token: "" }))
+
+      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
+      expect(ws.send).not.toHaveBeenCalled()
+      expect(mockGetValidSession).not.toHaveBeenCalled()
+    })
+
     it("closes unauthenticated connection sending non-auth message", async () => {
       const { durable } = createDO()
 

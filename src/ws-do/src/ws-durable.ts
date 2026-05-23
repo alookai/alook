@@ -63,7 +63,11 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         return
       }
 
-      const userId = await this.validateToken(msg.token!)
+      if (!msg.token) {
+        ws.close(1008, "Unauthorized")
+        return
+      }
+      const userId = await this.validateToken(msg.token)
       if (!userId) {
         log.warn("websocket auth failed")
         ws.close(1008, "Unauthorized")
