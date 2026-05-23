@@ -55,6 +55,7 @@ vi.mock("@/lib/logger", () => ({
 }));
 vi.mock("@/lib/broadcast", () => ({
   broadcastToUser: vi.fn().mockResolvedValue(undefined),
+  broadcastToDaemon: vi.fn().mockResolvedValue({ sent: 1 }),
 }));
 
 import { DELETE } from "./route";
@@ -146,5 +147,19 @@ describe("DELETE /api/runtimes/machine", () => {
 
     expect(res.status).toBe(500);
     expect(body.error).toContain("Failed to remove machine");
+  });
+
+  it("broadcasts daemon.evict on successful delete", async () => {
+    const { broadcastToDaemon } = await import("@/lib/broadcast");
+    mockGetMemberByUserAndWorkspace.mockResolvedValue({ id: "m1" });
+    mockDeleteRuntimesByDaemonId.mockResolvedValue(undefined);
+    mockDeleteMachine.mockResolvedValue(undefined);
+
+    await DELETE(makeReq({ daemon_id: "d1", workspace_id: "w1" }));
+
+    expect(broadcastToDaemon).toHaveBeenCalledWith("d1", {
+      type: "daemon.evict",
+      workspaceId: "w1",
+    });
   });
 });

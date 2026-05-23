@@ -616,7 +616,7 @@ export async function claimKillTasks(
   return rows.map(r => ClaimedTaskRowSchema.parse(r));
 }
 
-const KILL_TASK_STALE_SECONDS = 30;
+const KILL_TASK_STALE_SECONDS = 90;
 
 export async function failStaleKillTasks(db: Database, workspaceId: string) {
   const threshold = new Date(Date.now() - KILL_TASK_STALE_SECONDS * 1000).toISOString();

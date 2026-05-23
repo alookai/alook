@@ -49,6 +49,9 @@ vi.mock("@alook/shared", () => ({
       getIssueByConversation: vi.fn(),
       updateIssue: vi.fn(),
     },
+    runtime: {
+      getAgentRuntime: vi.fn(),
+    },
   },
 }));
 
@@ -58,6 +61,7 @@ vi.mock("@/lib/logger", () => ({
 
 vi.mock("@/lib/broadcast", () => ({
   broadcastToUser: vi.fn().mockResolvedValue(undefined),
+  broadcastToDaemon: vi.fn().mockResolvedValue({ sent: 1 }),
 }));
 
 vi.mock("@/lib/api/responses", () => ({
@@ -67,7 +71,7 @@ vi.mock("@/lib/api/responses", () => ({
 
 import { TaskService } from "./task";
 import { queries } from "@alook/shared";
-import { broadcastToUser } from "@/lib/broadcast";
+import { broadcastToUser, broadcastToDaemon } from "@/lib/broadcast";
 
 const taskQ = queries.task as {
   [K in keyof typeof queries.task]: ReturnType<typeof vi.fn>;
@@ -85,6 +89,9 @@ const issueQ = (queries as any).issue as {
   getIssue: ReturnType<typeof vi.fn>;
   getIssueByConversation: ReturnType<typeof vi.fn>;
   updateIssue: ReturnType<typeof vi.fn>;
+};
+const runtimeQ = (queries as any).runtime as {
+  getAgentRuntime: ReturnType<typeof vi.fn>;
 };
 
 const service = new TaskService({} as any);
@@ -800,7 +807,9 @@ describe("TaskService", () => {
       const task = { id: "t1", status: "running", agentId: "a1", runtimeId: "r1", conversationId: "c1" };
       taskQ.getActiveTaskByConversation.mockResolvedValue(task);
       taskQ.cancelTask.mockResolvedValue({ ...task, status: "cancelled" });
+      taskQ.createTask.mockResolvedValue({ id: "kt1" });
       taskQ.countRunningTasks.mockResolvedValue(0);
+      runtimeQ.getAgentRuntime.mockResolvedValue({ daemonId: "d1" });
 
       await service.cancelActiveTask("c1", "w1");
 
@@ -813,11 +822,58 @@ describe("TaskService", () => {
       }));
     });
 
+    it("pushes daemon.kill for running task", async () => {
+      const task = { id: "t1", status: "running", agentId: "a1", runtimeId: "r1", conversationId: "c1" };
+      taskQ.getActiveTaskByConversation.mockResolvedValue(task);
+      taskQ.cancelTask.mockResolvedValue({ ...task, status: "cancelled" });
+      taskQ.createTask.mockResolvedValue({ id: "kt1" });
+      taskQ.countRunningTasks.mockResolvedValue(0);
+      runtimeQ.getAgentRuntime.mockResolvedValue({ daemonId: "d1" });
+
+      await service.cancelActiveTask("c1", "w1");
+
+      expect(broadcastToDaemon).toHaveBeenCalledWith("d1", {
+        type: "daemon.kill",
+        workspaceId: "w1",
+        taskId: "kt1",
+        targetTaskId: "t1",
+      });
+    });
+
+    it("pushes daemon.kill for dispatched task", async () => {
+      const task = { id: "t1", status: "dispatched", agentId: "a1", runtimeId: "r1", conversationId: "c1" };
+      taskQ.getActiveTaskByConversation.mockResolvedValue(task);
+      taskQ.cancelTask.mockResolvedValue({ ...task, status: "cancelled" });
+      taskQ.createTask.mockResolvedValue({ id: "kt1" });
+      taskQ.countRunningTasks.mockResolvedValue(0);
+      runtimeQ.getAgentRuntime.mockResolvedValue({ daemonId: "d1" });
+
+      await service.cancelActiveTask("c1", "w1");
+
+      expect(broadcastToDaemon).toHaveBeenCalledWith("d1", expect.objectContaining({
+        type: "daemon.kill",
+        targetTaskId: "t1",
+      }));
+    });
+
+    it("does not push daemon.kill for queued task", async () => {
+      const task = { id: "t1", status: "queued", agentId: "a1", runtimeId: "r1", conversationId: "c1" };
+      taskQ.getActiveTaskByConversation.mockResolvedValue(task);
+      taskQ.cancelTask.mockResolvedValue({ ...task, status: "cancelled" });
+      taskQ.countRunningTasks.mockResolvedValue(0);
+
+      await service.cancelActiveTask("c1", "w1");
+
+      expect(broadcastToDaemon).not.toHaveBeenCalled();
+    });
+
     it("creates kill_task for dispatched task", async () => {
       const task = { id: "t1", status: "dispatched", agentId: "a1", runtimeId: "r1", conversationId: "c1" };
       taskQ.getActiveTaskByConversation.mockResolvedValue(task);
       taskQ.cancelTask.mockResolvedValue({ ...task, status: "cancelled" });
+      taskQ.createTask.mockResolvedValue({ id: "kt1" });
       taskQ.countRunningTasks.mockResolvedValue(0);
+      runtimeQ.getAgentRuntime.mockResolvedValue({ daemonId: "d1" });
 
       await service.cancelActiveTask("c1", "w1");
 
@@ -831,7 +887,9 @@ describe("TaskService", () => {
       const task = { id: "t1", status: "running", agentId: "a1", runtimeId: "r1", conversationId: "c1" };
       taskQ.getActiveTaskByConversation.mockResolvedValue(task);
       taskQ.cancelTask.mockResolvedValue({ ...task, status: "cancelled" });
+      taskQ.createTask.mockResolvedValue({ id: "kt1" });
       taskQ.countRunningTasks.mockResolvedValue(0);
+      runtimeQ.getAgentRuntime.mockResolvedValue({ daemonId: "d1" });
 
       await service.cancelActiveTask("c1", "w1");
 
