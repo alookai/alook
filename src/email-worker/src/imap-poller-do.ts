@@ -10,8 +10,10 @@ import type { EmailEnv } from "./types"
 const log = createLogger({ service: "imap-poller" })
 
 const MAX_BACKOFF_MS = 15 * 60 * 1000
+const DEFAULT_POLL_MS = 60_000
 const MAX_EMAILS_PER_POLL = 50
 const FIRST_SYNC_DAYS = 7
+const POLL_TIMEOUT_MS = 25_000
 
 export class ImapPollerDO extends DurableObject<EmailEnv> {
   private accountId: string | null = null
@@ -61,12 +63,38 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
   }
 
   async alarm(): Promise<void> {
-    await Promise.race([
-      this.pollImap(),
-      new Promise<void>((_, reject) => setTimeout(() => reject(new Error("poll timeout")), 25000)),
-    ]).catch((e) => {
+    const accountId = this.accountId ?? await this.ctx.storage.get<string>("accountId")
+    if (!accountId) return
+
+    let pollIntervalMs = DEFAULT_POLL_MS
+    try {
+      const db = this.db
+      const account = await queries.emailAccount.getEmailAccountById(db, accountId)
+      if (!account) {
+        await this.ctx.storage.deleteAlarm()
+        await this.ctx.storage.deleteAll()
+        return
+      }
+      pollIntervalMs = account.pollIntervalSeconds * 1000
+    } catch {
+      // DB read failed — use default interval, will retry next alarm
+    }
+
+    try {
+      await Promise.race([
+        this.pollImap(),
+        new Promise<void>((_, reject) => setTimeout(() => reject(new Error("poll timeout")), POLL_TIMEOUT_MS)),
+      ])
+    } catch (e) {
       log.warn("alarm: poll aborted", { err: String(e) })
-    })
+    } finally {
+      // Always ensure next alarm is scheduled so the chain never breaks
+      const existing = await this.ctx.storage.getAlarm()
+      if (!existing) {
+        const backoff = (await this.ctx.storage.get<number>("backoffMs")) ?? 0
+        await this.scheduleNext(backoff || pollIntervalMs)
+      }
+    }
   }
 
   private async pollImap(): Promise<void> {
@@ -238,10 +266,10 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
     const literalMatch = response.match(/\{(\d+)\}\r\n/)
     if (!literalMatch) return null
 
+    const literalLen = parseInt(literalMatch[1]!, 10)
     const contentStart = response.indexOf(literalMatch[0]) + literalMatch[0].length
-    const closingIdx = response.lastIndexOf("\r\n)")
-    if (closingIdx > contentStart) {
-      return response.substring(contentStart, closingIdx)
+    if (contentStart + literalLen <= response.length) {
+      return response.substring(contentStart, contentStart + literalLen)
     }
     return null
   }

@@ -123,6 +123,7 @@ function createMockCtx() {
       delete: vi.fn(async (key: string) => { storage.delete(key) }),
       deleteAll: vi.fn(async () => { storage.clear() }),
       setAlarm: vi.fn(async (time: number) => { alarm = time }),
+      getAlarm: vi.fn(async () => alarm),
       deleteAlarm: vi.fn(async () => { alarm = null }),
     },
     getWebSockets: vi.fn().mockReturnValue([]),
@@ -437,5 +438,43 @@ describe("lifecycle", () => {
     expect(ctx.storage.deleteAlarm).toHaveBeenCalled()
     expect(ctx.storage.deleteAll).toHaveBeenCalled()
     expect(mockConnect).not.toHaveBeenCalled()
+  })
+})
+
+// ─── Alarm resilience ───
+
+describe("alarm — resilience", () => {
+  it("reschedules alarm even when poll times out", async () => {
+    vi.useFakeTimers()
+    try {
+      const { durable, ctx } = createDO()
+      await ctx.storage.put("accountId", "aea_test1")
+      mockGetEmailAccount.mockResolvedValue({ ...ACCOUNT })
+      // Simulate a poll that never resolves (hangs forever)
+      mockConnect.mockImplementation(() => new Promise(() => {}))
+
+      const alarmPromise = durable.alarm()
+      await vi.advanceTimersByTimeAsync(30_000)
+      await alarmPromise
+
+      // Despite poll hanging, alarm must be rescheduled
+      expect(ctx.storage.getAlarm).toHaveBeenCalled()
+      expect(ctx.storage.setAlarm).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("reschedules alarm when DB query throws in pollImap", async () => {
+    const { durable, ctx } = createDO()
+    await ctx.storage.put("accountId", "aea_test1")
+    // First call in alarm() succeeds, second call in pollImap() throws
+    mockGetEmailAccount
+      .mockResolvedValueOnce({ ...ACCOUNT })
+      .mockRejectedValueOnce(new Error("D1 unavailable"))
+
+    await durable.alarm()
+
+    expect(ctx.storage.setAlarm).toHaveBeenCalled()
   })
 })

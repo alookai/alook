@@ -2,6 +2,7 @@ name = "alook-email-worker"
 main = "src/index.ts"
 compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
+workers_dev = false
 
 [observability]
 enabled = true
