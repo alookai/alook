@@ -34,7 +34,7 @@
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {
-    "pre-commit": "pnpm lint && pnpm test"
+    "pre-commit": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "devDependencies": {
     "simple-git-hooks": "^2.13.1",
