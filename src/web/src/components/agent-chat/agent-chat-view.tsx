@@ -43,8 +43,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { ArrowUp, BedDouble, Box, FileText, Loader2, Mail, MessageSquareQuote, Mic, Paperclip, Square, X } from "lucide-react";
-import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
+import { ArrowUp, BedDouble, Box, FileText, Loader2, Mail, MessageSquareQuote, Paperclip, Square, X } from "lucide-react";
 import { useCachedMessages } from "@/hooks/use-cached-messages";
 import { useMentionPopup } from "@/hooks/use-mention-popup";
 import { MentionPopup } from "@/components/agent-chat/mention-popup";
@@ -384,10 +383,6 @@ export function AgentChatView({
     setChannelAgentId(agentId);
   }, [agentId, setChannelAgentId]);
 
-  const handleSpeechResult = useCallback((text: string) => {
-    setInput((prev) => (prev ? prev + " " + text : text));
-  }, []);
-  const { listening, supported: speechSupported, toggle: toggleSpeech } = useSpeechRecognition(handleSpeechResult);
 
   const agentArtifacts = useMemo(() => artifacts.filter((a) => a.source === "agent"), [artifacts]);
 
@@ -2026,28 +2021,6 @@ export function AgentChatView({
                   </TooltipTrigger>
                   <TooltipContent side="top">Attach files</TooltipContent>
                 </Tooltip>
-                {speechSupported && (
-                  <Tooltip>
-                    <TooltipTrigger render={
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onPointerDown={(e) => e.preventDefault()}
-                        onClick={toggleSpeech}
-                        disabled={sending}
-                        className={cn(
-                          "rounded-lg transition-colors duration-200",
-                          listening
-                            ? "text-red-500 hover:text-red-600 bg-red-500/10"
-                            : "text-muted-foreground/60 hover:text-foreground"
-                        )}
-                      />
-                    }>
-                      <Mic className={cn("size-3.5", listening && "animate-pulse")} />
-                    </TooltipTrigger>
-                    <TooltipContent side="top">{listening ? "Stop recording" : "Voice input"}</TooltipContent>
-                  </Tooltip>
-                )}
                 {isTaskActive && !input.trim() && !sending ? (
                   <Tooltip>
                     <TooltipTrigger render={
