@@ -17,7 +17,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     createdAt: "2024-01-01T00:00:00Z",
     traceId: null,
     parentTaskId: null,
-    channel: null,
+    channel: "default",
     ...overrides,
   };
 }

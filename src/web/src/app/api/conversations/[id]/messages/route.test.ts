@@ -53,6 +53,11 @@ vi.mock("@/lib/middleware/workspace", () => ({
 vi.mock("@/lib/api/responses", () => ({
   messageToResponse: (...args: any[]) => mockMessageToResponse(...args),
   taskToResponse: (...args: any[]) => mockTaskToResponse(...args),
+  taskToResponseWithChannel: (task: any, channel?: string | null) => ({
+    ...mockTaskToResponse(task),
+    channel: channel ?? "default",
+    channel_tag: channel ?? "default",
+  }),
 }));
 vi.mock("@/lib/services/task", () => {
   return {
@@ -202,7 +207,12 @@ describe("POST /api/conversations/[id]/messages", () => {
 
     expect(res.status).toBe(201);
     expect(body.message).toEqual({ id: "m1", content: "Hi there" });
-    expect(body.task).toEqual({ id: "t1", status: "pending" });
+    expect(body.task).toEqual({
+      id: "t1",
+      status: "pending",
+      channel: "default",
+      channel_tag: "default",
+    });
     expect(mockEnqueueTask).toHaveBeenCalledWith("a1", "c1", "w1", "Hi there", "user_dm_message", expect.objectContaining({ contextKey: "c1", traceId: expect.stringMatching(/^tr_/), parentTaskId: null }));
   });
 

@@ -57,6 +57,11 @@ vi.mock("@/lib/middleware/workspace", () => ({
 }));
 vi.mock("@/lib/api/responses", () => ({
   taskToResponse: (...args: any[]) => mockTaskToResponse(...args),
+  taskToResponseWithChannel: (task: any, channel?: string | null) => ({
+    ...mockTaskToResponse(task),
+    channel: channel ?? "default",
+    channel_tag: channel ?? "default",
+  }),
 }));
 
 const mockCancelActiveTask = vi.fn();
@@ -87,7 +92,12 @@ describe("GET /api/conversations/[id]/active-task", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ id: "t1", status: "running" });
+    expect(body).toEqual({
+      id: "t1",
+      status: "running",
+      channel: "default",
+      channel_tag: "default",
+    });
     expect(mockGetActiveTaskByConversation).toHaveBeenCalledWith({}, "c1", "w1");
   });
 
@@ -131,7 +141,12 @@ describe("DELETE /api/conversations/[id]/active-task", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ id: "t1", status: "cancelled" });
+    expect(body).toEqual({
+      id: "t1",
+      status: "cancelled",
+      channel: "default",
+      channel_tag: "default",
+    });
   });
 
   it("returns 404 when no active task", async () => {

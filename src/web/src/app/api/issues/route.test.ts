@@ -65,6 +65,12 @@ vi.mock("@/lib/api/responses", () => ({
   issueToResponse: (i: any) => ({ id: i.id, agent_id: i.agentId, title: i.title, status: i.status }),
   messageToResponse: (m: any) => ({ id: m.id, content: m.content }),
   taskToResponse: (t: any) => ({ id: t.id, type: t.type }),
+  taskToResponseWithChannel: (t: any, channel?: string | null) => ({
+    id: t.id,
+    type: t.type,
+    channel: channel ?? "default",
+    channel_tag: channel ?? "default",
+  }),
 }));
 
 import { GET, POST } from "./route";

@@ -38,7 +38,11 @@ function buildDmNotice(name: string, email: string): string {
 }
 
 export function buildPrompt(task: Task, attachments?: Attachment[]): string {
-  const obj: Record<string, unknown> = { type: task.type, instruction: task.prompt };
+  const obj: Record<string, unknown> = {
+    type: task.type,
+    channel_tag: task.channel ?? "default",
+    instruction: task.prompt,
+  };
   if (task.type === "user_dm_message") {
     obj.notice = DM_RESPONSE_NOTICE;
   }

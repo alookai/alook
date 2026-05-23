@@ -34,6 +34,7 @@ function TaskRow({
   onOpenChat: (agentId: string, opts: { conversationId?: string; taskId?: string }) => void;
 }) {
   const isRunning = task.status === "running";
+  const channelTag = task.channel_tag ?? task.channel ?? "default";
   const href = `/w/${slug}/agents/${task.agent_id}?task=${task.id}&conv=${task.conversation_id}`;
 
   const handleClick = useCallback((e: React.MouseEvent) => {
@@ -65,7 +66,7 @@ function TaskRow({
             {task.agent?.name ?? "Unknown"}
           </span>
           <span className="text-xs text-muted-foreground shrink-0">
-            #{task.channel}
+            [#{channelTag}]
           </span>
         </div>
         <p className="text-xs text-muted-foreground truncate leading-tight">
