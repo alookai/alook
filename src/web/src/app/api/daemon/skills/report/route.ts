@@ -18,7 +18,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (err) return err;
 
   const row = await withD1Retry(() => queries.workspaceSkillRequest.getRequest(db, body.request_id));
-  if (!row) return writeError("request not found", 404);
+  if (!row || row.workspaceId !== ctx.workspaceId) return writeError("request not found", 404);
 
   const result = {
     skills: body.skills ?? [],
