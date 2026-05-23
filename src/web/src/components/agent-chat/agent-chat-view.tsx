@@ -1963,7 +1963,7 @@ export function AgentChatView({
                   const backdrop = (e.target as HTMLTextAreaElement).previousElementSibling;
                   if (backdrop) backdrop.scrollTop = (e.target as HTMLTextAreaElement).scrollTop;
                 }}
-                placeholder={isTaskActive ? "Type a follow-up..." : "Type a message..."}
+                placeholder={isTaskActive ? "Type a follow-up..." : "Type a message or / for skills..."}
                 rows={1}
                 disabled={sending}
                 className={cn(

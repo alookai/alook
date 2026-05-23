@@ -23,14 +23,13 @@ const MAX_QUERY_LENGTH = 30
 const POPUP_WIDTH = 280
 
 function findSlashTrigger(input: string, caretIndex: number): { start: number; query: string } | null {
+  if (!input.startsWith("/")) return null
+  if (caretIndex === 0) return null
   let i = caretIndex - 1
   while (i >= 0 && caretIndex - i <= MAX_QUERY_LENGTH) {
     const ch = input.charCodeAt(i)
-    if (ch === 47) { // '/'
-      if (i === 0 || /\s/.test(input[i - 1])) {
-        return { start: i, query: input.slice(i + 1, caretIndex) }
-      }
-      return null
+    if (ch === 47 && i === 0) { // '/' at position 0 only
+      return { start: 0, query: input.slice(1, caretIndex) }
     }
     if (ch === 10 || ch === 13 || ch === 32) return null
     i--
@@ -133,13 +132,11 @@ export function useSlashCommand({
   const selectSkill = useCallback((skill: SkillEntry) => {
     if (caretIndex === null || triggerStartRef.current === null) return
 
-    const before = input.slice(0, triggerStartRef.current)
-    const after = input.slice(caretIndex)
-    const newInput = `${before}/${skill.name} ${after}`
-    onInputChange(newInput)
+    const prefix = `Use ${skill.name} skill: `
+    onInputChange(prefix)
     setIsOpen(false)
 
-    const newCaretPos = before.length + 1 + skill.name.length + 1
+    const newCaretPos = prefix.length
     requestAnimationFrame(() => {
       const ta = textareaRef.current
       if (ta) {
@@ -147,7 +144,7 @@ export function useSlashCommand({
         ta.setSelectionRange(newCaretPos, newCaretPos)
       }
     })
-  }, [input, caretIndex, textareaRef, onInputChange])
+  }, [caretIndex, textareaRef, onInputChange])
 
   const handleSlashKeyDown = useCallback((e: React.KeyboardEvent): boolean => {
     if (!isOpen || filteredSkills.length === 0) return false
