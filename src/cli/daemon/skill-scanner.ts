@@ -4,7 +4,7 @@ import { homedir } from "os";
 import { createHash } from "crypto";
 import { createLogger } from "../lib/logger.js";
 
-const log = createLogger("skill-scanner");
+const log = createLogger({ module: "skill-scanner" });
 
 export interface SkillEntry {
   name: string;

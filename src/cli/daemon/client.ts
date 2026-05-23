@@ -8,6 +8,7 @@ import {
   type PollResponse,
   type RegisterDaemonRequest,
   type RegisterResponse,
+  type SkillRequestItem,
   type SkillReport,
   type TaskApi,
   type WorkspaceFileReport,
@@ -95,6 +96,7 @@ export class DaemonClient {
     pending_update?: { version: string };
     pending_rescan?: boolean;
     file_requests?: FileRequestItem[];
+    skill_requests?: SkillRequestItem[];
     meetings?: PollMeetingItem[];
   }> {
     const raw = await this.request<unknown>(
@@ -110,6 +112,7 @@ export class DaemonClient {
       pending_update: resp.pending_update,
       pending_rescan: resp.pending_rescan,
       file_requests: resp.file_requests,
+      skill_requests: resp.skill_requests,
       meetings: resp.meetings,
     };
   }
