@@ -491,6 +491,7 @@ export function AgentChatView({
     if (agentSkills.length === 0 || !slashCommand.activeSkill) return;
     const exists = agentSkills.some(s => s.name === slashCommand.activeSkill!.name);
     if (!exists) slashCommand.setActiveSkill(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally omits slashCommand; only re-validate when the skills list itself changes
   }, [agentSkills]);
 
   useEffect(() => {

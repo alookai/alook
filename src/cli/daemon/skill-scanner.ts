@@ -322,10 +322,9 @@ function getAgentScanner(runtime: Runtime): (workdir: string) => SkillEntry[] {
 function runScan() {
   if (!scannerConfig || !clientRef) return;
 
-  const token = scannerConfig.workspaces[0]?.token;
-  if (!token) return;
+  if (scannerConfig.workspaces.length === 0) return;
 
-  // 1. Scan + sync global skills per runtime (once, shared across all agents)
+  // 1. Scan + sync global skills per runtime to ALL workspaces
   for (const runtime of scannerConfig.runtimes) {
     try {
       const skills = getGlobalScanner(runtime)();
@@ -335,11 +334,14 @@ function runScan() {
       if (prevHash !== hash) {
         const skillItems = skills.map((s) => ({ name: s.name, description: s.description }));
         log.info(`Syncing global ${runtime} — ${skills.length} skills`);
-        clientRef.syncSkills(token, {
-          scope: "global",
-          runtime,
-          skills: skillItems,
-        }).then(() => {
+        const syncPromises = scannerConfig.workspaces.map((ws) =>
+          clientRef!.syncSkills(ws.token, {
+            scope: "global",
+            runtime,
+            skills: skillItems,
+          })
+        );
+        Promise.all(syncPromises).then(() => {
           writeCacheFile(globalCachePath(runtime), hash, skills);
         }).catch((e) => log.debug("Global skill sync failed", e));
       }

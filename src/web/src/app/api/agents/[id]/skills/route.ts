@@ -18,10 +18,17 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const agent = await queries.agent.getAgent(db, agentId, workspaceId, ctx.userId);
   if (!agent) return writeError("agent not found", 404);
 
-  let runtime = "claude";
+  const KNOWN_RUNTIMES = ["claude", "codex", "opencode"] as const;
+
+  let runtime: string = "claude";
   if (agent.runtimeId) {
     const rt = await queries.runtime.getAgentRuntime(db, agent.runtimeId);
     if (rt) runtime = rt.provider;
+  }
+
+  if (!KNOWN_RUNTIMES.includes(runtime as typeof KNOWN_RUNTIMES[number])) {
+    console.warn(`[skills] Unknown runtime "${runtime}" for agent ${agentId}, defaulting to "claude"`);
+    runtime = "claude";
   }
 
   const skills = await queries.agentSkill.getSkills(db, agentId, runtime, workspaceId);
