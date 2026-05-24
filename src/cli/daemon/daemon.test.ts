@@ -149,6 +149,9 @@ vi.mock("fs", () => ({
   readdirSync: (...args: any[]) => mockReaddirSync(...args),
   statSync: (...args: any[]) => mockStatSync(...args),
   unlinkSync: (...args: any[]) => mockUnlinkSync(...args),
+  realpathSync: vi.fn((p: string) => p),
+  readFileSync: vi.fn(() => ""),
+  writeFileSync: vi.fn(),
 }));
 
 const mockReaddir = vi.fn(async () => [] as string[]);

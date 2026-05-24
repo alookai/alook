@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, realpathSync } from "fs";
 import { join, basename } from "path";
 import { homedir } from "os";
 import { createHash } from "crypto";
@@ -242,6 +242,7 @@ let clientRef: DaemonClient | null = null;
 
 function discoverTargets(): { agentId: string; workdir: string; runtime: Runtime; token: string }[] {
   if (!scannerConfig) return [];
+  const rootReal = realpathSync(scannerConfig.workspacesRoot);
   const targets: { agentId: string; workdir: string; runtime: Runtime; token: string }[] = [];
   for (const ws of scannerConfig.workspaces) {
     const wsDir = join(scannerConfig.workspacesRoot, ws.workspaceId);
@@ -250,6 +251,9 @@ function discoverTargets(): { agentId: string; workdir: string; runtime: Runtime
     for (const agentId of agentDirs) {
       const workdir = join(wsDir, agentId, "workdir");
       if (!existsSync(workdir)) continue;
+      try {
+        if (!realpathSync(workdir).startsWith(rootReal)) continue;
+      } catch { continue; }
       for (const runtime of scannerConfig.runtimes) {
         targets.push({ agentId, workdir, runtime, token: ws.token });
       }

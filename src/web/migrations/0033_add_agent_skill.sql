@@ -1,6 +1,3 @@
-DROP TABLE IF EXISTS workspace_skill_request;
-DROP TABLE IF EXISTS agent_skill_cache;
-
 CREATE TABLE IF NOT EXISTS agent_skill (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
