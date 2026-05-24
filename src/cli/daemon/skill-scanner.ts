@@ -18,12 +18,7 @@ function getCacheDir(): string {
   return join(configDir(), "skills");
 }
 
-function ensureCacheDir() {
-  const dir = getCacheDir();
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-}
+
 
 export function parseFrontmatter(content: string): { name: string; description: string } | null {
   const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
@@ -235,13 +230,16 @@ function computeHash(skills: SkillEntry[]): string {
   return createHash("md5").update(JSON.stringify(skills)).digest("hex");
 }
 
-function cacheFilePath(agentId: string, runtime: Runtime): string {
-  return join(getCacheDir(), `${agentId}_${runtime}.json`);
+function globalCachePath(runtime: Runtime): string {
+  return join(getCacheDir(), "global", `${runtime}.json`);
 }
 
-function readLocalCache(agentId: string, runtime: Runtime): string | null {
+function agentCachePath(agentId: string, runtime: Runtime): string {
+  return join(getCacheDir(), "agents", agentId, `${runtime}.json`);
+}
+
+function readCacheHash(filePath: string): string | null {
   try {
-    const filePath = cacheFilePath(agentId, runtime);
     if (!existsSync(filePath)) return null;
     const data: SkillCache = JSON.parse(readFileSync(filePath, "utf-8"));
     return data.hash ?? null;
@@ -250,10 +248,11 @@ function readLocalCache(agentId: string, runtime: Runtime): string | null {
   }
 }
 
-function writeLocalCache(agentId: string, runtime: Runtime, hash: string, skills: SkillEntry[]) {
-  ensureCacheDir();
+function writeCacheFile(filePath: string, hash: string, skills: SkillEntry[]) {
+  const dir = join(filePath, "..");
+  mkdirSync(dir, { recursive: true });
   const data: SkillCache = { hash, skills };
-  writeFileSync(cacheFilePath(agentId, runtime), JSON.stringify(data, null, 2), "utf-8");
+  writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
 }
 
 let scanTimer: ReturnType<typeof setInterval> | null = null;
@@ -299,33 +298,78 @@ function discoverTargets(): { agentId: string; workdir: string | null; runtime: 
   return targets;
 }
 
+function scanGlobalSkills(runtime: Runtime): SkillEntry[] {
+  const scanner = runtime === "claude"
+    ? scanClaudeSkills
+    : runtime === "codex"
+      ? scanCodexSkills
+      : scanOpenCodeSkills;
+  return scanner(undefined).filter((s) => s.scope === "global");
+}
+
+function scanAgentSkills(runtime: Runtime, workdir: string): SkillEntry[] {
+  const scanner = runtime === "claude"
+    ? scanClaudeSkills
+    : runtime === "codex"
+      ? scanCodexSkills
+      : scanOpenCodeSkills;
+  return scanner(workdir).filter((s) => s.scope === "agent");
+}
+
 function runScan() {
+  if (!scannerConfig || !clientRef) return;
+
+  // 1. Scan global skills per runtime (shared across all agents)
+  const globalSkillsByRuntime = new Map<Runtime, { skills: SkillEntry[]; hash: string }>();
+  let globalChanged = false;
+
+  for (const runtime of scannerConfig.runtimes) {
+    try {
+      const skills = scanGlobalSkills(runtime);
+      const hash = computeHash(skills);
+      const prevHash = readCacheHash(globalCachePath(runtime));
+      globalSkillsByRuntime.set(runtime, { skills, hash });
+      if (prevHash !== hash) {
+        globalChanged = true;
+        writeCacheFile(globalCachePath(runtime), hash, skills);
+      }
+    } catch (e) {
+      log.debug(`Global scan error for ${runtime}`, e);
+    }
+  }
+
+  // 2. For each agent, check agent-scope skills + combine with global
   const targets = discoverTargets();
-  if (targets.length === 0) return;
 
   for (const target of targets) {
     try {
-      const scanner = target.runtime === "claude"
-        ? scanClaudeSkills
-        : target.runtime === "codex"
-          ? scanCodexSkills
-          : scanOpenCodeSkills;
+      const globalData = globalSkillsByRuntime.get(target.runtime);
+      const globalSkills = globalData?.skills ?? [];
 
-      const skills = scanner(target.workdir ?? undefined);
-      const hash = computeHash(skills);
-      const prevHash = readLocalCache(target.agentId, target.runtime);
+      // Scan agent-scope skills (only if workdir exists)
+      let agentSkills: SkillEntry[] = [];
+      let agentHash = "";
+      if (target.workdir) {
+        agentSkills = scanAgentSkills(target.runtime, target.workdir);
+        agentHash = computeHash(agentSkills);
+      }
 
-      if (prevHash !== hash) {
-        log.info(`Syncing ${target.agentId}:${target.runtime} — ${skills.length} skills`);
-        if (clientRef) {
-          clientRef.syncSkills(target.token, {
-            agent_id: target.agentId,
-            runtime: target.runtime,
-            skills,
-          }).then(() => {
-            writeLocalCache(target.agentId, target.runtime, hash, skills);
-          }).catch((e) => log.debug("Skill sync failed", e));
-        }
+      const prevAgentHash = readCacheHash(agentCachePath(target.agentId, target.runtime));
+      const agentChanged = agentHash !== (prevAgentHash ?? "");
+
+      // Sync if global or agent skills changed
+      if (globalChanged || agentChanged) {
+        const allSkills = [...globalSkills, ...agentSkills];
+        log.info(`Syncing ${target.agentId}:${target.runtime} — ${allSkills.length} skills (${globalSkills.length} global + ${agentSkills.length} agent)`);
+        clientRef.syncSkills(target.token, {
+          agent_id: target.agentId,
+          runtime: target.runtime,
+          skills: allSkills,
+        }).then(() => {
+          if (agentChanged && target.workdir) {
+            writeCacheFile(agentCachePath(target.agentId, target.runtime), agentHash, agentSkills);
+          }
+        }).catch((e) => log.debug("Skill sync failed", e));
       }
     } catch (e) {
       log.debug(`Scan error for ${target.agentId}:${target.runtime}`, e);
