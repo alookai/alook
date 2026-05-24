@@ -1383,14 +1383,20 @@ export function AgentChatView({
     }
 
     // Prepend quoted text as blockquote if present
-    const content = quotedText
+    let content = quotedText
       ? `> ${quotedText.split("\n").join("\n> ")}\n\n${rawContent}`
       : rawContent;
+
+    // Prepend skill instruction if active
+    if (slashCommand.activeSkill) {
+      content = `Use ${slashCommand.activeSkill.name} skill: ${content}`;
+    }
 
     const filesToSend = [...pendingFiles];
     setInput("");
     setPendingFiles([]);
     setQuotedText(null);
+    slashCommand.clearActiveSkill();
     setSending(true);
 
     const taskActive = !!activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
@@ -1877,6 +1883,23 @@ export function AgentChatView({
             {dragging && (
               <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-background/80 border-2 border-dashed border-ring pointer-events-none">
                 <p className="text-sm text-muted-foreground font-medium">Drop files here</p>
+              </div>
+            )}
+            {slashCommand.activeSkill && (
+              <div className="flex items-center gap-2 px-3.5 pt-2.5 pb-1 border-b border-border/50">
+                <div className="flex-1 min-w-0 flex items-center gap-2">
+                  <span className="shrink-0 text-xs font-medium text-primary">/{slashCommand.activeSkill.name}</span>
+                  <span className="text-xs text-muted-foreground truncate">
+                    {slashCommand.activeSkill.description.slice(0, 60)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={slashCommand.clearActiveSkill}
+                  className="shrink-0 p-0.5 rounded-sm hover:bg-muted-foreground/20 transition-colors text-muted-foreground"
+                >
+                  <X className="size-3.5" />
+                </button>
               </div>
             )}
             {quotedText && (

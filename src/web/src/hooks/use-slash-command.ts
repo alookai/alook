@@ -7,8 +7,10 @@ export interface SlashCommandPopupState {
   selectedIndex: number
   anchorPos: { top: number; left: number }
   skills: SkillEntry[]
+  activeSkill: SkillEntry | null
   handleSlashKeyDown: (e: React.KeyboardEvent) => boolean
   selectSkill: (skill: SkillEntry) => void
+  clearActiveSkill: () => void
 }
 
 interface UseSlashCommandParams {
@@ -129,22 +131,25 @@ export function useSlashCommand({
     }
   }, [input, caretIndex, textareaRef])
 
-  const selectSkill = useCallback((skill: SkillEntry) => {
-    if (caretIndex === null || triggerStartRef.current === null) return
+  const [activeSkill, setActiveSkill] = useState<SkillEntry | null>(null)
 
-    const prefix = `Use ${skill.name} skill: `
-    onInputChange(prefix)
+  const selectSkill = useCallback((skill: SkillEntry) => {
+    setActiveSkill(skill)
+    onInputChange("")
     setIsOpen(false)
 
-    const newCaretPos = prefix.length
     requestAnimationFrame(() => {
       const ta = textareaRef.current
       if (ta) {
         ta.focus()
-        ta.setSelectionRange(newCaretPos, newCaretPos)
+        ta.setSelectionRange(0, 0)
       }
     })
-  }, [caretIndex, textareaRef, onInputChange])
+  }, [textareaRef, onInputChange])
+
+  const clearActiveSkill = useCallback(() => {
+    setActiveSkill(null)
+  }, [])
 
   const handleSlashKeyDown = useCallback((e: React.KeyboardEvent): boolean => {
     if (!isOpen || filteredSkills.length === 0) return false
@@ -179,7 +184,9 @@ export function useSlashCommand({
     selectedIndex,
     anchorPos,
     skills: filteredSkills,
+    activeSkill,
     handleSlashKeyDown,
     selectSkill,
+    clearActiveSkill,
   }
 }
