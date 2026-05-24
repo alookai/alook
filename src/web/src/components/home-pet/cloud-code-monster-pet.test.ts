@@ -312,6 +312,10 @@ describe("production workspace PET mounting", () => {
       path.join(root, "src/components/home-pet/workspace-pet-layer.tsx"),
       "utf8"
     );
+    const inboxCountContext = readFileSync(
+      path.join(root, "src/contexts/inbox-count-context.tsx"),
+      "utf8"
+    );
     const petComponent = readFileSync(
       path.join(root, "src/components/home-pet/cloud-code-monster-pet.tsx"),
       "utf8"
@@ -354,10 +358,6 @@ describe("production workspace PET mounting", () => {
     );
     const landingPage = readFileSync(
       path.join(root, "src/components/home/home-page.tsx"),
-      "utf8"
-    );
-    const inboxCountContext = readFileSync(
-      path.join(root, "src/contexts/inbox-count-context.tsx"),
       "utf8"
     );
     const agentContext = readFileSync(
@@ -415,10 +415,12 @@ describe("production workspace PET mounting", () => {
     expect(workspacePetLayer).not.toContain("isHome");
     expect(workspacePetLayer).toContain("petSettings.enabled");
     expect(workspacePetLayer).toContain("dynamic<CloudCodeMonsterPetProps>");
-    expect(workspaceHomePage).toContain("positionStorageKey");
     expect(workspacePetLayer).toContain("positionStorageKey");
-    expect(workspaceHomePage).toContain("alook-cloud-code-monster-pet-position-${slug}");
     expect(workspacePetLayer).toContain("alook-cloud-code-monster-pet-position-${slug}");
+    expect(inboxCountContext).toContain("notificationToken");
+    expect(inboxCountContext).toContain("setNotificationToken((token) => token + 1)");
+    expect(workspacePetLayer).toContain("useInboxCount");
+    expect(workspacePetLayer).toContain("notificationToken={notificationToken}");
     expect(petComponent).toContain("const EMPTY_PEEK_TARGETS");
     expect(petComponent).toContain("function readStoredPetPosition");
     expect(petComponent).toContain("function writeStoredPetPosition");

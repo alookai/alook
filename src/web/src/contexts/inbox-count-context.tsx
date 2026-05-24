@@ -18,13 +18,19 @@ import type { WsMessage } from "@alook/shared";
 
 interface InboxCountContextValue {
   count: number;
+  notificationToken: number;
   refresh: () => void;
   decrement: () => void;
 }
 
 const InboxCountContext = createContext<InboxCountContextValue | null>(null);
 
-const FALLBACK_INBOX_COUNT: InboxCountContextValue = { count: 0, refresh: () => {}, decrement: () => {} };
+const FALLBACK_INBOX_COUNT: InboxCountContextValue = {
+  count: 0,
+  notificationToken: 0,
+  refresh: () => {},
+  decrement: () => {},
+};
 
 export function useInboxCount() {
   const ctx = useContext(InboxCountContext);
@@ -35,6 +41,7 @@ export function InboxCountProvider({ children }: { children: ReactNode }) {
   const { workspaceId } = useWorkspace();
   const { subscribeWs, agents } = useAgentContext();
   const [count, setCount] = useState(0);
+  const [notificationToken, setNotificationToken] = useState(0);
   const prevCountRef = useRef<number | null>(null);
   const pendingAgentIdRef = useRef<string | null>(null);
 
@@ -48,6 +55,7 @@ export function InboxCountProvider({ children }: { children: ReactNode }) {
       prevCountRef.current = r.count;
       setCount(r.count);
       if (prev !== null && r.count > prev) {
+        setNotificationToken((token) => token + 1);
         const agent = pendingAgentIdRef.current
           ? agentsRef.current.find((a) => a.id === pendingAgentIdRef.current)
           : undefined;
@@ -82,7 +90,7 @@ export function InboxCountProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   return (
-    <InboxCountContext.Provider value={{ count, refresh, decrement }}>
+    <InboxCountContext.Provider value={{ count, notificationToken, refresh, decrement }}>
       {children}
     </InboxCountContext.Provider>
   );
