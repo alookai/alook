@@ -32,7 +32,14 @@ function SkillRow({
         onSelect(skill)
       }}
     >
-      <span className="font-medium">/{skill.name}</span>
+      <span className="font-medium">
+        /{skill.name}
+        {skill.isGlobal && (
+          <span className="ml-1.5 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
+            Global
+          </span>
+        )}
+      </span>
       {skill.description && (
         <span className="truncate text-xs text-muted-foreground">
           {skill.description.slice(0, 80)}

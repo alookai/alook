@@ -728,6 +728,7 @@ export type WorkspaceFileReport = z.infer<typeof WorkspaceFileReportSchema>;
 export const SkillEntrySchema = z.object({
   name: z.string(),
   description: z.string(),
+  isGlobal: z.boolean().optional(),
 });
 export type SkillEntry = z.infer<typeof SkillEntrySchema>;
 

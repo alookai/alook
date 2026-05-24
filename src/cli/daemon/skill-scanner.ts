@@ -191,11 +191,34 @@ function scanOpenCodeMdFiles(dir: string): SkillEntry[] {
 }
 
 export function scanOpenCodeGlobalSkills(): SkillEntry[] {
-  return scanOpenCodeMdFiles(join(homedir(), ".config", "opencode", "commands"));
+  const home = homedir();
+  const skills: SkillEntry[] = [];
+  const names = new Set<string>();
+
+  for (const s of scanOpenCodeMdFiles(join(home, ".config", "opencode", "commands"))) {
+    if (!names.has(s.name)) { names.add(s.name); skills.push(s); }
+  }
+
+  for (const s of scanOpenCodeMdFiles(join(home, ".config", "opencode", "skills"))) {
+    if (!names.has(s.name)) { names.add(s.name); skills.push(s); }
+  }
+
+  return skills;
 }
 
 export function scanOpenCodeAgentSkills(workdir: string): SkillEntry[] {
-  return scanOpenCodeMdFiles(join(workdir, ".opencode", "commands"));
+  const skills: SkillEntry[] = [];
+  const names = new Set<string>();
+
+  for (const s of scanOpenCodeMdFiles(join(workdir, ".opencode", "commands"))) {
+    if (!names.has(s.name)) { names.add(s.name); skills.push(s); }
+  }
+
+  for (const s of scanOpenCodeMdFiles(join(workdir, ".opencode", "skills"))) {
+    if (!names.has(s.name)) { names.add(s.name); skills.push(s); }
+  }
+
+  return skills;
 }
 
 type Runtime = "claude" | "codex" | "opencode";

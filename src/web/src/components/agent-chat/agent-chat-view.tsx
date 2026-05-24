@@ -1925,6 +1925,9 @@ export function AgentChatView({
               <div className="flex items-center gap-2 px-3.5 pt-2.5 pb-1 border-b border-border/50">
                 <div className="flex-1 min-w-0 flex items-center gap-2">
                   <span className="shrink-0 text-xs font-medium text-primary">/{slashCommand.activeSkill.name}</span>
+                  {slashCommand.activeSkill.isGlobal && (
+                    <span className="text-[10px] font-medium text-muted-foreground bg-muted rounded px-1 py-0.5">Global</span>
+                  )}
                   <span className="text-xs text-muted-foreground truncate">
                     {slashCommand.activeSkill.description}
                   </span>
