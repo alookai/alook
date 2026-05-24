@@ -18,14 +18,17 @@ import {
   getCloudCodeMonsterPreset,
   getMonsterFootstepIntervalMs,
   hasViolentMonsterDirectionChange,
+  isStoredPetPoint,
   isViolentMonsterDrag,
   pickCloudCodeMonsterActivity,
+  readStoredPetPosition,
   reflectCloudCodeMonsterWalk,
   resolveCloudCodeMonsterPeekPosition,
   resolveCloudCodeMonsterVisibleState,
   shouldCloudCodeMonsterAutoWalk,
   shouldFaintFromMonsterShake,
   shouldRefreshCloudCodeMonsterActivity,
+  writeStoredPetPosition,
 } from "./cloud-code-monster-pet";
 import { readHomePetSettings } from "../../lib/home-pet-settings";
 
@@ -101,6 +104,36 @@ describe("Cloud Code monster PET helpers", () => {
     expect(readHomePetSettings()).toMatchObject({
       enabled: false,
     });
+  });
+
+  it("persists the last PET position across remounts and rejects invalid stored data", () => {
+    const storageKey = "alook-cloud-code-monster-pet-position-test-workspace";
+    const store = new Map<string, string>();
+
+    vi.stubGlobal("localStorage", {
+      clear: () => store.clear(),
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+    });
+
+    localStorage.clear();
+
+    expect(readStoredPetPosition(storageKey)).toBeNull();
+    expect(isStoredPetPoint({ x: 240, y: 180 })).toBe(true);
+    expect(isStoredPetPoint({ x: Number.NaN, y: 180 })).toBe(false);
+    expect(isStoredPetPoint({ x: 240 })).toBe(false);
+
+    writeStoredPetPosition(storageKey, { x: 240, y: 180 });
+
+    expect(readStoredPetPosition(storageKey)).toEqual({ x: 240, y: 180 });
+
+    localStorage.setItem(storageKey, JSON.stringify({ x: "240", y: 180 }));
+
+    expect(readStoredPetPosition(storageKey)).toBeNull();
+
+    vi.unstubAllGlobals();
   });
 
   it("refreshes visible activity only after the away threshold", () => {
@@ -382,7 +415,14 @@ describe("production workspace PET mounting", () => {
     expect(workspacePetLayer).not.toContain("isHome");
     expect(workspacePetLayer).toContain("petSettings.enabled");
     expect(workspacePetLayer).toContain("dynamic<CloudCodeMonsterPetProps>");
+    expect(workspaceHomePage).toContain("positionStorageKey");
+    expect(workspacePetLayer).toContain("positionStorageKey");
+    expect(workspaceHomePage).toContain("alook-cloud-code-monster-pet-position-${slug}");
+    expect(workspacePetLayer).toContain("alook-cloud-code-monster-pet-position-${slug}");
     expect(petComponent).toContain("const EMPTY_PEEK_TARGETS");
+    expect(petComponent).toContain("function readStoredPetPosition");
+    expect(petComponent).toContain("function writeStoredPetPosition");
+    expect(petComponent).toContain("storedPosition ?? initialPosition");
     expect(petComponent).toContain("peekTargets = EMPTY_PEEK_TARGETS");
     expect(petComponent).toContain("peekTargetsRef.current = peekTargets");
     expect(petComponent).toContain("const hasPeekTargets = peekTargets.length > 0");

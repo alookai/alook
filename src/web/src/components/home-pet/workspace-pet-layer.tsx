@@ -16,15 +16,20 @@ const CloudCodeMonsterPet = dynamic<CloudCodeMonsterPetProps>(
 
 type WorkspacePetLayerProps = {
   boundaryRef: RefObject<HTMLElement | null>;
-  slug?: string;
+  slug: string;
 };
 
-export function WorkspacePetLayer({ boundaryRef }: WorkspacePetLayerProps) {
+export function WorkspacePetLayer({ boundaryRef, slug }: WorkspacePetLayerProps) {
   const petSettings = useHomePetSettings();
 
   if (!petSettings.enabled) {
     return null;
   }
 
-  return <CloudCodeMonsterPet boundaryRef={boundaryRef} />;
+  return (
+    <CloudCodeMonsterPet
+      boundaryRef={boundaryRef}
+      positionStorageKey={`alook-cloud-code-monster-pet-position-${slug}`}
+    />
+  );
 }

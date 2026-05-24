@@ -112,12 +112,56 @@ export type {
 export type CloudCodeMonsterPetProps = {
   boundaryRef: RefObject<HTMLElement | null>;
   initialPosition?: PetPoint;
+  positionStorageKey?: string;
   previewComebackToken?: number;
   notificationToken?: number;
   peekTargets?: CloudCodeMonsterPeekTarget[];
 };
 
 const EMPTY_PEEK_TARGETS: CloudCodeMonsterPeekTarget[] = [];
+
+export function isStoredPetPoint(value: unknown): value is PetPoint {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const point = value as PetPoint;
+  return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
+export function readStoredPetPosition(storageKey?: string): PetPoint | null {
+  if (!storageKey || typeof localStorage === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed: unknown = JSON.parse(raw);
+    return isStoredPetPoint(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeStoredPetPosition(
+  storageKey: string | undefined,
+  position: PetPoint
+) {
+  if (!storageKey || typeof localStorage === "undefined") {
+    return;
+  }
+
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(position));
+  } catch {
+    // Ignore quota/private-mode failures; the PET can still use in-memory state.
+  }
+}
+
 type PetTimerKey =
   | "reaction"
   | "shake"
@@ -179,6 +223,7 @@ function usePetTimers() {
 export function CloudCodeMonsterPet({
   boundaryRef,
   initialPosition,
+  positionStorageKey,
   previewComebackToken = 0,
   notificationToken = 0,
   peekTargets = EMPTY_PEEK_TARGETS,
@@ -284,12 +329,13 @@ export function CloudCodeMonsterPet({
   useEffect(() => {
     const syncPosition = () => {
       const bounds = getBounds(boundaryRef.current);
+      const storedPosition = readStoredPetPosition(positionStorageKey);
 
       setPosition((currentPosition) =>
         currentPosition
           ? clampPetPosition(currentPosition, bounds, CLOUD_CODE_MONSTER_SIZE)
           : clampPetPosition(
-              initialPosition ?? {
+              storedPosition ?? initialPosition ?? {
                 x: bounds.width - CLOUD_CODE_MONSTER_SIZE.width - 112,
                 y: Math.min(
                   bounds.height * 0.48,
@@ -314,7 +360,15 @@ export function CloudCodeMonsterPet({
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
     };
-  }, [boundaryRef, initialPosition]);
+  }, [boundaryRef, initialPosition, positionStorageKey]);
+
+  useEffect(() => {
+    if (!position || isDragging || isAutoWalking || isPeeking) {
+      return;
+    }
+
+    writeStoredPetPosition(positionStorageKey, position);
+  }, [isAutoWalking, isDragging, isPeeking, position, positionStorageKey]);
 
   useEffect(() => {
     return clearAllPetTimers;
