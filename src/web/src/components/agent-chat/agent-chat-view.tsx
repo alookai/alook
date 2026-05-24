@@ -454,6 +454,7 @@ export function AgentChatView({
   // Slash command skills — fetch from D1 on mount
   const [agentSkills, setAgentSkills] = useState<SkillEntry[]>([]);
   const skillsFetchedRef = useRef(false);
+  const draftMetaRestoredRef = useRef(false);
 
   useEffect(() => {
     if (skillsFetchedRef.current) return;
@@ -487,6 +488,7 @@ export function AgentChatView({
   }, [input, agentId, targetConvId]);
 
   useEffect(() => {
+    if (!draftMetaRestoredRef.current) return;
     const key = `chat-draft-meta:${agentId}:${targetConvId ?? 'default'}`;
     const meta: { skill?: { name: string; description: string } | null; quote?: string | null } = {};
     if (slashCommand.activeSkill) {
@@ -548,6 +550,7 @@ export function AgentChatView({
       setQuotedText(null);
       slashCommand.setActiveSkill(null);
     }
+    draftMetaRestoredRef.current = true;
     setMessages([]);
     async function load() {
       let hasCachedMessages = false;
