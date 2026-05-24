@@ -265,8 +265,23 @@ function discoverTargets(): { agentId: string; workdir: string | null; runtime: 
   const rootExists = existsSync(scannerConfig.workspacesRoot);
   const rootReal = rootExists ? realpathSync(scannerConfig.workspacesRoot) : null;
   const targets: { agentId: string; workdir: string | null; runtime: Runtime; token: string }[] = [];
+
   for (const ws of scannerConfig.workspaces) {
-    for (const agentId of ws.agentIds) {
+    const agentIds = new Set(ws.agentIds);
+
+    // Also discover agents from filesystem (covers agents not yet in config)
+    if (rootReal) {
+      const wsDir = join(scannerConfig.workspacesRoot, ws.workspaceId);
+      try {
+        if (existsSync(wsDir)) {
+          for (const dir of readdirSync(wsDir)) {
+            if (existsSync(join(wsDir, dir, "workdir"))) agentIds.add(dir);
+          }
+        }
+      } catch { /* skip */ }
+    }
+
+    for (const agentId of agentIds) {
       let validWorkdir: string | null = null;
       if (rootReal) {
         const workdir = join(scannerConfig.workspacesRoot, ws.workspaceId, agentId, "workdir");
