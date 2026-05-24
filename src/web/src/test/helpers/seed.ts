@@ -62,6 +62,7 @@ export function cleanupTestData(seed: TestSeed) {
     `DELETE FROM conversation WHERE workspace_id = '${ws}'`,
     `DELETE FROM meeting_session WHERE workspace_id = '${ws}'`,
     `DELETE FROM emails WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = '${ws}')`,
+    `DELETE FROM agent_skill WHERE workspace_id = '${ws}'`,
     `DELETE FROM agent_whitelist WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = '${ws}')`,
     `DELETE FROM agent_access WHERE workspace_id = '${ws}'`,
     `DELETE FROM agent_pin WHERE workspace_id = '${ws}'`,
