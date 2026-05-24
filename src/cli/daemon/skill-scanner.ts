@@ -11,7 +11,7 @@ const log = createLogger({ module: "skill-scanner" });
 export interface SkillEntry {
   name: string;
   description: string;
-  scope: "global" | "project";
+  scope: "global" | "agent";
 }
 
 function getCacheDir(): string {
@@ -107,7 +107,7 @@ function walkForSkills(dir: string, results: string[], depth = 0): void {
   } catch { /* skip */ }
 }
 
-function scanFrontmatterSkills(paths: string[], scope: "global" | "project"): SkillEntry[] {
+function scanFrontmatterSkills(paths: string[], scope: "global" | "agent"): SkillEntry[] {
   const skills = new Map<string, SkillEntry>();
   for (const filePath of paths) {
     try {
@@ -146,7 +146,7 @@ export function scanClaudeSkills(workdir?: string): SkillEntry[] {
   // Project skills
   if (workdir) {
     const projectPaths = findSkillFiles(join(workdir, ".claude", "skills"), "*/SKILL.md");
-    allSkills.push(...scanFrontmatterSkills(projectPaths, "project"));
+    allSkills.push(...scanFrontmatterSkills(projectPaths, "agent"));
   }
 
   return allSkills;
@@ -179,7 +179,7 @@ export function scanCodexSkills(workdir?: string): SkillEntry[] {
   // Project skills
   if (workdir) {
     const projectPaths = findSkillFiles(join(workdir, ".agents", "skills"), "*/SKILL.md");
-    allSkills.push(...scanFrontmatterSkills(projectPaths, "project"));
+    allSkills.push(...scanFrontmatterSkills(projectPaths, "agent"));
   }
 
   return allSkills;
@@ -209,7 +209,7 @@ export function scanOpenCodeSkills(workdir?: string): SkillEntry[] {
         const content = readFileSync(filePath, "utf-8");
         const name = basename(filePath, ".md");
         const firstLine = content.split("\n").find((l) => l.trim().length > 0) ?? "";
-        allSkills.push({ name, description: firstLine.replace(/^#\s*/, "").trim(), scope: "project" });
+        allSkills.push({ name, description: firstLine.replace(/^#\s*/, "").trim(), scope: "agent" });
       } catch { /* skip */ }
     }
   }

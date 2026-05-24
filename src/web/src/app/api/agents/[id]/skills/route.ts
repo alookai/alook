@@ -24,8 +24,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     if (rt) runtime = rt.provider;
   }
 
-  const row = await queries.agentSkillCache.getByAgentRuntime(db, agentId, runtime);
-  const skills = row ? JSON.parse(row.skills) : [];
+  const skills = await queries.agentSkill.getSkills(db, agentId, runtime);
 
   return writeJSON({ skills });
 });

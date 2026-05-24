@@ -17,12 +17,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (err) return err;
 
   await withD1Retry(() =>
-    queries.agentSkillCache.upsert(db, {
-      workspaceId: ctx.workspaceId!,
-      agentId: body.agent_id,
-      runtime: body.runtime,
-      skills: JSON.stringify(body.skills),
-    })
+    queries.agentSkill.syncSkills(
+      db,
+      body.agent_id,
+      body.runtime,
+      ctx.workspaceId!,
+      body.skills,
+    )
   );
 
   return writeJSON({ status: "ok" });

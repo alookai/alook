@@ -764,20 +764,22 @@ export const workspaceFileRequest = sqliteTable(
   ]
 );
 
-export const agentSkillCache = sqliteTable(
-  "agent_skill_cache",
+export const agentSkill = sqliteTable(
+  "agent_skill",
   {
-    id: text("id").primaryKey().$defaultFn(() => "asc_" + nanoid()),
+    id: text("id").primaryKey().$defaultFn(() => "as_" + nanoid()),
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
     agentId: text("agent_id").notNull(),
     runtime: text("runtime").notNull(),
-    skills: text("skills").notNull().default("[]"),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    scope: text("scope").notNull().default("global"),
     syncedAt: text("synced_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
-    unique("agent_skill_cache_agent_runtime").on(t.agentId, t.runtime),
-    index("idx_asc_agent").on(t.agentId, t.runtime),
+    unique("agent_skill_agent_runtime_name").on(t.agentId, t.runtime, t.name),
+    index("idx_as_agent_runtime").on(t.agentId, t.runtime),
   ]
 );

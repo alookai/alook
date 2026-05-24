@@ -23,7 +23,7 @@ export * as overview from "./queries/overview";
 export * as meetingSession from "./queries/meeting-session";
 export * as channel from "./queries/channel";
 export * as workspaceFileRequest from "./queries/workspace-file-request";
-export * as agentSkillCache from "./queries/agent-skill-cache";
+export * as agentSkill from "./queries/agent-skill";
 export * as conversationMap from "./queries/conversation-map";
 export * as agentLink from "./queries/agent-link";
 export * as inbox from "./queries/inbox";
