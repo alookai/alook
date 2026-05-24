@@ -221,7 +221,7 @@ type Runtime = "claude" | "codex" | "opencode";
 
 export interface SkillScannerConfig {
   workspacesRoot: string;
-  workspaces: { workspaceId: string; token: string }[];
+  workspaces: { workspaceId: string; token: string; agentIds: string[] }[];
   runtimes: Runtime[];
 }
 
@@ -240,22 +240,22 @@ let scanTimer: ReturnType<typeof setInterval> | null = null;
 let scannerConfig: SkillScannerConfig | null = null;
 let clientRef: DaemonClient | null = null;
 
-function discoverTargets(): { agentId: string; workdir: string; runtime: Runtime; token: string }[] {
+function discoverTargets(): { agentId: string; workdir: string | null; runtime: Runtime; token: string }[] {
   if (!scannerConfig) return [];
   const rootReal = realpathSync(scannerConfig.workspacesRoot);
-  const targets: { agentId: string; workdir: string; runtime: Runtime; token: string }[] = [];
+  const targets: { agentId: string; workdir: string | null; runtime: Runtime; token: string }[] = [];
   for (const ws of scannerConfig.workspaces) {
     const wsDir = join(scannerConfig.workspacesRoot, ws.workspaceId);
-    let agentDirs: string[] = [];
-    try { if (existsSync(wsDir)) agentDirs = readdirSync(wsDir); } catch { continue; }
-    for (const agentId of agentDirs) {
+    for (const agentId of ws.agentIds) {
       const workdir = join(wsDir, agentId, "workdir");
-      if (!existsSync(workdir)) continue;
-      try {
-        if (!realpathSync(workdir).startsWith(rootReal)) continue;
-      } catch { continue; }
+      let validWorkdir: string | null = null;
+      if (existsSync(workdir)) {
+        try {
+          if (realpathSync(workdir).startsWith(rootReal)) validWorkdir = workdir;
+        } catch { /* skip */ }
+      }
       for (const runtime of scannerConfig.runtimes) {
-        targets.push({ agentId, workdir, runtime, token: ws.token });
+        targets.push({ agentId, workdir: validWorkdir, runtime, token: ws.token });
       }
     }
   }
@@ -274,7 +274,7 @@ function runScan() {
           ? scanCodexSkills
           : scanOpenCodeSkills;
 
-      const skills = scanner(target.workdir);
+      const skills = scanner(target.workdir ?? undefined);
       const key = `${target.agentId}:${target.runtime}`;
       const hash = computeHash(skills);
 

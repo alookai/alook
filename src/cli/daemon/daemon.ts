@@ -644,10 +644,14 @@ export async function startDaemon(
   };
   const sweepTimer = setInterval(sweepTick, config.sweepInterval);
 
-  // --- Skill scanner: dynamically discovers agent workdirs every 60s ---
+  // --- Skill scanner: scans global + agent skills every 60s ---
   startSkillScanner(client, {
     workspacesRoot: config.workspacesRoot,
-    workspaces: workspaceStates.map((ws) => ({ workspaceId: ws.workspaceId, token: ws.token })),
+    workspaces: workspaces.map((ws) => ({
+      workspaceId: ws.id,
+      token: ws.token,
+      agentIds: ws.agent_ids ?? [],
+    })),
     runtimes: providers.map((p) => p.type as "claude" | "codex" | "opencode"),
   }, 60_000);
 
