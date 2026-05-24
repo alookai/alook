@@ -370,7 +370,13 @@ export function AgentChatView({
   const [renderNow] = useState(() => Date.now());
 
   const [pendingFilesByMessage, setPendingFilesByMessage] = useState<Map<string, File[]>>(() => new Map());
-  const [quotedText, setQuotedText] = useState<string | null>(null);
+  const [quotedText, setQuotedText] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const meta = JSON.parse(localStorage.getItem(`chat-draft-meta:${agentId}:${targetConvId ?? 'default'}`) ?? "null");
+      return meta?.quote ?? null;
+    } catch { return null; }
+  });
   const [selectionPopup, setSelectionPopup] = useState<{ text: string; x: number; y: number } | null>(null);
   const [flaggedIds, setFlaggedIds] = useState<Set<string>>(new Set());
   const flaggedIdsRef = useRef(flaggedIds);
@@ -464,12 +470,21 @@ export function AgentChatView({
       .catch(() => {});
   }, [agentId, workspaceId]);
 
+  const [initialActiveSkill] = useState<SkillEntry | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const meta = JSON.parse(localStorage.getItem(`chat-draft-meta:${agentId}:${targetConvId ?? 'default'}`) ?? "null");
+      return meta?.skill ?? null;
+    } catch { return null; }
+  });
+
   const slashCommand = useSlashCommand({
     input,
     caretIndex,
     textareaRef,
     skills: agentSkills,
     onInputChange: setInput,
+    initialActiveSkill,
   });
 
   useEffect(() => {
@@ -543,9 +558,12 @@ export function AgentChatView({
     if (metaRaw) {
       try {
         const meta = JSON.parse(metaRaw);
-        if (meta.quote) setQuotedText(meta.quote);
-        if (meta.skill) slashCommand.setActiveSkill(meta.skill as SkillEntry);
-      } catch {}
+        setQuotedText(meta.quote ?? null);
+        slashCommand.setActiveSkill(meta.skill ? (meta.skill as SkillEntry) : null);
+      } catch {
+        setQuotedText(null);
+        slashCommand.setActiveSkill(null);
+      }
     } else {
       setQuotedText(null);
       slashCommand.setActiveSkill(null);

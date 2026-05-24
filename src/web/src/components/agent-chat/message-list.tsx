@@ -211,7 +211,7 @@ export const MessageItem = memo(function MessageItem({
         <div className={cn(
           "group/msg",
           isFlagged && "bg-muted/30 rounded-lg px-2 -mx-2"
-        )}>
+        )} {...(isTaskDone ? { "data-quote-source": true } : {})}>
           <TaskStream
             task={activeTask}
             messages={taskMessages}
@@ -230,6 +230,9 @@ export const MessageItem = memo(function MessageItem({
       )}
       {msg.role === "user" ? (() => {
         const awaitingRun = isLastMessage && !!activeTask && activeTask.status !== "running" && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
+        const slashMatch = msg.content.match(/^\/(\S+)\s?([\s\S]*)$/);
+        const skillName = slashMatch?.[1] ?? null;
+        const messageBody = slashMatch ? (slashMatch[2] || "") : msg.content;
         return (
           <div className="flex justify-end" data-message-id={msg.id} {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
             <div className={cn(
@@ -238,9 +241,16 @@ export const MessageItem = memo(function MessageItem({
               {awaitingRun && (
                 <div className="absolute inset-0 rounded-lg animate-pulse pointer-events-none" style={{ boxShadow: "0 0 0 2px var(--bubble-glow)" }} />
               )}
-              <div className="markdown markdown-user">
-                <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: false, download: false, fullscreen: false } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(msg.content, agents)}</Streamdown>
-              </div>
+              {skillName && (
+                <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-primary-foreground/15 text-primary-foreground mb-1">
+                  /{skillName}
+                </span>
+              )}
+              {messageBody && (
+                <div className="markdown markdown-user">
+                  <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: false, download: false, fullscreen: false } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(messageBody, agents)}</Streamdown>
+                </div>
+              )}
               {msg.attachment_ids && msg.attachment_ids.length > 0 && (
                 <AttachmentChips attachmentIds={msg.attachment_ids} artifacts={artifacts} onArtifactClick={onArtifactClick} />
               )}

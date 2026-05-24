@@ -20,6 +20,7 @@ interface UseSlashCommandParams {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   skills: SkillEntry[]
   onInputChange: (value: string) => void
+  initialActiveSkill?: SkillEntry | null
 }
 
 const MAX_QUERY_LENGTH = 30
@@ -85,6 +86,7 @@ export function useSlashCommand({
   textareaRef,
   skills,
   onInputChange,
+  initialActiveSkill,
 }: UseSlashCommandParams): SlashCommandPopupState {
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -94,7 +96,7 @@ export function useSlashCommand({
 
   const filteredSkills = useMemo(() => {
     if (!isOpen) return []
-    if (!query) return skills.slice(0, 20)
+    if (!query) return skills
     const q = query.toLowerCase()
     const startsWith: SkillEntry[] = []
     const includes: SkillEntry[] = []
@@ -110,7 +112,7 @@ export function useSlashCommand({
     setSelectedIndex(0)
   }, [filteredSkills.length, query])
 
-  const [activeSkill, setActiveSkill] = useState<SkillEntry | null>(null)
+  const [activeSkill, setActiveSkill] = useState<SkillEntry | null>(initialActiveSkill ?? null)
 
   useEffect(() => {
     if (activeSkill) {

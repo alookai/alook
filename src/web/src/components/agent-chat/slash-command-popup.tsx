@@ -32,10 +32,10 @@ function SkillRow({
         onSelect(skill)
       }}
     >
-      <span className="font-medium">
-        /{skill.name}
+      <span className="flex w-full items-center gap-2">
+        <span className="min-w-0 flex-1 truncate font-medium">/{skill.name}</span>
         {skill.isGlobal && (
-          <span className="ml-1.5 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
+          <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
             Global
           </span>
         )}
