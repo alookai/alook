@@ -219,11 +219,10 @@ export function scanOpenCodeSkills(workdir?: string): SkillEntry[] {
 
 type Runtime = "claude" | "codex" | "opencode";
 
-interface AgentScanTarget {
-  agentId: string;
-  workdir: string;
-  runtime: Runtime;
-  token: string;
+export interface SkillScannerConfig {
+  workspacesRoot: string;
+  workspaces: { workspaceId: string; token: string }[];
+  runtimes: Runtime[];
 }
 
 const prevHashes: Record<string, string> = {};
@@ -238,11 +237,32 @@ function writeLocalCache(runtime: Runtime, skills: SkillEntry[]) {
 }
 
 let scanTimer: ReturnType<typeof setInterval> | null = null;
-let agentTargets: AgentScanTarget[] = [];
+let scannerConfig: SkillScannerConfig | null = null;
 let clientRef: DaemonClient | null = null;
 
+function discoverTargets(): { agentId: string; workdir: string; runtime: Runtime; token: string }[] {
+  if (!scannerConfig) return [];
+  const targets: { agentId: string; workdir: string; runtime: Runtime; token: string }[] = [];
+  for (const ws of scannerConfig.workspaces) {
+    const wsDir = join(scannerConfig.workspacesRoot, ws.workspaceId);
+    let agentDirs: string[] = [];
+    try { if (existsSync(wsDir)) agentDirs = readdirSync(wsDir); } catch { continue; }
+    for (const agentId of agentDirs) {
+      const workdir = join(wsDir, agentId, "workdir");
+      if (!existsSync(workdir)) continue;
+      for (const runtime of scannerConfig.runtimes) {
+        targets.push({ agentId, workdir, runtime, token: ws.token });
+      }
+    }
+  }
+  return targets;
+}
+
 function runScan() {
-  for (const target of agentTargets) {
+  const targets = discoverTargets();
+  if (targets.length === 0) return;
+
+  for (const target of targets) {
     try {
       const scanner = target.runtime === "claude"
         ? scanClaudeSkills
@@ -258,6 +278,7 @@ function runScan() {
 
       if (prevHashes[key] !== hash) {
         prevHashes[key] = hash;
+        log.info(`Syncing ${target.agentId}:${target.runtime} — ${skills.length} skills`);
         if (clientRef) {
           clientRef.syncSkills(target.token, {
             agent_id: target.agentId,
@@ -274,11 +295,11 @@ function runScan() {
 
 export function startSkillScanner(
   client: DaemonClient,
-  targets: AgentScanTarget[],
+  config: SkillScannerConfig,
   interval = 60_000,
 ): void {
   clientRef = client;
-  agentTargets = targets;
+  scannerConfig = config;
   runScan();
   scanTimer = setInterval(runScan, interval);
 }

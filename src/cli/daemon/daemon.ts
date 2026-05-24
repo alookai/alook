@@ -644,22 +644,12 @@ export async function startDaemon(
   };
   const sweepTimer = setInterval(sweepTick, config.sweepInterval);
 
-  // --- Skill scanner: scans global + project skill paths every 60s ---
-  const skillTargets: { agentId: string; workdir: string; runtime: "claude" | "codex" | "opencode"; token: string }[] = [];
-  for (const ws of workspaceStates) {
-    const wsDir = join(config.workspacesRoot, ws.workspaceId);
-    let agentDirs: string[] = [];
-    try { if (existsSync(wsDir)) agentDirs = readdirSync(wsDir); } catch { /* skip */ }
-    for (const agentId of agentDirs) {
-      const workdir = join(wsDir, agentId, "workdir");
-      if (!existsSync(workdir)) continue;
-      for (const p of providers) {
-        const runtime = p.type as "claude" | "codex" | "opencode";
-        skillTargets.push({ agentId, workdir, runtime, token: ws.token });
-      }
-    }
-  }
-  startSkillScanner(client, skillTargets, 60_000);
+  // --- Skill scanner: dynamically discovers agent workdirs every 60s ---
+  startSkillScanner(client, {
+    workspacesRoot: config.workspacesRoot,
+    workspaces: workspaceStates.map((ws) => ({ workspaceId: ws.workspaceId, token: ws.token })),
+    runtimes: providers.map((p) => p.type as "claude" | "codex" | "opencode"),
+  }, 60_000);
 
   let shuttingDown = false;
   let restartRequested = false;
