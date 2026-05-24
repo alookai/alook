@@ -371,13 +371,4 @@ export function stopSkillScanner(): void {
   }
 }
 
-export function readSkillCache(runtime: Runtime): SkillEntry[] {
-  try {
-    const filePath = join(getCacheDir(), `${runtime}.json`);
-    if (!existsSync(filePath)) return [];
-    const content = readFileSync(filePath, "utf-8");
-    return JSON.parse(content);
-  } catch {
-    return [];
-  }
-}
+
