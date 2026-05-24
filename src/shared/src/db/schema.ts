@@ -771,8 +771,7 @@ export const agentSkill = sqliteTable(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
-    agentId: text("agent_id")
-      .references(() => agent.id, { onDelete: "cascade" }),
+    agentId: text("agent_id"),
     runtime: text("runtime").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
@@ -782,5 +781,9 @@ export const agentSkill = sqliteTable(
     unique("agent_skill_ws_runtime_name_agent").on(t.workspaceId, t.runtime, t.name, t.agentId),
     index("idx_as_workspace_runtime").on(t.workspaceId, t.runtime),
     index("idx_as_agent_runtime").on(t.agentId, t.runtime),
+    foreignKey({
+      columns: [t.agentId, t.workspaceId],
+      foreignColumns: [agent.id, agent.workspaceId],
+    }).onDelete("cascade"),
   ]
 );
