@@ -1890,7 +1890,7 @@ export function AgentChatView({
                 <div className="flex-1 min-w-0 flex items-center gap-2">
                   <span className="shrink-0 text-xs font-medium text-primary">/{slashCommand.activeSkill.name}</span>
                   <span className="text-xs text-muted-foreground truncate">
-                    {slashCommand.activeSkill.description.slice(0, 60)}
+                    {slashCommand.activeSkill.description}
                   </span>
                 </div>
                 <button
