@@ -262,17 +262,19 @@ let clientRef: DaemonClient | null = null;
 
 function discoverTargets(): { agentId: string; workdir: string | null; runtime: Runtime; token: string }[] {
   if (!scannerConfig) return [];
-  const rootReal = realpathSync(scannerConfig.workspacesRoot);
+  const rootExists = existsSync(scannerConfig.workspacesRoot);
+  const rootReal = rootExists ? realpathSync(scannerConfig.workspacesRoot) : null;
   const targets: { agentId: string; workdir: string | null; runtime: Runtime; token: string }[] = [];
   for (const ws of scannerConfig.workspaces) {
-    const wsDir = join(scannerConfig.workspacesRoot, ws.workspaceId);
     for (const agentId of ws.agentIds) {
-      const workdir = join(wsDir, agentId, "workdir");
       let validWorkdir: string | null = null;
-      if (existsSync(workdir)) {
-        try {
-          if (realpathSync(workdir).startsWith(rootReal)) validWorkdir = workdir;
-        } catch { /* skip */ }
+      if (rootReal) {
+        const workdir = join(scannerConfig.workspacesRoot, ws.workspaceId, agentId, "workdir");
+        if (existsSync(workdir)) {
+          try {
+            if (realpathSync(workdir).startsWith(rootReal)) validWorkdir = workdir;
+          } catch { /* skip */ }
+        }
       }
       for (const runtime of scannerConfig.runtimes) {
         targets.push({ agentId, workdir: validWorkdir, runtime, token: ws.token });
