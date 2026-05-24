@@ -22,17 +22,20 @@ export async function syncSkills(
   if (skills.length === 0) return;
 
   const now = new Date().toISOString();
-  await db.insert(agentSkill).values(
-    skills.map((s) => ({
-      workspaceId,
-      agentId,
-      runtime,
-      name: s.name,
-      description: s.description,
-      scope: s.scope,
-      syncedAt: now,
-    })),
-  );
+  const rows = skills.map((s) => ({
+    workspaceId,
+    agentId,
+    runtime,
+    name: s.name,
+    description: s.description,
+    scope: s.scope,
+    syncedAt: now,
+  }));
+
+  const BATCH_SIZE = 10;
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    await db.insert(agentSkill).values(rows.slice(i, i + BATCH_SIZE));
+  }
 }
 
 export async function getSkills(
