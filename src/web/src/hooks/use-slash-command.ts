@@ -109,7 +109,13 @@ export function useSlashCommand({
     setSelectedIndex(0)
   }, [filteredSkills.length, query])
 
+  const [activeSkill, setActiveSkill] = useState<SkillEntry | null>(null)
+
   useEffect(() => {
+    if (activeSkill) {
+      setIsOpen(false)
+      return
+    }
     if (caretIndex === null) {
       setIsOpen(false)
       return
@@ -129,9 +135,7 @@ export function useSlashCommand({
       setIsOpen(false)
       triggerStartRef.current = null
     }
-  }, [input, caretIndex, textareaRef])
-
-  const [activeSkill, setActiveSkill] = useState<SkillEntry | null>(null)
+  }, [input, caretIndex, textareaRef, activeSkill])
 
   const selectSkill = useCallback((skill: SkillEntry) => {
     setActiveSkill(skill)
