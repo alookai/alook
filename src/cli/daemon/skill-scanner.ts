@@ -11,7 +11,6 @@ const log = createLogger({ module: "skill-scanner" });
 export interface SkillEntry {
   name: string;
   description: string;
-  scope: "global" | "agent";
 }
 
 function getCacheDir(): string {
@@ -102,52 +101,50 @@ function walkForSkills(dir: string, results: string[], depth = 0): void {
   } catch { /* skip */ }
 }
 
-function scanFrontmatterSkills(paths: string[], scope: "global" | "agent"): SkillEntry[] {
+function scanFrontmatterSkills(paths: string[]): SkillEntry[] {
   const skills = new Map<string, SkillEntry>();
   for (const filePath of paths) {
     try {
       const content = readFileSync(filePath, "utf-8");
       const meta = parseFrontmatter(content);
       if (meta && !skills.has(meta.name)) {
-        skills.set(meta.name, { ...meta, scope });
+        skills.set(meta.name, meta);
       }
     } catch { /* skip */ }
   }
   return Array.from(skills.values());
 }
 
-export function scanClaudeSkills(workdir?: string): SkillEntry[] {
+export function scanClaudeGlobalSkills(): SkillEntry[] {
   const home = homedir();
   const allSkills: SkillEntry[] = [];
 
-  // Global skills
   const directPaths = findSkillFiles(join(home, ".claude", "skills"), "*/SKILL.md");
-  allSkills.push(...scanFrontmatterSkills(directPaths, "global"));
+  allSkills.push(...scanFrontmatterSkills(directPaths));
 
   const pluginCacheDir = join(home, ".claude", "plugins", "cache");
   const pluginPaths = findSkillFiles(pluginCacheDir, "**/skills/*/SKILL.md");
-  const globalNames = new Set(allSkills.map((s) => s.name));
+  const names = new Set(allSkills.map((s) => s.name));
   for (const filePath of pluginPaths) {
     try {
       const content = readFileSync(filePath, "utf-8");
       const meta = parseFrontmatter(content);
-      if (meta && !globalNames.has(meta.name)) {
-        globalNames.add(meta.name);
-        allSkills.push({ ...meta, scope: "global" });
+      if (meta && !names.has(meta.name)) {
+        names.add(meta.name);
+        allSkills.push(meta);
       }
     } catch { /* skip */ }
-  }
-
-  // Project skills
-  if (workdir) {
-    const projectPaths = findSkillFiles(join(workdir, ".claude", "skills"), "*/SKILL.md");
-    allSkills.push(...scanFrontmatterSkills(projectPaths, "agent"));
   }
 
   return allSkills;
 }
 
-export function scanCodexSkills(workdir?: string): SkillEntry[] {
+export function scanClaudeAgentSkills(workdir: string): SkillEntry[] {
+  const paths = findSkillFiles(join(workdir, ".claude", "skills"), "*/SKILL.md");
+  return scanFrontmatterSkills(paths);
+}
+
+export function scanCodexGlobalSkills(): SkillEntry[] {
   const home = homedir();
   const allSkills: SkillEntry[] = [];
 
@@ -155,61 +152,50 @@ export function scanCodexSkills(workdir?: string): SkillEntry[] {
     ...findSkillFiles(join(home, ".agents", "skills"), "*/SKILL.md"),
     ...findSkillFiles(join(home, ".codex", "skills", ".system"), "*/SKILL.md"),
   ];
-  allSkills.push(...scanFrontmatterSkills(paths, "global"));
+  allSkills.push(...scanFrontmatterSkills(paths));
 
   const codexPluginDir = join(home, ".codex", "plugins", "cache");
   const pluginPaths = findSkillFiles(codexPluginDir, "**/skills/*/SKILL.md");
-  const globalNames = new Set(allSkills.map((s) => s.name));
+  const names = new Set(allSkills.map((s) => s.name));
   for (const filePath of pluginPaths) {
     try {
       const content = readFileSync(filePath, "utf-8");
       const meta = parseFrontmatter(content);
-      if (meta && !globalNames.has(meta.name)) {
-        globalNames.add(meta.name);
-        allSkills.push({ ...meta, scope: "global" });
+      if (meta && !names.has(meta.name)) {
+        names.add(meta.name);
+        allSkills.push(meta);
       }
     } catch { /* skip */ }
-  }
-
-  // Project skills
-  if (workdir) {
-    const projectPaths = findSkillFiles(join(workdir, ".agents", "skills"), "*/SKILL.md");
-    allSkills.push(...scanFrontmatterSkills(projectPaths, "agent"));
   }
 
   return allSkills;
 }
 
-export function scanOpenCodeSkills(workdir?: string): SkillEntry[] {
-  const home = homedir();
-  const allSkills: SkillEntry[] = [];
+export function scanCodexAgentSkills(workdir: string): SkillEntry[] {
+  const paths = findSkillFiles(join(workdir, ".agents", "skills"), "*/SKILL.md");
+  return scanFrontmatterSkills(paths);
+}
 
-  // Global
-  const commandsDir = join(home, ".config", "opencode", "commands");
-  const files = findSkillFiles(commandsDir, "*.md");
+function scanOpenCodeMdFiles(dir: string): SkillEntry[] {
+  const skills: SkillEntry[] = [];
+  const files = findSkillFiles(dir, "*.md");
   for (const filePath of files) {
     try {
       const content = readFileSync(filePath, "utf-8");
       const name = basename(filePath, ".md");
       const firstLine = content.split("\n").find((l) => l.trim().length > 0) ?? "";
-      allSkills.push({ name, description: firstLine.replace(/^#\s*/, "").trim(), scope: "global" });
+      skills.push({ name, description: firstLine.replace(/^#\s*/, "").trim() });
     } catch { /* skip */ }
   }
+  return skills;
+}
 
-  // Project
-  if (workdir) {
-    const projFiles = findSkillFiles(join(workdir, ".opencode", "commands"), "*.md");
-    for (const filePath of projFiles) {
-      try {
-        const content = readFileSync(filePath, "utf-8");
-        const name = basename(filePath, ".md");
-        const firstLine = content.split("\n").find((l) => l.trim().length > 0) ?? "";
-        allSkills.push({ name, description: firstLine.replace(/^#\s*/, "").trim(), scope: "agent" });
-      } catch { /* skip */ }
-    }
-  }
+export function scanOpenCodeGlobalSkills(): SkillEntry[] {
+  return scanOpenCodeMdFiles(join(homedir(), ".config", "opencode", "commands"));
+}
 
-  return allSkills;
+export function scanOpenCodeAgentSkills(workdir: string): SkillEntry[] {
+  return scanOpenCodeMdFiles(join(workdir, ".opencode", "commands"));
 }
 
 type Runtime = "claude" | "codex" | "opencode";
@@ -298,22 +284,16 @@ function discoverTargets(): { agentId: string; workdir: string | null; runtime: 
   return targets;
 }
 
-function scanGlobalSkills(runtime: Runtime): SkillEntry[] {
-  const scanner = runtime === "claude"
-    ? scanClaudeSkills
-    : runtime === "codex"
-      ? scanCodexSkills
-      : scanOpenCodeSkills;
-  return scanner(undefined).filter((s) => s.scope === "global");
+function getGlobalScanner(runtime: Runtime): () => SkillEntry[] {
+  if (runtime === "claude") return scanClaudeGlobalSkills;
+  if (runtime === "codex") return scanCodexGlobalSkills;
+  return scanOpenCodeGlobalSkills;
 }
 
-function scanAgentSkills(runtime: Runtime, workdir: string): SkillEntry[] {
-  const scanner = runtime === "claude"
-    ? scanClaudeSkills
-    : runtime === "codex"
-      ? scanCodexSkills
-      : scanOpenCodeSkills;
-  return scanner(workdir).filter((s) => s.scope === "agent");
+function getAgentScanner(runtime: Runtime): (workdir: string) => SkillEntry[] {
+  if (runtime === "claude") return scanClaudeAgentSkills;
+  if (runtime === "codex") return scanCodexAgentSkills;
+  return scanOpenCodeAgentSkills;
 }
 
 function runScan() {
@@ -325,7 +305,7 @@ function runScan() {
   // 1. Scan + sync global skills per runtime (once, shared across all agents)
   for (const runtime of scannerConfig.runtimes) {
     try {
-      const skills = scanGlobalSkills(runtime);
+      const skills = getGlobalScanner(runtime)();
       const hash = computeHash(skills);
       const prevHash = readCacheHash(globalCachePath(runtime));
 
@@ -351,7 +331,7 @@ function runScan() {
   for (const target of targets) {
     if (!target.workdir) continue;
     try {
-      const skills = scanAgentSkills(target.runtime, target.workdir);
+      const skills = getAgentScanner(target.runtime)(target.workdir);
       const hash = computeHash(skills);
       const prevHash = readCacheHash(agentCachePath(target.agentId, target.runtime));
 

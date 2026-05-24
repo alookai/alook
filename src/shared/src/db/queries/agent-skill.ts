@@ -20,7 +20,6 @@ export async function syncGlobalSkills(
     runtime,
     name: s.name,
     description: s.description,
-    scope: "global" as const,
     syncedAt: now,
   }));
 
@@ -51,7 +50,6 @@ export async function syncAgentSkills(
     runtime,
     name: s.name,
     description: s.description,
-    scope: "agent" as const,
     syncedAt: now,
   }));
 
@@ -78,7 +76,7 @@ export async function getSkills(
     .select({
       name: agentSkill.name,
       description: agentSkill.description,
-      scope: agentSkill.scope,
+      isGlobal: isNull(agentSkill.agentId),
     })
     .from(agentSkill)
     .where(

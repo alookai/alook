@@ -771,11 +771,11 @@ export const agentSkill = sqliteTable(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
-    agentId: text("agent_id"),
+    agentId: text("agent_id")
+      .references(() => agent.id, { onDelete: "cascade" }),
     runtime: text("runtime").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
-    scope: text("scope").notNull().default("global"),
     syncedAt: text("synced_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
