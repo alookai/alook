@@ -1425,7 +1425,7 @@ export function AgentChatView({
 
     // Prepend skill instruction if active
     if (slashCommand.activeSkill) {
-      content = `Use ${slashCommand.activeSkill.name} skill: ${content}`;
+      content = `/${slashCommand.activeSkill.name} ${content}`;
     }
 
     const filesToSend = [...pendingFiles];
