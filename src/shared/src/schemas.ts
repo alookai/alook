@@ -732,10 +732,16 @@ export const SkillEntrySchema = z.object({
 });
 export type SkillEntry = z.infer<typeof SkillEntrySchema>;
 
+const SkillItemSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+});
+
 export const SkillSyncRequestSchema = z.object({
-  agent_id: z.string().min(1),
+  scope: z.enum(["global", "agent"]),
+  agent_id: z.string().min(1).optional(),
   runtime: z.enum(["claude", "codex", "opencode"]),
-  skills: z.array(SkillEntrySchema),
+  skills: z.array(SkillItemSchema),
 });
 export type SkillSyncRequest = z.infer<typeof SkillSyncRequestSchema>;
 
