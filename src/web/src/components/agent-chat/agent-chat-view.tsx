@@ -472,6 +472,12 @@ export function AgentChatView({
   });
 
   useEffect(() => {
+    if (agentSkills.length === 0 || !slashCommand.activeSkill) return;
+    const exists = agentSkills.some(s => s.name === slashCommand.activeSkill!.name);
+    if (!exists) slashCommand.setActiveSkill(null);
+  }, [agentSkills]);
+
+  useEffect(() => {
     const key = `chat-draft:${agentId}:${targetConvId ?? 'default'}`;
     if (input) {
       localStorage.setItem(key, input);
@@ -479,6 +485,15 @@ export function AgentChatView({
       localStorage.removeItem(key);
     }
   }, [input, agentId, targetConvId]);
+
+  useEffect(() => {
+    const key = `chat-skill:${agentId}:${targetConvId ?? 'default'}`;
+    if (slashCommand.activeSkill) {
+      localStorage.setItem(key, JSON.stringify(slashCommand.activeSkill));
+    } else {
+      localStorage.removeItem(key);
+    }
+  }, [slashCommand.activeSkill, agentId, targetConvId]);
 
   useEffect(() => {
     if (!sending) {
@@ -515,6 +530,10 @@ export function AgentChatView({
     setHasMoreConversations(false);
     oldestConversationCursorRef.current = null;
     setInput(localStorage.getItem(`chat-draft:${agentId}:${targetConvId ?? 'default'}`) ?? "");
+    try {
+      const storedSkill = localStorage.getItem(`chat-skill:${agentId}:${targetConvId ?? 'default'}`);
+      slashCommand.setActiveSkill(storedSkill ? JSON.parse(storedSkill) : null);
+    } catch { slashCommand.setActiveSkill(null); }
     setMessages([]);
     async function load() {
       let hasCachedMessages = false;

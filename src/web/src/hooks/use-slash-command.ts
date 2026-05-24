@@ -11,6 +11,7 @@ export interface SlashCommandPopupState {
   handleSlashKeyDown: (e: React.KeyboardEvent) => boolean
   selectSkill: (skill: SkillEntry) => void
   clearActiveSkill: () => void
+  setActiveSkill: (skill: SkillEntry | null) => void
 }
 
 interface UseSlashCommandParams {
@@ -192,5 +193,6 @@ export function useSlashCommand({
     handleSlashKeyDown,
     selectSkill,
     clearActiveSkill,
+    setActiveSkill,
   }
 }
