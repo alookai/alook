@@ -142,13 +142,6 @@ export const FileRequestItemSchema = z.object({
 });
 export type FileRequestItem = z.infer<typeof FileRequestItemSchema>;
 
-export const SkillRequestItemSchema = z.object({
-  id: z.string(),
-  agent_id: z.string(),
-  runtime: z.enum(["claude", "codex", "opencode"]),
-});
-export type SkillRequestItem = z.infer<typeof SkillRequestItemSchema>;
-
 export const PollMeetingItemSchema = z.object({
   id: z.string(),
   meeting_url: z.string(),
@@ -166,7 +159,6 @@ export const PollResponseSchema = z.object({
   pending_update: z.object({ version: z.string() }).optional(),
   pending_rescan: z.boolean().optional(),
   file_requests: z.array(FileRequestItemSchema).optional(),
-  skill_requests: z.array(SkillRequestItemSchema).optional(),
   meetings: z.array(PollMeetingItemSchema).optional(),
 });
 export type PollResponse = z.infer<typeof PollResponseSchema>;
@@ -178,7 +170,6 @@ export type PollResponse = z.infer<typeof PollResponseSchema>;
 export const DaemonPushMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("daemon.tasks"), tasks: z.array(TaskApiSchema) }),
   z.object({ type: z.literal("daemon.file_requests"), workspaceId: z.string(), requests: z.array(FileRequestItemSchema) }),
-  z.object({ type: z.literal("daemon.skill_requests"), workspaceId: z.string(), requests: z.array(SkillRequestItemSchema) }),
   z.object({ type: z.literal("daemon.meetings"), meetings: z.array(PollMeetingItemSchema) }),
   z.object({ type: z.literal("daemon.evict"), workspaceId: z.string() }),
   z.object({ type: z.literal("daemon.update"), version: z.string() }),
@@ -731,26 +722,22 @@ export const WorkspaceFileReportSchema = z.object({
 export type WorkspaceFileReport = z.infer<typeof WorkspaceFileReportSchema>;
 
 // ---------------------------------------------------------------------------
-// Workspace skill browsing
+// Workspace skill browsing (V2 — D1 cache)
 // ---------------------------------------------------------------------------
 
 export const SkillEntrySchema = z.object({
   name: z.string(),
   description: z.string(),
+  scope: z.enum(["global", "project"]),
 });
 export type SkillEntry = z.infer<typeof SkillEntrySchema>;
 
-export const SkillBrowseRequestSchema = z.object({
+export const SkillSyncRequestSchema = z.object({
+  agent_id: z.string().min(1),
   runtime: z.enum(["claude", "codex", "opencode"]),
+  skills: z.array(SkillEntrySchema),
 });
-export type SkillBrowseRequest = z.infer<typeof SkillBrowseRequestSchema>;
-
-export const SkillReportSchema = z.object({
-  request_id: z.string().min(1),
-  skills: z.array(SkillEntrySchema).optional(),
-  error: z.string().optional(),
-});
-export type SkillReport = z.infer<typeof SkillReportSchema>;
+export type SkillSyncRequest = z.infer<typeof SkillSyncRequestSchema>;
 
 // ---------------------------------------------------------------------------
 // Studio onboarding

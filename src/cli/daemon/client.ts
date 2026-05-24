@@ -8,8 +8,7 @@ import {
   type PollResponse,
   type RegisterDaemonRequest,
   type RegisterResponse,
-  type SkillRequestItem,
-  type SkillReport,
+  type SkillSyncRequest,
   type TaskApi,
   type WorkspaceFileReport,
 } from "@alook/shared";
@@ -96,7 +95,6 @@ export class DaemonClient {
     pending_update?: { version: string };
     pending_rescan?: boolean;
     file_requests?: FileRequestItem[];
-    skill_requests?: SkillRequestItem[];
     meetings?: PollMeetingItem[];
   }> {
     const raw = await this.request<unknown>(
@@ -112,7 +110,6 @@ export class DaemonClient {
       pending_update: resp.pending_update,
       pending_rescan: resp.pending_rescan,
       file_requests: resp.file_requests,
-      skill_requests: resp.skill_requests,
       meetings: resp.meetings,
     };
   }
@@ -210,10 +207,10 @@ export class DaemonClient {
     );
   }
 
-  reportSkillData(token: string, body: SkillReport) {
+  syncSkills(token: string, body: SkillSyncRequest) {
     return this.request(
       "POST",
-      "/api/daemon/skills/report",
+      "/api/daemon/skills/sync",
       token,
       body,
     );

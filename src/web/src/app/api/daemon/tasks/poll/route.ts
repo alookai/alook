@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, PollRequestSchema, semverGte, type FileRequestItem, type SkillRequestItem, type PollMeetingItem } from "@alook/shared";
+import { queries, PollRequestSchema, semverGte, type FileRequestItem, type PollMeetingItem } from "@alook/shared";
 import { getDb, withD1Retry } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
@@ -156,37 +156,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     log.warn("file-requests: poll failed", { err: String(e) });
   }
 
-  // Skill browse requests — same pattern as file requests
-  let skillRequests: SkillRequestItem[] | undefined;
-  try {
-    await throttled(`expire_sr:${ctx.workspaceId}`, 5, async () => {
-      await queries.workspaceSkillRequest.expireStale(db, ctx.workspaceId!);
-    });
-    const kv = (env as Env).CACHE_KV ?? null;
-    const srFlag = kv ? await kv.get(cacheKeys.hasPendingSkillRequest(ctx.workspaceId!)) : null;
-    if (srFlag !== "0") {
-      const pending = await queries.workspaceSkillRequest.getPendingByWorkspace(db, ctx.workspaceId);
-      if (pending.length > 0) {
-        skillRequests = pending.map((r) => ({
-          id: r.id,
-          agent_id: r.agentId,
-          runtime: r.runtime as "claude" | "codex" | "opencode",
-        }));
-        await queries.workspaceSkillRequest.markDispatched(db, pending.map((r) => r.id));
-      } else if (kv) {
-        kv.put(cacheKeys.hasPendingSkillRequest(ctx.workspaceId!), "0", { expirationTtl: 60 }).catch(() => {});
-      }
-    }
-  } catch (e) {
-    log.warn("skill-requests: poll failed", { err: String(e) });
-  }
-
   return writeJSON({
     tasks,
     ...(pendingUpdate && { pending_update: pendingUpdate }),
     ...(pendingRescan && { pending_rescan: pendingRescan }),
     ...(fileRequests && { file_requests: fileRequests }),
-    ...(skillRequests && { skill_requests: skillRequests }),
     ...(meetings && { meetings }),
   });
 });

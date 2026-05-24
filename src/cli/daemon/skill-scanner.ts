@@ -3,19 +3,25 @@ import { join, basename } from "path";
 import { homedir } from "os";
 import { createHash } from "crypto";
 import { createLogger } from "../lib/logger.js";
+import { configDir } from "../lib/config.js";
+import type { DaemonClient } from "./client.js";
 
 const log = createLogger({ module: "skill-scanner" });
 
 export interface SkillEntry {
   name: string;
   description: string;
+  scope: "global" | "project";
 }
 
-const CACHE_DIR = join(homedir(), ".alook", "skills");
+function getCacheDir(): string {
+  return join(configDir(), "skills");
+}
 
 function ensureCacheDir() {
-  if (!existsSync(CACHE_DIR)) {
-    mkdirSync(CACHE_DIR, { recursive: true });
+  const dir = getCacheDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
   }
 }
 
@@ -101,124 +107,178 @@ function walkForSkills(dir: string, results: string[], depth = 0): void {
   } catch { /* skip */ }
 }
 
-export function scanClaudeSkills(): SkillEntry[] {
-  const home = homedir();
+function scanFrontmatterSkills(paths: string[], scope: "global" | "project"): SkillEntry[] {
   const skills = new Map<string, SkillEntry>();
-
-  const directPaths = findSkillFiles(join(home, ".claude", "skills"), "*/SKILL.md");
-  for (const filePath of directPaths) {
-    try {
-      const content = readFileSync(filePath, "utf-8");
-      const meta = parseFrontmatter(content);
-      if (meta && !skills.has(meta.name)) {
-        skills.set(meta.name, meta);
-      }
-    } catch { /* skip */ }
-  }
-
-  const pluginCacheDir = join(home, ".claude", "plugins", "cache");
-  const pluginPaths = findSkillFiles(pluginCacheDir, "**/skills/*/SKILL.md");
-  for (const filePath of pluginPaths) {
-    try {
-      const content = readFileSync(filePath, "utf-8");
-      const meta = parseFrontmatter(content);
-      if (meta && !skills.has(meta.name)) {
-        skills.set(meta.name, meta);
-      }
-    } catch { /* skip */ }
-  }
-
-  return Array.from(skills.values());
-}
-
-export function scanCodexSkills(): SkillEntry[] {
-  const home = homedir();
-  const skills = new Map<string, SkillEntry>();
-
-  const paths = [
-    ...findSkillFiles(join(home, ".agents", "skills"), "*/SKILL.md"),
-    ...findSkillFiles(join(home, ".codex", "skills", ".system"), "*/SKILL.md"),
-  ];
-
   for (const filePath of paths) {
     try {
       const content = readFileSync(filePath, "utf-8");
       const meta = parseFrontmatter(content);
       if (meta && !skills.has(meta.name)) {
-        skills.set(meta.name, meta);
+        skills.set(meta.name, { ...meta, scope });
       }
     } catch { /* skip */ }
   }
+  return Array.from(skills.values());
+}
 
-  const codexPluginDir = join(home, ".codex", "plugins", "cache");
-  const pluginPaths = findSkillFiles(codexPluginDir, "**/skills/*/SKILL.md");
+export function scanClaudeSkills(workdir?: string): SkillEntry[] {
+  const home = homedir();
+  const allSkills: SkillEntry[] = [];
+
+  // Global skills
+  const directPaths = findSkillFiles(join(home, ".claude", "skills"), "*/SKILL.md");
+  allSkills.push(...scanFrontmatterSkills(directPaths, "global"));
+
+  const pluginCacheDir = join(home, ".claude", "plugins", "cache");
+  const pluginPaths = findSkillFiles(pluginCacheDir, "**/skills/*/SKILL.md");
+  const globalNames = new Set(allSkills.map((s) => s.name));
   for (const filePath of pluginPaths) {
     try {
       const content = readFileSync(filePath, "utf-8");
       const meta = parseFrontmatter(content);
-      if (meta && !skills.has(meta.name)) {
-        skills.set(meta.name, meta);
+      if (meta && !globalNames.has(meta.name)) {
+        globalNames.add(meta.name);
+        allSkills.push({ ...meta, scope: "global" });
       }
     } catch { /* skip */ }
   }
 
-  return Array.from(skills.values());
+  // Project skills
+  if (workdir) {
+    const projectPaths = findSkillFiles(join(workdir, ".claude", "skills"), "*/SKILL.md");
+    allSkills.push(...scanFrontmatterSkills(projectPaths, "project"));
+  }
+
+  return allSkills;
 }
 
-export function scanOpenCodeSkills(): SkillEntry[] {
+export function scanCodexSkills(workdir?: string): SkillEntry[] {
   const home = homedir();
-  const commandsDir = join(home, ".config", "opencode", "commands");
-  const skills: SkillEntry[] = [];
+  const allSkills: SkillEntry[] = [];
 
+  const paths = [
+    ...findSkillFiles(join(home, ".agents", "skills"), "*/SKILL.md"),
+    ...findSkillFiles(join(home, ".codex", "skills", ".system"), "*/SKILL.md"),
+  ];
+  allSkills.push(...scanFrontmatterSkills(paths, "global"));
+
+  const codexPluginDir = join(home, ".codex", "plugins", "cache");
+  const pluginPaths = findSkillFiles(codexPluginDir, "**/skills/*/SKILL.md");
+  const globalNames = new Set(allSkills.map((s) => s.name));
+  for (const filePath of pluginPaths) {
+    try {
+      const content = readFileSync(filePath, "utf-8");
+      const meta = parseFrontmatter(content);
+      if (meta && !globalNames.has(meta.name)) {
+        globalNames.add(meta.name);
+        allSkills.push({ ...meta, scope: "global" });
+      }
+    } catch { /* skip */ }
+  }
+
+  // Project skills
+  if (workdir) {
+    const projectPaths = findSkillFiles(join(workdir, ".agents", "skills"), "*/SKILL.md");
+    allSkills.push(...scanFrontmatterSkills(projectPaths, "project"));
+  }
+
+  return allSkills;
+}
+
+export function scanOpenCodeSkills(workdir?: string): SkillEntry[] {
+  const home = homedir();
+  const allSkills: SkillEntry[] = [];
+
+  // Global
+  const commandsDir = join(home, ".config", "opencode", "commands");
   const files = findSkillFiles(commandsDir, "*.md");
   for (const filePath of files) {
     try {
       const content = readFileSync(filePath, "utf-8");
       const name = basename(filePath, ".md");
       const firstLine = content.split("\n").find((l) => l.trim().length > 0) ?? "";
-      skills.push({ name, description: firstLine.replace(/^#\s*/, "").trim() });
+      allSkills.push({ name, description: firstLine.replace(/^#\s*/, "").trim(), scope: "global" });
     } catch { /* skip */ }
   }
 
-  return skills;
+  // Project
+  if (workdir) {
+    const projFiles = findSkillFiles(join(workdir, ".opencode", "commands"), "*.md");
+    for (const filePath of projFiles) {
+      try {
+        const content = readFileSync(filePath, "utf-8");
+        const name = basename(filePath, ".md");
+        const firstLine = content.split("\n").find((l) => l.trim().length > 0) ?? "";
+        allSkills.push({ name, description: firstLine.replace(/^#\s*/, "").trim(), scope: "project" });
+      } catch { /* skip */ }
+    }
+  }
+
+  return allSkills;
 }
 
 type Runtime = "claude" | "codex" | "opencode";
 
-const scanners: Record<Runtime, () => SkillEntry[]> = {
-  claude: scanClaudeSkills,
-  codex: scanCodexSkills,
-  opencode: scanOpenCodeSkills,
-};
+interface AgentScanTarget {
+  agentId: string;
+  workdir: string;
+  runtime: Runtime;
+  token: string;
+}
 
 const prevHashes: Record<string, string> = {};
 
-function writeIfChanged(runtime: Runtime, skills: SkillEntry[]) {
-  const json = JSON.stringify(skills, null, 2);
-  const hash = createHash("md5").update(json).digest("hex");
-
-  if (prevHashes[runtime] === hash) return;
-  prevHashes[runtime] = hash;
-
-  ensureCacheDir();
-  writeFileSync(join(CACHE_DIR, `${runtime}.json`), json, "utf-8");
-  log.debug(`Updated ${runtime}.json (${skills.length} skills)`);
+function computeHash(skills: SkillEntry[]): string {
+  return createHash("md5").update(JSON.stringify(skills)).digest("hex");
 }
 
+function writeLocalCache(runtime: Runtime, skills: SkillEntry[]) {
+  ensureCacheDir();
+  writeFileSync(join(getCacheDir(), `${runtime}.json`), JSON.stringify(skills, null, 2), "utf-8");
+}
+
+let scanTimer: ReturnType<typeof setInterval> | null = null;
+let agentTargets: AgentScanTarget[] = [];
+let clientRef: DaemonClient | null = null;
+
 function runScan() {
-  for (const runtime of Object.keys(scanners) as Runtime[]) {
+  for (const target of agentTargets) {
     try {
-      const skills = scanners[runtime]();
-      writeIfChanged(runtime, skills);
+      const scanner = target.runtime === "claude"
+        ? scanClaudeSkills
+        : target.runtime === "codex"
+          ? scanCodexSkills
+          : scanOpenCodeSkills;
+
+      const skills = scanner(target.workdir);
+      const key = `${target.agentId}:${target.runtime}`;
+      const hash = computeHash(skills);
+
+      writeLocalCache(target.runtime, skills);
+
+      if (prevHashes[key] !== hash) {
+        prevHashes[key] = hash;
+        if (clientRef) {
+          clientRef.syncSkills(target.token, {
+            agent_id: target.agentId,
+            runtime: target.runtime,
+            skills,
+          }).catch((e) => log.debug("Skill sync failed", e));
+        }
+      }
     } catch (e) {
-      log.debug(`Scan error for ${runtime}`, e);
+      log.debug(`Scan error for ${target.agentId}:${target.runtime}`, e);
     }
   }
 }
 
-let scanTimer: ReturnType<typeof setInterval> | null = null;
-
-export function startSkillScanner(interval = 60_000): void {
+export function startSkillScanner(
+  client: DaemonClient,
+  targets: AgentScanTarget[],
+  interval = 60_000,
+): void {
+  clientRef = client;
+  agentTargets = targets;
   runScan();
   scanTimer = setInterval(runScan, interval);
 }
@@ -232,7 +292,7 @@ export function stopSkillScanner(): void {
 
 export function readSkillCache(runtime: Runtime): SkillEntry[] {
   try {
-    const filePath = join(CACHE_DIR, `${runtime}.json`);
+    const filePath = join(getCacheDir(), `${runtime}.json`);
     if (!existsSync(filePath)) return [];
     const content = readFileSync(filePath, "utf-8");
     return JSON.parse(content);

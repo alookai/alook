@@ -31,7 +31,7 @@ import {
   listFlaggedMessageIds,
   flagMessage as apiFlagMessage,
   unflagMessage as apiUnflagMessage,
-  requestSkillsBrowse,
+  getAgentSkills,
 } from "@/lib/api";
 import { appendCachedMessage, getCachedMessages, getCachedMessagesBefore, getCacheMeta, mergeCachedMessages } from "@/lib/chat-cache";
 import type { PreviousConversation, TraceTask } from "@/lib/api";
@@ -318,7 +318,7 @@ export function AgentChatView({
   const params = useParams();
   const searchParams = useSearchParams();
   const { workspaceId, slug } = useWorkspace();
-  const { agents, agentLinks, runtimes, activeTaskCounts, subscribeWs } = useAgentContext();
+  const { agents, agentLinks, activeTaskCounts, subscribeWs } = useAgentContext();
   const { refresh: refreshInboxCount } = useInboxCount();
   const { activeChannel, loading: channelLoading, setAgentId: setChannelAgentId } = useChannel();
   const agentId = propAgentId ?? (params.id as string);
@@ -451,31 +451,17 @@ export function AgentChatView({
     onInputChange: setInput,
   });
 
-  // Slash command skills
+  // Slash command skills — fetch from D1 on mount
   const [agentSkills, setAgentSkills] = useState<SkillEntry[]>([]);
-  const skillsRequestedRef = useRef(false);
-
-  const agentRuntime = useMemo(() => {
-    const agent = agents.find((a) => a.id === agentId);
-    if (!agent?.runtime_id) return null;
-    return runtimes.find((r) => r.id === agent.runtime_id) ?? null;
-  }, [agents, agentId, runtimes]);
+  const skillsFetchedRef = useRef(false);
 
   useEffect(() => {
-    if (skillsRequestedRef.current || !agentRuntime?.provider) return;
-    const runtime = agentRuntime.provider as "claude" | "codex" | "opencode";
-    if (!["claude", "codex", "opencode"].includes(runtime)) return;
-    skillsRequestedRef.current = true;
-    requestSkillsBrowse(agentId, workspaceId, runtime).catch(() => {});
-  }, [agentId, workspaceId, agentRuntime]);
-
-  useEffect(() => {
-    return subscribeWs((msg: WsMessage) => {
-      if (msg.type === "workspace.skills" && msg.agentId === agentId) {
-        setAgentSkills(msg.skills);
-      }
-    });
-  }, [subscribeWs, agentId]);
+    if (skillsFetchedRef.current) return;
+    skillsFetchedRef.current = true;
+    getAgentSkills(agentId, workspaceId)
+      .then((res) => setAgentSkills(res.skills as SkillEntry[]))
+      .catch(() => {});
+  }, [agentId, workspaceId]);
 
   const slashCommand = useSlashCommand({
     input,

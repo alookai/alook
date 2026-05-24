@@ -22,7 +22,7 @@ import {
 } from "./execenv/steering.js";
 import { TASK_TYPES } from "@alook/shared";
 import { readDirectoryTree, readFileContent, validatePath } from "./workspace-files.js";
-import { startSkillScanner, stopSkillScanner, readSkillCache } from "./skill-scanner.js";
+import { startSkillScanner, stopSkillScanner } from "./skill-scanner.js";
 import { resolveLoginShellEnv } from "../lib/shell-env.js";
 import { existsSync, mkdirSync, openSync, closeSync, readdirSync, statSync, unlinkSync } from "fs";
 import { readdir, readFile, unlink, stat as fsStat } from "fs/promises";
@@ -408,7 +408,7 @@ export async function startDaemon(
       }
 
       try {
-        const { tasks: apiTasks, evicted, pending_update, pending_rescan, file_requests, skill_requests, meetings } = await client.poll(
+        const { tasks: apiTasks, evicted, pending_update, pending_rescan, file_requests, meetings } = await client.poll(
           ws.token,
           config.daemonId,
           remaining,
@@ -453,13 +453,6 @@ export async function startDaemon(
           }
         }
 
-        // Handle skill browse requests
-        if (skill_requests) {
-          for (const req of skill_requests) {
-            handleSkillRequest(client, req, ws.token)
-              .catch((e) => log.debug("Skill request error", e));
-          }
-        }
 
         // Spawn meeting bots from merged poll response
         if (meetings) {
@@ -548,16 +541,6 @@ export async function startDaemon(
         break;
       }
 
-      case "daemon.skill_requests": {
-        const ws = workspaceStates.find((w) => w.workspaceId === msg.workspaceId);
-        if (ws) {
-          for (const req of msg.requests) {
-            handleSkillRequest(client, req, ws.token)
-              .catch((e) => log.debug("WS skill request error", e));
-          }
-        }
-        break;
-      }
 
       case "daemon.meetings":
         for (const m of msg.meetings) {
@@ -661,8 +644,22 @@ export async function startDaemon(
   };
   const sweepTimer = setInterval(sweepTick, config.sweepInterval);
 
-  // --- Skill scanner: scans global skill paths every 60s ---
-  startSkillScanner(60_000);
+  // --- Skill scanner: scans global + project skill paths every 60s ---
+  const skillTargets: { agentId: string; workdir: string; runtime: "claude" | "codex" | "opencode"; token: string }[] = [];
+  for (const ws of workspaceStates) {
+    const wsDir = join(config.workspacesRoot, ws.workspaceId);
+    let agentDirs: string[] = [];
+    try { if (existsSync(wsDir)) agentDirs = readdirSync(wsDir); } catch { /* skip */ }
+    for (const agentId of agentDirs) {
+      const workdir = join(wsDir, agentId, "workdir");
+      if (!existsSync(workdir)) continue;
+      for (const p of providers) {
+        const runtime = p.type as "claude" | "codex" | "opencode";
+        skillTargets.push({ agentId, workdir, runtime, token: ws.token });
+      }
+    }
+  }
+  startSkillScanner(client, skillTargets, 60_000);
 
   let shuttingDown = false;
   let restartRequested = false;
@@ -868,23 +865,6 @@ async function handleFileRequest(
       request_id: req.id,
       error: e instanceof Error ? e.message : String(e),
       path: req.path,
-    });
-  }
-}
-
-async function handleSkillRequest(
-  client: DaemonClient,
-  req: { id: string; agent_id: string; runtime: string },
-  token: string,
-): Promise<void> {
-  try {
-    const runtime = req.runtime as "claude" | "codex" | "opencode";
-    const skills = readSkillCache(runtime);
-    await client.reportSkillData(token, { request_id: req.id, skills });
-  } catch (e) {
-    await client.reportSkillData(token, {
-      request_id: req.id,
-      error: e instanceof Error ? e.message : String(e),
     });
   }
 }
