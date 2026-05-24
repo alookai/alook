@@ -225,15 +225,35 @@ export interface SkillScannerConfig {
   runtimes: Runtime[];
 }
 
-const prevHashes: Record<string, string> = {};
+
+interface SkillCache {
+  hash: string;
+  skills: SkillEntry[];
+}
 
 function computeHash(skills: SkillEntry[]): string {
   return createHash("md5").update(JSON.stringify(skills)).digest("hex");
 }
 
-function writeLocalCache(runtime: Runtime, skills: SkillEntry[]) {
+function cacheFilePath(agentId: string, runtime: Runtime): string {
+  return join(getCacheDir(), `${agentId}_${runtime}.json`);
+}
+
+function readLocalCache(agentId: string, runtime: Runtime): string | null {
+  try {
+    const filePath = cacheFilePath(agentId, runtime);
+    if (!existsSync(filePath)) return null;
+    const data: SkillCache = JSON.parse(readFileSync(filePath, "utf-8"));
+    return data.hash ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalCache(agentId: string, runtime: Runtime, hash: string, skills: SkillEntry[]) {
   ensureCacheDir();
-  writeFileSync(join(getCacheDir(), `${runtime}.json`), JSON.stringify(skills, null, 2), "utf-8");
+  const data: SkillCache = { hash, skills };
+  writeFileSync(cacheFilePath(agentId, runtime), JSON.stringify(data, null, 2), "utf-8");
 }
 
 let scanTimer: ReturnType<typeof setInterval> | null = null;
@@ -275,19 +295,18 @@ function runScan() {
           : scanOpenCodeSkills;
 
       const skills = scanner(target.workdir ?? undefined);
-      const key = `${target.agentId}:${target.runtime}`;
       const hash = computeHash(skills);
+      const prevHash = readLocalCache(target.agentId, target.runtime);
 
-      writeLocalCache(target.runtime, skills);
-
-      if (prevHashes[key] !== hash) {
-        prevHashes[key] = hash;
+      if (prevHash !== hash) {
         log.info(`Syncing ${target.agentId}:${target.runtime} — ${skills.length} skills`);
         if (clientRef) {
           clientRef.syncSkills(target.token, {
             agent_id: target.agentId,
             runtime: target.runtime,
             skills,
+          }).then(() => {
+            writeLocalCache(target.agentId, target.runtime, hash, skills);
           }).catch((e) => log.debug("Skill sync failed", e));
         }
       }
