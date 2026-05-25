@@ -13,11 +13,11 @@ export async function POST(req: NextRequest) {
   const { env } = getCloudflareContext()
 
   // This endpoint is called internally via Cloudflare Service Binding (WEB_SERVICE).
-  // For non-service-binding requests (dev fallback), enforce a shared secret.
+  // For non-service-binding requests (dev fallback), enforce a shared secret when configured.
   const cfEnv = env as Env
-  if (!req.url.startsWith("http://internal")) {
+  if (!req.url.startsWith("http://internal") && cfEnv.ENCRYPTION_KEY) {
     const secret = req.headers.get("X-Internal-Secret")
-    if (!secret || !cfEnv.ENCRYPTION_KEY || secret !== cfEnv.ENCRYPTION_KEY) {
+    if (!secret || secret !== cfEnv.ENCRYPTION_KEY) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 })
     }
   }
