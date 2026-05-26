@@ -760,8 +760,8 @@ export const StudioMemberSchema = z.object({
   avatar_url: z.string().max(2000).nullable().optional(),
   email_handle: z.string().max(30).optional(),
   relationship: z.object({
-    leaderSees: z.string().max(500),
-    memberSees: z.string().max(500),
+    leaderSees: z.string(),
+    memberSees: z.string(),
   }).optional(),
 });
 
