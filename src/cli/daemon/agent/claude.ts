@@ -3,21 +3,30 @@ import { createInterface } from "readline";
 import type { AgentBackend, AgentSession } from "./index.js";
 import type { ExecOptions, AgentMessage, AgentResult } from "../types.js";
 
+function isTriageReadonly(options: ExecOptions): boolean {
+  return options.executionProfile === "triage_readonly";
+}
+
 export class ClaudeBackend implements AgentBackend {
   name = "claude";
 
   constructor(private cliPath: string) {}
 
   execute(prompt: string, options: ExecOptions): AgentSession {
+    const readonly = isTriageReadonly(options);
     const args = [
       "-p",
       prompt,
       "--output-format",
       "stream-json",
       "--verbose",
-      "--permission-mode",
-      "bypassPermissions",
     ];
+
+    if (readonly) {
+      args.push("--permission-mode", "default");
+    } else {
+      args.push("--permission-mode", "bypassPermissions");
+    }
 
     if (options.model) {
       args.push("--model", options.model);
@@ -163,7 +172,7 @@ export class ClaudeBackend implements AgentBackend {
           }
 
           case "control_request": {
-            handleControlRequest(proc, event);
+            handleControlRequest(proc, event, readonly);
             break;
           }
 
@@ -255,9 +264,30 @@ export class ClaudeBackend implements AgentBackend {
 function handleControlRequest(
   proc: ChildProcess,
   event: Record<string, unknown>,
+  readonly = false,
 ): void {
   const requestId = event.request_id as string | undefined;
   if (!requestId) return;
+
+  if (readonly) {
+    const denial = JSON.stringify({
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: requestId,
+        response: {
+          behavior: "deny",
+          message: "Read-only triage session",
+        },
+      },
+    });
+    try {
+      proc.stdin?.write(denial + "\n");
+    } catch {
+      // stdin may be closed
+    }
+    return;
+  }
 
   // Parse input from the control request payload
   let updatedInput: unknown = undefined;

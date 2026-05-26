@@ -193,6 +193,21 @@ describe("buildInstructionContent email tool injection", () => {
     const scoutSection = content.split("### Scout")[1].split("##")[0];
     expect(scoutSection).not.toMatch(/\n\n\n/);
   });
+
+  it("omits write-capable CLI tools for email_triage tasks", () => {
+    const task = makeTask({
+      type: "email_triage",
+      agent: { name: "test", instructions: "do stuff", emailHandle: "myagent" },
+    });
+    const content = buildInstructionContent(task);
+
+    expect(content).toContain("Read-Only Email Triage");
+    expect(content).not.toContain("npx @alook/cli email send --to");
+    expect(content).not.toContain("npx @alook/cli calendar set");
+    expect(content).not.toContain("npx @alook/cli sync upload-artifact");
+    expect(content).not.toContain("npx @alook/cli email whitelist add");
+    expect(content).not.toContain("npx @alook/cli email whitelist delete");
+  });
 });
 
 describe("resolveInstruction", () => {

@@ -215,6 +215,19 @@ describe("OpenCodeBackend", () => {
     expect(env.OPENCODE_PERMISSION).toBe('{"*":"allow"}');
   });
 
+  it("fails closed for triage_readonly profile instead of spawning all-allow opencode", async () => {
+    const session = backend.execute("triage email", {
+      cwd: "/tmp",
+      executionProfile: "triage_readonly",
+    });
+
+    const result = await session.result;
+
+    expect(lastSpawnArgs).toBeNull();
+    expect(result.status).toBe("failed");
+    expect(result.error).toContain("does not support triage_readonly");
+  });
+
   it("does not pass --prompt flag, user prompt is positional", () => {
     backend.execute("do things", { cwd: "/tmp" });
     expect(lastSpawnArgs).toBeTruthy();

@@ -252,4 +252,40 @@ describe("ClaudeBackend", () => {
     expect(result.status).toBe("timeout");
     vi.useRealTimers();
   });
+
+  it("uses default permission mode for triage_readonly profile", async () => {
+    const { spawn } = await import("child_process");
+    const session = backend.execute("hello", { cwd: "/tmp", executionProfile: "triage_readonly" });
+    const mock = getMock();
+
+    const spawnCall = (spawn as any).mock.calls[0];
+    expect(spawnCall[1]).toContain("--permission-mode");
+    expect(spawnCall[1]).toContain("default");
+    expect(spawnCall[1]).not.toContain("bypassPermissions");
+
+    mock.proc.emit("close", 0);
+    await session.result;
+  });
+
+  it("denies control requests in triage_readonly profile", async () => {
+    const session = backend.execute("hello", { cwd: "/tmp", executionProfile: "triage_readonly" });
+    const mock = getMock();
+
+    mock.stdout.push(
+      JSON.stringify({
+        type: "control_request",
+        request_id: "req_readonly",
+        payload: { input: '{"command":"ls"}' },
+      }) + "\n",
+    );
+    await tick();
+    mock.proc.emit("close", 0);
+
+    await session.result;
+
+    const responseWrite = mock.stdinWrites.find((w) => w.includes("control_response"));
+    expect(responseWrite).toBeDefined();
+    const parsed = JSON.parse(responseWrite!.trim());
+    expect(parsed.response.response.behavior).toBe("deny");
+  });
 });

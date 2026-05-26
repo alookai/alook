@@ -9,6 +9,32 @@ export class OpenCodeBackend implements AgentBackend {
   constructor(private cliPath: string) {}
 
   execute(prompt: string, options: ExecOptions): AgentSession {
+    if (options.executionProfile === "triage_readonly") {
+      const error = "OpenCode backend does not support triage_readonly; failing closed";
+      const failedResult: AgentResult = {
+        status: "failed",
+        output: "",
+        error,
+        durationMs: 0,
+        sessionId: "",
+      };
+      const emptyMessages: AsyncIterable<AgentMessage> = {
+        [Symbol.asyncIterator]() {
+          return {
+            async next() {
+              return { value: undefined as unknown as AgentMessage, done: true };
+            },
+          };
+        },
+      };
+      return {
+        pid: undefined,
+        messages: emptyMessages,
+        sessionId: Promise.resolve(""),
+        result: Promise.resolve(failedResult),
+      };
+    }
+
     const args = ["run", "--format", "json"];
 
     if (options.model) {

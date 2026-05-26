@@ -29,6 +29,14 @@ const ISSUE_NOTICE =
   " 4. NEVER set 'review' unless there is concrete completed work for the owner to review. Sending a plan to a colleague is NOT completed work." +
   " NEVER exit without doing at least one of: updating the status, or leaving a comment explaining what you did and what you're waiting for.";
 
+const EMAIL_TRIAGE_NOTICE =
+  "This is a read-only email triage task. You must NOT send email, modify files, change whitelist/calendar, or perform any write action." +
+  " Classify obvious spam, phishing, scam, cold outreach, promotion, or newsletter as untrust." +
+  " If the email looks worth replying to, draft a reply for human review." +
+  " Respond with JSON only, using exactly one of these shapes:" +
+  ' {"decision":"untrust"} or {"decision":"draft_reply","draft":{"subject":"...","htmlBody":"..."}}.' +
+  " Do not include markdown fences or extra commentary outside the JSON.";
+
 function buildDmNotice(name: string, email: string): string {
   return (
     `This task was triggered by an incoming email on a conversation with ${name} (${email}).` +
@@ -67,6 +75,21 @@ export function buildPrompt(task: Task, attachments?: Attachment[]): string {
     if (ctx?.issue_id) {
       obj.issue_id = ctx.issue_id;
     }
+  }
+  if (task.type === "email_triage") {
+    obj.notice = EMAIL_TRIAGE_NOTICE;
+    const ctx = task.context as Record<string, unknown> | undefined;
+    if (ctx?.from) obj.from = ctx.from;
+    if (ctx?.to) obj.to = ctx.to;
+    if (ctx?.subject) obj.subject = ctx.subject;
+    if (ctx?.messageId) obj.message_id = ctx.messageId;
+    if (ctx?.inReplyTo) obj.in_reply_to = ctx.inReplyTo;
+    if (ctx?.references) obj.references = ctx.references;
+    if (ctx?.bodyText) obj.body_text = ctx.bodyText;
+    if (ctx?.bodyHtml) obj.body_html = ctx.bodyHtml;
+    if (ctx?.attachments) obj.attachments = ctx.attachments;
+    if (ctx?.attachmentSummaries) obj.attachment_summaries = ctx.attachmentSummaries;
+    if (ctx?.inboundEmailId) obj.inbound_email_id = ctx.inboundEmailId;
   }
   if (task.sender) {
     obj.sender = {

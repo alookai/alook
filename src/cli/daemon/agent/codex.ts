@@ -3,6 +3,10 @@ import { createInterface } from "readline";
 import type { AgentBackend, AgentSession } from "./index.js";
 import type { ExecOptions, AgentMessage, AgentResult } from "../types.js";
 
+function isTriageReadonly(options: ExecOptions): boolean {
+  return options.executionProfile === "triage_readonly";
+}
+
 interface JsonRpcMessage {
   jsonrpc: "2.0";
   id?: number;
@@ -46,7 +50,9 @@ export class CodexBackend implements AgentBackend {
   constructor(private cliPath: string) {}
 
   execute(prompt: string, options: ExecOptions): AgentSession {
-    const proc = spawn(this.cliPath, ["app-server", "--listen", "stdio://", "--config", "sandbox_mode=danger-full-access"], {
+    const readonly = isTriageReadonly(options);
+    const sandboxConfig = readonly ? "sandbox_mode=read-only" : "sandbox_mode=danger-full-access";
+    const proc = spawn(this.cliPath, ["app-server", "--listen", "stdio://", "--config", sandboxConfig], {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, ...options.env },
@@ -169,7 +175,7 @@ export class CodexBackend implements AgentBackend {
         case "execCommandApproval":
         case "item/fileChange/requestApproval":
         case "applyPatchApproval":
-          sendResponse(id, { decision: "accept" });
+          sendResponse(id, readonly ? { decision: "reject" } : { decision: "accept" });
           break;
         default:
           sendResponse(id, {});
@@ -468,6 +474,9 @@ export class CodexBackend implements AgentBackend {
 
           // 3. Start or resume thread
           let threadResponse: unknown;
+          const sandboxPolicy = readonly
+            ? { type: "readOnly" }
+            : { type: "dangerFullAccess" };
           if (options.resumeSessionId) {
             // thread/resume reopens an existing thread by ID
             threadResponse = await sendRpc("thread/resume", {
@@ -479,8 +488,8 @@ export class CodexBackend implements AgentBackend {
             // thread/start creates a new thread
             const threadParams: Record<string, unknown> = {
               cwd: options.cwd,
-              sandboxPolicy: { type: "dangerFullAccess" },
-              approvalPolicy: "never",
+              sandboxPolicy,
+              approvalPolicy: readonly ? "on-request" : "never",
               persistExtendedHistory: true,
               experimentalRawEvents: false,
             };
@@ -497,8 +506,8 @@ export class CodexBackend implements AgentBackend {
           await sendRpc("turn/start", {
             threadId: sessionId,
             input: [{ type: "text", text: prompt }],
-            sandboxPolicy: { type: "dangerFullAccess" },
-            approvalPolicy: "never",
+            sandboxPolicy,
+            approvalPolicy: readonly ? "on-request" : "never",
           });
         } catch (err) {
           const errMsg =
