@@ -240,8 +240,8 @@ function computeHash(skills: SkillEntry[]): string {
   return createHash("md5").update(JSON.stringify(skills)).digest("hex");
 }
 
-function globalCachePath(runtime: Runtime): string {
-  return join(getCacheDir(), "global", `${runtime}.json`);
+function globalCachePath(daemonId: string, runtime: Runtime): string {
+  return join(getCacheDir(), "global", daemonId, `${runtime}.json`);
 }
 
 function agentCachePath(agentId: string, runtime: Runtime): string {
@@ -330,7 +330,7 @@ function runScan() {
     try {
       const skills = getGlobalScanner(runtime)();
       const hash = computeHash(skills);
-      const prevHash = readCacheHash(globalCachePath(runtime));
+      const prevHash = readCacheHash(globalCachePath(scannerConfig.daemonId, runtime));
 
       if (prevHash !== hash) {
         const skillItems = skills.map((s) => ({ name: s.name, description: s.description }));
@@ -345,7 +345,7 @@ function runScan() {
           })
         );
         Promise.all(syncPromises).then(() => {
-          writeCacheFile(globalCachePath(runtime), hash, skills);
+          writeCacheFile(globalCachePath(daemonId, runtime), hash, skills);
         }).catch((e) => log.debug("Global skill sync failed", e));
       }
     } catch (e) {
