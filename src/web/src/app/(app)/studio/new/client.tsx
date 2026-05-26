@@ -20,7 +20,7 @@ import {
 
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import type { WsMessage } from "@alook/shared";
-import { listRuntimes, createMachineToken } from "@/lib/api";
+import { listRuntimes, createMachineToken, createWorkspace } from "@/lib/api";
 import { useUserWs } from "@/lib/use-user-ws";
 import type { TemplatePreset } from "@/lib/templates";
 
@@ -208,14 +208,20 @@ export function StudioOnboardingClient({
   const handleGenerateToken = useCallback(async () => {
     setGeneratingToken(true);
     try {
-      const res = await createMachineToken("cli", workspaceId || undefined);
+      let wsId = workspaceIdRef.current;
+      if (!wsId && isNewWorkspace) {
+        const ws = await createWorkspace("Personal");
+        wsId = ws.id;
+        setWorkspaceId(wsId);
+      }
+      const res = await createMachineToken("cli", wsId || undefined);
       setGeneratedToken(res.token);
     } catch {
       toast.error("Failed to generate token");
     } finally {
       setGeneratingToken(false);
     }
-  }, [workspaceId]);
+  }, [isNewWorkspace]);
 
   const handleAssignRuntime = (memberIndex: number, runtimeId: string) => {
     setMembers((prev) =>

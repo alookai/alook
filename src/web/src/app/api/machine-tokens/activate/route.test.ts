@@ -6,6 +6,9 @@ const mockActivateMachineToken = vi.fn();
 const mockUpsertMachine = vi.fn();
 const mockUpsertAgentRuntime = vi.fn();
 const mockBroadcastToUser = vi.fn();
+const mockListWorkspaces = vi.fn();
+const mockCreateWorkspace = vi.fn();
+const mockCreateMember = vi.fn();
 
 function sharedMocks() {
   return {
@@ -25,9 +28,17 @@ function sharedMocks() {
         runtime: {
           upsertAgentRuntime: (...a: any[]) => mockUpsertAgentRuntime(...a),
         },
+        workspace: {
+          listWorkspaces: (...a: any[]) => mockListWorkspaces(...a),
+          createWorkspace: (...a: any[]) => mockCreateWorkspace(...a),
+        },
+        member: {
+          createMember: (...a: any[]) => mockCreateMember(...a),
+        },
       },
       ActivateTokenRequestSchema: (await import("@alook/shared"))
         .ActivateTokenRequestSchema,
+      generateWorkspaceSlug: () => "studio-test1234",
       createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
     }),
     "@/lib/broadcast": {
@@ -153,5 +164,35 @@ describe("POST /api/machine-tokens/activate", () => {
       deviceInfo: "TestMachine.local",
       metadata: { version: "2.1.0" },
     });
+  });
+
+  it("creates a new workspace when token has no workspace_id and user already has workspaces", async () => {
+    const POST = await loadRoute();
+
+    const tokenNoWs = { id: "mt_2", userId: "u1", workspaceId: null, status: "pending" };
+    mockGetMachineTokenByToken.mockResolvedValue(tokenNoWs);
+    mockCreateWorkspace.mockResolvedValue({ id: "sp_new_ws" });
+    mockCreateMember.mockResolvedValue(undefined);
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1", provider: "claude" });
+    mockActivateMachineToken.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    const res = await POST(makeReq(validBody));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.workspace_id).toBe("sp_new_ws");
+    expect(mockCreateWorkspace).toHaveBeenCalledWith(expect.anything(), {
+      name: "Personal",
+      slug: "studio-test1234",
+    });
+    expect(mockCreateMember).toHaveBeenCalledWith(expect.anything(), {
+      workspaceId: "sp_new_ws",
+      userId: "u1",
+      role: "owner",
+    });
+    // Should NOT reuse existing workspaces
+    expect(mockListWorkspaces).not.toHaveBeenCalled();
   });
 });

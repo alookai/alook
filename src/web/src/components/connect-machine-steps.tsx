@@ -108,8 +108,9 @@ export function ConnectMachineSteps({
         className={`space-y-2 transition-opacity duration-300 ${!registered ? "opacity-40 pointer-events-none" : ""}`}
       >
         <p className="text-sm font-medium flex items-center gap-2">
-          <StepIndicator step={2} completed={false} />
+          <StepIndicator step={2} completed={registered} />
           Start the daemon
+          {registered && <span className="text-xs text-emerald-500 font-normal">Done</span>}
         </p>
         <p className="text-xs text-muted-foreground pl-7">
           The daemon connects your local agents to Alook.

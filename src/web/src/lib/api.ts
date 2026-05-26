@@ -127,10 +127,10 @@ export const getMe = () => apiFetch<User>("/api/me");
 // Workspaces
 export const listWorkspaces = () => apiFetch<Workspace[]>("/api/workspaces");
 
-export const createWorkspace = (name: string) =>
+export const createWorkspace = (name: string, slug?: string) =>
   apiFetch<Workspace>("/api/workspaces", {
     method: "POST",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, slug: slug || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "workspace" }),
   });
 
 // Helper to build query strings with workspace_id
