@@ -188,4 +188,64 @@ describe("saveCLIConfigForProfile", () => {
     expect(written.server_url).toBe("http://root.example.com");
     expect(written.watched_workspaces).toEqual([{ id: "w1", name: "WS", token: "ws-token" }]);
   });
+
+  it("preserves multiple watched_workspaces when saving", () => {
+    mockedReadFileSync.mockReturnValue(JSON.stringify({}));
+
+    const profileCfg = {
+      server_url: "http://example.com",
+      watched_workspaces: [
+        { id: "w1", name: "First", token: "t1" },
+        { id: "w2", name: "Second", token: "t2" },
+        { id: "w3", name: "Third", token: "t3" },
+      ],
+    };
+    saveCLIConfigForProfile(undefined, profileCfg);
+
+    const written = JSON.parse(
+      mockedWriteFileSync.mock.calls[0][1] as string,
+    );
+    expect(written.watched_workspaces).toHaveLength(3);
+    expect(written.watched_workspaces[0].id).toBe("w1");
+    expect(written.watched_workspaces[1].id).toBe("w2");
+    expect(written.watched_workspaces[2].id).toBe("w3");
+  });
+});
+
+describe("loadCLIConfigForProfile — multiple workspaces", () => {
+  it("returns all watched_workspaces from root config", () => {
+    const cfg = {
+      server_url: "http://example.com",
+      watched_workspaces: [
+        { id: "w1", name: "WS1", token: "t1" },
+        { id: "w2", name: "WS2", token: "t2" },
+      ],
+    };
+    mockedReadFileSync.mockReturnValue(JSON.stringify(cfg));
+
+    const result = loadCLIConfigForProfile();
+    expect(result.watched_workspaces).toHaveLength(2);
+    expect(result.watched_workspaces[0].id).toBe("w1");
+    expect(result.watched_workspaces[1].id).toBe("w2");
+  });
+
+  it("returns all watched_workspaces from profile config", () => {
+    const cfg = {
+      profiles: {
+        prod: {
+          server_url: "https://prod.example.com",
+          watched_workspaces: [
+            { id: "wp1", name: "Prod WS 1", token: "tp1" },
+            { id: "wp2", name: "Prod WS 2", token: "tp2" },
+            { id: "wp3", name: "Prod WS 3", token: "tp3" },
+          ],
+        },
+      },
+    };
+    mockedReadFileSync.mockReturnValue(JSON.stringify(cfg));
+
+    const result = loadCLIConfigForProfile("prod");
+    expect(result.watched_workspaces).toHaveLength(3);
+    expect(result.watched_workspaces.map((w: any) => w.id)).toEqual(["wp1", "wp2", "wp3"]);
+  });
 });

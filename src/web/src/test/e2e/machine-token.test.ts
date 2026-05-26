@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import { randomUUID } from "crypto"
 import { seedTestData, cleanupTestData, type TestSeed } from "../helpers/seed"
 import { sessionRequest, tokenRequest } from "../helpers/auth"
+import { sql, sqlQuery, sqlBatch } from "../helpers/db"
 
 let seed: TestSeed
 
@@ -79,5 +81,100 @@ describe("machine tokens", () => {
       newRawToken,
     )
     expect(verifyRes.status).toBe(401)
+  })
+})
+
+describe("machine token activation", () => {
+  const createdWorkspaceIds: string[] = []
+
+  afterAll(() => {
+    for (const wsId of createdWorkspaceIds) {
+      try {
+        sqlBatch([
+          `DELETE FROM agent_runtime WHERE workspace_id = '${wsId}'`,
+          `DELETE FROM machine WHERE workspace_id = '${wsId}'`,
+          `DELETE FROM machine_token WHERE workspace_id = '${wsId}'`,
+          `DELETE FROM member WHERE workspace_id = '${wsId}'`,
+          `DELETE FROM workspace WHERE id = '${wsId}'`,
+        ])
+      } catch { /* ignore */ }
+    }
+  })
+
+  it("activation without workspace_id creates a new workspace (never reuses)", async () => {
+    // Create a pending token WITHOUT workspace_id
+    const tokenId = `mt_${randomUUID().replace(/-/g, "").slice(0, 21)}`
+    const rawToken = `al_${randomUUID().replace(/-/g, "")}`
+    const now = new Date().toISOString()
+    sql(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES ('${tokenId}', '${seed.userId}', NULL, '${rawToken}', 'no-ws-token', 'pending', '${now}')`)
+
+    // Activate
+    const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
+    const res = await fetch(`${APP_URL}/api/machine-tokens/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: rawToken,
+        hostname: "e2e-no-ws-machine",
+        runtimes: [{ type: "claude", version: "4.0" }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json() as { workspace_id: string; daemon_id: string; runtimes: unknown[] }
+
+    // workspace_id should be NEW (not the seed workspace)
+    expect(data.workspace_id).toBeTruthy()
+    expect(data.workspace_id).not.toBe(seed.workspaceId)
+    createdWorkspaceIds.push(data.workspace_id)
+
+    // Verify workspace exists in DB and user is owner
+    const wsRows = sqlQuery<{ id: string; name: string }>(
+      `SELECT id, name FROM workspace WHERE id = '${data.workspace_id}'`
+    )
+    expect(wsRows).toHaveLength(1)
+    expect(wsRows[0]!.name).toBe("Personal")
+
+    const memberRows = sqlQuery<{ user_id: string; role: string }>(
+      `SELECT user_id, role FROM member WHERE workspace_id = '${data.workspace_id}' AND user_id = '${seed.userId}'`
+    )
+    expect(memberRows).toHaveLength(1)
+    expect(memberRows[0]!.role).toBe("owner")
+  })
+
+  it("activation with workspace_id uses that workspace (does not create new)", async () => {
+    // Create a pending token WITH workspace_id
+    const tokenId = `mt_${randomUUID().replace(/-/g, "").slice(0, 21)}`
+    const rawToken = `al_${randomUUID().replace(/-/g, "")}`
+    const now = new Date().toISOString()
+    sql(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES ('${tokenId}', '${seed.userId}', '${seed.workspaceId}', '${rawToken}', 'with-ws-token', 'pending', '${now}')`)
+
+    // Count workspaces before
+    const beforeRows = sqlQuery<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id = '${seed.userId}')`
+    )
+    const countBefore = beforeRows[0]!.cnt
+
+    // Activate
+    const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
+    const res = await fetch(`${APP_URL}/api/machine-tokens/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: rawToken,
+        hostname: "e2e-with-ws-machine",
+        runtimes: [{ type: "claude", version: "4.0" }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json() as { workspace_id: string }
+
+    // Should use the specified workspace
+    expect(data.workspace_id).toBe(seed.workspaceId)
+
+    // No new workspace should be created
+    const afterRows = sqlQuery<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id = '${seed.userId}')`
+    )
+    expect(afterRows[0]!.cnt).toBe(countBefore)
   })
 })

@@ -15,7 +15,7 @@ describe("daemon lifecycle", () => {
   const daemonId = `daemon_e2e_${randomUUID().slice(0, 8)}`
   let registeredRuntimeId: string
 
-  it("POST /api/daemon/register creates runtimes", async () => {
+  it("POST /api/daemon/register creates runtimes and returns workspace_id", async () => {
     const res = await tokenRequest("/api/daemon/register", seed.machineToken, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -34,10 +34,19 @@ describe("daemon lifecycle", () => {
       }),
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as { runtimes: Array<{ id: string }> }
+    const data = await res.json() as { runtimes: Array<{ id: string }>; workspaceId: string }
     expect(data.runtimes).toHaveLength(1)
     expect(data.runtimes[0].id).toBeTruthy()
+    expect(data.workspaceId).toBe(seed.workspaceId)
     registeredRuntimeId = data.runtimes[0].id
+  })
+
+  it("POST /api/daemon/register sets machine last_seen_at (online)", async () => {
+    const rows = sqlQuery<{ last_seen_at: string | null }>(
+      `SELECT last_seen_at FROM machine WHERE daemon_id = '${daemonId}' AND workspace_id = '${seed.workspaceId}'`
+    )
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.last_seen_at).toBeTruthy()
   })
 
   it("POST /api/daemon/register is idempotent (upserts)", async () => {

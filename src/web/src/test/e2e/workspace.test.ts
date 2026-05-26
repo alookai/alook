@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
 import { signUp, signIn, sessionRequest } from "../helpers/auth"
-import { sql } from "../helpers/db"
+import { sql, sqlQuery, sqlBatch } from "../helpers/db"
 
 const testEmail = `e2e_ws_${randomUUID().slice(0, 8)}@test.local`
 const testPassword = "TestPassword123!"
@@ -76,5 +76,96 @@ describe("workspace", () => {
       body: JSON.stringify({ slug: "no-name" }),
     })
     expect(res.status).toBe(400)
+  })
+})
+
+describe("workspace isolation", () => {
+  const slugA = `e2e-iso-a-${randomUUID().slice(0, 8)}`
+  const slugB = `e2e-iso-b-${randomUUID().slice(0, 8)}`
+  let workspaceIdA: string
+  let workspaceIdB: string
+  const daemonId = `daemon_iso_${randomUUID().slice(0, 8)}`
+
+  it("creates two separate workspaces", async () => {
+    // Create workspace A
+    const resA = await sessionRequest("/api/workspaces", cookie, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Workspace A", slug: slugA }),
+    })
+    expect(resA.status).toBe(201)
+    const dataA = await resA.json() as Record<string, unknown>
+    workspaceIdA = dataA.id as string
+
+    // Create workspace B
+    const resB = await sessionRequest("/api/workspaces", cookie, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Workspace B", slug: slugB }),
+    })
+    expect(resB.status).toBe(201)
+    const dataB = await resB.json() as Record<string, unknown>
+    workspaceIdB = dataB.id as string
+
+    expect(workspaceIdA).not.toBe(workspaceIdB)
+  })
+
+  it("registering daemon to workspace A does not affect workspace B", async () => {
+    // Create machine token for workspace A
+    const tokenId = `mt_iso_${randomUUID().replace(/-/g, "").slice(0, 16)}`
+    const rawToken = `al_${randomUUID().replace(/-/g, "")}`
+    const now = new Date().toISOString()
+    sql(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES ('${tokenId}', (SELECT id FROM "user" WHERE email = '${testEmail}'), '${workspaceIdA}', '${rawToken}', 'iso-token', 'active', '${now}')`)
+
+    // Register daemon to workspace A
+    const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
+    const res = await fetch(`${APP_URL}/api/daemon/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${rawToken}`,
+      },
+      body: JSON.stringify({
+        workspace_id: workspaceIdA,
+        daemon_id: daemonId,
+        device_name: "iso-machine",
+        cli_version: "0.1.0",
+        runtimes: [{ provider: "claude", runtime_mode: "local", version: "4.0" }],
+      }),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json() as { runtimes: Array<{ id: string }>; workspaceId: string }
+    expect(data.workspaceId).toBe(workspaceIdA)
+    expect(data.runtimes).toHaveLength(1)
+
+    // Workspace A should have the runtime
+    const runtimesA = sqlQuery<{ id: string }>(
+      `SELECT id FROM agent_runtime WHERE workspace_id = '${workspaceIdA}' AND daemon_id = '${daemonId}'`
+    )
+    expect(runtimesA.length).toBeGreaterThan(0)
+
+    // Workspace B should have NO runtimes
+    const runtimesB = sqlQuery<{ id: string }>(
+      `SELECT id FROM agent_runtime WHERE workspace_id = '${workspaceIdB}' AND daemon_id = '${daemonId}'`
+    )
+    expect(runtimesB).toHaveLength(0)
+
+    // Workspace B should have NO machine entry for this daemon
+    const machinesB = sqlQuery<{ daemon_id: string }>(
+      `SELECT daemon_id FROM machine WHERE workspace_id = '${workspaceIdB}' AND daemon_id = '${daemonId}'`
+    )
+    expect(machinesB).toHaveLength(0)
+  })
+
+  afterAll(() => {
+    try {
+      sqlBatch([
+        `DELETE FROM agent_runtime WHERE daemon_id = '${daemonId}'`,
+        `DELETE FROM machine WHERE daemon_id = '${daemonId}'`,
+        `DELETE FROM machine_token WHERE workspace_id IN ('${workspaceIdA}', '${workspaceIdB}')`,
+        `DELETE FROM member WHERE workspace_id IN ('${workspaceIdA}', '${workspaceIdB}')`,
+        `DELETE FROM workspace WHERE id IN ('${workspaceIdA}', '${workspaceIdB}')`,
+      ])
+    } catch { /* ignore */ }
   })
 })
