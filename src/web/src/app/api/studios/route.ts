@@ -47,38 +47,38 @@ type LinkInstruction = { fromLeader: string; toLeader: string };
 const SCENARIO_LINK_INSTRUCTIONS: Record<string, Record<string, LinkInstruction>> = {
   "software-dev": {
     researcher: {
-      fromLeader: "Delegate technical research: what to investigate (API, library, architecture pattern), what decision it informs, and what format/depth you need back. Include relevant file paths or code pointers.",
-      toLeader: "Report with: Status, technical summary, evidence (file paths, doc URLs, code snippets), recommendation for implementation, and confidence level. Flag anything you couldn't verify from source.",
+      fromLeader: "Delegate technical research with: what to investigate, what decision it informs, scope boundary, and relevant file paths or code pointers.",
+      toLeader: "Report back with: technical summary, evidence (file paths, doc URLs, code snippets), recommendation, and confidence level (High/Medium/Low). Flag anything unverified.",
     },
     engineer: {
-      fromLeader: "Delegate coding tasks with: clear requirement, relevant file paths, existing patterns to follow, expected behavior, and test expectations. Include context from researcher findings if relevant.",
-      toLeader: "Report with: Status, files changed with descriptions, test results (pass/fail), self-review findings, and concerns about correctness or edge cases.",
+      fromLeader: "Delegate coding tasks with: clear requirement description, acceptance criteria (3-5 specific testable items), relevant file paths, existing patterns to follow, and context from research findings if applicable.",
+      toLeader: "Report back with: implementation status, files changed, acceptance criteria checklist (pass/fail each), test results, and self-review concerns. After implementation, send work to the reviewer if one exists.",
     },
   },
   "content-research": {
     researcher: {
-      fromLeader: "Delegate content research: topic/claim to investigate, target content format (article, report, social), depth needed (quick check vs. deep dive), and any specific sources to check.",
-      toLeader: "Report with: Status, key facts for the writer, organized source list (URL, date, reliability), verification gaps, angle suggestion, and per-claim confidence levels.",
+      fromLeader: "Delegate content research with: topic or claim to investigate, target content format (article, report, social), depth needed, and specific sources to check if any.",
+      toLeader: "Report back with: key facts for the writer, organized source list (URL, date, reliability), verification gaps, framing suggestion, and per-claim confidence.",
     },
     assistant: {
-      fromLeader: "Delegate content operations: what content to format/publish, which platform, deadline, and any style/formatting requirements.",
-      toLeader: "Report with: Status, what was done (formatted, published, submitted), next step (awaiting review, scheduled for X), and any blockers (platform issues, access problems).",
+      fromLeader: "Delegate content operations with: what content to format or publish, target platform, deadline, and style requirements.",
+      toLeader: "Report back with: what was done (formatted, published, submitted), next step (awaiting review, scheduled date), and blockers if any.",
     },
   },
   "sales-outreach": {
     researcher: {
-      fromLeader: "Delegate prospect research: target criteria, market/industry focus, what intelligence is needed, and how it will be used (outreach, pitch, proposal).",
-      toLeader: "Report with: Status, prospect list with context and suggested angles, market signals, source reliability, and confidence levels.",
+      fromLeader: "Delegate prospect research with: target criteria, market or industry focus, what intelligence is needed, and how it will be used (outreach, pitch, proposal).",
+      toLeader: "Report back with: prioritized prospect list (name, role, company, relevance, suggested angle), market signals, and confidence per finding.",
     },
     assistant: {
-      fromLeader: "Delegate outreach tasks: who to contact, messaging angle, follow-up cadence, and desired outcome.",
-      toLeader: "Report with: Status, emails sent/scheduled, responses received, pipeline updates, and deals needing attention.",
+      fromLeader: "Delegate outreach with: who to contact, messaging angle, follow-up cadence, and desired outcome.",
+      toLeader: "Report back with: emails sent or scheduled, responses received, pipeline updates, and deals needing escalation.",
     },
   },
   "customer-support": {
     assistant: {
-      fromLeader: "Delegate support tasks: customer issue summary, urgency level, prior interaction context, and resolution approach.",
-      toLeader: "Report with: Status, response drafted/sent, issue resolution status, follow-up schedule, and recurring patterns flagged.",
+      fromLeader: "Delegate support tasks with: customer issue summary, urgency level, prior interaction context, and resolution approach.",
+      toLeader: "Report back with: response drafted or sent, resolution status, follow-up schedule, and recurring patterns to flag.",
     },
   },
 };
@@ -86,15 +86,15 @@ const SCENARIO_LINK_INSTRUCTIONS: Record<string, Record<string, LinkInstruction>
 const DEFAULT_LINK_INSTRUCTIONS: Record<string, LinkInstruction> = {
   researcher: {
     fromLeader: "Delegate research tasks with: clear question, decision context, scope boundary, and expected output format.",
-    toLeader: "Report findings with: Status (DONE/BLOCKED/NEEDS_CONTEXT), summary, evidence with sources, recommendation, and confidence level.",
+    toLeader: "Report back with: summary, evidence with sources, recommendation, and confidence level.",
   },
   engineer: {
-    fromLeader: "Delegate coding tasks with: clear requirement, relevant context, and expected behavior.",
-    toLeader: "Report results with: Status (DONE/BLOCKED/NEEDS_CONTEXT), files changed, tests run + results, self-review findings, and concerns.",
+    fromLeader: "Delegate coding tasks with: clear requirement, acceptance criteria, relevant file paths, and expected behavior.",
+    toLeader: "Report back with: files changed, acceptance criteria checklist, test results, and concerns.",
   },
   assistant: {
-    fromLeader: "Delegate operational tasks with: action needed, target person/system, deadline, and tone guidance.",
-    toLeader: "Report results with: Status (DONE/BLOCKED/NEEDS_CONTEXT), action taken, next step, and escalation flags.",
+    fromLeader: "Delegate tasks with: action needed, target person or system, deadline, and tone guidance.",
+    toLeader: "Report back with: action taken, next step, and blockers or escalation flags.",
   },
 };
 
@@ -222,13 +222,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   for (const specialist of specialists) {
     const instructions = getLinkInstructions(body.scenario, specialist.role);
+    const leaderMention = `[@ id="${leaderAgent.id}" label="${leaderAgent.name}"]`;
+    const specMention = `[@ id="${specialist.id}" label="${specialist.name}"]`;
+    const linkText = `${leaderMention} → ${specMention}: ${instructions.fromLeader}\n\n${specMention} → ${leaderMention}: ${instructions.toLeader}`;
 
     try {
       const link = await queries.agentLink.create(db, {
         workspaceId: ws.workspaceId,
         sourceAgentId: leaderAgent.id,
         targetAgentId: specialist.id,
-        instruction: `${instructions.fromLeader}\n${instructions.toLeader}`,
+        instruction: linkText,
       });
       createdLinks.push(link);
     } catch {
