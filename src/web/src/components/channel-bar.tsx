@@ -85,7 +85,7 @@ export function ChannelBar() {
   }
 
   return (
-    <div className="h-8 flex items-center gap-1.5 px-2 mb-1 overflow-x-auto thin-scrollbar shrink-0">
+    <div className="h-8 flex items-center gap-1.5 px-3 md:px-5 mb-1 overflow-x-auto thin-scrollbar shrink-0">
       {defaultChannel && (
         <ChannelPill
           id={defaultChannel.id}
@@ -220,6 +220,7 @@ function SortableChannelPill({
     <div
       ref={setNodeRef}
       style={style}
+      className="inline-flex items-center"
       {...attributes}
       {...listeners}
     >
