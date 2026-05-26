@@ -22,11 +22,14 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
-  RotateCcw,
   Loader2,
   Plus,
+  Circle,
+  GitBranch,
+  ArrowRight,
 } from "lucide-react";
 import type { Agent, AgentLink } from "@alook/shared";
+import { cn } from "@/lib/utils";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -47,13 +50,31 @@ import { LinkEdge } from "@/components/canvas/link-edge";
 import { LinkSidecar } from "@/components/canvas/link-sidecar";
 import { ActiveTasksFloat } from "@/components/canvas/active-tasks-float";
 import { UpcomingEventsFloat } from "@/components/canvas/upcoming-events-float";
-import { getAutoLayout } from "@/components/canvas/auto-layout";
+import { getAutoLayout, type LayoutType } from "@/components/canvas/auto-layout";
 
 const nodeTypes = { agent: AgentNode };
 const edgeTypes = { link: LinkEdge };
 
 function storageKey(workspaceId: string) {
   return `alook-canvas-positions-${workspaceId}`;
+}
+
+function layoutStorageKey(workspaceId: string) {
+  return `alook-canvas-layout-${workspaceId}`;
+}
+
+function loadLayoutType(workspaceId: string): LayoutType {
+  try {
+    const raw = localStorage.getItem(layoutStorageKey(workspaceId));
+    if (raw === "star" || raw === "tree" || raw === "flow") return raw;
+  } catch {}
+  return "star";
+}
+
+function saveLayoutType(workspaceId: string, layout: LayoutType) {
+  try {
+    localStorage.setItem(layoutStorageKey(workspaceId), layout);
+  } catch {}
 }
 
 function loadPositions(workspaceId: string): Record<string, { x: number; y: number }> {
@@ -89,6 +110,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
   const [sidecarLink, setSidecarLink] = useState<AgentLink | null>(null);
   const [sidecarOpen, setSidecarOpen] = useState(false);
   const [showHint, setShowHint] = useState(false);
+  const [layoutType, setLayoutType] = useState<LayoutType>(() => loadLayoutType(workspaceId));
   const initialLayoutDone = useRef(false);
   const handleMap = useRef<Record<string, { sourceHandle: string; targetHandle: string }>>({});
 
@@ -195,7 +217,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
           source: link.source_agent_id,
           target: link.target_agent_id,
         }));
-        newNodes = getAutoLayout(newNodes, currentEdges);
+        newNodes = getAutoLayout(newNodes, currentEdges, layoutType);
         if (!initialLayoutDone.current) {
           initialLayoutDone.current = true;
           setTimeout(() => fitView({ padding: 0.4, duration: 400 }), 50);
@@ -210,7 +232,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
         source: link.source_agent_id,
         target: link.target_agent_id,
       }));
-      const allLaid = getAutoLayout([...fixedNodes, ...floatingNodes], currentEdges);
+      const allLaid = getAutoLayout([...fixedNodes, ...floatingNodes], currentEdges, layoutType);
       newNodes = newNodes.map((n) => {
         if (validPositions[n.id]) return n;
         const laid = allLaid.find((l) => l.id === n.id);
@@ -293,29 +315,32 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
     [workspaceId],
   );
 
-  const handleResetLayout = useCallback(() => {
+  const handleLayoutChange = useCallback((newLayout: LayoutType) => {
+    setLayoutType(newLayout);
+    saveLayoutType(workspaceId, newLayout);
     try {
       localStorage.removeItem(storageKey(workspaceId));
-    } catch { }
+    } catch {}
     const currentEdges: Edge[] = links.map((link) => ({
       id: link.id,
       source: link.source_agent_id,
       target: link.target_agent_id,
     }));
     setNodes((prev) => {
-      const laid = getAutoLayout(prev, currentEdges);
-      // Animate by adding a transition style
+      const laid = getAutoLayout(prev, currentEdges, newLayout);
       const animated = laid.map((n) => ({
         ...n,
         style: { ...n.style, transition: "transform 300ms ease-out" },
       }));
       setTimeout(() => {
-        setNodes((nds) =>
-          nds.map((n) => ({
+        setNodes((nds) => {
+          const final = nds.map((n) => ({
             ...n,
             style: { ...n.style, transition: undefined },
-          })),
-        );
+          }));
+          savePositions(workspaceId, final);
+          return final;
+        });
         fitView({ padding: 0.4, duration: 400 });
       }, 350);
       return animated;
@@ -395,13 +420,66 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
         >
           <Maximize2 className="size-4" />
         </button>
-        <button
-          type="button"
-          className="size-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          onClick={handleResetLayout}
-        >
-          <RotateCcw className="size-4" />
-        </button>
+
+        <div className="w-px h-5 bg-foreground/10 mx-0.5 self-center" />
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className={cn(
+                  "size-7 rounded-md flex items-center justify-center transition-colors",
+                  layoutType === "star"
+                    ? "text-foreground bg-accent"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                )}
+                onClick={() => handleLayoutChange("star")}
+              />
+            }
+          >
+            <Circle className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent side="top">Star Layout</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className={cn(
+                  "size-7 rounded-md flex items-center justify-center transition-colors",
+                  layoutType === "tree"
+                    ? "text-foreground bg-accent"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                )}
+                onClick={() => handleLayoutChange("tree")}
+              />
+            }
+          >
+            <GitBranch className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent side="top">Tree Layout</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className={cn(
+                  "size-7 rounded-md flex items-center justify-center transition-colors",
+                  layoutType === "flow"
+                    ? "text-foreground bg-accent"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                )}
+                onClick={() => handleLayoutChange("flow")}
+              />
+            }
+          >
+            <ArrowRight className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent side="top">Flow Layout</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* No-links hint */}

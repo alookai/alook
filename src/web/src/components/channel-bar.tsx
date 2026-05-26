@@ -220,6 +220,7 @@ function SortableChannelPill({
     <div
       ref={setNodeRef}
       style={style}
+      className="inline-flex items-center"
       {...attributes}
       {...listeners}
     >
