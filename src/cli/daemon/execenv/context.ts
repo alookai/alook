@@ -311,7 +311,9 @@ export function ensureSymlinks(workDir: string): void {
       symlinkSync(CANONICAL_FILE, aliasPath);
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException)?.code;
-      if (code === "EPERM" || code === "EACCES") {
+      if (code === "EEXIST") {
+        // Race condition: another process created it — safe to ignore
+      } else if (code === "EPERM" || code === "EACCES") {
         copyFileSync(canonicalPath, aliasPath);
       } else {
         throw err;
