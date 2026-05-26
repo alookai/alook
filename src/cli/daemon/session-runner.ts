@@ -174,7 +174,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
   );
 
   const { workDir, env } = prepare(
-    { workspacesRoot },
+    { workspacesRoot, token },
     task,
   );
 

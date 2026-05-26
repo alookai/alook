@@ -1,14 +1,16 @@
 import { Command } from "commander";
-import { writeFileSync, mkdirSync, readFileSync, statSync } from "fs";
-import { basename, join } from "path";
+import { writeFileSync, mkdirSync, readFileSync } from "fs";
+import { join } from "path";
 import PostalMime from "postal-mime";
 import { APIClient } from "../lib/client.js";
-import { loadCLIConfigForProfile } from "../lib/config.js";
 import { printJSON, printTable } from "../lib/output.js";
-import { cmdPrefix } from "../lib/env.js";
 import { tempDir } from "../lib/platform.js";
 import { createLogger } from "../lib/logger.js";
-import { resolveAgentId } from "../lib/flags.js";
+import { resolveAgentId, collectRepeated } from "../lib/flags.js";
+import { resolveClientOpts } from "../lib/resolve-client.js";
+import { contentToBuffer, uploadFile } from "../lib/file-utils.js";
+import type { UploadedFile } from "../lib/file-utils.js";
+import { gatherContextEnvVars } from "../lib/context-env.js";
 
 const log = createLogger({ module: "email" });
 
@@ -34,41 +36,6 @@ const VALID_STATUSES = ["unread", "read", "archived", "sent"];
 const VALID_FOLDERS = ["inbox", "sent", "untrust"];
 const EMAIL_BASE = tempDir("alook-emails");
 
-const MIME_BY_EXT: Record<string, string> = {
-  ".pdf": "application/pdf",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".svg": "image/svg+xml",
-  ".txt": "text/plain",
-  ".html": "text/html",
-  ".htm": "text/html",
-  ".json": "application/json",
-  ".csv": "text/csv",
-  ".md": "text/markdown",
-  ".zip": "application/zip",
-};
-
-function guessContentType(filename: string): string {
-  const idx = filename.lastIndexOf(".");
-  if (idx < 0) return "application/octet-stream";
-  const ext = filename.slice(idx).toLowerCase();
-  return MIME_BY_EXT[ext] ?? "application/octet-stream";
-}
-
-function collectRepeated(value: string, previous: string[]): string[] {
-  return previous.concat([value]);
-}
-
-interface AttachmentDescriptor {
-  key: string;
-  filename: string;
-  size: number;
-  contentType: string;
-}
-
 interface SendResponse {
   id: string;
   to_email: string;
@@ -80,55 +47,6 @@ interface WhitelistEntry {
   created_at: string;
 }
 
-function resolveClientOpts(command: Command, opts: { workspace?: string; agentId?: string }) {
-  let root = command;
-  while (root.parent) root = root.parent;
-  const parentOpts = root.opts() || {};
-  const profile: string | undefined = parentOpts.profile;
-  const cfg = loadCLIConfigForProfile(profile);
-  const serverUrl = parentOpts.server || cfg.server_url;
-  const workspaces = cfg.watched_workspaces || [];
-
-  // Resolve workspace: explicit flag > lookup by agent_id > single workspace
-  let ws;
-  if (opts.workspace) {
-    ws = workspaces.find((w) => w.id === opts.workspace);
-    if (!ws) {
-      console.error(`Error: workspace ${opts.workspace} not found in config.`);
-      process.exit(1);
-    }
-  } else if (opts.agentId) {
-    ws = workspaces.find((w) => w.agent_ids?.includes(opts.agentId!));
-    if (!ws) {
-      if (workspaces.length === 1) {
-        ws = workspaces[0];
-      } else {
-        console.error(
-          `Error: agent ${opts.agentId} not found in any registered workspace. Use --workspace to specify.`,
-        );
-        process.exit(1);
-      }
-    }
-  } else if (workspaces.length === 1) {
-    ws = workspaces[0];
-  } else {
-    console.error(
-      `Error: multiple workspaces registered. Use --workspace to specify which one.`,
-    );
-    process.exit(1);
-  }
-
-  const token = ws?.token;
-
-  if (!token) {
-    console.error(
-      `Error: not registered. Run '${cmdPrefix()} register --token <token>' first.`,
-    );
-    process.exit(1);
-  }
-
-  return { serverUrl, token, cfg, profile, workspaceId: ws?.id };
-}
 
 export function emailCommand(): Command {
   const cmd = new Command("email").description("Manage agent emails");
@@ -263,16 +181,7 @@ export function emailCommand(): Command {
               }
               usedFilenames.add(filename);
               const attPath = join(attDir, filename);
-              const content = att.content;
-              let buf: Buffer;
-              if (typeof content === "string") {
-                buf = Buffer.from(content, "base64");
-              } else if (content instanceof ArrayBuffer) {
-                buf = Buffer.from(new Uint8Array(content));
-              } else {
-                buf = Buffer.from(content as Uint8Array);
-              }
-              writeFileSync(attPath, buf);
+              writeFileSync(attPath, contentToBuffer(att.content));
               downloadedPaths.push(attPath);
             }
           }
@@ -359,39 +268,11 @@ export function emailCommand(): Command {
       }
 
       const attachmentPaths: string[] = opts.attachment ?? [];
-      const attachments: AttachmentDescriptor[] = [];
+      const attachments: UploadedFile[] = [];
 
       try {
-        for (const path of attachmentPaths) {
-          let bytes: Buffer;
-          let size: number;
-          try {
-            bytes = readFileSync(path);
-            size = statSync(path).size;
-          } catch (err) {
-            console.error(
-              `Error: cannot read attachment "${path}": ${err instanceof Error ? err.message : err}`,
-            );
-            process.exit(1);
-          }
-          const filename = basename(path);
-          const contentType = guessContentType(filename);
-          const form = new FormData();
-          form.append(
-            "file",
-            new Blob([new Uint8Array(bytes)], { type: contentType }),
-            filename,
-          );
-          const uploaded = await client.postMultipart<AttachmentDescriptor>(
-            "/api/email/upload",
-            form,
-          );
-          attachments.push({
-            key: uploaded.key,
-            filename: uploaded.filename,
-            size: uploaded.size ?? size,
-            contentType: uploaded.contentType ?? contentType,
-          });
+        for (const filePath of attachmentPaths) {
+          attachments.push(await uploadFile(client, filePath, "/api/email/upload"));
         }
 
         // Build threading context if replying
@@ -409,9 +290,7 @@ export function emailCommand(): Command {
           }
         }
 
-        const conversationId = process.env.ALOOK_CONVERSATION_ID;
-        const traceId = process.env.ALOOK_TRACE_ID;
-        const sourceTaskId = process.env.ALOOK_TASK_ID;
+        const ctx = gatherContextEnvVars();
         const res = await client.postJSON<SendResponse>("/api/email/send", {
           agentId,
           to: opts.to,
@@ -420,9 +299,9 @@ export function emailCommand(): Command {
           attachments,
           ...(inReplyTo ? { inReplyTo, references } : {}),
           ...(opts.from ? { from: opts.from } : {}),
-          ...(conversationId ? { conversationId } : {}),
-          ...(traceId ? { traceId } : {}),
-          ...(sourceTaskId ? { sourceTaskId } : {}),
+          ...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+          ...(ctx.traceId ? { traceId: ctx.traceId } : {}),
+          ...(ctx.sourceTaskId ? { sourceTaskId: ctx.sourceTaskId } : {}),
         });
         console.log(`Sent email to ${res.to_email} (id: ${res.id})`);
       } catch (err) {
@@ -485,27 +364,19 @@ export function emailCommand(): Command {
         const parsed = await new PostalMime().parse(rawMime);
 
         // 4. Re-upload original attachments
-        const attachments: AttachmentDescriptor[] = [];
+        const attachments: UploadedFile[] = [];
         if (parsed.attachments && parsed.attachments.length > 0) {
           for (const att of parsed.attachments) {
             const filename = att.filename || "attachment.bin";
             const contentType = att.mimeType || "application/octet-stream";
-            const content = att.content;
-            let buf: Buffer;
-            if (typeof content === "string") {
-              buf = Buffer.from(content, "base64");
-            } else if (content instanceof ArrayBuffer) {
-              buf = Buffer.from(new Uint8Array(content));
-            } else {
-              buf = Buffer.from(content as Uint8Array);
-            }
+            const buf = contentToBuffer(att.content);
             const form = new FormData();
             form.append(
               "file",
               new Blob([new Uint8Array(buf)], { type: contentType }),
               filename,
             );
-            const uploaded = await client.postMultipart<AttachmentDescriptor>(
+            const uploaded = await client.postMultipart<UploadedFile>(
               "/api/email/upload",
               form,
             );
@@ -520,36 +391,8 @@ export function emailCommand(): Command {
 
         // 5. Upload extra --attachment files
         const extraPaths: string[] = opts.attachment ?? [];
-        for (const path of extraPaths) {
-          let bytes: Buffer;
-          let size: number;
-          try {
-            bytes = readFileSync(path);
-            size = statSync(path).size;
-          } catch (err) {
-            console.error(
-              `Error: cannot read attachment "${path}": ${err instanceof Error ? err.message : err}`,
-            );
-            process.exit(1);
-          }
-          const filename = basename(path);
-          const contentType = guessContentType(filename);
-          const form = new FormData();
-          form.append(
-            "file",
-            new Blob([new Uint8Array(bytes)], { type: contentType }),
-            filename,
-          );
-          const uploaded = await client.postMultipart<AttachmentDescriptor>(
-            "/api/email/upload",
-            form,
-          );
-          attachments.push({
-            key: uploaded.key,
-            filename: uploaded.filename,
-            size: uploaded.size ?? size,
-            contentType: uploaded.contentType ?? contentType,
-          });
+        for (const filePath of extraPaths) {
+          attachments.push(await uploadFile(client, filePath, "/api/email/upload"));
         }
 
         // 6. Compose forwarded HTML body
@@ -574,9 +417,7 @@ export function emailCommand(): Command {
           : `Fwd: ${original.subject}`;
 
         // 8. Send
-        const conversationId = process.env.ALOOK_CONVERSATION_ID;
-        const traceId = process.env.ALOOK_TRACE_ID;
-        const sourceTaskId = process.env.ALOOK_TASK_ID;
+        const ctx = gatherContextEnvVars();
         const res = await client.postJSON<SendResponse>("/api/email/send", {
           agentId,
           to: opts.to,
@@ -584,9 +425,9 @@ export function emailCommand(): Command {
           htmlBody,
           attachments,
           ...(opts.from ? { from: opts.from } : {}),
-          ...(conversationId ? { conversationId } : {}),
-          ...(traceId ? { traceId } : {}),
-          ...(sourceTaskId ? { sourceTaskId } : {}),
+          ...(ctx.conversationId ? { conversationId: ctx.conversationId } : {}),
+          ...(ctx.traceId ? { traceId: ctx.traceId } : {}),
+          ...(ctx.sourceTaskId ? { sourceTaskId: ctx.sourceTaskId } : {}),
         });
         console.log(`Forwarded email to ${res.to_email} (id: ${res.id})`);
       } catch (err) {

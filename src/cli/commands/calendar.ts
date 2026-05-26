@@ -1,9 +1,8 @@
 import { Command } from "commander";
 import { APIClient } from "../lib/client.js";
-import { loadCLIConfigForProfile } from "../lib/config.js";
 import { printJSON } from "../lib/output.js";
-import { cmdPrefix } from "../lib/env.js";
 import { resolveAgentId } from "../lib/flags.js";
+import { resolveClientOpts } from "../lib/resolve-client.js";
 
 interface CalendarEventResponse {
   id: string;
@@ -21,22 +20,6 @@ interface CalendarEventResponse {
   updated_at: string;
 }
 
-function resolveClientOpts(command: Command, agentId: string) {
-  const parentOpts = command.parent?.parent?.opts() || {};
-  const profile: string | undefined = parentOpts.profile;
-  const cfg = loadCLIConfigForProfile(profile);
-  const serverUrl = parentOpts.server || cfg.server_url;
-  const workspaces = cfg.watched_workspaces || [];
-
-  const ws = workspaces.find((w) => w.agent_ids?.includes(agentId));
-  if (!ws || !ws.token) {
-    console.error(
-      `Error: no registered workspace contains agent ${agentId}. Run '${cmdPrefix()} register --token <token>' first.`
-    );
-    process.exit(1);
-  }
-  return { serverUrl, token: ws.token, workspaceId: ws.id };
-}
 
 function parseLocalDatetime(input: string): string {
   // Accepts YYYY-MM-DDTHH:MM and interprets as local time.
@@ -113,10 +96,7 @@ export function calendarCommand(): Command {
     .option("--json", "Output as JSON")
     .action(async (opts, command) => {
       const agentId = resolveAgentId(opts);
-      const { serverUrl, token, workspaceId } = resolveClientOpts(
-        command,
-        agentId
-      );
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
 
       let scheduledAt: string;
@@ -177,10 +157,7 @@ export function calendarCommand(): Command {
     .option("--json", "Output as JSON")
     .action(async (opts, command) => {
       const agentId = resolveAgentId(opts);
-      const { serverUrl, token, workspaceId } = resolveClientOpts(
-        command,
-        agentId
-      );
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
 
       const now = Date.now();
@@ -226,10 +203,7 @@ export function calendarCommand(): Command {
     .option("--json", "Output as JSON")
     .action(async (opts, command) => {
       const agentId = resolveAgentId(opts);
-      const { serverUrl, token, workspaceId } = resolveClientOpts(
-        command,
-        agentId
-      );
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
 
       try {
@@ -326,10 +300,7 @@ export function calendarCommand(): Command {
       }
 
       const agentId = resolveAgentId(opts);
-      const { serverUrl, token, workspaceId } = resolveClientOpts(
-        command,
-        agentId
-      );
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
 
       try {
@@ -361,10 +332,7 @@ export function calendarCommand(): Command {
     .requiredOption("--event_id <id>", "Event ID")
     .action(async (opts, command) => {
       const agentId = resolveAgentId(opts);
-      const { serverUrl, token, workspaceId } = resolveClientOpts(
-        command,
-        agentId
-      );
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
 
       try {

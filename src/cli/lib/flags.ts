@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { readFileSync } from "fs";
 
 export function flagOrEnv(
   cmd: Command,
@@ -19,4 +20,17 @@ export function resolveAgentId(opts: { agent_id?: string }): string {
     process.exit(1);
   }
   return id;
+}
+
+export function collectRepeated(value: string, previous: string[]): string[] {
+  return previous.concat([value]);
+}
+
+export function readBody(opts: { body?: string; bodyFile?: string }): string {
+  if (opts.body && opts.bodyFile) {
+    console.error("Error: --body and --body-file are mutually exclusive");
+    process.exit(1);
+  }
+  if (opts.bodyFile) return readFileSync(opts.bodyFile, "utf-8");
+  return opts.body ?? "";
 }
