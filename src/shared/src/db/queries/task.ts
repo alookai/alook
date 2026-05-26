@@ -3,7 +3,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { agentTaskQueue, taskMessage, conversation } from "../schema";
 import type { Database } from "../index";
 import { ClaimedTaskRowSchema } from "../../schemas";
-import { TASK_TYPES } from "../../constants";
+import { ACTIVE_TASK_STATUSES, EXECUTING_TASK_STATUSES, RUNNING_TASK_STATUSES, TASK_TYPES } from "../../constants";
 
 export async function createTask(
   db: Database,
@@ -97,7 +97,7 @@ export async function findSteerableReplacement(
       and(
         eq(agentTaskQueue.agentId, agentId),
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.status, ["dispatched", "running"]),
+        inArray(agentTaskQueue.status, [...EXECUTING_TASK_STATUSES]),
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
       )
     );
@@ -142,7 +142,7 @@ export async function claimTask(db: Database, agentId: string, workspaceId: stri
       and(
         eq(agentTaskQueue.agentId, agentId),
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.status, ["dispatched", "running"]),
+        inArray(agentTaskQueue.status, [...EXECUTING_TASK_STATUSES]),
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
       )
     );
@@ -304,6 +304,26 @@ export async function completeTask(
       sessionId: data.sessionId,
     })
     .where(
+      and(eq(agentTaskQueue.id, id), eq(agentTaskQueue.workspaceId, workspaceId), inArray(agentTaskQueue.status, [...RUNNING_TASK_STATUSES]))
+    )
+    .returning();
+  return rows[0] ?? null;
+}
+
+export async function beginTaskApply(
+  db: Database,
+  id: string,
+  workspaceId: string,
+  data: { result: unknown; sessionId: string | null }
+) {
+  const rows = await db
+    .update(agentTaskQueue)
+    .set({
+      status: "applying",
+      result: data.result,
+      sessionId: data.sessionId,
+    })
+    .where(
       and(eq(agentTaskQueue.id, id), eq(agentTaskQueue.workspaceId, workspaceId), eq(agentTaskQueue.status, "running"))
     )
     .returning();
@@ -323,7 +343,7 @@ export async function failTask(
       and(
         eq(agentTaskQueue.id, id),
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.status, ["dispatched", "running"])
+        inArray(agentTaskQueue.status, [...EXECUTING_TASK_STATUSES])
       )
     )
     .returning();
@@ -377,7 +397,7 @@ export async function supersedeTask(db: Database, id: string, workspaceId: strin
       and(
         eq(agentTaskQueue.id, id),
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.status, ["dispatched", "running"])
+        inArray(agentTaskQueue.status, [...EXECUTING_TASK_STATUSES])
       )
     )
     .returning();
@@ -407,7 +427,7 @@ export async function cancelTask(db: Database, id: string, workspaceId: string) 
       and(
         eq(agentTaskQueue.id, id),
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.status, ["queued", "dispatched", "running"])
+        inArray(agentTaskQueue.status, [...ACTIVE_TASK_STATUSES])
       )
     )
     .returning();
@@ -460,7 +480,7 @@ export async function cancelActiveTasksByConversation(
       and(
         eq(agentTaskQueue.conversationId, conversationId),
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.status, ["queued", "dispatched", "running"])
+        inArray(agentTaskQueue.status, [...ACTIVE_TASK_STATUSES])
       )
     )
     .returning({ id: agentTaskQueue.id });
@@ -470,7 +490,7 @@ export async function countRunningTasks(db: Database, agentId: string, workspace
   const conditions = [
     eq(agentTaskQueue.agentId, agentId),
     eq(agentTaskQueue.workspaceId, workspaceId),
-    inArray(agentTaskQueue.status, ["dispatched", "running"]),
+    inArray(agentTaskQueue.status, [...EXECUTING_TASK_STATUSES]),
     ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK),
   ];
   if (excludeTaskId) {
@@ -496,7 +516,7 @@ export async function listActiveTaskCountsByWorkspace(
     .where(
       and(
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.status, ["queued", "dispatched", "running"]),
+        inArray(agentTaskQueue.status, [...ACTIVE_TASK_STATUSES]),
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
       )
     )
@@ -524,7 +544,7 @@ export async function listActiveTasksByWorkspace(
     .where(
       and(
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.status, ["queued", "dispatched", "running"]),
+        inArray(agentTaskQueue.status, [...ACTIVE_TASK_STATUSES]),
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
       )
     )
@@ -549,7 +569,7 @@ export async function listActiveTasksByAgent(
       and(
         eq(agentTaskQueue.agentId, agentId),
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.status, ["queued", "dispatched", "running"]),
+        inArray(agentTaskQueue.status, [...ACTIVE_TASK_STATUSES]),
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
       )
     )
@@ -569,7 +589,7 @@ export async function getActiveTaskByConversation(
       and(
         eq(agentTaskQueue.conversationId, conversationId),
         eq(agentTaskQueue.workspaceId, workspaceId),
-        inArray(agentTaskQueue.status, ["queued", "dispatched", "running"]),
+        inArray(agentTaskQueue.status, [...ACTIVE_TASK_STATUSES]),
         ne(agentTaskQueue.type, TASK_TYPES.KILL_TASK)
       )
     )
@@ -653,7 +673,7 @@ export async function failStaleRunningTasks(db: Database, workspaceId: string, s
     .where(
       and(
         eq(agentTaskQueue.workspaceId, workspaceId),
-        eq(agentTaskQueue.status, "running"),
+        inArray(agentTaskQueue.status, [...RUNNING_TASK_STATUSES]),
       )
     )
     .groupBy(agentTaskQueue.id)
@@ -671,7 +691,7 @@ export async function failStaleRunningTasks(db: Database, workspaceId: string, s
       completedAt: new Date().toISOString(),
       error: `timed out in running state (no message activity for ${Math.round(staleSeconds / 60)} minutes)`,
     })
-    .where(and(inArray(agentTaskQueue.id, staleIds), eq(agentTaskQueue.status, "running")))
+    .where(and(inArray(agentTaskQueue.id, staleIds), inArray(agentTaskQueue.status, [...RUNNING_TASK_STATUSES])))
     .returning({ agentId: agentTaskQueue.agentId, workspaceId: agentTaskQueue.workspaceId, conversationId: agentTaskQueue.conversationId });
   return rows;
 }
@@ -793,18 +813,18 @@ export async function listTraces(
                 eq(traceTask.workspaceId, workspaceId),
                 eq(traceTask.traceId, agentTaskQueue.traceId),
                 ne(traceTask.type, TASK_TYPES.KILL_TASK),
-                inArray(traceTask.status, ["queued", "dispatched", "running"])
+                inArray(traceTask.status, [...ACTIVE_TASK_STATUSES])
               )
             )
         )
       );
     } else if (opts.status === "completed") {
       conditions.push(
-        sql`NOT EXISTS (SELECT 1 FROM ${agentTaskQueue} tt WHERE tt.workspace_id = ${workspaceId} AND tt.trace_id = ${agentTaskQueue.traceId} AND tt.type != ${TASK_TYPES.KILL_TASK} AND tt.status IN ('queued', 'dispatched', 'running', 'failed'))`
+        sql`NOT EXISTS (SELECT 1 FROM ${agentTaskQueue} tt WHERE tt.workspace_id = ${workspaceId} AND tt.trace_id = ${agentTaskQueue.traceId} AND tt.type != ${TASK_TYPES.KILL_TASK} AND tt.status IN ('queued', 'dispatched', 'running', 'applying', 'failed'))`
       );
     } else if (opts.status === "failed") {
       conditions.push(
-        sql`NOT EXISTS (SELECT 1 FROM ${agentTaskQueue} tt WHERE tt.workspace_id = ${workspaceId} AND tt.trace_id = ${agentTaskQueue.traceId} AND tt.type != ${TASK_TYPES.KILL_TASK} AND tt.status IN ('queued', 'dispatched', 'running'))`
+        sql`NOT EXISTS (SELECT 1 FROM ${agentTaskQueue} tt WHERE tt.workspace_id = ${workspaceId} AND tt.trace_id = ${agentTaskQueue.traceId} AND tt.type != ${TASK_TYPES.KILL_TASK} AND tt.status IN ('queued', 'dispatched', 'running', 'applying'))`
       );
       const failedTask = alias(agentTaskQueue, "failed_task");
       conditions.push(
@@ -886,7 +906,7 @@ export async function listTraces(
     const tasks = tasksByTrace.get(root.traceId!) ?? [];
     const helperIds = [...new Set(tasks.map(t => t.agentId).filter(id => id !== root.agentId))];
 
-    const hasActive = tasks.some(t => ["queued", "dispatched", "running"].includes(t.status));
+    const hasActive = tasks.some(t => (ACTIVE_TASK_STATUSES as readonly string[]).includes(t.status));
     const hasFailed = tasks.some(t => t.status === "failed");
     let traceStatus: string;
     if (hasActive) traceStatus = "active";

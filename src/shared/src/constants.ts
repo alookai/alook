@@ -19,6 +19,7 @@ export const TaskStatus = {
   QUEUED: "queued",
   DISPATCHED: "dispatched",
   RUNNING: "running",
+  APPLYING: "applying",
   COMPLETED: "completed",
   FAILED: "failed",
   CANCELLED: "cancelled",
@@ -38,9 +39,28 @@ export function isTerminalTaskStatus(status: string): boolean {
 
 export type TaskStatusType = (typeof TaskStatus)[keyof typeof TaskStatus];
 
+export const ACTIVE_TASK_STATUSES: readonly TaskStatusType[] = [
+  TaskStatus.QUEUED,
+  TaskStatus.DISPATCHED,
+  TaskStatus.RUNNING,
+  TaskStatus.APPLYING,
+] as const;
+
+export const EXECUTING_TASK_STATUSES: readonly TaskStatusType[] = [
+  TaskStatus.DISPATCHED,
+  TaskStatus.RUNNING,
+  TaskStatus.APPLYING,
+] as const;
+
+export const RUNNING_TASK_STATUSES: readonly TaskStatusType[] = [
+  TaskStatus.RUNNING,
+  TaskStatus.APPLYING,
+] as const;
+
 export const TASK_TYPES = {
   USER_DM_MESSAGE: "user_dm_message",
   EMAIL_NOTIFICATION: "email_notification",
+  EMAIL_TRIAGE: "email_triage",
   CALENDAR_EVENT: "calendar_event",
   ISSUE_EVENT: "issue_event",
   KILL_TASK: "kill_task",

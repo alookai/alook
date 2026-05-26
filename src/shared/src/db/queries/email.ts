@@ -1,10 +1,16 @@
-import { eq, desc, and, or } from "drizzle-orm";
+import { eq, desc, and, or, lt } from "drizzle-orm";
 import { emails } from "../schema";
 import type { Database } from "../index";
 import type { EmailDirection } from "../../types";
 import { EmailMailbox } from "../../constants";
 import type { EmailMailboxType } from "../../constants";
 import { getMailboxAddressFields } from "../../lib/email-mailbox";
+
+type EmailInsert = Parameters<typeof createEmail>[1];
+
+export type PromoteInboundWithDraftReplyResult =
+  | { applied: true; draftEmailId: string }
+  | { applied: false; cleanupError?: string };
 
 export interface EmailPagination {
   limit: number;
@@ -27,6 +33,27 @@ export async function createEmail(
 
 export async function getEmailById(db: Database, id: string, workspaceId: string) {
   const rows = await db.select().from(emails).where(and(eq(emails.id, id), eq(emails.workspaceId, workspaceId)));
+  return rows[0] ?? null;
+}
+
+export async function getInboundDraftEmailForAgent(
+  db: Database,
+  input: {
+    inboundEmailId: string;
+    agentId: string;
+    workspaceId: string;
+  },
+) {
+  const rows = await db
+    .select()
+    .from(emails)
+    .where(and(
+      eq(emails.id, input.inboundEmailId),
+      eq(emails.agentId, input.agentId),
+      eq(emails.workspaceId, input.workspaceId),
+      eq(emails.direction, "inbound"),
+      eq(emails.mailbox, EmailMailbox.DRAFT),
+    ));
   return rows[0] ?? null;
 }
 
@@ -136,6 +163,226 @@ export async function updateEmailMailbox(
     .where(and(eq(emails.id, id), eq(emails.workspaceId, workspaceId)))
     .returning();
   return rows[0] ?? null;
+}
+
+export async function archiveInboundDraftAsUntrust(
+  db: Database,
+  input: {
+    inboundEmailId: string;
+    agentId: string;
+    workspaceId: string;
+  },
+) {
+  const rows = await db
+    .update(emails)
+    .set({ mailbox: EmailMailbox.UNTRUST, status: "archived" })
+    .where(and(
+      eq(emails.id, input.inboundEmailId),
+      eq(emails.agentId, input.agentId),
+      eq(emails.workspaceId, input.workspaceId),
+      eq(emails.direction, "inbound"),
+      eq(emails.mailbox, EmailMailbox.DRAFT),
+    ))
+    .returning();
+  return rows[0] ?? null;
+}
+
+function cleanupErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function cleanupDraft(
+  db: Database,
+  draftId: string,
+  workspaceId: string,
+): Promise<{ cleanupError?: string }> {
+  try {
+    await deleteEmail(db, draftId, workspaceId);
+    return {};
+  } catch (error) {
+    return { cleanupError: cleanupErrorMessage(error) };
+  }
+}
+
+export async function promoteInboundWithDraftReply(
+  db: Database,
+  input: {
+    inboundEmailId: string;
+    agentId: string;
+    workspaceId: string;
+    draft: {
+      fromEmail: string;
+      toEmail: string;
+      subject: string;
+      htmlBody: string;
+      inReplyTo: string;
+      references: string;
+    };
+  },
+): Promise<PromoteInboundWithDraftReplyResult> {
+  const inbound = await getInboundDraftEmailForAgent(db, input);
+  if (!inbound) return { applied: false };
+
+  let claimedRows: unknown[];
+  try {
+    claimedRows = await db
+      .update(emails)
+      .set({ status: "triage_applying" })
+      .where(and(
+        eq(emails.id, input.inboundEmailId),
+        eq(emails.agentId, input.agentId),
+        eq(emails.workspaceId, input.workspaceId),
+        eq(emails.direction, "inbound"),
+        eq(emails.mailbox, EmailMailbox.DRAFT),
+      ))
+      .returning();
+  } catch {
+    return { applied: false };
+  }
+  if (!claimedRows[0]) return { applied: false };
+
+  const draftValues: EmailInsert = {
+    agentId: input.agentId,
+    workspaceId: input.workspaceId,
+    fromEmail: input.draft.fromEmail,
+    toEmail: input.draft.toEmail,
+    subject: input.draft.subject,
+    r2Key: "",
+    isWhitelisted: false,
+    forwarded: false,
+    messageId: "",
+    inReplyTo: input.draft.inReplyTo,
+    references: input.draft.references,
+    htmlBody: input.draft.htmlBody,
+    attachments: "[]",
+    direction: "outbound",
+    status: "triage_applying",
+    mailbox: EmailMailbox.DRAFT,
+  };
+
+  let draft: { id: string };
+  try {
+    const draftRows = await db.insert(emails).values(draftValues).returning();
+    if (!draftRows[0]) {
+      await restoreInboundDraftAfterTriageApplyFailure(db, input, inbound.status);
+      return { applied: false };
+    }
+    draft = draftRows[0];
+  } catch {
+    await restoreInboundDraftAfterTriageApplyFailure(db, input, inbound.status);
+    return { applied: false };
+  }
+
+  let promoted: unknown;
+  try {
+    const promotedRows = await db
+      .update(emails)
+      .set({ mailbox: EmailMailbox.INBOX, status: "unread" })
+      .where(and(
+        eq(emails.id, input.inboundEmailId),
+        eq(emails.agentId, input.agentId),
+        eq(emails.workspaceId, input.workspaceId),
+        eq(emails.direction, "inbound"),
+        eq(emails.mailbox, EmailMailbox.DRAFT),
+        eq(emails.status, "triage_applying"),
+      ))
+      .returning();
+    promoted = promotedRows[0];
+  } catch {
+    const cleanup = await cleanupDraft(db, draft.id, input.workspaceId);
+    await restoreInboundDraftAfterTriageApplyFailure(db, input, inbound.status);
+    return cleanup.cleanupError
+      ? { applied: false, cleanupError: cleanup.cleanupError }
+      : { applied: false };
+  }
+
+  if (!promoted) {
+    const cleanup = await cleanupDraft(db, draft.id, input.workspaceId);
+    await restoreInboundDraftAfterTriageApplyFailure(db, input, inbound.status);
+    return cleanup.cleanupError
+      ? { applied: false, cleanupError: cleanup.cleanupError }
+      : { applied: false };
+  }
+
+  const finalizedDraftRows = await db
+    .update(emails)
+    .set({ status: "draft" })
+    .where(and(
+      eq(emails.id, draft.id),
+      eq(emails.agentId, input.agentId),
+      eq(emails.workspaceId, input.workspaceId),
+      eq(emails.direction, "outbound"),
+      eq(emails.mailbox, EmailMailbox.DRAFT),
+      eq(emails.status, "triage_applying"),
+    ))
+    .returning();
+  if (!finalizedDraftRows[0]) {
+    const cleanup = await cleanupDraft(db, draft.id, input.workspaceId);
+    await restoreInboundDraftAfterTriageApplyFailure(db, input, inbound.status);
+    return cleanup.cleanupError
+      ? { applied: false, cleanupError: cleanup.cleanupError }
+      : { applied: false };
+  }
+
+  return { applied: true, draftEmailId: draft.id };
+}
+
+export async function recoverStaleEmailTriageApplies(
+  db: Database,
+  workspaceId: string,
+  staleSeconds = 3600,
+) {
+  const threshold = new Date(Date.now() - staleSeconds * 1000).toISOString();
+  const restoredInbound = await db
+    .update(emails)
+    .set({ mailbox: EmailMailbox.DRAFT, status: "unread" })
+    .where(and(
+      eq(emails.workspaceId, workspaceId),
+      eq(emails.direction, "inbound"),
+      eq(emails.mailbox, EmailMailbox.DRAFT),
+      eq(emails.status, "triage_applying"),
+      lt(emails.createdAt, threshold),
+    ))
+    .returning({ id: emails.id });
+
+  const deletedDrafts = await db
+    .delete(emails)
+    .where(and(
+      eq(emails.workspaceId, workspaceId),
+      eq(emails.direction, "outbound"),
+      eq(emails.mailbox, EmailMailbox.DRAFT),
+      eq(emails.status, "triage_applying"),
+      lt(emails.createdAt, threshold),
+    ))
+    .returning({ id: emails.id });
+
+  return {
+    restoredInbound: restoredInbound.length,
+    deletedDrafts: deletedDrafts.length,
+  };
+}
+
+async function restoreInboundDraftAfterTriageApplyFailure(
+  db: Database,
+  input: {
+    inboundEmailId: string;
+    agentId: string;
+    workspaceId: string;
+  },
+  status: string,
+) {
+  await db
+    .update(emails)
+    .set({ mailbox: EmailMailbox.DRAFT, status })
+    .where(and(
+      eq(emails.id, input.inboundEmailId),
+      eq(emails.agentId, input.agentId),
+      eq(emails.workspaceId, input.workspaceId),
+      eq(emails.direction, "inbound"),
+      eq(emails.status, "triage_applying"),
+    ))
+    .returning()
+    .catch(() => {});
 }
 
 export async function claimDraftForSend(

@@ -29,7 +29,10 @@ export async function sweepStaleState(db: Database, workspaceId: string) {
   // 1b. Fail kill_tasks stuck for >30s (daemon offline or crashed after claim)
   await queries.task.failStaleKillTasks(db, workspaceId);
 
-  // 2. Fail tasks stuck in "running" with no message activity for >1h
+  // 1c. Recover email triage mailbox transitions interrupted mid-apply.
+  await queries.email.recoverStaleEmailTriageApplies(db, workspaceId);
+
+  // 2. Fail tasks stuck in "running/applying" with no message activity for >1h
   const staleRunning = await queries.task.failStaleRunningTasks(db, workspaceId);
 
   // 3. Reconcile agent status + dispatch buffered messages for all affected

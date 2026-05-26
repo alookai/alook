@@ -9,6 +9,7 @@ export const TaskStatusSchema = z.enum([
   "queued",
   "dispatched",
   "running",
+  "applying",
   "completed",
   "failed",
   "cancelled",
@@ -110,6 +111,24 @@ export const TaskApiSchema = TaskApiBaseSchema.extend({
   sender: TaskSenderApiSchema.nullable().optional(),
 });
 export type TaskApi = z.infer<typeof TaskApiSchema>;
+
+// ---------------------------------------------------------------------------
+// Email triage agent output contract
+// ---------------------------------------------------------------------------
+
+export const EmailTriageResultSchema = z.discriminatedUnion("decision", [
+  z.object({
+    decision: z.literal("untrust"),
+  }),
+  z.object({
+    decision: z.literal("draft_reply"),
+    draft: z.object({
+      subject: z.string().trim().min(1),
+      htmlBody: z.string().trim().min(1),
+    }),
+  }),
+]);
+export type EmailTriageResult = z.infer<typeof EmailTriageResultSchema>;
 
 // ---------------------------------------------------------------------------
 // Heartbeat (lightweight liveness ping, independent of poll)

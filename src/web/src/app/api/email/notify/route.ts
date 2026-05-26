@@ -8,6 +8,7 @@ import { TaskService } from "@/lib/services/task"
 import { broadcastToUser } from "@/lib/broadcast"
 import { taskToResponse } from "@/lib/api/responses"
 import { invalidate, cacheKeys } from "@/lib/cache"
+import { enqueueEmailTriageTask } from "@/lib/services/email-triage-notify"
 
 export async function POST(req: NextRequest) {
   const { env } = getCloudflareContext()
@@ -50,7 +51,6 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // If the email is whitelisted, we need to create a conversation for the email
   if (body.isWhitelisted && agent && agent.runtimeId && agent.ownerId) {
     const threadId = extractThreadId(body.references, body.inReplyTo, body.messageId);
     const mapKey = threadId ? buildEmailMapKey(agent.id, threadId) : null;
@@ -142,6 +142,8 @@ export async function POST(req: NextRequest) {
         task: taskToResponse(task),
       }).catch(() => {});
     }
+  } else if (!body.isWhitelisted && agent && agent.runtimeId && agent.ownerId) {
+    await enqueueEmailTriageTask(db, env as Env, { agent, email, body });
   }
 
   const dateStr = new Date().toISOString().slice(0, 10);

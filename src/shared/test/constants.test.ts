@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest"
 import {
   POLL_INTERVAL_MS, OFFLINE_THRESHOLD_MS, EVENT_POLL_INTERVAL_MS, AGENT_HANDLE_MIN_LENGTH,
-  TaskStatus, TERMINAL_TASK_STATUSES, isTerminalTaskStatus, EmailMailbox,
+  TaskStatus, TERMINAL_TASK_STATUSES, ACTIVE_TASK_STATUSES, EXECUTING_TASK_STATUSES,
+  isTerminalTaskStatus, EmailMailbox, TASK_TYPES,
 } from "../src/constants"
 
 describe("constants", () => {
@@ -13,6 +14,13 @@ describe("constants", () => {
 describe("TaskStatus", () => {
   it("includes superseded", () => {
     expect(TaskStatus.SUPERSEDED).toBe("superseded")
+  })
+
+  it("includes applying as a non-terminal active status", () => {
+    expect(TaskStatus.APPLYING).toBe("applying")
+    expect(ACTIVE_TASK_STATUSES).toContain("applying")
+    expect(EXECUTING_TASK_STATUSES).toContain("applying")
+    expect(TERMINAL_TASK_STATUSES).not.toContain("applying")
   })
 
   it("TERMINAL_TASK_STATUSES includes all terminal statuses", () => {
@@ -39,6 +47,7 @@ describe("TaskStatus", () => {
     expect(isTerminalTaskStatus("queued")).toBe(false)
     expect(isTerminalTaskStatus("dispatched")).toBe(false)
     expect(isTerminalTaskStatus("running")).toBe(false)
+    expect(isTerminalTaskStatus("applying")).toBe(false)
   })
 })
 
@@ -48,5 +57,11 @@ describe("EmailMailbox", () => {
     expect(EmailMailbox.SENT).toBe("sent")
     expect(EmailMailbox.DRAFT).toBe("draft")
     expect(EmailMailbox.UNTRUST).toBe("untrust")
+  })
+})
+
+describe("TASK_TYPES", () => {
+  it("defines EMAIL_TRIAGE", () => {
+    expect(TASK_TYPES.EMAIL_TRIAGE).toBe("email_triage")
   })
 })

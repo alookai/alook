@@ -1,8 +1,29 @@
-import { eq, and, desc, ne, lt, sql, count as drizzleCount, inArray } from "drizzle-orm";
+import { eq, and, desc, ne, lt, sql, count as drizzleCount, inArray, notInArray } from "drizzle-orm";
 import { conversation, message } from "../schema";
 import type { Database } from "../index";
 import { TASK_TYPES, type TaskType } from "../../constants";
 
+export const CONVERSATION_LIST_EXCLUDED_TYPES = [TASK_TYPES.EMAIL_TRIAGE] as const;
+
+function conversationListConditions(
+  workspaceId: string,
+  userId: string,
+  channel?: string,
+  agentId?: string,
+) {
+  const conditions = [
+    eq(conversation.workspaceId, workspaceId),
+    eq(conversation.userId, userId),
+    notInArray(conversation.type, [...CONVERSATION_LIST_EXCLUDED_TYPES]),
+  ];
+  if (agentId) {
+    conditions.push(eq(conversation.agentId, agentId));
+  }
+  if (channel) {
+    conditions.push(eq(conversation.channel, channel));
+  }
+  return conditions;
+}
 
 export async function createConversation(
   db: Database,
@@ -51,17 +72,10 @@ export async function listConversations(
   userId: string,
   channel?: string
 ) {
-  const conditions = [
-    eq(conversation.workspaceId, workspaceId),
-    eq(conversation.userId, userId),
-  ];
-  if (channel) {
-    conditions.push(eq(conversation.channel, channel));
-  }
   return db
     .select()
     .from(conversation)
-    .where(and(...conditions))
+    .where(and(...conversationListConditions(workspaceId, userId, channel)))
     .orderBy(desc(conversation.createdAt));
 }
 
@@ -72,14 +86,6 @@ export async function listConversationsByAgent(
   agentId: string,
   channel?: string
 ) {
-  const conditions = [
-    eq(conversation.workspaceId, workspaceId),
-    eq(conversation.userId, userId),
-    eq(conversation.agentId, agentId),
-  ];
-  if (channel) {
-    conditions.push(eq(conversation.channel, channel));
-  }
   return db
     .select({
       id: conversation.id,
@@ -94,7 +100,7 @@ export async function listConversationsByAgent(
     })
     .from(conversation)
     .leftJoin(message, eq(message.conversationId, conversation.id))
-    .where(and(...conditions))
+    .where(and(...conversationListConditions(workspaceId, userId, channel, agentId)))
     .groupBy(conversation.id)
     .orderBy(desc(conversation.createdAt));
 }

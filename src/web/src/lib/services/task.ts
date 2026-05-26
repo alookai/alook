@@ -5,6 +5,7 @@ import { broadcastToUser, broadcastToDaemon } from "@/lib/broadcast";
 import { messageToResponse, taskToResponse } from "@/lib/api/responses";
 import { invalidate, cacheKeys } from "@/lib/cache";
 import { TaskPayloadBuilder } from "@/lib/services/task-payload-builder";
+import { handleTaskTerminalSideEffects } from "@/lib/services/task-terminal-handlers";
 
 const taskQueries = queries.task;
 const agentQueries = queries.agent;
@@ -146,6 +147,50 @@ export class TaskService {
       parsed = { raw: result };
     }
 
+    const existingBeforeComplete = await taskQueries.getTask(this.db, taskId, workspaceId);
+    if (existingBeforeComplete?.type === TASK_TYPES.EMAIL_TRIAGE) {
+      const applyingTask = await taskQueries.beginTaskApply(this.db, taskId, workspaceId, {
+        result: parsed,
+        sessionId: sessionId || null,
+      });
+      if (!applyingTask) {
+        const status = existingBeforeComplete.status ?? "unknown";
+        log.warn(`completeTask triage apply failed: task is in '${status}' status`, { taskId });
+        throw new Error(`cannot apply triage task in '${status}' status`);
+      }
+
+      const sideEffect = await handleTaskTerminalSideEffects({
+        db: this.db,
+        workspaceId,
+        task: applyingTask,
+        terminalState: "completed",
+        parsedResult: parsed,
+      });
+      if (sideEffect.handled && sideEffect.error) {
+        const failed = await taskQueries.failTask(this.db, taskId, workspaceId, sideEffect.error);
+        if (!failed) {
+          const status = existingBeforeComplete.status ?? "unknown";
+          log.warn(`completeTask triage fail failed: task is in '${status}' status`, { taskId });
+          throw new Error(`cannot fail triage task in '${status}' status`);
+        }
+        await this.reconcileAgentStatus(failed.agentId, failed.workspaceId);
+        return failed;
+      }
+      if (sideEffect.handled) {
+        const completed = await taskQueries.completeTask(this.db, taskId, workspaceId, {
+          result: parsed,
+          sessionId: sessionId || null,
+        });
+        if (!completed) {
+          const status = existingBeforeComplete.status ?? "unknown";
+          log.warn(`completeTask failed: task is in '${status}' status`, { taskId });
+          throw new Error(`cannot complete task in '${status}' status`);
+        }
+        await this.reconcileAgentStatus(completed.agentId, completed.workspaceId);
+        return completed;
+      }
+    }
+
     const task = await taskQueries.completeTask(this.db, taskId, workspaceId, {
       result: parsed,
       sessionId: sessionId || null,
@@ -200,6 +245,18 @@ export class TaskService {
     }
 
     if (task.type === TASK_TYPES.KILL_TASK) {
+      return task;
+    }
+
+    const failedSideEffect = await handleTaskTerminalSideEffects({
+      db: this.db,
+      workspaceId,
+      task,
+      terminalState: "failed",
+      parsedResult: { error },
+    });
+    if (failedSideEffect.handled) {
+      await this.reconcileAgentStatus(task.agentId, task.workspaceId);
       return task;
     }
 

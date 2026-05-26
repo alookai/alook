@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import * as emailQueries from "../../src/db/queries/email";
 
 describe("email query module exports", () => {
@@ -66,6 +68,22 @@ describe("email query module exports", () => {
     expect(typeof emailQueries.markDraftSendUnknown).toBe("function");
   });
 
+  it("exports promoteInboundWithDraftReply", () => {
+    expect(typeof emailQueries.promoteInboundWithDraftReply).toBe("function");
+  });
+
+  it("exports archiveInboundDraftAsUntrust", () => {
+    expect(typeof emailQueries.archiveInboundDraftAsUntrust).toBe("function");
+  });
+
+  it("exports getInboundDraftEmailForAgent", () => {
+    expect(typeof emailQueries.getInboundDraftEmailForAgent).toBe("function");
+  });
+
+  it("exports recoverStaleEmailTriageApplies", () => {
+    expect(typeof emailQueries.recoverStaleEmailTriageApplies).toBe("function");
+  });
+
   it("does not export weak updateEmailAfterSend helper", () => {
     expect("updateEmailAfterSend" in emailQueries).toBe(false);
   });
@@ -93,5 +111,184 @@ describe("email query function signatures", () => {
   it("updateEmailStatus has correct arity", () => {
     // (db, id, workspaceId, status)
     expect(emailQueries.updateEmailStatus.length).toBe(4);
+  });
+});
+
+describe("promoteInboundWithDraftReply", () => {
+  it("does not create outbound draft when inbound draft claim does not match", async () => {
+    let insertCalled = false;
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve([]),
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: () => ({
+            returning: () => Promise.resolve([]),
+          }),
+        }),
+      }),
+      insert: () => {
+        insertCalled = true;
+        return {
+          values: () => ({
+            returning: () => Promise.resolve([{ id: "e-draft" }]),
+          }),
+        };
+      },
+    };
+
+    const result = await emailQueries.promoteInboundWithDraftReply(db as never, {
+      inboundEmailId: "e-inbound",
+      agentId: "a1",
+      workspaceId: "w1",
+      draft: {
+        fromEmail: "agent@alook.ai",
+        toEmail: "sender@test.com",
+        subject: "Re: Hello",
+        htmlBody: "<p>Hello</p>",
+        inReplyTo: "<msg@test.com>",
+        references: "<msg@test.com>",
+      },
+    });
+
+    expect(result).toEqual({ applied: false });
+    expect(insertCalled).toBe(false);
+  });
+
+  it("returns explicit cleanupError when fallback promote and draft cleanup both fail", async () => {
+    let updateCalls = 0;
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve([{
+            id: "e-inbound",
+            agentId: "a1",
+            workspaceId: "w1",
+            direction: "inbound",
+            mailbox: "draft",
+            status: "unread",
+          }]),
+        }),
+      }),
+      insert: () => ({
+        values: () => ({
+          returning: () => Promise.resolve([{ id: "e-draft" }]),
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: () => ({
+            returning: () => {
+              updateCalls += 1;
+              if (updateCalls === 1) return Promise.resolve([{ id: "e-inbound" }]);
+              if (updateCalls === 2) return Promise.reject(new Error("promote failed"));
+              return Promise.resolve([{ id: "e-inbound" }]);
+            },
+          }),
+        }),
+      }),
+      delete: () => ({
+        where: () => Promise.reject(new Error("cleanup failed")),
+      }),
+    };
+
+    const result = await emailQueries.promoteInboundWithDraftReply(db as never, {
+      inboundEmailId: "e-inbound",
+      agentId: "a1",
+      workspaceId: "w1",
+      draft: {
+        fromEmail: "agent@alook.ai",
+        toEmail: "sender@test.com",
+        subject: "Re: Hello",
+        htmlBody: "<p>Hello</p>",
+        inReplyTo: "<msg@test.com>",
+        references: "<msg@test.com>",
+      },
+    });
+
+    expect(result).toEqual({ applied: false, cleanupError: "cleanup failed" });
+  });
+
+  it("restores claimed inbound draft when draft insert returns no row", async () => {
+    let updateCalls = 0;
+    const statuses: string[] = [];
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve([{
+            id: "e-inbound",
+            agentId: "a1",
+            workspaceId: "w1",
+            direction: "inbound",
+            mailbox: "draft",
+            status: "unread",
+          }]),
+        }),
+      }),
+      update: () => ({
+        set: (patch: { status?: string }) => {
+          if (patch.status) statuses.push(patch.status);
+          return {
+            where: () => ({
+              returning: () => {
+                updateCalls += 1;
+                return Promise.resolve([{ id: "e-inbound" }]);
+              },
+            }),
+          };
+        },
+      }),
+      insert: () => ({
+        values: () => ({
+          returning: () => Promise.resolve([]),
+        }),
+      }),
+    };
+
+    const result = await emailQueries.promoteInboundWithDraftReply(db as never, {
+      inboundEmailId: "e-inbound",
+      agentId: "a1",
+      workspaceId: "w1",
+      draft: {
+        fromEmail: "agent@alook.ai",
+        toEmail: "sender@test.com",
+        subject: "Re: Hello",
+        htmlBody: "<p>Hello</p>",
+        inReplyTo: "<msg@test.com>",
+        references: "<msg@test.com>",
+      },
+    });
+
+    expect(result).toEqual({ applied: false });
+    expect(updateCalls).toBe(2);
+    expect(statuses).toEqual(["triage_applying", "unread"]);
+  });
+});
+
+describe("archiveInboundDraftAsUntrust", () => {
+  it("is scoped to agent, workspace, inbound direction, and draft mailbox", () => {
+    const src = readFileSync(join(__dirname, "../../src/db/queries/email.ts"), "utf8");
+
+    expect(src).toContain("export async function archiveInboundDraftAsUntrust");
+    expect(src).toContain("eq(emails.agentId, input.agentId)");
+    expect(src).toContain("eq(emails.workspaceId, input.workspaceId)");
+    expect(src).toContain("eq(emails.direction, \"inbound\")");
+    expect(src).toContain("eq(emails.mailbox, EmailMailbox.DRAFT)");
+  });
+});
+
+describe("recoverStaleEmailTriageApplies", () => {
+  it("restores inbound triage_applying emails and deletes orphan outbound triage_applying drafts", () => {
+    const src = readFileSync(join(__dirname, "../../src/db/queries/email.ts"), "utf8");
+
+    expect(src).toContain("export async function recoverStaleEmailTriageApplies");
+    expect(src).toContain("eq(emails.status, \"triage_applying\")");
+    expect(src).toContain("eq(emails.direction, \"inbound\")");
+    expect(src).toContain("eq(emails.direction, \"outbound\")");
+    expect(src).toContain("set({ mailbox: EmailMailbox.DRAFT, status: \"unread\" })");
+    expect(src).toContain(".delete(emails)");
   });
 });
