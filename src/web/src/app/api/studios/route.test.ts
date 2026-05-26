@@ -139,8 +139,8 @@ describe("POST /api/studios", () => {
         scenario: "software-dev",
         members: [
           { name: "Jarvis", role: "leader", runtime_id: "rt1" },
-          { name: "Mira", role: "researcher", runtime_id: "rt1" },
-          { name: "Linus", role: "engineer", runtime_id: "rt1" },
+          { name: "Mira", role: "researcher", runtime_id: "rt1", relationship: { leaderSees: "Delegate research tasks", memberSees: "Report findings" } },
+          { name: "Linus", role: "engineer", runtime_id: "rt1", relationship: { leaderSees: "Delegate coding tasks", memberSees: "Report implementation" } },
         ],
       }),
     });
