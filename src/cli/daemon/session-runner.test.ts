@@ -170,7 +170,7 @@ describe("session-runner runSession", () => {
     await runSession(makeInput());
 
     expect(mockPrepare).toHaveBeenCalledWith(
-      { workspacesRoot: "/tmp/ws" },
+      { workspacesRoot: "/tmp/ws", token: "test_token" },
       expect.objectContaining({ id: "t1" }),
     );
     expect(createBackend).toHaveBeenCalledWith("claude", "claude");

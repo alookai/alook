@@ -1,10 +1,8 @@
 import { Command } from "commander";
-import { readFileSync } from "fs";
 import { APIClient } from "../lib/client.js";
-import { loadCLIConfigForProfile } from "../lib/config.js";
 import { printJSON } from "../lib/output.js";
-import { cmdPrefix } from "../lib/env.js";
-import { resolveAgentId } from "../lib/flags.js";
+import { resolveAgentId, readBody } from "../lib/flags.js";
+import { resolveClientOpts } from "../lib/resolve-client.js";
 
 const VALID_STATUSES = ["todo", "in_progress", "review", "done", "closed", "canceled", "failed"];
 
@@ -38,33 +36,6 @@ interface CommentResponse {
   created_at: string;
 }
 
-function resolveClientOpts(command: Command, agentId: string) {
-  let root = command;
-  while (root.parent) root = root.parent;
-  const parentOpts = root.opts() || {};
-  const profile: string | undefined = parentOpts.profile;
-  const cfg = loadCLIConfigForProfile(profile);
-  const serverUrl = parentOpts.server || cfg.server_url;
-  const workspaces = cfg.watched_workspaces || [];
-
-  const ws = workspaces.find((w) => w.agent_ids?.includes(agentId));
-  if (!ws || !ws.token) {
-    console.error(
-      `Error: no registered workspace contains agent ${agentId}. Run '${cmdPrefix()} register --token <token>' first.`
-    );
-    process.exit(1);
-  }
-  return { serverUrl, token: ws.token, workspaceId: ws.id };
-}
-
-function readBody(opts: { body?: string; bodyFile?: string }): string {
-  if (opts.body && opts.bodyFile) {
-    console.error("Error: --body and --body-file are mutually exclusive");
-    process.exit(1);
-  }
-  if (opts.bodyFile) return readFileSync(opts.bodyFile, "utf-8");
-  return opts.body ?? "";
-}
 
 function printIssue(issue: IssueResponse): void {
   console.log(`${issue.id}  ${issue.status.padEnd(11)}  ${issue.title}`);
@@ -107,7 +78,7 @@ export function issueCommand(): Command {
     .option("--json", "Output as JSON")
     .action(async (opts, command) => {
       const agentId = resolveAgentId(opts);
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, agentId);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
       const description = readBody({ body: opts.description, bodyFile: opts.bodyFile });
       try {
@@ -138,7 +109,7 @@ export function issueCommand(): Command {
         process.exit(1);
       }
       const agentId = resolveAgentId(opts);
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, agentId);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
       const params = new URLSearchParams({ agentId });
       if (opts.status) params.set("status", opts.status);
@@ -165,7 +136,7 @@ export function issueCommand(): Command {
     .option("--json", "Output as JSON")
     .action(async (opts, command) => {
       const agentId = resolveAgentId(opts);
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, agentId);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
       try {
         const res = await client.getJSON<{ issue: IssueResponse; messages: MessageResponse[]; comments: CommentResponse[] }>(`/api/issues/${opts.issue_id}?agentId=${encodeURIComponent(agentId)}`);
@@ -206,7 +177,7 @@ export function issueCommand(): Command {
         process.exit(1);
       }
       const agentId = resolveAgentId(opts);
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, agentId);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
       try {
         const issue = await client.patchJSON<IssueResponse>(`/api/issues/${opts.issue_id}?agentId=${encodeURIComponent(agentId)}`, body);
@@ -233,7 +204,7 @@ export function issueCommand(): Command {
         process.exit(1);
       }
       const agentId = resolveAgentId(opts);
-      const { serverUrl, token, workspaceId } = resolveClientOpts(command, agentId);
+      const { serverUrl, token, workspaceId } = resolveClientOpts(command, { agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
       try {
         const res = await client.postJSON<{ comment: CommentResponse }>(`/api/issues/${opts.issue_id}/comments?agentId=${encodeURIComponent(agentId)}`, { content });

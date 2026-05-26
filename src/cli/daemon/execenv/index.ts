@@ -5,6 +5,7 @@ import type { Task } from "../types.js";
 
 export interface ExecEnvConfig {
   workspacesRoot: string;
+  token?: string;
 }
 
 export interface ExecEnvResult {
@@ -34,6 +35,7 @@ export function prepare(
     ALOOK_TRACE_ID: task.traceId ?? "",
     ALOOK_CHANNEL: task.channel ?? "default",
     ALOOK_HEALTH_PORT: process.env.ALOOK_HEALTH_PORT || "19514",
+    ...(config.token ? { ALOOK_TOKEN: config.token } : {}),
   };
 
   return { workDir, timelineDir, env };
