@@ -3,6 +3,7 @@ import { randomUUID } from "crypto"
 import { seedTestData, cleanupTestData, type TestSeed } from "../helpers/seed"
 import { sessionRequest, tokenRequest } from "../helpers/auth"
 import { sql, sqlQuery, sqlBatch } from "../helpers/db"
+import { fetchWithRetry } from "../helpers/fetch"
 
 let seed: TestSeed
 
@@ -110,7 +111,7 @@ describe("machine token activation", () => {
 
     // Activate
     const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
-    const res = await fetch(`${APP_URL}/api/machine-tokens/activate`, {
+    const res = await fetchWithRetry(`${APP_URL}/api/machine-tokens/activate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -156,7 +157,7 @@ describe("machine token activation", () => {
 
     // Activate
     const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
-    const res = await fetch(`${APP_URL}/api/machine-tokens/activate`, {
+    const res = await fetchWithRetry(`${APP_URL}/api/machine-tokens/activate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

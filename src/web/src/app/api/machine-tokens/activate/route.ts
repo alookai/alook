@@ -84,21 +84,19 @@ export async function POST(req: NextRequest) {
     invalidate(cacheKeys.allRuntimes(workspaceId)),
   ]);
 
-  // Notify the web UI
-  try {
-    await broadcastToUser(mt.userId, {
-      type: "runtime.registered",
-      daemonId,
-      hostname,
-      workspaceId,
-    });
-  } catch (err) {
+  // Notify the web UI (fire-and-forget to avoid blocking the response)
+  broadcastToUser(mt.userId, {
+    type: "runtime.registered",
+    daemonId,
+    hostname,
+    workspaceId,
+  }).catch((err) => {
     log.warn("broadcast after activation failed", {
       userId: mt.userId,
       daemonId,
       err: err instanceof Error ? err.message : String(err),
     });
-  }
+  });
 
   return writeJSON({
     daemon_id: daemonId,

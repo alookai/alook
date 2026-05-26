@@ -8,6 +8,7 @@ export function isRetryableError(err: unknown): boolean {
 
   const cause = (err as Error & { cause?: Error }).cause
   if (cause && (cause as NodeJS.ErrnoException).code === "ECONNRESET") return true
+  if (cause && cause.message?.includes("other side closed")) return true
 
   if (err instanceof TypeError && err.message.includes("fetch failed")) return true
 
