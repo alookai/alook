@@ -45,6 +45,7 @@ export default function RuntimesPage() {
   const [generatedToken, setGeneratedToken] = useState("");
   const [generatingToken, setGeneratingToken] = useState(false);
   const [registeredDaemonId, setRegisteredDaemonId] = useState<string | null>(null);
+  const [daemonOnline, setDaemonOnline] = useState(false);
 
   const [latestCliVersion, setLatestCliVersion] = useState<string | null>(null);
   const [updatingDaemons, setUpdatingDaemons] = useState<Set<string>>(new Set());
@@ -95,6 +96,7 @@ export default function RuntimesPage() {
         setSheetOpen(false);
         setGeneratedToken("");
         setRegisteredDaemonId(null);
+        setDaemonOnline(false);
         toast.success("Machine connected");
         if (agentsRef.current.length === 0) {
           const slug = pathname.split("/")[2];
@@ -490,6 +492,7 @@ export default function RuntimesPage() {
               generatingToken={generatingToken}
               onGenerateToken={onGenerateToken}
               registered={!!registeredDaemonId}
+              daemonOnline={daemonOnline}
             />
           </SheetBody>
         </SheetContent>

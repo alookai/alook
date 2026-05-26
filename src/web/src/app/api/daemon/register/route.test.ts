@@ -116,7 +116,7 @@ describe("POST /api/daemon/register", () => {
     expect(mockUpsertAgentRuntime).toHaveBeenCalledTimes(1);
   });
 
-  it("broadcasts runtime.registered and runtime.status after upserts", async () => {
+  it("broadcasts only runtime.registered after upserts (not runtime.status)", async () => {
     const POST = await loadRoute(authCtx);
 
     mockGetMember.mockResolvedValue({ userId: "u1", workspaceId: "w1" });
@@ -126,19 +126,30 @@ describe("POST /api/daemon/register", () => {
 
     await POST(makeReq(validBody));
 
-    expect(mockBroadcastToUser).toHaveBeenCalledTimes(2);
+    expect(mockBroadcastToUser).toHaveBeenCalledTimes(1);
     expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
       type: "runtime.registered",
       daemonId: "d1",
       hostname: "MyMachine",
       workspaceId: "w1",
     });
-    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
-      type: "runtime.status",
-      daemonId: "d1",
-      workspaceId: "w1",
-      status: "online",
-    });
+  });
+
+  it("does NOT broadcast runtime.status from register endpoint", async () => {
+    const POST = await loadRoute(authCtx);
+
+    mockGetMember.mockResolvedValue({ userId: "u1", workspaceId: "w1" });
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1" });
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    await POST(makeReq(validBody));
+
+    const broadcastCalls = mockBroadcastToUser.mock.calls;
+    const statusBroadcasts = broadcastCalls.filter(
+      ([, msg]: [string, any]) => msg.type === "runtime.status"
+    );
+    expect(statusBroadcasts).toHaveLength(0);
   });
 
   it("returns 404 when membership is missing and does not broadcast", async () => {

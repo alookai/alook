@@ -103,12 +103,5 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     workspaceId,
   }).catch(() => {});
 
-  broadcastToUser(ctx.userId, {
-    type: "runtime.status",
-    daemonId,
-    workspaceId,
-    status: "online",
-  }).catch(() => {});
-
   return writeJSON({ runtimes: results.map(runtimeToResponse), workspaceId });
 });

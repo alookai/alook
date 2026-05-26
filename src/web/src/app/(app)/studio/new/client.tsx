@@ -58,6 +58,7 @@ export function StudioOnboardingClient({
   const [generatedToken, setGeneratedToken] = useState("");
   const [generatingToken, setGeneratingToken] = useState(false);
   const [machineRegistered, setMachineRegistered] = useState(false);
+  const [daemonOnline, setDaemonOnline] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
 
   const onlineRuntimes = runtimes.filter((r) => r.status === "online");
@@ -86,7 +87,7 @@ export function StudioOnboardingClient({
         listRuntimes(currentWsId).then(setRuntimes).catch(() => {});
       }
     } else if (msg.type === "runtime.status" && msg.status === "online") {
-      setMachineRegistered(true);
+      setDaemonOnline(true);
       const wsId = workspaceIdRef.current;
       if (wsId) {
         listRuntimes(wsId).then(setRuntimes).catch(() => {});
@@ -468,6 +469,7 @@ export function StudioOnboardingClient({
                         generatingToken={generatingToken}
                         onGenerateToken={handleGenerateToken}
                         registered={machineRegistered}
+                        daemonOnline={daemonOnline}
                       />
                     </div>
                   )}
@@ -483,6 +485,7 @@ export function StudioOnboardingClient({
                       generatingToken={generatingToken}
                       onGenerateToken={handleGenerateToken}
                       registered={machineRegistered}
+                      daemonOnline={daemonOnline}
                     />
                   </div>
                 </>

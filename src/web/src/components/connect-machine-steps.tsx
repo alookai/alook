@@ -27,11 +27,13 @@ export function ConnectMachineSteps({
   generatingToken,
   onGenerateToken,
   registered,
+  daemonOnline,
 }: {
   generatedToken: string;
   generatingToken: boolean;
   onGenerateToken: () => void;
   registered: boolean;
+  daemonOnline: boolean;
 }) {
   const hasTriggered = useRef(false);
 
@@ -108,9 +110,9 @@ export function ConnectMachineSteps({
         className={`space-y-2 transition-opacity duration-300 ${!registered ? "opacity-40 pointer-events-none" : ""}`}
       >
         <p className="text-sm font-medium flex items-center gap-2">
-          <StepIndicator step={2} completed={registered} />
+          <StepIndicator step={2} completed={daemonOnline} />
           Start the daemon
-          {registered && <span className="text-xs text-emerald-500 font-normal">Done</span>}
+          {daemonOnline && <span className="text-xs text-emerald-500 font-normal">Done</span>}
         </p>
         <p className="text-xs text-muted-foreground pl-7">
           The daemon connects your local agents to Alook.
@@ -128,7 +130,7 @@ export function ConnectMachineSteps({
           </TooltipTrigger>
           <TooltipContent>Click to copy</TooltipContent>
         </Tooltip>
-        {registered && (
+        {registered && !daemonOnline && (
           <div className="pl-7">
             <Button
               size="sm"
