@@ -227,6 +227,7 @@ export interface SkillScannerConfig {
   workspacesRoot: string;
   workspaces: { workspaceId: string; token: string; agentIds: string[] }[];
   runtimes: Runtime[];
+  daemonId: string;
 }
 
 
@@ -334,11 +335,13 @@ function runScan() {
       if (prevHash !== hash) {
         const skillItems = skills.map((s) => ({ name: s.name, description: s.description }));
         log.info(`Syncing global ${runtime} — ${skills.length} skills`);
+        const daemonId = scannerConfig.daemonId;
         const syncPromises = scannerConfig.workspaces.map((ws) =>
           clientRef!.syncSkills(ws.token, {
             scope: "global",
             runtime,
             skills: skillItems,
+            daemon_id: daemonId,
           })
         );
         Promise.all(syncPromises).then(() => {

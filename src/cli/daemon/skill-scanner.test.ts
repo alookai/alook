@@ -71,6 +71,7 @@ describe("runScan global skills syncs to all workspaces", () => {
         { workspaceId: "ws2", token: "token-ws2", agentIds: ["agent2"] },
       ],
       runtimes: ["claude"],
+      daemonId: "test-daemon",
     }, 999_999);
 
     await new Promise((r) => setTimeout(r, 100));
@@ -90,6 +91,7 @@ describe("runScan global skills syncs to all workspaces", () => {
       workspacesRoot,
       workspaces: [],
       runtimes: ["claude"],
+      daemonId: "test-daemon",
     }, 999_999);
 
     expect(mockClient.syncSkills).not.toHaveBeenCalled();

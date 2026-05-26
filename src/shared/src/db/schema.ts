@@ -772,13 +772,14 @@ export const agentSkill = sqliteTable(
       .notNull()
       .references(() => workspace.id, { onDelete: "cascade" }),
     agentId: text("agent_id"),
+    daemonId: text("daemon_id"),
     runtime: text("runtime").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
     syncedAt: text("synced_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
-    unique("agent_skill_ws_runtime_name_agent").on(t.workspaceId, t.runtime, t.name, t.agentId),
+    unique("agent_skill_ws_runtime_name_agent_daemon").on(t.workspaceId, t.runtime, t.name, t.agentId, t.daemonId),
     index("idx_as_workspace_runtime").on(t.workspaceId, t.runtime),
     index("idx_as_agent_runtime").on(t.agentId, t.runtime),
     foreignKey({

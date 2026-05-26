@@ -23,6 +23,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         ctx.workspaceId!,
         body.runtime,
         body.skills,
+        body.daemon_id,
       )
     );
   } else {

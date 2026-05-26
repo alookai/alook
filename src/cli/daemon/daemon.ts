@@ -653,6 +653,7 @@ export async function startDaemon(
       agentIds: ws.agent_ids ?? [],
     })),
     runtimes: providers.map((p) => p.type as "claude" | "codex" | "opencode"),
+    daemonId: config.daemonId,
   }, 60_000);
 
   let shuttingDown = false;
