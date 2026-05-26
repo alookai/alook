@@ -163,9 +163,9 @@ describe("buildInstructionContent email tool injection", () => {
     expect(content).toContain("## YOUR COLLEAGUES");
     expect(content).toContain("### Scout (scout@alook.ai)");
     expect(content).toContain("A researcher agent");
-    expect(content).toContain("**Collaboration:** Share findings with YOU");
+    expect(content).toContain("**DELEGATE when:** Share findings with YOU");
     expect(content).toContain("### Writer (writer@alook.ai)");
-    expect(content).toContain("**Collaboration:** Draft blog posts");
+    expect(content).toContain("**DELEGATE when:** Draft blog posts");
   });
 
   it("includes isolated workspaces warning when agent has colleagues", () => {
@@ -216,7 +216,7 @@ describe("buildInstructionContent email tool injection", () => {
     const content = buildInstructionContent(task);
 
     expect(content).toContain("### Scout (scout@alook.ai)");
-    expect(content).toContain("**Collaboration:** Share data");
+    expect(content).toContain("**DELEGATE when:** Share data");
     // Only the header + relationship, no blank description line
     const scoutSection = content.split("### Scout")[1].split("##")[0];
     expect(scoutSection).not.toMatch(/\n\n\n/);

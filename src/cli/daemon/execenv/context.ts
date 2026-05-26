@@ -119,7 +119,7 @@ ${task.agent.instructions}
       const c = task.agent.colleagues[i];
       content += `### ${c.name}${c.email ? ` (${c.email})` : ""}\n`;
       if (c.description) content += `${c.description}\n`;
-      if (c.instruction) content += `**Collaboration:** ${resolveInstruction(c.instruction, task.agentId)}\n`;
+      if (c.instruction) content += `**DELEGATE when:** ${resolveInstruction(c.instruction, task.agentId)}\n`;
       if (i < task.agent.colleagues.length - 1) content += "\n";
     }
     content += `

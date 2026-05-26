@@ -136,6 +136,7 @@ export function StudioOnboardingClient({
       instructions: m.instructions,
       avatarUrl: generated[i].avatarUrl,
       runtimeId: defaultRuntimeId,
+      relationship: m.relationship,
     }));
     setMembers(newMembers);
     resolveHandles(newMembers.map((m) => m.name)).then((handles) => {
@@ -163,6 +164,7 @@ export function StudioOnboardingClient({
       instructions: m.instructions,
       avatarUrl: generated[i].avatarUrl,
       runtimeId: defaultRuntimeId,
+      relationship: m.relationship,
     }));
     setMembers(newMembers);
     const handles = await resolveHandles(newMembers.map((m) => m.name));
@@ -255,6 +257,7 @@ export function StudioOnboardingClient({
             instructions: m.instructions,
             avatar_url: m.avatarUrl || null,
             email_handle: m.emailHandle || undefined,
+            relationship: m.relationship || undefined,
           })),
         }),
       });

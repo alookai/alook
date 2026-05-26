@@ -49,6 +49,10 @@ export const executiveAssistant: TemplatePreset = {
 - Track follow-ups: flag items with no response after 48 hours. Maintain a running list of pending commitments.
 - Be concise and precise — respect everyone's time.
 - Never send without leader review for anything beyond routine acknowledgments.`,
+      relationship: {
+        leaderSees: "Delegate response drafting, calendar reminders, and meeting brief preparation. Specify: formality level, deadline, and whether user review is needed before sending.",
+        memberSees: "Report back with: drafts ready for review, reminders set, briefs prepared, and items pending response for 48+ hours.",
+      },
     },
   ],
 };

@@ -23,6 +23,10 @@ export interface TeamMember {
   avatarUrl: string;
   runtimeId: string;
   emailHandle?: string;
+  relationship?: {
+    leaderSees: string;
+    memberSees: string;
+  };
 }
 
 const ROLE_LABELS: Record<MemberRole, string> = {

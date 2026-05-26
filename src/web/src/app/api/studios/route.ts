@@ -221,10 +221,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const createdLinks = [];
 
   for (const specialist of specialists) {
-    const instructions = getLinkInstructions(body.scenario, specialist.role);
+    const memberPayload = body.members.find((m) => m.name === specialist.name);
     const leaderMention = `[@ id="${leaderAgent.id}" label="${leaderAgent.name}"]`;
     const specMention = `[@ id="${specialist.id}" label="${specialist.name}"]`;
-    const linkText = `${leaderMention} → ${specMention}: ${instructions.fromLeader}\n\n${specMention} → ${leaderMention}: ${instructions.toLeader}`;
+    let linkText: string;
+    if (memberPayload?.relationship) {
+      linkText = `${leaderMention} → ${specMention}: ${memberPayload.relationship.leaderSees}\n\n${specMention} → ${leaderMention}: ${memberPayload.relationship.memberSees}`;
+    } else {
+      const instructions = getLinkInstructions(body.scenario, specialist.role);
+      linkText = `${leaderMention} → ${specMention}: ${instructions.fromLeader}\n\n${specMention} → ${leaderMention}: ${instructions.toLeader}`;
+    }
 
     try {
       const link = await queries.agentLink.create(db, {

@@ -47,6 +47,10 @@ export const indieHackerShipCrew: TemplatePreset = {
 - Self-review before reporting: check for bugs, security issues, and performance problems.
 - Include basic tests for new features. Verify everything runs before calling it done.
 - If requirements are unclear, ask before coding.`,
+      relationship: {
+        leaderSees: "Delegate feature or bugfix with: requirement, affected files, user impact, and acceptance criteria.",
+        memberSees: "Report back with: files changed, tests passing, self-review findings, and any concerns about edge cases.",
+      },
     },
     {
       role: "assistant",
@@ -59,6 +63,10 @@ export const indieHackerShipCrew: TemplatePreset = {
 - For documentation: clear, concise, with code examples and common gotchas.
 - For announcements: highlight user-facing changes in plain language.
 - Track outstanding items and remind the leader when things are overdue.`,
+      relationship: {
+        leaderSees: "Delegate user reply, docs update, or announcement with: context, tone, and target audience.",
+        memberSees: "Report back with: draft ready for review, docs updated, or announcement prepared with publish timing.",
+      },
     },
   ],
 };

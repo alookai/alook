@@ -47,6 +47,10 @@ export const weeklyReportBot: TemplatePreset = {
 - Calendar: note meeting purposes (not just titles), total meeting time, productive vs. overhead estimate.
 - Include: feature work, bug fixes, reviews, important decisions, client comms. Exclude: automated notifications, spam.
 - Flag data gaps (e.g., calendar empty on a day — PTO or just no meetings?). Highlight completed milestones.`,
+      relationship: {
+        leaderSees: "Delegate data gathering with: time range, sources to check (git, email, calendar), and focus areas or projects to highlight.",
+        memberSees: "Report back with: raw activity data organized by source, milestones completed, data gaps flagged, and items needing interpretation.",
+      },
     },
   ],
 };

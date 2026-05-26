@@ -47,6 +47,10 @@ export const socialMediaManager: TemplatePreset = {
 - Track trending topics and identify newsjacking opportunities (industry news + your take). Flag viral formats worth adapting.
 - Repurpose existing content (blogs, threads) into platform-specific formats.
 - Set calendar reminders for optimal publishing times.`,
+      relationship: {
+        leaderSees: "Delegate post creation with: topic or content to repurpose, target platform, tone, and publish timing.",
+        memberSees: "Report back with: post drafts ready for review, trending topics spotted, and calendar reminders set for publishing.",
+      },
     },
   ],
 };
