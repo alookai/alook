@@ -9,7 +9,7 @@ const NODE_HEIGHT = 100;
 export function getAutoLayout(
   nodes: Node[],
   edges: Edge[],
-  layout: LayoutType = "star",
+  layout: LayoutType = "tree",
 ): Node[] {
   if (nodes.length === 0) return nodes;
 

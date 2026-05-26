@@ -24,9 +24,11 @@ import {
   Maximize2,
   Loader2,
   Plus,
+  LayoutGrid,
   Circle,
   GitBranch,
   ArrowRight,
+  Check,
 } from "lucide-react";
 import type { Agent, AgentLink } from "@alook/shared";
 import { cn } from "@/lib/utils";
@@ -36,6 +38,11 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
 import { AnimatedAvatar, parseAvatarUrl } from "@/components/avatar";
 import {
@@ -68,7 +75,7 @@ function loadLayoutType(workspaceId: string): LayoutType {
     const raw = localStorage.getItem(layoutStorageKey(workspaceId));
     if (raw === "star" || raw === "tree" || raw === "flow") return raw;
   } catch {}
-  return "star";
+  return "tree";
 }
 
 function saveLayoutType(workspaceId: string, layout: LayoutType) {
@@ -423,63 +430,48 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
 
         <div className="w-px h-5 bg-foreground/10 mx-0.5 self-center" />
 
-        <Tooltip>
-          <TooltipTrigger
-            render={
+        <Popover>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <PopoverTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="size-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    />
+                  }
+                >
+                  <LayoutGrid className="size-3.5" />
+                </PopoverTrigger>
+              }
+            />
+            <TooltipContent side="top">Layout</TooltipContent>
+          </Tooltip>
+          <PopoverContent className="w-36 p-1" align="start" side="top" sideOffset={8}>
+            {([
+              { type: "star" as const, label: "Star", icon: Circle },
+              { type: "tree" as const, label: "Tree", icon: GitBranch },
+              { type: "flow" as const, label: "Flow", icon: ArrowRight },
+            ]).map(({ type, label, icon: Icon }) => (
               <button
+                key={type}
                 type="button"
                 className={cn(
-                  "size-7 rounded-md flex items-center justify-center transition-colors",
-                  layoutType === "star"
-                    ? "text-foreground bg-accent"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
+                  "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors",
+                  layoutType === type
+                    ? "bg-accent text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
                 )}
-                onClick={() => handleLayoutChange("star")}
-              />
-            }
-          >
-            <Circle className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipContent side="top">Star Layout</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                className={cn(
-                  "size-7 rounded-md flex items-center justify-center transition-colors",
-                  layoutType === "tree"
-                    ? "text-foreground bg-accent"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                )}
-                onClick={() => handleLayoutChange("tree")}
-              />
-            }
-          >
-            <GitBranch className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipContent side="top">Tree Layout</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                className={cn(
-                  "size-7 rounded-md flex items-center justify-center transition-colors",
-                  layoutType === "flow"
-                    ? "text-foreground bg-accent"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent",
-                )}
-                onClick={() => handleLayoutChange("flow")}
-              />
-            }
-          >
-            <ArrowRight className="size-3.5" />
-          </TooltipTrigger>
-          <TooltipContent side="top">Flow Layout</TooltipContent>
-        </Tooltip>
+                onClick={() => handleLayoutChange(type)}
+              >
+                <Icon className="size-3.5" />
+                <span className="flex-1 text-left">{label}</span>
+                {layoutType === type && <Check className="size-3.5" />}
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* No-links hint */}
