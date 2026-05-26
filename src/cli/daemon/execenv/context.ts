@@ -312,7 +312,9 @@ export function ensureSymlinks(workDir: string): void {
     } catch (err: unknown) {
       const code = (err as NodeJS.ErrnoException)?.code;
       if (code === "EEXIST") {
-        // Race condition: another process created it — safe to ignore
+        // Multiple session-runners for the same agent can race here (e.g., welcome
+        // email + welcome chat tasks enqueued simultaneously on studio creation).
+        // The first process wins; subsequent EEXIST is safe to ignore.
       } else if (code === "EPERM" || code === "EACCES") {
         copyFileSync(canonicalPath, aliasPath);
       } else {

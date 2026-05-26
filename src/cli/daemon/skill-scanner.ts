@@ -334,7 +334,7 @@ function runScan() {
 
       if (prevHash !== hash) {
         const skillItems = skills.map((s) => ({ name: s.name, description: s.description }));
-        log.info(`Syncing global ${runtime} — ${skills.length} skills`);
+        log.debug(`Syncing global ${runtime} — ${skills.length} skills`);
         const daemonId = scannerConfig.daemonId;
         const syncPromises = scannerConfig.workspaces.map((ws) =>
           clientRef!.syncSkills(ws.token, {
@@ -365,7 +365,7 @@ function runScan() {
 
       if (prevHash !== hash) {
         const skillItems = skills.map((s) => ({ name: s.name, description: s.description }));
-        log.info(`Syncing ${target.agentId}:${target.runtime} — ${skills.length} agent skills`);
+        log.debug(`Syncing ${target.agentId}:${target.runtime} — ${skills.length} agent skills`);
         clientRef.syncSkills(target.token, {
           scope: "agent",
           agent_id: target.agentId,
