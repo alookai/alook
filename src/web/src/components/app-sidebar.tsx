@@ -309,6 +309,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
         onPin={() => handlePinWithFolderCleanup(agent.id)}
         onUnpin={() => handleUnpinAgent(agent.id)}
         extraContextMenuItems={extraContextMenuItems}
+        isDragActive={!!dragActiveId}
       />
     </div>
   );

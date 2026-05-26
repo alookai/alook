@@ -26,6 +26,7 @@ export function AgentSidebarButton({
   onUnpin,
   extraContextMenuItems,
   hidePin,
+  isDragActive,
 }: {
   agent: Agent;
   isActive: boolean;
@@ -37,6 +38,7 @@ export function AgentSidebarButton({
   onUnpin: () => void;
   extraContextMenuItems?: React.ReactNode;
   hidePin?: boolean;
+  isDragActive?: boolean;
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   return (
@@ -49,8 +51,8 @@ export function AgentSidebarButton({
     >
       <ContextMenu>
         <PopoverTrigger
-          openOnHover
-          delay={10}
+          openOnHover={!isDragActive}
+          delay={200}
           render={
             <ContextMenuTrigger
               render={
