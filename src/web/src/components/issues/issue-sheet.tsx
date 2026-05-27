@@ -14,6 +14,13 @@ import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectPopup,
+  SelectItem,
+} from "@/components/ui/select";
+import {
   ArrowUp,
   Check,
   CircleDot,
@@ -46,10 +53,6 @@ const MAX_WIDTH_RATIO = 0.8;
 const GHOST_CONTROL =
   "h-7 border-0 bg-transparent px-1.5 text-xs text-foreground hover:bg-accent transition-colors -ml-1.5";
 
-const GHOST_SELECT = cn(
-  GHOST_CONTROL,
-  "rounded-md outline-none focus-visible:bg-accent focus-visible:ring-0 appearance-none pr-6"
-);
 
 const SELECTOR_STATUSES = ["todo", "in_progress", "review", "done"] as const;
 
@@ -584,18 +587,19 @@ export function IssueSheet({
         {/* Status row (detail mode only) */}
         {mode === "detail" && issue && (
           <PropertyRow icon={<CircleDot className="size-3.5" />}>
-            <select
-              value={issue.status}
-              onChange={(e) => handleStatusChange(e.target.value)}
-              className={GHOST_SELECT}
-            >
-              {(isTodoDraft
-                ? (["todo", "done"] as const)
-                : SELECTOR_STATUSES
-              ).map((s) => (
-                <option key={s} value={s}>{statusLabel(s)}</option>
-              ))}
-            </select>
+            <Select value={issue.status} onValueChange={(val) => { if (val) handleStatusChange(val); }}>
+              <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-xs text-foreground hover:bg-accent transition-colors rounded-md">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {(isTodoDraft
+                  ? (["todo", "done"] as const)
+                  : SELECTOR_STATUSES
+                ).map((s) => (
+                  <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
           </PropertyRow>
         )}
 
