@@ -12,7 +12,7 @@ import {
   Select,
   SelectTrigger,
   SelectValue,
-  SelectPopup,
+  SelectContent,
   SelectItem,
 } from "@/components/ui/select";
 import { GitBranch, RefreshCw } from "lucide-react";
@@ -303,20 +303,20 @@ export default function TracesPage() {
           <SelectTrigger className="w-35 border-none bg-transparent shadow-none text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
             <SelectValue placeholder="Status: All" />
           </SelectTrigger>
-          <SelectPopup>
+          <SelectContent>
             {STATUS_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label === "All" ? "Status: All" : opt.label}
               </SelectItem>
             ))}
-          </SelectPopup>
+          </SelectContent>
         </Select>
 
         <Select value={agentFilter} onValueChange={(v) => updateFilter("agentId", v ?? "")}>
           <SelectTrigger className="w-40 border-none bg-transparent shadow-none text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
             {agentFilter ? agents.find((a) => a.id === agentFilter)?.name ?? agentFilter : "Agent: All"}
           </SelectTrigger>
-          <SelectPopup>
+          <SelectContent>
             <SelectItem value="">Agent: All</SelectItem>
             {agents.map((a) => (
               <SelectItem key={a.id} value={a.id}>
@@ -326,21 +326,21 @@ export default function TracesPage() {
                 </span>
               </SelectItem>
             ))}
-          </SelectPopup>
+          </SelectContent>
         </Select>
 
         <Select value={channelFilter} onValueChange={(v) => updateFilter("channel", v ?? "")}>
           <SelectTrigger className="w-40 border-none bg-transparent shadow-none text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
             <SelectValue placeholder="Channel: All" />
           </SelectTrigger>
-          <SelectPopup>
+          <SelectContent>
             <SelectItem value="">Channel: All</SelectItem>
             {channels.map((ch) => (
               <SelectItem key={ch.id} value={ch.name}>
                 #{ch.name}
               </SelectItem>
             ))}
-          </SelectPopup>
+          </SelectContent>
         </Select>
       </div>
 

@@ -8,7 +8,7 @@ import {
   Select,
   SelectTrigger,
   SelectValue,
-  SelectPopup,
+  SelectContent,
   SelectItem,
 } from "@/components/ui/select";
 import {
@@ -798,13 +798,13 @@ export function AgentAccessTab({
                     <SelectTrigger className="flex-1 text-xs">
                       <SelectValue placeholder="Add a member..." />
                     </SelectTrigger>
-                    <SelectPopup>
+                    <SelectContent>
                       {availableMembers.map((m) => (
                         <SelectItem key={m.user_id} value={m.user_id}>
                           {m.name || m.email}
                         </SelectItem>
                       ))}
-                    </SelectPopup>
+                    </SelectContent>
                   </Select>
                 </div>
               ) : (

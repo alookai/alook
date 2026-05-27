@@ -5,7 +5,7 @@ import {
   Select,
   SelectTrigger,
   SelectValue,
-  SelectPopup,
+  SelectContent,
   SelectItem,
 } from "@/components/ui/select";
 import { ProviderLogo } from "@/components/provider-logo";
@@ -37,7 +37,7 @@ export function AiToolStep({
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectPopup>
+                <SelectContent>
                   {runtimes.map((rt) => (
                     <SelectItem key={rt.id} value={rt.id}>
                       <div className="flex items-center gap-2">
@@ -46,7 +46,7 @@ export function AiToolStep({
                       </div>
                     </SelectItem>
                   ))}
-                </SelectPopup>
+                </SelectContent>
               </Select>
             </div>
           </div>

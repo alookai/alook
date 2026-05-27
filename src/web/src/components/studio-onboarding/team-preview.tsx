@@ -8,7 +8,7 @@ import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
 import {
   Select,
   SelectTrigger,
-  SelectPopup,
+  SelectContent,
   SelectItem,
 } from "@/components/ui/select";
 import { ProviderLogo } from "@/components/provider-logo";
@@ -106,13 +106,13 @@ export function TeamPreview({
                           <span className="truncate">{selectedRt?.provider || selectedRt?.runtime_mode || "Select"}</span>
                         </div>
                       </SelectTrigger>
-                      <SelectPopup>
+                      <SelectContent>
                         {runtimes.map((rt) => (
                           <SelectItem key={rt.id} value={rt.id}>
                             {rt.provider || rt.runtime_mode}
                           </SelectItem>
                         ))}
-                      </SelectPopup>
+                      </SelectContent>
                     </Select>
                   </div>
                 );

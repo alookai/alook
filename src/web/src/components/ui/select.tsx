@@ -187,17 +187,12 @@ function SelectScrollDownButton({
   )
 }
 
-const SelectPopup = SelectContent
-const SelectGroupLabel = SelectLabel
-
 export {
   Select,
   SelectContent,
   SelectGroup,
   SelectItem,
   SelectLabel,
-  SelectGroupLabel,
-  SelectPopup,
   SelectScrollDownButton,
   SelectScrollUpButton,
   SelectSeparator,

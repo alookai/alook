@@ -7,10 +7,10 @@ import {
   Select,
   SelectTrigger,
   SelectValue,
-  SelectPopup,
+  SelectContent,
   SelectItem,
   SelectGroup,
-  SelectGroupLabel,
+  SelectLabel,
 } from "@/components/ui/select";
 
 interface RuntimeSelectProps {
@@ -75,12 +75,12 @@ export function RuntimeSelect({
       <SelectTrigger {...triggerProps}>
         <SelectValue placeholder={getPlaceholder(runtimes)} />
       </SelectTrigger>
-      <SelectPopup>
+      <SelectContent>
         {Array.from(groups.entries()).map(([key, group]) => (
           <SelectGroup key={key}>
-            <SelectGroupLabel className="truncate">
+            <SelectLabel className="truncate">
               {group.label}
-            </SelectGroupLabel>
+            </SelectLabel>
             {group.runtimes.map((rt) => (
               <SelectItem
                 key={rt.id}
@@ -98,7 +98,7 @@ export function RuntimeSelect({
             ))}
           </SelectGroup>
         ))}
-      </SelectPopup>
+      </SelectContent>
     </Select>
   );
 }

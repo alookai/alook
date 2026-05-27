@@ -12,7 +12,7 @@ import {
   Select,
   SelectTrigger,
   SelectValue,
-  SelectPopup,
+  SelectContent,
   SelectItem,
 } from "@/components/ui/select";
 import {
@@ -321,26 +321,26 @@ export default function AgentActivityPage() {
           <SelectTrigger className="w-35 border-none bg-transparent shadow-none text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
             <SelectValue placeholder="Status: All" />
           </SelectTrigger>
-          <SelectPopup>
+          <SelectContent>
             {STATUS_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label === "All" ? "Status: All" : opt.label}
               </SelectItem>
             ))}
-          </SelectPopup>
+          </SelectContent>
         </Select>
 
         <Select value={typeFilter} onValueChange={(v) => updateFilter("type", v ?? "")}>
           <SelectTrigger className="w-32.5 border-none bg-transparent shadow-none text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
             <SelectValue placeholder="Type: All" />
           </SelectTrigger>
-          <SelectPopup>
+          <SelectContent>
             {TYPE_OPTIONS.map((opt) => (
               <SelectItem key={opt.value} value={opt.value}>
                 {opt.label === "All" ? "Type: All" : opt.label}
               </SelectItem>
             ))}
-          </SelectPopup>
+          </SelectContent>
         </Select>
       </div>
 
