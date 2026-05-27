@@ -66,8 +66,10 @@ export function AgentChatSheet({ open, onOpenChange, agent, targetConvId, scroll
           onPointerUp={(e) => {
             (e.target as HTMLElement).releasePointerCapture(e.pointerId);
           }}
-          className="hidden sm:block absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-primary/20 active:bg-primary/30 transition-colors rounded-l-xl"
-        />
+          className="hidden sm:flex absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 items-center justify-center hover:bg-primary/10 active:bg-primary/20 transition-colors rounded-l-xl"
+        >
+          <div className="h-6 w-1 rounded-lg bg-border" />
+        </div>
 
         {/* Top-right action buttons */}
         <div className="absolute top-3 right-3 z-10 flex items-center gap-1">
