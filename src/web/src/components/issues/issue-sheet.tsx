@@ -36,6 +36,7 @@ import type { TraceTask } from "@/lib/api";
 import { updateIssue } from "@/lib/api";
 import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
 
 // --- Constants ---
@@ -494,7 +495,10 @@ export function IssueSheet({
         onKeyDown={(e) => { if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); handleCommentSubmit(); } }}
       />
       <div className="flex items-center justify-between px-2.5 pb-2 pt-0.5">
-        <kbd className="text-[11px] text-muted-foreground/50 font-sans select-none">⇧↵</kbd>
+        <KbdGroup className="text-muted-foreground/50">
+          <Kbd className="text-[11px]">⇧</Kbd>
+          <Kbd className="text-[11px]">↵</Kbd>
+        </KbdGroup>
         <Button
           size="icon-sm"
           onClick={handleCommentSubmit}
@@ -768,9 +772,10 @@ export function IssueSheet({
                 disabled={!title.trim() || submitting}
               >
                 {submitting && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
-                <kbd className="mr-1 hidden sm:inline-flex items-center gap-0.5 font-sans font-medium leading-none opacity-60">
-                  <span>&#x21E7;</span><span>+</span><span>&#x23CE;</span>
-                </kbd>
+                <KbdGroup className="mr-1 hidden sm:inline-flex opacity-60">
+                  <Kbd className="bg-background/20 text-inherit">⇧</Kbd>
+                  <Kbd className="bg-background/20 text-inherit">⏎</Kbd>
+                </KbdGroup>
                 Create
               </Button>
             </SheetFooter>

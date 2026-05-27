@@ -35,6 +35,7 @@ import type {
   UpdateCalendarEventRequest,
 } from "@alook/shared";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { CalendarDatePicker } from "./calendar-date-picker";
 import { CalendarTimePicker } from "./calendar-time-picker";
 import {
@@ -542,14 +543,13 @@ export function CalendarEventSheet({
   // foreground colour at reduced opacity so it reads on the primary fill in
   // both themes without needing a separate palette.
   const inlineSubmitHint = (
-    <kbd
+    <KbdGroup
       aria-hidden
-      className="mr-1 hidden sm:inline-flex items-center gap-0.5 font-sans font-medium leading-none opacity-60"
+      className="mr-1 hidden sm:inline-flex opacity-60"
     >
-      <span>⇧</span>
-      <span>+</span>
-      <span>⏎</span>
-    </kbd>
+      <Kbd className="bg-background/20 text-inherit">⇧</Kbd>
+      <Kbd className="bg-background/20 text-inherit">⏎</Kbd>
+    </KbdGroup>
   );
 
   const a11yTitle = mode === "edit"
