@@ -611,13 +611,15 @@ export function CalendarEventSheet({
   ) : (
     <div className="flex flex-col gap-1.5">
       <PropertyRow icon={<User className="size-3.5" />}>
-        <Select value={agentId} onValueChange={(val) => { if (val) setAgentId(val); }}>
+        <Select
+          value={agentId}
+          onValueChange={(val) => { if (val) setAgentId(val); }}
+          items={agents.map((a) => ({ value: a.id, label: a.name }))}
+        >
           <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
-            <SelectValue>
-              {agents.find((a) => a.id === agentId)?.name ?? "Select agent"}
-            </SelectValue>
+            <SelectValue placeholder={agents.length === 0 ? "No agents" : "Select agent"} />
           </SelectTrigger>
-          <SelectPopup portal={false} className="z-[100]">
+          <SelectPopup>
             {agents.map((a) => (
               <SelectItem key={a.id} value={a.id}>
                 {a.name}
@@ -663,25 +665,33 @@ export function CalendarEventSheet({
 
       <PropertyRow icon={<RepeatIcon className="size-3.5" />}>
         {!repeatEnabled ? (
-          <Select value="" onValueChange={(val) => {
-            if (!val) return;
-            if (val === "__custom__") {
-              setRepeatEnabled(true);
-              setRepeatCount("1");
-              setRepeatUnit("day");
-            } else {
-              const parsed = parseRepeatInterval(val);
-              if (parsed) {
+          <Select
+            value=""
+            onValueChange={(val) => {
+              if (!val) return;
+              if (val === "__custom__") {
                 setRepeatEnabled(true);
-                setRepeatCount(String(parsed.count));
-                setRepeatUnit(parsed.unit);
+                setRepeatCount("1");
+                setRepeatUnit("day");
+              } else {
+                const parsed = parseRepeatInterval(val);
+                if (parsed) {
+                  setRepeatEnabled(true);
+                  setRepeatCount(String(parsed.count));
+                  setRepeatUnit(parsed.unit);
+                }
               }
-            }
-          }}>
+            }}
+            items={[
+              { value: "", label: "Does not repeat" },
+              ...PRESET_INTERVALS.map((o) => ({ value: o.value, label: o.label })),
+              { value: "__custom__", label: "Custom…" },
+            ]}
+          >
             <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
               <SelectValue placeholder="Does not repeat" />
             </SelectTrigger>
-            <SelectPopup portal={false} className="z-[100]">
+            <SelectPopup>
               <SelectItem value="">Does not repeat</SelectItem>
               {PRESET_INTERVALS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
@@ -710,11 +720,15 @@ export function CalendarEventSheet({
               style={{ width: `${Math.max(1, repeatCount.length) + 1.5}ch` }}
               className="h-7 shrink-0 border-0 bg-transparent px-0 text-center text-sm tabular-nums text-foreground rounded-md outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-0 transition-colors"
             />
-            <Select value={repeatUnit} onValueChange={(val) => { if (val && isValidUnit(val)) setRepeatUnit(val); }}>
+            <Select
+              value={repeatUnit}
+              onValueChange={(val) => { if (val && isValidUnit(val)) setRepeatUnit(val); }}
+              items={REPEAT_UNITS.map((u) => ({ value: u, label: unitLabel(u, parseInt(repeatCount, 10) || 1) }))}
+            >
               <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
                 <SelectValue />
               </SelectTrigger>
-              <SelectPopup portal={false} className="z-[100]">
+              <SelectPopup>
                 {REPEAT_UNITS.map((u) => (
                   <SelectItem key={u} value={u}>
                     {unitLabel(u, parseInt(repeatCount, 10) || 1)}

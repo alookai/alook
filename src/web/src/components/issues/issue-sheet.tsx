@@ -587,11 +587,15 @@ export function IssueSheet({
         {/* Status row (detail mode only) */}
         {mode === "detail" && issue && (
           <PropertyRow icon={<CircleDot className="size-3.5" />}>
-            <Select value={issue.status} onValueChange={(val) => { if (val) handleStatusChange(val); }}>
+            <Select
+              value={issue.status}
+              onValueChange={(val) => { if (val) handleStatusChange(val); }}
+              items={(isTodoDraft ? (["todo", "done"] as const) : SELECTOR_STATUSES).map((s) => ({ value: s, label: statusLabel(s) }))}
+            >
               <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-xs text-foreground hover:bg-accent transition-colors rounded-md">
                 <SelectValue />
               </SelectTrigger>
-              <SelectPopup portal={false} className="z-[100]">
+              <SelectPopup>
                 {(isTodoDraft
                   ? (["todo", "done"] as const)
                   : SELECTOR_STATUSES
