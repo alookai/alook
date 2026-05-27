@@ -1,5 +1,5 @@
 import { betterAuth } from "better-auth"
-import { emailOTP } from "better-auth/plugins"
+import { emailOTP, deviceAuthorization, bearer } from "better-auth/plugins"
 import { createLogger, DEV_EMAIL_WORKER_URL, resolveMode } from "@alook/shared"
 import { getOtpSubject, renderOtpEmail } from "./email-templates"
 
@@ -73,6 +73,14 @@ export function createAuth(env: Env) {
     },
     plugins: isProd
       ? [
+          deviceAuthorization({
+            verificationUri: "/device",
+            validateClient: (clientId) => {
+              const allowed = (env.DEVICE_CLIENT_IDS || "").split(",").map((s) => s.trim())
+              return allowed.includes(clientId)
+            },
+          }),
+          bearer(),
           emailOTP({
             async sendVerificationOTP({ email, otp, type }) {
               log.info("sending OTP email", { to: email, type })
@@ -105,6 +113,15 @@ export function createAuth(env: Env) {
             },
           }),
         ]
-      : [],
+      : [
+          deviceAuthorization({
+            verificationUri: "/device",
+            validateClient: (clientId) => {
+              const allowed = (env.DEVICE_CLIENT_IDS || "").split(",").map((s) => s.trim())
+              return allowed.includes(clientId)
+            },
+          }),
+          bearer(),
+        ],
   })
 }

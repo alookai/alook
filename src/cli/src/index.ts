@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { registerCommand } from "../commands/register.js";
+import { loginCommand } from "../commands/login.js";
 import { statusCommand } from "../commands/status.js";
 import { daemonCommand } from "../commands/daemon.js";
 import { configCommand } from "../commands/config.js";
@@ -21,6 +22,7 @@ program
   .option("--profile <name>", "Profile name");
 
 program.addCommand(registerCommand());
+program.addCommand(loginCommand());
 program.addCommand(statusCommand());
 program.addCommand(daemonCommand());
 program.addCommand(emailCommand());

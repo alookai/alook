@@ -6,6 +6,8 @@ vi.mock("better-auth", () => ({
 
 vi.mock("better-auth/plugins", () => ({
   emailOTP: vi.fn((cfg: unknown) => ({ __plugin: "emailOTP", cfg })),
+  deviceAuthorization: vi.fn((cfg: unknown) => ({ __plugin: "deviceAuthorization", cfg })),
+  bearer: vi.fn(() => ({ __plugin: "bearer" })),
 }))
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
