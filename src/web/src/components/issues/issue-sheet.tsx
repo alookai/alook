@@ -591,7 +591,7 @@ export function IssueSheet({
               <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-xs text-foreground hover:bg-accent transition-colors rounded-md">
                 <SelectValue />
               </SelectTrigger>
-              <SelectPopup>
+              <SelectPopup portal={false}>
                 {(isTodoDraft
                   ? (["todo", "done"] as const)
                   : SELECTOR_STATUSES

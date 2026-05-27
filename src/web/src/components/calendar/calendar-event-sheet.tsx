@@ -613,9 +613,11 @@ export function CalendarEventSheet({
       <PropertyRow icon={<User className="size-3.5" />}>
         <Select value={agentId} onValueChange={(val) => { if (val) setAgentId(val); }}>
           <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
-            <SelectValue placeholder={agents.length === 0 ? "No agents" : "Select agent"} />
+            <SelectValue>
+              {agents.find((a) => a.id === agentId)?.name ?? "Select agent"}
+            </SelectValue>
           </SelectTrigger>
-          <SelectPopup>
+          <SelectPopup portal={false}>
             {agents.map((a) => (
               <SelectItem key={a.id} value={a.id}>
                 {a.name}
@@ -679,7 +681,7 @@ export function CalendarEventSheet({
             <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
               <SelectValue placeholder="Does not repeat" />
             </SelectTrigger>
-            <SelectPopup>
+            <SelectPopup portal={false}>
               <SelectItem value="">Does not repeat</SelectItem>
               {PRESET_INTERVALS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
@@ -712,7 +714,7 @@ export function CalendarEventSheet({
               <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
                 <SelectValue />
               </SelectTrigger>
-              <SelectPopup>
+              <SelectPopup portal={false}>
                 {REPEAT_UNITS.map((u) => (
                   <SelectItem key={u} value={u}>
                     {unitLabel(u, parseInt(repeatCount, 10) || 1)}
