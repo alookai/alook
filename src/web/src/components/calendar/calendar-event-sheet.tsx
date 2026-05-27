@@ -34,6 +34,7 @@ import type {
   CalendarEvent,
   UpdateCalendarEventRequest,
 } from "@alook/shared";
+import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
 import { CalendarDatePicker } from "./calendar-date-picker";
 import { CalendarTimePicker } from "./calendar-time-picker";
 import {
@@ -557,32 +558,16 @@ export function CalendarEventSheet({
 
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const resizeTitle = (el: HTMLTextAreaElement | null) => {
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  };
-
-  useEffect(() => {
-    resizeTitle(titleRef.current);
-  }, [title]);
-
   const titleInput = readonly ? (
     <p className="w-full px-0 py-1 font-news text-xl sm:text-2xl md:text-3xl font-medium leading-[1.2] tracking-tight">
       {title || "Untitled event"}
     </p>
   ) : (
-    <textarea
-      ref={(el) => {
-        titleRef.current = el;
-        resizeTitle(el);
-      }}
+    <AutoResizeTextarea
+      ref={titleRef}
       aria-label="Event title"
       value={title}
-      onChange={(e) => {
-        setTitle(e.target.value);
-        resizeTitle(e.target);
-      }}
+      onChange={(e) => setTitle(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
@@ -593,7 +578,7 @@ export function CalendarEventSheet({
       autoFocus={mode === "create"}
       rows={1}
       className={cn(
-        "w-full resize-none overflow-hidden rounded-none border-0 bg-transparent px-0 py-1 font-news text-xl sm:text-2xl md:text-3xl font-medium leading-[1.2] tracking-tight",
+        "w-full rounded-none border-0 bg-transparent px-0 py-1 font-news text-xl sm:text-2xl md:text-3xl font-medium leading-[1.2] tracking-tight",
         "shadow-none outline-none focus-visible:border-0 focus-visible:ring-0 focus-visible:ring-offset-0",
         "placeholder:text-muted-foreground/40 placeholder:font-normal"
       )}

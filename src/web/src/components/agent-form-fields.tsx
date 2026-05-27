@@ -44,6 +44,7 @@ import {
 import { useAgentContext } from "@/contexts/agent-context";
 import { ApiError } from "@/lib/errors";
 import { toast } from "sonner";
+import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
 
 export function nameToHandle(name: string): string {
   return name
@@ -132,23 +133,13 @@ export function GeneralFields({
       </div>
 
       {/* Description — frameless, auto-growing */}
-      <textarea
+      <AutoResizeTextarea
         id="agent-description"
         value={description}
-        onChange={(e) => {
-          setDescription(e.target.value);
-          e.target.style.height = "auto";
-          e.target.style.height = `${e.target.scrollHeight}px`;
-        }}
-        ref={(el) => {
-          if (el) {
-            el.style.height = "auto";
-            el.style.height = `${el.scrollHeight}px`;
-          }
-        }}
+        onChange={(e) => setDescription(e.target.value)}
         placeholder="Add a description…"
         rows={1}
-        className="w-full resize-none overflow-hidden border-0 bg-transparent px-0 py-0.5 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+        className="w-full border-0 bg-transparent px-0 py-0.5 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
       />
 
       {emailHandleSlot}
@@ -238,23 +229,13 @@ export function GeneralFields({
           {setInstructions && (
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Instructions</Label>
-              <textarea
+              <AutoResizeTextarea
                 id="agent-instructions"
                 value={instructions ?? ""}
-                onChange={(e) => {
-                  setInstructions(e.target.value);
-                  e.target.style.height = "auto";
-                  e.target.style.height = `${e.target.scrollHeight}px`;
-                }}
-                ref={(el) => {
-                  if (el) {
-                    el.style.height = "auto";
-                    el.style.height = `${el.scrollHeight}px`;
-                  }
-                }}
+                onChange={(e) => setInstructions(e.target.value)}
                 placeholder="System prompt or instructions..."
                 rows={3}
-                className="w-full resize-none overflow-hidden border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+                className="w-full border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
               />
             </div>
           )}
