@@ -244,7 +244,6 @@ export function IssueSheet({
   const [confirmAgent, setConfirmAgent] = useState<Agent | null>(null);
   const [dispatching, setDispatching] = useState(false);
 
-  const titleRef = useRef<HTMLTextAreaElement>(null);
   const descriptionRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
@@ -513,7 +512,6 @@ export function IssueSheet({
       {/* Title */}
       <div className="shrink-0 px-2 sm:px-3 pt-5 pb-1">
         <AutoResizeTextarea
-          ref={titleRef}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={onTitleKeyDown}

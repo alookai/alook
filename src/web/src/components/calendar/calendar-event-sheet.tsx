@@ -556,15 +556,12 @@ export function CalendarEventSheet({
     ? title.trim() || "Untitled event"
     : title.trim() || "New calendar event";
 
-  const titleRef = useRef<HTMLTextAreaElement | null>(null);
-
   const titleInput = readonly ? (
     <p className="w-full px-0 py-1 font-news text-xl sm:text-2xl md:text-3xl font-medium leading-[1.2] tracking-tight">
       {title || "Untitled event"}
     </p>
   ) : (
     <AutoResizeTextarea
-      ref={titleRef}
       aria-label="Event title"
       value={title}
       onChange={(e) => setTitle(e.target.value)}
