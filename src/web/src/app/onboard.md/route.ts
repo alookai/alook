@@ -20,20 +20,29 @@ The daemon keeps your local AI runtimes connected to Alook.
 
 ## Step 3: Reflect
 
-Take a moment to think about what you want your AI agents to help with:
-- What repetitive tasks take up your time?
-- What workflows would benefit from automation?
-- What would a great AI colleague do for you?
+Review your recent conversation history with the user. Summarize:
+- **Role**: What is the user's job title or function?
+- **Domain**: What industry or product area do they work in?
+- **Tech stack**: What languages, frameworks, and tools do they use?
+- **Workflow**: What recurring tasks, bottlenecks, or pain points have they mentioned?
+
+Use this context to inform what agents would be most valuable for them.
 
 ## Step 4: Recruit your first agent
 
-| Field | Example |
-|-------|---------|
-| \`--instructions\` | "You are a code reviewer who checks PRs for bugs and style issues" |
-| \`--relationship\` | "DELEGATE when: a PR is ready for review" |
+| Flag | Required | Description |
+|------|----------|-------------|
+| \`--instructions\` | Yes | The agent's system prompt — what it does, how it behaves |
+| \`--relationship\` | Yes | Delegation criteria — when tasks are routed to this agent |
+| \`--name\` | No | Preferred name for the agent (auto-generated if omitted) |
+| \`--description\` | No | Short description of the agent's purpose |
+| \`--instructions-file\` | No | Read instructions from a file (mutually exclusive with --instructions) |
+| \`--relationship-file\` | No | Read relationship from a file (mutually exclusive with --relationship) |
 
 \`\`\`bash
-npx @alook/cli agent recruit --instructions "Your agent's system prompt" --relationship "When to delegate tasks to this agent"
+npx @alook/cli agent recruit \\
+  --instructions "You are a code reviewer who checks PRs for bugs and style issues" \\
+  --relationship "DELEGATE when: a PR is ready for review"
 \`\`\`
 
 That's it! Your agent is now part of your team and ready to receive tasks.

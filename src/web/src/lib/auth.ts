@@ -26,6 +26,11 @@ export function createAuth(env: Env) {
   )
   const kvTtl = Math.max(KV_MIN_TTL_SEC, otpWindow)
 
+  const validateClient = (clientId: string) => {
+    const allowed = (env.DEVICE_CLIENT_IDS || "").split(",").map((s) => s.trim()).filter(Boolean)
+    return allowed.includes(clientId)
+  }
+
   return betterAuth({
     baseURL: env.BETTER_AUTH_URL,
     database: env.DB,
@@ -73,13 +78,7 @@ export function createAuth(env: Env) {
     },
     plugins: isProd
       ? [
-          deviceAuthorization({
-            verificationUri: "/device",
-            validateClient: (clientId) => {
-              const allowed = (env.DEVICE_CLIENT_IDS || "").split(",").map((s) => s.trim())
-              return allowed.includes(clientId)
-            },
-          }),
+          deviceAuthorization({ verificationUri: "/device", validateClient }),
           bearer(),
           emailOTP({
             async sendVerificationOTP({ email, otp, type }) {
@@ -114,13 +113,7 @@ export function createAuth(env: Env) {
           }),
         ]
       : [
-          deviceAuthorization({
-            verificationUri: "/device",
-            validateClient: (clientId) => {
-              const allowed = (env.DEVICE_CLIENT_IDS || "").split(",").map((s) => s.trim())
-              return allowed.includes(clientId)
-            },
-          }),
+          deviceAuthorization({ verificationUri: "/device", validateClient }),
           bearer(),
         ],
   })

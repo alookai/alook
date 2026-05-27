@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { execSync } from "child_process";
+import { execSync, spawn } from "child_process";
 import { hostname } from "os";
 import { APIClient } from "../lib/client.js";
 import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
@@ -77,12 +77,13 @@ function detectRuntimes(): { type: string; version: string }[] {
 
 function openBrowser(url: string): void {
   try {
-    if (process.platform === "darwin") {
-      execSync(`open "${url}"`, { stdio: "ignore" });
-    } else if (process.platform === "linux") {
-      execSync(`xdg-open "${url}"`, { stdio: "ignore" });
-    } else if (process.platform === "win32") {
-      execSync(`start "" "${url}"`, { stdio: "ignore" });
+    const cmd =
+      process.platform === "darwin" ? "open" :
+      process.platform === "linux" ? "xdg-open" :
+      process.platform === "win32" ? "start" : null;
+    if (cmd) {
+      const args = process.platform === "win32" ? ["", url] : [url];
+      spawn(cmd, args, { stdio: "ignore", detached: true }).unref();
     }
   } catch {
     // Browser open is best-effort
