@@ -28,6 +28,7 @@ vi.mock("@alook/shared", () => ({
       claimKillTasks: vi.fn().mockResolvedValue([]),
       getActiveTaskByConversation: vi.fn(),
       cancelTask: vi.fn(),
+      dispatchTaskById: vi.fn().mockResolvedValue(null),
       findSteerableReplacement: vi.fn().mockResolvedValue(null),
     },
     agent: {
@@ -932,6 +933,23 @@ describe("TaskService", () => {
           broadcastError,
         );
       });
+    });
+
+    it("dispatches kill task before broadcasting daemon.kill", async () => {
+      const task = { id: "t1", status: "running", agentId: "a1", runtimeId: "r1", conversationId: "c1" };
+      taskQ.getActiveTaskByConversation.mockResolvedValue(task);
+      taskQ.cancelTask.mockResolvedValue({ ...task, status: "cancelled" });
+      taskQ.createTask.mockResolvedValue({ id: "kt1" });
+      taskQ.countRunningTasks.mockResolvedValue(0);
+      runtimeQ.getAgentRuntime.mockResolvedValue({ daemonId: "d1" });
+
+      await service.cancelActiveTask("c1", "w1");
+
+      expect(taskQ.dispatchTaskById).toHaveBeenCalledWith({}, "kt1", "w1");
+      // dispatchTaskById should be called before broadcastToDaemon
+      const dispatchOrder = taskQ.dispatchTaskById.mock.invocationCallOrder[0];
+      const broadcastOrder = vi.mocked(broadcastToDaemon).mock.invocationCallOrder[0];
+      expect(dispatchOrder).toBeLessThan(broadcastOrder);
     });
   });
 

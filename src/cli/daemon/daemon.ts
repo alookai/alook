@@ -580,7 +580,7 @@ export async function startDaemon(
 
       case "daemon.kill": {
         const ws = workspaceStates.find((w) => w.workspaceId === msg.workspaceId);
-        if (ws) {
+        if (ws && !activeTasks.has(msg.taskId)) {
           const killTask = fromApiTask({
             id: msg.taskId,
             agent_id: msg.agentId,
@@ -588,9 +588,9 @@ export async function startDaemon(
             conversation_id: "",
             workspace_id: ws.workspaceId,
             prompt: "",
-            status: "queued",
+            status: "dispatched",
             priority: 0,
-            dispatched_at: null,
+            dispatched_at: new Date().toISOString(),
             started_at: null,
             completed_at: null,
             result: null,
