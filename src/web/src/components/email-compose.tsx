@@ -7,8 +7,6 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
 import TextAlign from "@tiptap/extension-text-align";
-import { TextStyle } from "@tiptap/extension-text-style";
-import { Color } from "@tiptap/extension-color";
 import Image from "@tiptap/extension-image";
 import { EmailToolbar } from "@/components/email-toolbar";
 import { Button } from "@/components/ui/button";
@@ -72,8 +70,6 @@ export function EmailCompose({
       TextAlign.configure({
         types: ["heading", "paragraph"],
       }),
-      TextStyle,
-      Color,
       Image.configure({
         inline: true,
         allowBase64: true,
