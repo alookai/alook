@@ -151,7 +151,15 @@ export function updateEntry(
     const lockPath = lockPathFor(timelineDir, filename);
 
     try {
-      const acquired = acquireLock(lockPath);
+      let acquired = acquireLock(lockPath);
+      if (!acquired) {
+        // Retry up to 2 more times with short delays
+        for (let retry = 0; retry < 2 && !acquired; retry++) {
+          const start = Date.now();
+          while (Date.now() - start < 50 * (retry + 1)) { /* spin wait */ }
+          acquired = acquireLock(lockPath);
+        }
+      }
       if (!acquired) {
         log.debug(`Timeline updateEntry: lock held for ${filename}, skipping`);
         continue;

@@ -58,11 +58,13 @@ export async function completeRequest(
   return rows[0] ?? null;
 }
 
-export async function getRequest(db: Database, id: string) {
+export async function getRequest(db: Database, id: string, workspaceId?: string) {
+  const conditions = [eq(workspaceFileRequest.id, id)];
+  if (workspaceId) conditions.push(eq(workspaceFileRequest.workspaceId, workspaceId));
   const rows = await db
     .select()
     .from(workspaceFileRequest)
-    .where(eq(workspaceFileRequest.id, id));
+    .where(and(...conditions));
   return rows[0] ?? null;
 }
 
