@@ -664,7 +664,7 @@ export function CalendarEventSheet({
       <PropertyRow icon={<RepeatIcon className="size-3.5" />}>
         {!repeatEnabled ? (
           <Select
-            defaultValue={null}
+            value=""
             onValueChange={(val) => {
               if (!val) return;
               if (val === "__custom__") {
@@ -685,6 +685,7 @@ export function CalendarEventSheet({
               <SelectValue placeholder="Does not repeat" />
             </SelectTrigger>
             <SelectPopup>
+              <SelectItem value="">Does not repeat</SelectItem>
               {PRESET_INTERVALS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
                   {o.label}
