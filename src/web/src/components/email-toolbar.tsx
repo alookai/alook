@@ -80,6 +80,8 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<"link" | "image">("link");
   const [urlValue, setUrlValue] = useState("");
+  const [displayText, setDisplayText] = useState("");
+  const [selectionEmpty, setSelectionEmpty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -99,6 +101,8 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
     }
     setDialogMode("link");
     setUrlValue("");
+    setDisplayText("");
+    setSelectionEmpty(editor.state.selection.empty);
     setDialogOpen(true);
   };
 
@@ -117,7 +121,16 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       return;
     }
     if (dialogMode === "link") {
-      editor.chain().focus().extendMarkRange("link").setLink({ href: trimmed }).run();
+      if (selectionEmpty) {
+        const text = displayText.trim() || trimmed;
+        editor.chain().focus().insertContent({
+          type: "text",
+          text,
+          marks: [{ type: "link", attrs: { href: trimmed } }],
+        }).run();
+      } else {
+        editor.chain().focus().extendMarkRange("link").setLink({ href: trimmed }).run();
+      }
     } else {
       editor.chain().focus().setImage({ src: trimmed }).run();
     }
@@ -252,8 +265,19 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
               {dialogMode === "link" ? "Insert Link" : "Insert Image"}
             </DialogTitle>
           </DialogHeader>
+          {dialogMode === "link" && selectionEmpty && (
+            <Input
+              ref={inputRef}
+              value={displayText}
+              onChange={(e) => setDisplayText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleDialogSubmit();
+              }}
+              placeholder="Display text"
+            />
+          )}
           <Input
-            ref={inputRef}
+            ref={dialogMode === "image" || !selectionEmpty ? inputRef : undefined}
             value={urlValue}
             onChange={(e) => setUrlValue(e.target.value)}
             onKeyDown={(e) => {
