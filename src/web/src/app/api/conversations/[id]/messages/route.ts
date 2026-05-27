@@ -6,7 +6,7 @@ import { nanoid } from "nanoid";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
-import { messageToResponse, taskToResponse } from "@/lib/api/responses";
+import { messageToResponse, taskToResponseWithChannel } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { log } from "@/lib/logger";
 import { broadcastToUser } from "@/lib/broadcast";
@@ -209,7 +209,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)).catch(() => {});
     broadcastToUser(ctx.userId, { type: "task.updated", taskId: task.id, agentId: task.agentId, status: "queued" }).catch(() => {});
     return writeJSON(
-      { message: messageToResponse(message), task: taskToResponse(task) },
+      {
+        message: messageToResponse(message),
+        task: taskToResponseWithChannel(task, conversation.channel),
+      },
       201
     );
   } catch (err: unknown) {

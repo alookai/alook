@@ -44,6 +44,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     started_at: t.startedAt,
     completed_at: t.completedAt,
     channel: t.channel,
+    channel_tag: t.channel,
   }));
 
   return writeJSON({ traces, has_more: result.hasMore });

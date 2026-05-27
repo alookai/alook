@@ -5,6 +5,7 @@ import {
   agentToResponse,
   agentLinkToResponse,
   taskToResponse,
+  taskToResponseWithChannel,
   conversationToResponse,
   channelToResponse,
   messageToResponse,
@@ -263,8 +264,22 @@ describe("taskToResponse Zod validation", () => {
     expect(res).toHaveProperty("conversation_id");
     expect(res).toHaveProperty("workspace_id");
     expect(res).toHaveProperty("created_at");
+    expect(res).not.toHaveProperty("channel");
+    expect(res).not.toHaveProperty("channel_tag");
     expect(res).not.toHaveProperty("agentId");
     expect(res).not.toHaveProperty("runtimeId");
+  });
+
+  it("adds channel metadata from the explicit channel helper", () => {
+    const res = taskToResponseWithChannel(validTask, "ops");
+    expect(res.channel).toBe("ops");
+    expect(res.channel_tag).toBe("ops");
+  });
+
+  it("defaults explicit channel metadata to default", () => {
+    const res = taskToResponseWithChannel(validTask, null);
+    expect(res.channel).toBe("default");
+    expect(res.channel_tag).toBe("default");
   });
 });
 
@@ -352,9 +367,9 @@ describe("AgentResponse shape", () => {
 });
 
 describe("ConversationResponse shape", () => {
-  it("has expected keys: id, agent_id, title, type, channel, created_at", () => {
+  it("has expected keys: id, agent_id, title, type, channel, channel_tag, created_at", () => {
     const res = conversationToResponse({ id: "c1", agentId: "a1", title: "Chat", type: "user_dm_message", channel: "default", createdAt: ts });
-    expect(Object.keys(res).sort()).toEqual(["agent_id", "channel", "created_at", "id", "title", "type"]);
+    expect(Object.keys(res).sort()).toEqual(["agent_id", "channel", "channel_tag", "created_at", "id", "title", "type"]);
   });
 
   it("defaults type to user_dm_message when the column is absent", () => {
@@ -365,11 +380,13 @@ describe("ConversationResponse shape", () => {
   it("defaults channel to 'default' when the column is absent", () => {
     const res = conversationToResponse({ id: "c1", agentId: "a1", title: "Chat", createdAt: ts });
     expect(res.channel).toBe("default");
+    expect(res.channel_tag).toBe("default");
   });
 
   it("preserves channel value when present", () => {
     const res = conversationToResponse({ id: "c1", agentId: "a1", title: "Chat", channel: "work", createdAt: ts });
     expect(res.channel).toBe("work");
+    expect(res.channel_tag).toBe("work");
   });
 
   it("surfaces email_notification and calendar_event types", () => {

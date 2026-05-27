@@ -6,7 +6,7 @@ import { getDb } from "@/lib/db"
 import { writeJSON, parseBody } from "@/lib/middleware/helpers"
 import { TaskService } from "@/lib/services/task"
 import { broadcastToUser } from "@/lib/broadcast"
-import { taskToResponse } from "@/lib/api/responses"
+import { taskToResponseWithChannel } from "@/lib/api/responses"
 import { invalidate, cacheKeys } from "@/lib/cache"
 
 export async function POST(req: NextRequest) {
@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
 
     let conversationId: string | null = null;
     let conversationType: string = TASK_TYPES.EMAIL_NOTIFICATION;
+    let conversationChannel = "default";
     let dmUser: { name: string; email: string } | undefined;
 
     if (mapKey) {
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
       const conv = await queries.conversation.getConversation(db, conversationId, body.workspaceId);
       if (conv) {
         conversationType = conv.type;
+        conversationChannel = conv.channel ?? "default";
         if (conv.type === TASK_TYPES.USER_DM_MESSAGE && conv.userId) {
           const u = await queries.user.getUser(db, conv.userId);
           if (u) dmUser = { name: u.name, email: u.email };
@@ -88,6 +90,7 @@ export async function POST(req: NextRequest) {
         ...(inheritedChannel && inheritedChannel !== "default" ? { channel: inheritedChannel } : {}),
       })
       conversationId = conv.id;
+      conversationChannel = conv.channel ?? "default";
 
       if (mapKey) {
         await queries.conversationMap.createMapping(db, {
@@ -138,7 +141,7 @@ export async function POST(req: NextRequest) {
       broadcastToUser(agent.ownerId, {
         type: "task.created",
         conversationId,
-        task: taskToResponse(task),
+        task: taskToResponseWithChannel(task, conversationChannel),
       }).catch(() => {});
     }
   }

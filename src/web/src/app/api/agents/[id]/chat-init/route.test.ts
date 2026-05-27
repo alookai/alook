@@ -100,6 +100,14 @@ vi.mock("@/lib/api/responses", () => ({
     agent_id: t.agentId,
     created_at: t.createdAt,
   })),
+  taskToResponseWithChannel: vi.fn((t: any, channel?: string | null) => ({
+    id: t.id,
+    status: t.status,
+    agent_id: t.agentId,
+    created_at: t.createdAt,
+    channel: channel ?? "default",
+    channel_tag: channel ?? "default",
+  })),
   taskMessageToResponse: vi.fn((m: any) => ({
     id: m.id,
     task_id: m.taskId,

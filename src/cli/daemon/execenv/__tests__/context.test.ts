@@ -43,7 +43,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     createdAt: "2026-01-01T00:00:00Z",
     traceId: null,
     parentTaskId: null,
-    channel: null,
+    channel: "default",
     agent: { name: "test-agent", instructions: "Be helpful and concise." },
     ...overrides,
   };

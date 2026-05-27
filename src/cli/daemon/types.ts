@@ -157,6 +157,6 @@ export function fromApiTask(api: import("@alook/shared").TaskApi): Task {
     createdAt: api.created_at,
     traceId: api.trace_id ?? null,
     parentTaskId: api.parent_task_id ?? null,
-    channel: api.channel ?? null,
+    channel: api.channel ?? "default",
   };
 }

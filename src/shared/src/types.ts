@@ -67,6 +67,7 @@ export interface Conversation {
   title: string;
   type: string;
   channel: string;
+  channel_tag?: string;
   created_at: string;
   message_count?: number;
 }

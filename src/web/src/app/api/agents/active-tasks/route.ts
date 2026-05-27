@@ -24,6 +24,7 @@ export const GET = withAuth(async (req, ctx) => {
 
   return writeJSON({
     tasks: tasks.map((t) => ({
+      channel_tag: t.channel ?? "default",
       id: t.id,
       agent_id: t.agentId,
       agent: agentMap.get(t.agentId) ?? null,

@@ -71,7 +71,7 @@ export function emailToResponse(e: any) {
   };
 }
 
-export function taskToResponse(t: {
+type TaskResponseInput = {
   id: string;
   agentId: string;
   runtimeId: string;
@@ -91,7 +91,9 @@ export function taskToResponse(t: {
   createdAt: Date | string;
   traceId?: string | null;
   parentTaskId?: string | null;
-}) {
+};
+
+export function taskToResponse(t: TaskResponseInput) {
   return TaskApiBaseSchema.parse({
     id: t.id,
     agent_id: t.agentId,
@@ -115,13 +117,24 @@ export function taskToResponse(t: {
   });
 }
 
+export function taskToResponseWithChannel(t: TaskResponseInput, channelValue?: string | null) {
+  const channel = channelValue ?? "default";
+  return {
+    ...taskToResponse(t),
+    channel,
+    channel_tag: channel,
+  };
+}
+
 export function conversationToResponse(c: any) {
+  const channel = c.channel ?? "default";
   const resp: any = {
     id: c.id,
     agent_id: c.agentId,
     title: c.title,
     type: c.type ?? TASK_TYPES.USER_DM_MESSAGE,
-    channel: c.channel ?? "default",
+    channel,
+    channel_tag: channel,
     created_at: formatTimestamp(c.createdAt),
   };
   if (c.messageCount !== undefined) {

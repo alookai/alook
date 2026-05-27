@@ -36,6 +36,7 @@ export interface ContextTimelineEntry {
   agent_responses: string[];
   errmsg: string | null;
   provider: string | null;
+  channel_tag?: string | null;
   detailed_log: string | null;
 }
 
@@ -203,6 +204,7 @@ export function createTimelineEntry(
   provider?: string,
   contextKey?: string | null,
   detailedLog?: string | null,
+  channelTag?: string | null,
 ): ContextTimelineEntry {
   return {
     task_id: taskId,
@@ -216,6 +218,7 @@ export function createTimelineEntry(
     agent_responses: [],
     errmsg: null,
     provider: provider ?? null,
+    channel_tag: channelTag ?? null,
     detailed_log: detailedLog ?? null,
   };
 }

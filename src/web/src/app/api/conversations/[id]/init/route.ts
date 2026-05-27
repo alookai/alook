@@ -7,7 +7,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import {
   conversationToResponse,
   messageToResponse,
-  taskToResponse,
+  taskToResponseWithChannel,
   taskMessageToResponse,
 } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
@@ -125,7 +125,7 @@ export const GET = withAuth(async (req, ctx) => {
     buffered_messages: resolvedBuffered.map(messageToResponse),
     flagged_message_ids: flaggedMessageIds,
     thinking_counts: thinkingCounts,
-    active_task: resolvedActiveTask ? taskToResponse(resolvedActiveTask) : null,
+    active_task: resolvedActiveTask ? taskToResponseWithChannel(resolvedActiveTask, conversation.channel) : null,
     task_messages: taskMessages,
     cache_valid: cacheValid,
   });

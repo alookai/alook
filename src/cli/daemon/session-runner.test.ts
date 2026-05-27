@@ -43,6 +43,7 @@ const mockCreateTimelineEntry = vi.fn(
     provider?: string,
     contextKey?: string | null,
     detailedLog?: string | null,
+    channelTag?: string | null,
   ) => ({
     task_id: taskId,
     context_key: contextKey ?? null,
@@ -55,6 +56,7 @@ const mockCreateTimelineEntry = vi.fn(
     agent_responses: [],
     errmsg: null,
     provider: provider || null,
+    channel_tag: channelTag ?? null,
     detailed_log: detailedLog ?? null,
   }),
 );
@@ -127,7 +129,7 @@ function makeInput(overrides?: Partial<SessionRunnerInput>): SessionRunnerInput 
       createdAt: "2026-01-01T00:00:00Z",
       traceId: null,
       parentTaskId: null,
-      channel: null,
+      channel: "default",
     },
     provider: "claude",
     cliPath: "claude",
@@ -266,6 +268,7 @@ describe("session-runner runSession", () => {
       "claude",
       "c1",
       undefined,
+      "default",
     );
     expect(mockInitEntryAsync).toHaveBeenCalledWith(
       "/tmp/ws/ws1/a1/workdir/.context_timeline",
@@ -313,6 +316,7 @@ describe("session-runner runSession", () => {
       "claude",
       "c1",
       "/tmp/logs/t1.log",
+      "default",
     );
   });
 
@@ -751,6 +755,7 @@ describe("session-runner runSession", () => {
       "codex",
       "c1",
       undefined,
+      "default",
     );
   });
 

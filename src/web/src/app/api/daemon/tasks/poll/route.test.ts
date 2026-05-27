@@ -148,6 +148,16 @@ vi.mock("@/lib/api/responses", () => ({
     prompt: t.prompt,
     status: t.status,
   }),
+  taskToResponseWithChannel: (t: any, channel?: string | null) => ({
+    id: t.id,
+    agent_id: t.agentId,
+    runtime_id: t.runtimeId,
+    workspace_id: t.workspaceId,
+    prompt: t.prompt,
+    status: t.status,
+    channel: channel ?? "default",
+    channel_tag: channel ?? "default",
+  }),
 }));
 
 import { POST } from "./route";
