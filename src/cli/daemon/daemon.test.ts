@@ -90,18 +90,22 @@ vi.mock("./update-handler.js", () => ({
 
 const mockFindRunningPidByTaskId = vi.fn();
 const mockFindRunningEntryByContextKey = vi.fn(() => null);
+const mockUpdateEntry = vi.fn();
 vi.mock("./execenv/timeline.js", () => ({
   findRunningPidByTaskId: (...args: any[]) => mockFindRunningPidByTaskId(...(args as any[])),
   findRunningEntryByContextKey: (...args: any[]) => mockFindRunningEntryByContextKey(...(args as any[])),
+  updateEntry: (...args: any[]) => mockUpdateEntry(...(args as any[])),
 }));
 
 const mockWriteKillIntent = vi.fn();
+const mockReadKillIntent = vi.fn(() => null);
 const mockClearKillIntent = vi.fn();
 const mockAcquireSteeringLock = vi.fn(() => true);
 const mockReleaseSteeringLock = vi.fn();
 const mockCleanupStaleIntents = vi.fn();
 vi.mock("./execenv/steering.js", () => ({
   writeKillIntent: (...args: any[]) => mockWriteKillIntent(...(args as any[])),
+  readKillIntent: (...args: any[]) => mockReadKillIntent(...(args as any[])),
   clearKillIntent: (...args: any[]) => mockClearKillIntent(...(args as any[])),
   acquireSteeringLock: (...args: any[]) => mockAcquireSteeringLock(...(args as any[])),
   releaseSteeringLock: (...args: any[]) => mockReleaseSteeringLock(...(args as any[])),
@@ -390,6 +394,40 @@ describe("daemon session runner dispatch", () => {
     mockClientInstance.poll.mockResolvedValue({ tasks: [], evicted: false });
     // Manually invoke a poll by calling the function startDaemon set up
     // We verify the listener was attached — the decrement logic is straightforward
+  });
+
+  it("skips failTask when kill intent exists on close", async () => {
+    setupTaskClaim();
+    mockReadKillIntent.mockReturnValue({ reason: "cancelled", targetTaskId: "t1", expectedPid: 50000 });
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Simulate child process exit with non-zero code (killed)
+    spawnedChildren[0].emit("close", 1);
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mockClientInstance.failTask).not.toHaveBeenCalled();
+    expect(mockClearKillIntent).toHaveBeenCalled();
+  });
+
+  it("calls failTask when no kill intent exists on close (genuine crash)", async () => {
+    setupTaskClaim();
+    mockReadKillIntent.mockReturnValue(null);
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Simulate child process crash
+    spawnedChildren[0].emit("close", 1);
+
+    await vi.waitFor(() => {
+      expect(mockClientInstance.failTask).toHaveBeenCalledWith(
+        "al_test_token",
+        "t1",
+        expect.stringContaining("session-runner crashed"),
+      );
+    });
   });
 
   it("calls startTask before spawning session runner", async () => {

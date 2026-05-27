@@ -16,6 +16,8 @@ import { handleCliUpdate, isUpdating, readUpdateMarker, clearUpdateMarker } from
 import { findRunningPidByTaskId, findRunningEntryByContextKey, updateEntry } from "./execenv/timeline.js";
 import {
   writeKillIntent,
+  readKillIntent,
+  clearKillIntent,
   acquireSteeringLock,
   releaseSteeringLock,
   cleanupStaleIntents,
@@ -1032,13 +1034,21 @@ async function handleTask(
   child.on("close", async (code) => {
     activeTasks.delete(task.id);
     if (code !== 0) {
+      const agentBaseDir = join(config.workspacesRoot, task.workspaceId, task.agentId, "workdir");
+      const killIntent = readKillIntent(agentBaseDir, task.id);
+      if (killIntent) {
+        log.info(`Task ${task.id} exited due to kill intent — skipping failTask`);
+        clearKillIntent(agentBaseDir, task.id);
+        return;
+      }
+
       const msg = code === null
         ? `session-runner killed by signal (task ${task.id})`
         : `session-runner crashed (exit code ${code}, task ${task.id})`;
       log.warn(msg);
 
       // Update timeline JSONL as fallback
-      const timelineDir = join(config.workspacesRoot, task.workspaceId, task.agentId, "workdir", ".context_timeline");
+      const timelineDir = join(agentBaseDir, ".context_timeline");
       updateEntry(timelineDir, task.id, (entry) => {
         entry.pid = null;
         entry.status = "failed";
