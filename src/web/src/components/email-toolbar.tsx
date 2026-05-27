@@ -38,13 +38,13 @@ interface EmailToolbarProps {
 function ToolbarButton({
   active,
   disabled,
-  onClick,
+  onAction,
   title,
   children,
 }: {
   active?: boolean;
   disabled?: boolean;
-  onClick: () => void;
+  onAction: () => void;
   title: string;
   children: React.ReactNode;
 }) {
@@ -56,8 +56,11 @@ function ToolbarButton({
             variant="ghost"
             size="icon-sm"
             disabled={disabled}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onClick}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onAction();
+            }}
             className={cn(
               "text-muted-foreground/70",
               active && "bg-accent text-foreground"
@@ -136,28 +139,28 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarButton
         title="Bold"
         active={editor.isActive("bold")}
-        onClick={() => editor.chain().focus().toggleBold().run()}
+        onAction={() => editor.chain().focus().toggleBold().run()}
       >
         <Bold className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Italic"
         active={editor.isActive("italic")}
-        onClick={() => editor.chain().focus().toggleItalic().run()}
+        onAction={() => editor.chain().focus().toggleItalic().run()}
       >
         <Italic className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Underline"
         active={editor.isActive("underline")}
-        onClick={() => editor.chain().focus().toggleUnderline().run()}
+        onAction={() => editor.chain().focus().toggleUnderline().run()}
       >
         <Underline className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Strikethrough"
         active={editor.isActive("strike")}
-        onClick={() => editor.chain().focus().toggleStrike().run()}
+        onAction={() => editor.chain().focus().toggleStrike().run()}
       >
         <Strikethrough className={iconSize} />
       </ToolbarButton>
@@ -168,14 +171,14 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarButton
         title="Heading 1"
         active={editor.isActive("heading", { level: 1 })}
-        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+        onAction={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
       >
         <Heading1 className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Heading 2"
         active={editor.isActive("heading", { level: 2 })}
-        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+        onAction={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
       >
         <Heading2 className={iconSize} />
       </ToolbarButton>
@@ -186,14 +189,14 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarButton
         title="Bullet List"
         active={editor.isActive("bulletList")}
-        onClick={() => editor.chain().focus().toggleBulletList().run()}
+        onAction={() => editor.chain().focus().toggleBulletList().run()}
       >
         <List className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Ordered List"
         active={editor.isActive("orderedList")}
-        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+        onAction={() => editor.chain().focus().toggleOrderedList().run()}
       >
         <ListOrdered className={iconSize} />
       </ToolbarButton>
@@ -204,21 +207,21 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarButton
         title="Align Left"
         active={editor.isActive({ textAlign: "left" })}
-        onClick={() => editor.chain().focus().setTextAlign("left").run()}
+        onAction={() => editor.chain().focus().setTextAlign("left").run()}
       >
         <AlignLeft className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Align Center"
         active={editor.isActive({ textAlign: "center" })}
-        onClick={() => editor.chain().focus().setTextAlign("center").run()}
+        onAction={() => editor.chain().focus().setTextAlign("center").run()}
       >
         <AlignCenter className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Align Right"
         active={editor.isActive({ textAlign: "right" })}
-        onClick={() => editor.chain().focus().setTextAlign("right").run()}
+        onAction={() => editor.chain().focus().setTextAlign("right").run()}
       >
         <AlignRight className={iconSize} />
       </ToolbarButton>
@@ -229,7 +232,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarButton
         title={editor.isActive("link") ? "Remove Link" : "Insert Link"}
         active={editor.isActive("link")}
-        onClick={() => {
+        onAction={() => {
           if (editor.isActive("link")) {
             editor.chain().focus().unsetLink().run();
           } else {
@@ -248,7 +251,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
           <Link className={iconSize} />
         )}
       </ToolbarButton>
-      <ToolbarButton title="Insert Image" onClick={handleImage}>
+      <ToolbarButton title="Insert Image" onAction={handleImage}>
         <ImageIcon className={iconSize} />
       </ToolbarButton>
 
@@ -257,7 +260,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       {/* Horizontal Rule */}
       <ToolbarButton
         title="Horizontal Rule"
-        onClick={() => editor.chain().focus().setHorizontalRule().run()}
+        onAction={() => editor.chain().focus().setHorizontalRule().run()}
       >
         <Minus className={iconSize} />
       </ToolbarButton>
