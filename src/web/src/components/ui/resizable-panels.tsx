@@ -133,3 +133,47 @@ export function ResizablePanels({ panels, storageKey }: ResizablePanelsProps) {
     </div>
   );
 }
+
+export interface ResizeHandleProps {
+  onResize: (delta: number) => void;
+  className?: string;
+  direction?: "left" | "right";
+}
+
+export function ResizeHandle({ onResize, className, direction = "right" }: ResizeHandleProps) {
+  const dragging = useRef(false);
+  const startX = useRef(0);
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault();
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      dragging.current = true;
+      startX.current = e.clientX;
+    },
+    []
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragging.current) return;
+      const delta = e.clientX - startX.current;
+      startX.current = e.clientX;
+      onResize(direction === "left" ? -delta : delta);
+    },
+    [onResize, direction]
+  );
+
+  const handlePointerUp = useCallback(() => {
+    dragging.current = false;
+  }, []);
+
+  return (
+    <div
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      className={className ?? "absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-primary/20 active:bg-primary/30 transition-colors"}
+    />
+  );
+}
