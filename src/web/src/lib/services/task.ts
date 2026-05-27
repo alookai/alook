@@ -329,9 +329,10 @@ export class TaskService {
         broadcastToDaemon(runtime.daemonId, {
           type: "daemon.kill",
           workspaceId,
+          agentId: activeTask.agentId,
           taskId: killTask.id,
           targetTaskId: activeTask.id,
-        }).catch(() => {});
+        }).catch((e) => log.warn("daemon.kill broadcast failed, relying on poll fallback", e));
       }
     }
 

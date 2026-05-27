@@ -174,7 +174,7 @@ export const DaemonPushMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("daemon.evict"), workspaceId: z.string() }),
   z.object({ type: z.literal("daemon.update"), version: z.string() }),
   z.object({ type: z.literal("daemon.rescan") }),
-  z.object({ type: z.literal("daemon.kill"), workspaceId: z.string(), taskId: z.string(), targetTaskId: z.string() }),
+  z.object({ type: z.literal("daemon.kill"), workspaceId: z.string(), agentId: z.string().min(1), taskId: z.string(), targetTaskId: z.string() }),
 ]);
 export type DaemonPushMessageType = z.infer<typeof DaemonPushMessageSchema>;
 

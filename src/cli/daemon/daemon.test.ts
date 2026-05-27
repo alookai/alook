@@ -1715,6 +1715,28 @@ describe("daemon kill_task handling", () => {
 
     mockKill.mockRestore();
   });
+
+  it("searches correct timeline directory using agentId from task", async () => {
+    setupKillTaskClaim("target_t1");
+    mockFindRunningPidByTaskId.mockReturnValue(77777);
+    const mockKill = vi.spyOn(process, "kill").mockImplementation((() => {}) as any);
+
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      server_url: "",
+      watched_workspaces: [{ id: "ws1", name: "Test WS", token: "al_test_token" }],
+    });
+    mockClientInstance.register.mockResolvedValue({ runtimes: [{ id: "rt1" }] });
+
+    await startDaemon();
+
+    // The timelineDir should be constructed from workspacesRoot/workspaceId/agentId/workdir/.context_timeline
+    const expectedTimelineDir = path.join("/tmp", "ws", "ws1", "a1", "workdir", ".context_timeline");
+    await vi.waitFor(() => {
+      expect(mockFindRunningPidByTaskId).toHaveBeenCalledWith(expectedTimelineDir, "target_t1");
+    });
+
+    mockKill.mockRestore();
+  });
 });
 
 describe("isClientError", () => {

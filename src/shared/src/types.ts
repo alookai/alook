@@ -304,4 +304,4 @@ export type DaemonPushMessage =
   | { type: "daemon.evict"; workspaceId: string }
   | { type: "daemon.update"; version: string }
   | { type: "daemon.rescan" }
-  | { type: "daemon.kill"; workspaceId: string; taskId: string; targetTaskId: string }
+  | { type: "daemon.kill"; workspaceId: string; agentId: string; taskId: string; targetTaskId: string }

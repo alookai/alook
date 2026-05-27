@@ -583,7 +583,7 @@ export async function startDaemon(
         if (ws) {
           const killTask = fromApiTask({
             id: msg.taskId,
-            agent_id: "",
+            agent_id: msg.agentId,
             runtime_id: "",
             conversation_id: "",
             workspace_id: ws.workspaceId,
