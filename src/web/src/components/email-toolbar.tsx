@@ -80,6 +80,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<"link" | "image">("link");
   const [urlValue, setUrlValue] = useState("");
+  const [urlError, setUrlError] = useState("");
   const [displayText, setDisplayText] = useState("");
   const [selectionEmpty, setSelectionEmpty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -101,6 +102,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
     }
     setDialogMode("link");
     setUrlValue("");
+    setUrlError("");
     setDisplayText("");
     setSelectionEmpty(editor.state.selection.empty);
     setDialogOpen(true);
@@ -109,6 +111,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
   const handleImage = () => {
     setDialogMode("image");
     setUrlValue("");
+    setUrlError("");
     setDialogOpen(true);
   };
 
@@ -118,8 +121,10 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
     try {
       new URL(trimmed);
     } catch {
+      setUrlError("Please enter a valid URL");
       return;
     }
+    setUrlError("");
     if (dialogMode === "link") {
       if (selectionEmpty) {
         const text = displayText.trim() || trimmed;
@@ -276,16 +281,20 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
               placeholder="Display text"
             />
           )}
-          <Input
-            ref={dialogMode === "image" || !selectionEmpty ? inputRef : undefined}
-            value={urlValue}
-            onChange={(e) => setUrlValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleDialogSubmit();
-            }}
-            placeholder={dialogMode === "link" ? "https://example.com" : "https://example.com/image.png"}
-            type="url"
-          />
+          <div className="space-y-1">
+            <Input
+              ref={dialogMode === "image" || !selectionEmpty ? inputRef : undefined}
+              value={urlValue}
+              onChange={(e) => { setUrlValue(e.target.value); setUrlError(""); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleDialogSubmit();
+              }}
+              placeholder={dialogMode === "link" ? "https://example.com" : "https://example.com/image.png"}
+              type="url"
+              aria-invalid={Boolean(urlError)}
+            />
+            {urlError && <p className="text-xs text-destructive">{urlError}</p>}
+          </div>
           <DialogFooter>
             <Button onClick={handleDialogSubmit} disabled={!urlValue.trim()}>
               Insert
