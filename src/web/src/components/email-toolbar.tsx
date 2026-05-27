@@ -95,18 +95,6 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
 
   const iconSize = "size-3.5";
 
-  const handleLink = () => {
-    if (editor.isActive("link")) {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
-      return;
-    }
-    setDialogMode("link");
-    setUrlValue("");
-    setUrlError("");
-    setDisplayText("");
-    setSelectionEmpty(editor.state.selection.empty);
-    setDialogOpen(true);
-  };
 
   const handleImage = () => {
     setDialogMode("image");
@@ -238,17 +226,31 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarDivider />
 
       {/* Link & Image */}
-      <ToolbarButton
-        title={editor.isActive("link") ? "Remove Link" : "Insert Link"}
-        active={editor.isActive("link")}
-        onClick={handleLink}
-      >
-        {editor.isActive("link") ? (
+      {editor.isActive("link") ? (
+        <ToolbarButton
+          title="Remove Link"
+          active
+          onClick={() => {
+            editor.chain().focus().extendMarkRange("link").unsetLink().run();
+          }}
+        >
           <Unlink className={iconSize} />
-        ) : (
+        </ToolbarButton>
+      ) : (
+        <ToolbarButton
+          title="Insert Link"
+          onClick={() => {
+            setDialogMode("link");
+            setUrlValue("");
+            setUrlError("");
+            setDisplayText("");
+            setSelectionEmpty(editor.state.selection.empty);
+            setDialogOpen(true);
+          }}
+        >
           <Link className={iconSize} />
-        )}
-      </ToolbarButton>
+        </ToolbarButton>
+      )}
       <ToolbarButton title="Insert Image" onClick={handleImage}>
         <ImageIcon className={iconSize} />
       </ToolbarButton>
