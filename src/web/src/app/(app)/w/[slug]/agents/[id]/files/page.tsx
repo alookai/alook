@@ -8,7 +8,7 @@ import { requestWorkspaceBrowse } from "@/lib/api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ResizablePanels } from "@/components/ui/resizable-panels";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Streamdown } from "streamdown";
 import type { WsMessage, WorkspaceFileEntry } from "@alook/shared";
@@ -369,22 +369,15 @@ export default function AgentFilesPage() {
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {pathBar}
-      <ResizablePanels
-        storageKey="agent-files-panel-sizes"
-        panels={[
-          {
-            defaultWidth: 280,
-            minWidth: 180,
-            maxWidth: 480,
-            children: treePanel,
-            className: "overflow-hidden",
-          },
-          {
-            children: fileViewer,
-            className: "overflow-hidden flex flex-col",
-          },
-        ]}
-      />
+      <ResizablePanelGroup orientation="horizontal">
+        <ResizablePanel defaultSize={25} minSize={15} maxSize={40} className="overflow-hidden">
+          {treePanel}
+        </ResizablePanel>
+        <ResizableHandle />
+        <ResizablePanel defaultSize={75} className="overflow-hidden flex flex-col">
+          {fileViewer}
+        </ResizablePanel>
+      </ResizablePanelGroup>
     </div>
   );
 }

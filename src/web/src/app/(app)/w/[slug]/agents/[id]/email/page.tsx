@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldAlert, ChevronDown } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { ResizablePanels } from "@/components/ui/resizable-panels";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { EmailBodyFrame } from "@/components/email-body-frame";
 
 type Folder = "inbox" | "sent" | "untrust";
@@ -782,14 +782,19 @@ export default function AgentEmailPage() {
       {isMobile ? (
         mobileContent
       ) : (
-        <ResizablePanels
-          storageKey="email-panel-sizes"
-          panels={[
-            { defaultWidth: 180, minWidth: 120, maxWidth: 240, children: sidebarContent },
-            { defaultWidth: 300, minWidth: 200, maxWidth: 480, children: emailListContent },
-            { children: readingPaneContent, minWidth: 300 },
-          ]}
-        />
+        <ResizablePanelGroup orientation="horizontal">
+          <ResizablePanel defaultSize={15} minSize={10} maxSize={20}>
+            {sidebarContent}
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel defaultSize={30} minSize={15} maxSize={40}>
+            {emailListContent}
+          </ResizablePanel>
+          <ResizableHandle />
+          <ResizablePanel defaultSize={55} minSize={25}>
+            {readingPaneContent}
+          </ResizablePanel>
+        </ResizablePanelGroup>
       )}
 
       {/* Delete confirmation dialog */}
