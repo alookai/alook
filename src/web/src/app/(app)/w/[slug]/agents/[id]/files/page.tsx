@@ -370,11 +370,11 @@ export default function AgentFilesPage() {
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {pathBar}
       <ResizablePanelGroup orientation="horizontal">
-        <ResizablePanel defaultSize={25} minSize={15} maxSize={40} className="overflow-hidden">
+        <ResizablePanel defaultSize="25%" minSize="15%" maxSize="40%" className="overflow-hidden">
           {treePanel}
         </ResizablePanel>
-        <ResizableHandle />
-        <ResizablePanel defaultSize={75} className="overflow-hidden flex flex-col">
+        <ResizableHandle withHandle />
+        <ResizablePanel defaultSize="75%" className="overflow-hidden flex flex-col">
           {fileViewer}
         </ResizablePanel>
       </ResizablePanelGroup>

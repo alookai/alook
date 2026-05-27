@@ -783,15 +783,15 @@ export default function AgentEmailPage() {
         mobileContent
       ) : (
         <ResizablePanelGroup orientation="horizontal">
-          <ResizablePanel defaultSize={15} minSize={10} maxSize={20}>
+          <ResizablePanel defaultSize="15%" minSize="10%" maxSize="20%">
             {sidebarContent}
           </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel defaultSize={30} minSize={15} maxSize={40}>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize="30%" minSize="15%" maxSize="40%">
             {emailListContent}
           </ResizablePanel>
-          <ResizableHandle />
-          <ResizablePanel defaultSize={55} minSize={25}>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize="55%" minSize="25%">
             {readingPaneContent}
           </ResizablePanel>
         </ResizablePanelGroup>
