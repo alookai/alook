@@ -61,7 +61,7 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
   return (
     <>
       {/* Top navbar */}
-      <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5">
+      <div className="flex items-center justify-between border-b border-border/50 px-4 md:px-5 py-2.5">
         <div className="flex items-center gap-2 min-w-0">
           {agent ? (
             <AgentStatusBadge
