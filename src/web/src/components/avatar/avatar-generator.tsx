@@ -15,6 +15,7 @@ import {
   randomConfig,
 } from "./avatar-parts";
 import { cn } from "@/lib/utils";
+import { Kbd } from "@/components/ui/kbd";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 // ─────────────────────────────────────────────────────────────
@@ -214,7 +215,7 @@ export function AvatarGenerator({ config, onChange, layout = "vertical", mobile 
         </svg>
         Random
         {isHorizontal && (
-          <kbd className="ml-1 rounded bg-background/20 px-1.5 py-0.5 text-[10px] font-mono">Space</kbd>
+          <Kbd className="ml-1 bg-background/20 text-[10px] text-inherit">Space</Kbd>
         )}
       </button>
     </div>
