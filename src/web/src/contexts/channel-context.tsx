@@ -27,7 +27,7 @@ interface ChannelContextValue {
   renaming: string | null;
   setActiveChannel: (name: string) => void;
   setAgentId: (id: string | null) => void;
-  createChannel: (name: string) => Promise<Channel>;
+  createChannel: (name: string) => Promise<Channel | undefined>;
   renameChannel: (id: string, name: string) => Promise<void>;
   deleteChannel: (id: string) => Promise<void>;
   reorderChannels: (orderedIds: string[]) => Promise<void>;
@@ -94,7 +94,7 @@ export function ChannelProvider({
 
   const createChannel = useCallback(
     async (name: string) => {
-      if (creating) return undefined as unknown as Channel;
+      if (creating) return undefined;
       setCreating(true);
       try {
         const created = await createChannelApi(workspaceId, name);

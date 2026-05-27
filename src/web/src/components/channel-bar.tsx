@@ -252,7 +252,7 @@ function ChannelPill({
   name: string;
   active: boolean;
   deleting: boolean;
-  isDeleting?: boolean;
+  isDeleting: boolean;
   onSelect: () => void;
   onRename: () => void;
   onDeleteRequest: () => void;
