@@ -11,17 +11,13 @@ export function useSheetResize({
   defaultWidth = DEFAULT_WIDTH,
   minWidth = DEFAULT_MIN_WIDTH,
   maxWidthRatio = DEFAULT_MAX_WIDTH_RATIO,
-  onWidthChange,
 }: {
   defaultWidth?: number;
   minWidth?: number;
   maxWidthRatio?: number;
-  onWidthChange?: (width: number) => void;
 } = {}) {
   const [width, setWidth] = useState(defaultWidth);
   const dragging = useRef(false);
-  const onWidthChangeRef = useRef(onWidthChange);
-  onWidthChangeRef.current = onWidthChange;
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -33,12 +29,7 @@ export function useSheetResize({
     (e: React.PointerEvent) => {
       if (!dragging.current) return;
       const maxW = window.innerWidth * maxWidthRatio;
-      const newWidth = Math.min(maxW, Math.max(minWidth, window.innerWidth - e.clientX));
-      if (onWidthChangeRef.current) {
-        onWidthChangeRef.current(newWidth);
-      } else {
-        setWidth(newWidth);
-      }
+      setWidth(Math.min(maxW, Math.max(minWidth, window.innerWidth - e.clientX)));
     },
     [minWidth, maxWidthRatio]
   );

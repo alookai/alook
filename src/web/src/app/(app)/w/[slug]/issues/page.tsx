@@ -22,7 +22,6 @@ import { IssueSheet } from "@/components/issues/issue-sheet";
 import { ArtifactSheet } from "@/components/agent-chat/artifact-sheet";
 import { isPreviewable, getArtifactUrl, computeArtifactVersions } from "@/components/artifact-content-renderer";
 
-const SIDECAR_DEFAULT_WIDTH = 448;
 
 const COLUMNS = [
   { id: "todo", label: "Todo", statuses: ["todo"] },
@@ -249,7 +248,6 @@ export default function IssuesPage() {
   const [detail, setDetail] = useState<{ issue: Issue & { trace_id?: string | null }; messages: Message[]; comments: IssueComment[]; artifacts: Artifact[] } | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeTask, setActiveTask] = useState<TaskApi | null>(null);
-  const [sidecarWidth, setSidecarWidth] = useState(SIDECAR_DEFAULT_WIDTH);
   const [traceTasks, setTraceTasks] = useState<TraceTask[] | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [artifactSheetOpen, setArtifactSheetOpen] = useState(false);
@@ -805,8 +803,6 @@ export default function IssuesPage() {
         defaultAgentId={recentAgentId}
         slug={slug}
         workspaceId={workspaceId}
-        width={sidecarWidth}
-        onWidthChange={setSidecarWidth}
         draft={draft}
         onDraftChange={setDraft}
         onCreate={handleCreate}

@@ -359,7 +359,6 @@ export function AgentChatView({
   const [issueDetailLoading, setIssueDetailLoading] = useState(false);
   const [issueTraceTasks, setIssueTraceTasks] = useState<TraceTask[] | null>(null);
   const [issueActiveTask, setIssueActiveTask] = useState<Task | null>(null);
-  const [issueSidecarWidth, setIssueSidecarWidth] = useState(448);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [bufferedMessages, setBufferedMessages] = useState<Message[]>([]);
   const [caretIndex, setCaretIndex] = useState<number | null>(null);
@@ -2237,8 +2236,6 @@ export function AgentChatView({
         traceTasks={issueTraceTasks}
         slug={slug}
         workspaceId={workspaceId}
-        width={issueSidecarWidth}
-        onWidthChange={setIssueSidecarWidth}
         onUpdate={async (issueId, patch) => {
           try {
             const updated = await updateIssue(workspaceId, issueId, patch);

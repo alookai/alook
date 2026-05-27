@@ -200,8 +200,6 @@ export interface IssueSheetProps {
   defaultAgentId?: string;
   slug: string;
   workspaceId: string;
-  width?: number;
-  onWidthChange?: (width: number) => void;
   draft?: { title: string; description: string; agentId: string };
   onDraftChange?: (draft: { title: string; description: string; agentId: string }) => void;
   onCreate?: (values: { agent_id?: string; title: string; description: string }) => Promise<void>;
@@ -225,8 +223,6 @@ export function IssueSheet({
   defaultAgentId,
   slug,
   workspaceId,
-  width = 448,
-  onWidthChange,
   draft,
   onDraftChange,
   onCreate,
@@ -329,10 +325,10 @@ export function IssueSheet({
   }, [open, mode, flushAutoSave]);
 
   // --- Drag handle ---
-  const { onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
+  const { width, onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
+    defaultWidth: 448,
     minWidth: MIN_WIDTH,
     maxWidthRatio: MAX_WIDTH_RATIO,
-    onWidthChange,
   });
 
   // --- Handlers ---
