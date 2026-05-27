@@ -44,6 +44,7 @@ import {
 import { useAgentContext } from "@/contexts/agent-context";
 import { ApiError } from "@/lib/errors";
 import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
 
 export function nameToHandle(name: string): string {
@@ -364,26 +365,16 @@ export function PinToggle({ agentId }: { agentId: string }) {
               : "Pin this agent to the top of the sidebar"}
           </p>
         </div>
-        <label className="flex items-center gap-2 cursor-pointer">
+        <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
             {toggling ? "Saving…" : isPinned ? "Pinned" : "Unpinned"}
           </span>
-          <input
-            type="checkbox"
+          <Switch
             checked={isPinned}
-            onChange={handleToggle}
+            onCheckedChange={handleToggle}
             disabled={toggling}
-            className="sr-only peer"
           />
-          <div className="relative w-9 h-5 bg-muted rounded-full peer-checked:bg-primary transition-colors">
-            <div
-              className={cn(
-                "absolute left-0.5 top-0.5 w-4 h-4 bg-background rounded-full transition-transform",
-                isPinned ? "translate-x-4" : "translate-x-0"
-              )}
-            />
-          </div>
-        </label>
+        </div>
       </div>
       <p className="text-xs text-muted-foreground/70">
         Tip: You can also right-click an agent in the sidebar to pin or unpin
@@ -715,7 +706,7 @@ export function AgentAccessTab({
                 : "Only authorized members can use this agent"}
             </p>
           </div>
-          <label className="flex items-center gap-2 cursor-pointer">
+          <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">
               {savingVisibility
                 ? "Saving…"
@@ -723,24 +714,14 @@ export function AgentAccessTab({
                   ? "Public"
                   : "Private"}
             </span>
-            <input
-              type="checkbox"
+            <Switch
               checked={visibility === "public"}
-              onChange={(e) =>
-                handleVisibilityChange(e.target.checked ? "public" : "private")
+              onCheckedChange={(checked) =>
+                handleVisibilityChange(checked ? "public" : "private")
               }
               disabled={savingVisibility}
-              className="sr-only peer"
             />
-            <div className="relative w-9 h-5 bg-muted rounded-full peer-checked:bg-primary transition-colors">
-              <div
-                className={cn(
-                  "absolute left-0.5 top-0.5 w-4 h-4 bg-background rounded-full transition-transform",
-                  visibility === "public" ? "translate-x-4" : "translate-x-0"
-                )}
-              />
-            </div>
-          </label>
+          </div>
         </div>
       </div>
 
