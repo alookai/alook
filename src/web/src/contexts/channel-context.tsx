@@ -22,6 +22,9 @@ interface ChannelContextValue {
   channels: Channel[];
   activeChannel: string;
   loading: boolean;
+  creating: boolean;
+  deleting: string | null;
+  renaming: string | null;
   setActiveChannel: (name: string) => void;
   setAgentId: (id: string | null) => void;
   createChannel: (name: string) => Promise<Channel>;
@@ -50,6 +53,9 @@ export function ChannelProvider({
   const [activeChannel, setActiveChannelState] = useState<string>("default");
   const [loading, setLoading] = useState(true);
   const [agentId, setAgentId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
 
   const fetchChannels = useCallback(async () => {
     try {
@@ -88,35 +94,53 @@ export function ChannelProvider({
 
   const createChannel = useCallback(
     async (name: string) => {
-      const created = await createChannelApi(workspaceId, name);
-      await fetchChannels();
-      return created;
+      if (creating) return undefined as unknown as Channel;
+      setCreating(true);
+      try {
+        const created = await createChannelApi(workspaceId, name);
+        await fetchChannels();
+        return created;
+      } finally {
+        setCreating(false);
+      }
     },
-    [workspaceId, fetchChannels]
+    [workspaceId, fetchChannels, creating]
   );
 
   const renameChannel = useCallback(
     async (id: string, name: string) => {
-      const ch = channels.find((c) => c.id === id);
-      await renameChannelApi(id, workspaceId, name);
-      if (ch && ch.name === activeChannel) {
-        setActiveChannel(name);
+      if (renaming) return;
+      setRenaming(id);
+      try {
+        const ch = channels.find((c) => c.id === id);
+        await renameChannelApi(id, workspaceId, name);
+        if (ch && ch.name === activeChannel) {
+          setActiveChannel(name);
+        }
+        await fetchChannels();
+      } finally {
+        setRenaming(null);
       }
-      await fetchChannels();
     },
-    [workspaceId, channels, activeChannel, setActiveChannel, fetchChannels]
+    [workspaceId, channels, activeChannel, setActiveChannel, fetchChannels, renaming]
   );
 
   const deleteChannel = useCallback(
     async (id: string) => {
-      const ch = channels.find((c) => c.id === id);
-      await deleteChannelApi(id, workspaceId);
-      if (ch && ch.name === activeChannel) {
-        setActiveChannel("default");
+      if (deleting) return;
+      setDeleting(id);
+      try {
+        const ch = channels.find((c) => c.id === id);
+        await deleteChannelApi(id, workspaceId);
+        if (ch && ch.name === activeChannel) {
+          setActiveChannel("default");
+        }
+        await fetchChannels();
+      } finally {
+        setDeleting(null);
       }
-      await fetchChannels();
     },
-    [workspaceId, channels, activeChannel, setActiveChannel, fetchChannels]
+    [workspaceId, channels, activeChannel, setActiveChannel, fetchChannels, deleting]
   );
 
   const reorderChannels = useCallback(
@@ -146,6 +170,9 @@ export function ChannelProvider({
         channels,
         activeChannel,
         loading,
+        creating,
+        deleting,
+        renaming,
         setActiveChannel,
         setAgentId,
         createChannel,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -41,6 +41,9 @@ export function ChannelBar() {
     channels,
     activeChannel,
     loading,
+    creating: channelCreating,
+    deleting: channelDeleting,
+    renaming: channelRenaming,
     setActiveChannel,
     createChannel,
     renameChannel,
@@ -92,6 +95,7 @@ export function ChannelBar() {
           name={defaultChannel.name}
           active={defaultChannel.name === activeChannel}
           deleting={false}
+          isDeleting={false}
           onSelect={() => setActiveChannel(defaultChannel.name)}
           onRename={() => {}}
           onDeleteRequest={() => {}}
@@ -115,6 +119,7 @@ export function ChannelBar() {
               <RenameInput
                 key={ch.id}
                 currentName={ch.name}
+                loading={channelRenaming === ch.id}
                 onSave={async (name) => {
                   try {
                     await renameChannel(ch.id, name);
@@ -132,6 +137,7 @@ export function ChannelBar() {
                 name={ch.name}
                 active={ch.name === activeChannel}
                 deleting={deletingId === ch.id}
+                isDeleting={channelDeleting === ch.id}
                 disabled={renamingId !== null}
                 onSelect={() => setActiveChannel(ch.name)}
                 onRename={() => setRenamingId(ch.id)}
@@ -153,6 +159,7 @@ export function ChannelBar() {
 
       {creating ? (
         <CreateInput
+          loading={channelCreating}
           onSave={async (name) => {
             try {
               await createChannel(name);
@@ -194,6 +201,7 @@ function SortableChannelPill({
   name: string;
   active: boolean;
   deleting: boolean;
+  isDeleting: boolean;
   disabled: boolean;
   onSelect: () => void;
   onRename: () => void;
@@ -233,6 +241,7 @@ function ChannelPill({
   name,
   active,
   deleting,
+  isDeleting,
   onSelect,
   onRename,
   onDeleteRequest,
@@ -243,6 +252,7 @@ function ChannelPill({
   name: string;
   active: boolean;
   deleting: boolean;
+  isDeleting?: boolean;
   onSelect: () => void;
   onRename: () => void;
   onDeleteRequest: () => void;
@@ -304,10 +314,11 @@ function ChannelPill({
             Delete &ldquo;{name}&rdquo;? Its conversations will be removed.
           </p>
           <div className="flex gap-2 justify-end">
-            <Button variant="ghost" size="sm" onClick={onDeleteCancel}>
+            <Button variant="ghost" size="sm" onClick={onDeleteCancel} disabled={isDeleting}>
               Cancel
             </Button>
-            <Button variant="destructive" size="sm" onClick={onDeleteConfirm}>
+            <Button variant="destructive" size="sm" onClick={onDeleteConfirm} disabled={isDeleting}>
+              {isDeleting && <Loader2 className="size-3 animate-spin mr-1" />}
               Delete
             </Button>
           </div>
@@ -319,9 +330,11 @@ function ChannelPill({
 }
 
 function CreateInput({
+  loading,
   onSave,
   onCancel,
 }: {
+  loading?: boolean;
   onSave: (name: string) => void;
   onCancel: () => void;
 }) {
@@ -344,27 +357,33 @@ function CreateInput({
   }, [value, onSave, onCancel]);
 
   return (
-    <input
-      ref={ref}
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") handleSubmit();
-        if (e.key === "Escape") onCancel();
-      }}
-      onBlur={() => { if (!savedRef.current) onCancel(); }}
-      placeholder="name..."
-      className="h-5 w-24 px-1.5 rounded-md text-[11px] bg-transparent border border-input focus:border-ring focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground/50 outline-none shrink-0"
-    />
+    <span className="inline-flex items-center gap-1 shrink-0">
+      <input
+        ref={ref}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") handleSubmit();
+          if (e.key === "Escape") onCancel();
+        }}
+        onBlur={() => { if (!savedRef.current) onCancel(); }}
+        disabled={loading}
+        placeholder="name..."
+        className="h-5 w-24 px-1.5 rounded-md text-[11px] bg-transparent border border-input focus:border-ring focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground/50 outline-none shrink-0 disabled:opacity-50"
+      />
+      {loading && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+    </span>
   );
 }
 
 function RenameInput({
   currentName,
+  loading,
   onSave,
   onCancel,
 }: {
   currentName: string;
+  loading?: boolean;
   onSave: (name: string) => void;
   onCancel: () => void;
 }) {
@@ -402,7 +421,8 @@ function RenameInput({
         if (e.key === "Escape") onCancel();
       }}
       onBlur={() => { if (readyRef.current && !savedRef.current) onCancel(); }}
-      className="h-5 w-24 px-1.5 rounded-md text-[11px] bg-transparent border border-input focus:border-ring focus:ring-2 focus:ring-ring/50 outline-none shrink-0"
+      disabled={loading}
+      className="h-5 w-24 px-1.5 rounded-md text-[11px] bg-transparent border border-input focus:border-ring focus:ring-2 focus:ring-ring/50 outline-none shrink-0 disabled:opacity-50"
     />
   );
 }
