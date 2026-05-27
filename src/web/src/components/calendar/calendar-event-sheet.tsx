@@ -42,6 +42,7 @@ import type {
   UpdateCalendarEventRequest,
 } from "@alook/shared";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
+import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle";
 import { CalendarDatePicker } from "./calendar-date-picker";
 import { CalendarTimePicker } from "./calendar-time-picker";
 import {
@@ -291,24 +292,11 @@ export function CalendarEventSheet({
   };
 
   // --- Resizable drag handle ---
-  const [sheetWidth, setSheetWidth] = useState(DRAG_DEFAULT_WIDTH);
-  const draggingRef = useRef(false);
-
-  const onDragPointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    draggingRef.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }, []);
-
-  const onDragPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!draggingRef.current) return;
-    const maxW = window.innerWidth * DRAG_MAX_WIDTH_RATIO;
-    setSheetWidth(Math.min(maxW, Math.max(DRAG_MIN_WIDTH, window.innerWidth - e.clientX)));
-  }, []);
-
-  const onDragPointerUp = useCallback(() => {
-    draggingRef.current = false;
-  }, []);
+  const { width: sheetWidth, onPointerDown: onDragPointerDown, onPointerMove: onDragPointerMove, onPointerUp: onDragPointerUp } = useSheetResize({
+    defaultWidth: DRAG_DEFAULT_WIDTH,
+    minWidth: DRAG_MIN_WIDTH,
+    maxWidthRatio: DRAG_MAX_WIDTH_RATIO,
+  });
 
   const mode = resolvedEvent ? "edit" : "create";
 
@@ -791,12 +779,7 @@ export function CalendarEventSheet({
   );
 
   const dragHandle = (
-    <div
-      onPointerDown={onDragPointerDown}
-      onPointerMove={onDragPointerMove}
-      onPointerUp={onDragPointerUp}
-      className="hidden sm:block absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-primary/20 active:bg-primary/30 transition-colors rounded-l-xl"
-    />
+    <SheetResizeHandle onPointerDown={onDragPointerDown} onPointerMove={onDragPointerMove} onPointerUp={onDragPointerUp} />
   );
 
   const sheetBody = fetchLoading ? (

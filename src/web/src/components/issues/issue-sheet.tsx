@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   Select,
@@ -249,7 +250,6 @@ export function IssueSheet({
 
   const descriptionRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
 
   const isTaskActive = activeTask && !["completed", "failed", "cancelled", "superseded"].includes(activeTask.status);
   const hasActiveTraceTasks = traceTasks?.some(t => ["queued", "dispatched", "running"].includes(t.status)) ?? false;
@@ -329,22 +329,11 @@ export function IssueSheet({
   }, [open, mode, flushAutoSave]);
 
   // --- Drag handle ---
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    dragging.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }, []);
-
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragging.current) return;
-    const maxW = window.innerWidth * MAX_WIDTH_RATIO;
-    const newWidth = Math.min(maxW, Math.max(MIN_WIDTH, window.innerWidth - e.clientX));
-    onWidthChange?.(newWidth);
-  }, [onWidthChange]);
-
-  const onPointerUp = useCallback(() => {
-    dragging.current = false;
-  }, []);
+  const { onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
+    minWidth: MIN_WIDTH,
+    maxWidthRatio: MAX_WIDTH_RATIO,
+    onWidthChange,
+  });
 
   // --- Handlers ---
   const handleCreate = async () => {
@@ -669,13 +658,7 @@ export function IssueSheet({
         style={{ width: `min(${width}px, 100vw)`, maxWidth: "none" }}
       >
         {/* Resize drag handle */}
-        <div
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onLostPointerCapture={onPointerUp}
-          className="hidden sm:block absolute -left-px top-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-primary/20 active:bg-primary/30 transition-colors rounded-l-xl"
-        />
+        <SheetResizeHandle onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
 
         {/* Mobile close button */}
         <SheetClose

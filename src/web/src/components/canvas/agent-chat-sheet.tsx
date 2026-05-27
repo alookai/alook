@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React from "react";
+import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle";
 import { useRouter } from "next/navigation";
 import {
   Sheet,
@@ -36,14 +37,11 @@ export function AgentChatSheet({ open, onOpenChange, agent, targetConvId, scroll
   const { runtimes, activeTaskCounts } = useAgentContext();
   const { slug } = useWorkspace();
   const router = useRouter();
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
-
-  const handleResize = useCallback((delta: number) => {
-    setWidth((w) => {
-      const maxW = window.innerWidth * MAX_WIDTH_RATIO;
-      return Math.min(maxW, Math.max(MIN_WIDTH, w + delta));
-    });
-  }, []);
+  const { width, onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
+    defaultWidth: DEFAULT_WIDTH,
+    minWidth: MIN_WIDTH,
+    maxWidthRatio: MAX_WIDTH_RATIO,
+  });
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -53,23 +51,7 @@ export function AgentChatSheet({ open, onOpenChange, agent, targetConvId, scroll
         style={{ width: `min(${width}px, 100vw)`, maxWidth: "none" }}
         className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border flex flex-col"
       >
-        {/* Resize handle */}
-        <div
-          onPointerDown={(e) => {
-            e.preventDefault();
-            (e.target as HTMLElement).setPointerCapture(e.pointerId);
-          }}
-          onPointerMove={(e) => {
-            if (!(e.target as HTMLElement).hasPointerCapture(e.pointerId)) return;
-            handleResize(-e.movementX);
-          }}
-          onPointerUp={(e) => {
-            (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-          }}
-          className="hidden sm:flex absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 items-center justify-center hover:bg-primary/10 active:bg-primary/20 transition-colors rounded-l-xl"
-        >
-          <div className="h-6 w-1 rounded-lg bg-border" />
-        </div>
+        <SheetResizeHandle onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
 
         {/* Top-right action buttons */}
         <div className="absolute top-3 right-3 z-10 flex items-center gap-1">

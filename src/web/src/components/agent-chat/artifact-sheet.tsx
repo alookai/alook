@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect } from "react";
+import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle";
 import {
   Sheet,
   SheetContent,
@@ -36,8 +37,11 @@ const DEFAULT_WIDTH = 448;
 
 export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, initialArtifact = null, versionMap, duplicateFilenames }: ArtifactSheetProps) {
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
-  const dragging = useRef(false);
+  const { width, onPointerDown, onPointerMove, onPointerUp } = useSheetResize({
+    defaultWidth: DEFAULT_WIDTH,
+    minWidth: MIN_WIDTH,
+    maxWidthRatio: MAX_WIDTH_RATIO,
+  });
 
   useEffect(() => {
     if (open && initialArtifact) {
@@ -53,21 +57,6 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
     }
   };
 
-  const onPointerDown = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    dragging.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  }, []);
-
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragging.current) return;
-    const maxW = window.innerWidth * MAX_WIDTH_RATIO;
-    setWidth(Math.min(maxW, Math.max(MIN_WIDTH, window.innerWidth - e.clientX)));
-  }, []);
-
-  const onPointerUp = useCallback(() => {
-    dragging.current = false;
-  }, []);
 
   return (
     <Sheet open={open} onOpenChange={handleOpenChange}>
@@ -77,12 +66,7 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
         style={{ width: `min(${width}px, 100vw)`, maxWidth: "none" }}
         className="data-[side=right]:sm:inset-y-2 data-[side=right]:sm:right-2 data-[side=right]:sm:h-auto data-[side=right]:sm:rounded-xl data-[side=right]:sm:border"
       >
-        <div
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          className="hidden sm:block absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 hover:bg-primary/20 active:bg-primary/30 transition-colors rounded-l-xl"
-        />
+        <SheetResizeHandle onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} />
         {selectedArtifact ? (
           <>
             <SheetHeader>
