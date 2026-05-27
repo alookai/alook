@@ -1,9 +1,18 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
 import type { Editor } from "@tiptap/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Bold,
   Italic,
@@ -68,6 +77,17 @@ function ToolbarDivider() {
 }
 
 export function EmailToolbar({ editor }: EmailToolbarProps) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<"link" | "image">("link");
+  const [urlValue, setUrlValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (dialogOpen) {
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [dialogOpen]);
+
   if (!editor) return null;
 
   const iconSize = "size-3.5";
@@ -77,17 +97,31 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       editor.chain().focus().unsetLink().run();
       return;
     }
-    const url = window.prompt("URL");
-    if (url) {
-      editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
-    }
+    setDialogMode("link");
+    setUrlValue("");
+    setDialogOpen(true);
   };
 
   const handleImage = () => {
-    const url = window.prompt("Image URL");
-    if (url) {
-      editor.chain().focus().setImage({ src: url }).run();
+    setDialogMode("image");
+    setUrlValue("");
+    setDialogOpen(true);
+  };
+
+  const handleDialogSubmit = () => {
+    const trimmed = urlValue.trim();
+    if (!trimmed) return;
+    try {
+      new URL(trimmed);
+    } catch {
+      return;
     }
+    if (dialogMode === "link") {
+      editor.chain().focus().extendMarkRange("link").setLink({ href: trimmed }).run();
+    } else {
+      editor.chain().focus().setImage({ src: trimmed }).run();
+    }
+    setDialogOpen(false);
   };
 
   return (
@@ -210,6 +244,31 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       >
         <Minus className={iconSize} />
       </ToolbarButton>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {dialogMode === "link" ? "Insert Link" : "Insert Image"}
+            </DialogTitle>
+          </DialogHeader>
+          <Input
+            ref={inputRef}
+            value={urlValue}
+            onChange={(e) => setUrlValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleDialogSubmit();
+            }}
+            placeholder={dialogMode === "link" ? "https://example.com" : "https://example.com/image.png"}
+            type="url"
+          />
+          <DialogFooter>
+            <Button onClick={handleDialogSubmit} disabled={!urlValue.trim()}>
+              Insert
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
