@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 export function useCopyToClipboard(resetDelay = 2000) {
   const [copied, setCopied] = useState(false);
@@ -20,6 +20,10 @@ export function useCopyToClipboard(resetDelay = 2000) {
     },
     [resetDelay]
   );
+
+  useEffect(() => {
+    return () => clearTimeout(timeoutRef.current);
+  }, []);
 
   return { copy, copied };
 }

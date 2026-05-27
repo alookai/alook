@@ -82,11 +82,11 @@ function OnboardingSteps({
                 render={
                   <div
                     className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-                    onClick={() =>
-                      copy(
-                        `${cliCmd()} register --token ${generatedToken}`
-                      )
-                    }
+                    onClick={() => {
+                      copy(`${cliCmd()} register --token ${generatedToken}`).then(
+                        (ok) => { if (ok) toast.success("Copied to clipboard"); }
+                      );
+                    }}
                   />
                 }
               >
@@ -129,9 +129,11 @@ function OnboardingSteps({
             render={
               <div
                 className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-                onClick={() =>
-                  copy(daemonStartCmd())
-                }
+                onClick={() => {
+                  copy(daemonStartCmd()).then(
+                    (ok) => { if (ok) toast.success("Copied to clipboard"); }
+                  );
+                }}
               />
             }
           >
