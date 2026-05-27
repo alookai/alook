@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { Editor } from "@tiptap/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -56,11 +56,8 @@ function ToolbarButton({
             variant="ghost"
             size="icon-sm"
             disabled={disabled}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onAction();
-            }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onAction}
             className={cn(
               "text-muted-foreground/70",
               active && "bg-accent text-foreground"
@@ -87,6 +84,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
   const [displayText, setDisplayText] = useState("");
   const [selectionEmpty, setSelectionEmpty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const linkActiveOnMouseDown = useRef(false);
 
   useEffect(() => {
     if (dialogOpen) {
@@ -228,16 +226,19 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
 
       <ToolbarDivider />
 
-      {/* Link & Image */}
+      {/* Link & Image — custom handler to capture isActive before click */}
       <Tooltip>
         <TooltipTrigger
           render={
             <Button
               variant="ghost"
               size="icon-sm"
-              onPointerDown={(e) => {
+              onMouseDown={(e) => {
                 e.preventDefault();
-                if (editor.isActive("link")) {
+                linkActiveOnMouseDown.current = editor.isActive("link");
+              }}
+              onClick={() => {
+                if (linkActiveOnMouseDown.current) {
                   editor.chain().focus().unsetLink().run();
                 } else {
                   setDialogMode("link");
