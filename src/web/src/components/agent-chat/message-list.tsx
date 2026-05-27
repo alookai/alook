@@ -1,4 +1,4 @@
-import React, { memo, useState } from "react";
+import React, { memo } from "react";
 import type { Agent, Artifact, Message, TaskApi as Task, TaskMessage } from "@alook/shared";
 
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { FileText, Calendar, CircleDot, Mail, Flag, Copy, Check } from "lucide-r
 
 import { getEventIconType } from "@/components/agent-chat/agent-chat-view";
 import { toast } from "sonner";
+import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
 const MENTION_ALLOWED_TAGS = { mention: ["data-agent-id"] };
 const MENTION_LITERAL_TAGS = ["mention"];
@@ -127,7 +128,7 @@ export const MessageItem = memo(function MessageItem({
   isFlagged,
   onToggleFlag,
 }: MessageItemProps) {
-  const [copied, setCopied] = useState(false);
+  const { copy, copied } = useCopyToClipboard();
 
   const hasTaskStream =
     activeTask &&
@@ -149,14 +150,9 @@ export const MessageItem = memo(function MessageItem({
               aria-label={copied ? "Copied" : "Copy message"}
               onClick={async (e) => {
                 e.stopPropagation();
-                try {
-                  await navigator.clipboard.writeText(msg.content);
-                  setCopied(true);
-                  toast.success("Copied to clipboard");
-                  setTimeout(() => setCopied(false), 2000);
-                } catch {
-                  toast.error("Failed to copy");
-                }
+                const ok = await copy(msg.content);
+                if (ok) toast.success("Copied to clipboard");
+                else toast.error("Failed to copy");
               }}
               className={cn(
                 "self-start mb-1",
