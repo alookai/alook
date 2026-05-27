@@ -1,9 +1,18 @@
 "use client";
 
+import { useState, useRef, useEffect, useReducer } from "react";
 import type { Editor } from "@tiptap/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Bold,
   Italic,
@@ -29,13 +38,13 @@ interface EmailToolbarProps {
 function ToolbarButton({
   active,
   disabled,
-  onClick,
+  onAction,
   title,
   children,
 }: {
   active?: boolean;
   disabled?: boolean;
-  onClick: () => void;
+  onAction: () => void;
   title: string;
   children: React.ReactNode;
 }) {
@@ -48,7 +57,7 @@ function ToolbarButton({
             size="icon-sm"
             disabled={disabled}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={onClick}
+            onClick={onAction}
             className={cn(
               "text-muted-foreground/70",
               active && "bg-accent text-foreground"
@@ -68,26 +77,66 @@ function ToolbarDivider() {
 }
 
 export function EmailToolbar({ editor }: EmailToolbarProps) {
+  const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<"link" | "image">("link");
+  const [urlValue, setUrlValue] = useState("");
+  const [urlError, setUrlError] = useState("");
+  const [displayText, setDisplayText] = useState("");
+  const [selectionEmpty, setSelectionEmpty] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const linkActiveOnMouseDown = useRef(false);
+
+  useEffect(() => {
+    if (!editor) return;
+    const handler = () => forceUpdate();
+    editor.on("transaction", handler);
+    return () => { editor.off("transaction", handler); };
+  }, [editor]);
+
+  useEffect(() => {
+    if (dialogOpen) {
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }, [dialogOpen]);
+
   if (!editor) return null;
 
   const iconSize = "size-3.5";
 
-  const handleLink = () => {
-    if (editor.isActive("link")) {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
-    const url = window.prompt("URL");
-    if (url) {
-      editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
-    }
-  };
 
   const handleImage = () => {
-    const url = window.prompt("Image URL");
-    if (url) {
-      editor.chain().focus().setImage({ src: url }).run();
+    setDialogMode("image");
+    setUrlValue("");
+    setUrlError("");
+    setDialogOpen(true);
+  };
+
+  const handleDialogSubmit = () => {
+    const trimmed = urlValue.trim();
+    if (!trimmed) return;
+    try {
+      new URL(trimmed);
+    } catch {
+      setUrlError("Please enter a valid URL");
+      return;
     }
+    setUrlError("");
+    if (dialogMode === "link") {
+      if (selectionEmpty) {
+        const text = displayText.trim() || trimmed;
+        editor.chain().focus().insertContent({
+          type: "text",
+          text,
+          marks: [{ type: "link", attrs: { href: trimmed } }],
+        }).run();
+      } else {
+        editor.chain().focus().extendMarkRange("link").setLink({ href: trimmed }).run();
+      }
+    } else {
+      editor.chain().focus().setImage({ src: trimmed }).run();
+    }
+    setDialogOpen(false);
   };
 
   return (
@@ -96,28 +145,28 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarButton
         title="Bold"
         active={editor.isActive("bold")}
-        onClick={() => editor.chain().focus().toggleBold().run()}
+        onAction={() => editor.chain().focus().toggleBold().run()}
       >
         <Bold className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Italic"
         active={editor.isActive("italic")}
-        onClick={() => editor.chain().focus().toggleItalic().run()}
+        onAction={() => editor.chain().focus().toggleItalic().run()}
       >
         <Italic className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Underline"
         active={editor.isActive("underline")}
-        onClick={() => editor.chain().focus().toggleUnderline().run()}
+        onAction={() => editor.chain().focus().toggleUnderline().run()}
       >
         <Underline className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Strikethrough"
         active={editor.isActive("strike")}
-        onClick={() => editor.chain().focus().toggleStrike().run()}
+        onAction={() => editor.chain().focus().toggleStrike().run()}
       >
         <Strikethrough className={iconSize} />
       </ToolbarButton>
@@ -128,14 +177,14 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarButton
         title="Heading 1"
         active={editor.isActive("heading", { level: 1 })}
-        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+        onAction={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
       >
         <Heading1 className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Heading 2"
         active={editor.isActive("heading", { level: 2 })}
-        onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+        onAction={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
       >
         <Heading2 className={iconSize} />
       </ToolbarButton>
@@ -146,14 +195,14 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarButton
         title="Bullet List"
         active={editor.isActive("bulletList")}
-        onClick={() => editor.chain().focus().toggleBulletList().run()}
+        onAction={() => editor.chain().focus().toggleBulletList().run()}
       >
         <List className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Ordered List"
         active={editor.isActive("orderedList")}
-        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+        onAction={() => editor.chain().focus().toggleOrderedList().run()}
       >
         <ListOrdered className={iconSize} />
       </ToolbarButton>
@@ -164,40 +213,66 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarButton
         title="Align Left"
         active={editor.isActive({ textAlign: "left" })}
-        onClick={() => editor.chain().focus().setTextAlign("left").run()}
+        onAction={() => editor.chain().focus().setTextAlign("left").run()}
       >
         <AlignLeft className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Align Center"
         active={editor.isActive({ textAlign: "center" })}
-        onClick={() => editor.chain().focus().setTextAlign("center").run()}
+        onAction={() => editor.chain().focus().setTextAlign("center").run()}
       >
         <AlignCenter className={iconSize} />
       </ToolbarButton>
       <ToolbarButton
         title="Align Right"
         active={editor.isActive({ textAlign: "right" })}
-        onClick={() => editor.chain().focus().setTextAlign("right").run()}
+        onAction={() => editor.chain().focus().setTextAlign("right").run()}
       >
         <AlignRight className={iconSize} />
       </ToolbarButton>
 
       <ToolbarDivider />
 
-      {/* Link & Image */}
-      <ToolbarButton
-        title={editor.isActive("link") ? "Remove Link" : "Insert Link"}
-        active={editor.isActive("link")}
-        onClick={handleLink}
-      >
-        {editor.isActive("link") ? (
-          <Unlink className={iconSize} />
-        ) : (
-          <Link className={iconSize} />
-        )}
-      </ToolbarButton>
-      <ToolbarButton title="Insert Image" onClick={handleImage}>
+      {/* Link & Image — custom handler to capture isActive before click */}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                linkActiveOnMouseDown.current = editor.isActive("link");
+              }}
+              onClick={() => {
+                if (linkActiveOnMouseDown.current) {
+                  editor.chain().focus().unsetLink().run();
+                } else {
+                  setDialogMode("link");
+                  setUrlValue("");
+                  setUrlError("");
+                  setDisplayText("");
+                  setSelectionEmpty(editor.state.selection.empty);
+                  setDialogOpen(true);
+                }
+              }}
+              className={cn(
+                "text-muted-foreground/70",
+                editor.isActive("link") && "bg-accent text-foreground"
+              )}
+            />
+          }
+        >
+          {editor.isActive("link") ? (
+            <Unlink className={iconSize} />
+          ) : (
+            <Link className={iconSize} />
+          )}
+        </TooltipTrigger>
+        <TooltipContent>{editor.isActive("link") ? "Remove Link" : "Insert Link"}</TooltipContent>
+      </Tooltip>
+      <ToolbarButton title="Insert Image" onAction={handleImage}>
         <ImageIcon className={iconSize} />
       </ToolbarButton>
 
@@ -206,10 +281,50 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       {/* Horizontal Rule */}
       <ToolbarButton
         title="Horizontal Rule"
-        onClick={() => editor.chain().focus().setHorizontalRule().run()}
+        onAction={() => editor.chain().focus().setHorizontalRule().run()}
       >
         <Minus className={iconSize} />
       </ToolbarButton>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {dialogMode === "link" ? "Insert Link" : "Insert Image"}
+            </DialogTitle>
+          </DialogHeader>
+          {dialogMode === "link" && selectionEmpty && (
+            <Input
+              ref={inputRef}
+              value={displayText}
+              onChange={(e) => setDisplayText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleDialogSubmit();
+              }}
+              placeholder="Display text"
+            />
+          )}
+          <div className="space-y-1">
+            <Input
+              ref={dialogMode === "image" || !selectionEmpty ? inputRef : undefined}
+              value={urlValue}
+              onChange={(e) => { setUrlValue(e.target.value); setUrlError(""); }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleDialogSubmit();
+              }}
+              placeholder={dialogMode === "link" ? "https://example.com" : "https://example.com/image.png"}
+              type="url"
+              aria-invalid={Boolean(urlError)}
+            />
+            {urlError && <p className="text-xs text-destructive">{urlError}</p>}
+          </div>
+          <DialogFooter>
+            <Button onClick={handleDialogSubmit} disabled={!urlValue.trim()}>
+              Insert
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
