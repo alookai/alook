@@ -126,7 +126,6 @@ function normalizedDescription(value: string | null | undefined): string {
 const GHOST_CONTROL =
   "h-7 border-0 bg-transparent px-1.5 text-sm text-foreground hover:bg-accent transition-colors -ml-1.5";
 
-
 const TIME_INPUT =
   "h-7 w-12 border-0 bg-transparent px-0.5 text-sm tabular-nums text-foreground rounded-md outline-none focus-visible:ring-0";
 
@@ -717,7 +716,7 @@ export function CalendarEventSheet({
               value={repeatUnit}
               onValueChange={(val) => { if (val && isValidUnit(val)) setRepeatUnit(val); }}
             >
-              <SelectTrigger hideIcon className="h-7 border-0 bg-transparent px-1 text-center text-sm text-foreground rounded-md outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-0 transition-colors" aria-label="Repeat unit">
+              <SelectTrigger hideIcon className="h-7 w-auto border-0 bg-transparent px-1 text-center text-sm text-foreground rounded-md outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-0 transition-colors" aria-label="Repeat unit">
                 <SelectValue />
               </SelectTrigger>
               <SelectPopup>

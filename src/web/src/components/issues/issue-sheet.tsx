@@ -53,7 +53,6 @@ const MAX_WIDTH_RATIO = 0.8;
 const GHOST_CONTROL =
   "h-7 border-0 bg-transparent px-1.5 text-xs text-foreground hover:bg-accent transition-colors -ml-1.5";
 
-
 const SELECTOR_STATUSES = ["todo", "in_progress", "review", "done"] as const;
 
 function statusLabel(status: string) {
