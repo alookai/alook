@@ -21,6 +21,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectPopup,
+  SelectItem,
+} from "@/components/ui/select";
+import {
   CalendarDays,
   CalendarOff,
   Loader2,
@@ -119,10 +126,6 @@ function normalizedDescription(value: string | null | undefined): string {
 const GHOST_CONTROL =
   "h-7 border-0 bg-transparent px-1.5 text-sm text-foreground hover:bg-accent transition-colors -ml-1.5";
 
-const GHOST_SELECT = cn(
-  GHOST_CONTROL,
-  "rounded-md outline-none focus-visible:bg-accent focus-visible:ring-0 appearance-none pr-6"
-);
 
 const TIME_INPUT =
   "h-7 w-12 border-0 bg-transparent px-0.5 text-sm tabular-nums text-foreground rounded-md outline-none focus-visible:ring-0";
@@ -608,19 +611,21 @@ export function CalendarEventSheet({
   ) : (
     <div className="flex flex-col gap-1.5">
       <PropertyRow icon={<User className="size-3.5" />}>
-        <select
-          aria-label="Agent"
+        <Select
           value={agentId}
-          onChange={(e) => setAgentId(e.target.value)}
-          className={GHOST_SELECT}
+          onValueChange={(val) => { if (val) setAgentId(val); }}
         >
-          {agents.length === 0 && <option value="">No agents</option>}
-          {agents.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger hideIcon className={cn(GHOST_CONTROL, "rounded-md -ml-1.5")} aria-label="Agent">
+            <SelectValue placeholder={agents.length === 0 ? "No agents" : "Select agent"} />
+          </SelectTrigger>
+          <SelectPopup>
+            {agents.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.name}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
       </PropertyRow>
 
       <PropertyRow icon={<CalendarDays className="size-3.5" />}>
@@ -659,18 +664,16 @@ export function CalendarEventSheet({
 
       <PropertyRow icon={<RepeatIcon className="size-3.5" />}>
         {!repeatEnabled ? (
-          <select
-            aria-label="Repeat"
+          <Select
             value=""
-            onChange={(e) => {
-              const v = e.target.value;
-              if (!v) return;
-              if (v === "__custom__") {
+            onValueChange={(val) => {
+              if (!val) return;
+              if (val === "__custom__") {
                 setRepeatEnabled(true);
                 setRepeatCount("1");
                 setRepeatUnit("day");
               } else {
-                const parsed = parseRepeatInterval(v);
+                const parsed = parseRepeatInterval(val);
                 if (parsed) {
                   setRepeatEnabled(true);
                   setRepeatCount(String(parsed.count));
@@ -678,16 +681,19 @@ export function CalendarEventSheet({
                 }
               }
             }}
-            className={GHOST_SELECT}
           >
-            <option value="">Does not repeat</option>
-            {PRESET_INTERVALS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-            <option value="__custom__">Custom…</option>
-          </select>
+            <SelectTrigger hideIcon className={cn(GHOST_CONTROL, "rounded-md -ml-1.5")} aria-label="Repeat">
+              <SelectValue placeholder="Does not repeat" />
+            </SelectTrigger>
+            <SelectPopup>
+              {PRESET_INTERVALS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+              <SelectItem value="__custom__">Custom…</SelectItem>
+            </SelectPopup>
+          </Select>
         ) : (
           <div className="-ml-1.5 flex items-center gap-0.5">
             <span className="px-1 text-sm text-foreground">Every</span>
@@ -707,20 +713,21 @@ export function CalendarEventSheet({
               style={{ width: `${Math.max(1, repeatCount.length) + 1.5}ch` }}
               className="h-7 shrink-0 border-0 bg-transparent px-0 text-center text-sm tabular-nums text-foreground rounded-md outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-0 transition-colors"
             />
-            <select
-              aria-label="Repeat unit"
+            <Select
               value={repeatUnit}
-              onChange={(e) => {
-                if (isValidUnit(e.target.value)) setRepeatUnit(e.target.value);
-              }}
-              className="h-7 border-0 bg-transparent px-1 text-center text-sm text-foreground rounded-md outline-none appearance-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-0 transition-colors"
+              onValueChange={(val) => { if (val && isValidUnit(val)) setRepeatUnit(val); }}
             >
-              {REPEAT_UNITS.map((u) => (
-                <option key={u} value={u}>
-                  {unitLabel(u, parseInt(repeatCount, 10) || 1)}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger hideIcon className="h-7 border-0 bg-transparent px-1 text-center text-sm text-foreground rounded-md outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-0 transition-colors" aria-label="Repeat unit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectPopup>
+                {REPEAT_UNITS.map((u) => (
+                  <SelectItem key={u} value={u}>
+                    {unitLabel(u, parseInt(repeatCount, 10) || 1)}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
             <button
               type="button"
               aria-label="Remove repeat"
