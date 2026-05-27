@@ -24,7 +24,7 @@ import {
   Select,
   SelectTrigger,
   SelectValue,
-  SelectPopup,
+  SelectContent,
   SelectItem,
 } from "@/components/ui/select";
 import {
@@ -619,13 +619,13 @@ export function CalendarEventSheet({
           <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
             <SelectValue placeholder={agents.length === 0 ? "No agents" : "Select agent"} />
           </SelectTrigger>
-          <SelectPopup>
+          <SelectContent>
             {agents.map((a) => (
               <SelectItem key={a.id} value={a.id}>
                 {a.name}
               </SelectItem>
             ))}
-          </SelectPopup>
+          </SelectContent>
         </Select>
       </PropertyRow>
 
@@ -691,7 +691,7 @@ export function CalendarEventSheet({
             <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
               <SelectValue placeholder="Does not repeat" />
             </SelectTrigger>
-            <SelectPopup>
+            <SelectContent>
               <SelectItem value="">Does not repeat</SelectItem>
               {PRESET_INTERVALS.map((o) => (
                 <SelectItem key={o.value} value={o.value}>
@@ -699,7 +699,7 @@ export function CalendarEventSheet({
                 </SelectItem>
               ))}
               <SelectItem value="__custom__">Custom…</SelectItem>
-            </SelectPopup>
+            </SelectContent>
           </Select>
         ) : (
           <div className="-ml-1.5 flex items-center gap-0.5">
@@ -728,13 +728,13 @@ export function CalendarEventSheet({
               <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
                 <SelectValue />
               </SelectTrigger>
-              <SelectPopup>
+              <SelectContent>
                 {REPEAT_UNITS.map((u) => (
                   <SelectItem key={u} value={u}>
                     {unitLabel(u, parseInt(repeatCount, 10) || 1)}
                   </SelectItem>
                 ))}
-              </SelectPopup>
+              </SelectContent>
             </Select>
             <button
               type="button"

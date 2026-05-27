@@ -17,7 +17,7 @@ import {
   Select,
   SelectTrigger,
   SelectValue,
-  SelectPopup,
+  SelectContent,
   SelectItem,
 } from "@/components/ui/select";
 import {
@@ -595,14 +595,14 @@ export function IssueSheet({
               <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-xs text-foreground hover:bg-accent transition-colors rounded-md">
                 <SelectValue />
               </SelectTrigger>
-              <SelectPopup>
+              <SelectContent>
                 {(isTodoDraft
                   ? (["todo", "done"] as const)
                   : SELECTOR_STATUSES
                 ).map((s) => (
                   <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>
                 ))}
-              </SelectPopup>
+              </SelectContent>
             </Select>
           </PropertyRow>
         )}
