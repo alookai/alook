@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useReducer } from "react";
 import type { Editor } from "@tiptap/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -77,6 +77,7 @@ function ToolbarDivider() {
 }
 
 export function EmailToolbar({ editor }: EmailToolbarProps) {
+  const [, forceUpdate] = useReducer((x: number) => x + 1, 0);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<"link" | "image">("link");
   const [urlValue, setUrlValue] = useState("");
@@ -85,6 +86,13 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
   const [selectionEmpty, setSelectionEmpty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const linkActiveOnMouseDown = useRef(false);
+
+  useEffect(() => {
+    if (!editor) return;
+    const handler = () => forceUpdate();
+    editor.on("transaction", handler);
+    return () => { editor.off("transaction", handler); };
+  }, [editor]);
 
   useEffect(() => {
     if (dialogOpen) {
