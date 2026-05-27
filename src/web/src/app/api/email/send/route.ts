@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, DEV_EMAIL_WORKER_URL, DEV_WEB_URL, SendEmailRequestSchema, parseEmailHandle, buildMimeMessage, extractThreadId, buildEmailMapKey } from "@alook/shared";
+import { queries, DEV_EMAIL_WORKER_URL, DEV_WEB_URL, SendEmailRequestSchema, parseEmailHandle, buildMimeMessage, extractThreadId, buildEmailMapKey, EmailMailbox } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
@@ -8,7 +8,8 @@ import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { emailToResponse } from "@/lib/api/responses";
 import { broadcastToUser } from "@/lib/broadcast";
-import { cached, invalidate, cacheKeys } from "@/lib/cache";
+import { invalidate, cacheKeys } from "@/lib/cache";
+import { resolveEmailSender } from "../sender";
 
 async function broadcastEmailSentEvent(
   db: Parameters<typeof queries.message.createMessage>[0],
@@ -44,6 +45,62 @@ async function broadcastEmailSentEvent(
   broadcastToUser(ownerId, { type: "email.sent", agentId }).catch(() => {});
 }
 
+async function persistSentEmail(
+  db: Parameters<typeof queries.email.createEmail>[0],
+  input: {
+    draftEmailId?: string;
+    agentId: string;
+    workspaceId: string;
+    fromAddress: string;
+    to: string;
+    subject: string;
+    r2Key: string;
+    messageId: string;
+    inReplyTo: string;
+    references: string;
+    htmlBody: string;
+    attachments: { key: string; filename: string; size?: number; contentType: string }[];
+  }
+) {
+  const attachments = JSON.stringify(input.attachments);
+  if (input.draftEmailId) {
+    return queries.email.finalizeDraftSend(db, {
+      id: input.draftEmailId,
+      agentId: input.agentId,
+      workspaceId: input.workspaceId,
+      patch: {
+        r2Key: input.r2Key,
+        messageId: input.messageId,
+        inReplyTo: input.inReplyTo,
+        references: input.references,
+        htmlBody: input.htmlBody,
+        attachments,
+        status: "sent",
+        mailbox: EmailMailbox.SENT,
+      },
+    });
+  }
+
+  return queries.email.createEmail(db, {
+    agentId: input.agentId,
+    workspaceId: input.workspaceId,
+    fromEmail: input.fromAddress,
+    toEmail: input.to,
+    subject: input.subject,
+    r2Key: input.r2Key,
+    isWhitelisted: false,
+    forwarded: false,
+    messageId: input.messageId,
+    inReplyTo: input.inReplyTo,
+    references: input.references,
+    htmlBody: input.htmlBody,
+    attachments,
+    direction: "outbound",
+    status: "sent",
+    mailbox: EmailMailbox.SENT,
+  });
+}
+
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
@@ -58,93 +115,140 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const agent = await queries.agent.getAgent(db, body.agentId, ws.workspaceId, ctx.userId);
   if (!agent) return writeError("agent not found in workspace", 404);
 
-  let customAccountId = body.customAccountId;
-  let fromAddress: string;
-
-  if (body.from && !customAccountId) {
-    const alookAddr = agent.emailHandle ? `${agent.emailHandle}@alook.ai` : null;
-    if (body.from === alookAddr) {
-      fromAddress = alookAddr;
-    } else {
-      const allAccounts = await cached(cacheKeys.allEmailAccounts(ws.workspaceId), 600, () => queries.emailAccount.getAllEmailAccountsForWorkspace(db, ws.workspaceId));
-      const match = allAccounts.find((a) => a.agentId === body.agentId && a.emailAddress === body.from);
-      if (!match) {
-        return writeError(`email address '${body.from}' is not configured for this agent`, 400);
-      }
-      customAccountId = match.id;
-      fromAddress = match.emailAddress;
-    }
-  } else if (customAccountId) {
-    const account = await queries.emailAccount.getEmailAccountScoped(db, customAccountId, body.agentId, ws.workspaceId);
-    if (!account) {
-      return writeError("custom email account not found", 404);
-    }
-    fromAddress = account.emailAddress;
-  } else {
-    if (!agent.emailHandle) {
-      return writeError("agent has no email handle configured", 400);
-    }
-    fromAddress = `${agent.emailHandle}@alook.ai`;
-  }
-
   let validatedConversationId: string | undefined;
   if (body.conversationId) {
     const conv = await queries.conversation.getConversation(db, body.conversationId, ws.workspaceId);
     if (conv) validatedConversationId = body.conversationId;
   }
 
-  const attachments = body.attachments ?? [];
+  let sendTo = body.to;
+  let sendSubject = body.subject;
+  let sendHtmlBody = body.htmlBody || "";
+  let sendInReplyTo = body.inReplyTo ?? "";
+  let sendReferences = body.references ?? "";
+  let attachments = body.attachments ?? [];
+  const draftEmailId = body.draftEmailId;
+  let requestedFrom = body.from;
+  const claimedDraft = draftEmailId
+    ? { id: draftEmailId, agentId: body.agentId, workspaceId: ws.workspaceId }
+    : null;
+  const restoreClaimedDraft = async () => {
+    if (!claimedDraft) return;
+    await queries.email.restoreDraftAfterSendFailure(db, claimedDraft);
+  };
+  const markClaimedDraftUnknown = async () => {
+    if (!claimedDraft) return;
+    await queries.email.markDraftSendUnknown(db, claimedDraft);
+  };
+
+  if (draftEmailId) {
+    const draft = await queries.email.claimDraftForSend(db, {
+      id: draftEmailId,
+      agentId: body.agentId,
+      workspaceId: ws.workspaceId,
+    });
+    if (!draft) return writeError("draft is already sending or sent", 409);
+
+    requestedFrom = draft.fromEmail;
+    sendTo = draft.toEmail;
+    sendSubject = draft.subject;
+    sendHtmlBody = draft.htmlBody || "";
+    sendInReplyTo = draft.inReplyTo || "";
+    sendReferences = draft.references || "";
+    try {
+      attachments = JSON.parse(draft.attachments || "[]");
+    } catch {
+      await restoreClaimedDraft();
+      return writeError("failed to parse draft attachments", 500);
+    }
+  }
+
+  let sender;
+  try {
+    sender = await resolveEmailSender(db, {
+      agent,
+      agentId: body.agentId,
+      workspaceId: ws.workspaceId,
+      from: requestedFrom,
+      customAccountId: draftEmailId ? undefined : body.customAccountId,
+    });
+  } catch {
+    await restoreClaimedDraft();
+    return writeError("failed to resolve email sender", 500);
+  }
+  if ("error" in sender) {
+    await restoreClaimedDraft();
+    return writeError(sender.error ?? "invalid sender", sender.status ?? 400);
+  }
+  const { fromAddress, customAccountId } = sender;
 
   // Local delivery shortcut: same-workspace @alook.ai → @alook.ai
   const senderHandle = parseEmailHandle(fromAddress);
-  const recipientHandle = parseEmailHandle(body.to);
+  const recipientHandle = parseEmailHandle(sendTo);
   if (senderHandle && recipientHandle) {
-    const recipientAgent = await queries.agent.getAgentByHandle(db, recipientHandle);
+    let recipientAgent;
+    try {
+      recipientAgent = await queries.agent.getAgentByHandle(db, recipientHandle);
+    } catch {
+      await restoreClaimedDraft();
+      return writeError("failed to resolve local recipient", 500);
+    }
     if (recipientAgent && recipientAgent.workspaceId === ws.workspaceId) {
       const messageId = `<${nanoid()}@alook.ai>`;
-      const htmlBody = body.htmlBody || "";
 
       const fetchedAttachments: { filename: string; contentType: string; base64: string }[] = [];
-      for (const att of attachments) {
-        const obj = await cfEnv.EMAIL_BUCKET.get(att.key);
-        if (!obj) continue;
-        const raw = await obj.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(raw)));
-        fetchedAttachments.push({ filename: att.filename, contentType: att.contentType, base64 });
+      let r2Key: string;
+      try {
+        for (const att of attachments) {
+          const obj = await cfEnv.EMAIL_BUCKET.get(att.key);
+          if (!obj) continue;
+          const raw = await obj.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(raw)));
+          fetchedAttachments.push({ filename: att.filename, contentType: att.contentType, base64 });
+        }
+
+        const rawMime = buildMimeMessage({
+          from: fromAddress,
+          to: sendTo,
+          subject: sendSubject,
+          messageId,
+          inReplyTo: sendInReplyTo,
+          references: sendReferences,
+          body: sendHtmlBody,
+          bodyType: "text/html",
+          attachments: fetchedAttachments,
+        });
+
+        const r2Id = nanoid();
+        r2Key = `emails/${r2Id}/raw`;
+        await cfEnv.EMAIL_BUCKET.put(r2Key, rawMime, {
+          httpMetadata: { contentType: "message/rfc822" },
+        });
+      } catch {
+        await restoreClaimedDraft();
+        return writeError("failed to prepare local delivery", 500);
       }
 
-      const rawMime = buildMimeMessage({
-        from: fromAddress,
-        to: body.to,
-        subject: body.subject,
-        messageId,
-        inReplyTo: body.inReplyTo,
-        references: body.references,
-        body: htmlBody,
-        bodyType: "text/html",
-        attachments: fetchedAttachments,
-      });
-
-      const r2Id = nanoid();
-      const r2Key = `emails/${r2Id}/raw`;
-      await cfEnv.EMAIL_BUCKET.put(r2Key, rawMime, {
-        httpMetadata: { contentType: "message/rfc822" },
-      });
-
-      const isWhitelisted = await queries.whitelist.isWhitelisted(db, recipientAgent.id, recipientAgent.workspaceId, fromAddress);
+      let isWhitelisted: boolean;
+      try {
+        isWhitelisted = await queries.whitelist.isWhitelisted(db, recipientAgent.id, recipientAgent.workspaceId, fromAddress);
+      } catch {
+        await restoreClaimedDraft();
+        return writeError("failed to check recipient whitelist", 500);
+      }
 
       const notifyPayload = JSON.stringify({
         agentId: recipientAgent.id,
         workspaceId: recipientAgent.workspaceId,
         r2Key,
         from: fromAddress,
-        to: body.to,
-        subject: body.subject,
+        to: sendTo,
+        subject: sendSubject,
         isWhitelisted,
         forwarded: false,
         messageId,
-        inReplyTo: body.inReplyTo ?? "",
-        references: body.references ?? "",
+        inReplyTo: sendInReplyTo,
+        references: sendReferences,
         isInternal: true,
         ...(body.traceId ? { traceId: body.traceId } : {}),
         ...(body.sourceTaskId ? { sourceTaskId: body.sourceTaskId } : {}),
@@ -154,35 +258,48 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       try {
         notifyRes = await cfEnv.WORKER_SELF_REFERENCE!.fetch("http://internal/api/email/notify", notifyInit);
       } catch {
-        notifyRes = await fetch(`${DEV_WEB_URL}/api/email/notify`, notifyInit);
+        try {
+          notifyRes = await fetch(`${DEV_WEB_URL}/api/email/notify`, notifyInit);
+        } catch {
+          await markClaimedDraftUnknown();
+          return writeError("local delivery failed after send attempt", 502);
+        }
       }
       if (!notifyRes.ok) {
         const errBody = await notifyRes.text();
+        await markClaimedDraftUnknown();
         return writeError(`local delivery failed: ${errBody}`, notifyRes.status);
       }
 
-      const email = await queries.email.createEmail(db, {
-        agentId: body.agentId,
-        workspaceId: ws.workspaceId,
-        fromEmail: fromAddress,
-        toEmail: body.to,
-        subject: body.subject,
-        r2Key,
-        isWhitelisted: false,
-        forwarded: false,
-        messageId,
-        inReplyTo: body.inReplyTo ?? "",
-        references: body.references ?? "",
-        htmlBody,
-        attachments: JSON.stringify(attachments),
-        direction: "outbound",
-        status: "sent",
-      });
+      let email;
+      try {
+        email = await persistSentEmail(db, {
+          draftEmailId,
+          agentId: body.agentId,
+          workspaceId: ws.workspaceId,
+          fromAddress,
+          to: sendTo,
+          subject: sendSubject,
+          r2Key,
+          messageId,
+          inReplyTo: sendInReplyTo,
+          references: sendReferences,
+          htmlBody: sendHtmlBody,
+          attachments,
+        });
+      } catch {
+        await markClaimedDraftUnknown();
+        return writeError("draft send could not be finalized", 500);
+      }
+      if (!email) {
+        await markClaimedDraftUnknown();
+        return writeError("draft send could not be finalized", 409);
+      }
 
       invalidate(cacheKeys.overviewEmailStats(ws.workspaceId)).catch(() => {});
 
       if (validatedConversationId) {
-        const threadId = extractThreadId(body.references, body.inReplyTo, messageId);
+        const threadId = extractThreadId(sendReferences, sendInReplyTo, messageId);
         if (threadId) {
           await queries.conversationMap.createMapping(db, {
             key: buildEmailMapKey(body.agentId, threadId),
@@ -191,7 +308,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
           });
         }
         if (agent.ownerId) {
-          await broadcastEmailSentEvent(db, validatedConversationId, agent.ownerId, body.agentId, body.to, body.subject, email.id);
+          await broadcastEmailSentEvent(db, validatedConversationId, agent.ownerId, body.agentId, sendTo, sendSubject, email.id);
         }
       }
 
@@ -203,11 +320,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const emailPayload = JSON.stringify({
     agentId: body.agentId,
     workspaceId: ws.workspaceId,
-    to: body.to,
-    subject: body.subject,
-    htmlBody: body.htmlBody || "",
-    inReplyTo: body.inReplyTo || "",
-    references: body.references || "",
+    to: sendTo,
+    subject: sendSubject,
+    htmlBody: sendHtmlBody,
+    inReplyTo: sendInReplyTo,
+    references: sendReferences,
     customAccountId: customAccountId || undefined,
     attachmentKeys: attachments.length > 0
       ? attachments.map((a) => ({ key: a.key, filename: a.filename, contentType: a.contentType }))
@@ -222,44 +339,62 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       body: emailPayload,
     });
   } catch {
-    // Service binding not connected — fall back to direct URL (local dev)
-    emailRes = await fetch(`${DEV_EMAIL_WORKER_URL}/send/agent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: emailPayload,
-    });
+    try {
+      // Service binding not connected — fall back to direct URL (local dev)
+      emailRes = await fetch(`${DEV_EMAIL_WORKER_URL}/send/agent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: emailPayload,
+      });
+    } catch {
+      await markClaimedDraftUnknown();
+      return writeError("email worker failed after send attempt", 502);
+    }
   }
 
   if (!emailRes.ok) {
     const errBody = await emailRes.text();
+    await markClaimedDraftUnknown();
     return writeError(`email worker error: ${errBody}`, emailRes.status);
   }
 
-  const emailResult = await emailRes.json() as { ok: boolean; r2Key: string; messageId?: string };
+  let emailResult: { ok: boolean; r2Key: string; messageId?: string };
+  try {
+    emailResult = await emailRes.json() as { ok: boolean; r2Key: string; messageId?: string };
+  } catch {
+    await markClaimedDraftUnknown();
+    return writeError("email worker response could not be parsed", 502);
+  }
 
-  // Create DB record
-  const email = await queries.email.createEmail(db, {
-    agentId: body.agentId,
-    workspaceId: ws.workspaceId,
-    fromEmail: fromAddress,
-    toEmail: body.to,
-    subject: body.subject,
-    r2Key: emailResult.r2Key,
-    isWhitelisted: false,
-    forwarded: false,
-    messageId: emailResult.messageId ?? "",
-    inReplyTo: body.inReplyTo ?? "",
-    references: body.references ?? "",
-    htmlBody: body.htmlBody || "",
-    attachments: JSON.stringify(attachments),
-    direction: "outbound",
-    status: "sent",
-  });
+  let email;
+  try {
+    email = await persistSentEmail(db, {
+      draftEmailId,
+      agentId: body.agentId,
+      workspaceId: ws.workspaceId,
+      fromAddress,
+      to: sendTo,
+      subject: sendSubject,
+      r2Key: emailResult.r2Key,
+      messageId: emailResult.messageId ?? "",
+      inReplyTo: sendInReplyTo,
+      references: sendReferences,
+      htmlBody: sendHtmlBody,
+      attachments,
+    });
+  } catch {
+    await markClaimedDraftUnknown();
+    return writeError("draft send could not be finalized", 500);
+  }
+  if (!email) {
+    await markClaimedDraftUnknown();
+    return writeError("draft send could not be finalized", 409);
+  }
 
   invalidate(cacheKeys.overviewEmailStats(ws.workspaceId)).catch(() => {});
 
   if (validatedConversationId && emailResult.messageId) {
-    const threadId = extractThreadId(body.references, body.inReplyTo, emailResult.messageId);
+    const threadId = extractThreadId(sendReferences, sendInReplyTo, emailResult.messageId);
     if (threadId) {
       await queries.conversationMap.createMapping(db, {
         key: buildEmailMapKey(body.agentId, threadId),
@@ -268,7 +403,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       });
     }
     if (agent.ownerId) {
-      await broadcastEmailSentEvent(db, validatedConversationId, agent.ownerId, body.agentId, body.to, body.subject, email.id);
+      await broadcastEmailSentEvent(db, validatedConversationId, agent.ownerId, body.agentId, sendTo, sendSubject, email.id);
     }
   }
 

@@ -108,6 +108,14 @@ ${task.agent.instructions}
 `;
   }
 
+  if (task.type === "email_triage") {
+    content += `\n## Read-Only Email Triage
+You are in a read-only triage session. Do not use Alook CLI write tools such as email send, calendar set, upload-artifact, or whitelist add/delete.
+Your only job is to classify the inbound email and return the required JSON result in your final response.
+`;
+    return content;
+  }
+
   if (task.agent?.colleagues?.length) {
     content += `\n## YOUR COLLEAGUES — CHECK BEFORE ACTING
 > **STOP. Before you start ANY task, scan the colleague list below.**

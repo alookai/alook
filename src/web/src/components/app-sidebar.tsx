@@ -48,6 +48,33 @@ function SortableAgentButton({ id, children }: { id: string; children: React.Rea
   );
 }
 
+function AppSidebarHydrationShell() {
+  return (
+    <nav className="flex h-full w-14 flex-col items-center pt-1 pb-2 gap-0.5">
+      <div className="pb-1.5 mb-1">
+        <div className="flex shrink-0 items-center justify-center size-8">
+          <Logo size="sm" iconOnly />
+        </div>
+      </div>
+      <div className="flex flex-col items-center gap-1.5 pb-1.5 border-b border-border/50 mb-1">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="size-10 rounded-xl" />
+        ))}
+      </div>
+      <div className="flex flex-1 w-full flex-col items-center gap-1.5 py-1">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="size-10 rounded-xl" />
+        ))}
+      </div>
+      <div className="flex flex-col items-center gap-1 pt-2 border-t border-border/50 mt-1">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Skeleton key={i} className="size-10 rounded-xl" />
+        ))}
+      </div>
+    </nav>
+  );
+}
+
 export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const router = useRouter();
   const pathname = usePathname();
@@ -57,6 +84,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
 
   const { resolvedTheme, setTheme } = useTheme();
   const { activeTaskCounts: taskCounts } = useAgentContext();
+  const [mounted, setMounted] = useState(false);
 
   // --- Folder state (applies to unpinned section only) ---
   const {
@@ -95,6 +123,10 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   // Folders apply to the unpinned section
   const unpinnedIds = unpinned.map((a) => a.id);
   const topLevelUnpinnedItems = getTopLevelItems(unpinnedIds);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Cleanup stale agents when workspace agents change
   useEffect(() => {
@@ -380,6 +412,8 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
   const expandedFolder = expandedFolderId
     ? folders.find((f) => f.id === expandedFolderId) ?? null
     : null;
+
+  if (!mounted) return <AppSidebarHydrationShell />;
 
   return (
     <nav className={cn("flex h-full w-14 flex-col items-center pt-1 pb-2 gap-0.5", wiggling && "relative z-10")}>

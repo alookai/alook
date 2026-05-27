@@ -611,6 +611,29 @@ export const updateEmailStatus = (id: string, workspaceId: string, status: strin
     body: JSON.stringify({ status }),
   });
 
+export const discardEmail = (id: string, workspaceId: string) =>
+  apiFetch<Email>(`/api/email/${id}${wsQuery(workspaceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ action: "discard" }),
+  });
+
+export const saveEmailDraft = (
+  agentId: string,
+  to: string,
+  subject: string,
+  htmlBody: string,
+  workspaceId: string,
+  attachments?: { key: string; filename: string; size: number; contentType: string }[],
+  threading?: { inReplyTo?: string; references?: string },
+  inReplyToEmailId?: string,
+  customAccountId?: string,
+  from?: string,
+) =>
+  apiFetch<Email>(`/api/email/drafts${wsQuery(workspaceId)}`, {
+    method: "POST",
+    body: JSON.stringify({ agentId, to, subject, htmlBody, attachments, ...threading, inReplyToEmailId, customAccountId, from }),
+  });
+
 export const uploadEmailAttachment = async (
   file: File,
   workspaceId: string,
@@ -638,10 +661,11 @@ export const sendEmail = (
   attachments?: { key: string; filename: string; size: number; contentType: string }[],
   threading?: { inReplyTo?: string; references?: string },
   customAccountId?: string,
+  draftEmailId?: string,
 ) =>
   apiFetch<Email>(`/api/email/send${wsQuery(workspaceId)}`, {
     method: "POST",
-    body: JSON.stringify({ agentId, to, subject, htmlBody, attachments, ...threading, customAccountId }),
+    body: JSON.stringify({ agentId, to, subject, htmlBody, attachments, ...threading, customAccountId, draftEmailId }),
   });
 
 // Calendar events

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, TASK_TYPES, MeetingStatus, extractThreadId, buildEmailMapKey, EmailNotifyRequestSchema } from "@alook/shared"
+import { queries, TASK_TYPES, MeetingStatus, extractThreadId, buildEmailMapKey, EmailNotifyRequestSchema, EmailMailbox } from "@alook/shared"
 import { nanoid } from "nanoid"
 import { getDb } from "@/lib/db"
 import { writeJSON, parseBody } from "@/lib/middleware/helpers"
@@ -8,6 +8,7 @@ import { TaskService } from "@/lib/services/task"
 import { broadcastToUser } from "@/lib/broadcast"
 import { taskToResponse } from "@/lib/api/responses"
 import { invalidate, cacheKeys } from "@/lib/cache"
+import { enqueueEmailTriageTask } from "@/lib/services/email-triage-notify"
 
 export async function POST(req: NextRequest) {
   const { env } = getCloudflareContext()
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
     references: body.references,
     direction: "inbound",
     attachments: body.attachments,
+    mailbox: body.isWhitelisted ? EmailMailbox.INBOX : EmailMailbox.DRAFT,
   })
 
   if (body.meetingInfo && agent) {
@@ -141,6 +143,8 @@ export async function POST(req: NextRequest) {
         task: taskToResponse(task),
       }).catch(() => {});
     }
+  } else if (!body.isWhitelisted && agent && agent.runtimeId && agent.ownerId) {
+    await enqueueEmailTriageTask(db, env as Env, { agent, email, body });
   }
 
   const dateStr = new Date().toISOString().slice(0, 10);

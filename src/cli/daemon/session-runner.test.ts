@@ -479,6 +479,43 @@ describe("session-runner runSession", () => {
     );
   });
 
+  it("skips findResumableSessionByContextKey for email_triage tasks even with contextKey", async () => {
+    setupBackend([], {
+      status: "completed",
+      output: "Done",
+      error: "",
+      durationMs: 100,
+      sessionId: "sess-triage",
+    });
+
+    await runSession(
+      makeInput({
+        task: {
+          id: "t3",
+          agentId: "a1",
+          runtimeId: "rt1",
+          conversationId: "c3",
+          workspaceId: "ws1",
+          prompt: "Triage inbound email",
+          status: "dispatched",
+          priority: 0,
+          type: "email_triage",
+          contextKey: "c3",
+          createdAt: "2026-04-17T09:00:00Z",
+        },
+      }),
+    );
+
+    expect(mockFindResumableSessionByContextKey).not.toHaveBeenCalled();
+    expect(mockBackendExecute).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        resumeSessionId: undefined,
+        executionProfile: "triage_readonly",
+      }),
+    );
+  });
+
   it("writes timeline entries with task.type (calendar_event) for calendar tasks", async () => {
     setupBackend([], {
       status: "completed",

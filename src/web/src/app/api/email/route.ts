@@ -1,13 +1,19 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries } from "@alook/shared";
+import { EmailMailbox, queries } from "@alook/shared";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import { emailToResponse } from "@/lib/api/responses";
 
-const VALID_STATUSES = ["unread", "read", "archived", "sent"];
+const VALID_STATUSES = ["unread", "read", "archived", "sent", "draft", "sending", "send_unknown"];
+const FOLDER_TO_MAILBOX = {
+  inbox: EmailMailbox.INBOX,
+  sent: EmailMailbox.SENT,
+  draft: EmailMailbox.DRAFT,
+  untrust: EmailMailbox.UNTRUST,
+} as const;
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -43,16 +49,17 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   }
 
   let emailList;
-  if (folder === "inbox" && agentEmail) {
-    emailList = await queries.email.getTrustedEmails(db, agentId, agentEmail, ws.workspaceId, status, pagination);
-  } else if (folder === "sent" && agentEmail) {
-    emailList = await queries.email.getSentEmails(db, agentId, agentEmail, ws.workspaceId, status, pagination);
-  } else if (folder === "untrust" && agentEmail) {
-    emailList = await queries.email.getRejectedEmails(db, agentId, agentEmail, ws.workspaceId, status, pagination);
-  } else if (folder === "all") {
+  if (folder === "all") {
     emailList = await queries.email.getEmailsByAgent(db, agentId, ws.workspaceId, status, pagination);
+  } else if (!folder || folder in FOLDER_TO_MAILBOX) {
+    const mailbox = FOLDER_TO_MAILBOX[(folder || "inbox") as keyof typeof FOLDER_TO_MAILBOX];
+    emailList = await queries.email.getEmailsByMailbox(db, agentId, ws.workspaceId, mailbox, {
+      status,
+      pagination,
+      address: agentEmail || undefined,
+    });
   } else {
-    emailList = await queries.email.getInboxEmails(db, agentId, agentEmail, ws.workspaceId, status, pagination);
+    return writeError("invalid folder", 400);
   }
 
   return writeJSON(emailList.map(emailToResponse));

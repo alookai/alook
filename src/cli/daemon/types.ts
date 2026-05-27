@@ -103,7 +103,10 @@ export interface ExecOptions {
   maxTurns?: number;
   timeout?: number;
   resumeSessionId?: string;
+  executionProfile?: ExecutionProfile;
 }
+
+export type ExecutionProfile = "default" | "triage_readonly";
 
 /** Serialized input passed from daemon to the detached session-runner process. */
 export interface SessionRunnerInput {

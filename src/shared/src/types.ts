@@ -1,4 +1,5 @@
 import type { TaskApi, WorkspaceFileEntry, FileRequestItem, PollMeetingItem } from "./schemas";
+import type { EmailMailboxType } from "./constants";
 
 export type EmailDirection = "inbound" | "outbound";
 
@@ -188,6 +189,7 @@ export interface Email {
   attachments: EmailAttachment[];
   status: string;
   direction: EmailDirection;
+  mailbox: EmailMailboxType;
   created_at: string;
 }
 

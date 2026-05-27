@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, UpdateEmailStatusRequestSchema } from "@alook/shared";
+import { canDiscardEmail, EmailMailbox, queries, UpdateEmailStatusRequestSchema } from "@alook/shared";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
@@ -53,8 +53,26 @@ export const PATCH = withAuth(async (req, ctx) => {
   const [body, valErr] = await parseBody(req, UpdateEmailStatusRequestSchema);
   if (valErr) return valErr;
 
-  const updated = await queries.email.updateEmailStatus(db, id, ws.workspaceId, body.status);
-  if (!updated) return writeError("email not found", 404);
+  if ("status" in body) {
+    const updated = await queries.email.updateEmailStatus(db, id, ws.workspaceId, body.status);
+    if (!updated) return writeError("email not found", 404);
 
-  return writeJSON(emailToResponse(updated));
+    return writeJSON(emailToResponse(updated));
+  }
+
+  const email = await queries.email.getEmailById(db, id, ws.workspaceId);
+  if (!email) return writeError("email not found", 404);
+
+  if (body.action === "discard") {
+    if (!canDiscardEmail(email)) {
+      return writeError("only inbound draft emails can be discarded", 400);
+    }
+
+    const updated = await queries.email.updateEmailMailbox(db, id, ws.workspaceId, EmailMailbox.UNTRUST, { status: "archived" });
+    if (!updated) return writeError("email not found", 404);
+
+    return writeJSON(emailToResponse(updated));
+  }
+
+  return writeError("unsupported email action", 400);
 });

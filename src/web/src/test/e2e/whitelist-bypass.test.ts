@@ -104,7 +104,7 @@ describe("whitelist bypass for same-workspace agents", () => {
     expect(row!.is_whitelisted).toBe(1)
   })
 
-  it("non-whitelisted non-agent email is rejected (existing behavior)", async () => {
+  it("non-whitelisted non-agent email is held for review in Draft", async () => {
     const from = "random-stranger@gmail.com"
     const to = `${seed.agentEmailHandle}@alook.ai`
 

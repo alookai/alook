@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
-import { listEmails, getEmailBody, getEmailThread, deleteEmail, sendEmail, listEmailAccounts, updateEmailStatus } from "@/lib/api";
+import { listEmails, getEmailBody, getEmailThread, deleteEmail, sendEmail, listEmailAccounts, updateEmailStatus, discardEmail, saveEmailDraft } from "@/lib/api";
 import type { Email, EmailAttachment, AgentEmailAccount } from "@alook/shared";
+import { canSendDraftEmail, isInboundDraftReviewEmail } from "@alook/shared";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmailCompose } from "@/components/email-compose";
@@ -17,8 +18,16 @@ import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Pa
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { EmailBodyFrame } from "@/components/email-body-frame";
+import {
+  applyDiscardSuccessState,
+  beginEmailFolderSwitch,
+  getDiscardSuccessToastMessage,
+  nextEmailLoadRequestId,
+  shouldApplyEmailLoadResult,
+  shouldShowHydrationShell,
+} from "./email-page-state";
 
-type Folder = "inbox" | "sent" | "untrust";
+type Folder = "inbox" | "sent" | "draft" | "untrust";
 
 function relativeTime(dateStr: string): string {
   const date = new Date(dateStr);
@@ -38,10 +47,11 @@ export default function AgentEmailPage() {
   const params = useParams();
   const agentId = params.id as string;
   const { workspaceId } = useWorkspace();
-  const { agents, subscribeWs } = useAgentContext();
+  const { agents, subscribeWs, loading: agentLoading } = useAgentContext();
 
   const agent = agents.find((a) => a.id === agentId);
   const isMobile = useIsMobile();
+  const loadRequestIdRef = useRef(0);
 
   const [folder, _setFolder] = useState<Folder>("inbox");
   const [emails, setEmails] = useState<Email[]>([]);
@@ -53,7 +63,7 @@ export default function AgentEmailPage() {
   const [composing, setComposing] = useState(false);
   const [composeInitial, setComposeInitial] = useState<{
     to?: string; subject?: string; body?: string; attachments?: EmailAttachment[];
-    inReplyTo?: string; references?: string;
+    inReplyTo?: string; references?: string; inReplyToEmailId?: string;
   }>({});
 
   const [thread, setThread] = useState<Email[]>([]);
@@ -63,16 +73,21 @@ export default function AgentEmailPage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
 
   const [emailAccounts, setEmailAccounts] = useState<AgentEmailAccount[]>([]);
   const [mailboxOpen, setMailboxOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const showHydrationShell = shouldShowHydrationShell({ mounted, agentLoading });
 
   const switchFolder = useCallback((f: Folder) => {
+    const nextState = beginEmailFolderSwitch();
     _setFolder(f);
-    setEmails([]);
-    setSelectedId(null);
-    setBody(null);
-    setComposing(false);
+    setLoading(nextState.loading);
+    setEmails(nextState.emails);
+    setSelectedId(nextState.selectedId);
+    setBody(nextState.body);
+    setComposing(nextState.composing);
   }, []);
 
   type Mailbox = { type: "alook"; address: string } | { type: "custom"; address: string; accountId: string };
@@ -89,24 +104,44 @@ export default function AgentEmailPage() {
   const selected = emails.find((e) => e.id === selectedId) ?? null;
 
   const loadEmails = useCallback(async (dir: string, address?: string) => {
+    const requestId = nextEmailLoadRequestId(loadRequestIdRef.current);
+    loadRequestIdRef.current = requestId;
     setLoading(true);
     try {
       const data = await listEmails(agentId, workspaceId, dir, address);
+      if (!shouldApplyEmailLoadResult(requestId, loadRequestIdRef.current)) return;
       setEmails(data);
     } catch {
+      if (!shouldApplyEmailLoadResult(requestId, loadRequestIdRef.current)) return;
       toast.error("Failed to load emails");
     } finally {
-      setLoading(false);
+      if (shouldApplyEmailLoadResult(requestId, loadRequestIdRef.current)) {
+        setLoading(false);
+      }
     }
   }, [agentId, workspaceId]);
 
   useEffect(() => {
-    listEmailAccounts(agentId, workspaceId).then(setEmailAccounts).catch(() => {});
-  }, [agentId, workspaceId]);
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
+    if (!mounted) return;
+    listEmailAccounts(agentId, workspaceId).then(setEmailAccounts).catch(() => {});
+  }, [mounted, agentId, workspaceId]);
+
+  useEffect(() => {
+    if (showHydrationShell) {
+      setLoading(true);
+      return;
+    }
+    if (!agent || !activeAddress) {
+      setEmails([]);
+      setLoading(false);
+      return;
+    }
     loadEmails(folder, activeAddress);
-  }, [folder, activeAddress, loadEmails]);
+  }, [showHydrationShell, agent, folder, activeAddress, loadEmails]);
 
   useEffect(() => {
     return subscribeWs((msg) => {
@@ -205,6 +240,56 @@ export default function AgentEmailPage() {
     }
   };
 
+  const handleSaveDraft = async (to: string, subject: string, htmlBody: string, attachments: EmailAttachment[], threading?: { inReplyTo?: string; references?: string }): Promise<boolean> => {
+    try {
+      await saveEmailDraft(agentId, to, subject, htmlBody, workspaceId, attachments.length > 0 ? attachments : undefined, threading, composeInitial.inReplyToEmailId, activeAccountId);
+      toast.success("Draft saved");
+      setComposing(false);
+      switchFolder("draft");
+      return true;
+    } catch {
+      toast.error("Failed to save draft");
+      return false;
+    }
+  };
+
+  const handleDiscardDraft = async (email: Email) => {
+    setDiscarding(true);
+    try {
+      await discardEmail(email.id, workspaceId);
+      const nextState = applyDiscardSuccessState({ emails, selectedId, body }, email.id);
+      setEmails(nextState.emails);
+      setSelectedId(nextState.selectedId);
+      setBody(nextState.body);
+      toast.success(getDiscardSuccessToastMessage());
+    } catch {
+      toast.error("Failed to discard email");
+    } finally {
+      setDiscarding(false);
+    }
+  };
+
+  const handleSendSelectedDraft = async (email: Email) => {
+    try {
+      await sendEmail(
+        agentId,
+        email.to_email,
+        email.subject,
+        email.html_body,
+        workspaceId,
+        email.attachments.length > 0 ? email.attachments : undefined,
+        buildThreadingContext(email),
+        activeAccountId,
+        email.id,
+      );
+      toast.success("Draft sent");
+      setSelectedId(null);
+      switchFolder("sent");
+    } catch {
+      toast.error("Failed to send draft");
+    }
+  };
+
   const buildQuotedBody = (email: Email) => [
     `<br/><br/>`,
     `<div style="border-left: 2px solid #ccc; padding-left: 12px; margin-left: 0; color: #666;">`,
@@ -229,6 +314,7 @@ export default function AgentEmailPage() {
       to: email.from_email,
       subject: reSubject,
       body: buildQuotedBody(email),
+      inReplyToEmailId: email.id,
       ...buildThreadingContext(email),
     });
     setComposing(true);
@@ -261,7 +347,11 @@ export default function AgentEmailPage() {
 
   const sidebarContent = (
     <div className="flex h-full flex-col">
-      {mailboxes.length > 0 ? (
+      {showHydrationShell ? (
+        <div className="px-3 pt-3 pb-1">
+          <Skeleton className="h-4 w-32" />
+        </div>
+      ) : mailboxes.length > 0 ? (
         <div className="px-3 pt-3 pb-1 relative">
           {mailboxes.length === 1 ? (
             <Tooltip>
@@ -340,18 +430,26 @@ export default function AgentEmailPage() {
             size="sm"
             className="w-full justify-start text-xs h-8 gap-1.5"
             onClick={() => { setComposeInitial({}); setComposing(true); setSelectedId(null); }}
-            disabled={mailboxes.length === 0}
+            disabled={showHydrationShell || mailboxes.length === 0}
+            suppressHydrationWarning
           />}>
             <Plus className="size-3.5" />
             New Email
           </TooltipTrigger>
-          <TooltipContent>{mailboxes.length === 0 ? "Configure an email in agent settings to send emails" : "Compose new email"}</TooltipContent>
+          <TooltipContent>
+            {showHydrationShell
+              ? "Loading email settings"
+              : mailboxes.length === 0
+                ? "Configure an email in agent settings to send emails"
+                : "Compose new email"}
+          </TooltipContent>
         </Tooltip>
       </div>
       <nav className="flex flex-col gap-0.5 px-2">
         <button
           type="button"
           onClick={() => switchFolder("inbox")}
+          suppressHydrationWarning
           className={cn(
             "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
             folder === "inbox"
@@ -370,6 +468,7 @@ export default function AgentEmailPage() {
         <button
           type="button"
           onClick={() => switchFolder("sent")}
+          suppressHydrationWarning
           className={cn(
             "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
             folder === "sent"
@@ -382,7 +481,22 @@ export default function AgentEmailPage() {
         </button>
         <button
           type="button"
+          onClick={() => switchFolder("draft")}
+          suppressHydrationWarning
+          className={cn(
+            "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
+            folder === "draft"
+              ? "bg-accent text-foreground font-medium"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          )}
+        >
+          <FileIcon className="size-4 shrink-0" />
+          Draft
+        </button>
+        <button
+          type="button"
           onClick={() => switchFolder("untrust")}
+          suppressHydrationWarning
           className={cn(
             "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
             folder === "untrust"
@@ -398,8 +512,8 @@ export default function AgentEmailPage() {
   );
 
   const emailListContent = (
-    <div className={cn("h-full thin-scrollbar", emails.length > 0 && !loading ? "overflow-y-auto" : "overflow-hidden")}>
-      {loading ? (
+    <div className={cn("h-full thin-scrollbar", emails.length > 0 && !loading && !showHydrationShell ? "overflow-y-auto" : "overflow-hidden")}>
+      {loading || showHydrationShell ? (
         <>
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="px-4 py-3 border-b border-border/30">
@@ -416,7 +530,13 @@ export default function AgentEmailPage() {
         <div className="flex flex-col items-center justify-center h-full animate-[fade-up_400ms_ease-out_both]">
           <Mail className="size-8 text-muted-foreground mb-3" />
           <p className="text-sm text-muted-foreground">
-            {folder === "inbox" ? "No emails from trusted senders" : folder === "sent" ? "No emails sent yet" : "No untrusted emails"}
+            {folder === "inbox"
+              ? "No emails from trusted senders"
+              : folder === "sent"
+                ? "No emails sent yet"
+                : folder === "draft"
+                  ? "No draft emails"
+                  : "No untrusted emails"}
           </p>
         </div>
       ) : (
@@ -437,7 +557,7 @@ export default function AgentEmailPage() {
                 "text-sm truncate",
                 email.status === "unread" ? "font-semibold" : "font-medium text-muted-foreground"
               )}>
-                {folder === "sent" ? email.to_email : email.from_email}
+                {folder === "sent" || email.direction === "outbound" ? email.to_email : email.from_email}
               </p>
               <div className="flex items-center gap-1.5 shrink-0">
                 {folder !== "sent" && (
@@ -445,9 +565,19 @@ export default function AgentEmailPage() {
                     "text-[10px] rounded-full px-1.5 py-0.5 leading-none font-medium",
                     email.status === "unread"
                       ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
-                      : "bg-muted text-muted-foreground"
+                      : email.status === "send_unknown"
+                        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+                        : "bg-muted text-muted-foreground"
                   )}>
-                    {email.status === "unread" ? "unread" : "read"}
+                    {email.status === "unread"
+                      ? "unread"
+                      : email.status === "send_unknown"
+                        ? "send unknown"
+                        : email.status === "sending"
+                          ? "sending"
+                          : email.status === "draft"
+                            ? "draft"
+                            : "read"}
                   </span>
                 )}
                 <span className="text-xs text-muted-foreground">
@@ -474,6 +604,7 @@ export default function AgentEmailPage() {
           key={JSON.stringify(composeInitial)}
           fromAddress={activeAddress}
           onSend={handleSend}
+          onSaveDraft={handleSaveDraft}
           onDiscard={() => { setComposing(false); setComposeInitial({}); }}
           initialTo={composeInitial.to}
           initialSubject={composeInitial.subject}
@@ -490,7 +621,7 @@ export default function AgentEmailPage() {
         <div className="flex flex-col h-full md:min-w-100 max-w-3xl mx-auto w-full">
           {/* Detail toolbar */}
           <div className="flex items-center gap-0.5 border-b border-border/40 px-4 py-1.5">
-            {folder !== "sent" && (
+            {folder !== "sent" && selected.direction === "inbound" && (
               <Tooltip>
                 <TooltipTrigger render={<Button
                   variant="ghost"
@@ -501,6 +632,42 @@ export default function AgentEmailPage() {
                   <Reply className="size-3.5" />
                 </TooltipTrigger>
                 <TooltipContent>Reply</TooltipContent>
+              </Tooltip>
+            )}
+            {canSendDraftEmail(selected) && (
+              <Tooltip>
+                <TooltipTrigger render={<Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground/60 hover:text-foreground"
+                  onClick={() => handleSendSelectedDraft(selected)}
+                />}>
+                  <Send className="size-3.5" />
+                </TooltipTrigger>
+                <TooltipContent>Send draft</TooltipContent>
+              </Tooltip>
+            )}
+            {selected.status === "send_unknown" && (
+              <div className="ml-2 rounded-md bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-400">
+                Send status unknown. Check the recipient before retrying.
+              </div>
+            )}
+            {isInboundDraftReviewEmail(selected) && (
+              <Tooltip>
+                <TooltipTrigger render={<Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground/60 hover:text-destructive"
+                  onClick={() => handleDiscardDraft(selected)}
+                  disabled={discarding}
+                />}>
+                  {discarding ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <ShieldAlert className="size-3.5" />
+                  )}
+                </TooltipTrigger>
+                <TooltipContent>Discard to untrust</TooltipContent>
               </Tooltip>
             )}
             <Tooltip>
@@ -590,7 +757,7 @@ export default function AgentEmailPage() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground w-16 shrink-0">
-                  {folder === "sent" ? "Sent" : "Received"}
+                  {selected.direction === "outbound" ? (folder === "draft" ? "Saved" : "Sent") : "Received"}
                 </span>
                 <span className="text-muted-foreground">
                   {new Date(selected.created_at).toLocaleString()}
@@ -741,6 +908,7 @@ export default function AgentEmailPage() {
             {([
               { id: "inbox" as Folder, label: "Inbox" },
               { id: "sent" as Folder, label: "Sent" },
+              { id: "draft" as Folder, label: "Draft" },
               { id: "untrust" as Folder, label: "Untrust" },
             ]).map((f) => (
               <button

@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import * as conversationQueries from "../../src/db/queries/conversation";
+import { TASK_TYPES } from "../../src/constants";
 
 describe("conversation query module exports", () => {
   it("exports createConversation", () => {
@@ -46,5 +49,17 @@ describe("conversation query function signatures (with optional channel param)",
 
   it("listPreviousConversations accepts at least 5 params (db, workspaceId, userId, agentId, excludeId)", () => {
     expect(conversationQueries.listPreviousConversations.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe("conversation list visibility", () => {
+  it("marks email_triage as hidden conversation type", () => {
+    expect(conversationQueries.CONVERSATION_LIST_EXCLUDED_TYPES).toContain(TASK_TYPES.EMAIL_TRIAGE);
+  });
+
+  it("list queries exclude email_triage at SQL level", () => {
+    const src = readFileSync(join(__dirname, "../../src/db/queries/conversation.ts"), "utf8");
+    expect(src).toContain("CONVERSATION_LIST_EXCLUDED_TYPES");
+    expect(src).toContain("notInArray(conversation.type");
   });
 });

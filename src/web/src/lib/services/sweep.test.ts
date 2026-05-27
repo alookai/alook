@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockFailStaleDispatchedTasks = vi.fn();
 const mockFailStaleKillTasks = vi.fn();
 const mockFailStaleRunningTasks = vi.fn();
+const mockRecoverStaleEmailTriageApplies = vi.fn();
 const mockCountRunningTasks = vi.fn();
 const mockUpdateAgentStatus = vi.fn();
 const mockActivateNextBufferedMessage = vi.fn();
@@ -20,6 +21,9 @@ vi.mock("@alook/shared", () => ({
       failStaleRunningTasks: (...args: unknown[]) => mockFailStaleRunningTasks(...args),
       countRunningTasks: (...args: unknown[]) => mockCountRunningTasks(...args),
       createTask: (...args: unknown[]) => mockCreateTask(...args),
+    },
+    email: {
+      recoverStaleEmailTriageApplies: (...args: unknown[]) => mockRecoverStaleEmailTriageApplies(...args),
     },
     agent: {
       getAgent: (...args: unknown[]) => mockGetAgent(...args),
@@ -60,6 +64,7 @@ describe("sweepStaleState", () => {
     _resetSweepThrottle();
     mockFailStaleKillTasks.mockResolvedValue([]);
     mockFailStaleRunningTasks.mockResolvedValue([]);
+    mockRecoverStaleEmailTriageApplies.mockResolvedValue({ restoredInbound: 0, deletedDrafts: 0 });
     mockActivateNextBufferedMessage.mockResolvedValue(null);
   });
 
@@ -151,6 +156,14 @@ describe("sweepStaleState", () => {
     await sweepStaleState(db, "w1");
 
     expect(mockFailStaleRunningTasks).toHaveBeenCalledWith(db, "w1");
+  });
+
+  it("recovers stale email triage apply state", async () => {
+    mockFailStaleDispatchedTasks.mockResolvedValue([]);
+
+    await sweepStaleState(db, "w1");
+
+    expect(mockRecoverStaleEmailTriageApplies).toHaveBeenCalledWith(db, "w1");
   });
 
   it("reconciles agents from both dispatched and running sweeps", async () => {

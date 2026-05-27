@@ -495,6 +495,7 @@ export const emails = sqliteTable(
     attachments: text("attachments").notNull().default("[]"),
     status: text("status").notNull().default("unread"),
     direction: text("direction").notNull().default("inbound"),
+    mailbox: text("mailbox").notNull().default("inbox"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
@@ -503,6 +504,7 @@ export const emails = sqliteTable(
       foreignColumns: [agent.id, agent.workspaceId],
     }).onDelete("cascade"),
     index("idx_emails_agent_ws_status").on(t.agentId, t.workspaceId, t.status),
+    index("idx_emails_agent_ws_mailbox").on(t.agentId, t.workspaceId, t.mailbox),
     index("idx_emails_to_direction").on(t.toEmail, t.direction),
     index("idx_emails_from_direction").on(t.fromEmail, t.direction),
     index("idx_emails_message_id").on(t.messageId),

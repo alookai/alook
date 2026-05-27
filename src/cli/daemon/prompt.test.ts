@@ -282,4 +282,60 @@ describe("buildPrompt", () => {
     expect(parsed.notice).toBeDefined();
     expect(parsed.sender).toBeUndefined();
   });
+
+  it("adds EMAIL_TRIAGE_NOTICE for email_triage tasks", () => {
+    const task: Task = {
+      ...makeTask("Triage inbound email from spam@test.com: Buy now", "email_triage"),
+      context: {
+        inboundEmailId: "e1",
+        from: "spam@test.com",
+        subject: "Buy now",
+      },
+    };
+    const parsed = JSON.parse(buildPrompt(task));
+    expect(parsed.notice).toContain("read-only email triage");
+    expect(parsed.notice).toContain("untrust");
+    expect(parsed.notice).toContain("draft_reply");
+    expect(parsed.notice).toContain("JSON only");
+    expect(parsed.notice).toContain("must NOT send email");
+    expect(parsed.inbound_email_id).toBe("e1");
+  });
+
+  it("includes attachment summaries for attachment-only email_triage tasks", () => {
+    const task: Task = {
+      ...makeTask("Triage inbound email from sender@test.com: Invoice", "email_triage"),
+      context: {
+        inboundEmailId: "e1",
+        from: "sender@test.com",
+        subject: "Invoice",
+        attachmentSummaries: [
+          { filename: "invoice.pdf", type: "application/pdf", size: 1234 },
+        ],
+      },
+    };
+
+    const parsed = JSON.parse(buildPrompt(task));
+
+    expect(parsed.attachment_summaries).toEqual([
+      { filename: "invoice.pdf", type: "application/pdf", size: 1234 },
+    ]);
+  });
+
+  it("includes both text and HTML bodies for email_triage tasks", () => {
+    const task: Task = {
+      ...makeTask("Triage inbound email from sender@test.com: Security alert", "email_triage"),
+      context: {
+        inboundEmailId: "e1",
+        from: "sender@test.com",
+        subject: "Security alert",
+        bodyText: "Click the security link.",
+        bodyHtml: '<a href="https://phish.example">Click the security link</a>',
+      },
+    };
+
+    const parsed = JSON.parse(buildPrompt(task));
+
+    expect(parsed.body_text).toBe("Click the security link.");
+    expect(parsed.body_html).toBe('<a href="https://phish.example">Click the security link</a>');
+  });
 });

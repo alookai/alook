@@ -519,7 +519,7 @@ export function AllowedSendersTab({ agentId }: { agentId: string }) {
         </div>
       ) : whitelist.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">
-          No allowed senders — all inbound emails will be rejected.
+          No allowed senders — inbound emails will be held for review in Draft.
         </p>
       ) : (
         <div className="space-y-1.5">

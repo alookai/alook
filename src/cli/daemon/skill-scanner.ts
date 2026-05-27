@@ -398,5 +398,3 @@ export function stopSkillScanner(): void {
     scanTimer = null;
   }
 }
-
-

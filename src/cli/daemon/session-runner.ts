@@ -21,6 +21,7 @@ import {
 import { readKillIntent, clearKillIntent } from "./execenv/steering.js";
 import { buildPrompt } from "./prompt.js";
 import { createLogger } from "../lib/logger.js";
+import { TASK_TYPES } from "@alook/shared";
 
 const log = createLogger({ module: "session-runner" });
 import { tempDir } from "../lib/platform.js";
@@ -260,9 +261,12 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
 
   const prompt = buildPrompt(task, attachments);
 
-  const resumeSessionId = task.contextKey
-    ? findResumableSessionByContextKey(timelineDir, task.contextKey, provider) ?? undefined
-    : undefined;
+  const executionProfile = task.type === TASK_TYPES.EMAIL_TRIAGE ? "triage_readonly" : "default";
+  const resumeSessionId = task.type === TASK_TYPES.EMAIL_TRIAGE
+    ? undefined
+    : task.contextKey
+      ? findResumableSessionByContextKey(timelineDir, task.contextKey, provider) ?? undefined
+      : undefined;
   if (resumeSessionId) {
     log.info(`resuming session ${resumeSessionId} (context_key: ${task.contextKey})`);
   }
@@ -273,6 +277,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     env,
     timeout: agentTimeout,
     resumeSessionId,
+    executionProfile,
   });
 
   // Capture agent PID for signal handler

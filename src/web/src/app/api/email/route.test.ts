@@ -7,6 +7,7 @@ const mockGetInboxEmails = vi.fn();
 const mockGetTrustedEmails = vi.fn();
 const mockGetSentEmails = vi.fn();
 const mockGetRejectedEmails = vi.fn();
+const mockGetEmailsByMailbox = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -14,19 +15,24 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
-vi.mock("@alook/shared", () => ({
-  createDb: vi.fn(() => ({})),
-  queries: {
-    agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
-    email: {
-      getEmailsByAgent: (...args: unknown[]) => mockGetEmailsByAgent(...args),
-      getInboxEmails: (...args: unknown[]) => mockGetInboxEmails(...args),
-      getTrustedEmails: (...args: unknown[]) => mockGetTrustedEmails(...args),
-      getSentEmails: (...args: unknown[]) => mockGetSentEmails(...args),
-      getRejectedEmails: (...args: unknown[]) => mockGetRejectedEmails(...args),
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual("@alook/shared");
+  return {
+    ...actual,
+    createDb: vi.fn(() => ({})),
+    queries: {
+      agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
+      email: {
+        getEmailsByAgent: (...args: unknown[]) => mockGetEmailsByAgent(...args),
+        getInboxEmails: (...args: unknown[]) => mockGetInboxEmails(...args),
+        getTrustedEmails: (...args: unknown[]) => mockGetTrustedEmails(...args),
+        getSentEmails: (...args: unknown[]) => mockGetSentEmails(...args),
+        getRejectedEmails: (...args: unknown[]) => mockGetRejectedEmails(...args),
+        getEmailsByMailbox: (...args: unknown[]) => mockGetEmailsByMailbox(...args),
+      },
     },
-  },
-}));
+  };
+});
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
@@ -58,7 +64,7 @@ describe("GET /api/email", () => {
 
   it("returns all emails for agent (no status filter)", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test" });
-    mockGetInboxEmails.mockResolvedValue([{ id: "e1" }, { id: "e2" }]);
+    mockGetEmailsByMailbox.mockResolvedValue([{ id: "e1" }, { id: "e2" }]);
 
     const req = new NextRequest("http://localhost/api/email?agentId=a1");
     const res = await GET(req, {} as any);
@@ -66,12 +72,16 @@ describe("GET /api/email", () => {
 
     expect(res.status).toBe(200);
     expect(body).toHaveLength(2);
-    expect(mockGetInboxEmails).toHaveBeenCalledWith({}, "a1", "test@alook.ai", "ws1", undefined, undefined);
+    expect(mockGetEmailsByMailbox).toHaveBeenCalledWith({}, "a1", "ws1", "inbox", {
+      address: "test@alook.ai",
+      pagination: undefined,
+      status: undefined,
+    });
   });
 
   it("filters by status=unread", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test" });
-    mockGetInboxEmails.mockResolvedValue([{ id: "e1", status: "unread" }]);
+    mockGetEmailsByMailbox.mockResolvedValue([{ id: "e1", status: "unread" }]);
 
     const req = new NextRequest("http://localhost/api/email?agentId=a1&status=unread");
     const res = await GET(req, {} as any);
@@ -79,40 +89,71 @@ describe("GET /api/email", () => {
 
     expect(res.status).toBe(200);
     expect(body).toHaveLength(1);
-    expect(mockGetInboxEmails).toHaveBeenCalledWith({}, "a1", "test@alook.ai", "ws1", "unread", undefined);
+    expect(mockGetEmailsByMailbox).toHaveBeenCalledWith({}, "a1", "ws1", "inbox", {
+      address: "test@alook.ai",
+      pagination: undefined,
+      status: "unread",
+    });
   });
 
-  it("filters by status and folder=inbox (whitelisted inbound)", async () => {
+  it("filters by status and folder=inbox mailbox", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test" });
-    mockGetTrustedEmails.mockResolvedValue([{ id: "e1" }]);
+    mockGetEmailsByMailbox.mockResolvedValue([{ id: "e1" }]);
 
     const req = new NextRequest("http://localhost/api/email?agentId=a1&folder=inbox&status=unread");
     const res = await GET(req, {} as any);
 
     expect(res.status).toBe(200);
-    expect(mockGetTrustedEmails).toHaveBeenCalledWith({}, "a1", "test@alook.ai", "ws1", "unread", undefined);
+    expect(mockGetEmailsByMailbox).toHaveBeenCalledWith({}, "a1", "ws1", "inbox", {
+      address: "test@alook.ai",
+      pagination: undefined,
+      status: "unread",
+    });
   });
 
-  it("filters by folder=untrust (non-whitelisted inbound)", async () => {
+  it("filters by folder=draft mailbox", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test" });
-    mockGetRejectedEmails.mockResolvedValue([{ id: "e2" }]);
+    mockGetEmailsByMailbox.mockResolvedValue([{ id: "e2" }]);
+
+    const req = new NextRequest("http://localhost/api/email?agentId=a1&folder=draft");
+    const res = await GET(req, {} as any);
+
+    expect(res.status).toBe(200);
+    expect(mockGetEmailsByMailbox).toHaveBeenCalledWith({}, "a1", "ws1", "draft", {
+      address: "test@alook.ai",
+      pagination: undefined,
+      status: undefined,
+    });
+  });
+
+  it("filters by folder=untrust mailbox", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test" });
+    mockGetEmailsByMailbox.mockResolvedValue([{ id: "e2" }]);
 
     const req = new NextRequest("http://localhost/api/email?agentId=a1&folder=untrust");
     const res = await GET(req, {} as any);
 
     expect(res.status).toBe(200);
-    expect(mockGetRejectedEmails).toHaveBeenCalledWith({}, "a1", "test@alook.ai", "ws1", undefined, undefined);
+    expect(mockGetEmailsByMailbox).toHaveBeenCalledWith({}, "a1", "ws1", "untrust", {
+      address: "test@alook.ai",
+      pagination: undefined,
+      status: undefined,
+    });
   });
 
   it("filters by status and folder=sent", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test" });
-    mockGetSentEmails.mockResolvedValue([]);
+    mockGetEmailsByMailbox.mockResolvedValue([]);
 
     const req = new NextRequest("http://localhost/api/email?agentId=a1&folder=sent&status=read");
     const res = await GET(req, {} as any);
 
     expect(res.status).toBe(200);
-    expect(mockGetSentEmails).toHaveBeenCalledWith({}, "a1", "test@alook.ai", "ws1", "read", undefined);
+    expect(mockGetEmailsByMailbox).toHaveBeenCalledWith({}, "a1", "ws1", "sent", {
+      address: "test@alook.ai",
+      pagination: undefined,
+      status: "read",
+    });
   });
 
   it("returns 400 for invalid status value", async () => {
@@ -128,24 +169,32 @@ describe("GET /api/email", () => {
 
   it("passes limit and offset to query function", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test" });
-    mockGetInboxEmails.mockResolvedValue([{ id: "e1" }]);
+    mockGetEmailsByMailbox.mockResolvedValue([{ id: "e1" }]);
 
     const req = new NextRequest("http://localhost/api/email?agentId=a1&limit=10&offset=5");
     const res = await GET(req, {} as any);
 
     expect(res.status).toBe(200);
-    expect(mockGetInboxEmails).toHaveBeenCalledWith({}, "a1", "test@alook.ai", "ws1", undefined, { limit: 10, offset: 5 });
+    expect(mockGetEmailsByMailbox).toHaveBeenCalledWith({}, "a1", "ws1", "inbox", {
+      address: "test@alook.ai",
+      pagination: { limit: 10, offset: 5 },
+      status: undefined,
+    });
   });
 
   it("passes pagination to folder-specific queries", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test" });
-    mockGetSentEmails.mockResolvedValue([]);
+    mockGetEmailsByMailbox.mockResolvedValue([]);
 
     const req = new NextRequest("http://localhost/api/email?agentId=a1&folder=sent&limit=20&offset=10");
     const res = await GET(req, {} as any);
 
     expect(res.status).toBe(200);
-    expect(mockGetSentEmails).toHaveBeenCalledWith({}, "a1", "test@alook.ai", "ws1", undefined, { limit: 20, offset: 10 });
+    expect(mockGetEmailsByMailbox).toHaveBeenCalledWith({}, "a1", "ws1", "sent", {
+      address: "test@alook.ai",
+      pagination: { limit: 20, offset: 10 },
+      status: undefined,
+    });
   });
 
   it("returns 400 for non-numeric limit", async () => {
@@ -188,12 +237,16 @@ describe("GET /api/email", () => {
 
   it("does not pass pagination when limit is omitted (backward compat)", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test" });
-    mockGetInboxEmails.mockResolvedValue([{ id: "e1" }]);
+    mockGetEmailsByMailbox.mockResolvedValue([{ id: "e1" }]);
 
     const req = new NextRequest("http://localhost/api/email?agentId=a1");
     const res = await GET(req, {} as any);
 
     expect(res.status).toBe(200);
-    expect(mockGetInboxEmails).toHaveBeenCalledWith({}, "a1", "test@alook.ai", "ws1", undefined, undefined);
+    expect(mockGetEmailsByMailbox).toHaveBeenCalledWith({}, "a1", "ws1", "inbox", {
+      address: "test@alook.ai",
+      pagination: undefined,
+      status: undefined,
+    });
   });
 });

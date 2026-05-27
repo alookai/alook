@@ -4,6 +4,11 @@ import { NextRequest } from "next/server";
 const mockGetAgent = vi.fn();
 const mockGetAgentByHandle = vi.fn();
 const mockCreateEmail = vi.fn();
+const mockGetEmailById = vi.fn();
+const mockClaimDraftForSend = vi.fn();
+const mockFinalizeDraftSend = vi.fn();
+const mockRestoreDraftAfterSendFailure = vi.fn();
+const mockMarkDraftSendUnknown = vi.fn();
 const mockIsWhitelisted = vi.fn();
 const mockGetEmailAccountsByAgent = vi.fn();
 const mockGetEmailAccountScoped = vi.fn();
@@ -47,6 +52,11 @@ vi.mock("@alook/shared", async () => {
     queries: {
       email: {
         createEmail: (...args: unknown[]) => mockCreateEmail(...args),
+        getEmailById: (...args: unknown[]) => mockGetEmailById(...args),
+        claimDraftForSend: (...args: unknown[]) => mockClaimDraftForSend(...args),
+        finalizeDraftSend: (...args: unknown[]) => mockFinalizeDraftSend(...args),
+        restoreDraftAfterSendFailure: (...args: unknown[]) => mockRestoreDraftAfterSendFailure(...args),
+        markDraftSendUnknown: (...args: unknown[]) => mockMarkDraftSendUnknown(...args),
       },
       agent: {
         getAgent: (...args: unknown[]) => mockGetAgent(...args),
@@ -105,7 +115,10 @@ function makeReq(body: Record<string, unknown>) {
 }
 
 describe("POST /api/email/send", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockEmailBucketPut.mockResolvedValue(undefined);
+  });
 
   it("sends email via EMAIL_WORKER and returns the created record", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent" });
@@ -143,6 +156,7 @@ describe("POST /api/email/send", () => {
     expect(mockCreateEmail).toHaveBeenCalledOnce();
     const createArgs = mockCreateEmail.mock.calls[0]![1] as any;
     expect(createArgs.r2Key).toBe("emails/abc/raw");
+    expect(createArgs.mailbox).toBe("sent");
   });
 
   it("sends email with attachments via EMAIL_WORKER", async () => {

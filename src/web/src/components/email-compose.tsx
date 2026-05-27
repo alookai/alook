@@ -14,11 +14,12 @@ import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import type { EmailAttachment } from "@alook/shared";
 import { toast } from "sonner";
-import { Send, X, Loader2, Paperclip, File as FileIcon } from "lucide-react";
+import { Save, Send, X, Loader2, Paperclip, File as FileIcon } from "lucide-react";
 
 interface EmailComposeProps {
   fromAddress: string;
   onSend: (to: string, subject: string, htmlBody: string, attachments: EmailAttachment[], threading?: { inReplyTo?: string; references?: string }) => Promise<boolean>;
+  onSaveDraft?: (to: string, subject: string, htmlBody: string, attachments: EmailAttachment[], threading?: { inReplyTo?: string; references?: string }) => Promise<boolean>;
   onDiscard: () => void;
   initialTo?: string;
   initialSubject?: string;
@@ -37,6 +38,7 @@ function formatFileSize(bytes: number): string {
 export function EmailCompose({
   fromAddress,
   onSend,
+  onSaveDraft,
   onDiscard,
   initialTo = "",
   initialSubject = "",
@@ -48,6 +50,7 @@ export function EmailCompose({
   const [to, setTo] = useState(initialTo);
   const [subject, setSubject] = useState(initialSubject);
   const [sending, setSending] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [attachments, setAttachments] = useState<EmailAttachment[]>(initialAttachments);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -100,6 +103,24 @@ export function EmailCompose({
     }
   };
 
+  const handleSaveDraft = async () => {
+    if (!onSaveDraft || !to.trim() || !subject.trim() || !editor) return;
+    setSaving(true);
+    try {
+      const html = editor.getHTML();
+      const threading = inReplyTo || references ? { inReplyTo, references } : undefined;
+      const ok = await onSaveDraft(to.trim(), subject.trim(), html, attachments, threading);
+      if (ok) {
+        setTo("");
+        setSubject("");
+        setAttachments([]);
+        editor.commands.clearContent();
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -138,16 +159,32 @@ export function EmailCompose({
             size="sm"
             className="text-xs text-muted-foreground h-7 px-2"
             onClick={onDiscard}
-            disabled={sending}
+            disabled={sending || saving}
           >
             <X className="size-3 mr-1" />
             Discard
           </Button>
+          {onSaveDraft && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs h-7 px-2"
+              onClick={handleSaveDraft}
+              disabled={sending || saving || !to.trim() || !subject.trim()}
+            >
+              {saving ? (
+                <Loader2 className="size-3 mr-1 animate-spin" />
+              ) : (
+                <Save className="size-3 mr-1" />
+              )}
+              Save draft
+            </Button>
+          )}
           <Button
             size="sm"
             className="text-xs h-7 px-3"
             onClick={handleSend}
-            disabled={sending || !to.trim() || !subject.trim()}
+            disabled={sending || saving || !to.trim() || !subject.trim()}
           >
             {sending ? (
               <Loader2 className="size-3 mr-1 animate-spin" />

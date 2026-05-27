@@ -6,6 +6,7 @@ vi.mock("@alook/shared", () => ({
   TASK_TYPES: {
     USER_DM_MESSAGE: "user_dm_message",
     EMAIL_NOTIFICATION: "email_notification",
+    EMAIL_TRIAGE: "email_triage",
     CALENDAR_EVENT: "calendar_event",
     ISSUE_EVENT: "issue_event",
     KILL_TASK: "kill_task",
@@ -16,6 +17,7 @@ vi.mock("@alook/shared", () => ({
       createTask: vi.fn(),
       claimTask: vi.fn(),
       startTask: vi.fn(),
+      beginTaskApply: vi.fn(),
       completeTask: vi.fn(),
       failTask: vi.fn(),
       supersedeTask: vi.fn(),
@@ -65,6 +67,12 @@ vi.mock("@/lib/broadcast", () => ({
   broadcastToDaemon: vi.fn().mockResolvedValue({ sent: 1 }),
 }));
 
+const mockHandleTaskTerminalSideEffects = vi.fn();
+
+vi.mock("@/lib/services/task-terminal-handlers", () => ({
+  handleTaskTerminalSideEffects: (...args: unknown[]) => mockHandleTaskTerminalSideEffects(...args),
+}));
+
 vi.mock("@/lib/api/responses", () => ({
   messageToResponse: (m: unknown) => m,
   taskToResponse: (t: unknown) => t,
@@ -105,6 +113,7 @@ describe("TaskService", () => {
     messageQ.activateNextBufferedMessage.mockResolvedValue(null);
     // Default: no kill tasks to claim
     taskQ.claimKillTasks.mockResolvedValue([]);
+    mockHandleTaskTerminalSideEffects.mockResolvedValue(false);
   });
 
   // ── enqueueTask ──────────────────────────────────────────────────
@@ -421,6 +430,39 @@ describe("TaskService", () => {
       // Agent now controls issue status via CLI — completeTask no longer auto-syncs
       expect(issueQ.updateIssue).not.toHaveBeenCalled();
     });
+
+    it("claims email_triage task into applying before running terminal side effects", async () => {
+      const runningTask = {
+        id: "t1",
+        agentId: "a1",
+        workspaceId: "w1",
+        conversationId: "c1",
+        type: "email_triage",
+        status: "running",
+      };
+      const applyingTask = { ...runningTask, status: "applying" };
+      const completedTask = { ...runningTask, status: "completed" };
+      taskQ.getTask.mockResolvedValue(runningTask);
+      taskQ.beginTaskApply.mockResolvedValue(applyingTask);
+      taskQ.completeTask.mockResolvedValue(completedTask);
+      taskQ.countRunningTasks.mockResolvedValue(0);
+      agentQ.updateAgentStatus.mockResolvedValue(undefined);
+      mockHandleTaskTerminalSideEffects.mockResolvedValue({ handled: true });
+
+      await service.completeTask("t1", "w1", JSON.stringify({ output: "{\"decision\":\"untrust\"}" }), "sess-1");
+
+      expect(taskQ.beginTaskApply).toHaveBeenCalledWith({}, "t1", "w1", {
+        result: { output: "{\"decision\":\"untrust\"}" },
+        sessionId: "sess-1",
+      });
+      expect(mockHandleTaskTerminalSideEffects).toHaveBeenCalledWith(expect.objectContaining({
+        task: applyingTask,
+      }));
+      expect(taskQ.beginTaskApply.mock.invocationCallOrder[0]).toBeLessThan(
+        mockHandleTaskTerminalSideEffects.mock.invocationCallOrder[0],
+      );
+    });
+
   });
 
   // ── failTask ─────────────────────────────────────────────────────
@@ -778,8 +820,6 @@ describe("TaskService", () => {
       expect(messageQ.activateNextBufferedMessage).not.toHaveBeenCalled();
     });
   });
-
-  // ── cancelActiveTask ─────────────────────────────────────────
 
   describe("cancelActiveTask", () => {
     it("returns null when no active task", async () => {

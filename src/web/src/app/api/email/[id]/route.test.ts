@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const mockGetEmailById = vi.fn();
 const mockDeleteEmail = vi.fn();
 const mockUpdateEmailStatus = vi.fn();
+const mockUpdateEmailMailbox = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({
@@ -23,6 +24,7 @@ vi.mock("@alook/shared", async () => {
         getEmailById: (...args: unknown[]) => mockGetEmailById(...args),
         deleteEmail: (...args: unknown[]) => mockDeleteEmail(...args),
         updateEmailStatus: (...args: unknown[]) => mockUpdateEmailStatus(...args),
+        updateEmailMailbox: (...args: unknown[]) => mockUpdateEmailMailbox(...args),
       },
     },
   };
@@ -50,7 +52,7 @@ vi.mock("@/lib/middleware/helpers", async () => {
 });
 
 vi.mock("@/lib/api/responses", () => ({
-  emailToResponse: (e: any) => ({ id: e.id, status: e.status }),
+  emailToResponse: (e: any) => ({ id: e.id, status: e.status, mailbox: e.mailbox, html_body: e.htmlBody }),
 }));
 
 import { GET, DELETE, PATCH } from "./route";
@@ -120,6 +122,72 @@ describe("PATCH /api/email/[id]", () => {
     expect(mockUpdateEmailStatus).toHaveBeenCalledWith({}, "e1", "ws1", "read");
   });
 
+  it("discards an inbound draft email into untrust", async () => {
+    mockGetEmailById.mockResolvedValue({
+      id: "e1",
+      direction: "inbound",
+      mailbox: "draft",
+      status: "unread",
+    });
+    mockUpdateEmailMailbox.mockResolvedValue({
+      id: "e1",
+      direction: "inbound",
+      mailbox: "untrust",
+      status: "archived",
+    });
+
+    const req = new NextRequest("http://localhost/api/email/e1", {
+      method: "PATCH",
+      body: JSON.stringify({ action: "discard" }),
+    });
+    const res = await PATCH(req, { params: Promise.resolve({ id: "e1" }) } as any);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.mailbox).toBe("untrust");
+    expect(mockUpdateEmailMailbox).toHaveBeenCalledWith({}, "e1", "ws1", "untrust", { status: "archived" });
+  });
+
+  it("rejects discard for non-draft emails", async () => {
+    mockGetEmailById.mockResolvedValue({
+      id: "e1",
+      direction: "inbound",
+      mailbox: "inbox",
+      status: "unread",
+    });
+
+    const req = new NextRequest("http://localhost/api/email/e1", {
+      method: "PATCH",
+      body: JSON.stringify({ action: "discard" }),
+    });
+    const res = await PATCH(req, { params: Promise.resolve({ id: "e1" }) } as any);
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toContain("only inbound draft emails can be discarded");
+    expect(mockUpdateEmailMailbox).not.toHaveBeenCalled();
+  });
+
+  it("rejects unused update_draft action", async () => {
+    mockGetEmailById.mockResolvedValue({
+      id: "e1",
+      direction: "outbound",
+      mailbox: "draft",
+      status: "draft",
+    });
+
+    const req = new NextRequest("http://localhost/api/email/e1", {
+      method: "PATCH",
+      body: JSON.stringify({ action: "update_draft", htmlBody: "<p>Updated</p>" }),
+    });
+    const res = await PATCH(req, { params: Promise.resolve({ id: "e1" }) } as any);
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toBe("validation error");
+    expect(mockGetEmailById).not.toHaveBeenCalled();
+  });
+
   it("updates status to archived", async () => {
     mockUpdateEmailStatus.mockResolvedValue({ id: "e1", status: "archived" });
 
@@ -155,8 +223,24 @@ describe("PATCH /api/email/[id]", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe("validation error");
-    expect(body.details).toContainEqual(expect.stringContaining("status"));
+    expect(body.details.join(" ")).toMatch(/status|invalid input/i);
   });
+
+  it.each(["sent", "draft", "sending", "send_unknown"])(
+    "rejects internal status=%s from public PATCH",
+    async (status) => {
+      const req = new NextRequest("http://localhost/api/email/e1", {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      const res = await PATCH(req, { params: Promise.resolve({ id: "e1" }) } as any);
+      const body = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(body.error).toBe("validation error");
+      expect(mockUpdateEmailStatus).not.toHaveBeenCalled();
+    },
+  );
 
   it("returns 400 for missing status", async () => {
     const req = new NextRequest("http://localhost/api/email/e1", {
