@@ -96,7 +96,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
 
   const handleLink = () => {
     if (editor.isActive("link")) {
-      editor.chain().focus().unsetLink().run();
+      editor.chain().focus().extendMarkRange("link").unsetLink().run();
       return;
     }
     setDialogMode("link");
