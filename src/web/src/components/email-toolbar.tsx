@@ -229,28 +229,40 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarDivider />
 
       {/* Link & Image */}
-      <ToolbarButton
-        title={editor.isActive("link") ? "Remove Link" : "Insert Link"}
-        active={editor.isActive("link")}
-        onAction={() => {
-          if (editor.isActive("link")) {
-            editor.chain().focus().unsetLink().run();
-          } else {
-            setDialogMode("link");
-            setUrlValue("");
-            setUrlError("");
-            setDisplayText("");
-            setSelectionEmpty(editor.state.selection.empty);
-            setDialogOpen(true);
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                if (editor.isActive("link")) {
+                  editor.chain().focus().unsetLink().run();
+                } else {
+                  setDialogMode("link");
+                  setUrlValue("");
+                  setUrlError("");
+                  setDisplayText("");
+                  setSelectionEmpty(editor.state.selection.empty);
+                  setDialogOpen(true);
+                }
+              }}
+              className={cn(
+                "text-muted-foreground/70",
+                editor.isActive("link") && "bg-accent text-foreground"
+              )}
+            />
           }
-        }}
-      >
-        {editor.isActive("link") ? (
-          <Unlink className={iconSize} />
-        ) : (
-          <Link className={iconSize} />
-        )}
-      </ToolbarButton>
+        >
+          {editor.isActive("link") ? (
+            <Unlink className={iconSize} />
+          ) : (
+            <Link className={iconSize} />
+          )}
+        </TooltipTrigger>
+        <TooltipContent>{editor.isActive("link") ? "Remove Link" : "Insert Link"}</TooltipContent>
+      </Tooltip>
       <ToolbarButton title="Insert Image" onAction={handleImage}>
         <ImageIcon className={iconSize} />
       </ToolbarButton>
