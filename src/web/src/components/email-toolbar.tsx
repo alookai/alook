@@ -226,31 +226,28 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
       <ToolbarDivider />
 
       {/* Link & Image */}
-      {editor.isActive("link") ? (
-        <ToolbarButton
-          title="Remove Link"
-          active
-          onClick={() => {
-            editor.chain().focus().extendMarkRange("link").unsetLink().run();
-          }}
-        >
-          <Unlink className={iconSize} />
-        </ToolbarButton>
-      ) : (
-        <ToolbarButton
-          title="Insert Link"
-          onClick={() => {
+      <ToolbarButton
+        title={editor.isActive("link") ? "Remove Link" : "Insert Link"}
+        active={editor.isActive("link")}
+        onClick={() => {
+          if (editor.isActive("link")) {
+            editor.chain().focus().unsetLink().run();
+          } else {
             setDialogMode("link");
             setUrlValue("");
             setUrlError("");
             setDisplayText("");
             setSelectionEmpty(editor.state.selection.empty);
             setDialogOpen(true);
-          }}
-        >
+          }
+        }}
+      >
+        {editor.isActive("link") ? (
+          <Unlink className={iconSize} />
+        ) : (
           <Link className={iconSize} />
-        </ToolbarButton>
-      )}
+        )}
+      </ToolbarButton>
       <ToolbarButton title="Insert Image" onClick={handleImage}>
         <ImageIcon className={iconSize} />
       </ToolbarButton>
