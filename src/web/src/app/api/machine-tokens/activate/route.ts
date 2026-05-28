@@ -77,7 +77,10 @@ export async function POST(req: NextRequest) {
     results.push({ ...result, machineLastSeenAt: null });
   }
 
-  await queries.machineToken.activateMachineToken(db, mt.id, workspaceId);
+  const activated = await queries.machineToken.activateMachineToken(db, mt.id, workspaceId);
+  if (!activated) {
+    return writeJSON({ error: "token already activated" }, 409);
+  }
   await Promise.all([
     invalidate(cacheKeys.machineToken(token)),
     invalidate(cacheKeys.runtimeIds(workspaceId, daemonId)),
