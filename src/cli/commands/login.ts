@@ -110,9 +110,25 @@ async function pollAndActivate(opts: {
     // Non-fatal — we can proceed without the email for display
   }
 
+  // If user already has a workspace, pass it when creating machine token
+  // so activate won't create a duplicate
+  let existingWorkspaceId = "";
+  try {
+    const workspaces = await client.getJSON<{ id: string }[]>("/api/workspaces");
+    if (workspaces.length > 0) {
+      existingWorkspaceId = workspaces[0].id;
+    }
+  } catch {
+    // Non-fatal — will create new workspace during activate
+  }
+
+  const mtUrl = existingWorkspaceId
+    ? `/api/machine-tokens?workspace_id=${existingWorkspaceId}`
+    : "/api/machine-tokens";
+
   let machineToken: string;
   try {
-    const mtResp = await client.postJSON<{ token: string }>("/api/machine-tokens");
+    const mtResp = await client.postJSON<{ token: string }>(mtUrl);
     machineToken = mtResp.token;
   } catch {
     process.exit(1);
