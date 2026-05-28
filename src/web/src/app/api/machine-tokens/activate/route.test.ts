@@ -166,11 +166,33 @@ describe("POST /api/machine-tokens/activate", () => {
     });
   });
 
-  it("creates a new workspace when token has no workspace_id and user already has workspaces", async () => {
+  it("reuses existing workspace when token has no workspace_id but user has workspaces", async () => {
     const POST = await loadRoute();
 
     const tokenNoWs = { id: "mt_2", userId: "u1", workspaceId: null, status: "pending" };
     mockGetMachineTokenByToken.mockResolvedValue(tokenNoWs);
+    mockListWorkspaces.mockResolvedValue([{ id: "sp_existing" }]);
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1", provider: "claude" });
+    mockActivateMachineToken.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    const res = await POST(makeReq(validBody));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.workspace_id).toBe("sp_existing");
+    expect(mockListWorkspaces).toHaveBeenCalledWith(expect.anything(), "u1");
+    expect(mockCreateWorkspace).not.toHaveBeenCalled();
+    expect(mockCreateMember).not.toHaveBeenCalled();
+  });
+
+  it("creates a new workspace when token has no workspace_id and user has no workspaces", async () => {
+    const POST = await loadRoute();
+
+    const tokenNoWs = { id: "mt_2", userId: "u1", workspaceId: null, status: "pending" };
+    mockGetMachineTokenByToken.mockResolvedValue(tokenNoWs);
+    mockListWorkspaces.mockResolvedValue([]);
     mockCreateWorkspace.mockResolvedValue({ id: "sp_new_ws" });
     mockCreateMember.mockResolvedValue(undefined);
     mockUpsertMachine.mockResolvedValue(undefined);
@@ -183,6 +205,7 @@ describe("POST /api/machine-tokens/activate", () => {
 
     expect(res.status).toBe(200);
     expect(body.workspace_id).toBe("sp_new_ws");
+    expect(mockListWorkspaces).toHaveBeenCalledWith(expect.anything(), "u1");
     expect(mockCreateWorkspace).toHaveBeenCalledWith(expect.anything(), {
       name: "Personal",
       slug: "studio-test1234",
@@ -192,7 +215,5 @@ describe("POST /api/machine-tokens/activate", () => {
       userId: "u1",
       role: "owner",
     });
-    // Should NOT reuse existing workspaces
-    expect(mockListWorkspaces).not.toHaveBeenCalled();
   });
 });
