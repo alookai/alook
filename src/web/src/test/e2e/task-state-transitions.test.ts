@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sql, sqlQuery } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sqlRun, sqlQuery } from "@alook/test-utils"
 
 describe("regression: invalid task state transitions return 400", () => {
   let seed: TestSeed
@@ -77,7 +77,7 @@ describe("regression: invalid task state transitions return 400", () => {
   it("cannot fail a queued task (must be running first)", async () => {
     const taskId = await createAndEnqueueTask()
     // Force queued status in case push dispatched it
-    sql(`UPDATE agent_task_queue SET status = 'queued' WHERE id = '${taskId}'`)
+    sqlRun(`UPDATE agent_task_queue SET status = ? WHERE id = ?`, 'queued', taskId)
 
     const res = await tokenRequest(`/api/daemon/tasks/${taskId}/fail`, seed.machineToken, {
       method: "POST",
@@ -89,7 +89,7 @@ describe("regression: invalid task state transitions return 400", () => {
 
   it("cannot complete a queued task", async () => {
     const taskId = await createAndEnqueueTask()
-    sql(`UPDATE agent_task_queue SET status = 'queued' WHERE id = '${taskId}'`)
+    sqlRun(`UPDATE agent_task_queue SET status = ? WHERE id = ?`, 'queued', taskId)
 
     const res = await tokenRequest(`/api/daemon/tasks/${taskId}/complete`, seed.machineToken, {
       method: "POST",

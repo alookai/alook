@@ -1,4 +1,4 @@
-export { sql, sqlQuery, sqlBatch, closeDb } from "./db"
+export { sql, sqlRun, sqlQuery, sqlBatch, closeDb } from "./db"
 export {
   seedTestData,
   cleanupTestData,

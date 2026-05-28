@@ -4,7 +4,7 @@ import {
   seedTestData,
   cleanupTestData,
   type TestSeed,
-  sql,
+  sqlRun,
   sqlQuery,
 } from "@alook/test-utils"
 import { DaemonClient } from "../../../src/cli/daemon/client"
@@ -65,8 +65,8 @@ describe("register → poll → start → messages → complete lifecycle", () =
     conversationId = `conv_${randomUUID().slice(0, 8)}`
     taskId = `task_${randomUUID().slice(0, 8)}`
 
-    sql(`INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, created_at) VALUES ('${conversationId}', '${seed.workspaceId}', '${seed.agentId}', '${seed.userId}', 'integ test', '${now}')`)
-    sql(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, priority, created_at) VALUES ('${taskId}', '${seed.agentId}', '${registeredRuntimeId}', '${seed.workspaceId}', '${conversationId}', 'Hello integration test', 'queued', 'user_dm_message', 0, '${now}')`)
+    sqlRun(`INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, created_at) VALUES (?, ?, ?, ?, ?, ?)`, conversationId, seed.workspaceId, seed.agentId, seed.userId, 'integ test', now)
+    sqlRun(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`, taskId, seed.agentId, registeredRuntimeId, seed.workspaceId, conversationId, 'Hello integration test', 'queued', 'user_dm_message', now)
 
     const result = await client.poll(seed.machineToken, daemonId, 1, "0.1.0-integ")
     expect(result.tasks).toHaveLength(1)
@@ -93,7 +93,7 @@ describe("register → poll → start → messages → complete lifecycle", () =
     ])
 
     const rows = sqlQuery<{ seq: number; type: string; content: string }>(
-      `SELECT seq, type, content FROM task_message WHERE task_id = '${taskId}' ORDER BY seq`
+      `SELECT seq, type, content FROM task_message WHERE task_id = ? ORDER BY seq`, taskId
     )
     expect(rows).toHaveLength(2)
     expect(rows[0].content).toBe("Working on it...")
@@ -114,7 +114,7 @@ describe("register → poll → start → messages → complete lifecycle", () =
 
   it("DB reflects final state after completion", () => {
     const rows = sqlQuery<{ status: string; session_id: string | null; result: string | null }>(
-      `SELECT status, session_id, result FROM agent_task_queue WHERE id = '${taskId}'`
+      `SELECT status, session_id, result FROM agent_task_queue WHERE id = ?`, taskId
     )
     expect(rows).toHaveLength(1)
     expect(rows[0].status).toBe("completed")
@@ -124,11 +124,11 @@ describe("register → poll → start → messages → complete lifecycle", () =
 
   afterAll(() => {
     try {
-      sql(`DELETE FROM task_message WHERE task_id = '${taskId}'`)
-      sql(`DELETE FROM agent_task_queue WHERE id = '${taskId}'`)
-      sql(`DELETE FROM conversation WHERE id = '${conversationId}'`)
-      sql(`DELETE FROM agent_runtime WHERE daemon_id = '${daemonId}'`)
-      sql(`DELETE FROM machine WHERE daemon_id = '${daemonId}'`)
+      sqlRun(`DELETE FROM task_message WHERE task_id = ?`, taskId)
+      sqlRun(`DELETE FROM agent_task_queue WHERE id = ?`, taskId)
+      sqlRun(`DELETE FROM conversation WHERE id = ?`, conversationId)
+      sqlRun(`DELETE FROM agent_runtime WHERE daemon_id = ?`, daemonId)
+      sqlRun(`DELETE FROM machine WHERE daemon_id = ?`, daemonId)
     } catch { /* ignore */ }
   })
 })

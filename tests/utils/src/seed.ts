@@ -1,5 +1,5 @@
 import { randomUUID } from "crypto"
-import { sql, sqlBatch } from "./db"
+import { sqlRun } from "./db"
 
 export interface TestSeed {
   userId: string
@@ -34,40 +34,38 @@ export function seedTestData(): TestSeed {
   const now = new Date().toISOString()
   const slug = `test-${nanoid()}`
 
-  sql(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('${userId}', 'Test User', '${userId}@test.local', 1, '${now}', '${now}')`)
-  sql(`INSERT INTO workspace (id, name, slug, created_at, updated_at) VALUES ('${workspaceId}', 'Test Workspace', '${slug}', '${now}', '${now}')`)
-  sql(`INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES ('${memberId}', '${workspaceId}', '${userId}', 'owner', '${now}')`)
-  sql(`INSERT INTO machine (daemon_id, workspace_id, device_info, last_seen_at, created_at, updated_at) VALUES ('${daemonId}', '${workspaceId}', 'test-device', '${now}', '${now}', '${now}')`)
-  sql(`INSERT INTO agent_runtime (id, workspace_id, daemon_id, runtime_mode, provider, status, device_info, created_at, updated_at) VALUES ('${runtimeId}', '${workspaceId}', '${daemonId}', 'local', 'claude', 'online', 'test-device', '${now}', '${now}')`)
-  sql(`INSERT INTO agent (id, workspace_id, name, runtime_id, email_handle, owner_id, created_at, updated_at) VALUES ('${agentId}', '${workspaceId}', 'Test Agent', '${runtimeId}', '${emailHandle}', '${userId}', '${now}', '${now}')`)
-  sql(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES ('${machineTokenId}', '${userId}', '${workspaceId}', '${rawToken}', 'test-token', 'active', '${now}')`)
-  sql(`INSERT INTO agent_whitelist (id, agent_id, workspace_id, email, created_at) VALUES ('${whitelistId}', '${agentId}', '${workspaceId}', '${userId}@test.local', '${now}')`)
+  sqlRun(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)`, userId, 'Test User', `${userId}@test.local`, now, now)
+  sqlRun(`INSERT INTO workspace (id, name, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, workspaceId, 'Test Workspace', slug, now, now)
+  sqlRun(`INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)`, memberId, workspaceId, userId, 'owner', now)
+  sqlRun(`INSERT INTO machine (daemon_id, workspace_id, device_info, last_seen_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, daemonId, workspaceId, 'test-device', now, now, now)
+  sqlRun(`INSERT INTO agent_runtime (id, workspace_id, daemon_id, runtime_mode, provider, status, device_info, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, runtimeId, workspaceId, daemonId, 'local', 'claude', 'online', 'test-device', now, now)
+  sqlRun(`INSERT INTO agent (id, workspace_id, name, runtime_id, email_handle, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, agentId, workspaceId, 'Test Agent', runtimeId, emailHandle, userId, now, now)
+  sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, machineTokenId, userId, workspaceId, rawToken, 'test-token', 'active', now)
+  sqlRun(`INSERT INTO agent_whitelist (id, agent_id, workspace_id, email, created_at) VALUES (?, ?, ?, ?, ?)`, whitelistId, agentId, workspaceId, `${userId}@test.local`, now)
 
   return { userId, workspaceId, memberId, runtimeId, daemonId, agentId, agentEmailHandle: emailHandle, machineToken: rawToken, machineTokenId, whitelistId }
 }
 
 export function cleanupTestData(seed: TestSeed) {
   const ws = seed.workspaceId
-  sqlBatch([
-    `DELETE FROM task_message WHERE task_id IN (SELECT id FROM agent_task_queue WHERE workspace_id = '${ws}')`,
-    `DELETE FROM agent_task_queue WHERE workspace_id = '${ws}'`,
-    `DELETE FROM message WHERE conversation_id IN (SELECT id FROM conversation WHERE workspace_id = '${ws}')`,
-    `DELETE FROM conversation WHERE workspace_id = '${ws}'`,
-    `DELETE FROM meeting_session WHERE workspace_id = '${ws}'`,
-    `DELETE FROM emails WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = '${ws}')`,
-    `DELETE FROM agent_skill WHERE workspace_id = '${ws}'`,
-    `DELETE FROM agent_whitelist WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = '${ws}')`,
-    `DELETE FROM agent_access WHERE workspace_id = '${ws}'`,
-    `DELETE FROM agent_pin WHERE workspace_id = '${ws}'`,
-    `DELETE FROM workspace_invite WHERE workspace_id = '${ws}'`,
-    `DELETE FROM agent WHERE workspace_id = '${ws}'`,
-    `DELETE FROM agent_runtime WHERE workspace_id = '${ws}'`,
-    `DELETE FROM machine WHERE workspace_id = '${ws}'`,
-    `DELETE FROM machine_token WHERE workspace_id = '${ws}'`,
-    `DELETE FROM member WHERE workspace_id = '${ws}'`,
-    `DELETE FROM workspace WHERE id = '${ws}'`,
-    `DELETE FROM "user" WHERE id = '${seed.userId}'`,
-  ])
+  sqlRun(`DELETE FROM task_message WHERE task_id IN (SELECT id FROM agent_task_queue WHERE workspace_id = ?)`, ws)
+  sqlRun(`DELETE FROM agent_task_queue WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM message WHERE conversation_id IN (SELECT id FROM conversation WHERE workspace_id = ?)`, ws)
+  sqlRun(`DELETE FROM conversation WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM meeting_session WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM emails WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = ?)`, ws)
+  sqlRun(`DELETE FROM agent_skill WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM agent_whitelist WHERE agent_id IN (SELECT id FROM agent WHERE workspace_id = ?)`, ws)
+  sqlRun(`DELETE FROM agent_access WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM agent_pin WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM workspace_invite WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM agent WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM agent_runtime WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM machine WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM machine_token WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM member WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM workspace WHERE id = ?`, ws)
+  sqlRun(`DELETE FROM "user" WHERE id = ?`, seed.userId)
 }
 
 export interface SecondaryUser {
@@ -80,8 +78,8 @@ export function seedSecondaryUser(workspaceId: string, role = "member"): Seconda
   const memberId = `mb_${nanoid()}`
   const now = new Date().toISOString()
 
-  sql(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('${userId}', 'Secondary User', '${userId}@test.local', 1, '${now}', '${now}')`)
-  sql(`INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES ('${memberId}', '${workspaceId}', '${userId}', '${role}', '${now}')`)
+  sqlRun(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)`, userId, 'Secondary User', `${userId}@test.local`, now, now)
+  sqlRun(`INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)`, memberId, workspaceId, userId, role, now)
 
   return { userId, memberId }
 }
@@ -97,14 +95,14 @@ export function seedInvite(workspaceId: string, createdBy: string): TestInvite {
   const now = new Date().toISOString()
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
-  sql(`INSERT INTO workspace_invite (id, workspace_id, token, created_by, expires_at, created_at) VALUES ('${inviteId}', '${workspaceId}', '${token}', '${createdBy}', '${expiresAt}', '${now}')`)
+  sqlRun(`INSERT INTO workspace_invite (id, workspace_id, token, created_by, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`, inviteId, workspaceId, token, createdBy, expiresAt, now)
 
   return { inviteId, token }
 }
 
 export function cleanupSecondaryUser(secondary: SecondaryUser) {
-  sql(`DELETE FROM agent_access WHERE user_id = '${secondary.userId}'`)
-  sql(`DELETE FROM agent_pin WHERE user_id = '${secondary.userId}'`)
-  sql(`DELETE FROM member WHERE id = '${secondary.memberId}'`)
-  sql(`DELETE FROM "user" WHERE id = '${secondary.userId}'`)
+  sqlRun(`DELETE FROM agent_access WHERE user_id = ?`, secondary.userId)
+  sqlRun(`DELETE FROM agent_pin WHERE user_id = ?`, secondary.userId)
+  sqlRun(`DELETE FROM member WHERE id = ?`, secondary.memberId)
+  sqlRun(`DELETE FROM "user" WHERE id = ?`, secondary.userId)
 }

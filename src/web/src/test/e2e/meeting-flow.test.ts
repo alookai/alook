@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sql, sqlQuery } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sqlRun, sqlQuery } from "@alook/test-utils"
 
 let seed: TestSeed
 
@@ -8,7 +8,7 @@ beforeAll(() => {
   seed = seedTestData()
 }, 60_000)
 afterAll(() => {
-  sql(`DELETE FROM meeting_session WHERE workspace_id = '${seed.workspaceId}'`)
+  sqlRun(`DELETE FROM meeting_session WHERE workspace_id = ?`, seed.workspaceId)
   cleanupTestData(seed)
 }, 60_000)
 
@@ -41,8 +41,8 @@ describe("meeting claim via poll", () => {
 
   afterAll(() => {
     try {
-      sql(`DELETE FROM agent_runtime WHERE daemon_id = '${claimDaemonId}'`)
-      sql(`DELETE FROM machine WHERE daemon_id = '${claimDaemonId}'`)
+      sqlRun(`DELETE FROM agent_runtime WHERE daemon_id = ?`, claimDaemonId)
+      sqlRun(`DELETE FROM machine WHERE daemon_id = ?`, claimDaemonId)
     } catch { /* ignore */ }
   })
 
@@ -58,8 +58,8 @@ describe("meeting claim via poll", () => {
 
   it("poll claims a scheduled meeting within 5-minute window", async () => {
     const pastTime = new Date(Date.now() - 60_000).toISOString()
-    sql(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, scheduled_at, created_at, updated_at)
-      VALUES ('ms_claim_test', '${seed.agentId}', '${seed.workspaceId}', 'Claim Test', 'https://meet.google.com/abc-defg-hij', 'scheduled', 1, '[]', '${pastTime}', '${pastTime}', '${pastTime}')`)
+    sqlRun(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, scheduled_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 'ms_claim_test', seed.agentId, seed.workspaceId, 'Claim Test', 'https://meet.google.com/abc-defg-hij', 'scheduled', 1, '[]', pastTime, pastTime, pastTime)
 
     const res = await req("/api/daemon/tasks/poll", {
       method: "POST",
@@ -86,8 +86,8 @@ describe("meeting claim via poll", () => {
 
   it("does not claim meetings far in the future", async () => {
     const futureTime = new Date(Date.now() + 3600_000).toISOString()
-    sql(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, scheduled_at, created_at, updated_at)
-      VALUES ('ms_future_test', '${seed.agentId}', '${seed.workspaceId}', 'Future Test', 'https://meet.google.com/xyz-wxyz-abc', 'scheduled', 1, '[]', '${futureTime}', '${futureTime}', '${futureTime}')`)
+    sqlRun(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, scheduled_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, 'ms_future_test', seed.agentId, seed.workspaceId, 'Future Test', 'https://meet.google.com/xyz-wxyz-abc', 'scheduled', 1, '[]', futureTime, futureTime, futureTime)
 
     const res = await req("/api/daemon/tasks/poll", {
       method: "POST",
@@ -105,8 +105,8 @@ describe("meeting callback flow", () => {
   beforeAll(() => {
     callbackMeetingId = "ms_callback_test"
     const now = new Date().toISOString()
-    sql(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, started_at, created_at, updated_at)
-      VALUES ('${callbackMeetingId}', '${seed.agentId}', '${seed.workspaceId}', 'Callback Test', 'https://meet.google.com/abc-defg-hij', 'recording', 1, '["alice@test.com"]', '${now}', '${now}', '${now}')`)
+    sqlRun(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, started_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, callbackMeetingId, seed.agentId, seed.workspaceId, 'Callback Test', 'https://meet.google.com/abc-defg-hij', 'recording', 1, '["alice@test.com"]', now, now, now)
   })
 
   it("POST /api/meeting/callback requires auth", async () => {
@@ -159,8 +159,8 @@ describe("meeting callback flow", () => {
   it("marks failed meetings", async () => {
     const failId = "ms_fail_test"
     const now = new Date().toISOString()
-    sql(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, created_at, updated_at)
-      VALUES ('${failId}', '${seed.agentId}', '${seed.workspaceId}', 'Fail Test', 'https://meet.google.com/abc-defg-hij', 'joining', 1, '[]', '${now}', '${now}')`)
+    sqlRun(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, failId, seed.agentId, seed.workspaceId, 'Fail Test', 'https://meet.google.com/abc-defg-hij', 'joining', 1, '[]', now, now)
 
     const res = await req("/api/meeting/callback", {
       method: "POST",
@@ -203,7 +203,7 @@ describe("email notify with meetingInfo", () => {
     expect(res.status).toBe(200)
 
     const rows = sqlQuery<{ status: string; title: string; meeting_url: string }>(
-      `SELECT status, title, meeting_url FROM meeting_session WHERE workspace_id = '${seed.workspaceId}' AND title = 'Weekly Standup'`
+      `SELECT status, title, meeting_url FROM meeting_session WHERE workspace_id = ? AND title = ?`, seed.workspaceId, 'Weekly Standup'
     )
     expect(rows.length).toBe(1)
     expect(rows[0].status).toBe("scheduled")
@@ -232,7 +232,7 @@ describe("email notify with meetingInfo", () => {
     expect(res.status).toBe(200)
 
     const rows = sqlQuery<{ status: string }>(
-      `SELECT status FROM meeting_session WHERE workspace_id = '${seed.workspaceId}' AND title = 'Stranger Meeting'`
+      `SELECT status FROM meeting_session WHERE workspace_id = ? AND title = ?`, seed.workspaceId, 'Stranger Meeting'
     )
     expect(rows.length).toBe(1)
     expect(rows[0].status).toBe("pending")
@@ -240,7 +240,7 @@ describe("email notify with meetingInfo", () => {
 
   it("skips meeting creation when no meetingInfo", async () => {
     const countBefore = sqlQuery<{ cnt: number }>(
-      `SELECT count(*) as cnt FROM meeting_session WHERE workspace_id = '${seed.workspaceId}'`
+      `SELECT count(*) as cnt FROM meeting_session WHERE workspace_id = ?`, seed.workspaceId
     )
 
     const res = await req("/api/email/notify", {
@@ -257,7 +257,7 @@ describe("email notify with meetingInfo", () => {
     expect(res.status).toBe(200)
 
     const countAfter = sqlQuery<{ cnt: number }>(
-      `SELECT count(*) as cnt FROM meeting_session WHERE workspace_id = '${seed.workspaceId}'`
+      `SELECT count(*) as cnt FROM meeting_session WHERE workspace_id = ?`, seed.workspaceId
     )
     expect(countAfter[0].cnt).toBe(countBefore[0].cnt)
   })

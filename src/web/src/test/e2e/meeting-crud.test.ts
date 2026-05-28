@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sql } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sqlRun } from "@alook/test-utils"
 
 let seed: TestSeed
 let seedB: TestSeed
@@ -9,8 +9,8 @@ beforeAll(() => {
   seedB = seedTestData()
 }, 60_000)
 afterAll(() => {
-  sql(`DELETE FROM meeting_session WHERE workspace_id = '${seed.workspaceId}'`)
-  sql(`DELETE FROM meeting_session WHERE workspace_id = '${seedB.workspaceId}'`)
+  sqlRun(`DELETE FROM meeting_session WHERE workspace_id = ?`, seed.workspaceId)
+  sqlRun(`DELETE FROM meeting_session WHERE workspace_id = ?`, seedB.workspaceId)
   cleanupTestData(seed)
   cleanupTestData(seedB)
 }, 60_000)
@@ -148,7 +148,7 @@ describe("meeting approve flow", () => {
     // Directly insert a pending meeting (simulating non-whitelisted ICS)
     const now = new Date().toISOString()
     pendingId = `ms_e2e_pending_${Date.now()}`
-    sql(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, scheduled_at, created_at, updated_at) VALUES ('${pendingId}', '${seed.agentId}', '${seed.workspaceId}', 'Pending Meeting', 'https://meet.google.com/pen-ding-one', 'pending', 0, '[]', '2026-05-03T10:00:00Z', '${now}', '${now}')`)
+    sqlRun(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, scheduled_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, pendingId, seed.agentId, seed.workspaceId, 'Pending Meeting', 'https://meet.google.com/pen-ding-one', 'pending', 0, '[]', '2026-05-03T10:00:00Z', now, now)
   })
 
   it("POST /approve transitions pending → scheduled", async () => {

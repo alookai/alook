@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sql, sqlBatch } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sqlRun } from "@alook/test-utils"
 
 let seed: TestSeed
 let recruitedAgentId: string
@@ -10,14 +10,12 @@ beforeAll(() => {
 
 afterAll(() => {
   if (recruitedAgentId) {
-    sqlBatch([
-      `DELETE FROM agent_task_queue WHERE agent_id = '${recruitedAgentId}'`,
-      `DELETE FROM message WHERE conversation_id IN (SELECT id FROM conversation WHERE agent_id = '${recruitedAgentId}')`,
-      `DELETE FROM conversation WHERE agent_id = '${recruitedAgentId}'`,
-      `DELETE FROM agent_whitelist WHERE agent_id = '${recruitedAgentId}'`,
-      `DELETE FROM agent_link WHERE (source_agent_id = '${seed.agentId}' AND target_agent_id = '${recruitedAgentId}') OR (source_agent_id = '${recruitedAgentId}' AND target_agent_id = '${seed.agentId}')`,
-      `DELETE FROM agent WHERE id = '${recruitedAgentId}'`,
-    ])
+    sqlRun(`DELETE FROM agent_task_queue WHERE agent_id = ?`, recruitedAgentId)
+    sqlRun(`DELETE FROM message WHERE conversation_id IN (SELECT id FROM conversation WHERE agent_id = ?)`, recruitedAgentId)
+    sqlRun(`DELETE FROM conversation WHERE agent_id = ?`, recruitedAgentId)
+    sqlRun(`DELETE FROM agent_whitelist WHERE agent_id = ?`, recruitedAgentId)
+    sqlRun(`DELETE FROM agent_link WHERE (source_agent_id = ? AND target_agent_id = ?) OR (source_agent_id = ? AND target_agent_id = ?)`, seed.agentId, recruitedAgentId, recruitedAgentId, seed.agentId)
+    sqlRun(`DELETE FROM agent WHERE id = ?`, recruitedAgentId)
   }
   cleanupTestData(seed)
 })

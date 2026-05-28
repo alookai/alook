@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sql } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sqlRun } from "@alook/test-utils"
 
 let seed: TestSeed
 let conversationId: string
@@ -63,7 +63,7 @@ beforeAll(async () => {
 })
 
 afterAll(() => {
-  sql(`DELETE FROM conversation_read_state WHERE user_id = '${seed.userId}'`)
+  sqlRun(`DELETE FROM conversation_read_state WHERE user_id = ?`, seed.userId)
   cleanupTestData(seed)
 })
 

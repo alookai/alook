@@ -4,7 +4,7 @@ import {
   seedTestData,
   cleanupTestData,
   type TestSeed,
-  sql,
+  sqlRun,
   sqlQuery,
 } from "@alook/test-utils"
 import { DaemonClient } from "../../../src/cli/daemon/client"
@@ -44,8 +44,8 @@ describe("session resume via context_key", () => {
     firstConversationId = `conv_${randomUUID().slice(0, 8)}`
     firstTaskId = `task_${randomUUID().slice(0, 8)}`
 
-    sql(`INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, created_at) VALUES ('${firstConversationId}', '${seed.workspaceId}', '${seed.agentId}', '${seed.userId}', 'session resume test', '${now}')`)
-    sql(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, context_key, priority, created_at) VALUES ('${firstTaskId}', '${seed.agentId}', '${runtimeId}', '${seed.workspaceId}', '${firstConversationId}', 'First message', 'queued', 'user_dm_message', '${contextKey}', 0, '${now}')`)
+    sqlRun(`INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, created_at) VALUES (?, ?, ?, ?, ?, ?)`, firstConversationId, seed.workspaceId, seed.agentId, seed.userId, 'session resume test', now)
+    sqlRun(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, context_key, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`, firstTaskId, seed.agentId, runtimeId, seed.workspaceId, firstConversationId, 'First message', 'queued', 'user_dm_message', contextKey, now)
 
     const result = await client.poll(seed.machineToken, daemonId, 1, "0.1.0-integ")
     expect(result.tasks).toHaveLength(1)
@@ -65,7 +65,7 @@ describe("session resume via context_key", () => {
     const now = new Date().toISOString()
     secondTaskId = `task_${randomUUID().slice(0, 8)}`
 
-    sql(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, context_key, priority, created_at) VALUES ('${secondTaskId}', '${seed.agentId}', '${runtimeId}', '${seed.workspaceId}', '${firstConversationId}', 'Second message same context', 'queued', 'user_dm_message', '${contextKey}', 0, '${now}')`)
+    sqlRun(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, context_key, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`, secondTaskId, seed.agentId, runtimeId, seed.workspaceId, firstConversationId, 'Second message same context', 'queued', 'user_dm_message', contextKey, now)
 
     const result = await client.poll(seed.machineToken, daemonId, 1, "0.1.0-integ")
     expect(result.tasks).toHaveLength(1)
@@ -85,8 +85,8 @@ describe("session resume via context_key", () => {
     thirdConversationId = `conv_${randomUUID().slice(0, 8)}`
     thirdTaskId = `task_${randomUUID().slice(0, 8)}`
 
-    sql(`INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, created_at) VALUES ('${thirdConversationId}', '${seed.workspaceId}', '${seed.agentId}', '${seed.userId}', 'different context', '${now}')`)
-    sql(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, context_key, priority, created_at) VALUES ('${thirdTaskId}', '${seed.agentId}', '${runtimeId}', '${seed.workspaceId}', '${thirdConversationId}', 'Different context message', 'queued', 'user_dm_message', '${differentContextKey}', 0, '${now}')`)
+    sqlRun(`INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, created_at) VALUES (?, ?, ?, ?, ?, ?)`, thirdConversationId, seed.workspaceId, seed.agentId, seed.userId, 'different context', now)
+    sqlRun(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, context_key, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`, thirdTaskId, seed.agentId, runtimeId, seed.workspaceId, thirdConversationId, 'Different context message', 'queued', 'user_dm_message', differentContextKey, now)
 
     const result = await client.poll(seed.machineToken, daemonId, 1, "0.1.0-integ")
     expect(result.tasks).toHaveLength(1)
@@ -104,7 +104,7 @@ describe("session resume via context_key", () => {
     })
 
     const rows = sqlQuery<{ id: string; context_key: string | null; session_id: string | null; conversation_id: string }>(
-      `SELECT id, context_key, session_id, conversation_id FROM agent_task_queue WHERE id IN ('${firstTaskId}', '${secondTaskId}', '${thirdTaskId}') ORDER BY created_at`
+      `SELECT id, context_key, session_id, conversation_id FROM agent_task_queue WHERE id IN (?, ?, ?) ORDER BY created_at`, firstTaskId, secondTaskId, thirdTaskId
     )
     expect(rows).toHaveLength(3)
 
@@ -123,10 +123,10 @@ describe("session resume via context_key", () => {
 
   afterAll(() => {
     try {
-      sql(`DELETE FROM agent_task_queue WHERE id IN ('${firstTaskId}', '${secondTaskId}', '${thirdTaskId}')`)
-      sql(`DELETE FROM conversation WHERE id IN ('${firstConversationId}', '${thirdConversationId}')`)
-      sql(`DELETE FROM agent_runtime WHERE daemon_id = '${daemonId}'`)
-      sql(`DELETE FROM machine WHERE daemon_id = '${daemonId}'`)
+      sqlRun(`DELETE FROM agent_task_queue WHERE id IN (?, ?, ?)`, firstTaskId, secondTaskId, thirdTaskId)
+      sqlRun(`DELETE FROM conversation WHERE id IN (?, ?)`, firstConversationId, thirdConversationId)
+      sqlRun(`DELETE FROM agent_runtime WHERE daemon_id = ?`, daemonId)
+      sqlRun(`DELETE FROM machine WHERE daemon_id = ?`, daemonId)
     } catch { /* ignore */ }
   })
 })

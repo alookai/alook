@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sql } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sqlRun } from "@alook/test-utils"
 
 let seed: TestSeed
 let accountId: string
@@ -10,7 +10,7 @@ beforeAll(() => {
 
 afterAll(() => {
   if (accountId) {
-    sql(`DELETE FROM agent_email_account WHERE id = '${accountId}'`)
+    sqlRun(`DELETE FROM agent_email_account WHERE id = ?`, accountId)
   }
   cleanupTestData(seed)
 })

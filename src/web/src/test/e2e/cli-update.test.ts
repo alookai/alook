@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomUUID } from "crypto";
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sql, sqlQuery } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sqlRun, sqlQuery } from "@alook/test-utils"
 
 let seed: TestSeed;
 
@@ -47,12 +47,12 @@ describe("CLI auto-update e2e", () => {
   });
 
   it("POST /api/runtimes/:id/update sets pendingUpdateVersion on machine", async () => {
-    sql(
-      `UPDATE machine SET pending_update_version = '1.0.0' WHERE daemon_id = '${daemonId}' AND workspace_id = '${seed.workspaceId}'`,
+    sqlRun(
+      `UPDATE machine SET pending_update_version = ? WHERE daemon_id = ? AND workspace_id = ?`, '1.0.0', daemonId, seed.workspaceId
     );
 
     const rows = sqlQuery<{ pending_update_version: string | null }>(
-      `SELECT pending_update_version FROM machine WHERE daemon_id = '${daemonId}' AND workspace_id = '${seed.workspaceId}'`,
+      `SELECT pending_update_version FROM machine WHERE daemon_id = ? AND workspace_id = ?`, daemonId, seed.workspaceId
     );
     expect(rows[0]?.pending_update_version).toBe("1.0.0");
   });
@@ -73,8 +73,8 @@ describe("CLI auto-update e2e", () => {
 
   it("poll auto-clears pendingUpdateVersion when cli_version matches", async () => {
     // Use a separate daemon to avoid 30s misc-throttle from previous poll
-    sql(
-      `UPDATE machine SET pending_update_version = '1.0.0' WHERE daemon_id = '${daemonId2}' AND workspace_id = '${seed.workspaceId}'`,
+    sqlRun(
+      `UPDATE machine SET pending_update_version = ? WHERE daemon_id = ? AND workspace_id = ?`, '1.0.0', daemonId2, seed.workspaceId
     );
 
     const res = await tokenRequest("/api/daemon/tasks/poll", seed.machineToken, {
@@ -90,17 +90,17 @@ describe("CLI auto-update e2e", () => {
     expect(data.pending_update).toBeUndefined();
 
     const rows = sqlQuery<{ pending_update_version: string | null }>(
-      `SELECT pending_update_version FROM machine WHERE daemon_id = '${daemonId2}' AND workspace_id = '${seed.workspaceId}'`,
+      `SELECT pending_update_version FROM machine WHERE daemon_id = ? AND workspace_id = ?`, daemonId2, seed.workspaceId
     );
     expect(rows[0]?.pending_update_version).toBeNull();
   });
 
   afterAll(() => {
     try {
-      sql(`DELETE FROM agent_runtime WHERE daemon_id = '${daemonId}'`);
-      sql(`DELETE FROM machine WHERE daemon_id = '${daemonId}'`);
-      sql(`DELETE FROM agent_runtime WHERE daemon_id = '${daemonId2}'`);
-      sql(`DELETE FROM machine WHERE daemon_id = '${daemonId2}'`);
+      sqlRun(`DELETE FROM agent_runtime WHERE daemon_id = ?`, daemonId);
+      sqlRun(`DELETE FROM machine WHERE daemon_id = ?`, daemonId);
+      sqlRun(`DELETE FROM agent_runtime WHERE daemon_id = ?`, daemonId2);
+      sqlRun(`DELETE FROM machine WHERE daemon_id = ?`, daemonId2);
     } catch { /* ignore */ }
   });
 });

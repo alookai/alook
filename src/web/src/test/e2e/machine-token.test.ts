@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { seedTestData, cleanupTestData, type TestSeed, sessionRequest, tokenRequest, sql, sqlQuery, sqlBatch, fetchWithRetry } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, sessionRequest, tokenRequest, sqlRun, sqlQuery, fetchWithRetry } from "@alook/test-utils"
 
 let seed: TestSeed
 
@@ -88,13 +88,11 @@ describe("machine token activation", () => {
   afterAll(() => {
     for (const wsId of createdWorkspaceIds) {
       try {
-        sqlBatch([
-          `DELETE FROM agent_runtime WHERE workspace_id = '${wsId}'`,
-          `DELETE FROM machine WHERE workspace_id = '${wsId}'`,
-          `DELETE FROM machine_token WHERE workspace_id = '${wsId}'`,
-          `DELETE FROM member WHERE workspace_id = '${wsId}'`,
-          `DELETE FROM workspace WHERE id = '${wsId}'`,
-        ])
+        sqlRun(`DELETE FROM agent_runtime WHERE workspace_id = ?`, wsId)
+        sqlRun(`DELETE FROM machine WHERE workspace_id = ?`, wsId)
+        sqlRun(`DELETE FROM machine_token WHERE workspace_id = ?`, wsId)
+        sqlRun(`DELETE FROM member WHERE workspace_id = ?`, wsId)
+        sqlRun(`DELETE FROM workspace WHERE id = ?`, wsId)
       } catch { /* ignore */ }
     }
   })
@@ -104,7 +102,7 @@ describe("machine token activation", () => {
     const tokenId = `mt_${randomUUID().replace(/-/g, "").slice(0, 21)}`
     const rawToken = `al_${randomUUID().replace(/-/g, "")}`
     const now = new Date().toISOString()
-    sql(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES ('${tokenId}', '${seed.userId}', NULL, '${rawToken}', 'no-ws-token', 'pending', '${now}')`)
+    sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)`, tokenId, seed.userId, rawToken, 'no-ws-token', 'pending', now)
 
     // Activate
     const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
@@ -127,13 +125,13 @@ describe("machine token activation", () => {
 
     // Verify workspace exists in DB and user is owner
     const wsRows = sqlQuery<{ id: string; name: string }>(
-      `SELECT id, name FROM workspace WHERE id = '${data.workspace_id}'`
+      `SELECT id, name FROM workspace WHERE id = ?`, data.workspace_id
     )
     expect(wsRows).toHaveLength(1)
     expect(wsRows[0]!.name).toBe("Personal")
 
     const memberRows = sqlQuery<{ user_id: string; role: string }>(
-      `SELECT user_id, role FROM member WHERE workspace_id = '${data.workspace_id}' AND user_id = '${seed.userId}'`
+      `SELECT user_id, role FROM member WHERE workspace_id = ? AND user_id = ?`, data.workspace_id, seed.userId
     )
     expect(memberRows).toHaveLength(1)
     expect(memberRows[0]!.role).toBe("owner")
@@ -144,11 +142,11 @@ describe("machine token activation", () => {
     const tokenId = `mt_${randomUUID().replace(/-/g, "").slice(0, 21)}`
     const rawToken = `al_${randomUUID().replace(/-/g, "")}`
     const now = new Date().toISOString()
-    sql(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES ('${tokenId}', '${seed.userId}', '${seed.workspaceId}', '${rawToken}', 'with-ws-token', 'pending', '${now}')`)
+    sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, tokenId, seed.userId, seed.workspaceId, rawToken, 'with-ws-token', 'pending', now)
 
     // Count workspaces before
     const beforeRows = sqlQuery<{ cnt: number }>(
-      `SELECT COUNT(*) as cnt FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id = '${seed.userId}')`
+      `SELECT COUNT(*) as cnt FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id = ?)`, seed.userId
     )
     const countBefore = beforeRows[0]!.cnt
 
@@ -171,7 +169,7 @@ describe("machine token activation", () => {
 
     // No new workspace should be created
     const afterRows = sqlQuery<{ cnt: number }>(
-      `SELECT COUNT(*) as cnt FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id = '${seed.userId}')`
+      `SELECT COUNT(*) as cnt FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id = ?)`, seed.userId
     )
     expect(afterRows[0]!.cnt).toBe(countBefore)
   })

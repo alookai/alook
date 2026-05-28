@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { signUp, signIn, sessionRequest, sql, sqlQuery, sqlBatch } from "@alook/test-utils"
+import { signUp, signIn, sessionRequest, sqlRun, sqlQuery } from "@alook/test-utils"
 
 const testEmail = `e2e_ws_${randomUUID().slice(0, 8)}@test.local`
 const testPassword = "TestPassword123!"
@@ -13,11 +13,11 @@ beforeAll(async () => {
 
 afterAll(() => {
   try {
-    sql(`DELETE FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
-    sql(`DELETE FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = '${testEmail}'))`)
-    sql(`DELETE FROM "session" WHERE userId IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
-    sql(`DELETE FROM "account" WHERE userId IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
-    sql(`DELETE FROM "user" WHERE email = '${testEmail}'`)
+    sqlRun(`DELETE FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
+    sqlRun(`DELETE FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = ?))`, testEmail)
+    sqlRun(`DELETE FROM "session" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
+    sqlRun(`DELETE FROM "account" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
+    sqlRun(`DELETE FROM "user" WHERE email = ?`, testEmail)
   } catch { /* ignore */ }
 })
 
@@ -114,7 +114,7 @@ describe("workspace isolation", () => {
     const tokenId = `mt_iso_${randomUUID().replace(/-/g, "").slice(0, 16)}`
     const rawToken = `al_${randomUUID().replace(/-/g, "")}`
     const now = new Date().toISOString()
-    sql(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES ('${tokenId}', (SELECT id FROM "user" WHERE email = '${testEmail}'), '${workspaceIdA}', '${rawToken}', 'iso-token', 'active', '${now}')`)
+    sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, (SELECT id FROM "user" WHERE email = ?), ?, ?, ?, ?, ?)`, tokenId, testEmail, workspaceIdA, rawToken, 'iso-token', 'active', now)
 
     // Register daemon to workspace A
     const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
@@ -139,32 +139,30 @@ describe("workspace isolation", () => {
 
     // Workspace A should have the runtime
     const runtimesA = sqlQuery<{ id: string }>(
-      `SELECT id FROM agent_runtime WHERE workspace_id = '${workspaceIdA}' AND daemon_id = '${daemonId}'`
+      `SELECT id FROM agent_runtime WHERE workspace_id = ? AND daemon_id = ?`, workspaceIdA, daemonId
     )
     expect(runtimesA.length).toBeGreaterThan(0)
 
     // Workspace B should have NO runtimes
     const runtimesB = sqlQuery<{ id: string }>(
-      `SELECT id FROM agent_runtime WHERE workspace_id = '${workspaceIdB}' AND daemon_id = '${daemonId}'`
+      `SELECT id FROM agent_runtime WHERE workspace_id = ? AND daemon_id = ?`, workspaceIdB, daemonId
     )
     expect(runtimesB).toHaveLength(0)
 
     // Workspace B should have NO machine entry for this daemon
     const machinesB = sqlQuery<{ daemon_id: string }>(
-      `SELECT daemon_id FROM machine WHERE workspace_id = '${workspaceIdB}' AND daemon_id = '${daemonId}'`
+      `SELECT daemon_id FROM machine WHERE workspace_id = ? AND daemon_id = ?`, workspaceIdB, daemonId
     )
     expect(machinesB).toHaveLength(0)
   })
 
   afterAll(() => {
     try {
-      sqlBatch([
-        `DELETE FROM agent_runtime WHERE daemon_id = '${daemonId}'`,
-        `DELETE FROM machine WHERE daemon_id = '${daemonId}'`,
-        `DELETE FROM machine_token WHERE workspace_id IN ('${workspaceIdA}', '${workspaceIdB}')`,
-        `DELETE FROM member WHERE workspace_id IN ('${workspaceIdA}', '${workspaceIdB}')`,
-        `DELETE FROM workspace WHERE id IN ('${workspaceIdA}', '${workspaceIdB}')`,
-      ])
+      sqlRun(`DELETE FROM agent_runtime WHERE daemon_id = ?`, daemonId)
+      sqlRun(`DELETE FROM machine WHERE daemon_id = ?`, daemonId)
+      sqlRun(`DELETE FROM machine_token WHERE workspace_id IN (?, ?)`, workspaceIdA, workspaceIdB)
+      sqlRun(`DELETE FROM member WHERE workspace_id IN (?, ?)`, workspaceIdA, workspaceIdB)
+      sqlRun(`DELETE FROM workspace WHERE id IN (?, ?)`, workspaceIdA, workspaceIdB)
     } catch { /* ignore */ }
   })
 })

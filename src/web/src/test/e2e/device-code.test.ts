@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { signUp, signIn, sessionRequest, tokenRequest, sql } from "@alook/test-utils"
+import { signUp, signIn, sessionRequest, tokenRequest, sqlRun } from "@alook/test-utils"
 
 const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
 const TEST_CLIENT_ID = "e2e-test-client"
@@ -159,10 +159,10 @@ describe("device-code-flow", () => {
 
   afterAll(() => {
     try {
-      sql(`DELETE FROM "deviceCode" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
-      sql(`DELETE FROM "session" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
-      sql(`DELETE FROM "account" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
-      sql(`DELETE FROM "user" WHERE email = '${testEmail}'`)
+      sqlRun(`DELETE FROM "deviceCode" WHERE "userId" IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
+      sqlRun(`DELETE FROM "session" WHERE "userId" IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
+      sqlRun(`DELETE FROM "account" WHERE "userId" IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
+      sqlRun(`DELETE FROM "user" WHERE email = ?`, testEmail)
     } catch { /* ignore cleanup errors */ }
   })
 })
@@ -280,15 +280,15 @@ describe("device-code-flow workspace reuse", () => {
 
   afterAll(() => {
     try {
-      sql(`DELETE FROM "deviceCode" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${wsTestEmail}')`)
-      sql(`DELETE FROM machine_token WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${wsTestEmail}')`)
-      sql(`DELETE FROM agent_runtime WHERE machine_id IN (SELECT id FROM machine WHERE workspace_id = '${originalWorkspaceId}')`)
-      sql(`DELETE FROM machine WHERE workspace_id = '${originalWorkspaceId}'`)
-      sql(`DELETE FROM member WHERE workspace_id = '${originalWorkspaceId}'`)
-      sql(`DELETE FROM workspace WHERE id = '${originalWorkspaceId}'`)
-      sql(`DELETE FROM "session" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${wsTestEmail}')`)
-      sql(`DELETE FROM "account" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${wsTestEmail}')`)
-      sql(`DELETE FROM "user" WHERE email = '${wsTestEmail}'`)
+      sqlRun(`DELETE FROM "deviceCode" WHERE "userId" IN (SELECT id FROM "user" WHERE email = ?)`, wsTestEmail)
+      sqlRun(`DELETE FROM machine_token WHERE "userId" IN (SELECT id FROM "user" WHERE email = ?)`, wsTestEmail)
+      sqlRun(`DELETE FROM agent_runtime WHERE machine_id IN (SELECT id FROM machine WHERE workspace_id = ?)`, originalWorkspaceId)
+      sqlRun(`DELETE FROM machine WHERE workspace_id = ?`, originalWorkspaceId)
+      sqlRun(`DELETE FROM member WHERE workspace_id = ?`, originalWorkspaceId)
+      sqlRun(`DELETE FROM workspace WHERE id = ?`, originalWorkspaceId)
+      sqlRun(`DELETE FROM "session" WHERE "userId" IN (SELECT id FROM "user" WHERE email = ?)`, wsTestEmail)
+      sqlRun(`DELETE FROM "account" WHERE "userId" IN (SELECT id FROM "user" WHERE email = ?)`, wsTestEmail)
+      sqlRun(`DELETE FROM "user" WHERE email = ?`, wsTestEmail)
     } catch { /* ignore cleanup errors */ }
   })
 })

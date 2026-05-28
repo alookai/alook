@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sql, sqlQuery } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sqlRun, sqlQuery } from "@alook/test-utils"
 
 let seedA: TestSeed
 let seedB: TestSeed
@@ -19,13 +19,13 @@ beforeAll(() => {
 afterAll(() => {
   // Restore agent runtime_id to seed's original runtime before cleanup
   // (test may have pointed it to the shared daemon's runtime)
-  sql(`UPDATE agent SET runtime_id = '${seedA.runtimeId}' WHERE id = '${seedA.agentId}'`)
+  sqlRun(`UPDATE agent SET runtime_id = ? WHERE id = ?`, seedA.runtimeId, seedA.agentId)
   // Clean up tasks referencing the shared daemon's runtime
-  sql(`DELETE FROM agent_task_queue WHERE workspace_id = '${seedA.workspaceId}'`)
-  sql(`DELETE FROM agent_task_queue WHERE workspace_id = '${seedB.workspaceId}'`)
+  sqlRun(`DELETE FROM agent_task_queue WHERE workspace_id = ?`, seedA.workspaceId)
+  sqlRun(`DELETE FROM agent_task_queue WHERE workspace_id = ?`, seedB.workspaceId)
   // Clean the shared daemon entries
-  sql(`DELETE FROM agent_runtime WHERE daemon_id = '${sharedDaemonId}'`)
-  sql(`DELETE FROM machine WHERE daemon_id = '${sharedDaemonId}'`)
+  sqlRun(`DELETE FROM agent_runtime WHERE daemon_id = ?`, sharedDaemonId)
+  sqlRun(`DELETE FROM machine WHERE daemon_id = ?`, sharedDaemonId)
   cleanupTestData(seedA)
   cleanupTestData(seedB)
 })
@@ -46,7 +46,7 @@ describe("regression: multi-workspace daemon registration", () => {
     expect(res.status).toBe(200)
 
     const rows = sqlQuery<{ last_seen_at: string | null }>(
-      `SELECT last_seen_at FROM machine WHERE daemon_id = '${sharedDaemonId}' AND workspace_id = '${seedA.workspaceId}'`,
+      `SELECT last_seen_at FROM machine WHERE daemon_id = ? AND workspace_id = ?`, sharedDaemonId, seedA.workspaceId
     )
     expect(rows).toHaveLength(1)
     expect(rows[0].last_seen_at).toBeTruthy()
@@ -68,14 +68,14 @@ describe("regression: multi-workspace daemon registration", () => {
 
     // Workspace A machine should still be online
     const rowsA = sqlQuery<{ last_seen_at: string | null }>(
-      `SELECT last_seen_at FROM machine WHERE daemon_id = '${sharedDaemonId}' AND workspace_id = '${seedA.workspaceId}'`,
+      `SELECT last_seen_at FROM machine WHERE daemon_id = ? AND workspace_id = ?`, sharedDaemonId, seedA.workspaceId
     )
     expect(rowsA).toHaveLength(1)
     expect(rowsA[0].last_seen_at).toBeTruthy()
 
     // Workspace B machine should also be online
     const rowsB = sqlQuery<{ last_seen_at: string | null }>(
-      `SELECT last_seen_at FROM machine WHERE daemon_id = '${sharedDaemonId}' AND workspace_id = '${seedB.workspaceId}'`,
+      `SELECT last_seen_at FROM machine WHERE daemon_id = ? AND workspace_id = ?`, sharedDaemonId, seedB.workspaceId
     )
     expect(rowsB).toHaveLength(1)
     expect(rowsB[0].last_seen_at).toBeTruthy()
@@ -84,13 +84,13 @@ describe("regression: multi-workspace daemon registration", () => {
   it("tasks route correctly to workspace A after workspace B registration", async () => {
     // Get runtime ID for workspace A
     const runtimesA = sqlQuery<{ id: string }>(
-      `SELECT id FROM agent_runtime WHERE daemon_id = '${sharedDaemonId}' AND workspace_id = '${seedA.workspaceId}'`,
+      `SELECT id FROM agent_runtime WHERE daemon_id = ? AND workspace_id = ?`, sharedDaemonId, seedA.workspaceId
     )
     expect(runtimesA).toHaveLength(1)
     const runtimeIdA = runtimesA[0].id
 
     // Update agent A to use this runtime
-    sql(`UPDATE agent SET runtime_id = '${runtimeIdA}' WHERE id = '${seedA.agentId}'`)
+    sqlRun(`UPDATE agent SET runtime_id = ? WHERE id = ?`, runtimeIdA, seedA.agentId)
 
     // Create a task in workspace A
     const convRes = await tokenRequest(
@@ -148,13 +148,13 @@ describe("regression: multi-workspace daemon registration", () => {
 
     // Workspace B offline
     const rowsB = sqlQuery<{ last_seen_at: string | null }>(
-      `SELECT last_seen_at FROM machine WHERE daemon_id = '${sharedDaemonId}' AND workspace_id = '${seedB.workspaceId}'`,
+      `SELECT last_seen_at FROM machine WHERE daemon_id = ? AND workspace_id = ?`, sharedDaemonId, seedB.workspaceId
     )
     expect(rowsB[0]?.last_seen_at).toBeNull()
 
     // Workspace A still online
     const rowsA = sqlQuery<{ last_seen_at: string | null }>(
-      `SELECT last_seen_at FROM machine WHERE daemon_id = '${sharedDaemonId}' AND workspace_id = '${seedA.workspaceId}'`,
+      `SELECT last_seen_at FROM machine WHERE daemon_id = ? AND workspace_id = ?`, sharedDaemonId, seedA.workspaceId
     )
     expect(rowsA[0]?.last_seen_at).toBeTruthy()
   })

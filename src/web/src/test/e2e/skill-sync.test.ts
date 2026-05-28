@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sqlQuery, sql } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sqlQuery, sqlRun } from "@alook/test-utils"
 
 let seed: TestSeed
 
 beforeAll(() => { seed = seedTestData() })
 afterAll(() => {
-  sql(`DELETE FROM agent_skill WHERE workspace_id = '${seed.workspaceId}'`)
+  sqlRun(`DELETE FROM agent_skill WHERE workspace_id = ?`, seed.workspaceId)
   cleanupTestData(seed)
 })
 
@@ -28,7 +28,7 @@ describe("POST /api/daemon/skills/sync", () => {
     expect(data.status).toBe("ok")
 
     const rows = sqlQuery<{ name: string; agent_id: string | null }>(
-      `SELECT name, agent_id FROM agent_skill WHERE workspace_id = '${seed.workspaceId}' AND runtime = 'claude' AND agent_id IS NULL ORDER BY name`
+      `SELECT name, agent_id FROM agent_skill WHERE workspace_id = ? AND runtime = ? AND agent_id IS NULL ORDER BY name`, seed.workspaceId, 'claude'
     )
     expect(rows).toHaveLength(2)
     expect(rows[0]!.name).toBe("test-skill-1")
@@ -51,7 +51,7 @@ describe("POST /api/daemon/skills/sync", () => {
     expect(res.status).toBe(200)
 
     const rows = sqlQuery<{ name: string; agent_id: string }>(
-      `SELECT name, agent_id FROM agent_skill WHERE workspace_id = '${seed.workspaceId}' AND agent_id = '${seed.agentId}'`
+      `SELECT name, agent_id FROM agent_skill WHERE workspace_id = ? AND agent_id = ?`, seed.workspaceId, seed.agentId
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]!.name).toBe("agent-skill-1")
@@ -73,7 +73,7 @@ describe("POST /api/daemon/skills/sync", () => {
     expect(res.status).toBe(200)
 
     const rows = sqlQuery<{ name: string }>(
-      `SELECT name FROM agent_skill WHERE workspace_id = '${seed.workspaceId}' AND runtime = 'claude' AND agent_id IS NULL`
+      `SELECT name FROM agent_skill WHERE workspace_id = ? AND runtime = ? AND agent_id IS NULL`, seed.workspaceId, 'claude'
     )
     expect(rows).toHaveLength(1)
     expect(rows[0]!.name).toBe("updated-skill")
@@ -130,7 +130,7 @@ describe("GET /api/agents/[id]/skills", () => {
     })
 
     const rows = sqlQuery<{ name: string }>(
-      `SELECT name FROM agent_skill WHERE workspace_id = '${seed.workspaceId}' AND runtime = 'claude' AND (agent_id IS NULL OR agent_id = '${seed.agentId}') ORDER BY name`
+      `SELECT name FROM agent_skill WHERE workspace_id = ? AND runtime = ? AND (agent_id IS NULL OR agent_id = ?) ORDER BY name`, seed.workspaceId, 'claude', seed.agentId
     )
     expect(rows.length).toBeGreaterThanOrEqual(2)
     const names = rows.map(r => r.name)

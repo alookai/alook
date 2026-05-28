@@ -36,10 +36,15 @@ export function sql(query: string): void {
   db.exec(query)
 }
 
-export function sqlQuery<T = Record<string, unknown>>(query: string): T[] {
+export function sqlRun(query: string, ...params: unknown[]): void {
+  const db = getDb()
+  db.prepare(query).run(...params)
+}
+
+export function sqlQuery<T = Record<string, unknown>>(query: string, ...params: unknown[]): T[] {
   const db = getDb()
   const stmt = db.prepare(query)
-  return stmt.all() as T[]
+  return (params.length ? stmt.all(...params) : stmt.all()) as T[]
 }
 
 export function sqlBatch(queries: string[]): void {

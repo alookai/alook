@@ -4,7 +4,7 @@ import {
   seedTestData,
   cleanupTestData,
   type TestSeed,
-  sql,
+  sqlRun,
 } from "@alook/test-utils"
 import { DaemonClient } from "../../../src/cli/daemon/client"
 import { DaemonPushMessageSchema } from "@alook/shared"
@@ -46,8 +46,8 @@ describe("WebSocket push → poll", () => {
     const conversationId = `conv_ws_${randomUUID().slice(0, 8)}`
     const taskId = `task_ws_${randomUUID().slice(0, 8)}`
 
-    sql(`INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, created_at) VALUES ('${conversationId}', '${seed.workspaceId}', '${seed.agentId}', '${seed.userId}', 'ws push test', '${now}')`)
-    sql(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, priority, created_at) VALUES ('${taskId}', '${seed.agentId}', '${runtimeId}', '${seed.workspaceId}', '${conversationId}', 'WS push test prompt', 'queued', 'user_dm_message', 0, '${now}')`)
+    sqlRun(`INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, created_at) VALUES (?, ?, ?, ?, ?, ?)`, conversationId, seed.workspaceId, seed.agentId, seed.userId, 'ws push test', now)
+    sqlRun(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, priority, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`, taskId, seed.agentId, runtimeId, seed.workspaceId, conversationId, 'WS push test prompt', 'queued', 'user_dm_message', now)
 
     // Connect WebSocket and wait for push message
     const wsUrl = `${WS_DO_URL.replace("http", "ws")}/ws/daemon?token=${seed.machineToken}&daemon_id=${daemonId}`
@@ -88,14 +88,14 @@ describe("WebSocket push → poll", () => {
     expect(pollResult.tasks.length).toBeGreaterThanOrEqual(1)
 
     // Cleanup
-    sql(`DELETE FROM agent_task_queue WHERE id = '${taskId}'`)
-    sql(`DELETE FROM conversation WHERE id = '${conversationId}'`)
+    sqlRun(`DELETE FROM agent_task_queue WHERE id = ?`, taskId)
+    sqlRun(`DELETE FROM conversation WHERE id = ?`, conversationId)
   })
 
   afterAll(() => {
     try {
-      sql(`DELETE FROM agent_runtime WHERE daemon_id = '${daemonId}'`)
-      sql(`DELETE FROM machine WHERE daemon_id = '${daemonId}'`)
+      sqlRun(`DELETE FROM agent_runtime WHERE daemon_id = ?`, daemonId)
+      sqlRun(`DELETE FROM machine WHERE daemon_id = ?`, daemonId)
     } catch { /* ignore */ }
   })
 })

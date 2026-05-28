@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sql, sqlQuery, postEmail, postEmailRaw } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sqlRun, sqlQuery, postEmail, postEmailRaw } from "@alook/test-utils"
 
 let seed: TestSeed
 
@@ -18,7 +18,7 @@ async function waitForEmail(
   const start = Date.now()
   while (Date.now() - start < maxMs) {
     const rows = sqlQuery<Record<string, unknown>>(
-      `SELECT * FROM emails WHERE agent_id = '${agentId}' AND from_email = '${fromEmail}' ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM emails WHERE agent_id = ? AND from_email = ? ORDER BY created_at DESC LIMIT 1`, agentId, fromEmail
     )
     if (rows.length > 0) return rows[0]
     await new Promise((r) => setTimeout(r, 300))
@@ -67,7 +67,7 @@ describe("email receive (inbound)", () => {
     await new Promise((r) => setTimeout(r, 1000))
 
     const rows = sqlQuery<Record<string, unknown>>(
-      `SELECT * FROM emails WHERE from_email = '${from}' AND subject = '${subject}'`,
+      `SELECT * FROM emails WHERE from_email = ? AND subject = ?`, from, subject
     )
     expect(rows).toHaveLength(0)
   })
@@ -110,7 +110,7 @@ describe("email threading (inbound)", () => {
   it("stores empty strings when threading headers are absent", async () => {
     // Verify via the first whitelisted email (already created above) which has no In-Reply-To/References
     const rows = sqlQuery<Record<string, unknown>>(
-      `SELECT * FROM emails WHERE agent_id = '${seed.agentId}' AND is_whitelisted = 1 AND in_reply_to = '' LIMIT 1`,
+      `SELECT * FROM emails WHERE agent_id = ? AND is_whitelisted = ? AND in_reply_to = ? LIMIT 1`, seed.agentId, 1, ''
     )
     expect(rows.length).toBeGreaterThan(0)
     expect(rows[0].in_reply_to).toBe("")
@@ -125,7 +125,7 @@ describe("email folder filtering", () => {
     const agentEmail = `${seed.agentEmailHandle}@alook.ai`
     const now = new Date().toISOString()
     const rejId = `erej_${randomUUID().slice(0, 8)}`
-    sql(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", created_at) VALUES ('${rejId}', '${seed.agentId}', '${seed.workspaceId}', 'stranger@external.com', '${agentEmail}', 'Untrust folder test', 'emails/fake-rej/raw', 0, 0, '', '', '', '${now}')`)
+    sqlRun(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, rejId, seed.agentId, seed.workspaceId, 'stranger@external.com', agentEmail, 'Untrust folder test', 'emails/fake-rej/raw', 0, 0, '', '', '', now)
 
     const res = await tokenRequest(
       `/api/email?workspace_id=${seed.workspaceId}&agentId=${seed.agentId}&folder=untrust`,
@@ -215,7 +215,7 @@ describe("email send (outbound)", () => {
     // Create a temporary agent without emailHandle
     const tmpAgentId = `ag_tmp_${Date.now()}`
     const now = new Date().toISOString()
-    sql(`INSERT INTO agent (id, workspace_id, name, runtime_id, owner_id, created_at, updated_at) VALUES ('${tmpAgentId}', '${seed.workspaceId}', 'No Handle Agent', '${seed.runtimeId}', '${seed.userId}', '${now}', '${now}')`)
+    sqlRun(`INSERT INTO agent (id, workspace_id, name, runtime_id, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, tmpAgentId, seed.workspaceId, 'No Handle Agent', seed.runtimeId, seed.userId, now, now)
 
     try {
       const res = await tokenRequest(
@@ -234,7 +234,7 @@ describe("email send (outbound)", () => {
       )
       expect(res.status).toBe(400)
     } finally {
-      sql(`DELETE FROM agent WHERE id = '${tmpAgentId}'`)
+      sqlRun(`DELETE FROM agent WHERE id = ?`, tmpAgentId)
     }
   })
 
@@ -293,11 +293,11 @@ describe("email thread", () => {
 
     // Insert parent email directly
     const parentId = `ep_${randomUUID().slice(0, 12)}`
-    sql(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", created_at) VALUES ('${parentId}', '${seed.agentId}', '${seed.workspaceId}', 'sender@test.com', '${agentEmail}', 'Thread parent', 'emails/fake/raw', 1, 0, '${parentMsgId}', '', '', '${now}')`)
+    sqlRun(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, parentId, seed.agentId, seed.workspaceId, 'sender@test.com', agentEmail, 'Thread parent', 'emails/fake/raw', 1, 0, parentMsgId, '', '', now)
 
     // Insert child email that replies to parent
     const childId = `ec_${randomUUID().slice(0, 12)}`
-    sql(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", direction, created_at) VALUES ('${childId}', '${seed.agentId}', '${seed.workspaceId}', '${agentEmail}', 'sender@test.com', 'Re: Thread parent', 'emails/fake2/raw', 0, 0, '${childMsgId}', '${parentMsgId}', '${parentMsgId}', 'outbound', '${now}')`)
+    sqlRun(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", direction, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, childId, seed.agentId, seed.workspaceId, agentEmail, 'sender@test.com', 'Re: Thread parent', 'emails/fake2/raw', 0, 0, childMsgId, parentMsgId, parentMsgId, 'outbound', now)
 
     const res = await tokenRequest(
       `/api/email/${childId}/thread?workspace_id=${seed.workspaceId}`,
@@ -315,7 +315,7 @@ describe("email thread", () => {
     const agentEmail = `${seed.agentEmailHandle}@alook.ai`
     const now = new Date().toISOString()
 
-    // Build a chain of 5 emails via batch INSERT to verify the chain walk works
+    // Build a chain of 5 emails via individual INSERTs to verify the chain walk works
     // (MAX_DEPTH=50 is tested structurally — here we just verify the chain doesn't infinitely loop)
     const ids: string[] = []
     const mids: string[] = []
@@ -324,12 +324,10 @@ describe("email thread", () => {
       mids.push(`<chain-${i}-${randomUUID().slice(0, 8)}@e2e.test>`)
     }
 
-    const values = ids.map((eid, i) => {
+    for (let i = 0; i < 5; i++) {
       const irt = i > 0 ? mids[i - 1] : ""
-      return `('${eid}', '${seed.agentId}', '${seed.workspaceId}', 'sender@test.com', '${agentEmail}', 'Chain ${i}', 'emails/fake-chain/raw', 1, 0, '${mids[i]}', '${irt}', '', '${now}')`
-    }).join(", ")
-
-    sql(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", created_at) VALUES ${values}`)
+      sqlRun(`INSERT INTO emails (id, agent_id, workspace_id, from_email, to_email, subject, r2_key, is_whitelisted, forwarded, message_id, in_reply_to, "references", created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ids[i], seed.agentId, seed.workspaceId, 'sender@test.com', agentEmail, `Chain ${i}`, 'emails/fake-chain/raw', 1, 0, mids[i], irt, '', now)
+    }
 
     const res = await tokenRequest(
       `/api/email/${ids[4]}/thread?workspace_id=${seed.workspaceId}`,
