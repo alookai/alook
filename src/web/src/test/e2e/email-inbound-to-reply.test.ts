@@ -18,12 +18,16 @@ async function waitForTask(
   agentId: string,
   workspaceId: string,
   type: string,
+  promptContains?: string,
   maxMs = 8000,
 ): Promise<Record<string, unknown> | null> {
   const start = Date.now()
+  const promptFilter = promptContains
+    ? ` AND prompt LIKE '%${promptContains}%'`
+    : ""
   while (Date.now() - start < maxMs) {
     const rows = sqlQuery<Record<string, unknown>>(
-      `SELECT * FROM agent_task_queue WHERE agent_id = '${agentId}' AND workspace_id = '${workspaceId}' AND type = '${type}' ORDER BY created_at DESC LIMIT 1`,
+      `SELECT * FROM agent_task_queue WHERE agent_id = '${agentId}' AND workspace_id = '${workspaceId}' AND type = '${type}'${promptFilter} ORDER BY created_at DESC LIMIT 1`,
     )
     if (rows.length > 0) return rows[0]
     await new Promise((r) => setTimeout(r, 300))
@@ -40,7 +44,7 @@ describe("cross-service: email inbound → task creation", () => {
     const emailRes = await postEmail(from, to, subject, "Cross-service test body")
     expect(emailRes.status).toBe(200)
 
-    const task = await waitForTask(seed.agentId, seed.workspaceId, "email_notification")
+    const task = await waitForTask(seed.agentId, seed.workspaceId, "email_notification", subject)
     expect(task).not.toBeNull()
     expect(task!.type).toBe("email_notification")
     expect(task!.prompt).toContain(from)
@@ -55,7 +59,7 @@ describe("cross-service: email inbound → task creation", () => {
 
     await postEmail(from, to, subject, "Metadata test")
 
-    const task = await waitForTask(seed.agentId, seed.workspaceId, "email_notification")
+    const task = await waitForTask(seed.agentId, seed.workspaceId, "email_notification", subject)
     expect(task).not.toBeNull()
     expect(task!.conversation_id).toBeTruthy()
     expect(task!.context_key).toBe(task!.conversation_id)

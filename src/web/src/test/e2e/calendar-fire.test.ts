@@ -82,8 +82,8 @@ describe("cross-service: calendar event fire → task dispatched", () => {
     )
     expect(rows).toHaveLength(1)
     const newScheduled = new Date(rows[0].scheduled_at)
-    // After promotion, recurring event should advance to future
-    expect(newScheduled.getTime()).toBeGreaterThan(Date.now() - 90_000)
+    // After promotion, recurring event with 1day interval should advance to future
+    expect(newScheduled.getTime()).toBeGreaterThan(Date.now())
   })
 
   it("already triggered event is not re-triggered on second sweep", async () => {
