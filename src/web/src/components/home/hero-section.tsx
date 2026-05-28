@@ -271,36 +271,75 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           </Link>
         </div>
         {/* Clipboard copy widget */}
-        <button
-          type="button"
-          className="hero-clipboard mt-5 flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-200 hover:opacity-70 cursor-pointer"
-          style={{
-            fontFamily: "var(--font-mono)",
-            color: copied ? "var(--landing-text)" : "var(--landing-text-muted)",
-            fontSize: "0.75rem",
-            border: "1px solid color-mix(in srgb, var(--landing-text-muted) 30%, transparent)",
-            opacity: 0,
-          }}
-          onClick={() => {
-            navigator.clipboard.writeText(
-              "Read https://alook.ai/onboard.md and follow the instructions to install and configure Alook"
-            );
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          }}
+        <div
+          className="hero-clipboard mt-5 flex w-full max-w-lg flex-col items-center gap-2"
+          style={{ opacity: 0 }}
         >
-          {copied ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
-          )}
-          {copied ? "Copied!" : "Copy and Paste Into Your Agent’s Chat to Get Started"}
-        </button>
+          {/* Row 1: decorative label */}
+          <div
+            className="flex w-full items-center gap-3"
+            style={{ color: "var(--landing-text-muted)" }}
+          >
+            <div className="h-px flex-1" style={{ backgroundColor: "color-mix(in srgb, var(--landing-text-muted) 30%, transparent)" }} />
+            <span
+              className="shrink-0 whitespace-nowrap overflow-hidden text-ellipsis text-xs"
+              style={{ fontFamily: "var(--font-mono)" }}
+            >
+              Copy and Paste Into Your Agent&apos;s Chat to Get Started
+            </span>
+            <div className="h-px flex-1" style={{ backgroundColor: "color-mix(in srgb, var(--landing-text-muted) 30%, transparent)" }} />
+          </div>
+          {/* Row 2: content box with copy button */}
+          <div
+            className="flex w-full items-center gap-2 rounded px-3 py-2"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.875rem",
+              color: "var(--landing-text)",
+              border: "1px solid color-mix(in srgb, var(--landing-text-muted) 30%, transparent)",
+            }}
+          >
+            <span
+              className="flex-1 overflow-hidden whitespace-nowrap text-ellipsis"
+            >
+              Read{" "}
+              <a
+                href="https://alook.ai/onboard.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline transition-opacity hover:opacity-70"
+                style={{ color: "var(--landing-text)" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                Onboard.md
+              </a>
+              {" "}and follow the instructions to install and configure Alook
+            </span>
+            <button
+              type="button"
+              className="shrink-0 p-1 transition-opacity hover:opacity-70 cursor-pointer"
+              style={{ color: copied ? "var(--landing-text)" : "var(--landing-text-muted)" }}
+              onClick={() => {
+                navigator.clipboard.writeText(
+                  "Read https://alook.ai/onboard.md and follow the instructions to install and configure Alook"
+                );
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+            >
+              {copied ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
 
         <p
           className="mt-4 sm:hidden text-center text-xs"
