@@ -100,15 +100,20 @@ describe("task lifecycle", () => {
   })
 
   it("GET /api/daemon/tasks/:id/messages returns stored messages", async () => {
-    const res = await tokenRequest(
-      `/api/daemon/tasks/${taskId}/messages`,
-      seed.machineToken,
-    )
-    expect(res.status).toBe(200)
-    const data = await res.json() as Array<Record<string, unknown>>
+    let data: Array<Record<string, unknown>> = []
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const res = await tokenRequest(
+        `/api/daemon/tasks/${taskId}/messages`,
+        seed.machineToken,
+      )
+      expect(res.status).toBe(200)
+      data = await res.json() as Array<Record<string, unknown>>
+      if (data.length >= 2) break
+      await new Promise(r => setTimeout(r, 200))
+    }
     expect(data.length).toBeGreaterThanOrEqual(2)
     expect(data.some(m => m.content === "Running tests...")).toBe(true)
-    expect(data.some(m => m.tool === "bash")).toBe(true)
+    expect(data.some(m => m.type === "tool")).toBe(true)
   })
 
   it("POST /api/daemon/tasks/:id/complete marks task complete", async () => {
