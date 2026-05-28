@@ -74,6 +74,9 @@ describe("device-code-flow", () => {
     })
     expect(approveRes.status).toBe(200)
 
+    // Wait for polling interval to elapse (plugin enforces 5s minimum between polls)
+    await new Promise(r => setTimeout(r, 5100))
+
     const tokenRes = await fetch(`${APP_URL}/api/auth/device/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
