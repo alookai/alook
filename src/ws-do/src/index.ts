@@ -7,6 +7,11 @@ const log = createLogger({ service: "ws-do" })
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
+
+    if (url.pathname === "/health" && request.method === "GET") {
+      return Response.json({ status: "ok" })
+    }
+
     const traceId = request.headers.get("X-Trace-Id") ?? undefined
 
     const daemonBroadcast = url.pathname.match(/^\/broadcast\/daemon\/(.+)$/)

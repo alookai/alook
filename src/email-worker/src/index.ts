@@ -49,6 +49,10 @@ export default {
   async fetch(request: Request, env: EmailEnv): Promise<Response> {
     const url = new URL(request.url)
 
+    if (url.pathname === "/health" && request.method === "GET") {
+      return Response.json({ status: "ok" })
+    }
+
     if (url.pathname.startsWith("/imap/")) {
       return this.handleImap(request, env, url)
     }
