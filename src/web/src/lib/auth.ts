@@ -78,7 +78,7 @@ export function createAuth(env: Env) {
     },
     plugins: isProd
       ? [
-          deviceAuthorization({ verificationUri: "/device", validateClient }),
+          deviceAuthorization({ verificationUri: "/device", validateClient, schema: {} }),
           bearer(),
           emailOTP({
             async sendVerificationOTP({ email, otp, type }) {
@@ -113,7 +113,7 @@ export function createAuth(env: Env) {
           }),
         ]
       : [
-          deviceAuthorization({ verificationUri: "/device", validateClient }),
+          deviceAuthorization({ verificationUri: "/device", validateClient, schema: {} }),
           bearer(),
         ],
   })
