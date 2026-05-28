@@ -27,48 +27,37 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
       )
         return;
 
-      gsap.set(
-        [
-          ".hero-brand",
-          headingRef.current,
-          sublineRef.current,
-          ".hero-specs",
-          ".hero-providers",
-          ctaRef.current,
-          ".hero-clipboard",
-        ],
-        { autoAlpha: 0 }
-      );
-
       const entranceTl = gsap.timeline({ delay: 0.3 });
 
       entranceTl
-        .from(".hero-brand", {
-          y: -20,
-          autoAlpha: 0,
-          duration: 0.5,
-          ease: "power3.out",
-        })
-        .from(headingRef.current, { autoAlpha: 0, duration: 0.4, ease: "power2.out" }, 0.2)
-        .from(sublineRef.current, { autoAlpha: 0, duration: 0.3, ease: "power2.out" }, "-=0.1")
-        .from(
+        .fromTo(".hero-brand",
+          { y: -20, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }
+        )
+        .to(headingRef.current, { opacity: 1, duration: 0.4, ease: "power2.out" }, 0.2)
+        .to(sublineRef.current, { opacity: 1, duration: 0.3, ease: "power2.out" }, "-=0.1")
+        .fromTo(
           ".hero-specs",
-          { y: 15, autoAlpha: 0, duration: 0.5, ease: "power2.out" },
+          { y: 15, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" },
           "-=0.1"
         )
-        .from(
+        .fromTo(
           ".hero-providers",
-          { y: 10, autoAlpha: 0, duration: 0.4, ease: "power2.out" },
+          { y: 10, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.4, ease: "power2.out" },
           "-=0.2"
         )
-        .from(
+        .fromTo(
           ctaRef.current,
-          { y: 15, autoAlpha: 0, duration: 0.4, ease: "power2.out" },
+          { y: 15, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.4, ease: "power2.out" },
           "-=0.2"
         )
-        .from(
+        .fromTo(
           ".hero-clipboard",
-          { y: 10, autoAlpha: 0, duration: 0.3, ease: "power2.out" },
+          { y: 10, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.3, ease: "power2.out" },
           "-=0.1"
         );
 
@@ -94,7 +83,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
 
       <div className="hero-content relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center px-4 sm:px-6">
         {/* Brand */}
-        <div className="hero-brand mb-6 flex items-center gap-1.5">
+        <div className="hero-brand mb-6 flex items-center gap-1.5" style={{ opacity: 0 }}>
           <Image src="/alook.svg" alt="Alook" width={32} height={32} />
           <span
             className="text-2xl tracking-tight"
@@ -120,6 +109,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
                 color: "var(--landing-text)",
                 fontSize: "clamp(26px, 4vw, 44px)",
                 letterSpacing: "-0.01em",
+                opacity: 0,
               }}
             >
               Run Your Personal Company
@@ -131,6 +121,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
                 fontFamily: "var(--font-crt)",
                 color: "var(--landing-text-muted)",
                 fontSize: "clamp(12px, 2vw, 20px)",
+                opacity: 0,
               }}
             >
               You have ideas that need ten people to execute.
@@ -147,7 +138,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         </div>
 
         {/* Specs */}
-        <div className="hero-specs mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+        <div className="hero-specs mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2" style={{ opacity: 0 }}>
           {[
             "Collaboration",
             "Always-On",
@@ -167,7 +158,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         </div>
 
         {/* Community links */}
-        <div className="hero-providers mt-5 flex items-center justify-center gap-4">
+        <div className="hero-providers mt-5 flex items-center justify-center gap-4" style={{ opacity: 0 }}>
           <a
             href="https://github.com/alookai/alook"
             target="_blank"
@@ -207,7 +198,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         </div>
 
         {/* CTA */}
-        <div ref={ctaRef} className="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <div ref={ctaRef} className="mt-8 flex flex-wrap items-center justify-center gap-3" style={{ opacity: 0 }}>
           {/* <a
             href="https://github.com/alookai/alook"
             className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
@@ -288,6 +279,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             color: copied ? "var(--landing-text)" : "var(--landing-text-muted)",
             fontSize: "0.75rem",
             border: "1px solid color-mix(in srgb, var(--landing-text-muted) 30%, transparent)",
+            opacity: 0,
           }}
           onClick={() => {
             navigator.clipboard.writeText(
