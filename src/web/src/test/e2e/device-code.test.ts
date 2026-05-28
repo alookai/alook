@@ -69,7 +69,7 @@ describe("device-code-flow", () => {
   it("POST /api/auth/device/approve approves the device and token poll succeeds", async () => {
     const approveRes = await sessionRequest("/api/auth/device/approve", sessionCookie, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Origin: APP_URL },
       body: JSON.stringify({ userCode }),
     })
     expect(approveRes.status).toBe(200)
@@ -103,7 +103,7 @@ describe("device-code-flow", () => {
     await sessionRequest(`/api/auth/device?user_code=${uc}`, sessionCookie)
     await sessionRequest("/api/auth/device/approve", sessionCookie, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Origin: APP_URL },
       body: JSON.stringify({ userCode: uc }),
     })
 
@@ -138,7 +138,7 @@ describe("device-code-flow", () => {
     await sessionRequest(`/api/auth/device?user_code=${uc}`, sessionCookie)
     await sessionRequest("/api/auth/device/deny", sessionCookie, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Origin: APP_URL },
       body: JSON.stringify({ userCode: uc }),
     })
 
