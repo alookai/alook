@@ -84,18 +84,23 @@ async function pollAndActivate(opts: {
       } else if (errBody.error === "authorization_pending") {
         // Keep polling
       } else if (errBody.error === "expired_token") {
+        console.error("Error: device code expired. Please run login again.");
         process.exit(1);
       } else if (errBody.error === "access_denied") {
+        console.error("Error: authorization was denied.");
         process.exit(1);
       } else {
+        console.error(`Error: unexpected error: ${errBody.error_description || errBody.error}`);
         process.exit(1);
       }
     } catch {
+      console.error("Error: network request failed during polling.");
       process.exit(1);
     }
   }
 
   if (!tokenResp) {
+    console.error("Error: device code expired (timed out). Please run login again.");
     process.exit(1);
   }
 
@@ -146,7 +151,13 @@ async function pollAndActivate(opts: {
 // Background polling entry point — invoked as a detached child process in non-TTY mode
 if (process.argv.includes("--__login-poll")) {
   const idx = process.argv.indexOf("--__login-poll");
-  const data = JSON.parse(process.argv[idx + 1]);
+  let data;
+  try {
+    data = JSON.parse(process.argv[idx + 1]);
+  } catch {
+    console.error("Error: invalid poll data");
+    process.exit(1);
+  }
   pollAndActivate(data).catch(() => process.exit(1));
 }
 
@@ -213,7 +224,7 @@ export function loginCommand(): Command {
         });
         child.unref();
 
-        console.log("  Polling for authorization in the background (timeout: 30min).");
+        console.log("  Polling for authorization in the background (timeout: 5min).");
         console.log("  Once approved, run `npx @alook/cli status` to verify.");
         return;
       }
