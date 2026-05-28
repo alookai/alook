@@ -27,6 +27,10 @@ describe("device-code-flow", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ client_id: TEST_CLIENT_ID }),
     })
+    if (res.status !== 200) {
+      const text = await res.text()
+      console.error("device/code error response:", res.status, text)
+    }
     expect(res.status).toBe(200)
     const data = await res.json() as Record<string, unknown>
     expect(data.device_code).toBeTruthy()
@@ -153,7 +157,7 @@ describe("device-code-flow", () => {
 
   afterAll(() => {
     try {
-      sql(`DELETE FROM device_code WHERE user_id IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
+      sql(`DELETE FROM "deviceCode" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
       sql(`DELETE FROM "session" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
       sql(`DELETE FROM "account" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${testEmail}')`)
       sql(`DELETE FROM "user" WHERE email = '${testEmail}'`)
