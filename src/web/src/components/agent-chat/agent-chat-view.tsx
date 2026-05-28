@@ -443,6 +443,7 @@ export function AgentChatView({
   const prevConversationIdRef = useRef<string | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pendingOptimisticIdsRef = useRef<Set<string>>(new Set());
 
   const otherAgents = useMemo(() => agents.filter(a => a.id !== agentId), [agents, agentId]);
 
@@ -1227,7 +1228,13 @@ export function AgentChatView({
       if (msg.type === "conversation.message") {
         appendCachedMessage(msg.conversationId, msg.message, workspaceId).catch(() => {});
         if (msg.conversationId === conversation?.id) {
-          setMessages((prev) => mergeMessages(prev, [msg.message]));
+          setMessages((prev) => {
+            if (msg.message.role === "user" && pendingOptimisticIdsRef.current.size > 0) {
+              const without = prev.filter((m) => !pendingOptimisticIdsRef.current.has(m.id));
+              return mergeMessages(without, [msg.message]);
+            }
+            return mergeMessages(prev, [msg.message]);
+          });
         }
       }
       if (msg.type === "task.updated" && msg.taskId === activeTaskIdRef.current) {
@@ -1536,6 +1543,7 @@ export function AgentChatView({
     }
 
     setMessages((prev) => [...prev, optimistic]);
+    pendingOptimisticIdsRef.current.add(optimisticId);
     scrollToBottom();
 
     try {
@@ -1552,6 +1560,7 @@ export function AgentChatView({
         next.delete(optimisticId);
         return next;
       });
+      pendingOptimisticIdsRef.current.delete(optimisticId);
       setMessages((prev) => {
         const without = prev.filter((m) => m.id !== optimistic.id && m.id !== message.id);
         return mergeMessages(without, [message]);
@@ -1566,6 +1575,7 @@ export function AgentChatView({
       setTaskMessages([]);
       startPolling(task.id, conversation.id);
     } catch (err) {
+      pendingOptimisticIdsRef.current.delete(optimisticId);
       setPendingFilesByMessage((prev) => {
         if (!prev.has(optimisticId)) return prev;
         const next = new Map(prev);
