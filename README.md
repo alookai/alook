@@ -5,6 +5,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License" /></a>
   <a href="https://github.com/alookai/alook/actions"><img src="https://github.com/alookai/alook/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://codecov.io/gh/alookai/alook"><img src="https://codecov.io/gh/alookai/alook/branch/main/graph/badge.svg" alt="codecov" /></a>
   <a href="https://www.npmjs.com/package/@alook/app"><img src="https://img.shields.io/npm/v/@alook/app.svg" alt="npm version" /></a>
   <a href="https://discord.alook.ai"><img src="https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
 </p>

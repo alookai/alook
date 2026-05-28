@@ -100,6 +100,27 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
 
+  coverage:
+    name: Coverage
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text --coverage.include='src/**' --coverage.exclude='**/*.test.*' --coverage.exclude='**/*.spec.*'
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/coverage-final.json
+          fail_ci_if_error: true
+
   lighthouse:
     name: Lighthouse SEO
     if: github.event_name == 'pull_request'
