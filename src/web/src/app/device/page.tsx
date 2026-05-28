@@ -36,6 +36,15 @@ function DeviceAuthPageInner() {
     }
   }, [isPending, session, router, userCode])
 
+  useEffect(() => {
+    if (step === "done") {
+      const timer = setTimeout(() => {
+        router.push("/workspaces?auto")
+      }, 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [step, router])
+
   async function handleVerifyCode(e: React.FormEvent) {
     e.preventDefault()
     setError("")
@@ -152,7 +161,7 @@ function DeviceAuthPageInner() {
               {step === "done" && (
                 <div className="text-center space-y-2">
                   <p className="text-sm text-muted-foreground">
-                    Device authorized successfully. You can close this window.
+                    Device authorized successfully. Redirecting...
                   </p>
                 </div>
               )}
