@@ -27,35 +27,48 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
       )
         return;
 
+      gsap.set(
+        [
+          ".hero-brand",
+          headingRef.current,
+          sublineRef.current,
+          ".hero-specs",
+          ".hero-providers",
+          ctaRef.current,
+          ".hero-clipboard",
+        ],
+        { autoAlpha: 0 }
+      );
+
       const entranceTl = gsap.timeline({ delay: 0.3 });
 
       entranceTl
         .from(".hero-brand", {
           y: -20,
-          opacity: 0,
+          autoAlpha: 0,
           duration: 0.5,
           ease: "power3.out",
         })
-        .from(headingRef.current, { opacity: 0, duration: 0.4, ease: "power2.out" }, 0.2)
-        .from(sublineRef.current, { opacity: 0, duration: 0.3, ease: "power2.out" }, "-=0.1")
+        .from(headingRef.current, { autoAlpha: 0, duration: 0.4, ease: "power2.out" }, 0.2)
+        .from(sublineRef.current, { autoAlpha: 0, duration: 0.3, ease: "power2.out" }, "-=0.1")
         .from(
           ".hero-specs",
-          { y: 15, opacity: 0, duration: 0.5, ease: "power2.out" },
+          { y: 15, autoAlpha: 0, duration: 0.5, ease: "power2.out" },
           "-=0.1"
         )
         .from(
           ".hero-providers",
-          { y: 10, opacity: 0, duration: 0.4, ease: "power2.out" },
+          { y: 10, autoAlpha: 0, duration: 0.4, ease: "power2.out" },
           "-=0.2"
         )
         .from(
           ctaRef.current,
-          { y: 15, opacity: 0, duration: 0.4, ease: "power2.out" },
+          { y: 15, autoAlpha: 0, duration: 0.4, ease: "power2.out" },
           "-=0.2"
         )
         .from(
           ".hero-clipboard",
-          { y: 10, opacity: 0, duration: 0.3, ease: "power2.out" },
+          { y: 10, autoAlpha: 0, duration: 0.3, ease: "power2.out" },
           "-=0.1"
         );
 
