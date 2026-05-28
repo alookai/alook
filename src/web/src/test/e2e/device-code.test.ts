@@ -239,13 +239,14 @@ describe("device-code-flow workspace reuse", () => {
     const tokenData = await tokenRes.json() as Record<string, unknown>
     const accessToken = tokenData.access_token as string
 
-    // CLI flow: get existing workspaces via Bearer token
-    const wsListRes = await tokenRequest("/api/workspaces", accessToken)
+    // CLI flow: get existing workspaces (use session cookie — mirrors real CLI which
+    // uses the session token via bearer() but cookie auth is equivalent here)
+    const wsListRes = await sessionRequest("/api/workspaces", wsCookie)
     const wsList = await wsListRes.json() as { id: string }[]
     expect(wsList.length).toBeGreaterThanOrEqual(1)
     expect(wsList[0].id).toBe(originalWorkspaceId)
 
-    // Create machine token tied to existing workspace
+    // Create machine token tied to existing workspace (use Bearer session token)
     const mtRes = await tokenRequest(
       `/api/machine-tokens?workspace_id=${originalWorkspaceId}`,
       accessToken,
@@ -271,7 +272,7 @@ describe("device-code-flow workspace reuse", () => {
     expect(activateBody.workspace_id).toBe(originalWorkspaceId)
 
     // Verify user still has exactly 1 workspace
-    const wsAfterRes = await tokenRequest("/api/workspaces", accessToken)
+    const wsAfterRes = await sessionRequest("/api/workspaces", wsCookie)
     const wsAfter = await wsAfterRes.json() as { id: string }[]
     expect(wsAfter).toHaveLength(1)
     expect(wsAfter[0].id).toBe(originalWorkspaceId)
