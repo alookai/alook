@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { authClient, useSession } from "@/lib/auth-client"
 import { Button } from "@/components/ui/button"
@@ -12,6 +12,14 @@ import { GradientBackground } from "@/components/gradient-background"
 type Step = "code" | "approve" | "done" | "denied"
 
 export default function DeviceAuthPage() {
+  return (
+    <Suspense>
+      <DeviceAuthPageInner />
+    </Suspense>
+  )
+}
+
+function DeviceAuthPageInner() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const { data: session, isPending } = useSession()
