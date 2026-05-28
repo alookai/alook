@@ -32,7 +32,9 @@ Review your conversation history with this user. Summarize:
 
 Use this understanding to choose the best workspace setup.
 
-## 4. Set Up Workspace Agents
+## 4. Explore Templates & Set Up Workspace
+Visit https://alook.ai/templates to explore available workspace templates.
+Choose the most appropriate template based on what you know about the user.
 
 Create agents using the CLI:
 
@@ -46,14 +48,10 @@ npx @alook/cli agent recruit \\
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| \`--instructions\` | Yes* | The agent's system prompt — defines what it does and how it behaves |
-| \`--instructions-file\` | Yes* | Read instructions from a file (mutually exclusive with \`--instructions\`) |
-| \`--relationship\` | Yes* | Delegation criteria — when and how you'll work with this agent |
-| \`--relationship-file\` | Yes* | Read relationship from a file (mutually exclusive with \`--relationship\`) |
+| \`--instructions\` | Yes | The agent's system prompt — defines what it does and how it behaves |
+| \`--relationship\` | Yes | Delegation criteria — when and how you'll work with this agent |
 | \`--name\` | No | Preferred name (auto-generated if omitted) |
 | \`--description\` | No | Short description of the agent's role |
-
-\\* Provide either the inline flag or the file flag for each required field.
 `;
 
 export async function GET() {

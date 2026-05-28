@@ -37,7 +37,11 @@ describe("GET /onboard.md", () => {
     expect(body).toContain("--relationship");
     expect(body).toContain("--name");
     expect(body).toContain("--description");
-    expect(body).toContain("--instructions-file");
-    expect(body).toContain("--relationship-file");
+  });
+
+  it("contains templates exploration section", async () => {
+    const response = await GET();
+    const body = await response.text();
+    expect(body).toContain("https://alook.ai/templates");
   });
 });
