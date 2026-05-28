@@ -263,15 +263,16 @@ export default {
     }
 
     if (action === "test" && request.method === "POST") {
-      return this.handleTestConnection(accountId, env)
+      const workspaceId = url.searchParams.get("workspaceId") ?? undefined
+      return this.handleTestConnection(accountId, env, workspaceId)
     }
 
     return Response.json({ error: "not found" }, { status: 404 })
   },
 
-  async handleTestConnection(accountId: string, env: EmailEnv): Promise<Response> {
+  async handleTestConnection(accountId: string, env: EmailEnv, workspaceId?: string): Promise<Response> {
     const db = createDb(env.DB)
-    const account = await queries.emailAccount.getEmailAccountById(db, accountId)
+    const account = await queries.emailAccount.getEmailAccountById(db, accountId, workspaceId)
     if (!account) {
       return Response.json({ error: "account not found" }, { status: 404 })
     }
