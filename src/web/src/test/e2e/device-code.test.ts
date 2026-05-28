@@ -193,8 +193,9 @@ describe("device-code-flow workspace reuse", () => {
     const wsRes = await sessionRequest("/api/workspaces", wsCookie, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Personal" }),
+      body: JSON.stringify({ name: "Personal", slug: `personal-${randomUUID().slice(0, 8)}` }),
     })
+    expect(wsRes.status).toBe(201)
     const wsData = await wsRes.json() as Record<string, unknown>
     originalWorkspaceId = wsData.id as string
   })
