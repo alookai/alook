@@ -6,10 +6,10 @@ const mockListTaskMessages = vi.fn();
 const mockListTaskMessagesSince = vi.fn();
 const mockTaskMessageToResponse = vi.fn((m: any) => ({
   id: m.id,
-  task_id: m.taskId,
   seq: m.seq,
   type: m.type,
   content: m.content,
+  output: m.output || "",
 }));
 
 vi.mock("@/lib/middleware/helpers", () => ({
@@ -87,8 +87,8 @@ describe("GET /api/tasks/[id]/messages", () => {
 
     expect(res.status).toBe(200);
     expect(body).toEqual([
-      { id: "m1", task_id: "t1", seq: 1, type: "text", content: "hello" },
-      { id: "m2", task_id: "t1", seq: 2, type: "text", content: "world" },
+      { id: "m1", seq: 1, type: "text", content: "hello", output: "" },
+      { id: "m2", seq: 2, type: "text", content: "world", output: "" },
     ]);
     expect(mockListTaskMessages).toHaveBeenCalledWith({}, "t1");
   });
@@ -109,7 +109,7 @@ describe("GET /api/tasks/[id]/messages", () => {
 
     expect(res.status).toBe(200);
     expect(body).toEqual([
-      { id: "m3", task_id: "t1", seq: 6, type: "text", content: "new msg" },
+      { id: "m3", seq: 6, type: "text", content: "new msg", output: "" },
     ]);
     expect(mockListTaskMessagesSince).toHaveBeenCalledWith({}, "t1", 5);
     expect(mockListTaskMessages).not.toHaveBeenCalled();

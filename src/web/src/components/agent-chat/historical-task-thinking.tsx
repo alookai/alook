@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { TaskStream } from "@/components/task-stream";
 import { getTaskMessages } from "@/lib/api";
-import type { TaskMessage, TaskApi } from "@alook/shared";
+import type { TaskMessageResponse, TaskApi } from "@alook/shared";
 
 const COMPLETED_STUB: TaskApi = {
   id: "",
@@ -32,7 +32,7 @@ export function HistoricalTaskThinking({
   thinkingCount: number;
   workspaceId: string;
 }) {
-  const [messages, setMessages] = useState<TaskMessage[]>([]);
+  const [messages, setMessages] = useState<TaskMessageResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
 

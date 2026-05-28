@@ -5,7 +5,7 @@ import type {
   AgentRuntime,
   Conversation,
   Message,
-  TaskMessage,
+  TaskMessageResponse,
   MachineToken,
   CalendarEvent,
   Issue,
@@ -44,7 +44,7 @@ export type ListMessagesResponse = ApiListResponse<Message>;
 export type ListTasksResponse = ApiListResponse<TaskApi>;
 export type GetTaskResponse = ApiResponse<TaskApi>;
 
-export type ListTaskMessagesResponse = ApiListResponse<TaskMessage>;
+export type ListTaskMessagesResponse = ApiListResponse<TaskMessageResponse>;
 
 export type ListMachineTokensResponse = ApiListResponse<MachineToken>;
 

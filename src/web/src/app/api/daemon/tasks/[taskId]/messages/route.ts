@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
 import { getDb, withD1Retry } from "@/lib/db";
-import type { TaskMessage } from "@alook/shared"
+import type { TaskMessageResponse } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { taskMessageToResponse } from "@/lib/api/responses";
@@ -77,16 +77,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const succeeded = filtered.filter((_, i) => results[i].status === "fulfilled");
   const broadcastable = succeeded.filter((m) => m.type !== "tool-result" && m.type !== "tool-use" && m.type !== "thinking");
   if (broadcastable.length > 0) {
-    const wsMessages: TaskMessage[] = broadcastable.map((m) => ({
+    const wsMessages: TaskMessageResponse[] = broadcastable.map((m) => ({
       id: "",
-      task_id: taskId,
       seq: m.seq,
       type: m.type,
-      tool: m.tool || "",
-      call_id: m.call_id || "",
       content: m.content || "",
       output: m.output || "",
-      ...(m.input ? { input: m.input } : {}),
     }));
     broadcastToUser(ctx.userId, { type: "task.messages", taskId, messages: wsMessages }).catch(() => {});
   }

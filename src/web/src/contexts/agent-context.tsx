@@ -48,6 +48,8 @@ interface AgentContextValue {
   runtimes: Runtime[];
   loading: boolean;
   activeTaskCounts: Record<string, number>;
+  pendingNewAgent: { agentId: string; parentAgentId: string } | null;
+  clearPendingNewAgent: () => void;
   activeTaskDetails: WorkspaceActiveTask[];
   pins: Map<string, { created_at: string; position: number }>;
   reload: () => Promise<void>;
@@ -92,6 +94,8 @@ export function AgentProvider({
   const [activeTaskDetails, setActiveTaskDetails] = useState<WorkspaceActiveTask[]>([]);
   const hasActiveTasksRef = useRef(false);
   const [agentLinks, setAgentLinks] = useState<AgentLink[]>([]);
+  const [pendingNewAgent, setPendingNewAgent] = useState<{ agentId: string; parentAgentId: string } | null>(null);
+  const clearPendingNewAgent = useCallback(() => setPendingNewAgent(null), []);
   const [pins, setPins] = useState<Map<string, { created_at: string; position: number }>>(new Map());
   const [unpinnedOrder, setUnpinnedOrder] = useState<Map<string, number>>(new Map());
   const loadedRef = useRef(false);
@@ -229,7 +233,6 @@ export function AgentProvider({
       // AgentProvider only reloads agents/runtimes for runtime events
       switch (msg.type) {
         case "runtime.registered":
-          // Filter by workspaceId — ignore registrations in other workspaces
           if (msg.workspaceId !== workspaceId) break;
           reload();
           break;
@@ -237,9 +240,13 @@ export function AgentProvider({
           reload();
           break;
         case "runtime.status":
-          // Filter by workspaceId — ignore messages from other workspaces
           if (msg.workspaceId !== workspaceId) break;
           reloadRuntimes();
+          break;
+        case "agent.created":
+          if (msg.workspaceId !== workspaceId) break;
+          setPendingNewAgent({ agentId: msg.agentId, parentAgentId: msg.parentAgentId });
+          reload();
           break;
         case "task.updated":
           fetchTaskCounts();
@@ -398,6 +405,8 @@ export function AgentProvider({
         loading,
         activeTaskCounts,
         activeTaskDetails,
+        pendingNewAgent,
+        clearPendingNewAgent,
         pins,
         reload,
         subscribeWs,

@@ -158,18 +158,13 @@ export function messageToResponse(m: any) {
 }
 
 export function taskMessageToResponse(m: any) {
-  const resp: any = {
+  return {
     id: m.id,
-    task_id: m.taskId,
     seq: m.seq,
     type: m.type,
-    tool: m.tool,
-    call_id: m.callId || "",
     content: m.content,
     output: m.output,
   };
-  if (m.input) resp.input = m.input;
-  return resp;
 }
 
 export function runtimeToResponse(rt: any) {

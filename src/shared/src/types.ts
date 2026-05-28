@@ -149,6 +149,14 @@ export interface TaskMessage {
   output: string;
 }
 
+export interface TaskMessageResponse {
+  id: string;
+  seq: number;
+  type: string;
+  content: string;
+  output: string;
+}
+
 export interface Machine {
   daemon_id: string;
   workspace_id: string;
@@ -276,7 +284,7 @@ export type WsMessage =
   | { type: "runtime.deleted"; daemonId: string }
   | { type: "task.created"; conversationId: string; task: TaskApi }
   | { type: "task.updated"; taskId: string; agentId: string; status: string }
-  | { type: "task.messages"; taskId: string; messages: TaskMessage[] }
+  | { type: "task.messages"; taskId: string; messages: TaskMessageResponse[] }
   | { type: "email.received"; agentId: string }
   | { type: "email.sent"; agentId: string }
   | { type: "artifact.uploaded"; conversationId: string; artifact: Artifact }
@@ -285,6 +293,7 @@ export type WsMessage =
   | { type: "followup.deleted"; conversationId: string; messageId: string }
   | { type: "followup.dispatch_failed"; conversationId: string; messageId: string; error: string }
   | { type: "conversation.message"; conversationId: string; message: Message }
+  | { type: "agent.created"; agentId: string; workspaceId: string; parentAgentId: string }
   | { type: "issue.comment"; issueId: string; comment: IssueComment }
   | { type: "workspace.files"; agentId: string; requestId: string; requestType: "tree" | "read"; result: WorkspaceFileResult }
 

@@ -35,7 +35,7 @@ import {
 } from "@/lib/api";
 import { appendCachedMessage, getCachedMessages, getCachedMessagesBefore, getCacheMeta, mergeCachedMessages } from "@/lib/chat-cache";
 import type { PreviousConversation, TraceTask } from "@/lib/api";
-import type { Artifact, Conversation, Issue, IssueComment, Message, SkillEntry, TaskApi as Task, TaskMessage, WsMessage } from "@alook/shared";
+import type { Artifact, Conversation, Issue, IssueComment, Message, SkillEntry, TaskApi as Task, TaskMessageResponse, WsMessage } from "@alook/shared";
 import { useAgentContext } from "@/contexts/agent-context";
 import { useInboxCount } from "@/contexts/inbox-count-context";
 import { useFlagCount } from "@/contexts/flag-count-context";
@@ -335,7 +335,7 @@ export function AgentChatView({
   const [sending, setSending] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
-  const [taskMessages, setTaskMessages] = useState<TaskMessage[]>([]);
+  const [taskMessages, setTaskMessages] = useState<TaskMessageResponse[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [connectionLost, setConnectionLost] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -648,7 +648,7 @@ export function AgentChatView({
             if (ignore) return;
             if (task && !["completed", "failed", "cancelled", "superseded"].includes(task.status)) {
               setActiveTask(task);
-              const tmsgs = await getTaskMessages(scrollToTaskId, workspaceId).catch(() => [] as TaskMessage[]);
+              const tmsgs = await getTaskMessages(scrollToTaskId, workspaceId).catch(() => [] as TaskMessageResponse[]);
               if (ignore) return;
               setTaskMessages(tmsgs);
               if (tmsgs.length > 0) {

@@ -1,5 +1,5 @@
 import React, { memo } from "react";
-import type { Agent, Artifact, Message, TaskApi as Task, TaskMessage } from "@alook/shared";
+import type { Agent, Artifact, Message, TaskApi as Task, TaskMessageResponse } from "@alook/shared";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,7 @@ export interface MessageItemProps {
   agents: Agent[];
   artifacts: Artifact[];
   activeTask: Task | null;
-  taskMessages: TaskMessage[];
+  taskMessages: TaskMessageResponse[];
   connectionLost: boolean;
   isLastMessage: boolean;
   thinkingCount: number;

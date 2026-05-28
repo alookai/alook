@@ -3,7 +3,7 @@
 import { useMemo, useRef, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { TaskMessage } from "@alook/shared";
+import type { TaskMessageResponse } from "@alook/shared";
 import type { TaskApi as Task } from "@alook/shared";
 import {
   ChevronRight,
@@ -29,11 +29,11 @@ interface ErrorItem {
 
 type StreamItem = TextItem | ErrorItem;
 
-function itemKey(msg: TaskMessage): string {
+function itemKey(msg: TaskMessageResponse): string {
   return msg.id || `seq-${msg.seq}`;
 }
 
-function groupMessages(messages: TaskMessage[]): StreamItem[] {
+function groupMessages(messages: TaskMessageResponse[]): StreamItem[] {
   const items: StreamItem[] = [];
 
   for (const msg of messages) {
@@ -129,7 +129,7 @@ export function TaskStream({
   thinkingLoading,
 }: {
   task: Task;
-  messages: TaskMessage[];
+  messages: TaskMessageResponse[];
   connectionLost?: boolean;
   onRetry?: () => void;
   thinkingCountHint?: number;

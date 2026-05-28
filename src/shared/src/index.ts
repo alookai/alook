@@ -9,6 +9,7 @@ export type {
   Conversation,
   Message,
   TaskMessage,
+  TaskMessageResponse,
   MachineToken,
   Email,
   EmailDirection,

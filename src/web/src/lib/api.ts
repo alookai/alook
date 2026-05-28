@@ -24,7 +24,7 @@ import type {
   MeetingSession,
   Message,
   TaskApi,
-  TaskMessage,
+  TaskMessageResponse,
   UpdateIssueRequest,
   User,
   Workspace,
@@ -262,7 +262,7 @@ export interface ChatInitResponse {
   artifacts: Artifact[];
   buffered_messages: Message[];
   active_task: TaskApi | null;
-  task_messages: TaskMessage[];
+  task_messages: TaskMessageResponse[];
   has_more_messages: boolean;
   has_more_conversations: boolean;
   has_more_artifacts: boolean;
@@ -298,7 +298,7 @@ export interface ConversationInitResponse {
   flagged_message_ids: string[];
   thinking_counts: Record<string, number>;
   active_task: TaskApi | null;
-  task_messages: TaskMessage[];
+  task_messages: TaskMessageResponse[];
   cache_valid: boolean;
   message_count: number;
 }
@@ -577,7 +577,7 @@ export const getTask = (id: string, workspaceId: string) =>
   apiFetch<TaskApi>(`/api/tasks/${id}${wsQuery(workspaceId)}`);
 
 export const getTaskMessages = (id: string, workspaceId: string, since?: number) =>
-  apiFetch<TaskMessage[]>(
+  apiFetch<TaskMessageResponse[]>(
     `/api/tasks/${id}/messages${wsQuery(workspaceId, since ? { since: String(since) } : undefined)}`
   );
 

@@ -105,7 +105,7 @@ function savePositions(workspaceId: string, nodes: Node[]) {
 
 function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }) {
   const router = useRouter();
-  const { agents, runtimes, loading, activeTaskCounts, agentLinks } = useAgentContext();
+  const { agents, runtimes, loading, activeTaskCounts, agentLinks, pendingNewAgent, clearPendingNewAgent } = useAgentContext();
   const { slug, workspaceId } = useWorkspace();
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -229,26 +229,62 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
           initialLayoutDone.current = true;
           setTimeout(() => fitView({ padding: 0.4, duration: 400 }), 50);
         }
+        if (pendingNewAgent) clearPendingNewAgent();
       }
     } else if (newAgentIds.length > 0 && linksLoaded) {
-      // Existing positions + some new agents — layout new nodes only
-      const fixedNodes = newNodes.filter((n) => validPositions[n.id]);
-      const floatingNodes = newNodes.filter((n) => !validPositions[n.id]);
-      const currentEdges: Edge[] = links.map((link) => ({
-        id: link.id,
-        source: link.source_agent_id,
-        target: link.target_agent_id,
-      }));
-      const allLaid = getAutoLayout([...fixedNodes, ...floatingNodes], currentEdges, layoutType);
-      newNodes = newNodes.map((n) => {
+      // Existing positions + some new agents — position relative to parent
+      newNodes = newNodes.map((n, _i) => {
         if (validPositions[n.id]) return n;
-        const laid = allLaid.find((l) => l.id === n.id);
-        return laid ? { ...n, position: laid.position } : n;
+
+        // Find parent: use pendingNewAgent hint or scan links
+        let parentId: string | undefined;
+        if (pendingNewAgent && n.id === pendingNewAgent.agentId) {
+          parentId = pendingNewAgent.parentAgentId;
+        }
+        if (!parentId) {
+          const linkedEdge = links.find(
+            (l) => (l.source_agent_id === n.id && validPositions[l.target_agent_id]) ||
+                   (l.target_agent_id === n.id && validPositions[l.source_agent_id])
+          );
+          if (linkedEdge) {
+            parentId = linkedEdge.source_agent_id === n.id
+              ? linkedEdge.target_agent_id
+              : linkedEdge.source_agent_id;
+          }
+        }
+
+        const siblingIndex = newAgentIds.indexOf(n.id);
+        if (parentId && validPositions[parentId]) {
+          const pp = validPositions[parentId];
+          let pos: { x: number; y: number };
+          switch (layoutType) {
+            case "tree":
+              pos = { x: pp.x + siblingIndex * 300, y: pp.y + 200 };
+              break;
+            case "flow":
+              pos = { x: pp.x + 350, y: pp.y + siblingIndex * 150 };
+              break;
+            default: // star
+              pos = { x: pp.x + 300, y: pp.y + 100 + siblingIndex * 150 };
+              break;
+          }
+          return { ...n, position: pos };
+        }
+
+        // Fallback: centroid of all existing nodes + offset
+        const positions = Object.values(validPositions);
+        const cx = positions.reduce((s, p) => s + p.x, 0) / positions.length;
+        const cy = positions.reduce((s, p) => s + p.y, 0) / positions.length;
+        return { ...n, position: { x: cx + 350 + siblingIndex * 300, y: cy } };
       });
+
+      savePositions(workspaceId, newNodes);
+      setTimeout(() => fitView({ padding: 0.4, duration: 400, includeHiddenNodes: false }), 50);
+      if (pendingNewAgent) clearPendingNewAgent();
     }
 
     setNodes(newNodes);
-  }, [agents, runtimes, activeTaskCounts, slug, loading, workspaceId, linksLoaded, links, fitView]);
+  }, [agents, runtimes, activeTaskCounts, slug, loading, workspaceId, linksLoaded, links, fitView, layoutType, pendingNewAgent, clearPendingNewAgent]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
     setNodes((nds) => applyNodeChanges(changes, nds));

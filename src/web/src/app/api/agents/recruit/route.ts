@@ -10,6 +10,7 @@ import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { agentToResponse, agentLinkToResponse } from "@/lib/api/responses";
 import { TaskService } from "@/lib/services/task";
 import { invalidate, cached, cacheKeys } from "@/lib/cache";
+import { broadcastToUser } from "@/lib/broadcast";
 import { randomConfig, serializeAvatarConfig } from "@/components/avatar";
 
 function generateUniqueHandleFromSet(
@@ -109,6 +110,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     invalidate(cacheKeys.allColleagues(ws.workspaceId)),
     invalidate(cacheKeys.agentLinks(ws.workspaceId)),
   ]);
+
+  broadcastToUser(ctx.userId, {
+    type: "agent.created",
+    agentId: newAgent.id,
+    workspaceId: ws.workspaceId,
+    parentAgentId: agentId,
+  }).catch(() => {});
 
   if (isOnline(runtime.machineLastSeenAt)) {
     try {
