@@ -178,3 +178,116 @@ describe("onboard.md", () => {
     expect(body).toContain("npx @alook/cli daemon start")
   })
 })
+
+describe("device-code-flow workspace reuse", () => {
+  const wsTestEmail = `e2e_dcws_${randomUUID().slice(0, 8)}@test.local`
+  const wsTestPassword = "TestPassword123!"
+  let wsCookie: string
+  let originalWorkspaceId: string
+
+  beforeAll(async () => {
+    await signUp(wsTestEmail, wsTestPassword, "E2E WS User")
+    wsCookie = await signIn(wsTestEmail, wsTestPassword)
+
+    // Create a workspace (simulates what the web app does on first visit)
+    const wsRes = await sessionRequest("/api/workspaces", wsCookie, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Personal" }),
+    })
+    const wsData = await wsRes.json() as Record<string, unknown>
+    originalWorkspaceId = wsData.id as string
+  })
+
+  it("CLI login reuses existing workspace instead of creating a duplicate", async () => {
+    // Request device code
+    const codeRes = await fetch(`${APP_URL}/api/auth/device/code`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_id: TEST_CLIENT_ID }),
+    })
+    expect(codeRes.status).toBe(200)
+    const codeData = await codeRes.json() as Record<string, unknown>
+    const dc = codeData.device_code as string
+    const uc = codeData.user_code as string
+
+    // Claim code to user session
+    await sessionRequest(`/api/auth/device?user_code=${uc}`, wsCookie)
+
+    // Approve
+    const approveRes = await sessionRequest("/api/auth/device/approve", wsCookie, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: APP_URL },
+      body: JSON.stringify({ userCode: uc }),
+    })
+    expect(approveRes.status).toBe(200)
+
+    // Wait for polling interval
+    await new Promise(r => setTimeout(r, 5100))
+
+    // Get token
+    const tokenRes = await fetch(`${APP_URL}/api/auth/device/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        device_code: dc,
+        client_id: TEST_CLIENT_ID,
+      }),
+    })
+    expect(tokenRes.status).toBe(200)
+    const tokenData = await tokenRes.json() as Record<string, unknown>
+    const accessToken = tokenData.access_token as string
+
+    // CLI flow: get existing workspaces via Bearer token
+    const wsListRes = await tokenRequest("/api/workspaces", accessToken)
+    const wsList = await wsListRes.json() as { id: string }[]
+    expect(wsList.length).toBeGreaterThanOrEqual(1)
+    expect(wsList[0].id).toBe(originalWorkspaceId)
+
+    // Create machine token tied to existing workspace
+    const mtRes = await tokenRequest(
+      `/api/machine-tokens?workspace_id=${originalWorkspaceId}`,
+      accessToken,
+      { method: "POST", headers: { "Content-Type": "application/json" } },
+    )
+    expect(mtRes.status).toBeLessThan(300)
+    const mtData = await mtRes.json() as Record<string, unknown>
+    const machineToken = mtData.token as string
+    expect(machineToken).toBeTruthy()
+
+    // Activate with the machine token
+    const activateRes = await fetch(`${APP_URL}/api/machine-tokens/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: machineToken,
+        hostname: "e2e-test-host",
+        runtimes: [{ type: "claude", version: "4.0.0" }],
+      }),
+    })
+    expect(activateRes.status).toBe(200)
+    const activateBody = await activateRes.json() as Record<string, unknown>
+    expect(activateBody.workspace_id).toBe(originalWorkspaceId)
+
+    // Verify user still has exactly 1 workspace
+    const wsAfterRes = await tokenRequest("/api/workspaces", accessToken)
+    const wsAfter = await wsAfterRes.json() as { id: string }[]
+    expect(wsAfter).toHaveLength(1)
+    expect(wsAfter[0].id).toBe(originalWorkspaceId)
+  })
+
+  afterAll(() => {
+    try {
+      sql(`DELETE FROM "deviceCode" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${wsTestEmail}')`)
+      sql(`DELETE FROM machine_token WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${wsTestEmail}')`)
+      sql(`DELETE FROM agent_runtime WHERE machine_id IN (SELECT id FROM machine WHERE workspace_id = '${originalWorkspaceId}')`)
+      sql(`DELETE FROM machine WHERE workspace_id = '${originalWorkspaceId}'`)
+      sql(`DELETE FROM member WHERE workspace_id = '${originalWorkspaceId}'`)
+      sql(`DELETE FROM workspace WHERE id = '${originalWorkspaceId}'`)
+      sql(`DELETE FROM "session" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${wsTestEmail}')`)
+      sql(`DELETE FROM "account" WHERE "userId" IN (SELECT id FROM "user" WHERE email = '${wsTestEmail}')`)
+      sql(`DELETE FROM "user" WHERE email = '${wsTestEmail}'`)
+    } catch { /* ignore cleanup errors */ }
+  })
+})
