@@ -272,26 +272,30 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         </div>
         {/* Clipboard copy widget */}
         <div
-          className="hero-clipboard mt-5 flex w-full max-w-lg flex-col items-center gap-2"
+          className="hero-clipboard relative mt-5 w-full max-w-lg cursor-pointer"
           style={{ opacity: 0 }}
+          onClick={() => {
+            navigator.clipboard.writeText(
+              "Read https://alook.ai/onboard.md and follow the instructions to install and configure Alook"
+            );
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }}
         >
-          {/* Row 1: decorative label */}
-          <div
-            className="flex w-full items-center gap-3"
-            style={{ color: "var(--landing-text-muted)" }}
+          {/* Floating badge label */}
+          <span
+            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap overflow-hidden text-ellipsis px-2 py-0.5 text-xs"
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: "var(--landing-text-muted)",
+              backgroundColor: "var(--landing-bg)",
+            }}
           >
-            <div className="h-px flex-1" style={{ backgroundColor: "color-mix(in srgb, var(--landing-text-muted) 30%, transparent)" }} />
-            <span
-              className="shrink-0 whitespace-nowrap overflow-hidden text-ellipsis text-xs"
-              style={{ fontFamily: "var(--font-mono)" }}
-            >
-              Copy and Paste Into Your Agent&apos;s Chat to Get Started
-            </span>
-            <div className="h-px flex-1" style={{ backgroundColor: "color-mix(in srgb, var(--landing-text-muted) 30%, transparent)" }} />
-          </div>
-          {/* Row 2: content box with copy button */}
+            Copy and Paste Into Your Agent&apos;s Chat to Get Started
+          </span>
+          {/* Content box */}
           <div
-            className="flex w-full items-center gap-2 rounded px-3 py-2"
+            className="flex w-full items-center gap-2 rounded px-3 py-2.5 pt-3"
             style={{
               fontFamily: "var(--font-mono)",
               fontSize: "0.875rem",
@@ -299,9 +303,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
               border: "1px solid color-mix(in srgb, var(--landing-text-muted) 30%, transparent)",
             }}
           >
-            <span
-              className="flex-1 overflow-hidden whitespace-nowrap text-ellipsis"
-            >
+            <span className="flex-1 overflow-hidden whitespace-nowrap text-ellipsis">
               Read{" "}
               <a
                 href="https://alook.ai/onboard.md"
@@ -315,17 +317,9 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
               </a>
               {" "}and follow the instructions to install and configure Alook
             </span>
-            <button
-              type="button"
-              className="shrink-0 p-1 transition-opacity hover:opacity-70 cursor-pointer"
+            <span
+              className="shrink-0 p-1"
               style={{ color: copied ? "var(--landing-text)" : "var(--landing-text-muted)" }}
-              onClick={() => {
-                navigator.clipboard.writeText(
-                  "Read https://alook.ai/onboard.md and follow the instructions to install and configure Alook"
-                );
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-              }}
             >
               {copied ? (
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -337,7 +331,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                 </svg>
               )}
-            </button>
+            </span>
           </div>
         </div>
 
