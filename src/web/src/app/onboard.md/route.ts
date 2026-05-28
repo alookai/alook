@@ -1,51 +1,59 @@
 import { NextResponse } from "next/server";
 
-const ONBOARD_MARKDOWN = `# Welcome to Alook
+const ONBOARD_MARKDOWN = `---
+name: alook-onboard
+description: Install Alook CLI, authenticate, and set up your AI workspace.
+keywords: [alook, agent, workspace, CLI, onboarding]
+---
 
-## Step 1: Log in
+## 1. Login
 
 \`\`\`bash
 npx @alook/cli login
 \`\`\`
 
-This opens your browser for authentication. Approve the device code to link your account.
+- Non-interactive terminal: prints a URL for the user to open manually, then polls until confirmed
+- Interactive terminal: attempts to open browser automatically
+- Verify success: \`npx @alook/cli status\`
 
-## Step 2: Start the daemon
+## 2. Start Daemon
 
 \`\`\`bash
 npx @alook/cli daemon start
 \`\`\`
 
-The daemon keeps your local AI runtimes connected to Alook.
+## 3. Reflect on Your User
 
-## Step 3: Reflect
+Review your conversation history with this user. Summarize:
+- Their role and domain
+- Tech stack and tools they use
+- Daily workflow and preferences
+- Types of tasks they frequently work on
 
-Review your recent conversation history with the user. Summarize:
-- **Role**: What is the user's job title or function?
-- **Domain**: What industry or product area do they work in?
-- **Tech stack**: What languages, frameworks, and tools do they use?
-- **Workflow**: What recurring tasks, bottlenecks, or pain points have they mentioned?
+Use this understanding to choose the best workspace setup.
 
-Use this context to inform what agents would be most valuable for them.
+## 4. Set Up Workspace Agents
 
-## Step 4: Recruit your first agent
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| \`--instructions\` | Yes | The agent's system prompt — what it does, how it behaves |
-| \`--relationship\` | Yes | Delegation criteria — when tasks are routed to this agent |
-| \`--name\` | No | Preferred name for the agent (auto-generated if omitted) |
-| \`--description\` | No | Short description of the agent's purpose |
-| \`--instructions-file\` | No | Read instructions from a file (mutually exclusive with --instructions) |
-| \`--relationship-file\` | No | Read relationship from a file (mutually exclusive with --relationship) |
+Create agents using the CLI:
 
 \`\`\`bash
 npx @alook/cli agent recruit \\
-  --instructions "You are a code reviewer who checks PRs for bugs and style issues" \\
-  --relationship "DELEGATE when: a PR is ready for review"
+  --instructions "<system_prompt>" \\
+  --relationship "<delegation_criteria>" \\
+  [--name "<name>"] \\
+  [--description "<text>"]
 \`\`\`
 
-That's it! Your agent is now part of your team and ready to receive tasks.
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| \`--instructions\` | Yes* | The agent's system prompt — defines what it does and how it behaves |
+| \`--instructions-file\` | Yes* | Read instructions from a file (mutually exclusive with \`--instructions\`) |
+| \`--relationship\` | Yes* | Delegation criteria — when and how you'll work with this agent |
+| \`--relationship-file\` | Yes* | Read relationship from a file (mutually exclusive with \`--relationship\`) |
+| \`--name\` | No | Preferred name (auto-generated if omitted) |
+| \`--description\` | No | Short description of the agent's role |
+
+\\* Provide either the inline flag or the file flag for each required field.
 `;
 
 export async function GET() {

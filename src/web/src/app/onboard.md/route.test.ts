@@ -23,11 +23,10 @@ describe("GET /onboard.md", () => {
   it("contains reflection section with role/domain/tech-stack prompts", async () => {
     const response = await GET();
     const body = await response.text();
-    expect(body).toContain("Reflect");
-    expect(body).toContain("Role");
-    expect(body).toContain("Domain");
+    expect(body).toContain("Reflect on Your User");
+    expect(body).toContain("role and domain");
     expect(body).toContain("Tech stack");
-    expect(body).toContain("Workflow");
+    expect(body).toContain("workflow");
   });
 
   it("contains agent recruit section with parameter table", async () => {
