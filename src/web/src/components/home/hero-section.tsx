@@ -151,7 +151,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         >
           {/* Floating badge label */}
           <span
-            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap overflow-hidden text-ellipsis px-2 py-0.5 text-xs"
+            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap overflow-hidden text-ellipsis px-2 py-0.5 text-[10px] sm:text-xs"
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--landing-text-muted)",
@@ -162,10 +162,9 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           </span>
           {/* Content box */}
           <div
-            className="flex w-full items-center gap-2 rounded px-3 py-2.5 pt-3"
+            className="flex w-full items-center gap-2 rounded px-3 py-2.5 pt-3 text-xs sm:text-sm"
             style={{
               fontFamily: "var(--font-mono)",
-              fontSize: "0.875rem",
               color: "var(--landing-text)",
               border: "1px solid color-mix(in srgb, var(--landing-text-muted) 30%, transparent)",
             }}
