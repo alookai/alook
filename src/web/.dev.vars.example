@@ -20,3 +20,6 @@ GITHUB_CLIENT_SECRET=
 # Google OAuth (https://console.cloud.google.com/apis/credentials)
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+
+# Device Code Flow — comma-separated allowed client IDs
+DEVICE_CLIENT_IDS=alook-cli
