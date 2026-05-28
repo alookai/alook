@@ -785,5 +785,6 @@ export const RecruitAgentRequestSchema = z.object({
   name: z.string().optional(),
   description: z.string().optional().default(""),
   model: z.string().max(100).optional(),
+  context_key: z.string().optional(),
 });
 export type RecruitAgentRequest = z.infer<typeof RecruitAgentRequestSchema>;

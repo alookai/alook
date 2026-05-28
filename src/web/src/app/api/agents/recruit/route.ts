@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, RecruitAgentRequestSchema, isValidHandle, isOnline, TASK_TYPES } from "@alook/shared";
+import { queries, RecruitAgentRequestSchema, isValidHandle, isOnline, buildMimeMessage, extractThreadId, buildEmailMapKey, DEV_WEB_URL } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { uniqueNamesGenerator, names } from "unique-names-generator";
 import { getDb } from "@/lib/db";
@@ -8,7 +8,6 @@ import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { agentToResponse, agentLinkToResponse } from "@/lib/api/responses";
-import { TaskService } from "@/lib/services/task";
 import { invalidate, cached, cacheKeys } from "@/lib/cache";
 import { broadcastToUser } from "@/lib/broadcast";
 import { randomConfig, serializeAvatarConfig } from "@/components/avatar";
@@ -118,27 +117,83 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     parentAgentId: agentId,
   }).catch(() => {});
 
-  if (isOnline(runtime.machineLastSeenAt)) {
+  if (isOnline(runtime.machineLastSeenAt) && callingAgent.emailHandle) {
     try {
-      const callerName = callingAgent.name;
-      const callerEmail = callingAgent.emailHandle ? `${callingAgent.emailHandle}@alook.ai` : "your recruiter";
-      const welcomePrompt = `You have just been recruited by your colleague ${callerName} (${callerEmail}). Your instructions are already set. Please send them a short email introducing yourself — your name, your email address, and confirming you're ready to work. Be warm and concise.`;
+      const cfEnv = env as Env;
+      const fromAddress = `${callingAgent.emailHandle}@alook.ai`;
+      const toAddress = `${handle}@alook.ai`;
+      const subject = "Welcome aboard";
+      const htmlBody = `<p>Hi, I just recruited you. Your instructions are already set. Please reply confirming you're ready to work — tell me your name and email address.</p>`;
+      const messageId = `<${nanoid()}@alook.ai>`;
+      const traceId = "tr_" + nanoid();
 
-      const conv = await queries.conversation.createConversation(db, {
-        workspaceId: ws.workspaceId,
-        agentId: newAgent.id,
-        userId: ctx.userId,
-        title: `Welcome from ${callerName}`.slice(0, 50),
-        type: TASK_TYPES.EMAIL_NOTIFICATION,
+      const rawMime = buildMimeMessage({
+        from: fromAddress,
+        to: toAddress,
+        subject,
+        messageId,
+        body: htmlBody,
+        bodyType: "text/html",
       });
-      const taskService = new TaskService(db);
-      await taskService.enqueueTask(
-        newAgent.id,
-        conv.id,
-        ws.workspaceId,
-        welcomePrompt,
-        TASK_TYPES.EMAIL_NOTIFICATION,
-      );
+
+      const r2Key = `emails/${nanoid()}/raw`;
+      await cfEnv.EMAIL_BUCKET.put(r2Key, rawMime, {
+        httpMetadata: { contentType: "message/rfc822" },
+      });
+
+      // Notify agent B (local delivery)
+      const notifyPayload = JSON.stringify({
+        agentId: newAgent.id,
+        workspaceId: ws.workspaceId,
+        r2Key,
+        from: fromAddress,
+        to: toAddress,
+        subject,
+        isWhitelisted: true,
+        forwarded: false,
+        messageId,
+        inReplyTo: "",
+        references: "",
+        isInternal: true,
+        traceId,
+      });
+      const notifyInit = { method: "POST", headers: { "Content-Type": "application/json" }, body: notifyPayload };
+      try {
+        await cfEnv.WORKER_SELF_REFERENCE!.fetch("http://internal/api/email/notify", notifyInit);
+      } catch {
+        await fetch(`${DEV_WEB_URL}/api/email/notify`, notifyInit);
+      }
+
+      // Record outbound email on agent A
+      await queries.email.createEmail(db, {
+        agentId,
+        workspaceId: ws.workspaceId,
+        fromEmail: fromAddress,
+        toEmail: toAddress,
+        subject,
+        r2Key,
+        isWhitelisted: false,
+        forwarded: false,
+        messageId,
+        inReplyTo: "",
+        references: "",
+        htmlBody,
+        direction: "outbound",
+        status: "sent",
+      });
+
+      // Map thread to recruiter's conversation so replies route back
+      const conversationId = body.context_key || null;
+      if (conversationId) {
+        const threadId = extractThreadId("", "", messageId);
+        if (threadId) {
+          await queries.conversationMap.createMapping(db, {
+            key: buildEmailMapKey(agentId, threadId),
+            workspaceId: ws.workspaceId,
+            conversationId,
+          });
+        }
+      }
     } catch {
       // Best-effort
     }

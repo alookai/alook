@@ -4,6 +4,7 @@ import { APIClient } from "../lib/client.js";
 import { printJSON } from "../lib/output.js";
 import { resolveAgentId } from "../lib/flags.js";
 import { resolveClientOpts } from "../lib/resolve-client.js";
+import { gatherContextEnvVars } from "../lib/context-env.js";
 
 function readField(opts: { inline?: string; file?: string }, inlineName: string, fileName: string): string | null {
   if (opts.inline && opts.file) {
@@ -54,10 +55,12 @@ export function agentCommand(): Command {
       const { serverUrl, token, workspaceId } = resolveClientOpts(command, { agentId });
       const client = new APIClient(serverUrl, token, workspaceId);
 
+      const ctx = gatherContextEnvVars();
       const body: Record<string, string> = { instructions, relationship };
       if (opts.name) body.name = opts.name;
       if (opts.description) body.description = opts.description;
       if (opts.model) body.model = opts.model;
+      if (ctx.conversationId) body.context_key = ctx.conversationId;
 
       try {
         const res = await client.postJSON<{
