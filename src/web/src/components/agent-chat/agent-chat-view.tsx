@@ -1554,7 +1554,7 @@ export function AgentChatView({
       });
       setMessages((prev) => {
         const without = prev.filter((m) => m.id !== optimistic.id && m.id !== message.id);
-        return sortMessages([...without, message]);
+        return mergeMessages(without, [message]);
       });
       appendCachedMessage(conversation.id, message, workspaceId).catch(() => {});
       if (message.attachment_ids && message.attachment_ids.length > 0) {
