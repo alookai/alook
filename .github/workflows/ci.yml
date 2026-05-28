@@ -75,6 +75,7 @@ jobs:
           pnpm --filter @alook/web dev &
           until curl -sf http://localhost:3000/api/health; do sleep 2; done
       - run: pnpm test:e2e
+      - run: pnpm --filter @alook/cli run test:integration
 
   build:
     name: Build
