@@ -189,3 +189,51 @@ describe("createAuth session cookie cache", () => {
     expect(opts.session?.cookieCache?.enabled).toBe(true)
   })
 })
+
+describe("createAuth device authorization plugin", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("includes deviceAuthorization and bearer plugins in production", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: { plugins: any[] } }).__options
+    const pluginNames = opts.plugins.map((p: any) => p.__plugin)
+    expect(pluginNames).toContain("deviceAuthorization")
+    expect(pluginNames).toContain("bearer")
+  })
+
+  it("includes deviceAuthorization and bearer plugins in development", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "development" }) as never) as { __options: { plugins: any[] } }).__options
+    const pluginNames = opts.plugins.map((p: any) => p.__plugin)
+    expect(pluginNames).toContain("deviceAuthorization")
+    expect(pluginNames).toContain("bearer")
+  })
+
+  it("validateClient accepts client IDs listed in DEVICE_CLIENT_IDS", async () => {
+    const createAuth = await loadCreateAuth()
+    const env = makeEnv({ NODE_ENV: "production", DEVICE_CLIENT_IDS: "cli-app, web-app" })
+    const opts = (createAuth(env as never) as { __options: { plugins: any[] } }).__options
+    const devicePlugin = opts.plugins.find((p: any) => p.__plugin === "deviceAuthorization")
+    const { validateClient } = devicePlugin.cfg
+    expect(validateClient("cli-app")).toBe(true)
+    expect(validateClient("web-app")).toBe(true)
+  })
+
+  it("validateClient rejects client IDs not listed in DEVICE_CLIENT_IDS", async () => {
+    const createAuth = await loadCreateAuth()
+    const env = makeEnv({ NODE_ENV: "production", DEVICE_CLIENT_IDS: "cli-app" })
+    const opts = (createAuth(env as never) as { __options: { plugins: any[] } }).__options
+    const devicePlugin = opts.plugins.find((p: any) => p.__plugin === "deviceAuthorization")
+    const { validateClient } = devicePlugin.cfg
+    expect(validateClient("unknown-client")).toBe(false)
+  })
+
+  it("validateClient rejects empty string when DEVICE_CLIENT_IDS is unset", async () => {
+    const createAuth = await loadCreateAuth()
+    const env = makeEnv({ NODE_ENV: "production" })
+    const opts = (createAuth(env as never) as { __options: { plugins: any[] } }).__options
+    const devicePlugin = opts.plugins.find((p: any) => p.__plugin === "deviceAuthorization")
+    const { validateClient } = devicePlugin.cfg
+    expect(validateClient("")).toBe(false)
+  })
+})
