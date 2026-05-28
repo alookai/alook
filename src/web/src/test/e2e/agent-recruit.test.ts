@@ -15,7 +15,7 @@ afterAll(() => {
       `DELETE FROM message WHERE conversation_id IN (SELECT id FROM conversation WHERE agent_id = '${recruitedAgentId}')`,
       `DELETE FROM conversation WHERE agent_id = '${recruitedAgentId}'`,
       `DELETE FROM agent_whitelist WHERE agent_id = '${recruitedAgentId}'`,
-      `DELETE FROM agent_link WHERE source_agent_id = '${seed.agentId}' AND target_agent_id = '${recruitedAgentId}'`,
+      `DELETE FROM agent_link WHERE (source_agent_id = '${seed.agentId}' AND target_agent_id = '${recruitedAgentId}') OR (source_agent_id = '${recruitedAgentId}' AND target_agent_id = '${seed.agentId}')`,
       `DELETE FROM agent WHERE id = '${recruitedAgentId}'`,
     ])
   }
@@ -45,7 +45,10 @@ describe("POST /api/agents/recruit", () => {
     expect(data.agent.email).toBeTruthy()
     expect(data.link).toBeTruthy()
     expect(data.link.source_agent_id).toBeTruthy()
-    expect(data.link.target_agent_id).toBe(data.agent.id)
+    expect(data.link.target_agent_id).toBeTruthy()
+    const linkAgentIds = [data.link.source_agent_id, data.link.target_agent_id]
+    expect(linkAgentIds).toContain(data.agent.id)
+    expect(linkAgentIds).toContain(seed.agentId)
     recruitedAgentId = data.agent.id as string
   })
 
