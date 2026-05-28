@@ -47,7 +47,7 @@ describe("session resume via context_key", () => {
     sql(`INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, created_at) VALUES ('${firstConversationId}', '${seed.workspaceId}', '${seed.agentId}', '${seed.userId}', 'session resume test', '${now}')`)
     sql(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, context_key, priority, created_at) VALUES ('${firstTaskId}', '${seed.agentId}', '${runtimeId}', '${seed.workspaceId}', '${firstConversationId}', 'First message', 'queued', 'user_dm_message', '${contextKey}', 0, '${now}')`)
 
-    const result = await client.poll(seed.machineToken, daemonId, 1)
+    const result = await client.poll(seed.machineToken, daemonId, 1, "0.1.0-integ")
     expect(result.tasks).toHaveLength(1)
     expect(result.tasks[0].id).toBe(firstTaskId)
     expect(result.tasks[0].context_key).toBe(contextKey)
@@ -67,7 +67,7 @@ describe("session resume via context_key", () => {
 
     sql(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, context_key, priority, created_at) VALUES ('${secondTaskId}', '${seed.agentId}', '${runtimeId}', '${seed.workspaceId}', '${firstConversationId}', 'Second message same context', 'queued', 'user_dm_message', '${contextKey}', 0, '${now}')`)
 
-    const result = await client.poll(seed.machineToken, daemonId, 1)
+    const result = await client.poll(seed.machineToken, daemonId, 1, "0.1.0-integ")
     expect(result.tasks).toHaveLength(1)
     expect(result.tasks[0].id).toBe(secondTaskId)
     expect(result.tasks[0].context_key).toBe(contextKey)
@@ -88,7 +88,7 @@ describe("session resume via context_key", () => {
     sql(`INSERT INTO conversation (id, workspace_id, agent_id, user_id, title, created_at) VALUES ('${thirdConversationId}', '${seed.workspaceId}', '${seed.agentId}', '${seed.userId}', 'different context', '${now}')`)
     sql(`INSERT INTO agent_task_queue (id, agent_id, runtime_id, workspace_id, conversation_id, prompt, status, type, context_key, priority, created_at) VALUES ('${thirdTaskId}', '${seed.agentId}', '${runtimeId}', '${seed.workspaceId}', '${thirdConversationId}', 'Different context message', 'queued', 'user_dm_message', '${differentContextKey}', 0, '${now}')`)
 
-    const result = await client.poll(seed.machineToken, daemonId, 1)
+    const result = await client.poll(seed.machineToken, daemonId, 1, "0.1.0-integ")
     expect(result.tasks).toHaveLength(1)
     expect(result.tasks[0].id).toBe(thirdTaskId)
     expect(result.tasks[0].context_key).toBe(differentContextKey)

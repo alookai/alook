@@ -92,12 +92,6 @@ describe("WebSocket push → poll", () => {
     sql(`DELETE FROM conversation WHERE id = '${conversationId}'`)
   })
 
-  it("skips WebSocket tests when WS-DO is not available", () => {
-    if (!wsAvailable) {
-      expect(true).toBe(true)
-    }
-  })
-
   afterAll(() => {
     try {
       sql(`DELETE FROM agent_runtime WHERE daemon_id = '${daemonId}'`)
