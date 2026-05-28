@@ -1,5 +1,6 @@
 import { Command } from "commander";
-import { spawn } from "child_process";
+import { fork, spawn } from "child_process";
+import { fileURLToPath } from "url";
 import { APIClient } from "../lib/client.js";
 import { activateAndSave } from "../lib/activate.js";
 
@@ -26,10 +27,6 @@ interface TokenErrorResponse {
   error_description?: string;
 }
 
-interface MeResponse {
-  id: string;
-  email: string;
-}
 
 function openBrowser(url: string): void {
   try {
@@ -48,6 +45,93 @@ function openBrowser(url: string): void {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function pollAndActivate(opts: {
+  deviceCode: string;
+  interval: number;
+  expiresIn: number;
+  serverUrl: string;
+  profile?: string;
+}): Promise<void> {
+  const { deviceCode, expiresIn, serverUrl, profile } = opts;
+  let interval = opts.interval;
+  const expiresAt = Date.now() + expiresIn * 1000;
+  let tokenResp: TokenResponse | undefined;
+
+  while (Date.now() < expiresAt) {
+    await sleep(interval);
+
+    try {
+      const res = await fetch(`${serverUrl}/api/auth/device/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+          device_code: deviceCode,
+          client_id: DEVICE_CLIENT_ID,
+        }),
+      });
+
+      if (res.ok) {
+        tokenResp = await res.json() as TokenResponse;
+        break;
+      }
+
+      const errBody = await res.json() as TokenErrorResponse;
+      if (errBody.error === "slow_down") {
+        interval += 5000;
+      } else if (errBody.error === "authorization_pending") {
+        // Keep polling
+      } else if (errBody.error === "expired_token") {
+        process.exit(1);
+      } else if (errBody.error === "access_denied") {
+        process.exit(1);
+      } else {
+        process.exit(1);
+      }
+    } catch {
+      process.exit(1);
+    }
+  }
+
+  if (!tokenResp) {
+    process.exit(1);
+  }
+
+  const sessionToken = tokenResp.access_token;
+  const client = new APIClient(serverUrl, sessionToken);
+
+  let email = "";
+  try {
+    const me = await client.getJSON<{ id: string; email: string }>("/api/me");
+    email = me.email;
+  } catch {
+    // Non-fatal — we can proceed without the email for display
+  }
+
+  let machineToken: string;
+  try {
+    const mtResp = await client.postJSON<{ token: string }>("/api/machine-tokens");
+    machineToken = mtResp.token;
+  } catch {
+    process.exit(1);
+  }
+
+  const result = await activateAndSave({ token: machineToken, serverUrl, profile });
+
+  if (email) {
+    console.log(`\nLogged in as ${email}`);
+  }
+  console.log(`Workspace: ${result.workspaceName} (${result.workspaceId})`);
+  console.log(`Runtimes: ${result.runtimeProviders.join(", ")}`);
+}
+
+// Background polling entry point — invoked as a detached child process in non-TTY mode
+if (process.argv.includes("--__login-poll")) {
+  const idx = process.argv.indexOf("--__login-poll");
+  const data = JSON.parse(process.argv[idx + 1]);
+  pollAndActivate(data).catch(() => process.exit(1));
 }
 
 export function loginCommand(): Command {
@@ -86,7 +170,7 @@ export function loginCommand(): Command {
         process.exit(1);
       }
 
-      // Step 2: Display code and open browser
+      // Step 2: Display verification URL and code
       const verificationUrl = deviceResp.verification_uri_complete || deviceResp.verification_uri;
       console.log();
       console.log(`  Open this URL in your browser:`);
@@ -95,98 +179,42 @@ export function loginCommand(): Command {
       console.log(`  Enter code: ${deviceResp.user_code}`);
       console.log();
 
-      if (process.stdout.isTTY) {
-        openBrowser(verificationUrl);
-        console.log("  (Browser opened automatically)");
-        console.log();
+      // Non-TTY (AI agent context): fork a background poller and exit immediately
+      // so the agent gets the URL output and can prompt the user to authorize.
+      if (!process.stdout.isTTY) {
+        const pollData = JSON.stringify({
+          deviceCode: deviceResp.device_code,
+          interval: (deviceResp.interval || 5) * 1000,
+          expiresIn: deviceResp.expires_in,
+          serverUrl,
+          profile,
+        });
+
+        const thisFile = fileURLToPath(import.meta.url);
+        const child = fork(thisFile, ["--__login-poll", pollData], {
+          detached: true,
+          stdio: "ignore",
+        });
+        child.unref();
+
+        console.log("  Polling for authorization in the background (timeout: 30min).");
+        console.log("  Once approved, run `npx @alook/cli status` to verify.");
+        return;
       }
 
-      // Step 3: Poll for token
+      // TTY: open browser and poll in foreground
+      openBrowser(verificationUrl);
+      console.log("  (Browser opened automatically)");
+      console.log();
       console.log("Waiting for authorization...");
-      let interval = (deviceResp.interval || 5) * 1000;
-      const expiresAt = Date.now() + deviceResp.expires_in * 1000;
-      let tokenResp: TokenResponse | undefined;
 
-      while (Date.now() < expiresAt) {
-        await sleep(interval);
-
-        try {
-          const res = await fetch(`${serverUrl}/api/auth/device/token`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-              device_code: deviceResp.device_code,
-              client_id: DEVICE_CLIENT_ID,
-            }),
-          });
-
-          if (res.ok) {
-            tokenResp = await res.json() as TokenResponse;
-            break;
-          }
-
-          const errBody = await res.json() as TokenErrorResponse;
-          if (errBody.error === "slow_down") {
-            interval += 5000;
-          } else if (errBody.error === "authorization_pending") {
-            // Keep polling
-          } else if (errBody.error === "expired_token") {
-            console.error("Error: device code expired. Please try again.");
-            process.exit(1);
-          } else if (errBody.error === "access_denied") {
-            console.error("Error: authorization was denied.");
-            process.exit(1);
-          } else {
-            console.error(`Error: ${errBody.error_description || errBody.error}`);
-            process.exit(1);
-          }
-        } catch (err) {
-          console.error(
-            `Error polling for token: ${err instanceof Error ? err.message : err}`,
-          );
-          process.exit(1);
-        }
-      }
-
-      if (!tokenResp) {
-        console.error("Error: device code expired. Please try again.");
-        process.exit(1);
-      }
-
-      console.log("Authorization received!");
-
-      // Step 4: Use session token to create machine token
-      const sessionToken = tokenResp.access_token;
-      const client = new APIClient(serverUrl, sessionToken);
-
-      let me: MeResponse;
-      try {
-        me = await client.getJSON<MeResponse>("/api/me");
-      } catch (err) {
-        console.error(
-          `Error: failed to verify session: ${err instanceof Error ? err.message : err}`,
-        );
-        process.exit(1);
-      }
-
-      let machineToken: string;
-      try {
-        const mtResp = await client.postJSON<{ token: string }>("/api/machine-tokens");
-        machineToken = mtResp.token;
-      } catch (err) {
-        console.error(
-          `Error: failed to create machine token: ${err instanceof Error ? err.message : err}`,
-        );
-        process.exit(1);
-      }
-
-      // Step 5: Activate and save config
-      const result = await activateAndSave({ token: machineToken, serverUrl, profile });
-
-      console.log(`\nLogged in as ${me.email}`);
-      console.log(`Workspace: ${result.workspaceName} (${result.workspaceId})`);
-      console.log(`Runtimes: ${result.runtimeProviders.join(", ")}`);
+      await pollAndActivate({
+        deviceCode: deviceResp.device_code,
+        interval: (deviceResp.interval || 5) * 1000,
+        expiresIn: deviceResp.expires_in,
+        serverUrl,
+        profile,
+      });
     });
 
   return cmd;

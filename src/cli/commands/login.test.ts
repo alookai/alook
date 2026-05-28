@@ -32,6 +32,7 @@ vi.mock("child_process", () => ({
     throw new Error("not found");
   }),
   spawn: vi.fn(() => ({ unref: vi.fn() })),
+  fork: vi.fn(() => ({ unref: vi.fn() })),
 }));
 
 import { loginCommand } from "./login";
@@ -49,6 +50,7 @@ describe("alook login", () => {
     consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mockExit = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
     mockKill = vi.spyOn(process, "kill").mockImplementation(() => true);
+    Object.defineProperty(process.stdout, "isTTY", { value: true, writable: true });
     mockLoadCLIConfigForProfile.mockReturnValue({
       server_url: "http://localhost:3000",
       watched_workspaces: [],
