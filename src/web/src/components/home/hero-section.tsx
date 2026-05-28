@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import gsap from "gsap";
@@ -16,6 +16,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const sublineRef = useRef<HTMLParagraphElement>(null);
   const ctaRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
 
   useGSAP(
     () => {
@@ -51,6 +52,11 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           ctaRef.current,
           { y: 15, opacity: 0, duration: 0.4, ease: "power2.out" },
           "-=0.2"
+        )
+        .from(
+          ".hero-clipboard",
+          { y: 10, opacity: 0, duration: 0.3, ease: "power2.out" },
+          "-=0.1"
         );
 
     },
@@ -260,6 +266,37 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             TEMPLATES
           </Link>
         </div>
+        {/* Clipboard copy widget */}
+        <button
+          type="button"
+          className="hero-clipboard mt-5 flex items-center gap-2 px-3 py-1.5 rounded transition-all duration-200 hover:opacity-70 cursor-pointer"
+          style={{
+            fontFamily: "var(--font-mono)",
+            color: copied ? "var(--landing-text)" : "var(--landing-text-muted)",
+            fontSize: "0.75rem",
+            border: "1px solid color-mix(in srgb, var(--landing-text-muted) 30%, transparent)",
+          }}
+          onClick={() => {
+            navigator.clipboard.writeText(
+              "Read https://alook.ai/onboard.md and follow the instructions to install and configure Alook"
+            );
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }}
+        >
+          {copied ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          )}
+          {copied ? "Copied!" : "Copy and Paste Into Your Agent’s Chat to Get Started"}
+        </button>
+
         <p
           className="mt-4 sm:hidden text-center text-xs"
           style={{
