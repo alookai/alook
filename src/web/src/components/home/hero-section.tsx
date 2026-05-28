@@ -37,6 +37,12 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         .to(headingRef.current, { opacity: 1, duration: 0.4, ease: "power2.out" }, 0.2)
         .to(sublineRef.current, { opacity: 1, duration: 0.3, ease: "power2.out" }, "-=0.1")
         .fromTo(
+          ".hero-clipboard",
+          { y: 10, opacity: 0 },
+          { y: 0, opacity: 1, duration: 0.3, ease: "power2.out" },
+          "-=0.1"
+        )
+        .fromTo(
           ".hero-specs",
           { y: 15, opacity: 0 },
           { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" },
@@ -53,12 +59,6 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           { y: 15, opacity: 0 },
           { y: 0, opacity: 1, duration: 0.4, ease: "power2.out" },
           "-=0.2"
-        )
-        .fromTo(
-          ".hero-clipboard",
-          { y: 10, opacity: 0 },
-          { y: 0, opacity: 1, duration: 0.3, ease: "power2.out" },
-          "-=0.1"
         );
 
     },
@@ -137,8 +137,73 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           />
         </div>
 
+        {/* Clipboard copy widget */}
+        <div
+          className="hero-clipboard relative mt-8 w-full max-w-lg cursor-pointer"
+          style={{ opacity: 0 }}
+          onClick={() => {
+            navigator.clipboard.writeText(
+              "Read https://alook.ai/onboard.md and follow the instructions to install and configure Alook"
+            );
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }}
+        >
+          {/* Floating badge label */}
+          <span
+            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap overflow-hidden text-ellipsis px-2 py-0.5 text-xs"
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: "var(--landing-text-muted)",
+              backgroundColor: "var(--landing-bg)",
+            }}
+          >
+            Copy and Paste Into Your Agent&apos;s Chat to Get Started
+          </span>
+          {/* Content box */}
+          <div
+            className="flex w-full items-center gap-2 rounded px-3 py-2.5 pt-3"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "0.875rem",
+              color: "var(--landing-text)",
+              border: "1px solid color-mix(in srgb, var(--landing-text-muted) 30%, transparent)",
+            }}
+          >
+            <span className="flex-1 overflow-hidden whitespace-nowrap text-ellipsis">
+              Read{" "}
+              <a
+                href="https://alook.ai/onboard.md"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline transition-opacity hover:opacity-70"
+                style={{ color: "var(--landing-text)" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                Onboard.md
+              </a>
+              {" "}and follow the instructions to install and configure Alook
+            </span>
+            <span
+              className="shrink-0 p-1"
+              style={{ color: copied ? "var(--landing-text)" : "var(--landing-text-muted)" }}
+            >
+              {copied ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              )}
+            </span>
+          </div>
+        </div>
+
         {/* Specs */}
-        <div className="hero-specs mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2" style={{ opacity: 0 }}>
+        <div className="hero-specs mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2" style={{ opacity: 0 }}>
           {[
             "Collaboration",
             "Always-On",
@@ -269,70 +334,6 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             </svg>
             TEMPLATES
           </Link>
-        </div>
-        {/* Clipboard copy widget */}
-        <div
-          className="hero-clipboard relative mt-5 w-full max-w-lg cursor-pointer"
-          style={{ opacity: 0 }}
-          onClick={() => {
-            navigator.clipboard.writeText(
-              "Read https://alook.ai/onboard.md and follow the instructions to install and configure Alook"
-            );
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          }}
-        >
-          {/* Floating badge label */}
-          <span
-            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap overflow-hidden text-ellipsis px-2 py-0.5 text-xs"
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: "var(--landing-text-muted)",
-              backgroundColor: "var(--landing-bg)",
-            }}
-          >
-            Copy and Paste Into Your Agent&apos;s Chat to Get Started
-          </span>
-          {/* Content box */}
-          <div
-            className="flex w-full items-center gap-2 rounded px-3 py-2.5 pt-3"
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.875rem",
-              color: "var(--landing-text)",
-              border: "1px solid color-mix(in srgb, var(--landing-text-muted) 30%, transparent)",
-            }}
-          >
-            <span className="flex-1 overflow-hidden whitespace-nowrap text-ellipsis">
-              Read{" "}
-              <a
-                href="https://alook.ai/onboard.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline transition-opacity hover:opacity-70"
-                style={{ color: "var(--landing-text)" }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                Onboard.md
-              </a>
-              {" "}and follow the instructions to install and configure Alook
-            </span>
-            <span
-              className="shrink-0 p-1"
-              style={{ color: copied ? "var(--landing-text)" : "var(--landing-text-muted)" }}
-            >
-              {copied ? (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              )}
-            </span>
-          </div>
         </div>
 
         <p
