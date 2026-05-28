@@ -20,6 +20,11 @@ vi.mock("../lib/env.js", () => ({
   isDev: () => false,
 }));
 
+vi.mock("../lib/runtimes.js", () => ({
+  isCommandAvailable: vi.fn(() => true),
+  detectRuntimes: vi.fn(() => [{ type: "claude", version: "4.0.0" }]),
+}));
+
 vi.mock("child_process", () => ({
   execSync: vi.fn((cmd: string) => {
     if (cmd.includes("which claude")) return "/usr/bin/claude";
