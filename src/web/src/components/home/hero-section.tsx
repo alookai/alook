@@ -210,7 +210,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           ].map((spec) => (
             <span
               key={spec}
-              className="text-sm uppercase tracking-[0.15em] font-bold"
+              className="text-xs sm:text-sm uppercase tracking-[0.15em] font-bold"
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-text-muted)",
