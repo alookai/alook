@@ -73,6 +73,7 @@
     "unique-names-generator": "^4.7.1"
   },
   "devDependencies": {
+    "@alook/test-utils": "workspace:*",
     "@eslint/eslintrc": "^3",
     "@lhci/cli": "^0.15.1",
     "@tailwindcss/node": "^4.3.0",

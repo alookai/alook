@@ -2,10 +2,6 @@ import { fetchWithRetry } from "./fetch"
 
 const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
 
-/**
- * Sign up a new user via Better Auth.
- * Returns the response (check status to see if successful).
- */
 export async function signUp(email: string, password: string, name: string) {
   return fetch(`${APP_URL}/api/auth/sign-up/email`, {
     method: "POST",
@@ -15,9 +11,6 @@ export async function signUp(email: string, password: string, name: string) {
   })
 }
 
-/**
- * Sign in and return the raw set-cookie header value.
- */
 export async function signIn(email: string, password: string): Promise<string> {
   const res = await fetch(`${APP_URL}/api/auth/sign-in/email`, {
     method: "POST",
@@ -32,9 +25,6 @@ export async function signIn(email: string, password: string): Promise<string> {
   return setCookie.split(";")[0]
 }
 
-/**
- * Make an authenticated request with a session cookie.
- */
 export async function sessionRequest(
   path: string,
   cookie: string,
@@ -49,9 +39,6 @@ export async function sessionRequest(
   })
 }
 
-/**
- * Make an authenticated request with a Bearer token.
- */
 export async function tokenRequest(
   path: string,
   token: string,

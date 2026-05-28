@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { seedTestData, cleanupTestData, type TestSeed } from "../helpers/seed"
-import { tokenRequest } from "../helpers/auth"
+import { seedTestData, cleanupTestData, type TestSeed } from "@alook/test-utils"
+import { tokenRequest } from "@alook/test-utils"
 
 let seed: TestSeed
 

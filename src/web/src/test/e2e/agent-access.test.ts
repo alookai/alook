@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import {
   seedTestData, cleanupTestData, type TestSeed,
   seedSecondaryUser, cleanupSecondaryUser, type SecondaryUser,
-} from "../helpers/seed"
-import { tokenRequest } from "../helpers/auth"
+} from "@alook/test-utils"
+import { tokenRequest } from "@alook/test-utils"
 
 let seed: TestSeed
 let secondary: SecondaryUser

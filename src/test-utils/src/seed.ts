@@ -19,10 +19,6 @@ function nanoid() {
   return randomUUID().replace(/-/g, "").slice(0, 21)
 }
 
-/**
- * Seed a full test environment: user, workspace, member, runtime, agent, machine token.
- * All IDs are unique per call.
- */
 export function seedTestData(): TestSeed {
   const userId = `u_${nanoid()}`
   const workspaceId = `sp_${nanoid()}`
@@ -50,9 +46,6 @@ export function seedTestData(): TestSeed {
   return { userId, workspaceId, memberId, runtimeId, daemonId, agentId, agentEmailHandle: emailHandle, machineToken: rawToken, machineTokenId, whitelistId }
 }
 
-/**
- * Clean up all test data created by seedTestData.
- */
 export function cleanupTestData(seed: TestSeed) {
   const ws = seed.workspaceId
   sqlBatch([
@@ -82,9 +75,6 @@ export interface SecondaryUser {
   memberId: string
 }
 
-/**
- * Create a second user + member record in an existing workspace.
- */
 export function seedSecondaryUser(workspaceId: string, role = "member"): SecondaryUser {
   const userId = `u_${nanoid()}`
   const memberId = `mb_${nanoid()}`
@@ -101,9 +91,6 @@ export interface TestInvite {
   token: string
 }
 
-/**
- * Create a workspace invite directly in DB for testing.
- */
 export function seedInvite(workspaceId: string, createdBy: string): TestInvite {
   const inviteId = `inv_${nanoid()}`
   const token = `tok_${nanoid()}`
@@ -115,9 +102,6 @@ export function seedInvite(workspaceId: string, createdBy: string): TestInvite {
   return { inviteId, token }
 }
 
-/**
- * Clean up secondary user (and their memberships).
- */
 export function cleanupSecondaryUser(secondary: SecondaryUser) {
   sql(`DELETE FROM agent_access WHERE user_id = '${secondary.userId}'`)
   sql(`DELETE FROM agent_pin WHERE user_id = '${secondary.userId}'`)

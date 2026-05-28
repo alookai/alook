@@ -52,6 +52,7 @@
   },
   "devDependencies": {
     "@alook/shared": "workspace:*",
+    "@alook/test-utils": "workspace:*",
     "@types/bun": "^1.3.14",
     "eslint": "^10.3.0",
     "typescript": "^6.0.3",
