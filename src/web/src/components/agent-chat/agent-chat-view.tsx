@@ -1227,7 +1227,22 @@ export function AgentChatView({
       if (msg.type === "conversation.message") {
         appendCachedMessage(msg.conversationId, msg.message, workspaceId).catch(() => {});
         if (msg.conversationId === conversation?.id) {
-          setMessages((prev) => mergeMessages(prev, [msg.message]));
+          setMessages((prev) => {
+            const incomingTime = new Date(msg.message.created_at).getTime();
+            const optimisticIdx = prev.findIndex(
+              (m) =>
+                m.id.startsWith("temp-") &&
+                m.role === msg.message.role &&
+                m.content === msg.message.content &&
+                Math.abs(new Date(m.created_at).getTime() - incomingTime) < 2000
+            );
+            if (optimisticIdx !== -1) {
+              const updated = [...prev];
+              updated[optimisticIdx] = msg.message;
+              return updated;
+            }
+            return mergeMessages(prev, [msg.message]);
+          });
         }
       }
       if (msg.type === "task.updated" && msg.taskId === activeTaskIdRef.current) {
@@ -1553,6 +1568,11 @@ export function AgentChatView({
         return next;
       });
       setMessages((prev) => {
+        const hasOptimistic = prev.some((m) => m.id === optimistic.id);
+        if (!hasOptimistic) {
+          const hasReal = prev.some((m) => m.id === message.id);
+          return hasReal ? prev : sortMessages([...prev, message]);
+        }
         const without = prev.filter((m) => m.id !== optimistic.id && m.id !== message.id);
         return sortMessages([...without, message]);
       });

@@ -202,7 +202,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         </div>
 
         {/* Specs */}
-        <div className="hero-specs mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2" style={{ opacity: 0 }}>
+        {/* <div className="hero-specs mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2" style={{ opacity: 0 }}>
           {[
             "Collaboration",
             "Always-On",
@@ -219,7 +219,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
               {spec}
             </span>
           ))}
-        </div>
+        </div> */}
 
         {/* Community links */}
         <div className="hero-providers mt-5 flex items-center justify-center gap-4" style={{ opacity: 0 }}>
