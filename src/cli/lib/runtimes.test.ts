@@ -8,9 +8,15 @@ import { execSync } from "child_process";
 import { isCommandAvailable, detectRuntimes } from "./runtimes.js";
 
 const mockedExecSync = vi.mocked(execSync);
+const originalPlatform = process.platform;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.defineProperty(process, "platform", { value: "linux" });
+});
+
+afterEach(() => {
+  Object.defineProperty(process, "platform", { value: originalPlatform });
 });
 
 describe("isCommandAvailable", () => {
@@ -30,6 +36,13 @@ describe("isCommandAvailable", () => {
     mockedExecSync.mockReturnValue("");
     isCommandAvailable("claude");
     expect(mockedExecSync).toHaveBeenCalledWith("which claude", { stdio: "ignore" });
+  });
+
+  it("uses 'where' on windows", () => {
+    Object.defineProperty(process, "platform", { value: "win32" });
+    mockedExecSync.mockReturnValue("");
+    isCommandAvailable("claude");
+    expect(mockedExecSync).toHaveBeenCalledWith("where claude", { stdio: "ignore" });
   });
 });
 
@@ -57,6 +70,23 @@ describe("detectRuntimes", () => {
       { type: "claude", version: "1.0.0" },
       { type: "codex", version: "2.0.0" },
       { type: "opencode", version: "3.0.0" },
+    ]);
+  });
+
+  it("detects runtimes on windows using 'where'", () => {
+    Object.defineProperty(process, "platform", { value: "win32" });
+    mockedExecSync.mockImplementation((cmd: string) => {
+      if (cmd === "where claude") return "";
+      if (cmd === "claude --version") return "1.0.0\n";
+      if (cmd === "where codex") return "";
+      if (cmd === "codex --version") return "2.0.0\n";
+      throw new Error("not found");
+    });
+
+    const result = detectRuntimes();
+    expect(result).toEqual([
+      { type: "claude", version: "1.0.0" },
+      { type: "codex", version: "2.0.0" },
     ]);
   });
 
