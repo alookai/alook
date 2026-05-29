@@ -20,7 +20,7 @@ function slugify(name: string): string {
 interface StudioResponse {
   studio: { name: string };
   workspace: { id: string; name: string };
-  agents: Array<{ id: string; name: string; email: string }>;
+  agents: Array<{ id: string; name: string; email_handle: string | null }>;
 }
 
 export function workspaceCommand(): Command {
@@ -95,8 +95,8 @@ export function workspaceCommand(): Command {
           targetClient = new APIClient(serverUrl, token, targetWorkspaceId);
           console.log(`Created workspace: ${newWs.name} (${newWs.id})`);
         }
-      } catch {
-        // If agents check fails, proceed with current workspace
+      } catch (err) {
+        console.warn(`Warning: could not check existing agents: ${err instanceof Error ? err.message : err}`);
       }
 
       // Inject runtime_id into each member
@@ -120,7 +120,8 @@ export function workspaceCommand(): Command {
         console.log(`\nWorkspace initialized: ${res.studio.name || res.workspace.name}`);
         console.log("Agents created:");
         for (const agent of res.agents) {
-          console.log(`  - ${agent.name} (${agent.email})`);
+          const email = agent.email_handle ? `${agent.email_handle}@alook.ai` : "no email";
+          console.log(`  - ${agent.name} (${email})`);
         }
       } catch (err) {
         console.error(`Error: failed to create workspace: ${err instanceof Error ? err.message : err}`);
