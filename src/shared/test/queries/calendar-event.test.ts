@@ -219,6 +219,44 @@ describe("computeNextScheduledAt", () => {
   });
 });
 
+describe("getOccurrencesPerDay", () => {
+  it("returns 1 for daily interval", () => {
+    expect(calendarQueries.getOccurrencesPerDay("1day")).toBe(1);
+  });
+
+  it("returns 1 for weekly interval", () => {
+    expect(calendarQueries.getOccurrencesPerDay("1week")).toBe(1);
+  });
+
+  it("returns 1 for monthly interval", () => {
+    expect(calendarQueries.getOccurrencesPerDay("1month")).toBe(1);
+  });
+
+  it("returns 24 for hourly interval", () => {
+    expect(calendarQueries.getOccurrencesPerDay("1hour")).toBe(24);
+  });
+
+  it("returns 12 for 2-hour interval", () => {
+    expect(calendarQueries.getOccurrencesPerDay("2hour")).toBe(12);
+  });
+
+  it("returns 48 for 30-minute interval", () => {
+    expect(calendarQueries.getOccurrencesPerDay("30min")).toBe(48);
+  });
+
+  it("returns 96 for 15-minute interval", () => {
+    expect(calendarQueries.getOccurrencesPerDay("15min")).toBe(96);
+  });
+
+  it("returns 1 for invalid format", () => {
+    expect(calendarQueries.getOccurrencesPerDay("invalid")).toBe(1);
+  });
+
+  it("returns 1 for 0-amount (division guard)", () => {
+    expect(calendarQueries.getOccurrencesPerDay("0min")).toBe(1);
+  });
+});
+
 describe("expandOccurrences", () => {
   it("returns one entry per occurrence within [from, to] for a daily event", () => {
     const out = calendarQueries.expandOccurrences(
