@@ -29,14 +29,11 @@ describe("GET /onboard.md", () => {
     expect(body).toContain("workflow");
   });
 
-  it("contains agent recruit section with parameter table", async () => {
+  it("contains workspace init section", async () => {
     const response = await GET();
     const body = await response.text();
-    expect(body).toContain("npx @alook/cli agent recruit");
-    expect(body).toContain("--instructions");
-    expect(body).toContain("--relationship");
-    expect(body).toContain("--name");
-    expect(body).toContain("--description");
+    expect(body).toContain("npx @alook/cli workspace init --json-file");
+    expect(body).toContain("workspace already has agents");
   });
 
   it("contains templates exploration section", async () => {

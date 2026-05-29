@@ -1,0 +1,39 @@
+import { NextResponse } from "next/server";
+import { getTemplateById, TEMPLATES } from "@/lib/templates";
+
+export const dynamicParams = false;
+
+export function generateStaticParams(): { id: string }[] {
+  return TEMPLATES.map((t) => ({ id: t.id }));
+}
+
+export async function GET(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const template = getTemplateById(id);
+
+  if (!template) {
+    return NextResponse.json(
+      { error: "Template not found" },
+      { status: 404 },
+    );
+  }
+
+  const response = {
+    name: template.name,
+    scenario: template.baseScenario,
+    members: template.members.map((m) => ({
+      name: m.role === "leader"
+        ? "Coordinator"
+        : m.role.charAt(0).toUpperCase() + m.role.slice(1),
+      role: m.role,
+      description: m.description,
+      instructions: m.instructions,
+      ...(m.relationship ? { relationship: m.relationship } : {}),
+    })),
+  };
+
+  return NextResponse.json(response);
+}

@@ -12,6 +12,7 @@ import { agentCommand } from "../commands/agent.js";
 import { versionCommand } from "../commands/version.js";
 import { updateCommand } from "../commands/update.js";
 import { syncCommand } from "../commands/sync.js";
+import { workspaceCommand } from "../commands/workspace.js";
 
 const program = new Command();
 
@@ -33,5 +34,6 @@ program.addCommand(configCommand());
 program.addCommand(versionCommand());
 program.addCommand(updateCommand());
 program.addCommand(syncCommand());
+program.addCommand(workspaceCommand());
 
 program.parse();
