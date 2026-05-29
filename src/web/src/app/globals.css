@@ -1436,6 +1436,12 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   pointer-events: auto;
 }
 
+/* Table copy dropdown: widen so format labels don't wrap */
+[data-streamdown="table-wrapper"] > div:first-child:not(:has([data-streamdown="table"])) .absolute {
+  min-width: 10rem;
+  white-space: nowrap;
+}
+
 /* Thin scrollbar for table container */
 [data-streamdown="table-wrapper"] > div:has([data-streamdown="table"])::-webkit-scrollbar {
   height: 4px;
