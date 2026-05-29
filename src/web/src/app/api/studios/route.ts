@@ -54,13 +54,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (valErr) return valErr;
 
   const runtimeIds = [...new Set(body.members.map((m) => m.runtime_id))];
-  const runtimeCache = new Map<string, { id: string; runtimeMode: string; machineLastSeenAt: string | null }>();
+  const runtimes = await queries.runtime.getAgentRuntimesForWorkspace(db, runtimeIds, ws.workspaceId);
+  const runtimeCache = new Map(runtimes.map((r) => [r.id, r]));
   for (const rid of runtimeIds) {
-    const runtime = await queries.runtime.getAgentRuntimeForWorkspace(db, rid, ws.workspaceId);
-    if (!runtime) {
+    if (!runtimeCache.has(rid)) {
       return writeError(`runtime ${rid} not found in workspace`, 404);
     }
-    runtimeCache.set(rid, runtime);
   }
 
   // Update workspace name/slug if a name is provided
@@ -154,9 +153,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const leaderAgent = createdAgents.find((a) => a.role === "leader")!;
   const specialists = createdAgents.filter((a) => a.role !== "leader");
   const createdLinks = [];
+  const memberPayloadMap = new Map(body.members.map((m) => [m.name, m]));
 
   for (const specialist of specialists) {
-    const memberPayload = body.members.find((m) => m.name === specialist.name);
+    const memberPayload = memberPayloadMap.get(specialist.name);
     if (!memberPayload?.relationship) continue;
 
     const leaderMention = `[@ id="${leaderAgent.id}" label="${leaderAgent.name}"]`;
@@ -267,7 +267,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   // Fetch final agents for response
   const agents = await queries.agent.listAgents(db, ws.workspaceId, ctx.userId);
-  const studioAgents = agents.filter((a) => createdAgents.some((ca) => ca.id === a.id));
+  const createdIdSet = new Set(createdAgents.map((ca) => ca.id));
+  const studioAgents = agents.filter((a) => createdIdSet.has(a.id));
   const finalWorkspace = await queries.workspace.getWorkspace(db, ws.workspaceId, ctx.userId);
 
   return writeJSON({

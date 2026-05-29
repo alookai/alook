@@ -22,41 +22,42 @@ export const POST = withAuth(async (req: NextRequest) => {
   const { env } = getCloudflareContext();
   const db = getDb((env as Env).DB);
 
-  const results: { name: string; handle: string }[] = [];
-  const usedHandles = new Set<string>();
-
+  // Generate all candidate handles upfront
+  const candidatesPerName: { name: string; candidates: string[] }[] = [];
   for (const name of body.names) {
     const base = name.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30);
-    let handle = base;
-
-    // Try base handle first
-    if (isValidHandle(handle) && !usedHandles.has(handle)) {
-      const existing = await queries.agent.getAgentByHandle(db, handle);
-      if (!existing) {
-        usedHandles.add(handle);
-        results.push({ name, handle });
-        continue;
-      }
-    }
-
-    // Try with random name suffixes
-    let found = false;
+    const candidates: string[] = [];
+    if (isValidHandle(base)) candidates.push(base);
     for (let i = 0; i < 5; i++) {
       const suffix = uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "lowerCase" });
       const candidate = `${base}-${suffix}`.slice(0, 30);
-      if (!isValidHandle(candidate) || usedHandles.has(candidate)) continue;
-      const existing = await queries.agent.getAgentByHandle(db, candidate);
-      if (!existing) {
+      if (isValidHandle(candidate)) candidates.push(candidate);
+    }
+    candidatesPerName.push({ name, candidates });
+  }
+
+  // Batch-fetch existence of all candidates in a single query
+  const allCandidates = candidatesPerName.flatMap((c) => c.candidates);
+  const existingHandles = new Set(
+    await queries.agent.getExistingHandles(db, allCandidates)
+  );
+
+  // Assign handles using in-memory Set lookups
+  const usedHandles = new Set<string>();
+  const results: { name: string; handle: string }[] = [];
+
+  for (const { name, candidates } of candidatesPerName) {
+    let handle: string | undefined;
+    for (const candidate of candidates) {
+      if (!existingHandles.has(candidate) && !usedHandles.has(candidate)) {
         handle = candidate;
-        found = true;
         break;
       }
     }
-
-    if (!found) {
+    if (!handle) {
+      const base = name.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30);
       handle = `${base}-${nanoid(6)}`;
     }
-
     usedHandles.add(handle);
     results.push({ name, handle });
   }
