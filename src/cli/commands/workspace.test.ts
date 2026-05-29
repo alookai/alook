@@ -172,6 +172,32 @@ describe("workspace init", () => {
     expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("could not check existing agents"));
   });
 
+  it("errors when runtime fetch fails", async () => {
+    const jsonPath = writeJson("valid.json", {
+      members: [{ role: "leader", instructions: "x" }],
+    });
+
+    getJSONMock.mockRejectedValueOnce(new Error("connection refused"));
+
+    await expect(runInit(["--json-file", jsonPath])).rejects.toThrow("process.exit(1)");
+    expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("failed to fetch runtimes"));
+  });
+
+  it("errors when studios POST fails", async () => {
+    const jsonPath = writeJson("valid.json", {
+      members: [{ role: "leader", instructions: "x" }],
+    });
+
+    getJSONMock
+      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }])
+      .mockResolvedValueOnce([]);
+
+    postJSONMock.mockRejectedValueOnce(new Error("500 internal server error"));
+
+    await expect(runInit(["--json-file", jsonPath])).rejects.toThrow("process.exit(1)");
+    expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("failed to create workspace"));
+  });
+
   it("selects online runtime over offline one", async () => {
     const jsonPath = writeJson("valid.json", {
       members: [{ role: "leader", instructions: "x" }],
