@@ -114,7 +114,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text --coverage.include='src/**' --coverage.exclude='**/*.test.*' --coverage.exclude='**/*.spec.*'
+      - run: pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text
       - uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
