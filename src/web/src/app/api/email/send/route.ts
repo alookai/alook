@@ -104,14 +104,15 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       const messageId = `<${nanoid()}@alook.ai>`;
       const htmlBody = body.htmlBody || "";
 
-      const fetchedAttachments: { filename: string; contentType: string; base64: string }[] = [];
-      for (const att of attachments) {
-        const obj = await cfEnv.EMAIL_BUCKET.get(att.key);
-        if (!obj) continue;
-        const raw = await obj.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(raw)));
-        fetchedAttachments.push({ filename: att.filename, contentType: att.contentType, base64 });
-      }
+      const fetchedAttachments = (await Promise.all(
+        attachments.map(async (att) => {
+          const obj = await cfEnv.EMAIL_BUCKET.get(att.key);
+          if (!obj) return null;
+          const raw = await obj.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(raw)));
+          return { filename: att.filename, contentType: att.contentType, base64 };
+        })
+      )).filter((a): a is { filename: string; contentType: string; base64: string } => a !== null);
 
       const rawMime = buildMimeMessage({
         from: fromAddress,

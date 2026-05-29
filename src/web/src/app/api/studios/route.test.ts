@@ -8,6 +8,7 @@ const mockCreateAgent = vi.fn();
 const mockGetAgentByHandle = vi.fn();
 const mockListAgents = vi.fn();
 const mockGetAgentRuntimeForWorkspace = vi.fn();
+const mockGetAgentRuntimesForWorkspace = vi.fn();
 const mockGetWorkspace = vi.fn();
 const mockGetWorkspaceBySlug = vi.fn();
 const mockUpdateWorkspace = vi.fn();
@@ -47,6 +48,7 @@ vi.mock("@alook/shared", async () => {
       },
       runtime: {
         getAgentRuntimeForWorkspace: (...args: unknown[]) => mockGetAgentRuntimeForWorkspace(...args),
+        getAgentRuntimesForWorkspace: (...args: unknown[]) => mockGetAgentRuntimesForWorkspace(...args),
       },
       workspace: {
         getWorkspace: (...args: unknown[]) => mockGetWorkspace(...args),
@@ -107,6 +109,11 @@ beforeEach(() => {
     runtimeMode: "local",
     machineLastSeenAt: new Date().toISOString(),
   });
+  mockGetAgentRuntimesForWorkspace.mockResolvedValue([{
+    id: "rt1",
+    runtimeMode: "local",
+    machineLastSeenAt: new Date().toISOString(),
+  }]);
   let agentIdx = 0;
   mockCreateAgent.mockImplementation((_db: any, data: any) => {
     agentIdx++;
@@ -200,6 +207,7 @@ describe("POST /api/studios", () => {
 
   it("returns 404 if runtime not in workspace", async () => {
     mockGetAgentRuntimeForWorkspace.mockResolvedValue(null);
+    mockGetAgentRuntimesForWorkspace.mockResolvedValue([]);
 
     const req = new NextRequest("http://localhost/api/studios", {
       method: "POST",
