@@ -1,11 +1,5 @@
 import { NextResponse } from "next/server";
-import { getTemplateById, TEMPLATES } from "@/lib/templates";
-
-export const dynamicParams = false;
-
-export function generateStaticParams(): { id: string }[] {
-  return TEMPLATES.map((t) => ({ id: t.id }));
-}
+import { getTemplateById } from "@/lib/templates";
 
 export async function GET(
   _req: Request,

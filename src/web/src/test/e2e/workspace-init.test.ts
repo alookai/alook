@@ -112,7 +112,7 @@ describe("workspace init flow", () => {
       const data = await res.json() as {
         studio: { name: string }
         workspace: { id: string; name: string }
-        agents: Array<{ id: string; name: string; email: string }>
+        agents: Array<{ id: string; name: string; email_handle: string | null }>
         links: Array<{ id: string; source_agent_id: string; target_agent_id: string }>
       }
 
@@ -123,8 +123,8 @@ describe("workspace init flow", () => {
       const engineerAgent = data.agents.find(a => a.name === "E2E Engineer")
       expect(leaderAgent).toBeTruthy()
       expect(engineerAgent).toBeTruthy()
-      expect(leaderAgent!.email).toBeTruthy()
-      expect(engineerAgent!.email).toBeTruthy()
+      expect(leaderAgent!.email_handle).toBeTruthy()
+      expect(engineerAgent!.email_handle).toBeTruthy()
 
       createdAgentIds.push(...data.agents.map(a => a.id))
 
@@ -165,18 +165,12 @@ describe("workspace init flow", () => {
       expect(newWs.name).toBe("E2E New Workspace")
       extraWorkspaceId = newWs.id
 
-      // Register a runtime in the new workspace
+      // Register a runtime in the new workspace (POST /api/workspaces already adds user as member)
       const now = new Date().toISOString()
       const rtId = `rt_e2e_${Date.now()}`
       sqlRun(
         `INSERT INTO agent_runtime (id, workspace_id, daemon_id, runtime_mode, provider, status, device_info, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         rtId, extraWorkspaceId, seed.daemonId, "local", "claude", "online", "test-device", now, now,
-      )
-      // Add member to new workspace
-      const mbId = `mb_e2e_${Date.now()}`
-      sqlRun(
-        `INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)`,
-        mbId, extraWorkspaceId, seed.userId, "owner", now,
       )
 
       // Now create studio in the new workspace
