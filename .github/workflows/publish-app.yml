@@ -16,7 +16,6 @@ jobs:
     timeout-minutes: 30
     permissions:
       id-token: write
-      contents: write
     steps:
       - uses: actions/checkout@v6
 
@@ -25,7 +24,6 @@ jobs:
         run: |
           VERSION=$(node -p "require('./src/app/package.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=app/v$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Check if version already published
         id: check
@@ -75,12 +73,6 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         working-directory: src/app
         run: npm publish --access public
-
-      - name: Create GitHub release
-        if: steps.check.outputs.skip == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${{ steps.version.outputs.tag }}" --generate-notes --title "App v${{ steps.version.outputs.version }}"
 
       - name: Notify Discord
         if: steps.check.outputs.skip == 'false'

@@ -143,3 +143,18 @@ jobs:
       - name: Lighthouse CI
         working-directory: src/web
         run: npx @lhci/cli autorun --config=lighthouserc.json && node scripts/print-lighthouse-scores.mjs
+
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [quality, test, build, coverage]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ github.ref_name }}" --generate-notes --title "${{ github.ref_name }}"
