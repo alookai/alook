@@ -1436,10 +1436,9 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   pointer-events: auto;
 }
 
-/* Table copy/download dropdown: ensure dropdown is not clipped by parent overflow */
+/* Table copy/download dropdown: escape parent overflow clip */
 [data-streamdown="table-wrapper"] > div:first-child:not(:has([data-streamdown="table"])) .absolute {
   min-width: 10rem;
-  white-space: nowrap;
   overflow: visible !important;
 }
 
