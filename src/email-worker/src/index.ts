@@ -355,7 +355,7 @@ export default {
     const parsed = await PostalMime.parse(rawBytes)
     const attachmentsMeta = extractAttachmentMeta(parsed.attachments || [])
 
-    const subject = message.headers.get("subject") || parsed.subject || "(No Subject)"
+    const subject = parsed.subject || message.headers.get("subject") || "(No Subject)"
     const messageId = message.headers.get("message-id") ?? ""
     const inReplyTo = message.headers.get("in-reply-to") ?? ""
     const references = message.headers.get("references") ?? ""
