@@ -85,7 +85,6 @@ import {
   FileText,
   Loader2,
   Mail,
-  Menu,
   MessageSquareQuote,
   Paperclip,
   Square,
@@ -111,6 +110,7 @@ import {
   computeArtifactVersions,
 } from "@/components/artifact-content-renderer";
 import { FollowUpBuffer } from "@/components/agent-chat/follow-up-buffer";
+import { MenuToggleIcon } from "@/components/agent-chat/menu-toggle-icon";
 import { ScrollToBottomButton } from "@/components/ui/scroll-to-bottom-button";
 import { MessageItem } from "@/components/agent-chat/message-list";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
@@ -2738,10 +2738,7 @@ export function AgentChatView({
                     />
                   }
                 >
-                  <span className="relative size-4">
-                    <Menu className={cn("size-4 absolute transition-all duration-200", menuOpen ? "opacity-0 rotate-90 scale-75" : "opacity-100 rotate-0 scale-100")} />
-                    <X className={cn("size-4 absolute transition-all duration-200", menuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-75")} />
-                  </span>
+                  <MenuToggleIcon open={menuOpen} />
                 </PopoverTrigger>
                 <PopoverContent
                   side="top"
