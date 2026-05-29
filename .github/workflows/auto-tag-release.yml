@@ -7,7 +7,7 @@ on:
 jobs:
   auto-tag-release:
     name: Tag & Release
-    if: startsWith(github.event.head_commit.message, 'release: v')
+    if: "startsWith(github.event.head_commit.message, 'release: v')"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -19,9 +19,10 @@ jobs:
 
       - name: Extract version from commit message
         id: version
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          MSG="${{ github.event.head_commit.message }}"
-          VERSION=$(echo "$MSG" | grep -oP '^release: v\K[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?')
+          VERSION=$(echo "$COMMIT_MSG" | grep -oP '^release: v\K[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?')
           if [ -z "$VERSION" ]; then
             echo "No version found in commit message, skipping."
             exit 1
