@@ -77,9 +77,8 @@ if (updateMinCli) {
 const gitFiles = files.map((f) => f.replace(ROOT + "/", ""));
 execSync(`git add ${gitFiles.join(" ")}`, { cwd: ROOT, stdio: "inherit" });
 execSync(`git commit -m "release: v${version}"`, { cwd: ROOT, stdio: "inherit" });
-execSync(`git tag v${version}`, { cwd: ROOT, stdio: "inherit" });
 
-console.log(`\n✅ Committed and tagged: v${version}`);
+console.log(`\n✅ Committed: v${version}`);
 console.log(`\n👉 Next steps:`);
-console.log(`   git push origin main --tags`);
-console.log(`   # CI will auto-publish @alook/cli and trigger CF deployments\n`);
+console.log(`   git push origin main`);
+console.log(`   # CI will auto-tag, create GitHub Release, and trigger deployments\n`);
