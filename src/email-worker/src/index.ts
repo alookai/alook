@@ -37,7 +37,8 @@ async function notifyWeb(env: EmailEnv, payload: Record<string, unknown>, traceI
     }
   } catch (serviceErr) {
     try {
-      const fallback = await fetch(`${DEV_WEB_URL}/api/email/notify`, init)
+      const fallbackHeaders = { ...headers, "X-Internal-Secret": env.ENCRYPTION_KEY }
+      const fallback = await fetch(`${DEV_WEB_URL}/api/email/notify`, { ...init, headers: fallbackHeaders })
       if (!fallback.ok) throw new Error(`fallback responded ${fallback.status}`)
     } catch {
       throw serviceErr instanceof Error ? serviceErr : new Error(String(serviceErr))

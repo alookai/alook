@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, TASK_TYPES, MeetingStatus, extractThreadId, buildEmailMapKey, EmailNotifyRequestSchema } from "@alook/shared"
 import { nanoid } from "nanoid"
@@ -11,7 +11,18 @@ import { invalidate, cacheKeys } from "@/lib/cache"
 
 export async function POST(req: NextRequest) {
   const { env } = getCloudflareContext()
-  const db = getDb((env as Env).DB)
+
+  // This endpoint is called internally via Cloudflare Service Binding (WEB_SERVICE).
+  // For non-service-binding requests (dev fallback), enforce a shared secret when configured.
+  const cfEnv = env as Env
+  if (!req.url.startsWith("http://internal") && cfEnv.ENCRYPTION_KEY) {
+    const secret = req.headers.get("X-Internal-Secret")
+    if (!secret || secret !== cfEnv.ENCRYPTION_KEY) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 })
+    }
+  }
+
+  const db = getDb(cfEnv.DB)
 
   const [body, valErr] = await parseBody(req, EmailNotifyRequestSchema);
   if (valErr) return valErr;
