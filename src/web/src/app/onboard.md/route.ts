@@ -45,14 +45,12 @@ Based on what you learned about the user in Step 3, customize the template or cr
   "members": [
     {
       "role": "leader",
-      "name": "Agent Name",
-      "description": "Short description",
+      "description": "Coordinates tasks and delegates",
       "instructions": "System prompt for this agent"
     },
     {
       "role": "engineer",
-      "name": "Agent Name",
-      "description": "Short description",
+      "description": "Implements features and fixes bugs",
       "instructions": "System prompt for this agent",
       "relationship": {
         "leaderSees": "When/how the leader delegates to this agent",

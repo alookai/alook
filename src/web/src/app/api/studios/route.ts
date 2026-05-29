@@ -108,8 +108,15 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const allHandles = await cached(cacheKeys.allHandles(ws.workspaceId), 120, () => queries.agent.getAllHandlesForWorkspace(db, ws.workspaceId));
   const handleSet = new Set(allHandles.map((h) => h.emailHandle).filter(Boolean) as string[]);
 
+  const usedNames = new Set<string>();
   for (const member of body.members) {
-    const agentName = member.name || `Agent-${nanoid(4)}`;
+    let agentName = member.name;
+    if (!agentName) {
+      do {
+        agentName = uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" });
+      } while (usedNames.has(agentName));
+    }
+    usedNames.add(agentName);
     const handle = member.email_handle && isValidHandle(member.email_handle) && !handleSet.has(member.email_handle)
       ? (handleSet.add(member.email_handle), member.email_handle)
       : generateUniqueHandleFromSet(handleSet, agentName);
@@ -153,10 +160,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const leaderAgent = createdAgents.find((a) => a.role === "leader")!;
   const specialists = createdAgents.filter((a) => a.role !== "leader");
   const createdLinks = [];
-  const memberPayloadMap = new Map(body.members.map((m) => [m.name, m]));
 
   for (const specialist of specialists) {
-    const memberPayload = memberPayloadMap.get(specialist.name);
+    const specIndex = createdAgents.indexOf(specialist);
+    const memberPayload = body.members[specIndex];
     if (!memberPayload?.relationship) continue;
 
     const leaderMention = `[@ id="${leaderAgent.id}" label="${leaderAgent.name}"]`;

@@ -19,9 +19,6 @@ export async function GET(
     name: template.name,
     scenario: template.baseScenario,
     members: template.members.map((m) => ({
-      name: m.role === "leader"
-        ? "Coordinator"
-        : m.role.charAt(0).toUpperCase() + m.role.slice(1),
       role: m.role,
       description: m.description,
       instructions: m.instructions,
