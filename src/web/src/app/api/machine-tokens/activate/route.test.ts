@@ -100,7 +100,7 @@ describe("POST /api/machine-tokens/activate", () => {
     mockGetMachineTokenByToken.mockResolvedValue(pendingToken);
     mockUpsertMachine.mockResolvedValue(undefined);
     mockUpsertAgentRuntime.mockResolvedValue({ id: "r1", provider: "claude" });
-    mockActivateMachineToken.mockResolvedValue(undefined);
+    mockActivateMachineToken.mockResolvedValue(true);
     mockBroadcastToUser.mockResolvedValue(undefined);
 
     const res = await POST(makeReq(validBody));
@@ -144,7 +144,7 @@ describe("POST /api/machine-tokens/activate", () => {
     mockGetMachineTokenByToken.mockResolvedValue(pendingToken);
     mockUpsertMachine.mockResolvedValue(undefined);
     mockUpsertAgentRuntime.mockResolvedValue({ id: "r1", provider: "claude" });
-    mockActivateMachineToken.mockResolvedValue(undefined);
+    mockActivateMachineToken.mockResolvedValue(true);
     mockBroadcastToUser.mockResolvedValue(undefined);
 
     await POST(makeReq(validBody));
@@ -175,7 +175,7 @@ describe("POST /api/machine-tokens/activate", () => {
     mockCreateMember.mockResolvedValue(undefined);
     mockUpsertMachine.mockResolvedValue(undefined);
     mockUpsertAgentRuntime.mockResolvedValue({ id: "r1", provider: "claude" });
-    mockActivateMachineToken.mockResolvedValue(undefined);
+    mockActivateMachineToken.mockResolvedValue(true);
     mockBroadcastToUser.mockResolvedValue(undefined);
 
     const res = await POST(makeReq(validBody));
