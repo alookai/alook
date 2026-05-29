@@ -21,10 +21,19 @@ pnpm bump 0.0.11      # explicit version (v prefix optional)
 pnpm bump patch        # auto-increment patch/minor/major
 pnpm bump patch --min-cli  # also update MIN_CLI_VERSION in src/web/wrangler.toml
 ```
-This updates every `src/*/package.json`, commits `release: vX.Y.Z`, but does NOT push.
+This updates every `src/*/package.json`, commits `release: vX.Y.Z`, and creates a local `vX.Y.Z` git tag.
 Add `--min-cli` when the release contains breaking changes that require users to update their CLI.
-After reviewing the commit, `git push origin main` to trigger CI:
+
+After reviewing the commit:
+```bash
+git push origin main --tags
+```
+
+This triggers:
+- **CI** — typecheck, lint, tests, coverage (uploaded to Codecov)
+- **Unified GitHub Release** — auto-created with generated changelog after all CI checks pass
 - **@alook/cli** → auto-published to npm via `publish-cli.yml` (watches `src/cli/package.json`)
+- **@alook/app** → auto-published to npm via `publish-app.yml` (watches `src/app/package.json`)
 - **CF Workers** → each module redeploys when its own `package.json` changes
 
 ## Plan-driven Development
