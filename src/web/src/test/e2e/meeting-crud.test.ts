@@ -145,7 +145,8 @@ describe("meeting approve flow", () => {
   let pendingId: string
 
   beforeAll(async () => {
-    // Create meeting via API to ensure it exists in the same D1 instance the server reads
+    // Create via API (so the record exists in miniflare's D1), then UPDATE status via sqlRun
+    // to simulate a non-whitelisted ICS meeting (no public API for creating pending meetings).
     const createRes = await meetingReq(
       `/api/agents/${seed.agentId}/meetings?workspace_id=${seed.workspaceId}`,
       seed.machineToken,
