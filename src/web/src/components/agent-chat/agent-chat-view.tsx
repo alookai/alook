@@ -85,9 +85,9 @@ import {
   FileText,
   Loader2,
   Mail,
+  Menu,
   MessageSquareQuote,
   Paperclip,
-  Plus,
   Square,
   X,
 } from "lucide-react";
@@ -2416,6 +2416,7 @@ export function AgentChatView({
   ]);
 
   const [napping, setNapping] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const currentConvHasMessages = useMemo(
     () =>
@@ -2725,9 +2726,9 @@ export function AgentChatView({
       <div className="relative z-10 px-3 md:px-5 pt-3 pb-5 md:pb-6">
         <div className="mx-auto max-w-2xl relative">
           <div className="flex items-end gap-2">
-            {/* Overflow "+" menu */}
+            {/* Overflow menu */}
             {!targetConvId && (
-              <Popover>
+              <Popover open={menuOpen} onOpenChange={setMenuOpen}>
                 <PopoverTrigger
                   render={
                     <Button
@@ -2737,7 +2738,10 @@ export function AgentChatView({
                     />
                   }
                 >
-                  <Plus className="size-4" />
+                  <span className="relative size-4">
+                    <Menu className={cn("size-4 absolute transition-all duration-200", menuOpen ? "opacity-0 rotate-90 scale-75" : "opacity-100 rotate-0 scale-100")} />
+                    <X className={cn("size-4 absolute transition-all duration-200", menuOpen ? "opacity-100 rotate-0 scale-100" : "opacity-0 -rotate-90 scale-75")} />
+                  </span>
                 </PopoverTrigger>
                 <PopoverContent
                   side="top"
