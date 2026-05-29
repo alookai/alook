@@ -2558,7 +2558,7 @@ export function AgentChatView({
             if (btn) toast.success("Copied to clipboard");
           }}
         >
-          <div className="mx-auto max-w-2xl pt-6 pb-[60px] min-w-0">
+          <div className="mx-auto max-w-2xl pt-6 pb-15 min-w-0">
             {conversation && canLoadMore && !loadingMore && (
               <div className="flex justify-center py-2">
                 <button

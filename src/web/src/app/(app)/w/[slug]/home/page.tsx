@@ -233,7 +233,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
       }
     } else if (newAgentIds.length > 0 && linksLoaded) {
       // Existing positions + some new agents — position relative to parent
-      newNodes = newNodes.map((n, _i) => {
+      newNodes = newNodes.map((n) => {
         if (validPositions[n.id]) return n;
 
         // Find parent: use pendingNewAgent hint or scan links
