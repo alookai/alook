@@ -258,6 +258,119 @@ describe("whitelisted path", () => {
   })
 })
 
+// ─── Group 3b: RFC 2047 subject decoding ───
+
+describe("RFC 2047 subject decoding", () => {
+  it("uses parsed.subject (decoded) over raw RFC 2047 Q-encoded header", async () => {
+    const encodedSubject = "=?UTF-8?q?Re:_=E6=96=B0=E6=B3=A8=E5=86=8C=E7=94=A8=E6=88=B7?="
+    const { env, message, wsFetch } = setup({
+      isWhitelisted: true,
+      messageOpts: {
+        from: "owner@example.com",
+        to: "jarvis@alook.ai",
+        subject: encodedSubject,
+        body: "Test body",
+      },
+    })
+
+    await handler.email(message, env)
+
+    const notifyBody = JSON.parse(wsFetch.mock.calls[0][1].body)
+    expect(notifyBody.subject).toBe("Re: 新注册用户")
+  })
+
+  it("uses parsed.subject (decoded) over raw RFC 2047 B-encoded header", async () => {
+    const encodedSubject = "=?UTF-8?B?5rWL6K+V5Li76aKY?="
+    const { env, message, wsFetch } = setup({
+      isWhitelisted: true,
+      messageOpts: {
+        from: "owner@example.com",
+        to: "jarvis@alook.ai",
+        subject: encodedSubject,
+        body: "Test body",
+      },
+    })
+
+    await handler.email(message, env)
+
+    const notifyBody = JSON.parse(wsFetch.mock.calls[0][1].body)
+    expect(notifyBody.subject).toBe("测试主题")
+  })
+
+  it("uses plain ASCII subject as-is (no encoding)", async () => {
+    const { env, message, wsFetch } = setup({
+      isWhitelisted: true,
+      messageOpts: {
+        from: "owner@example.com",
+        to: "jarvis@alook.ai",
+        subject: "Plain subject",
+        body: "Test body",
+      },
+    })
+
+    await handler.email(message, env)
+
+    const notifyBody = JSON.parse(wsFetch.mock.calls[0][1].body)
+    expect(notifyBody.subject).toBe("Plain subject")
+  })
+
+  it("falls back to '(No Subject)' when both sources are empty", async () => {
+    const { env, message, wsFetch } = setup({
+      isWhitelisted: true,
+      messageOpts: {
+        from: "owner@example.com",
+        to: "jarvis@alook.ai",
+        subject: null,
+        body: "Test body",
+      },
+    })
+
+    await handler.email(message, env)
+
+    const notifyBody = JSON.parse(wsFetch.mock.calls[0][1].body)
+    expect(notifyBody.subject).toBe("(No Subject)")
+  })
+
+  it("falls back to raw header when parsed.subject is empty string", async () => {
+    const headers = new Headers()
+    headers.set("subject", "Fallback Subject")
+
+    const rawText = [
+      "From: owner@example.com",
+      "To: jarvis@alook.ai",
+      "Subject: ",
+      "",
+      "Test body",
+    ].join("\r\n")
+
+    const setReject = vi.fn()
+    const forward = vi.fn().mockResolvedValue(undefined)
+    const message = {
+      from: "owner@example.com",
+      to: "jarvis@alook.ai",
+      headers,
+      raw: new Response(rawText).body!,
+      rawSize: rawText.length,
+      setReject,
+      forward,
+      reply: vi.fn(),
+    } as unknown as ForwardableEmailMessage
+
+    mockGetAgentByHandle.mockResolvedValue(AGENT)
+    mockIsWhitelisted.mockResolvedValue(true)
+
+    const { bucket, put } = createMockR2()
+    const { fetcher, fetch: wsFetch } = createMockFetcher()
+    const { sendEmail } = createMockSendEmail()
+    const env = { DB: {} as D1Database, EMAIL_BUCKET: bucket, WEB_SERVICE: fetcher, SEND_EMAIL: sendEmail, IMAP_POLLER: {} as DurableObjectNamespace, ENCRYPTION_KEY: "test-secret" }
+
+    await handler.email(message, env)
+
+    const notifyBody = JSON.parse(wsFetch.mock.calls[0][1].body)
+    expect(notifyBody.subject).toBe("Fallback Subject")
+  })
+})
+
 // ─── Group 4: Non-whitelisted path (rejected) ───
 
 describe("non-whitelisted path", () => {
