@@ -101,7 +101,7 @@ jobs:
 
   coverage:
     name: Coverage
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
