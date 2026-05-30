@@ -96,4 +96,31 @@ describe("runScan global skills syncs to all workspaces", () => {
 
     expect(mockClient.syncSkills).not.toHaveBeenCalled();
   });
+
+  it("scans codex and opencode runtimes", async () => {
+    const home = join(tempDir, "home-multi");
+    mockState.home = home;
+
+    mkdirSync(join(home, ".agents", "skills"), { recursive: true });
+    mkdirSync(join(home, ".config", "opencode", "commands"), { recursive: true });
+
+    const wsDir = join(workspacesRoot, "ws1", "agent1");
+    mkdirSync(join(wsDir, "workdir"), { recursive: true });
+
+    startSkillScanner(mockClient as unknown as DaemonClient, {
+      workspacesRoot,
+      workspaces: [
+        { workspaceId: "ws1", token: "token-ws1", agentIds: ["agent1"] },
+      ],
+      runtimes: ["codex", "opencode"],
+      daemonId: "test-daemon-multi",
+    }, 999_999);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    const globalCalls = mockClient.syncSkills.mock.calls.filter(
+      (args) => (args[1] as { scope: string }).scope === "global"
+    );
+    expect(globalCalls.length).toBe(2);
+  });
 });
