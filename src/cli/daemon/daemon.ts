@@ -517,13 +517,15 @@ export async function startDaemon(
   }
 
   function handleWsPush(msg: DaemonPushMessage) {
+    const wsMap = new Map(workspaceStates.map((ws) => [ws.workspaceId, ws]));
+
     switch (msg.type) {
       case "daemon.tasks":
         for (const apiTask of msg.tasks) {
           if (activeTasks.size >= config.maxConcurrentTasks) break;
           const task = fromApiTask(apiTask);
           if (activeTasks.has(task.id)) continue;
-          const ws = workspaceStates.find((w) => w.workspaceId === task.workspaceId);
+          const ws = wsMap.get(task.workspaceId);
           if (!ws) continue;
           syncAgentId(task.agentId, ws.workspaceId);
           activeTasks.add(task.id);
@@ -533,7 +535,7 @@ export async function startDaemon(
         break;
 
       case "daemon.file_requests": {
-        const ws = workspaceStates.find((w) => w.workspaceId === msg.workspaceId);
+        const ws = wsMap.get(msg.workspaceId);
         if (ws) {
           for (const req of msg.requests) {
             handleFileRequest(client, config, ws.workspaceId, req, ws.token)
@@ -546,7 +548,7 @@ export async function startDaemon(
 
       case "daemon.meetings":
         for (const m of msg.meetings) {
-          const ws = workspaceStates.find((w) => w.workspaceId === m.workspace_id);
+          const ws = wsMap.get(m.workspace_id);
           if (!ws) continue;
           const agentBaseDir = join(config.workspacesRoot, m.workspace_id, m.agent_id, "workdir");
           const timelineDir = join(agentBaseDir, ".context_timeline");
@@ -581,7 +583,7 @@ export async function startDaemon(
         break;
 
       case "daemon.kill": {
-        const ws = workspaceStates.find((w) => w.workspaceId === msg.workspaceId);
+        const ws = wsMap.get(msg.workspaceId);
         if (ws && !activeTasks.has(msg.taskId)) {
           const killTask = fromApiTask({
             id: msg.taskId,
