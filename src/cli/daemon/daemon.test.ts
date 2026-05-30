@@ -2114,4 +2114,50 @@ describe("handleWsPush via WebSocket onMessage", () => {
 
     mockKill.mockRestore();
   });
+
+  it("handles daemon.meetings via WS push with Map lookup", async () => {
+    await setupDaemonWithWs();
+    expect(capturedWsOnMessage).not.toBeNull();
+
+    capturedWsOnMessage!({
+      type: "daemon.meetings",
+      meetings: [{
+        id: "m1",
+        workspace_id: "ws1",
+        agent_id: "a1",
+        agent_name: "Agent 1",
+        meeting_url: "https://meet.example.com/abc",
+        participants: ["user1@example.com"],
+        title: "Test Meeting",
+      }],
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    // spawnMeetingRunner calls spawn under the hood
+    expect(spawn).toHaveBeenCalled();
+    const call = vi.mocked(spawn).mock.calls[0];
+    const args = call[1] as string[];
+    expect(args[0]).toContain("meeting-runner");
+  });
+
+  it("skips daemon.meetings for unknown workspace via WS push", async () => {
+    await setupDaemonWithWs();
+    expect(capturedWsOnMessage).not.toBeNull();
+
+    capturedWsOnMessage!({
+      type: "daemon.meetings",
+      meetings: [{
+        id: "m2",
+        workspace_id: "unknown_ws",
+        agent_id: "a1",
+        agent_name: "Agent 1",
+        meeting_url: "https://meet.example.com/xyz",
+        participants: ["user2@example.com"],
+        title: "Skipped Meeting",
+      }],
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(spawn).not.toHaveBeenCalled();
+  });
 });
