@@ -12,7 +12,7 @@ gsap.registerPlugin(SplitText);
 // Key layout: 3 rows of oval keys (front-facing view)
 const KEY_ROWS = [9, 7, 9];
 
-export interface TypewriterEmail {
+interface TypewriterEmail {
   from: string;
   to: string;
   subject: string;
@@ -20,7 +20,7 @@ export interface TypewriterEmail {
 }
 
 /** Clean, professional emails — default for the homepage. First email is shown on load, rest are randomly picked. */
-export const EMAILS_DEFAULT: TypewriterEmail[] = [
+const EMAILS_DEFAULT: TypewriterEmail[] = [
   {
     from: "jarvis@alook.ai",
     to: "you@email.com",
@@ -77,63 +77,6 @@ export const EMAILS_DEFAULT: TypewriterEmail[] = [
   },
 ];
 
-/** All-emoji variant — playful, visual, good for sign-in and casual pages. First email is shown on load, rest are randomly picked. */
-export const EMAILS_PLAYFUL: TypewriterEmail[] = [
-  {
-    from: "🤖@alook.ai",
-    to: "🧑‍💻@company.com",
-    subject: "🎂 Happy Birthday!",
-    body: "🎉 Apr 17! 🧠 of course I remembered 💛 enjoy today, take it slow 🫶 I\u2019ll handle the rest 🥳",
-  },
-  {
-    from: "🧑‍💻@company.com",
-    to: "🤖@alook.ai",
-    subject: "📝 Organize my meeting notes",
-    body: "📂 /docs/notes → 🗂️ sort by project ✅ action items 🔍 flag ⏰ time-sensitive 🫡",
-  },
-  {
-    from: "🤖@alook.ai",
-    to: "🧑‍💻@company.com",
-    subject: "☀️ Morning briefing — Apr 17",
-    body: "🟢 CI ✅ 🔀 2 PRs merged 🔕 no alerts 📅 standup 10am 🎨 design 2pm 🔄 rebased ✨ ready!",
-  },
-  {
-    from: "🤖@alook.ai",
-    to: "🧑‍💻@company.com",
-    subject: "Re: 👋 Are you there?",
-    body: "💛 always here! 🌙 3am → 📬 inbox clear 🐛🐛 triaged 🚀 deploy queued ☕ go grab coffee 🫶",
-  },
-  {
-    from: "🧑‍💻@company.com",
-    to: "🤖@alook.ai",
-    subject: "🔧 Refactor auth middleware",
-    body: "🗂️ src/middleware/auth.ts 🧹 split → small fns ✅ error types 🧪 tests pass 🚫 no API change",
-  },
-  {
-    from: "🤖@alook.ai",
-    to: "🧑‍💻@company.com",
-    subject: "📊 Weekly recap — Apr 14–17",
-    body: "🔀 12 PRs ✅ 🐛 3 closed 📈 86% coverage 📅 calendar focus 💡 caching proposal? 🫡",
-  },
-  {
-    from: "🧑‍💻@company.com",
-    to: "🤖@alook.ai",
-    subject: "🔍 Research vector DBs",
-    body: "🧠 semantic search → pgvector vs Qdrant vs Turbopuffer 🏠 local-first ⚡ latency 🔗 SQLite compat",
-  },
-  {
-    from: "🤖@alook.ai",
-    to: "🧑‍💻@company.com",
-    subject: "🚨 CI failed on main",
-    body: "💥 20min ago 🧪 calendar-month-grid.test.ts 🐛 off-by-one week boundary 🔧 fix ready → push? 🫡",
-  },
-  {
-    from: "🧑‍💻@company.com",
-    to: "🤖@alook.ai",
-    subject: "🎬 Prep tomorrow's demo",
-    body: "📅 2pm demo 🚀 staging up-to-date 🌱 seed test data 📝 walkthrough script ⏱️ under 5min",
-  },
-];
 
 const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const MONTH_NAMES = Array.from({ length: 12 }, (_, i) =>

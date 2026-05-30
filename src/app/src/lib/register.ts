@@ -19,11 +19,6 @@ interface TokenResult {
   id: string;
 }
 
-interface RuntimeInfo {
-  type: string;
-  version: string;
-}
-
 function prompt(question: string): Promise<string> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -147,40 +142,6 @@ export async function createMachineToken(
   }
 
   return (await res.json()) as TokenResult;
-}
-
-export async function activateToken(
-  baseURL: string,
-  token: string,
-  runtimes: RuntimeInfo[],
-): Promise<{ workspaceId: string; runtimeIds: string[] }> {
-  const { hostname } = await import("os");
-
-  const res = await fetch(`${baseURL}/api/machine-tokens/activate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: baseURL },
-    body: JSON.stringify({
-      token,
-      hostname: hostname(),
-      runtimes,
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    console.error(`Error: failed to activate token (${res.status}): ${text}`);
-    process.exit(1);
-  }
-
-  const data = (await res.json()) as {
-    workspace_id: string;
-    runtimes: { id: string; provider: string }[];
-  };
-
-  return {
-    workspaceId: data.workspace_id,
-    runtimeIds: data.runtimes.map((r) => r.id),
-  };
 }
 
 export async function waitForServer(baseURL: string, timeoutMs = 90000): Promise<void> {

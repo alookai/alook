@@ -5,11 +5,6 @@ import { getDb } from "@/lib/db"
 import { cached, cacheKeys } from "@/lib/cache"
 import type { AuthContext } from "./auth"
 
-export interface WorkspaceContext extends AuthContext {
-  workspaceId: string
-  memberRole: string
-}
-
 export async function withWorkspaceMember(
   req: NextRequest,
   auth: AuthContext & { params?: Record<string, string> }

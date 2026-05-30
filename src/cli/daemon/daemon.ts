@@ -801,7 +801,7 @@ export function spawnSessionRunner(input: SessionRunnerInput): ChildProcess {
   return child;
 }
 
-export function spawnMeetingRunner(input: {
+function spawnMeetingRunner(input: {
   meetingId: string;
   meetingUrl: string;
   participants: string[];

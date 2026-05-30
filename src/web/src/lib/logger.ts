@@ -1,7 +1,4 @@
-import { Logger, createLogger } from "@alook/shared"
-
-export type { LogLevel, LoggerOptions } from "@alook/shared"
-export { Logger, createLogger }
+import { createLogger } from "@alook/shared"
 
 export const log = createLogger({
   service: "web",

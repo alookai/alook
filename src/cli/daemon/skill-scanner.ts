@@ -8,7 +8,7 @@ import type { DaemonClient } from "./client.js";
 
 const log = createLogger({ module: "skill-scanner" });
 
-export interface SkillEntry {
+interface SkillEntry {
   name: string;
   description: string;
 }
@@ -115,7 +115,7 @@ function scanFrontmatterSkills(paths: string[]): SkillEntry[] {
   return Array.from(skills.values());
 }
 
-export function scanClaudeGlobalSkills(): SkillEntry[] {
+function scanClaudeGlobalSkills(): SkillEntry[] {
   const home = homedir();
   const allSkills: SkillEntry[] = [];
 
@@ -139,12 +139,12 @@ export function scanClaudeGlobalSkills(): SkillEntry[] {
   return allSkills;
 }
 
-export function scanClaudeAgentSkills(workdir: string): SkillEntry[] {
+function scanClaudeAgentSkills(workdir: string): SkillEntry[] {
   const paths = findSkillFiles(join(workdir, ".claude", "skills"), "*/SKILL.md");
   return scanFrontmatterSkills(paths);
 }
 
-export function scanCodexGlobalSkills(): SkillEntry[] {
+function scanCodexGlobalSkills(): SkillEntry[] {
   const home = homedir();
   const allSkills: SkillEntry[] = [];
 
@@ -171,7 +171,7 @@ export function scanCodexGlobalSkills(): SkillEntry[] {
   return allSkills;
 }
 
-export function scanCodexAgentSkills(workdir: string): SkillEntry[] {
+function scanCodexAgentSkills(workdir: string): SkillEntry[] {
   const paths = findSkillFiles(join(workdir, ".agents", "skills"), "*/SKILL.md");
   return scanFrontmatterSkills(paths);
 }
@@ -190,7 +190,7 @@ function scanOpenCodeMdFiles(dir: string): SkillEntry[] {
   return skills;
 }
 
-export function scanOpenCodeGlobalSkills(): SkillEntry[] {
+function scanOpenCodeGlobalSkills(): SkillEntry[] {
   const home = homedir();
   const skills: SkillEntry[] = [];
   const names = new Set<string>();
@@ -206,7 +206,7 @@ export function scanOpenCodeGlobalSkills(): SkillEntry[] {
   return skills;
 }
 
-export function scanOpenCodeAgentSkills(workdir: string): SkillEntry[] {
+function scanOpenCodeAgentSkills(workdir: string): SkillEntry[] {
   const skills: SkillEntry[] = [];
   const names = new Set<string>();
 

@@ -8,7 +8,8 @@
     "citty",
     "playwright-core",
     "postal-mime",
-    "wrangler"
+    "wrangler",
+    "bun-types"
   ],
   "vitest": {
     "entry": ["test/**/*.test.ts"]

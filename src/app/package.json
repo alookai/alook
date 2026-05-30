@@ -45,12 +45,12 @@
     "wrangler": "^4.94.0"
   },
   "devDependencies": {
-    "@alook/cli": "workspace:*",
     "@alook/shared": "workspace:*",
     "@types/bun": "^1.3.14",
     "eslint": "^9.39.4",
     "knip": "^6.14.2",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.4"
+    "typescript-eslint": "^8.59.4",
+    "vitest": "^4.1.7"
   }
 }

@@ -16,7 +16,7 @@ const TEXT_TYPES = new Set([
   "application/sql",
 ]);
 
-export function isTextType(contentType: string): boolean {
+function isTextType(contentType: string): boolean {
   if (contentType.startsWith("text/")) return true;
   if (TEXT_TYPES.has(contentType)) return true;
   return false;
@@ -26,7 +26,7 @@ export function isHtmlType(contentType: string): boolean {
   return contentType.startsWith("text/html");
 }
 
-export function isImageType(contentType: string): boolean {
+function isImageType(contentType: string): boolean {
   return contentType.startsWith("image/");
 }
 

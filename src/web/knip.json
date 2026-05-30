@@ -6,11 +6,7 @@
     "src/app/**/route.ts",
     "src/app/**/error.tsx",
     "src/app/**/not-found.tsx",
-    "src/app/**/loading.tsx",
-    "src/app/**/template.tsx",
-    "src/app/**/default.tsx",
     "src/app/globals.css",
-    "src/middleware.ts",
     "open-next.config.ts",
     "scripts/**/*.{ts,mjs}"
   ],

@@ -56,7 +56,7 @@ import {
   PRESET_INTERVALS,
 } from "./repeat-interval-utils";
 
-export interface CreateFormValues {
+interface CreateFormValues {
   agent_id: string;
   title: string;
   description?: string;

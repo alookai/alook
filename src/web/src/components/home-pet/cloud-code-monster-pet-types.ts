@@ -31,7 +31,7 @@ export type CloudCodeMonsterActivity = {
   caption: string;
 };
 
-export type CloudCodeMonsterPresetFeature =
+type CloudCodeMonsterPresetFeature =
   | "square"
   | "horns"
   | "ears"
@@ -64,7 +64,7 @@ export type CloudCodeMonsterPresetFeature =
   | "drum"
   | "sprout";
 
-export type CloudCodeMonsterPresetShape =
+type CloudCodeMonsterPresetShape =
   | "monster"
   | "gadget-buddy"
   | "electric-mascot"

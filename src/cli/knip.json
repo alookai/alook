@@ -1,7 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "src/index.ts",
     "daemon/session-runner.ts",
     "daemon/meeting-runner.ts",
     "commands/**/*.ts",
