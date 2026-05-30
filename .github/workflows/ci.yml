@@ -29,6 +29,28 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
 
+  knip:
+    name: Dead Code Detection (knip)
+    # Non-blocking: reports unused code but does not fail the PR.
+    # To switch to blocking mode, remove `continue-on-error: true` below.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [app, cli, email-worker, shared, web, ws-do]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: "knip: ${{ matrix.module }}"
+        run: pnpm --filter "./src/${{ matrix.module }}" run knip
+
   test:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
