@@ -87,7 +87,6 @@ import {
   Mail,
   MessageSquareQuote,
   Paperclip,
-  Plus,
   Square,
   X,
 } from "lucide-react";
@@ -111,6 +110,7 @@ import {
   computeArtifactVersions,
 } from "@/components/artifact-content-renderer";
 import { FollowUpBuffer } from "@/components/agent-chat/follow-up-buffer";
+import { MenuToggleIcon } from "@/components/agent-chat/menu-toggle-icon";
 import { ScrollToBottomButton } from "@/components/ui/scroll-to-bottom-button";
 import { MessageItem } from "@/components/agent-chat/message-list";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
@@ -2416,6 +2416,7 @@ export function AgentChatView({
   ]);
 
   const [napping, setNapping] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const currentConvHasMessages = useMemo(
     () =>
@@ -2557,7 +2558,7 @@ export function AgentChatView({
             if (btn) toast.success("Copied to clipboard");
           }}
         >
-          <div className="mx-auto max-w-2xl pt-6 pb-[60px] min-w-0">
+          <div className="mx-auto max-w-2xl pt-6 pb-15 min-w-0">
             {conversation && canLoadMore && !loadingMore && (
               <div className="flex justify-center py-2">
                 <button
@@ -2725,9 +2726,9 @@ export function AgentChatView({
       <div className="relative z-10 px-3 md:px-5 pt-3 pb-5 md:pb-6">
         <div className="mx-auto max-w-2xl relative">
           <div className="flex items-end gap-2">
-            {/* Overflow "+" menu */}
+            {/* Overflow menu */}
             {!targetConvId && (
-              <Popover>
+              <Popover open={menuOpen} onOpenChange={setMenuOpen}>
                 <PopoverTrigger
                   render={
                     <Button
@@ -2737,7 +2738,7 @@ export function AgentChatView({
                     />
                   }
                 >
-                  <Plus className="size-4" />
+                  <MenuToggleIcon open={menuOpen} />
                 </PopoverTrigger>
                 <PopoverContent
                   side="top"

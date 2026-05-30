@@ -14,6 +14,7 @@ export default defineConfig({
         "**/dist/**",
         "**/bundled/**",
         "src/cli/src/index.ts",
+        "src/web/src/**/*.tsx",
       ],
     },
   },
