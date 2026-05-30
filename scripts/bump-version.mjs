@@ -5,6 +5,7 @@ import { execSync } from "node:child_process";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
 const WORKSPACE_DIRS = ["src/shared", "src/cli", "src/app", "src/web", "src/email-worker", "src/ws-do"];
+const DEPLOY_TRIGGER_DIRS = ["src/web", "src/email-worker", "src/ws-do"];
 
 function readPkg(dir) {
   const p = join(ROOT, dir, "package.json");
@@ -62,6 +63,13 @@ for (const dir of WORKSPACE_DIRS) {
   files.push(path);
   console.log(`  ${pkg.name}: ${old} → ${version}`);
 }
+
+for (const dir of DEPLOY_TRIGGER_DIRS) {
+  const triggerPath = join(ROOT, dir, ".deploy-version");
+  writeFileSync(triggerPath, version + "\n");
+  files.push(triggerPath);
+}
+console.log(`  CF deploy triggers updated`);
 
 if (updateMinCli) {
   const tomlPath = join(ROOT, "src/web/wrangler.toml");
