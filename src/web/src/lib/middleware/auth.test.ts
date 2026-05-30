@@ -113,6 +113,7 @@ describe("withAuth middleware", () => {
       userId: "user-mt",
       userEmail: "mt@example.com",
       workspaceId: "ws-1",
+      status: "active",
     });
     mockUpdateMachineTokenLastUsed.mockResolvedValue(undefined);
 
@@ -143,12 +144,33 @@ describe("withAuth middleware", () => {
     expect(body.error).toBe("invalid token");
   });
 
+  it("returns 401 for non-active machine token (e.g. status='pending')", async () => {
+    mockGetMachineTokenByHash.mockResolvedValue({
+      id: "mt-pending",
+      userId: "user-mt",
+      userEmail: "mt@example.com",
+      workspaceId: null,
+      status: "pending",
+    });
+
+    const req = new NextRequest("http://localhost/api/test", {
+      headers: { Authorization: "Bearer al_pending_token" },
+    });
+    const res = await wrapped(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(401);
+    expect(body.error).toBe("invalid token");
+    expect(testHandler).not.toHaveBeenCalled();
+  });
+
   it("updates lastUsedAt on machine token auth", async () => {
     mockGetMachineTokenByHash.mockResolvedValue({
       id: "mt-2",
       userId: "user-mt2",
       userEmail: "mt2@example.com",
       workspaceId: null,
+      status: "active",
     });
     mockUpdateMachineTokenLastUsed.mockResolvedValue(undefined);
 
