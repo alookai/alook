@@ -6,7 +6,11 @@
     "src/app/**/route.ts",
     "src/app/**/error.tsx",
     "src/app/**/not-found.tsx",
+    "src/app/**/loading.tsx",
+    "src/app/**/template.tsx",
+    "src/app/**/default.tsx",
     "src/app/globals.css",
+    "src/middleware.ts",
     "open-next.config.ts",
     "scripts/**/*.{ts,mjs}"
   ],
@@ -16,5 +20,11 @@
   ],
   "ignore": [
     "src/components/ui/**"
-  ]
+  ],
+  "vitest": {
+    "entry": ["src/**/*.test.{ts,tsx}", "src/test/**/*.{ts,tsx}"]
+  },
+  "eslint": {
+    "entry": ["eslint.config.mjs"]
+  }
 }
