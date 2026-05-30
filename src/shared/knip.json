@@ -1,0 +1,8 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "project": ["src/**/*.ts"],
+  "include": ["files", "dependencies", "devDependencies", "unlisted"],
+  "vitest": {
+    "entry": ["src/**/*.test.ts"]
+  }
+}

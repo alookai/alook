@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "daemon/session-runner.ts",
+    "daemon/meeting-runner.ts",
+    "commands/**/*.ts",
+    "scripts/**/*.mjs"
+  ],
+  "project": ["src/**/*.ts", "commands/**/*.ts", "daemon/**/*.ts", "lib/**/*.ts"],
+  "ignoreDependencies": [
+    "citty"
+  ],
+  "vitest": {
+    "entry": ["**/*.test.ts"]
+  },
+  "eslint": {
+    "entry": ["eslint.config.mjs"]
+  }
+}

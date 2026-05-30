@@ -33,6 +33,7 @@
     "build": "bun build src/index.ts --outdir dist --target node --format esm --external commander --external wrangler && node scripts/bundle-cli.mjs",
     "prepack": "pnpm run build && node -e \"const{existsSync}=require('fs');if(!existsSync('bundled/web'))throw new Error('bundled/ missing — run pnpm bundle first')\"",
     "bundle": "bun run scripts/bundle.ts",
+    "knip": "knip",
     "lint": "eslint src/",
     "test": "vitest run"
   },
@@ -48,6 +49,7 @@
     "@alook/shared": "workspace:*",
     "@types/bun": "^1.3.14",
     "eslint": "^9.39.4",
+    "knip": "^6.14.2",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.4"
   }

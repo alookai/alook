@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "wrangler dev --persist-to ../web/.wrangler/state",
     "deploy": "wrangler deploy",
+    "knip": "knip",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
@@ -13,6 +14,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260524.1",
     "@types/node": "^25.9.1",
+    "knip": "^6.14.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7",
     "wrangler": "^4.94.0"
