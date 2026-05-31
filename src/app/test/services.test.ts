@@ -66,4 +66,20 @@ describe("services", () => {
       expect(existsSync(PID_FILE)).toBe(false);
     });
   });
+
+  describe("startServices", () => {
+    it("early-returns without spawning when a service pid is already alive", async () => {
+      const { writePids } = await import("../src/lib/pid.js");
+      const { startServices } = await import("../src/lib/services.js");
+
+      // current process pid is guaranteed alive → the anyAlive guard short-circuits
+      writePids({ web: process.pid });
+      const logs: string[] = [];
+      const spy = vi.spyOn(console, "log").mockImplementation((m?: unknown) => { logs.push(String(m)); });
+
+      startServices({ web: 3000, emailWorker: 8787, wsDo: 8789 });
+      expect(logs.join("\n")).toContain("already running");
+      spy.mockRestore();
+    });
+  });
 });

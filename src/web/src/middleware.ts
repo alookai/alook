@@ -3,7 +3,10 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { createAuth } from "@/lib/auth"
 
 function isSafeRedirect(path: string): boolean {
-  return path.startsWith("/") && !path.startsWith("//")
+  // Must be a relative path. Reject scheme-relative ("//evil.com") and
+  // backslash tricks ("/\evil.com") — the WHATWG URL parser treats "\" as "/",
+  // so both resolve to an external origin and would be an open redirect.
+  return path.startsWith("/") && path[1] !== "/" && path[1] !== "\\"
 }
 
 const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard"]

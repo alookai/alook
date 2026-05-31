@@ -325,6 +325,27 @@ describe("chat-cache", () => {
       // Pointer to conv_2 is untouched.
       expect((await getLastOpenConversation("agent_c", "chan_z", WORKSPACE_ID))?.conversation_id).toBe("conv_2");
     });
+
+    // TC8 — the WS-driven refresh (task.created) may write serverMessageCount=0
+    // when there is no local cache for a brand-new conversation. The store must
+    // round-trip that 0 faithfully so the slow-path read's `serverMessageCount >
+    // 0` gate sees it and falls back to the skeleton (never optimistically
+    // paints empty/wrong content). This asserts the storage half of that
+    // invariant; the read-site gate itself lives in agent-chat-view.tsx.
+    it("TC8 — round-trips serverMessageCount=0 (non-poisoning WS-path write)", async () => {
+      await setLastOpenConversation("agent_ws", "chan_x", {
+        conversation_id: "conv_brand_new",
+        newestMessageId: null,
+        serverMessageCount: 0,
+      }, WORKSPACE_ID);
+
+      const entry = await getLastOpenConversation("agent_ws", "chan_x", WORKSPACE_ID);
+      expect(entry?.conversation_id).toBe("conv_brand_new");
+      // The read site gates optimism on `serverMessageCount > 0`; a stored 0
+      // therefore disables the optimistic paint for this pointer.
+      expect(entry?.serverMessageCount).toBe(0);
+      expect(entry!.serverMessageCount > 0).toBe(false);
+    });
   });
 
   describe("evictLRU", () => {

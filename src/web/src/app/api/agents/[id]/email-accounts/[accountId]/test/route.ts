@@ -22,11 +22,11 @@ export const POST = withAuth(async (req, ctx) => {
 
   let testRes: Response
   try {
-    testRes = await cfEnv.EMAIL_WORKER.fetch(`http://internal/imap/test?accountId=${accountId}`, {
+    testRes = await cfEnv.EMAIL_WORKER.fetch(`http://internal/imap/test?accountId=${accountId}&workspaceId=${ws.workspaceId}`, {
       method: "POST",
     })
   } catch {
-    testRes = await fetch(`${DEV_EMAIL_WORKER_URL}/imap/test?accountId=${accountId}`, {
+    testRes = await fetch(`${DEV_EMAIL_WORKER_URL}/imap/test?accountId=${accountId}&workspaceId=${ws.workspaceId}`, {
       method: "POST",
     })
   }

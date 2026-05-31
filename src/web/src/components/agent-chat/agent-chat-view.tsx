@@ -420,6 +420,61 @@ export function buildTimeline(
   return result;
 }
 
+/**
+ * Whether a completed conversation load may persist the per-channel `last_open`
+ * pointer. Only the SLOW path (param-less open, `targetConvId` absent) resolves
+ * the channel's latest-created conversation; the FAST path (`?conv=<id>`) loads
+ * an explicit, possibly old conversation and must NOT touch the pointer (doing
+ * so reintroduces the wrong-conversation flash). See {@link LastOpenEntry}.
+ *
+ * Pure mirror of the inline Phase B write guard, exported for unit testing the
+ * fast-vs-slow decision without rendering the component.
+ */
+export function shouldPersistPointerForLoad(
+  targetConvId: string | null | undefined,
+): boolean {
+  return !targetConvId;
+}
+
+/**
+ * Decide whether a `task.created` WS event should refresh this view's
+ * per-channel `last_open` pointer, and to which conversation.
+ *
+ * The `last_open` pointer carries "latest-created conversation for this
+ * agent+channel" semantics (see {@link setLastOpenConversation}). A
+ * `task.created` event is the client learning of a (possibly newer)
+ * conversation in real time, so it is a valid moment to refresh the pointer —
+ * but ONLY when the event belongs to exactly this agent + active channel.
+ *
+ * Returns the conversation id to point at, or `null` to skip the write
+ * (different agent, different channel, or the pointer already points there).
+ *
+ * Pure so the scoping logic is unit-testable in the node-env web test suite
+ * (no component render). The caller supplies `serverMessageCount` separately
+ * (A1: derived from the locally-cached message count) when it performs the
+ * actual `setLastOpenConversation` write.
+ */
+export function pointerRefreshTargetForTaskCreated(args: {
+  /** The TaskApi from the `task.created` event. */
+  task: Pick<Task, "agent_id" | "channel" | "conversation_id">;
+  /** The agent this view is rendering. */
+  agentId: string;
+  /** The active channel string (never null — null maps to "default"). */
+  activeChannel: string;
+  /** The conversation id the pointer currently references, if known. */
+  currentPointerConvId: string | null;
+}): string | null {
+  const { task, agentId, activeChannel, currentPointerConvId } = args;
+  // Scope guard: never touch another agent's or channel's pointer. The event's
+  // null channel normalizes to "default" to match the UI's channel string
+  // (channel-context.tsx). activeChannel is always a non-null string.
+  if (task.agent_id !== agentId) return null;
+  if ((task.channel ?? "default") !== activeChannel) return null;
+  // Already pointing here — nothing to do.
+  if (task.conversation_id === currentPointerConvId) return null;
+  return task.conversation_id;
+}
+
 function useLatest<T>(value: T) {
   const ref = useRef(value);
   useEffect(() => {
@@ -930,6 +985,16 @@ export function AgentChatView({
           // background. Only paint optimistically when the pointer is plausibly
           // fresh (serverMessageCount > 0 and a non-empty cache), so a stale or
           // empty pointer falls back to the skeleton (review #4).
+          //
+          // The pointer now carries "latest-created conversation for this
+          // agent+channel" semantics (see {@link setLastOpenConversation} and the
+          // gated write in Phase B / the task.created WS handler), matching the
+          // server's `check-fresh` definition of "current" (latest-created). So
+          // the optimistic paint is correct-by-construction: in the common case
+          // the painted id equals the check-fresh id below → no swap → no flash.
+          // Do NOT reintroduce "last opened" semantics here (e.g. by writing the
+          // pointer from a `?conv=` fast-path open) — that is exactly the bug this
+          // fix removed.
           const lastOpen = await getLastOpenConversation(
             agentId,
             activeChannel,
@@ -1037,7 +1102,18 @@ export function AgentChatView({
           // the cache meta (just updated by mergeCachedMessages on the stale
           // path) so the stored newest id is authoritative rather than inferred
           // from page order.
-          if (loadConvIdRef.current === convId) {
+          //
+          // GATED on `!targetConvId`: only the SLOW path (param-less, server-
+          // resolved) may write the pointer. On the FAST path `convId ===
+          // targetConvId` — an explicit, possibly OLD conversation the user
+          // navigated to via `?conv=`. Persisting that would re-corrupt the
+          // pointer back to "last-opened" semantics and reintroduce the
+          // wrong-conversation flash on the next param-less open. The pointer
+          // must only ever carry the channel's latest-created conversation.
+          if (
+            loadConvIdRef.current === convId &&
+            shouldPersistPointerForLoad(targetConvId)
+          ) {
             const confirmedMeta = await getCacheMeta(convId, workspaceId);
             if (ignore) return;
             setLastOpenConversation(
@@ -1118,6 +1194,13 @@ export function AgentChatView({
             data.has_more_messages,
             workspaceId,
           ).catch(() => {});
+          // This branch is reached only when `convId` is null — i.e. the SLOW
+          // path's checkFreshness failed and we fell back to chatInit. chatInit
+          // returns the server's current (latest-created) conversation, so this
+          // write carries the correct "latest-created" semantics. It is
+          // slow-path-only by construction (the fast path sets convId =
+          // targetConvId and never falls through here), so no `!targetConvId`
+          // gate is needed.
           setLastOpenConversation(
             agentId,
             activeChannel,
@@ -1852,6 +1935,48 @@ export function AgentChatView({
         lastSeqRef.current = 0;
         startPollingRef.current?.(task.id, msg.conversationId);
       }
+      // Refresh the per-channel `last_open` pointer when a `task.created`
+      // arrives — this is the client learning of a (possibly newer) conversation
+      // for this agent+channel in real time, keeping the pointer's
+      // "latest-created" semantics fresh while the user is on the page. Runs
+      // independently of the active-conversation block above: a new thread spawned
+      // in this channel often has a different conversationId than the one being
+      // viewed, so it must NOT be gated on `msg.conversationId === conversation?.id`.
+      // `activeChannelRef` is read (not `activeChannel`) because this effect does
+      // not re-subscribe on channel change — the ref always holds the current value.
+      if (msg.type === "task.created") {
+        const task = msg.task as Task;
+        const activeChannel = activeChannelRef.current;
+        getLastOpenConversation(agentId, activeChannel, workspaceId)
+          .then((current) => {
+            const targetConvId = pointerRefreshTargetForTaskCreated({
+              task,
+              agentId,
+              activeChannel,
+              currentPointerConvId: current?.conversation_id ?? null,
+            });
+            if (!targetConvId) return;
+            // A1: derive serverMessageCount from the locally-cached count for
+            // this conversation. May under-count (e.g. brand-new thread with no
+            // cache → 0), which only makes the next slow-path read fall back to
+            // the skeleton (the `serverMessageCount > 0` gate) — never wrong
+            // content. We never over-count, so the pointer can't claim a
+            // conversation is more complete than it is.
+            return getCacheMeta(targetConvId, workspaceId).then((meta) =>
+              setLastOpenConversation(
+                agentId,
+                activeChannel,
+                {
+                  conversation_id: targetConvId,
+                  newestMessageId: meta?.newestMessageId ?? null,
+                  serverMessageCount: meta?.messageCount ?? 0,
+                },
+                workspaceId,
+              ),
+            );
+          })
+          .catch(() => {});
+      }
       if (msg.type === "conversation.message") {
         // Only cache for the server-confirmed loaded conversation — never write
         // during the optimistic cache-first window before the id is confirmed
@@ -1950,7 +2075,7 @@ export function AgentChatView({
         toast.error(msg.error || "Failed to dispatch follow-up");
       }
     });
-  }, [subscribeWs, conversation?.id, workspaceId]);
+  }, [subscribeWs, conversation?.id, workspaceId, agentId]);
 
   useEffect(() => {
     return subscribeReconnect(() => {

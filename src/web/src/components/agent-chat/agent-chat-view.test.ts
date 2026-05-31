@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Message, Artifact } from "@alook/shared";
-import { sortMessages, mergeMessages, buildTimeline, addBufferedIfNew, replaceOptimisticBuffered, getEventIconType, reorderArtifactsAfterAssistant } from "./agent-chat-view";
+import { sortMessages, mergeMessages, buildTimeline, addBufferedIfNew, replaceOptimisticBuffered, getEventIconType, reorderArtifactsAfterAssistant, shouldPersistPointerForLoad, pointerRefreshTargetForTaskCreated } from "./agent-chat-view";
 import type { NapMarker } from "./agent-chat-view";
 
 function msg(id: string, created_at: string, role: "user" | "assistant" | "event" = "user", content = ""): Message {
@@ -681,5 +681,133 @@ describe("replaceOptimisticBuffered", () => {
     const result = replaceOptimisticBuffered(prev, "temp-100", real);
     expect(result).toHaveLength(3);
     expect(result.map((m) => m.id)).toEqual(["m1", "real-100", "temp-200"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Wrong-conversation flash fix: per-channel "latest-created" pointer semantics.
+//
+// These cover the pure decision logic the fix is built on. The full component
+// load/swap flow (paint → check-fresh → swap) cannot be rendered in this
+// node-env Vitest suite (no jsdom/RTL), so the FLOW-level cases from the plan
+// (TC2/TC3/TC7/TC10) are exercised through the pure predicates the flow now
+// delegates to, plus the IndexedDB round-trip in chat-cache.test.ts (TC1).
+// ---------------------------------------------------------------------------
+
+describe("shouldPersistPointerForLoad (TODO-1: slow-path-only write gate)", () => {
+  it("TC9 — fast path (targetConvId present) does NOT write the pointer", () => {
+    // Opening ?conv=<old-id>: targetConvId is the explicit, possibly-old conv.
+    expect(shouldPersistPointerForLoad("conv_old")).toBe(false);
+  });
+
+  it("TC2/TC3 — slow path (no targetConvId) DOES write the pointer", () => {
+    // Param-less open: convId is server-resolved (latest-created) → persist it.
+    expect(shouldPersistPointerForLoad(null)).toBe(true);
+    expect(shouldPersistPointerForLoad(undefined)).toBe(true);
+  });
+
+  it("treats empty string targetConvId as no explicit target (slow path)", () => {
+    // `?conv=` with an empty value never resolves a real conversation; the load
+    // falls through to the slow path, so writing the resolved latest is correct.
+    expect(shouldPersistPointerForLoad("")).toBe(true);
+  });
+});
+
+describe("pointerRefreshTargetForTaskCreated (TODO-2: WS-driven refresh scope)", () => {
+  const base = {
+    agentId: "agent_a",
+    activeChannel: "default",
+    currentPointerConvId: "conv_current",
+  };
+  const task = (over: Partial<{ agent_id: string; channel: string | null; conversation_id: string }>) => ({
+    agent_id: over.agent_id ?? "agent_a",
+    channel: over.channel === undefined ? null : over.channel,
+    conversation_id: over.conversation_id ?? "conv_new",
+  });
+
+  it("TC4 — newer conversation for this agent+channel → returns the new conv id", () => {
+    expect(
+      pointerRefreshTargetForTaskCreated({
+        ...base,
+        task: task({ agent_id: "agent_a", channel: "default", conversation_id: "conv_new" }),
+      }),
+    ).toBe("conv_new");
+  });
+
+  it("TC4 — null event channel normalizes to 'default' and matches the active default channel", () => {
+    expect(
+      pointerRefreshTargetForTaskCreated({
+        ...base,
+        task: task({ channel: null, conversation_id: "conv_new" }),
+      }),
+    ).toBe("conv_new");
+  });
+
+  it("matches a non-default named channel", () => {
+    expect(
+      pointerRefreshTargetForTaskCreated({
+        ...base,
+        activeChannel: "ops",
+        task: task({ channel: "ops", conversation_id: "conv_new" }),
+      }),
+    ).toBe("conv_new");
+  });
+
+  it("TC5 — different agent → SKIP (returns null, never touches this pointer)", () => {
+    expect(
+      pointerRefreshTargetForTaskCreated({
+        ...base,
+        task: task({ agent_id: "agent_b", conversation_id: "conv_new" }),
+      }),
+    ).toBeNull();
+  });
+
+  it("TC5 — different channel → SKIP", () => {
+    expect(
+      pointerRefreshTargetForTaskCreated({
+        ...base,
+        activeChannel: "default",
+        task: task({ channel: "ops", conversation_id: "conv_new" }),
+      }),
+    ).toBeNull();
+  });
+
+  it("no-op when the event already points at the current pointer conversation", () => {
+    expect(
+      pointerRefreshTargetForTaskCreated({
+        ...base,
+        currentPointerConvId: "conv_new",
+        task: task({ conversation_id: "conv_new" }),
+      }),
+    ).toBeNull();
+  });
+
+  it("writes even when there is no current pointer yet (null current)", () => {
+    expect(
+      pointerRefreshTargetForTaskCreated({
+        ...base,
+        currentPointerConvId: null,
+        task: task({ conversation_id: "conv_new" }),
+      }),
+    ).toBe("conv_new");
+  });
+
+  it("TC6 — undefined channel on the event normalizes to 'default' (no incorrect cross-channel write)", () => {
+    // An event with no channel info is treated as the default channel, so it only
+    // affects the default-channel pointer — never a named channel's pointer.
+    expect(
+      pointerRefreshTargetForTaskCreated({
+        ...base,
+        activeChannel: "ops",
+        task: { agent_id: "agent_a", channel: undefined, conversation_id: "conv_new" },
+      }),
+    ).toBeNull();
+    expect(
+      pointerRefreshTargetForTaskCreated({
+        ...base,
+        activeChannel: "default",
+        task: { agent_id: "agent_a", channel: undefined, conversation_id: "conv_new" },
+      }),
+    ).toBe("conv_new");
   });
 });

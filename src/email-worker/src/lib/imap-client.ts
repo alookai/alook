@@ -8,7 +8,7 @@ export interface ImapClientOptions {
   readTimeoutMs?: number
 }
 
-class ImapError extends Error {
+export class ImapError extends Error {
   constructor(message: string) {
     super(message)
     this.name = "ImapError"

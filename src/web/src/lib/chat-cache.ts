@@ -12,9 +12,23 @@ export interface CacheMeta {
 }
 
 /**
- * Pointer to the last-open conversation for a given agent+channel, used to
- * render the multi-conversation chat page cache-first (without a gating
+ * Pointer to the **latest-created** conversation for a given agent+channel, used
+ * to render the multi-conversation chat page cache-first (without a gating
  * network round-trip to resolve "which conversation is this?").
+ *
+ * Semantics: this is the latest-created conversation as last known to THIS
+ * client — matching the server's `check-fresh` definition of "current"
+ * (`getOrCreateAgentConversation` → `orderBy(desc(createdAt))`). It is NOT "the
+ * conversation the user last manually opened". Honoring those two as the same
+ * concept caused the wrong-conversation flash: an explicit `?conv=<old-id>` open
+ * would record an old conversation, then the param-less open painted it and
+ * visibly swapped to the server's latest. Only writes that establish
+ * "latest-created" (slow-path server-resolved load, chatInit fallback, and the
+ * `task.created` WS refresh) may update this pointer.
+ *
+ * Cross-device caveat: if another device/tab just created a newer conversation
+ * this client hasn't heard of yet, the pointer may briefly lag until the next
+ * `check-fresh` corrects it — the rare residual case, no longer the common one.
  *
  * The DB is already scoped per-workspace (`alook-chat-cache-${workspaceId}`),
  * so the key only needs to encode agent + channel.
@@ -338,9 +352,17 @@ export async function getLastOpenConversation(
 }
 
 /**
- * Write the last-open conversation pointer for an agent+channel. Should only be
- * called with server-confirmed values (newest id / count) so the next open's
- * freshness compare is accurate.
+ * Write the per-channel pointer to the **latest-created** conversation for an
+ * agent+channel (see {@link LastOpenEntry}). Call ONLY when establishing
+ * latest-created semantics — i.e. from a server-resolved (slow-path) load, the
+ * chatInit fallback, or the `task.created` WS refresh. Do NOT call it for an
+ * explicit `?conv=<id>` (fast-path) open: that records "last opened", not
+ * "latest", and reintroduces the wrong-conversation flash.
+ *
+ * Values should be server-confirmed where available so the next open's freshness
+ * compare is accurate. The `task.created` path derives `serverMessageCount` from
+ * the locally-cached count (may under-count → at worst the next read falls back
+ * to the skeleton via the `serverMessageCount > 0` gate, never wrong content).
  */
 export async function setLastOpenConversation(
   agentId: string,
