@@ -1,0 +1,31 @@
+coverage:
+  status:
+    project:
+      shared:
+        target: 50%
+        paths:
+          - src/shared/**
+      cli:
+        target: 60%
+        paths:
+          - src/cli/**
+      email-worker:
+        target: 70%
+        paths:
+          - src/email-worker/**
+      ws-do:
+        target: 70%
+        paths:
+          - src/ws-do/**
+      web:
+        target: 30%
+        paths:
+          - src/web/**
+    patch:
+      default:
+        target: 60%
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: true
