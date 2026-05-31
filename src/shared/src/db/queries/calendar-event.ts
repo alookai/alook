@@ -79,6 +79,17 @@ export async function listCalendarEvents(
 ) {
   const conditions = [eq(calendarEvent.workspaceId, workspaceId)];
   if (opts.agentId) conditions.push(eq(calendarEvent.agentId, opts.agentId));
+
+  // Exclude completed one-off events: non-recurring events where
+  // lastTriggeredAt is set and >= scheduledAt are "done".
+  conditions.push(
+    or(
+      isNotNull(calendarEvent.repeatInterval),
+      isNull(calendarEvent.lastTriggeredAt),
+      lt(calendarEvent.lastTriggeredAt, calendarEvent.scheduledAt)
+    )!
+  );
+
   if (opts.from && opts.to) {
     // Non-recurring rows are bounded strictly by [from, to] on scheduled_at.
     // Recurring rows may have scheduled_at before `from` (next fire is

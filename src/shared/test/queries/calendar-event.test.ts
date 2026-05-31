@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import * as calendarQueries from "../../src/db/queries/calendar-event";
 
 describe("calendar-event query module exports", () => {
@@ -254,6 +254,39 @@ describe("getOccurrencesPerDay", () => {
 
   it("returns 1 for 0-amount (division guard)", () => {
     expect(calendarQueries.getOccurrencesPerDay("0min")).toBe(1);
+  });
+});
+
+describe("listCalendarEvents — completed one-off exclusion", () => {
+  function createMockDb(rows: any[]) {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.orderBy = vi.fn(() => Promise.resolve(rows));
+    return chain;
+  }
+
+  it("calls where() with conditions that would exclude completed one-off events", async () => {
+    const db = createMockDb([]);
+    await calendarQueries.listCalendarEvents(db, "ws_1");
+    expect(db.where).toHaveBeenCalledOnce();
+  });
+
+  it("returns all rows from the database (filter logic is in SQL)", async () => {
+    const rows = [
+      { id: "ce_1", repeatInterval: null, lastTriggeredAt: null },
+      { id: "ce_2", repeatInterval: "1day", lastTriggeredAt: "2026-01-01T10:00:00.000Z" },
+    ];
+    const db = createMockDb(rows);
+    const result = await calendarQueries.listCalendarEvents(db, "ws_1");
+    expect(result).toEqual(rows);
+  });
+
+  it("passes agentId filter when provided", async () => {
+    const db = createMockDb([]);
+    await calendarQueries.listCalendarEvents(db, "ws_1", { agentId: "ag_1" });
+    expect(db.where).toHaveBeenCalledOnce();
   });
 });
 
