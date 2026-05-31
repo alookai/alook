@@ -58,7 +58,7 @@
     "eslint": "^10.3.0",
     "knip": "^6.14.2",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.4",
+    "typescript-eslint": "^8.60.0",
     "vitest": "^4.1.7"
   }
 }
