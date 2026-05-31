@@ -61,12 +61,20 @@ export function SlashCommandPopup({ isOpen, skills, selectedIndex, onSelect, anc
 
   if (!isOpen || skills.length === 0) return null
 
+  // Popup is w-70 (280px). Clamp left so it never overflows the right edge (mobile).
+  const POPUP_WIDTH = 280
+  const VIEWPORT_MARGIN = 8
+  const maxLeft = typeof window !== "undefined"
+    ? Math.max(VIEWPORT_MARGIN, window.innerWidth - POPUP_WIDTH - VIEWPORT_MARGIN)
+    : anchorPos.left
+  const clampedLeft = Math.min(anchorPos.left, maxLeft)
+
   return (
     <div
-      className="absolute z-50 w-70 rounded-lg border border-border bg-popover text-popover-foreground shadow-md transition-opacity duration-150"
+      className="fixed z-100 w-70 rounded-lg border border-border bg-popover text-popover-foreground shadow-md transition-opacity duration-150"
       style={{
         top: anchorPos.top - 4,
-        left: anchorPos.left,
+        left: clampedLeft,
         transform: "translateY(-100%)",
       }}
     >

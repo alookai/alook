@@ -388,6 +388,85 @@ describe("POST /api/email/send", () => {
       expect(putOpts.httpMetadata.contentType).toBe("message/rfc822");
     });
 
+    it("fetches multiple attachments from R2 in parallel for local delivery", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });
+      mockIsWhitelisted.mockResolvedValue(false);
+      mockWorkerSelfRefFetch.mockResolvedValue(Response.json({ ok: true }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+
+      const file1 = new TextEncoder().encode("file one");
+      const file2 = new TextEncoder().encode("file two");
+      const file3 = new TextEncoder().encode("file three");
+      mockEmailBucketGet
+        .mockResolvedValueOnce({ arrayBuffer: () => Promise.resolve(file1.buffer) })
+        .mockResolvedValueOnce({ arrayBuffer: () => Promise.resolve(file2.buffer) })
+        .mockResolvedValueOnce({ arrayBuffer: () => Promise.resolve(file3.buffer) });
+      mockEmailBucketPut.mockResolvedValue(undefined);
+
+      const attachments = [
+        { key: "emails/drafts/x/a.txt", filename: "a.txt", size: 8, contentType: "text/plain" },
+        { key: "emails/drafts/x/b.txt", filename: "b.txt", size: 8, contentType: "text/plain" },
+        { key: "emails/drafts/x/c.txt", filename: "c.txt", size: 10, contentType: "text/plain" },
+      ];
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "agent-b@alook.ai",
+        subject: "Multi attach",
+        htmlBody: "<p>See files</p>",
+        attachments,
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      expect(mockEmailBucketGet).toHaveBeenCalledTimes(3);
+      expect(mockEmailBucketGet).toHaveBeenCalledWith("emails/drafts/x/a.txt");
+      expect(mockEmailBucketGet).toHaveBeenCalledWith("emails/drafts/x/b.txt");
+      expect(mockEmailBucketGet).toHaveBeenCalledWith("emails/drafts/x/c.txt");
+
+      const putBody = mockEmailBucketPut.mock.calls[0][1] as string;
+      expect(putBody).toContain('filename="a.txt"');
+      expect(putBody).toContain('filename="b.txt"');
+      expect(putBody).toContain('filename="c.txt"');
+    });
+
+    it("skips attachments that return null from R2 in parallel fetch", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });
+      mockIsWhitelisted.mockResolvedValue(false);
+      mockWorkerSelfRefFetch.mockResolvedValue(Response.json({ ok: true }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+
+      const file1 = new TextEncoder().encode("file one");
+      mockEmailBucketGet
+        .mockResolvedValueOnce({ arrayBuffer: () => Promise.resolve(file1.buffer) })
+        .mockResolvedValueOnce(null);
+      mockEmailBucketPut.mockResolvedValue(undefined);
+
+      const attachments = [
+        { key: "emails/drafts/x/exists.txt", filename: "exists.txt", size: 8, contentType: "text/plain" },
+        { key: "emails/drafts/x/missing.txt", filename: "missing.txt", size: 5, contentType: "text/plain" },
+      ];
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "agent-b@alook.ai",
+        subject: "Partial attach",
+        htmlBody: "<p>Partial</p>",
+        attachments,
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      expect(mockEmailBucketGet).toHaveBeenCalledTimes(2);
+      const putBody = mockEmailBucketPut.mock.calls[0][1] as string;
+      expect(putBody).toContain('filename="exists.txt"');
+      expect(putBody).not.toContain('filename="missing.txt"');
+    });
+
     it("checks whitelist and passes result in notify payload", async () => {
       mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
       mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });

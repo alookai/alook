@@ -219,6 +219,41 @@ describe("apiFetch", () => {
   });
 });
 
+describe("conversationInit — message_count serialization", () => {
+  function okJson() {
+    return { ok: true, status: 200, json: async () => ({}) };
+  }
+
+  function lastUrl(): string {
+    const call = mockFetch.mock.calls.at(-1);
+    return String(call?.[0] ?? "");
+  }
+
+  it("omits message_count when the count is 0 (treated as unknown)", async () => {
+    mockFetch.mockResolvedValueOnce(okJson());
+    const { conversationInit } = await getApiFetch();
+    await conversationInit("conv_1", "w1", { messageCount: 0 });
+    expect(lastUrl()).not.toContain("message_count");
+    // Critically: never sends the truthy string "0", which would make the
+    // server's `serverMessageCount === 0` compare fail for non-empty convs.
+    expect(lastUrl()).not.toContain("message_count=0");
+  });
+
+  it("includes message_count when the count is greater than 0", async () => {
+    mockFetch.mockResolvedValueOnce(okJson());
+    const { conversationInit } = await getApiFetch();
+    await conversationInit("conv_1", "w1", { messageCount: 12 });
+    expect(lastUrl()).toContain("message_count=12");
+  });
+
+  it("omits message_count when not provided", async () => {
+    mockFetch.mockResolvedValueOnce(okJson());
+    const { conversationInit } = await getApiFetch();
+    await conversationInit("conv_1", "w1");
+    expect(lastUrl()).not.toContain("message_count");
+  });
+});
+
 describe("apiFetch — mock network delay", () => {
   afterEach(() => {
     process.env.NODE_ENV = "test";

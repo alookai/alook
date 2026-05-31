@@ -47,7 +47,7 @@ export function clampPetPosition(
   };
 }
 
-export function isCloudCodeMonsterActivityId(
+function isCloudCodeMonsterActivityId(
   value: string
 ): value is CloudCodeMonsterActivityId {
   return CLOUD_CODE_MONSTER_ACTIVITIES.some(
@@ -203,9 +203,6 @@ export function createCloudCodeMonsterPreviewAwayState(
   };
 }
 
-export function simulateCloudCodeMonsterPreviewAway(now = Date.now()) {
-  writeStoredActivity(createCloudCodeMonsterPreviewAwayState(now));
-}
 
 export function resolveCloudCodeMonsterPreviewComebackState(
   now = Date.now(),

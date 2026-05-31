@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import gsap from "gsap";
@@ -16,7 +16,6 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const sublineRef = useRef<HTMLParagraphElement>(null);
   const ctaRef = useRef<HTMLDivElement>(null);
-  const [copied, setCopied] = useState(false);
 
   useGSAP(
     () => {
@@ -68,7 +67,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
   return (
     <section
       ref={sectionRef}
-      className="hero-section relative flex min-h-screen items-center justify-center overflow-hidden"
+      className="hero-section relative flex h-screen items-center justify-center overflow-hidden"
       style={{ backgroundColor: "var(--landing-bg)" }}
     >
       {/* Paper noise */}
@@ -81,9 +80,9 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         }}
       />
 
-      <div className="hero-content relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center px-4 sm:px-6">
+      <div className="hero-content relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center px-4 sm:px-6 py-8 max-h-full">
         {/* Brand */}
-        <div className="hero-brand mb-6 flex items-center gap-1.5" style={{ opacity: 0 }}>
+        <div className="hero-brand mb-6 flex shrink-0 items-center gap-1.5" style={{ opacity: 0 }}>
           <Image src="/alook.svg" alt="Alook" width={32} height={32} />
           <span
             className="text-2xl tracking-tight"
@@ -97,8 +96,12 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           </span>
         </div>
 
+        {/* Scalable content zone — all content scales together on short viewports */}
+        <div className="typewriter-wrapper flex w-full shrink min-h-0 flex-col items-center" style={{ height: "clamp(192px, calc(100vh - 200px), 750px)" }}>
+        <div className="hero-scalable flex w-full flex-1 min-h-0 flex-col items-center">
+
         {/* Typewriter + Slogan wrapper */}
-        <div className="relative w-full h-105 sm:h-125 md:h-142.5">
+        <div className="relative w-full shrink min-h-0 flex-1">
           {/* Slogan — positioned at top of typewriter area */}
           <div className="absolute top-0 left-0 right-0 z-10 flex flex-col items-center pt-2">
             <h1
@@ -120,7 +123,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
               style={{
                 fontFamily: "var(--font-crt)",
                 color: "var(--landing-text-muted)",
-                fontSize: "clamp(12px, 2vw, 20px)",
+                fontSize: "clamp(15px, 3.6vw, 20px)",
                 opacity: 0,
               }}
             >
@@ -137,72 +140,9 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           />
         </div>
 
-        {/* Clipboard copy widget */}
-        <div
-          className="hero-clipboard relative mt-8 w-full max-w-lg cursor-pointer"
-          style={{ opacity: 0 }}
-          onClick={() => {
-            navigator.clipboard.writeText(
-              "Read https://alook.ai/onboard.md and follow the instructions to install and configure Alook"
-            );
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          }}
-        >
-          {/* Floating badge label */}
-          <span
-            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap overflow-hidden text-ellipsis px-2 py-0.5 text-[10px] sm:text-xs"
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: "var(--landing-text-muted)",
-              backgroundColor: "var(--landing-bg)",
-            }}
-          >
-            Copy and Paste Into Your Agent&apos;s Chat to Get Started
-          </span>
-          {/* Content box */}
-          <div
-            className="flex w-full items-center gap-2 rounded px-3 py-2.5 pt-3 text-xs sm:text-sm"
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: "var(--landing-text)",
-              border: "1px solid color-mix(in srgb, var(--landing-text-muted) 30%, transparent)",
-            }}
-          >
-            <span className="flex-1 overflow-hidden whitespace-nowrap text-ellipsis">
-              Read{" "}
-              <a
-                href="https://alook.ai/onboard.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline transition-opacity hover:opacity-70"
-                style={{ color: "var(--landing-text)" }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                Onboard.md
-              </a>
-              {" "}and follow the instructions to install and configure Alook
-            </span>
-            <span
-              className="shrink-0 p-1"
-              style={{ color: copied ? "var(--landing-text)" : "var(--landing-text-muted)" }}
-            >
-              {copied ? (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              )}
-            </span>
-          </div>
-        </div>
 
         {/* Specs */}
-        <div className="hero-specs mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2" style={{ opacity: 0 }}>
+        {/* <div className="hero-specs mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2" style={{ opacity: 0 }}>
           {[
             "Collaboration",
             "Always-On",
@@ -219,10 +159,10 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
               {spec}
             </span>
           ))}
-        </div>
+        </div> */}
 
         {/* Community links */}
-        <div className="hero-providers mt-5 flex items-center justify-center gap-4" style={{ opacity: 0 }}>
+        <div className="hero-providers mt-5 shrink-0 flex items-center justify-center gap-4" style={{ opacity: 0 }}>
           <a
             href="https://github.com/alookai/alook"
             target="_blank"
@@ -262,7 +202,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         </div>
 
         {/* CTA */}
-        <div ref={ctaRef} className="mt-8 flex flex-wrap items-center justify-center gap-3" style={{ opacity: 0 }}>
+        <div ref={ctaRef} className="mt-8 shrink-0 flex flex-nowrap items-center justify-center gap-3" style={{ opacity: 0 }}>
           {/* <a
             href="https://github.com/alookai/alook"
             className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
@@ -335,8 +275,11 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           </Link>
         </div>
 
+        </div>{/* end hero-scalable */}
+        </div>{/* end typewriter-wrapper */}
+
         <p
-          className="mt-4 sm:hidden text-center text-xs"
+          className="mt-4 shrink-0 sm:hidden text-center text-xs"
           style={{
             fontFamily: "var(--font-mono)",
             color: "var(--landing-text-muted)",

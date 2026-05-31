@@ -11,6 +11,23 @@ export interface CacheMeta {
   serverMessageCount: number;
 }
 
+/**
+ * Pointer to the last-open conversation for a given agent+channel, used to
+ * render the multi-conversation chat page cache-first (without a gating
+ * network round-trip to resolve "which conversation is this?").
+ *
+ * The DB is already scoped per-workspace (`alook-chat-cache-${workspaceId}`),
+ * so the key only needs to encode agent + channel.
+ */
+export interface LastOpenEntry {
+  /** `${agentId}::${channel == null ? "" : channel}` — see {@link lastOpenKey} */
+  key: string;
+  conversation_id: string;
+  newestMessageId: string | null;
+  serverMessageCount: number;
+  updatedAt: number;
+}
+
 interface ChatCacheDB {
   messages: {
     key: [string, string];
@@ -24,9 +41,16 @@ interface ChatCacheDB {
     key: string;
     value: CacheMeta;
   };
+  last_open: {
+    key: string;
+    value: LastOpenEntry;
+    indexes: {
+      "by-conversation": string;
+    };
+  };
 }
 
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const MAX_CONVERSATIONS = 50;
 
 let dbPromise: Promise<IDBPDatabase<ChatCacheDB>> | null = null;
@@ -51,6 +75,14 @@ export function openCacheDB(workspaceId: string): Promise<IDBPDatabase<ChatCache
       }
       // v1 → v2: serverMessageCount field added to cache_meta entries.
       // No schema migration needed — the field is added at write time with default 0.
+      if (oldVersion < 3) {
+        // v2 → v3: last-open conversation pointer per agent+channel. Existing
+        // `messages`/`cache_meta` stores are untouched; this store starts empty,
+        // so the first param-less open is a clean cache miss (today's behavior),
+        // then it populates.
+        const lastOpenStore = db.createObjectStore("last_open", { keyPath: "key" });
+        lastOpenStore.createIndex("by-conversation", "conversation_id", { unique: false });
+      }
     },
   });
 
@@ -274,21 +306,113 @@ export async function getCacheMeta(conversationId: string, workspaceId?: string)
   }
 }
 
+/**
+ * Build the `last_open` key. `null` and `undefined` channel both normalize to
+ * `""`, so the param-less "default channel" maps to one stable entry.
+ */
+function lastOpenKey(agentId: string, channel: string | null | undefined): string {
+  return `${agentId}::${channel == null ? "" : channel}`;
+}
+
+/**
+ * Read the last-open conversation pointer for an agent+channel. IndexedDB only,
+ * no network. Returns null on cache miss, error, or SSR (no indexedDB).
+ *
+ * Note: `null` and `undefined` channel resolve to the same entry (see
+ * {@link lastOpenKey}).
+ */
+export async function getLastOpenConversation(
+  agentId: string,
+  channel: string | null | undefined,
+  workspaceId?: string
+): Promise<LastOpenEntry | null> {
+  const p = getDB(workspaceId);
+  if (!p) return null;
+
+  try {
+    const db = await p;
+    return (await db.get("last_open", lastOpenKey(agentId, channel))) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write the last-open conversation pointer for an agent+channel. Should only be
+ * called with server-confirmed values (newest id / count) so the next open's
+ * freshness compare is accurate.
+ */
+export async function setLastOpenConversation(
+  agentId: string,
+  channel: string | null | undefined,
+  entry: Pick<LastOpenEntry, "conversation_id" | "newestMessageId" | "serverMessageCount">,
+  workspaceId?: string
+): Promise<void> {
+  const p = getDB(workspaceId);
+  if (!p) return;
+
+  try {
+    const db = await p;
+    await db.put("last_open", {
+      key: lastOpenKey(agentId, channel),
+      conversation_id: entry.conversation_id,
+      newestMessageId: entry.newestMessageId,
+      serverMessageCount: entry.serverMessageCount,
+      updatedAt: Date.now(),
+    });
+  } catch {
+    // Graceful degradation
+  }
+}
+
+/**
+ * Remove any `last_open` pointer(s) referencing the given conversation. Used
+ * when invalidating a conversation so we don't render then immediately wipe.
+ */
+export async function clearLastOpenForConversation(
+  conversationId: string,
+  workspaceId?: string
+): Promise<void> {
+  const p = getDB(workspaceId);
+  if (!p) return;
+
+  try {
+    const db = await p;
+    const tx = db.transaction("last_open", "readwrite");
+    const store = tx.objectStore("last_open");
+    const keys = await store.index("by-conversation").getAllKeys(conversationId);
+    for (const key of keys) {
+      await store.delete(key);
+    }
+    await tx.done;
+  } catch {
+    // Graceful degradation
+  }
+}
+
 export async function invalidateCache(conversationId: string, workspaceId?: string): Promise<void> {
   const p = getDB(workspaceId);
   if (!p) return;
 
   try {
     const db = await p;
-    const tx = db.transaction(["messages", "cache_meta"], "readwrite");
+    const tx = db.transaction(["messages", "cache_meta", "last_open"], "readwrite");
     const msgStore = tx.objectStore("messages");
     const metaStore = tx.objectStore("cache_meta");
+    const lastOpenStore = tx.objectStore("last_open");
 
     const keys = await msgStore.index("by-conversation").getAllKeys(conversationId);
     for (const key of keys) {
       await msgStore.delete(key);
     }
     await metaStore.delete(conversationId);
+
+    // Drop any last-open pointer to this conversation so a later param-less
+    // open doesn't briefly render the invalidated conversation.
+    const lastOpenKeys = await lastOpenStore.index("by-conversation").getAllKeys(conversationId);
+    for (const key of lastOpenKeys) {
+      await lastOpenStore.delete(key);
+    }
 
     await tx.done;
   } catch {
@@ -308,9 +432,10 @@ export async function evictLRU(maxConversations = MAX_CONVERSATIONS): Promise<vo
     allMeta.sort((a, b) => a.lastAccessedAt - b.lastAccessedAt);
     const toEvict = allMeta.slice(0, allMeta.length - maxConversations);
 
-    const tx = db.transaction(["messages", "cache_meta"], "readwrite");
+    const tx = db.transaction(["messages", "cache_meta", "last_open"], "readwrite");
     const msgStore = tx.objectStore("messages");
     const metaStore = tx.objectStore("cache_meta");
+    const lastOpenStore = tx.objectStore("last_open");
 
     for (const meta of toEvict) {
       const keys = await msgStore.index("by-conversation").getAllKeys(meta.conversation_id);
@@ -318,6 +443,13 @@ export async function evictLRU(maxConversations = MAX_CONVERSATIONS): Promise<vo
         await msgStore.delete(key);
       }
       await metaStore.delete(meta.conversation_id);
+
+      // Prune any last-open pointers to the evicted conversation so we never
+      // keep a dangling id that would resolve to an empty cache.
+      const lastOpenKeys = await lastOpenStore.index("by-conversation").getAllKeys(meta.conversation_id);
+      for (const key of lastOpenKeys) {
+        await lastOpenStore.delete(key);
+      }
     }
 
     await tx.done;

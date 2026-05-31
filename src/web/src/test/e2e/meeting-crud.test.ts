@@ -144,12 +144,28 @@ describe("meeting CRUD", () => {
 describe("meeting approve flow", () => {
   let pendingId: string
 
-  beforeAll(() => {
-    // Directly insert a pending meeting (simulating non-whitelisted ICS)
-    const now = new Date().toISOString()
-    pendingId = `ms_e2e_pending_${Date.now()}`
-    sqlRun(`INSERT INTO meeting_session (id, agent_id, workspace_id, title, meeting_url, status, is_whitelisted, participants, scheduled_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, pendingId, seed.agentId, seed.workspaceId, 'Pending Meeting', 'https://meet.google.com/pen-ding-one', 'pending', 0, '[]', '2026-05-03T10:00:00Z', now, now)
-  })
+  beforeAll(async () => {
+    // Create via API (so the record exists in miniflare's D1), then UPDATE status via sqlRun
+    // to simulate a non-whitelisted ICS meeting (no public API for creating pending meetings).
+    const createRes = await meetingReq(
+      `/api/agents/${seed.agentId}/meetings?workspace_id=${seed.workspaceId}`,
+      seed.machineToken,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          meetingUrl: "https://meet.google.com/pen-ding-one",
+          title: "Pending Meeting",
+          scheduledAt: "2026-05-03T10:00:00Z",
+        }),
+      },
+    )
+    expect(createRes.status).toBe(201)
+    const created = await createRes.json() as Record<string, unknown>
+    expect(created.id).toBeTruthy()
+    pendingId = created.id as string
+    // Mutate status to 'pending' to simulate a non-whitelisted ICS meeting
+    sqlRun(`UPDATE meeting_session SET status = 'pending', is_whitelisted = 0 WHERE id = ?`, pendingId)
+  }, 30_000)
 
   it("POST /approve transitions pending → scheduled", async () => {
     const res = await meetingReq(
@@ -189,7 +205,9 @@ describe("meeting stop on non-active", () => {
         }),
       },
     )
+    expect(createRes.status).toBe(201)
     const created = await createRes.json() as Record<string, unknown>
+    expect(created.id).toBeTruthy()
 
     const res = await meetingReq(
       `/api/agents/${seed.agentId}/meetings/${created.id}/stop?workspace_id=${seed.workspaceId}`,

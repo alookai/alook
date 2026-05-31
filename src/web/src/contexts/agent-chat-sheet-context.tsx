@@ -81,6 +81,7 @@ export function AgentChatSheetProvider({ children }: { children: ReactNode }) {
       <AgentChatSheet
         open={open}
         onOpenChange={handleOpenChange}
+        agentId={agentId}
         agent={agent}
         targetConvId={targetConvId}
         scrollToTaskId={scrollToTaskId}

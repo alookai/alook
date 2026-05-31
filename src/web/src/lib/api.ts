@@ -310,7 +310,11 @@ export const conversationInit = (
 ) => {
   const extra: Record<string, string> = {};
   if (opts?.newestMessageId) extra.newest_message_id = opts.newestMessageId;
-  if (opts?.messageCount != null) extra.message_count = String(opts.messageCount);
+  // Omit a 0 count: the server treats the param as a count to compare against,
+  // and the string "0" is truthy server-side, so sending it forces
+  // `serverMessageCount === 0` to fail for every non-empty conversation. 0 here
+  // means "unknown count" — rely on newestMessageId for the freshness compare.
+  if (opts?.messageCount) extra.message_count = String(opts.messageCount);
   return apiFetch<ConversationInitResponse>(
     `/api/conversations/${conversationId}/init${wsQuery(workspaceId, extra)}`,
   );

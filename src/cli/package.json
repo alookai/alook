@@ -1,6 +1,6 @@
 {
   "name": "@alook/cli",
-  "version": "0.0.104",
+  "version": "0.0.109",
   "description": "Alook CLI — Enable Your Person Colleague",
   "license": "Apache-2.0",
   "homepage": "https://github.com/alookai/alook#readme",
@@ -40,6 +40,7 @@
     "dev": "bun run src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target node --format esm --external citty --external commander --external postal-mime --external playwright-core && bun build daemon/session-runner.ts --outdir dist --target node --format esm --external citty --external commander --external postal-mime && bun build daemon/meeting-runner.ts --outdir dist --target node --format esm --external playwright-core && node scripts/prepare-dist.mjs",
     "prepack": "pnpm run build",
+    "knip": "knip",
     "test": "vitest run",
     "test:integration": "vitest run --config ../../tests/integration/cli/vitest.config.ts --passWithNoTests",
     "lint": "eslint .",
@@ -53,9 +54,9 @@
   },
   "devDependencies": {
     "@alook/shared": "workspace:*",
-    "@alook/test-utils": "workspace:*",
     "@types/bun": "^1.3.14",
     "eslint": "^10.3.0",
+    "knip": "^6.14.2",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.4",
     "vitest": "^4.1.7"

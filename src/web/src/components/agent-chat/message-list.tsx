@@ -10,7 +10,7 @@ import { TaskStream } from "@/components/task-stream";
 import { HistoricalTaskThinking } from "@/components/agent-chat/historical-task-thinking";
 import { FileText, Calendar, CircleDot, Mail, Flag, Copy, Check } from "lucide-react";
 
-import { getEventIconType } from "@/components/agent-chat/agent-chat-view";
+import { getEventIconType, type GroupPosition } from "@/components/agent-chat/agent-chat-view";
 import { toast } from "sonner";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 
@@ -38,6 +38,7 @@ export interface MessageItemProps {
   mentionComponents: Record<string, React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }>>;
   isFlagged?: boolean;
   onToggleFlag?: (messageId: string) => void;
+  groupPosition?: GroupPosition;
 }
 
 function EventMessageIcon({ content, conversationType }: { content: string; conversationType?: string | null }) {
@@ -106,6 +107,13 @@ function PendingFileChips({
   );
 }
 
+const USER_BUBBLE_RADIUS: Record<GroupPosition, string> = {
+  solo: "rounded-2xl",
+  first: "rounded-tl-2xl rounded-tr-2xl rounded-bl-2xl rounded-br-md",
+  middle: "rounded-tl-2xl rounded-tr-md rounded-bl-2xl rounded-br-md",
+  last: "rounded-tl-2xl rounded-tr-md rounded-bl-2xl rounded-br-2xl",
+};
+
 export const MessageItem = memo(function MessageItem({
   msg,
   agents,
@@ -127,6 +135,7 @@ export const MessageItem = memo(function MessageItem({
   mentionComponents,
   isFlagged,
   onToggleFlag,
+  groupPosition = "solo",
 }: MessageItemProps) {
   const { copy, copied } = useCopyToClipboard();
 
@@ -216,10 +225,11 @@ export const MessageItem = memo(function MessageItem({
         return (
           <div className="flex justify-end" data-message-id={msg.id} {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
             <div className={cn(
-              "max-w-[80%] rounded-lg px-4 py-2 bg-primary text-primary-foreground text-base relative",
+              "max-w-[80%] px-4 py-2 bg-primary text-primary-foreground text-base relative",
+              USER_BUBBLE_RADIUS[groupPosition],
             )}>
               {awaitingRun && (
-                <div className="absolute inset-0 rounded-lg animate-pulse pointer-events-none" style={{ boxShadow: "0 0 0 2px var(--bubble-glow)" }} />
+                <div className={cn("absolute inset-0 animate-pulse pointer-events-none", USER_BUBBLE_RADIUS[groupPosition])} style={{ boxShadow: "0 0 0 2px var(--bubble-glow)" }} />
               )}
               {skillName && (
                 <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-primary-foreground/15 text-primary-foreground mb-1">
@@ -261,7 +271,7 @@ export const MessageItem = memo(function MessageItem({
         );
       })() : !hasTaskStream ? (
         <div className={cn(
-          "group/msg flex flex-col justify-start min-w-0 overflow-hidden",
+          "group/msg flex flex-col justify-start min-w-0 overflow-x-clip",
           isFlagged && "bg-muted/30 rounded-lg px-2 -mx-2"
         )} data-message-id={msg.id} data-quote-source {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
           {targetConvId && msg.role === "assistant" && msg.task_id && thinkingCount > 1 && (

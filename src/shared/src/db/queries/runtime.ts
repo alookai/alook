@@ -109,6 +109,38 @@ export async function getAgentRuntimeForWorkspace(
   return rows[0] ?? null;
 }
 
+export async function getAgentRuntimesForWorkspace(
+  db: Database,
+  ids: string[],
+  workspaceId: string
+) {
+  if (ids.length === 0) return [];
+  return db
+    .select({
+      id: agentRuntime.id,
+      workspaceId: agentRuntime.workspaceId,
+      daemonId: agentRuntime.daemonId,
+      runtimeMode: agentRuntime.runtimeMode,
+      provider: agentRuntime.provider,
+      deviceInfo: agentRuntime.deviceInfo,
+      metadata: agentRuntime.metadata,
+      createdAt: agentRuntime.createdAt,
+      updatedAt: agentRuntime.updatedAt,
+      machineLastSeenAt: machine.lastSeenAt,
+    })
+    .from(agentRuntime)
+    .leftJoin(
+      machine,
+      and(
+        eq(machine.daemonId, agentRuntime.daemonId),
+        eq(machine.workspaceId, agentRuntime.workspaceId)
+      )
+    )
+    .where(
+      and(inArray(agentRuntime.id, ids), eq(agentRuntime.workspaceId, workspaceId))
+    );
+}
+
 export async function deleteRuntimesByDaemonId(
   db: Database,
   daemonId: string,

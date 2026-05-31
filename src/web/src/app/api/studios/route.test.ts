@@ -8,6 +8,7 @@ const mockCreateAgent = vi.fn();
 const mockGetAgentByHandle = vi.fn();
 const mockListAgents = vi.fn();
 const mockGetAgentRuntimeForWorkspace = vi.fn();
+const mockGetAgentRuntimesForWorkspace = vi.fn();
 const mockGetWorkspace = vi.fn();
 const mockGetWorkspaceBySlug = vi.fn();
 const mockUpdateWorkspace = vi.fn();
@@ -47,6 +48,7 @@ vi.mock("@alook/shared", async () => {
       },
       runtime: {
         getAgentRuntimeForWorkspace: (...args: unknown[]) => mockGetAgentRuntimeForWorkspace(...args),
+        getAgentRuntimesForWorkspace: (...args: unknown[]) => mockGetAgentRuntimesForWorkspace(...args),
       },
       workspace: {
         getWorkspace: (...args: unknown[]) => mockGetWorkspace(...args),
@@ -107,6 +109,11 @@ beforeEach(() => {
     runtimeMode: "local",
     machineLastSeenAt: new Date().toISOString(),
   });
+  mockGetAgentRuntimesForWorkspace.mockResolvedValue([{
+    id: "rt1",
+    runtimeMode: "local",
+    machineLastSeenAt: new Date().toISOString(),
+  }]);
   let agentIdx = 0;
   mockCreateAgent.mockImplementation((_db: any, data: any) => {
     agentIdx++;
@@ -200,6 +207,7 @@ describe("POST /api/studios", () => {
 
   it("returns 404 if runtime not in workspace", async () => {
     mockGetAgentRuntimeForWorkspace.mockResolvedValue(null);
+    mockGetAgentRuntimesForWorkspace.mockResolvedValue([]);
 
     const req = new NextRequest("http://localhost/api/studios", {
       method: "POST",
@@ -288,5 +296,40 @@ describe("POST /api/studios", () => {
     await POST(req, {});
 
     expect(mockAddWhitelist).toHaveBeenCalledTimes(2);
+  });
+
+  it("creates agents with auto-generated names when name is omitted", async () => {
+    mockListAgents
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { id: "agent-1", name: "AutoName1", emailHandle: "auto1" },
+        { id: "agent-2", name: "AutoName2", emailHandle: "auto2" },
+      ]);
+
+    const req = new NextRequest("http://localhost/api/studios", {
+      method: "POST",
+      body: JSON.stringify({
+        members: [
+          { role: "leader", runtime_id: "rt1", instructions: "You lead" },
+          { role: "engineer", runtime_id: "rt1", instructions: "You code", relationship: { leaderSees: "delegate tasks", memberSees: "report results" } },
+        ],
+      }),
+    });
+
+    const res = await POST(req, {});
+    expect(res.status).toBe(201);
+
+    // Agents should be created with non-empty names
+    expect(mockCreateAgent).toHaveBeenCalledTimes(2);
+    const firstCall = mockCreateAgent.mock.calls[0][1];
+    const secondCall = mockCreateAgent.mock.calls[1][1];
+    expect(firstCall.name).toBeTruthy();
+    expect(secondCall.name).toBeTruthy();
+
+    // Links should still be created (index-based matching)
+    expect(mockCreateLink).toHaveBeenCalledTimes(1);
+    const linkCall = mockCreateLink.mock.calls[0][1];
+    expect(linkCall.instruction).toContain("delegate tasks");
+    expect(linkCall.instruction).toContain("report results");
   });
 });

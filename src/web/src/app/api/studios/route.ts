@@ -54,13 +54,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (valErr) return valErr;
 
   const runtimeIds = [...new Set(body.members.map((m) => m.runtime_id))];
-  const runtimeCache = new Map<string, { id: string; runtimeMode: string; machineLastSeenAt: string | null }>();
+  const runtimes = await queries.runtime.getAgentRuntimesForWorkspace(db, runtimeIds, ws.workspaceId);
+  const runtimeCache = new Map(runtimes.map((r) => [r.id, r]));
   for (const rid of runtimeIds) {
-    const runtime = await queries.runtime.getAgentRuntimeForWorkspace(db, rid, ws.workspaceId);
-    if (!runtime) {
+    if (!runtimeCache.has(rid)) {
       return writeError(`runtime ${rid} not found in workspace`, 404);
     }
-    runtimeCache.set(rid, runtime);
   }
 
   // Update workspace name/slug if a name is provided
@@ -109,8 +108,15 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const allHandles = await cached(cacheKeys.allHandles(ws.workspaceId), 120, () => queries.agent.getAllHandlesForWorkspace(db, ws.workspaceId));
   const handleSet = new Set(allHandles.map((h) => h.emailHandle).filter(Boolean) as string[]);
 
+  const usedNames = new Set<string>();
   for (const member of body.members) {
-    const agentName = member.name || `Agent-${nanoid(4)}`;
+    let agentName = member.name;
+    if (!agentName) {
+      do {
+        agentName = uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" });
+      } while (usedNames.has(agentName));
+    }
+    usedNames.add(agentName);
     const handle = member.email_handle && isValidHandle(member.email_handle) && !handleSet.has(member.email_handle)
       ? (handleSet.add(member.email_handle), member.email_handle)
       : generateUniqueHandleFromSet(handleSet, agentName);
@@ -156,7 +162,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const createdLinks = [];
 
   for (const specialist of specialists) {
-    const memberPayload = body.members.find((m) => m.name === specialist.name);
+    const specIndex = createdAgents.indexOf(specialist);
+    const memberPayload = body.members[specIndex];
     if (!memberPayload?.relationship) continue;
 
     const leaderMention = `[@ id="${leaderAgent.id}" label="${leaderAgent.name}"]`;
@@ -267,7 +274,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   // Fetch final agents for response
   const agents = await queries.agent.listAgents(db, ws.workspaceId, ctx.userId);
-  const studioAgents = agents.filter((a) => createdAgents.some((ca) => ca.id === a.id));
+  const createdIdSet = new Set(createdAgents.map((ca) => ca.id));
+  const studioAgents = agents.filter((a) => createdIdSet.has(a.id));
   const finalWorkspace = await queries.workspace.getWorkspace(db, ws.workspaceId, ctx.userId);
 
   return writeJSON({

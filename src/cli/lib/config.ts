@@ -21,7 +21,7 @@ interface CLIConfig {
   profiles?: Record<string, ProfileConfig>;
 }
 
-export type { CLIConfig, ProfileConfig, WatchedWorkspace };
+export type { CLIConfig, ProfileConfig };
 
 export function configDir(): string {
   return process.env.ALOOK_PROJECT_ROOT || join(homedir(), ".alook");

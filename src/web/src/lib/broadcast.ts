@@ -64,13 +64,6 @@ export function broadcastToUser(userId: string, message: WsMessage): Promise<voi
   )
 }
 
-export function broadcastToAgent(agentId: string, message: WsMessage): Promise<void> {
-  return sendBroadcast(
-    `/broadcast/${agentId}`,
-    JSON.stringify(message),
-    { agentId, type: message.type },
-  )
-}
 
 export function broadcastToDaemon(daemonId: string, message: DaemonPushMessage): Promise<{ sent: number }> {
   const promise = doSend(

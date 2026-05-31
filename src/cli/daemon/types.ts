@@ -1,4 +1,4 @@
-export interface TaskSender {
+interface TaskSender {
   name: string;
   email: string;
   isOwner: boolean;
@@ -31,14 +31,14 @@ export interface Attachment {
   filename: string;
 }
 
-export interface ColleagueData {
+interface ColleagueData {
   name: string;
   email: string;
   description: string;
   instruction: string;
 }
 
-export interface TaskAgentData {
+interface TaskAgentData {
   id?: string;
   name: string;
   instructions: string;
@@ -50,24 +50,9 @@ export interface TaskAgentData {
   colleagues?: ColleagueData[];
 }
 
-export interface RepoData {
+interface RepoData {
   url: string;
   description: string;
-}
-
-export interface TaskResult {
-  status: "completed" | "failed";
-  comment: string;
-  branchName?: string;
-  sessionId?: string;
-}
-
-export interface RuntimeInfo {
-  id: string;
-  workspaceId: string;
-  name: string;
-  provider: string;
-  status: string;
 }
 
 export interface AgentMessage {

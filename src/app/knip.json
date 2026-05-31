@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "scripts/**/*.{ts,mjs}"
+  ],
+  "project": ["src/**/*.ts"],
+  "ignoreDependencies": [
+    "citty",
+    "playwright-core",
+    "postal-mime",
+    "wrangler",
+    "bun-types"
+  ],
+  "vitest": {
+    "entry": ["test/**/*.test.ts"]
+  },
+  "eslint": {
+    "entry": ["eslint.config.mjs"]
+  }
+}

@@ -1,0 +1,435 @@
+"use client";
+
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Placeholder from "@tiptap/extension-placeholder";
+import { Markdown } from "@tiptap/markdown";
+import { createPortal } from "react-dom";
+import { cn } from "@/lib/utils";
+import { rankMentionAgents } from "@/lib/mention-agents";
+import { buildChatMentionExtension } from "@/lib/chat-mention-extension";
+import { decodeChatEntities } from "@/lib/chat-markdown";
+import type { Agent, AgentLink } from "@alook/shared";
+import type { PopupKeyEvent } from "@/hooks/use-slash-command";
+
+/**
+ * Imperative handle the parent (agent-chat-view) drives. The parent keeps
+ * owning send / banners / persistence / slash-command state; the composer only
+ * owns the TipTap editor and surfaces just enough to anchor the slash popup.
+ */
+export interface ChatComposerHandle {
+  focus: () => void;
+  clear: () => void;
+  isEmpty: () => boolean;
+  /** Viewport coords for a plain-text caret index — used to anchor the slash popup. */
+  coordsAtTextIndex: (index: number) => { top: number; left: number } | null;
+}
+
+interface ChatComposerProps {
+  /** Markdown string — the controlled source of truth (parent's `input`). */
+  value: string;
+  onChange: (markdown: string) => void;
+  /** Reports the editor's plain text + caret index so the parent can drive slash. */
+  onEditorState: (plainText: string, caretIndex: number) => void;
+  /** Enter-to-send (only fires in a top-level paragraph, no popup open). */
+  onSend: () => void;
+  placeholder?: string;
+  disabled?: boolean;
+  /** Drives the rounded-3xl ↔ rounded-2xl pill switch. */
+  onMultiLineChange?: (multiline: boolean) => void;
+  /** Files extracted from paste/drop — parent validates + stages them. */
+  onFiles?: (files: File[]) => void;
+
+  // Mentions
+  agents: Agent[];
+  agentLinks: AgentLink[];
+  currentAgentId: string;
+
+  // Slash command (state owned by the parent's useSlashCommand)
+  slashIsOpen: boolean;
+  onSlashKeyDown: (e: PopupKeyEvent) => boolean;
+}
+
+// ── Mention suggestion popup (self-contained, mirrors markdown-editor.tsx) ──
+
+type MentionSuggestionProps = {
+  items: Agent[];
+  command: (props: { id: string; label: string }) => void;
+  clientRect?: (() => DOMRect | null) | null;
+};
+
+interface MentionPopupState {
+  items: Agent[];
+  selectedIndex: number;
+  command: ((props: { id: string; label: string }) => void) | null;
+  rect: DOMRect | null;
+}
+
+const EMPTY_MENTION_STATE: MentionPopupState = {
+  items: [],
+  selectedIndex: 0,
+  command: null,
+  rect: null,
+};
+
+function MentionList({ state }: { state: MentionPopupState }) {
+  const listRef = useRef<HTMLDivElement>(null);
+  const { items, selectedIndex, command, rect } = state;
+
+  useEffect(() => {
+    if (!listRef.current) return;
+    const el = listRef.current.children[selectedIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
+
+  if (!rect || items.length === 0 || !command) return null;
+
+  // Popup is w-64 (256px). Clamp left so it never overflows the right edge (mobile).
+  const POPUP_WIDTH = 256;
+  const VIEWPORT_MARGIN = 8;
+  const maxLeft = typeof window !== "undefined"
+    ? Math.max(VIEWPORT_MARGIN, window.innerWidth - POPUP_WIDTH - VIEWPORT_MARGIN)
+    : rect.left;
+  const clampedLeft = Math.min(rect.left, maxLeft);
+
+  return createPortal(
+    <div
+      className="fixed z-100 w-64 rounded-lg border border-border bg-popover text-popover-foreground shadow-md"
+      style={{ top: rect.top - 4, left: clampedLeft, transform: "translateY(-100%)" }}
+    >
+      <div ref={listRef} className="max-h-50 overflow-y-auto py-1 thin-scrollbar">
+        {items.map((agent, i) => (
+          <button
+            key={agent.id}
+            type="button"
+            className={cn(
+              "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors",
+              i === selectedIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
+            )}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              command({ id: agent.id, label: agent.name });
+            }}
+          >
+            <span className="truncate font-medium">{agent.name}</span>
+            {agent.email_handle && (
+              <span className="truncate text-xs text-muted-foreground">
+                {agent.email_handle}@alook.ai
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
+  function ChatComposer(
+    {
+      value,
+      onChange,
+      onEditorState,
+      onSend,
+      placeholder,
+      disabled,
+      onMultiLineChange,
+      onFiles,
+      agents,
+      agentLinks,
+      currentAgentId,
+      slashIsOpen,
+      onSlashKeyDown,
+    },
+    ref,
+  ) {
+    const [mentionPopup, setMentionPopup] = useState<MentionPopupState>(EMPTY_MENTION_STATE);
+    const mentionPopupRef = useRef(mentionPopup);
+    useEffect(() => {
+      mentionPopupRef.current = mentionPopup;
+    }, [mentionPopup]);
+
+    // The editor is built once, so anything its callbacks read must be a ref.
+    const agentsRef = useRef(agents);
+    const agentLinksRef = useRef(agentLinks);
+    const currentAgentIdRef = useRef(currentAgentId);
+    const onSendRef = useRef(onSend);
+    const onEditorStateRef = useRef(onEditorState);
+    const onChangeRef = useRef(onChange);
+    const onFilesRef = useRef(onFiles);
+    const slashIsOpenRef = useRef(slashIsOpen);
+    const onSlashKeyDownRef = useRef(onSlashKeyDown);
+    useEffect(() => { agentsRef.current = agents; }, [agents]);
+    useEffect(() => { agentLinksRef.current = agentLinks; }, [agentLinks]);
+    useEffect(() => { currentAgentIdRef.current = currentAgentId; }, [currentAgentId]);
+    useEffect(() => { onSendRef.current = onSend; }, [onSend]);
+    useEffect(() => { onEditorStateRef.current = onEditorState; }, [onEditorState]);
+    useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+    useEffect(() => { onFilesRef.current = onFiles; }, [onFiles]);
+    useEffect(() => { slashIsOpenRef.current = slashIsOpen; }, [slashIsOpen]);
+    useEffect(() => { onSlashKeyDownRef.current = onSlashKeyDown; }, [onSlashKeyDown]);
+
+    // Report plain text + caret to the parent (it drives the slash-command
+    // popup). NOTE: `selection.from - 1` only equals the true plain-text index
+    // in a single-paragraph doc — it diverges across block boundaries. The only
+    // consumer (slash commands, which trigger ONLY at the start of input) is in
+    // a top-level paragraph, so the mapping holds there. Don't trust this index
+    // for multi-block positions without revisiting.
+    const reportState = (editor: NonNullable<ReturnType<typeof useEditor>>) => {
+      onEditorStateRef.current(editor.getText(), editor.state.selection.from - 1);
+    };
+
+    // The mention extension is built once (refs read inside its callbacks fire
+    // at suggestion-time, not render-time). Keeping it in a lazy state init
+    // also stops it being rebuilt on every render. The .current reads below are
+    // all inside suggestion callbacks invoked at runtime, never during render.
+    // eslint-disable-next-line react-hooks/refs -- refs read in runtime callbacks, not render
+    const [mentionExtension] = useState(() =>
+      buildChatMentionExtension().configure({
+        HTMLAttributes: { class: "mention-highlight" },
+        renderText: ({ node }) => `@${node.attrs.label ?? node.attrs.id}`,
+        suggestion: {
+          char: "@",
+          items: ({ query }: { query: string }) =>
+            rankMentionAgents(
+              agentsRef.current,
+              agentLinksRef.current,
+              currentAgentIdRef.current,
+              query,
+            ),
+          render: () => ({
+            onStart: (props: MentionSuggestionProps) => {
+              setMentionPopup({
+                items: props.items ?? [],
+                selectedIndex: 0,
+                command: props.command,
+                rect: props.clientRect?.() ?? null,
+              });
+            },
+            onUpdate: (props: MentionSuggestionProps) => {
+              setMentionPopup((cur) => ({
+                items: props.items ?? [],
+                selectedIndex:
+                  cur.selectedIndex < (props.items?.length ?? 0) ? cur.selectedIndex : 0,
+                command: props.command,
+                rect: props.clientRect?.() ?? null,
+              }));
+            },
+            onKeyDown: ({ event }: { event: KeyboardEvent }) => {
+              // IME guard: while composing (CJK), Enter confirms the
+              // composition — it must not select a mention. Mirrors the Enter
+              // guards in the slash hook and the send path.
+              if (event.isComposing) return false;
+              const cur = mentionPopupRef.current;
+              if (cur.items.length === 0) return false;
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setMentionPopup((s) => ({
+                  ...s,
+                  selectedIndex: (s.selectedIndex + 1) % s.items.length,
+                }));
+                return true;
+              }
+              if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setMentionPopup((s) => ({
+                  ...s,
+                  selectedIndex: (s.selectedIndex - 1 + s.items.length) % s.items.length,
+                }));
+                return true;
+              }
+              if (event.key === "Enter") {
+                event.preventDefault();
+                const agent = cur.items[cur.selectedIndex];
+                if (agent && cur.command) cur.command({ id: agent.id, label: agent.name });
+                setMentionPopup(EMPTY_MENTION_STATE);
+                return true;
+              }
+              if (event.key === "Escape") {
+                setMentionPopup(EMPTY_MENTION_STATE);
+                return true;
+              }
+              return false;
+            },
+            onExit: () => setMentionPopup(EMPTY_MENTION_STATE),
+          }),
+        },
+      }),
+    );
+
+    const editor = useEditor({
+      immediatelyRender: false,
+      content: value || undefined,
+      contentType: "markdown",
+      editable: !disabled,
+      extensions: [
+        StarterKit.configure({
+          heading: false,
+          blockquote: false,
+          codeBlock: false,
+          horizontalRule: false,
+          bold: false,
+          italic: false,
+          strike: false,
+          code: false,
+        }),
+        Placeholder.configure({ placeholder: placeholder ?? "" }),
+        Markdown,
+        mentionExtension,
+      ],
+      editorProps: {
+        attributes: {
+          class: "outline-none",
+          enterkeyhint: "send",
+        },
+        handleKeyDown: (_view, event) => {
+          // Precedence: mention suggestion > slash popup > Enter-to-send.
+          //
+          // editorProps.handleKeyDown runs BEFORE plugin keymaps in
+          // ProseMirror, so the @tiptap/suggestion mention plugin does NOT get
+          // first crack at Enter — we must explicitly bail here while the
+          // mention popup is open, or Enter would send instead of selecting the
+          // highlighted agent. (Arrow/Esc fall through fine; only Enter clashes.)
+          const mentionOpen =
+            mentionPopupRef.current.items.length > 0 && mentionPopupRef.current.command !== null;
+          if (mentionOpen) return false;
+
+          if (
+            slashIsOpenRef.current &&
+            onSlashKeyDownRef.current({
+              key: event.key,
+              isComposing: event.isComposing,
+              preventDefault: () => event.preventDefault(),
+            })
+          ) {
+            return true;
+          }
+
+          if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+            const inList =
+              editor?.isActive("bulletList") ||
+              editor?.isActive("orderedList") ||
+              editor?.isActive("listItem");
+            if (!inList && !slashIsOpenRef.current) {
+              event.preventDefault();
+              onSendRef.current();
+              return true;
+            }
+          }
+          return false;
+        },
+        handlePaste: (_view, event) => {
+          const items = event.clipboardData?.items;
+          if (!items) return false;
+          const files: File[] = [];
+          for (let i = 0; i < items.length; i++) {
+            if (items[i].kind === "file") {
+              const f = items[i].getAsFile();
+              if (f) files.push(f);
+            }
+          }
+          if (files.length === 0) return false; // let plain text paste normally
+          event.preventDefault();
+          onFilesRef.current?.(files);
+          return true;
+        },
+        handleDrop: (_view, event) => {
+          const dropped = (event as DragEvent).dataTransfer?.files;
+          if (!dropped || dropped.length === 0) return false; // bubble to container
+          event.preventDefault();
+          onFilesRef.current?.(Array.from(dropped));
+          return true;
+        },
+      },
+      onUpdate: ({ editor }) => {
+        onChangeRef.current(decodeChatEntities(editor.getMarkdown()));
+        reportState(editor);
+      },
+      onSelectionUpdate: ({ editor }) => {
+        reportState(editor);
+      },
+    });
+
+    // Keep editable in sync with disabled.
+    useEffect(() => {
+      editor?.setEditable(!disabled);
+    }, [editor, disabled]);
+
+    // Controlled value: push external markdown changes (draft restore /
+    // conversation switch / clear-after-send) into the editor.
+    // contentType:"markdown" is required or lists silently break.
+    // emitUpdate:false avoids a feedback loop.
+    useEffect(() => {
+      if (!editor) return;
+      const incoming = (value || "").trim();
+      // Decode so this matches the (decoded) markdown the parent stored via
+      // onChange — otherwise text with < > & always mismatches and we'd reset
+      // content (and the caret) on every keystroke.
+      const current = decodeChatEntities(editor.getMarkdown() || "").trim();
+      if (incoming === current) return;
+      // Empty incoming → clearContent(). setContent("", {contentType:"markdown"})
+      // does NOT reliably empty the doc (parsing an empty markdown string can
+      // leave the prior content), which left the just-sent text in the input.
+      if (!incoming) {
+        editor.commands.clearContent();
+      } else {
+        editor.commands.setContent(value || "", {
+          emitUpdate: false,
+          contentType: "markdown",
+        });
+      }
+      onEditorStateRef.current(editor.getText(), editor.state.selection.from - 1);
+    }, [value, editor]);
+
+    // Multi-line detection drives the pill rounding.
+    const contentRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+      if (!editor || !onMultiLineChange) return;
+      const el = contentRef.current?.querySelector(".ProseMirror") as HTMLElement | null;
+      if (!el) return;
+      const check = () => onMultiLineChange(el.scrollHeight > 32);
+      check();
+      const observer = new ResizeObserver(check);
+      observer.observe(el);
+      return () => observer.disconnect();
+    }, [editor, onMultiLineChange]);
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        focus: () => editor?.commands.focus(),
+        clear: () => editor?.commands.clearContent(),
+        isEmpty: () => editor?.isEmpty ?? true,
+        coordsAtTextIndex: (index: number) => {
+          if (!editor) return null;
+          try {
+            // +1: plain-text index is 0-based; PM positions start at 1.
+            const coords = editor.view.coordsAtPos(index + 1);
+            return { top: coords.top, left: coords.left };
+          } catch {
+            return null;
+          }
+        },
+      }),
+      [editor],
+    );
+
+    return (
+      <div ref={contentRef} className="chat-composer relative">
+        <EditorContent
+          editor={editor}
+          className="max-h-44 overflow-y-auto thin-scrollbar pr-2 text-base chat-input-line-height"
+        />
+        <MentionList state={mentionPopup} />
+      </div>
+    );
+  },
+);

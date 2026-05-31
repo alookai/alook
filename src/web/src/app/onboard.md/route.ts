@@ -33,25 +33,41 @@ Review your conversation history with this user. Summarize:
 Use this understanding to choose the best workspace setup.
 
 ## 4. Explore Templates & Set Up Workspace
+
 Visit https://alook.ai/templates to explore available workspace templates.
-Choose the most appropriate template based on what you know about the user.
+Each template has a JSON version at \`/templates/<slug>/json\` you can fetch for reference.
 
-Create agents using the CLI:
+Based on what you learned about the user in Step 3, customize the template or create your own configuration:
 
-\`\`\`bash
-npx @alook/cli agent recruit \\
-  --instructions "<system_prompt>" \\
-  --relationship "<delegation_criteria>" \\
-  [--name "<name>"] \\
-  [--description "<text>"]
+\`\`\`json
+{
+  "name": "Workspace Name",
+  "members": [
+    {
+      "role": "leader",
+      "description": "Coordinates tasks and delegates",
+      "instructions": "System prompt for this agent"
+    },
+    {
+      "role": "engineer",
+      "description": "Implements features and fixes bugs",
+      "instructions": "System prompt for this agent",
+      "relationship": {
+        "leaderSees": "When/how the leader delegates to this agent",
+        "memberSees": "How this agent reports back to the leader"
+      }
+    }
+  ]
+}
 \`\`\`
 
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| \`--instructions\` | Yes | The agent's system prompt — defines what it does and how it behaves |
-| \`--relationship\` | Yes | Delegation criteria — when and how you'll work with this agent |
-| \`--name\` | No | Preferred name (auto-generated if omitted) |
-| \`--description\` | No | Short description of the agent's role |
+Write your customized JSON to a file, then run:
+
+\`\`\`bash
+npx @alook/cli workspace init --json-file <path_to_json>
+\`\`\`
+
+If the current workspace already has agents, a new workspace is created automatically.
 `;
 
 export async function GET() {

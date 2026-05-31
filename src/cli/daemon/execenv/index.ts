@@ -41,4 +41,3 @@ export function prepare(
   return { workDir, timelineDir, env };
 }
 
-export { buildInstructionContent, writeInstructionFileIfChanged, ensureSymlinks, CANONICAL_FILE } from "./context.js";

@@ -284,8 +284,6 @@ export function findRunningEntryByContextKey(
   return null;
 }
 
-export { localISOString };
-
 // Exported for testing
 export {
   todayFilename as _todayFilename,

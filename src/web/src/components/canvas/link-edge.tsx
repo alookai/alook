@@ -70,14 +70,13 @@ function LinkEdgeInner({
             transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
             pointerEvents: "auto",
           }}
-          className={`text-[11px] leading-tight bg-background/90 px-2 py-0.5 rounded-md truncate cursor-pointer transition-colors italic ${
-            hovered ? "text-muted-foreground" : "text-muted-foreground/40"
-          }`}
+          className={`text-[11px] leading-tight bg-background/90 px-2 py-0.5 rounded-md truncate cursor-pointer transition-colors italic ${hovered ? "text-muted-foreground" : "text-muted-foreground/40"
+            }`}
           onClick={handleLabelClick}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
         >
-          {hasInstruction ? "edit relationship" : "define relationship"}
+          {hasInstruction ? "edit" : "define"}
         </button>
       </EdgeLabelRenderer>
     </>

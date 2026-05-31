@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
     paths-ignore: ['**/*.md']
   pull_request:
     branches: [main]
@@ -30,6 +29,28 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
 
+  knip:
+    name: Dead Code Detection (knip)
+    # Non-blocking: reports unused code but does not fail the PR.
+    # To switch to blocking mode, remove `continue-on-error: true` below.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [app, cli, email-worker, shared, web, ws-do]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: "knip: ${{ matrix.module }}"
+        run: pnpm --filter "./src/${{ matrix.module }}" run knip
+
   test:
     name: Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -51,7 +72,7 @@ jobs:
 
   e2e:
     name: E2E Tests
-    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -99,6 +120,27 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+
+  coverage:
+    name: Coverage
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm vitest run --coverage --coverage.reporter=json --coverage.reporter=text
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/coverage-final.json
+          fail_ci_if_error: true
 
   lighthouse:
     name: Lighthouse SEO

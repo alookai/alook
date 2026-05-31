@@ -1,6 +1,17 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react"
 import type { SkillEntry } from "@alook/shared"
 
+/**
+ * Minimal keyboard-event shape the popup hooks need. Both React synthetic
+ * events and native KeyboardEvents (from TipTap's editorProps.handleKeyDown,
+ * wrapped) satisfy it, so the same hook drives the textarea and the composer.
+ */
+export interface PopupKeyEvent {
+  key: string
+  isComposing: boolean
+  preventDefault: () => void
+}
+
 export interface SlashCommandPopupState {
   isOpen: boolean
   query: string
@@ -8,7 +19,7 @@ export interface SlashCommandPopupState {
   anchorPos: { top: number; left: number }
   skills: SkillEntry[]
   activeSkill: SkillEntry | null
-  handleSlashKeyDown: (e: React.KeyboardEvent) => boolean
+  handleSlashKeyDown: (e: PopupKeyEvent) => boolean
   selectSkill: (skill: SkillEntry) => void
   clearActiveSkill: () => void
   setActiveSkill: (skill: SkillEntry | null) => void
@@ -17,14 +28,20 @@ export interface SlashCommandPopupState {
 interface UseSlashCommandParams {
   input: string
   caretIndex: number | null
-  textareaRef: React.RefObject<HTMLTextAreaElement | null>
   skills: SkillEntry[]
   onInputChange: (value: string) => void
   initialActiveSkill?: SkillEntry | null
+  /**
+   * Resolve the popup anchor position (viewport-relative top/left) for the
+   * slash trigger at `triggerStart`. The TipTap composer computes this from
+   * `editor.view.coordsAtPos`; returns null if it cannot be resolved yet.
+   */
+  getAnchorPos: (triggerStart: number) => { top: number; left: number } | null
+  /** Called after a skill is selected so the caller can re-focus its editor. */
+  onAfterSelect?: () => void
 }
 
 const MAX_QUERY_LENGTH = 30
-const POPUP_WIDTH = 280
 
 function findSlashTrigger(input: string, caretIndex: number): { start: number; query: string } | null {
   if (!input.startsWith("/")) return null
@@ -41,52 +58,14 @@ function findSlashTrigger(input: string, caretIndex: number): { start: number; q
   return null
 }
 
-function getCaretCoordinates(textarea: HTMLTextAreaElement, position: number): { top: number; left: number } {
-  const mirror = document.createElement("div")
-  const style = window.getComputedStyle(textarea)
-
-  const props = [
-    "fontFamily", "fontSize", "fontWeight", "fontStyle", "letterSpacing",
-    "textTransform", "wordSpacing", "textIndent", "lineHeight",
-    "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
-    "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth",
-    "boxSizing", "whiteSpace", "wordWrap", "overflowWrap",
-  ] as const
-
-  mirror.style.position = "absolute"
-  mirror.style.top = "-9999px"
-  mirror.style.left = "-9999px"
-  mirror.style.visibility = "hidden"
-  mirror.style.overflow = "hidden"
-  mirror.style.width = `${textarea.offsetWidth}px`
-
-  for (const prop of props) {
-    (mirror.style as unknown as Record<string, string>)[prop] = style.getPropertyValue(
-      prop.replace(/([A-Z])/g, "-$1").toLowerCase()
-    )
-  }
-
-  const textBefore = textarea.value.slice(0, position)
-  mirror.textContent = textBefore
-  const marker = document.createElement("span")
-  marker.textContent = "​"
-  mirror.appendChild(marker)
-
-  document.body.appendChild(mirror)
-  const top = marker.offsetTop - textarea.scrollTop
-  const left = Math.max(0, Math.min(marker.offsetLeft, textarea.offsetWidth - POPUP_WIDTH))
-  document.body.removeChild(mirror)
-
-  return { top, left }
-}
-
 export function useSlashCommand({
   input,
   caretIndex,
-  textareaRef,
   skills,
   onInputChange,
   initialActiveSkill,
+  getAnchorPos,
+  onAfterSelect,
 }: UseSlashCommandParams): SlashCommandPopupState {
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -130,37 +109,28 @@ export function useSlashCommand({
       setQuery(trigger.query)
       setIsOpen(true)
 
-      if (textareaRef.current) {
-        const coords = getCaretCoordinates(textareaRef.current, trigger.start)
-        setAnchorPos(coords)
-      }
+      const coords = getAnchorPos(trigger.start)
+      if (coords) setAnchorPos(coords)
     } else {
       setIsOpen(false)
       triggerStartRef.current = null
     }
-  }, [input, caretIndex, textareaRef, activeSkill])
+  }, [input, caretIndex, getAnchorPos, activeSkill])
 
   const selectSkill = useCallback((skill: SkillEntry) => {
     setActiveSkill(skill)
     onInputChange("")
     setIsOpen(false)
-
-    requestAnimationFrame(() => {
-      const ta = textareaRef.current
-      if (ta) {
-        ta.focus()
-        ta.setSelectionRange(0, 0)
-      }
-    })
-  }, [textareaRef, onInputChange])
+    onAfterSelect?.()
+  }, [onInputChange, onAfterSelect])
 
   const clearActiveSkill = useCallback(() => {
     setActiveSkill(null)
   }, [])
 
-  const handleSlashKeyDown = useCallback((e: React.KeyboardEvent): boolean => {
+  const handleSlashKeyDown = useCallback((e: PopupKeyEvent): boolean => {
     if (!isOpen || filteredSkills.length === 0) return false
-    if (e.nativeEvent.isComposing) return false
+    if (e.isComposing) return false
 
     if (e.key === "ArrowDown") {
       e.preventDefault()

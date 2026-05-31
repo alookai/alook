@@ -1,0 +1,232 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { join } from "path";
+
+const { getJSONMock, postJSONMock } = vi.hoisted(() => ({
+  getJSONMock: vi.fn(),
+  postJSONMock: vi.fn(),
+}));
+
+vi.mock("../lib/client.js", () => ({
+  APIClient: class {
+    getJSON(...a: unknown[]) { return getJSONMock(...a); }
+    postJSON(...a: unknown[]) { return postJSONMock(...a); }
+  },
+}));
+
+vi.mock("../lib/resolve-client.js", () => ({
+  resolveClientOpts: vi.fn(() => ({
+    serverUrl: "http://localhost:3000",
+    token: "test-token",
+    workspaceId: "ws_test",
+  })),
+}));
+
+import { workspaceCommand } from "./workspace";
+
+const TMP_DIR = "/tmp/alook-workspace-test";
+
+describe("workspace init", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrSpy: ReturnType<typeof vi.spyOn>;
+  let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+  let mockExit: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mkdirSync(TMP_DIR, { recursive: true });
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockExit = vi.spyOn(process, "exit").mockImplementation((code) => { throw new Error(`process.exit(${code})`); });
+  });
+
+  afterEach(() => {
+    rmSync(TMP_DIR, { recursive: true, force: true });
+    consoleSpy.mockRestore();
+    consoleErrSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
+    mockExit.mockRestore();
+  });
+
+  function writeJson(filename: string, data: unknown) {
+    const path = join(TMP_DIR, filename);
+    writeFileSync(path, JSON.stringify(data));
+    return path;
+  }
+
+  async function runInit(args: string[]) {
+    const cmd = workspaceCommand();
+    await cmd.parseAsync(["node", "workspace", "init", ...args]);
+  }
+
+  it("reads local JSON file and creates workspace", async () => {
+    const jsonPath = writeJson("valid.json", {
+      name: "Test WS",
+      members: [
+        { role: "leader", instructions: "You lead" },
+        { role: "engineer", instructions: "You code", relationship: { leaderSees: "delegate", memberSees: "report" } },
+      ],
+    });
+
+    getJSONMock
+      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }]) // runtimes
+      .mockResolvedValueOnce([]); // agents (empty = no existing agents)
+
+    postJSONMock.mockResolvedValueOnce({
+      studio: { name: "Test WS" },
+      workspace: { id: "ws_test", name: "Test WS" },
+      agents: [
+        { id: "ag1", name: "Alice", email_handle: "alice" },
+        { id: "ag2", name: "Bob", email_handle: "bob" },
+      ],
+      links: [],
+    });
+
+    await runInit(["--json-file", jsonPath]);
+
+    expect(postJSONMock).toHaveBeenCalledWith("/api/studios", expect.objectContaining({
+      name: "Test WS",
+      members: expect.arrayContaining([
+        expect.objectContaining({ role: "leader", runtime_id: "rt1" }),
+      ]),
+    }));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Workspace initialized"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("alice@alook.ai"));
+  });
+
+  it("errors when JSON file does not exist", async () => {
+    await expect(runInit(["--json-file", "/tmp/nonexistent-file.json"])).rejects.toThrow("process.exit(1)");
+    expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("cannot read file"));
+  });
+
+  it("errors when JSON is malformed", async () => {
+    const path = join(TMP_DIR, "bad.json");
+    writeFileSync(path, "not json {{{");
+
+    await expect(runInit(["--json-file", path])).rejects.toThrow("process.exit(1)");
+    expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("invalid JSON"));
+  });
+
+  it("errors when members array is missing", async () => {
+    const jsonPath = writeJson("no-members.json", { name: "Test" });
+
+    await expect(runInit(["--json-file", jsonPath])).rejects.toThrow("process.exit(1)");
+    expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("members"));
+  });
+
+  it("errors when no runtimes are registered", async () => {
+    const jsonPath = writeJson("valid.json", {
+      members: [{ role: "leader", instructions: "x" }],
+    });
+
+    getJSONMock.mockResolvedValueOnce([]); // empty runtimes
+
+    await expect(runInit(["--json-file", jsonPath])).rejects.toThrow("process.exit(1)");
+    expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("No daemon registered"));
+  });
+
+  it("creates new workspace when agents already exist", async () => {
+    const jsonPath = writeJson("valid.json", {
+      name: "New WS",
+      members: [{ role: "leader", instructions: "x" }],
+    });
+
+    getJSONMock
+      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }]) // runtimes
+      .mockResolvedValueOnce([{ id: "existing-agent" }]); // existing agents
+
+    postJSONMock
+      .mockResolvedValueOnce({ id: "ws_new", name: "New WS" }) // POST /api/workspaces
+      .mockResolvedValueOnce({ // POST /api/studios
+        studio: { name: "New WS" },
+        workspace: { id: "ws_new", name: "New WS" },
+        agents: [{ id: "ag1", name: "Charlie", email_handle: "charlie" }],
+        links: [],
+      });
+
+    await runInit(["--json-file", jsonPath]);
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("existing agents"));
+    expect(postJSONMock).toHaveBeenCalledWith("/api/workspaces", expect.objectContaining({ name: "New WS" }));
+  });
+
+  it("warns when agent existence check fails", async () => {
+    const jsonPath = writeJson("valid.json", {
+      members: [{ role: "leader", instructions: "x" }],
+    });
+
+    getJSONMock
+      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }]) // runtimes
+      .mockRejectedValueOnce(new Error("network error")); // agents check fails
+
+    postJSONMock.mockResolvedValueOnce({
+      studio: { name: "" },
+      workspace: { id: "ws_test", name: "Workspace" },
+      agents: [{ id: "ag1", name: "X", email_handle: "x" }],
+      links: [],
+    });
+
+    await runInit(["--json-file", jsonPath]);
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("could not check existing agents"));
+  });
+
+  it("errors when runtime fetch fails", async () => {
+    const jsonPath = writeJson("valid.json", {
+      members: [{ role: "leader", instructions: "x" }],
+    });
+
+    getJSONMock.mockRejectedValueOnce(new Error("connection refused"));
+
+    await expect(runInit(["--json-file", jsonPath])).rejects.toThrow("process.exit(1)");
+    expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("failed to fetch runtimes"));
+  });
+
+  it("errors when studios POST fails", async () => {
+    const jsonPath = writeJson("valid.json", {
+      members: [{ role: "leader", instructions: "x" }],
+    });
+
+    getJSONMock
+      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }])
+      .mockResolvedValueOnce([]);
+
+    postJSONMock.mockRejectedValueOnce(new Error("500 internal server error"));
+
+    await expect(runInit(["--json-file", jsonPath])).rejects.toThrow("process.exit(1)");
+    expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("failed to create workspace"));
+  });
+
+  it("selects online runtime over offline one", async () => {
+    const jsonPath = writeJson("valid.json", {
+      members: [{ role: "leader", instructions: "x" }],
+    });
+
+    const oldDate = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 min ago (offline)
+    const recentDate = new Date().toISOString(); // now (online)
+
+    getJSONMock
+      .mockResolvedValueOnce([
+        { id: "rt_offline", machineLastSeenAt: oldDate },
+        { id: "rt_online", machineLastSeenAt: recentDate },
+      ])
+      .mockResolvedValueOnce([]); // no existing agents
+
+    postJSONMock.mockResolvedValueOnce({
+      studio: { name: "" },
+      workspace: { id: "ws_test", name: "WS" },
+      agents: [{ id: "ag1", name: "Y", email_handle: "y" }],
+      links: [],
+    });
+
+    await runInit(["--json-file", jsonPath]);
+
+    // The online runtime should be selected
+    expect(postJSONMock).toHaveBeenCalledWith("/api/studios", expect.objectContaining({
+      members: expect.arrayContaining([
+        expect.objectContaining({ runtime_id: "rt_online" }),
+      ]),
+    }));
+  });
+});

@@ -304,6 +304,10 @@
    ╰───────────────────────╯
 */
 
+.typewriter-wrapper {
+  container-type: size;
+}
+
 .typewriter-visual {
   position: relative;
   display: flex;
@@ -799,6 +803,20 @@
   }
 }
 
+/* Scale all hero content proportionally when container height is constrained */
+@container (max-height: 680px) {
+  .hero-scalable { zoom: 0.9; }
+}
+@container (max-height: 580px) {
+  .hero-scalable { zoom: 0.78; }
+}
+@container (max-height: 480px) {
+  .hero-scalable { zoom: 0.65; }
+}
+@container (max-height: 380px) {
+  .hero-scalable { zoom: 0.52; }
+}
+
 /* ── Sonner toast: close button only on hover ── */
 [data-sonner-toast] [data-close-button] {
   opacity: 0;
@@ -1164,6 +1182,32 @@
 .tiptap u { text-decoration: underline; }
 .tiptap s { text-decoration: line-through; }
 
+/* ── Chat composer (TipTap input) — uniform font, scoped overrides ──
+   The shared .tiptap rules above (line-height 1.6, p margins) would bleed into
+   the chat input. Scope here to keep every line one size/weight and let the
+   px-13 py-3 wrapper own padding. Higher specificity (two classes) beats the
+   single-class base rules. Do NOT touch the shared .tiptap rules — the
+   comment/email editors depend on them. */
+.chat-composer .tiptap {
+  line-height: 24px; /* matches .chat-input-line-height */
+  outline: none;
+}
+.chat-composer .tiptap p,
+.chat-composer .tiptap li {
+  font-size: 1rem;
+  font-weight: 400;
+  margin: 0;
+  line-height: 24px;
+}
+.chat-composer .tiptap > p:first-child { margin-top: 0; }
+.chat-composer .tiptap > p:last-child { margin-bottom: 0; }
+.chat-composer .tiptap ul,
+.chat-composer .tiptap ol {
+  margin: 0;
+  padding-left: 1.5em;
+}
+.chat-composer .tiptap li { margin: 0; }
+
 /* ── Thin scrollbar (code blocks, tool panels, chat scroll) ── */
 .markdown pre,
 [data-streamdown] pre,
@@ -1416,6 +1460,12 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 [data-streamdown="table-wrapper"]:hover > div:first-child:not(:has([data-streamdown="table"])) {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* Table copy/download dropdown: escape parent overflow clip */
+[data-streamdown="table-wrapper"] > div:first-child:not(:has([data-streamdown="table"])) .absolute {
+  min-width: 10rem;
+  overflow: visible !important;
 }
 
 /* Thin scrollbar for table container */

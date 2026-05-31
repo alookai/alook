@@ -55,11 +55,15 @@ vi.mock("./health.js", () => ({
   })),
 }));
 
+let capturedWsOnMessage: ((msg: any) => void) | null = null;
 vi.mock("./ws-client.js", () => {
   class MockDaemonWsClient {
     connect = vi.fn();
     close = vi.fn();
     isConnected = vi.fn(() => false);
+    constructor(opts: any) {
+      if (opts?.onMessage) capturedWsOnMessage = opts.onMessage;
+    }
   }
   return { DaemonWsClient: MockDaemonWsClient };
 });
@@ -1984,5 +1988,176 @@ describe("reconcilePendingCompletions", () => {
     await reconcilePendingCompletions("/tmp/ws");
 
     expect(mockUnlink).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleWsPush via WebSocket onMessage", () => {
+  beforeEach(() => {
+    signalHandlers.clear();
+    intervalTimers.length = 0;
+    clearedTimers.length = 0;
+    spawnedChildren.length = 0;
+    nextPid = 50000;
+    capturedWsOnMessage = null;
+    vi.clearAllMocks();
+    mockProcessExit.mockImplementation((() => {}) as any);
+    mockOpenSync.mockReturnValue(42);
+  });
+
+  afterEach(() => {
+    for (const t of intervalTimers) realClearInterval(t);
+  });
+
+  async function setupDaemonWithWs() {
+    vi.mocked(loadCLIConfigForProfile).mockReturnValue({
+      server_url: "",
+      watched_workspaces: [{ id: "ws1", name: "Test WS", token: "al_test_token" }],
+    });
+    mockClientInstance.register.mockResolvedValue({ runtimes: [{ id: "rt1" }] });
+    mockClientInstance.poll.mockResolvedValue({ tasks: [], evicted: false });
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  it("dispatches a task via WS push using Map lookup", async () => {
+    await setupDaemonWithWs();
+    expect(capturedWsOnMessage).not.toBeNull();
+
+    capturedWsOnMessage!({
+      type: "daemon.tasks",
+      tasks: [{
+        id: "wst1",
+        agent_id: "a1",
+        runtime_id: "rt1",
+        conversation_id: "c1",
+        workspace_id: "ws1",
+        prompt: "ws push task",
+        status: "dispatched",
+        priority: 0,
+        dispatched_at: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "2026-01-01T00:00:00Z",
+        type: "user_dm_message",
+        result: null,
+        error: null,
+        agent: { name: "Agent 1", instructions: "be helpful" },
+      }],
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(spawn).toHaveBeenCalled();
+  });
+
+  it("skips task when workspaceId not found via WS push", async () => {
+    await setupDaemonWithWs();
+    expect(capturedWsOnMessage).not.toBeNull();
+
+    capturedWsOnMessage!({
+      type: "daemon.tasks",
+      tasks: [{
+        id: "wst2",
+        agent_id: "a1",
+        runtime_id: "rt1",
+        conversation_id: "c1",
+        workspace_id: "unknown_ws",
+        prompt: "should be skipped",
+        status: "dispatched",
+        priority: 0,
+        dispatched_at: null,
+        started_at: null,
+        completed_at: null,
+        created_at: "2026-01-01T00:00:00Z",
+        type: "user_dm_message",
+        result: null,
+        error: null,
+        agent: null,
+      }],
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("handles daemon.file_requests via WS push with Map lookup", async () => {
+    await setupDaemonWithWs();
+    expect(capturedWsOnMessage).not.toBeNull();
+
+    capturedWsOnMessage!({
+      type: "daemon.file_requests",
+      workspaceId: "ws1",
+      requests: [{ id: "fr1", path: "/some/file", type: "read" }],
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    // file_requests with valid workspace should not throw
+  });
+
+  it("handles daemon.kill via WS push with Map lookup", async () => {
+    await setupDaemonWithWs();
+    expect(capturedWsOnMessage).not.toBeNull();
+
+    mockFindRunningPidByTaskId.mockReturnValue(77777);
+    const mockKill = vi.spyOn(process, "kill").mockImplementation((() => {}) as any);
+
+    capturedWsOnMessage!({
+      type: "daemon.kill",
+      workspaceId: "ws1",
+      taskId: "kt_ws1",
+      agentId: "a1",
+      targetTaskId: "target_t1",
+    });
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(mockKill).toHaveBeenCalledWith(77777, "SIGTERM");
+
+    mockKill.mockRestore();
+  });
+
+  it("handles daemon.meetings via WS push with Map lookup", async () => {
+    await setupDaemonWithWs();
+    expect(capturedWsOnMessage).not.toBeNull();
+
+    capturedWsOnMessage!({
+      type: "daemon.meetings",
+      meetings: [{
+        id: "m1",
+        workspace_id: "ws1",
+        agent_id: "a1",
+        agent_name: "Agent 1",
+        meeting_url: "https://meet.example.com/abc",
+        participants: ["user1@example.com"],
+        title: "Test Meeting",
+      }],
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    // spawnMeetingRunner calls spawn under the hood
+    expect(spawn).toHaveBeenCalled();
+    const call = vi.mocked(spawn).mock.calls[0];
+    const args = call[1] as string[];
+    expect(args[0]).toContain("meeting-runner");
+  });
+
+  it("skips daemon.meetings for unknown workspace via WS push", async () => {
+    await setupDaemonWithWs();
+    expect(capturedWsOnMessage).not.toBeNull();
+
+    capturedWsOnMessage!({
+      type: "daemon.meetings",
+      meetings: [{
+        id: "m2",
+        workspace_id: "unknown_ws",
+        agent_id: "a1",
+        agent_name: "Agent 1",
+        meeting_url: "https://meet.example.com/xyz",
+        participants: ["user2@example.com"],
+        title: "Skipped Meeting",
+      }],
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(spawn).not.toHaveBeenCalled();
   });
 });

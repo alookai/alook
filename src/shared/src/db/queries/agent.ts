@@ -148,6 +148,15 @@ export async function getAgentByHandle(db: Database, emailHandle: string) {
   return rows[0] ?? null;
 }
 
+export async function getExistingHandles(db: Database, handles: string[]) {
+  if (handles.length === 0) return [];
+  const rows = await db
+    .select({ emailHandle: agent.emailHandle })
+    .from(agent)
+    .where(inArray(agent.emailHandle, handles));
+  return rows.map((r) => r.emailHandle).filter(Boolean) as string[];
+}
+
 export async function getAgentsByIds(db: Database, ids: string[], workspaceId: string) {
   if (ids.length === 0) return [];
   return db

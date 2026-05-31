@@ -41,7 +41,6 @@ import {
   type AgentAccessEntry,
   type MemberEntry,
 } from "@/lib/api";
-import { useAgentContext } from "@/contexts/agent-context";
 import { ApiError } from "@/lib/errors";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
@@ -334,55 +333,6 @@ export function getHandleError(effectiveHandle: string): string {
   return "";
 }
 
-// --- Pin Toggle ---
-
-export function PinToggle({ agentId }: { agentId: string }) {
-  const { pins, handlePinAgent, handleUnpinAgent } = useAgentContext();
-  const isPinned = pins.has(agentId);
-  const [toggling, setToggling] = useState(false);
-
-  const handleToggle = async () => {
-    setToggling(true);
-    try {
-      if (isPinned) {
-        await handleUnpinAgent(agentId);
-      } else {
-        await handlePinAgent(agentId);
-      }
-    } finally {
-      setToggling(false);
-    }
-  };
-
-  return (
-    <div className="space-y-4 rounded-lg border border-border/50 p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-medium">Pin to Sidebar</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {isPinned
-              ? "This agent is pinned to the top of the sidebar"
-              : "Pin this agent to the top of the sidebar"}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            {toggling ? "Saving…" : isPinned ? "Pinned" : "Unpinned"}
-          </span>
-          <Switch
-            checked={isPinned}
-            onCheckedChange={handleToggle}
-            disabled={toggling}
-          />
-        </div>
-      </div>
-      <p className="text-xs text-muted-foreground/70">
-        Tip: You can also right-click an agent in the sidebar to pin or unpin
-        it.
-      </p>
-    </div>
-  );
-}
 
 // --- Allowed Senders (inline tab content) ---
 

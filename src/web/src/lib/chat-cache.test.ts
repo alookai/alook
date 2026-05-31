@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import "fake-indexeddb/auto";
+import { openDB } from "idb";
 import type { Message } from "@alook/shared";
 import {
   openCacheDB,
@@ -12,6 +13,9 @@ import {
   invalidateCache,
   evictLRU,
   clearAllCache,
+  getLastOpenConversation,
+  setLastOpenConversation,
+  clearLastOpenForConversation,
 } from "./chat-cache";
 
 const WORKSPACE_ID = "ws_test";
@@ -42,6 +46,7 @@ describe("chat-cache", () => {
       const db = await p!;
       expect(db.objectStoreNames.contains("messages")).toBe(true);
       expect(db.objectStoreNames.contains("cache_meta")).toBe(true);
+      expect(db.objectStoreNames.contains("last_open")).toBe(true);
     });
   });
 
@@ -231,6 +236,95 @@ describe("chat-cache", () => {
       const meta = await getCacheMeta("conv_1", WORKSPACE_ID);
       expect(meta).toBeNull();
     });
+
+    it("clears any last_open pointer referencing the invalidated conversation", async () => {
+      await mergeCachedMessages("conv_1", [makeMessage({ id: "m1", conversation_id: "conv_1" })], false, WORKSPACE_ID);
+      await setLastOpenConversation("agent_a", "chan", {
+        conversation_id: "conv_1",
+        newestMessageId: "m1",
+        serverMessageCount: 1,
+      }, WORKSPACE_ID);
+
+      await invalidateCache("conv_1", WORKSPACE_ID);
+
+      expect(await getLastOpenConversation("agent_a", "chan", WORKSPACE_ID)).toBeNull();
+    });
+  });
+
+  describe("last_open pointer", () => {
+    it("set then get round-trips for the same agent+channel", async () => {
+      await setLastOpenConversation("agent_a", "chan_x", {
+        conversation_id: "conv_1",
+        newestMessageId: "m9",
+        serverMessageCount: 12,
+      }, WORKSPACE_ID);
+
+      const entry = await getLastOpenConversation("agent_a", "chan_x", WORKSPACE_ID);
+      expect(entry).not.toBeNull();
+      expect(entry!.conversation_id).toBe("conv_1");
+      expect(entry!.newestMessageId).toBe("m9");
+      expect(entry!.serverMessageCount).toBe(12);
+    });
+
+    it("is scoped by channel — a different channel returns null", async () => {
+      await setLastOpenConversation("agent_a", "chan_x", {
+        conversation_id: "conv_1", newestMessageId: "m1", serverMessageCount: 1,
+      }, WORKSPACE_ID);
+
+      expect(await getLastOpenConversation("agent_a", "chan_y", WORKSPACE_ID)).toBeNull();
+      expect((await getLastOpenConversation("agent_a", "chan_x", WORKSPACE_ID))?.conversation_id).toBe("conv_1");
+    });
+
+    it("is scoped by agent — agent A channel x and agent B channel x are independent", async () => {
+      await setLastOpenConversation("agent_a", "chan_x", {
+        conversation_id: "conv_a", newestMessageId: "ma", serverMessageCount: 1,
+      }, WORKSPACE_ID);
+      await setLastOpenConversation("agent_b", "chan_x", {
+        conversation_id: "conv_b", newestMessageId: "mb", serverMessageCount: 1,
+      }, WORKSPACE_ID);
+
+      expect((await getLastOpenConversation("agent_a", "chan_x", WORKSPACE_ID))?.conversation_id).toBe("conv_a");
+      expect((await getLastOpenConversation("agent_b", "chan_x", WORKSPACE_ID))?.conversation_id).toBe("conv_b");
+    });
+
+    it("null and undefined channel resolve to the same entry", async () => {
+      await setLastOpenConversation("agent_a", null, {
+        conversation_id: "conv_default", newestMessageId: "m1", serverMessageCount: 3,
+      }, WORKSPACE_ID);
+
+      const viaUndefined = await getLastOpenConversation("agent_a", undefined, WORKSPACE_ID);
+      expect(viaUndefined?.conversation_id).toBe("conv_default");
+
+      // Writing via undefined overwrites the same row read via null.
+      await setLastOpenConversation("agent_a", undefined, {
+        conversation_id: "conv_default2", newestMessageId: "m2", serverMessageCount: 4,
+      }, WORKSPACE_ID);
+      const viaNull = await getLastOpenConversation("agent_a", null, WORKSPACE_ID);
+      expect(viaNull?.conversation_id).toBe("conv_default2");
+    });
+
+    it("returns null on cache miss", async () => {
+      expect(await getLastOpenConversation("agent_missing", "chan", WORKSPACE_ID)).toBeNull();
+    });
+
+    it("clearLastOpenForConversation removes only the matching rows", async () => {
+      await setLastOpenConversation("agent_a", "chan_x", {
+        conversation_id: "conv_1", newestMessageId: "m1", serverMessageCount: 1,
+      }, WORKSPACE_ID);
+      await setLastOpenConversation("agent_b", "chan_y", {
+        conversation_id: "conv_1", newestMessageId: "m1", serverMessageCount: 1,
+      }, WORKSPACE_ID);
+      await setLastOpenConversation("agent_c", "chan_z", {
+        conversation_id: "conv_2", newestMessageId: "m2", serverMessageCount: 1,
+      }, WORKSPACE_ID);
+
+      await clearLastOpenForConversation("conv_1", WORKSPACE_ID);
+
+      expect(await getLastOpenConversation("agent_a", "chan_x", WORKSPACE_ID)).toBeNull();
+      expect(await getLastOpenConversation("agent_b", "chan_y", WORKSPACE_ID)).toBeNull();
+      // Pointer to conv_2 is untouched.
+      expect((await getLastOpenConversation("agent_c", "chan_z", WORKSPACE_ID))?.conversation_id).toBe("conv_2");
+    });
   });
 
   describe("evictLRU", () => {
@@ -265,6 +359,37 @@ describe("chat-cache", () => {
       expect(meta2).not.toBeNull();
       expect(meta3).not.toBeNull();
       expect(meta4).not.toBeNull();
+    });
+
+    it("prunes last_open pointers for evicted conversations (no dangling id)", async () => {
+      const db = await openCacheDB(WORKSPACE_ID)!;
+
+      for (let i = 0; i < 5; i++) {
+        await db.put("messages", makeMessage({ id: `m_${i}`, conversation_id: `conv_${i}`, created_at: `2024-01-0${i + 1}T00:00:00Z` }));
+        await db.put("cache_meta", {
+          conversation_id: `conv_${i}`,
+          lastFetchedAt: Date.now(),
+          lastAccessedAt: i * 1000,
+          messageCount: 1,
+          newestMessageId: `m_${i}`,
+          hasMore: false,
+          serverMessageCount: 1,
+        });
+        await setLastOpenConversation(`agent_${i}`, "chan", {
+          conversation_id: `conv_${i}`,
+          newestMessageId: `m_${i}`,
+          serverMessageCount: 1,
+        }, WORKSPACE_ID);
+      }
+
+      await evictLRU(3);
+
+      // conv_0 and conv_1 were evicted — their last_open pointers must be gone.
+      expect(await getLastOpenConversation("agent_0", "chan", WORKSPACE_ID)).toBeNull();
+      expect(await getLastOpenConversation("agent_1", "chan", WORKSPACE_ID)).toBeNull();
+      // Survivors keep their pointers.
+      expect((await getLastOpenConversation("agent_2", "chan", WORKSPACE_ID))?.conversation_id).toBe("conv_2");
+      expect((await getLastOpenConversation("agent_4", "chan", WORKSPACE_ID))?.conversation_id).toBe("conv_4");
     });
   });
 
@@ -417,6 +542,59 @@ describe("chat-cache", () => {
       expect(metaAfter!.messageCount).toBe(metaBefore!.messageCount);
       expect(metaAfter!.hasMore).toBe(metaBefore!.hasMore);
       expect(metaAfter!.newestMessageId).toBe(metaBefore!.newestMessageId);
+    });
+  });
+
+  describe("v2 → v3 migration", () => {
+    it("upgrades an existing v2 DB to v3, adding last_open and preserving messages/cache_meta", async () => {
+      // Use a dedicated workspace so we don't collide with the shared beforeEach DB.
+      const MIGRATE_WS = "ws_migrate";
+      await clearAllCache();
+
+      // Build a v2-shaped DB by hand (only messages + cache_meta, version 2).
+      const v2 = await openDB(`alook-chat-cache-${MIGRATE_WS}`, 2, {
+        upgrade(db) {
+          const msgStore = db.createObjectStore("messages", { keyPath: ["conversation_id", "id"] });
+          msgStore.createIndex("by-conversation", "conversation_id", { unique: false });
+          msgStore.createIndex("by-created", ["conversation_id", "created_at"], { unique: false });
+          db.createObjectStore("cache_meta", { keyPath: "conversation_id" });
+        },
+      });
+      await v2.put("messages", makeMessage({ id: "m1", conversation_id: "conv_old", created_at: "2024-01-01T00:00:00Z" }));
+      await v2.put("cache_meta", {
+        conversation_id: "conv_old",
+        lastFetchedAt: 1,
+        lastAccessedAt: 1,
+        messageCount: 1,
+        newestMessageId: "m1",
+        hasMore: false,
+        serverMessageCount: 1,
+      });
+      expect(v2.version).toBe(2);
+      expect(v2.objectStoreNames.contains("last_open")).toBe(false);
+      v2.close();
+
+      // Open via the production code path — should upgrade to v3.
+      const db = await openCacheDB(MIGRATE_WS)!;
+      expect(db.version).toBe(3);
+      expect(db.objectStoreNames.contains("last_open")).toBe(true);
+
+      // Existing data is intact.
+      const cached = await getCachedMessages("conv_old", MIGRATE_WS);
+      expect(cached).toHaveLength(1);
+      expect(cached![0].id).toBe("m1");
+      const meta = await getCacheMeta("conv_old", MIGRATE_WS);
+      expect(meta!.newestMessageId).toBe("m1");
+      expect(meta!.serverMessageCount).toBe(1);
+
+      // New store works.
+      await setLastOpenConversation("agent_x", null, {
+        conversation_id: "conv_old", newestMessageId: "m1", serverMessageCount: 1,
+      }, MIGRATE_WS);
+      expect((await getLastOpenConversation("agent_x", null, MIGRATE_WS))?.conversation_id).toBe("conv_old");
+
+      await clearAllCache();
+      openCacheDB(WORKSPACE_ID);
     });
   });
 

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/app/**/page.tsx",
+    "src/app/**/layout.tsx",
+    "src/app/**/route.ts",
+    "src/app/**/error.tsx",
+    "src/app/**/not-found.tsx",
+    "src/app/globals.css",
+    "open-next.config.ts",
+    "scripts/**/*.{ts,mjs}"
+  ],
+  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.{ts,mjs}"],
+  "ignoreDependencies": [
+    "@tailwindcss/node"
+  ],
+  "ignore": [
+    "src/components/ui/**"
+  ],
+  "vitest": {
+    "entry": ["src/**/*.test.{ts,tsx}", "src/test/**/*.{ts,tsx}"]
+  },
+  "eslint": {
+    "entry": ["eslint.config.mjs"]
+  }
+}
