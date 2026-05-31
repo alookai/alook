@@ -1,6 +1,7 @@
 import {
   CLOUD_CODE_MONSTER_ACTIVITIES,
   CLOUD_CODE_MONSTER_AUTOWALK_ACTIVITY_IDS,
+  CLOUD_CODE_MONSTER_WORKING_ACTIVITY_IDS,
 } from "./cloud-code-monster-pet-activity-data";
 import {
   CLOUD_CODE_MONSTER_ACTIVITY_REFRESH_MS,
@@ -82,6 +83,44 @@ export function shouldCloudCodeMonsterAutoWalk(
   );
 }
 
+function isCloudCodeMonsterWorkingActivity(
+  activityId: CloudCodeMonsterActivityId | null
+) {
+  return (
+    activityId !== null &&
+    CLOUD_CODE_MONSTER_WORKING_ACTIVITY_IDS.includes(activityId)
+  );
+}
+
+export function resolveCloudCodeMonsterAgentWorkState(
+  activeTaskCount: number,
+  current: StoredCloudCodeMonsterActivity | null,
+  now = Date.now()
+): StoredCloudCodeMonsterActivity {
+  if (activeTaskCount <= 0) {
+    return current?.activityId === "sleeping"
+      ? current
+      : createCloudCodeMonsterIdleState(now);
+  }
+
+  if (isCloudCodeMonsterWorkingActivity(current?.activityId ?? null)) {
+    return {
+      activityId: current!.activityId,
+      updatedAt: current!.updatedAt,
+      hiddenAt: null,
+    };
+  }
+
+  const activityId =
+    activeTaskCount >= 3 ? "building" : activeTaskCount >= 2 ? "juggling" : "coding";
+
+  return {
+    activityId,
+    updatedAt: now,
+    hiddenAt: null,
+  };
+}
+
 export function createCloudCodeMonsterWalkVelocity(
   randomValue = Math.random(),
   speed = CLOUD_CODE_MONSTER_AUTO_WALK_SPEED
@@ -151,8 +190,7 @@ export function reflectCloudCodeMonsterWalk(
 
 export function resolveCloudCodeMonsterActivityState(
   stored: StoredCloudCodeMonsterActivity | null,
-  now = Date.now(),
-  randomValue = Math.random()
+  now = Date.now()
 ): StoredCloudCodeMonsterActivity {
   if (
     stored &&
@@ -163,11 +201,7 @@ export function resolveCloudCodeMonsterActivityState(
     return stored;
   }
 
-  return {
-    activityId: pickCloudCodeMonsterActivity(randomValue).id,
-    updatedAt: now,
-    hiddenAt: null,
-  };
+  return createCloudCodeMonsterIdleState(now);
 }
 
 export function createCloudCodeMonsterIdleState(
@@ -175,6 +209,16 @@ export function createCloudCodeMonsterIdleState(
 ): StoredCloudCodeMonsterActivity {
   return {
     activityId: null,
+    updatedAt: now,
+    hiddenAt: null,
+  };
+}
+
+export function createCloudCodeMonsterSleepingState(
+  now = Date.now()
+): StoredCloudCodeMonsterActivity {
+  return {
+    activityId: "sleeping",
     updatedAt: now,
     hiddenAt: null,
   };
@@ -205,28 +249,21 @@ export function createCloudCodeMonsterPreviewAwayState(
 
 
 export function resolveCloudCodeMonsterPreviewComebackState(
-  now = Date.now(),
-  randomValue = Math.random()
+  now = Date.now()
 ) {
   return resolveCloudCodeMonsterVisibleState(
     createCloudCodeMonsterPreviewAwayState(now),
-    now,
-    randomValue
+    now
   );
 }
 
 export function resolveCloudCodeMonsterVisibleState(
   stored: StoredCloudCodeMonsterActivity | null,
-  now = Date.now(),
-  randomValue = Math.random()
+  now = Date.now()
 ): StoredCloudCodeMonsterActivity {
   if (stored?.hiddenAt) {
     if (shouldRefreshCloudCodeMonsterActivity(stored.hiddenAt, now)) {
-      return {
-        activityId: pickCloudCodeMonsterActivity(randomValue).id,
-        updatedAt: now,
-        hiddenAt: null,
-      };
+      return createCloudCodeMonsterIdleState(now);
     }
 
     return {
@@ -237,7 +274,7 @@ export function resolveCloudCodeMonsterVisibleState(
   }
 
   if (!stored) {
-    return resolveCloudCodeMonsterActivityState(stored, now, randomValue);
+    return resolveCloudCodeMonsterActivityState(stored, now);
   }
 
   return {
@@ -376,7 +413,7 @@ export function getCloudCodeMonsterExpression(
     return "shocked";
   }
 
-  if (activityId === "sleeping") {
+  if (activityId === "sleeping" || activityId === "dozing" || activityId === "yawning") {
     return "sleeping";
   }
 

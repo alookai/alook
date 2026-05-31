@@ -17,12 +17,14 @@ function MonsterEyes({
   reacting,
   shaken,
   fainted = false,
+  eyeOffset = { x: 0, y: 0 },
 }: {
   activityId: CloudCodeMonsterActivityId | null;
   preset: CloudCodeMonsterPetPreset;
   reacting: boolean;
   shaken: boolean;
   fainted?: boolean;
+  eyeOffset?: { x: number; y: number };
 }) {
   const expression = getCloudCodeMonsterExpression(
     activityId,
@@ -66,10 +68,14 @@ function MonsterEyes({
   if (expression === "shocked") {
     return (
       <>
-        <rect x="44" y="39" width="12" height="13" fill={preset.eye} />
-        <rect x="76" y="39" width="12" height="13" fill={preset.eye} />
-        <rect x="47" y="42" width="4" height="4" fill={preset.highlight} />
-        <rect x="79" y="42" width="4" height="4" fill={preset.highlight} />
+        <g className="cloud-code-monster-pet-eyes-track" transform={`translate(${eyeOffset.x} ${eyeOffset.y})`}>
+          <rect className="cloud-code-monster-pet-eye-blink" x="44" y="39" width="12" height="13" fill={preset.eye} />
+          <rect className="cloud-code-monster-pet-eye-blink" x="76" y="39" width="12" height="13" fill={preset.eye} />
+          <g transform={`translate(${eyeOffset.x * 0.45} ${eyeOffset.y * 0.45})`}>
+            <rect x="47" y="42" width="4" height="4" fill={preset.highlight} />
+            <rect x="79" y="42" width="4" height="4" fill={preset.highlight} />
+          </g>
+        </g>
         <rect x="60" y="60" width="10" height="12" fill={preset.eye} />
         <rect x="62" y="62" width="6" height="3" fill="#332520" />
       </>
@@ -86,12 +92,14 @@ function MonsterEyes({
   }
 
   return (
-    <>
-      <rect x="47" y="43" width="8" height="9" fill={preset.eye} />
-      <rect x="78" y="43" width="8" height="9" fill={preset.eye} />
-      <rect x="48" y="44" width="3" height="3" fill="#2c2521" />
-      <rect x="79" y="44" width="3" height="3" fill="#2c2521" />
-    </>
+    <g className="cloud-code-monster-pet-eyes-track" transform={`translate(${eyeOffset.x} ${eyeOffset.y})`}>
+      <rect className="cloud-code-monster-pet-eye-blink" x="44" y="42" width="11" height="12" fill={preset.eye} />
+      <rect className="cloud-code-monster-pet-eye-blink" x="77" y="42" width="11" height="12" fill={preset.eye} />
+      <g transform={`translate(${eyeOffset.x * 0.55} ${eyeOffset.y * 0.55})`}>
+        <rect x="46" y="44" width="4" height="4" fill="#2c2521" />
+        <rect x="79" y="44" width="4" height="4" fill="#2c2521" />
+      </g>
+    </g>
   );
 }
 
@@ -106,7 +114,7 @@ function MonsterActivityAccessory({
     return null;
   }
 
-  if (activityId === "sleeping") {
+  if (activityId === "sleeping" || activityId === "dozing" || activityId === "yawning") {
     return (
       <g className="cloud-code-monster-pet-accessory cloud-code-monster-pet-sleep">
         <g className="cloud-code-monster-pet-sleep-z">
@@ -157,7 +165,7 @@ function MonsterActivityAccessory({
     );
   }
 
-  if (activityId === "coding") {
+  if (activityId === "coding" || activityId === "typing") {
     return (
       <g className="cloud-code-monster-pet-accessory cloud-code-monster-pet-laptop">
         <rect x="35" y="68" width="58" height="25" fill="#2b2724" />
@@ -166,6 +174,72 @@ function MonsterActivityAccessory({
         <rect x="47" y="77" width="10" height="3" fill={preset.accessory} />
         <rect x="58" y="80" width="4" height="3" fill={preset.accessory} />
         <rect x="66" y="83" width="13" height="3" fill={preset.accessory} />
+      </g>
+    );
+  }
+
+  if (activityId === "building") {
+    return (
+      <g className="cloud-code-monster-pet-accessory cloud-code-monster-pet-building">
+        <rect x="29" y="72" width="19" height="19" fill={preset.accessory} />
+        <rect x="52" y="62" width="20" height="29" fill={preset.accent} />
+        <rect x="76" y="70" width="21" height="21" fill={preset.bodyLight} />
+        <rect x="34" y="77" width="8" height="4" fill={preset.highlight} />
+        <rect x="57" y="68" width="9" height="4" fill={preset.highlight} />
+        <rect x="81" y="76" width="9" height="4" fill={preset.highlight} />
+      </g>
+    );
+  }
+
+  if (activityId === "juggling") {
+    return (
+      <g className="cloud-code-monster-pet-accessory cloud-code-monster-pet-juggling">
+        <rect x="33" y="29" width="8" height="8" fill={preset.accessory} />
+        <rect x="59" y="17" width="8" height="8" fill={preset.accent} />
+        <rect x="86" y="29" width="8" height="8" fill={preset.bodyLight} />
+      </g>
+    );
+  }
+
+  if (activityId === "attention" || activityId === "waking") {
+    return (
+      <g className="cloud-code-monster-pet-accessory cloud-code-monster-pet-attention">
+        <rect x="22" y="22" width="7" height="18" fill={preset.accessory} />
+        <rect x="17" y="27" width="17" height="7" fill={preset.accessory} />
+        <rect x="99" y="20" width="8" height="20" fill={preset.accent} />
+        <rect x="93" y="26" width="20" height="8" fill={preset.accent} />
+        <rect x="61" y="5" width="7" height="18" fill={preset.highlight} />
+      </g>
+    );
+  }
+
+  if (activityId === "error") {
+    return (
+      <g className="cloud-code-monster-pet-accessory cloud-code-monster-pet-error">
+        <rect x="92" y="15" width="20" height="20" fill="#2b2112" />
+        <rect x="96" y="19" width="12" height="12" fill="#f05f57" />
+        <rect x="101" y="21" width="3" height="7" fill="#fff1d6" />
+        <rect x="101" y="30" width="3" height="3" fill="#fff1d6" />
+      </g>
+    );
+  }
+
+  if (activityId === "carrying") {
+    return (
+      <g className="cloud-code-monster-pet-accessory cloud-code-monster-pet-carrying">
+        <rect x="39" y="68" width="48" height="25" fill={preset.accessory} />
+        <rect x="39" y="68" width="48" height="5" fill={preset.accent} />
+        <rect x="61" y="68" width="5" height="25" fill={preset.accent} />
+      </g>
+    );
+  }
+
+  if (activityId === "sweeping") {
+    return (
+      <g className="cloud-code-monster-pet-accessory cloud-code-monster-pet-sweeping">
+        <rect x="72" y="58" width="5" height="42" fill="#8b6538" />
+        <rect x="62" y="94" width="27" height="7" fill={preset.accessory} />
+        <rect x="58" y="101" width="35" height="5" fill={preset.accent} />
       </g>
     );
   }
@@ -509,6 +583,7 @@ function MonsterStaticBody({
   reacting = false,
   shaken = false,
   fainted = false,
+  eyeOffset,
 }: {
   preset: CloudCodeMonsterPetPreset;
   activityId: CloudCodeMonsterActivityId | null;
@@ -516,6 +591,7 @@ function MonsterStaticBody({
   reacting?: boolean;
   shaken?: boolean;
   fainted?: boolean;
+  eyeOffset?: { x: number; y: number };
 }) {
   const shape = preset.shape ?? "monster";
 
@@ -529,6 +605,7 @@ function MonsterStaticBody({
             reacting={reacting}
             shaken={shaken}
             fainted={fainted}
+            eyeOffset={eyeOffset}
           />
         </Suspense>
       </g>
@@ -538,16 +615,16 @@ function MonsterStaticBody({
   return (
     <g className={animated ? "cloud-code-monster-pet-character" : undefined}>
       <MonsterPresetFeature preset={preset} />
-      <rect x="36" y="27" width="56" height="10" fill={preset.bodyTop} />
-      <rect x="28" y="37" width="72" height="14" fill={preset.bodyTop} />
+      <rect x="32" y="22" width="64" height="12" fill={preset.bodyTop} />
+      <rect x="24" y="34" width="80" height="17" fill={preset.bodyTop} />
       <rect x="16" y="51" width="12" height="24" fill={preset.body} />
-      <rect x="28" y="51" width="72" height="45" fill={preset.body} />
+      <rect x="24" y="51" width="80" height="41" fill={preset.body} />
       <rect x="100" y="51" width="12" height="24" fill={preset.body} />
       <rect x="16" y="63" width="12" height="12" fill={preset.bodyDark} />
-      <rect x="28" y="84" width="72" height="12" fill={preset.bodyDark} />
-      <rect x="36" y="37" width="56" height="5" fill={preset.bodyLight} />
-      <rect x="28" y="51" width="8" height="33" fill={preset.bodySideLight} />
-      <rect x="92" y="51" width="8" height="33" fill={preset.bodySideDark} />
+      <rect x="30" y="86" width="68" height="10" fill={preset.bodyDark} />
+      <rect x="34" y="34" width="60" height="6" fill={preset.bodyLight} />
+      <rect x="24" y="51" width="9" height="35" fill={preset.bodySideLight} />
+      <rect x="95" y="51" width="9" height="35" fill={preset.bodySideDark} />
       <MonsterPresetBodyMarks preset={preset} />
       <MonsterEyes
         activityId={activityId}
@@ -555,6 +632,7 @@ function MonsterStaticBody({
         reacting={reacting}
         shaken={shaken}
         fainted={fainted}
+        eyeOffset={eyeOffset}
       />
       <rect x="36" y="69" width="8" height="8" fill={preset.bodyLight} />
       <rect x="84" y="69" width="8" height="8" fill={preset.bodySideDark} />
@@ -622,12 +700,14 @@ export function MonsterSvg({
   reacting,
   shaken,
   fainted,
+  eyeOffset,
 }: {
   activityId: CloudCodeMonsterActivityId | null;
   preset: CloudCodeMonsterPetPreset;
   reacting: boolean;
   shaken: boolean;
   fainted: boolean;
+  eyeOffset?: { x: number; y: number };
 }) {
   const expression = getCloudCodeMonsterExpression(
     activityId,
@@ -645,8 +725,8 @@ export function MonsterSvg({
       aria-label={`Claude Code style pixel monster ${activityId ?? "idle"}`}
       shapeRendering="crispEdges"
     >
-      <rect x="31" y="116" width="66" height="5" fill="rgba(45,40,36,.14)" />
-      <rect x="40" y="121" width="48" height="3" fill="rgba(45,40,36,.08)" />
+      <rect className="cloud-code-monster-pet-shadow cloud-code-monster-pet-shadow-main" x="31" y="116" width="66" height="5" fill="rgba(45,40,36,.14)" />
+      <rect className="cloud-code-monster-pet-shadow cloud-code-monster-pet-shadow-soft" x="40" y="121" width="48" height="3" fill="rgba(45,40,36,.08)" />
       {isShocked ? (
         <g className="cloud-code-monster-pet-shock" aria-hidden="true">
           <rect x="17" y="15" width="7" height="17" fill={preset.accent} />
@@ -663,6 +743,7 @@ export function MonsterSvg({
         reacting={reacting}
         shaken={shaken}
         fainted={fainted}
+        eyeOffset={eyeOffset}
       />
       <MonsterActivityAccessory
         activityId={fainted ? null : activityId}

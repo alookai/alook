@@ -18,12 +18,23 @@ export type CloudCodeMonsterPeekTarget = PetPoint & {
 };
 
 export type CloudCodeMonsterActivityId =
+  | "attention"
+  | "building"
+  | "carrying"
   | "coding"
+  | "dozing"
+  | "error"
+  | "juggling"
+  | "notification"
   | "sleeping"
   | "reading"
   | "phone"
   | "thinking"
-  | "snacking";
+  | "snacking"
+  | "sweeping"
+  | "typing"
+  | "waking"
+  | "yawning";
 
 export type CloudCodeMonsterActivity = {
   id: CloudCodeMonsterActivityId;

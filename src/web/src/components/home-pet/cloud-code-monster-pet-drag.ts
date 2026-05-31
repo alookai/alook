@@ -26,6 +26,7 @@ import {
   CLOUD_CODE_MONSTER_SIZE,
 } from "./cloud-code-monster-pet-constants";
 import type {
+  CloudCodeMonsterActivityId,
   PetPoint,
   StoredCloudCodeMonsterActivity,
 } from "./cloud-code-monster-pet-types";
@@ -73,6 +74,10 @@ function getPointerPoint(
   };
 }
 
+function isSleepyActivity(activityId: CloudCodeMonsterActivityId | null) {
+  return activityId === "sleeping" || activityId === "dozing" || activityId === "yawning";
+}
+
 export function usePetDrag({
   boundaryRef,
   initialPosition,
@@ -114,6 +119,11 @@ export function usePetDrag({
     }
 
     if (isDragging) {
+      return;
+    }
+
+    if (isSleepyActivity(activityState?.activityId ?? null)) {
+      wakeMonsterToDefault();
       return;
     }
 
@@ -159,6 +169,12 @@ export function usePetDrag({
       const pointerPoint = getPointerPoint(event, boundaryRef.current);
       const now = performance.now();
 
+      if (isSleepyActivity(activityState?.activityId ?? null)) {
+        stopTemporaryMotion();
+        wakeMonsterToDefault();
+        return;
+      }
+
       dragOffsetRef.current = {
         x: pointerPoint.x - currentPosition.x,
         y: pointerPoint.y - currentPosition.y,
@@ -175,12 +191,14 @@ export function usePetDrag({
     },
     [
       boundaryRef,
+      activityState?.activityId,
       initialPosition,
       lastFootstepAtRef,
       position,
       setIsDragging,
       setWalkIntensity,
       stopTemporaryMotion,
+      wakeMonsterToDefault,
     ]
   );
 

@@ -4,30 +4,13 @@ import type {
   CloudCodeMonsterPetPreset,
 } from "./cloud-code-monster-pet-types";
 
-function DirectPixelEyes({
-  activityId,
-  preset,
-  reacting,
-  shaken,
-  fainted = false,
-  leftX = 47,
-  rightX = 78,
-  y = 43,
-  color,
-  highlightColor,
-  singleEye = false,
-  mouthX = 61,
-  mouthY,
-  mouthWidth = 10,
-  mouthHeight = 4,
-  mouthColor,
-  mouthStyle = "flat",
-}: {
+type DirectPixelEyesProps = {
   activityId: CloudCodeMonsterActivityId | null;
   preset: CloudCodeMonsterPetPreset;
   reacting: boolean;
   shaken: boolean;
   fainted?: boolean;
+  eyeOffset?: { x: number; y: number };
   leftX?: number;
   rightX?: number;
   y?: number;
@@ -40,7 +23,28 @@ function DirectPixelEyes({
   mouthHeight?: number;
   mouthColor?: string;
   mouthStyle?: "flat" | "open" | "smile" | "none";
-}) {
+};
+
+function DirectPixelEyes({
+  activityId,
+  preset,
+  reacting,
+  shaken,
+  fainted = false,
+  eyeOffset = { x: 0, y: 0 },
+  leftX = 47,
+  rightX = 78,
+  y = 43,
+  color,
+  highlightColor,
+  singleEye = false,
+  mouthX = 61,
+  mouthY,
+  mouthWidth = 10,
+  mouthHeight = 4,
+  mouthColor,
+  mouthStyle = "flat",
+}: DirectPixelEyesProps) {
   const expression = getCloudCodeMonsterExpression(
     activityId,
     reacting,
@@ -60,7 +64,7 @@ function DirectPixelEyes({
     includeHighlight = true
   ) => (
     <>
-      <rect x={eyeX} y={eyeY} width={width} height={height} fill={eye} />
+      <rect className="cloud-code-monster-pet-eye-blink" x={eyeX} y={eyeY} width={width} height={height} fill={eye} />
       {includeHighlight ? (
         <rect x={eyeX + 1} y={eyeY + 1} width="3" height="3" fill={highlight} />
       ) : null}
@@ -140,14 +144,18 @@ function DirectPixelEyes({
   if (expression === "shocked") {
     return (
       <>
-        <rect x={leftX - 3} y={y - 3} width="12" height="13" fill={eye} />
-        {secondEyeX === null ? null : (
-          <rect x={secondEyeX - 3} y={y - 3} width="12" height="13" fill={eye} />
-        )}
-        <rect x={leftX} y={y} width="4" height="4" fill={highlight} />
-        {secondEyeX === null ? null : (
-          <rect x={secondEyeX} y={y} width="4" height="4" fill={highlight} />
-        )}
+        <g className="cloud-code-monster-pet-eyes-track" transform={`translate(${eyeOffset.x} ${eyeOffset.y})`}>
+          <rect className="cloud-code-monster-pet-eye-blink" x={leftX - 3} y={y - 3} width="12" height="13" fill={eye} />
+          {secondEyeX === null ? null : (
+            <rect className="cloud-code-monster-pet-eye-blink" x={secondEyeX - 3} y={y - 3} width="12" height="13" fill={eye} />
+          )}
+          <g transform={`translate(${eyeOffset.x * 0.45} ${eyeOffset.y * 0.45})`}>
+            <rect x={leftX} y={y} width="4" height="4" fill={highlight} />
+            {secondEyeX === null ? null : (
+              <rect x={secondEyeX} y={y} width="4" height="4" fill={highlight} />
+            )}
+          </g>
+        </g>
         {renderMouth("open", mouthX, faceMouthY - 3, mouthWidth, mouthHeight + 1)}
       </>
     );
@@ -167,8 +175,10 @@ function DirectPixelEyes({
 
   return (
     <>
-      {renderEyeBlock(leftX, y)}
-      {secondEyeX === null ? null : renderEyeBlock(secondEyeX, y)}
+      <g className="cloud-code-monster-pet-eyes-track" transform={`translate(${eyeOffset.x} ${eyeOffset.y})`}>
+        {renderEyeBlock(leftX, y)}
+        {secondEyeX === null ? null : renderEyeBlock(secondEyeX, y)}
+      </g>
       {renderMouth()}
     </>
   );
@@ -180,14 +190,22 @@ export function MonsterDirectPixelCharacter({
   reacting,
   shaken,
   fainted,
+  eyeOffset,
 }: {
   preset: CloudCodeMonsterPetPreset;
   activityId: CloudCodeMonsterActivityId | null;
   reacting: boolean;
   shaken: boolean;
   fainted: boolean;
+  eyeOffset?: { x: number; y: number };
 }) {
   const shape = preset.shape;
+  const expression = getCloudCodeMonsterExpression(
+    activityId,
+    reacting,
+    shaken,
+    fainted
+  );
 
   switch (shape) {
     case "gadget-buddy":
@@ -201,7 +219,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="58" y="87" width="13" height="12" fill="#f0bf36" />
           <rect className="cloud-code-monster-pet-left-foot" x="36" y="103" width="21" height="11" fill="#f8fbff" />
           <rect className="cloud-code-monster-pet-right-foot" x="72" y="103" width="21" height="11" fill="#f8fbff" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={45} rightX={76} y={44} mouthX={56} mouthY={71} mouthWidth={18} mouthHeight={3} mouthColor="#111318" mouthStyle="smile" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={45} rightX={76} y={44} mouthX={56} mouthY={71} mouthWidth={18} mouthHeight={3} mouthColor="#111318" mouthStyle="smile" />
           <rect x="62" y="55" width="6" height="6" fill="#d9403f" />
           <rect x="62" y="61" width="3" height="12" fill="#111318" />
           <rect x="54" y="73" width="20" height="3" fill="#111318" />
@@ -220,7 +238,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="105" y="49" width="10" height="20" fill="#f1c93b" />
           <rect className="cloud-code-monster-pet-left-foot" x="37" y="96" width="18" height="15" fill="#d7a72e" />
           <rect className="cloud-code-monster-pet-right-foot" x="74" y="96" width="18" height="15" fill="#d7a72e" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={45} rightX={77} y={54} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={45} rightX={77} y={54} />
           <rect x="34" y="68" width="11" height="10" fill="#e84b43" />
           <rect x="84" y="68" width="11" height="10" fill="#e84b43" />
         </>
@@ -235,7 +253,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="93" y="57" width="17" height="18" fill="#ee86a7" />
           <rect className="cloud-code-monster-pet-left-foot" x="35" y="100" width="22" height="12" fill="#c94d62" />
           <rect className="cloud-code-monster-pet-right-foot" x="72" y="100" width="22" height="12" fill="#c94d62" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={48} rightX={75} y={51} color="#24335b" mouthX={61} mouthY={66} mouthWidth={10} mouthHeight={5} mouthColor="#7c2448" mouthStyle="smile" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={48} rightX={75} y={51} color="#24335b" mouthX={61} mouthY={66} mouthWidth={10} mouthHeight={5} mouthColor="#7c2448" mouthStyle="smile" />
           <rect x="43" y="69" width="9" height="8" fill="#e95d77" />
           <rect x="83" y="69" width="9" height="8" fill="#e95d77" />
         </>
@@ -250,7 +268,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="86" y="64" width="22" height="23" fill="#4c9f92" />
           <rect className="cloud-code-monster-pet-left-foot" x="29" y="88" width="16" height="16" fill="#4c9f92" />
           <rect className="cloud-code-monster-pet-right-foot" x="82" y="88" width="16" height="16" fill="#408b80" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={44} rightX={74} y={56} color="#b33b42" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={44} rightX={74} y={56} color="#b33b42" />
           <rect x="53" y="75" width="7" height="4" fill="#2d5d56" />
           <rect x="67" y="75" width="7" height="4" fill="#2d5d56" />
         </>
@@ -266,7 +284,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="103" y="51" width="7" height="9" fill="#e24c38" />
           <rect className="cloud-code-monster-pet-left-foot" x="36" y="98" width="17" height="14" fill="#b9542c" />
           <rect className="cloud-code-monster-pet-right-foot" x="75" y="98" width="17" height="14" fill="#b9542c" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={48} rightX={77} y={50} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={48} rightX={77} y={50} />
         </>
       );
     case "shell-sprout":
@@ -280,7 +298,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="92" y="62" width="20" height="16" fill="#6aa4cf" />
           <rect className="cloud-code-monster-pet-left-foot" x="35" y="101" width="18" height="12" fill="#5c92bd" />
           <rect className="cloud-code-monster-pet-right-foot" x="76" y="101" width="18" height="12" fill="#5c92bd" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={46} rightX={76} y={48} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={46} rightX={76} y={48} />
         </>
       );
     case "block-builder-shape":
@@ -293,7 +311,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="89" y="78" width="11" height="28" fill="#b98363" />
           <rect className="cloud-code-monster-pet-left-foot" x="42" y="102" width="18" height="16" fill="#31549a" />
           <rect className="cloud-code-monster-pet-right-foot" x="68" y="102" width="18" height="16" fill="#31549a" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={48} rightX={73} y={46} color="#2b2018" mouthX={57} mouthY={59} mouthWidth={14} mouthHeight={4} mouthColor="#6c3f2b" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={48} rightX={73} y={46} color="#2b2018" mouthX={57} mouthY={59} mouthWidth={14} mouthHeight={4} mouthColor="#6c3f2b" />
           <rect x="57" y="59" width="14" height="4" fill="#6c3f2b" />
         </>
       );
@@ -307,11 +325,21 @@ export function MonsterDirectPixelCharacter({
           <rect className="cloud-code-monster-pet-left-foot" x="34" y="101" width="18" height="15" fill="#397b35" />
           <rect className="cloud-code-monster-pet-left-foot" x="54" y="101" width="18" height="15" fill="#397b35" />
           <rect className="cloud-code-monster-pet-right-foot" x="76" y="101" width="18" height="15" fill="#397b35" />
-          <rect x="47" y="40" width="11" height="13" fill="#151711" />
-          <rect x="70" y="40" width="11" height="13" fill="#151711" />
-          <rect x="59" y="54" width="10" height="18" fill="#151711" />
-          <rect x="51" y="64" width="10" height="8" fill="#151711" />
-          <rect x="67" y="64" width="10" height="8" fill="#151711" />
+          {expression === "sleeping" ? (
+            <>
+              <rect x="47" y="46" width="12" height="4" fill="#151711" />
+              <rect x="69" y="46" width="12" height="4" fill="#151711" />
+              <rect x="58" y="61" width="12" height="4" fill="#151711" />
+            </>
+          ) : (
+            <>
+              <rect x="47" y="40" width="11" height="13" fill="#151711" />
+              <rect x="70" y="40" width="11" height="13" fill="#151711" />
+              <rect x="59" y="54" width="10" height="18" fill="#151711" />
+              <rect x="51" y="64" width="10" height="8" fill="#151711" />
+              <rect x="67" y="64" width="10" height="8" fill="#151711" />
+            </>
+          )}
         </>
       );
     case "block-walker-shape":
@@ -323,7 +351,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="89" y="74" width="14" height="30" fill="#77a86c" />
           <rect className="cloud-code-monster-pet-left-foot" x="41" y="102" width="18" height="16" fill="#5d4aa1" />
           <rect className="cloud-code-monster-pet-right-foot" x="69" y="102" width="18" height="16" fill="#5d4aa1" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={49} rightX={73} y={43} color="#2b221d" mouthX={57} mouthY={58} mouthWidth={14} mouthHeight={4} mouthColor="#2b221d" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={49} rightX={73} y={43} color="#2b221d" mouthX={57} mouthY={58} mouthWidth={14} mouthHeight={4} mouthColor="#2b221d" />
           <rect x="57" y="58" width="14" height="4" fill="#2b221d" />
         </>
       );
@@ -340,7 +368,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="86" y="80" width="11" height="20" fill="#2d5ca8" />
           <rect className="cloud-code-monster-pet-left-foot" x="38" y="102" width="17" height="12" fill="#7a5735" />
           <rect className="cloud-code-monster-pet-right-foot" x="73" y="102" width="17" height="12" fill="#7a5735" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={48} rightX={74} y={54} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={48} rightX={74} y={54} />
         </>
       );
     case "blue-spinner":
@@ -354,7 +382,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="44" y="74" width="39" height="26" fill="#356fc1" />
           <rect className="cloud-code-monster-pet-left-foot" x="31" y="99" width="26" height="12" fill="#d9463f" />
           <rect className="cloud-code-monster-pet-right-foot" x="71" y="99" width="26" height="12" fill="#d9463f" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={49} rightX={74} y={42} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={49} rightX={74} y={42} />
         </>
       );
     case "arcade-chomper":
@@ -365,7 +393,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="42" y="88" width="44" height="11" fill="#cfa62a" />
           <rect x="82" y="52" width="20" height="11" fill="#fff8de" />
           <rect x="82" y="65" width="15" height="11" fill="#fff8de" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={58} rightX={58} y={43} singleEye mouthX={84} mouthY={62} mouthWidth={15} mouthHeight={7} mouthColor="#15110d" mouthStyle="open" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={58} rightX={58} y={43} singleEye mouthX={84} mouthY={62} mouthWidth={15} mouthHeight={7} mouthColor="#15110d" mouthStyle="open" />
         </>
       );
     case "peek-ghost-shape":
@@ -378,7 +406,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="31" y="86" width="13" height="12" fill="#e0e5f3" />
           <rect x="56" y="86" width="13" height="12" fill="#e0e5f3" />
           <rect x="81" y="86" width="13" height="12" fill="#e0e5f3" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={45} rightX={77} y={47} mouthX={56} mouthY={63} mouthWidth={19} mouthHeight={10} mouthColor="#df7198" mouthStyle="open" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={45} rightX={77} y={47} mouthX={56} mouthY={63} mouthWidth={19} mouthHeight={10} mouthColor="#df7198" mouthStyle="open" />
           <rect x="57" y="63" width="18" height="13" fill="#df7198" />
         </>
       );
@@ -394,7 +422,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="84" y="71" width="14" height="28" fill="#d34437" />
           <rect className="cloud-code-monster-pet-left-foot" x="35" y="101" width="21" height="13" fill="#6c3e27" />
           <rect className="cloud-code-monster-pet-right-foot" x="72" y="101" width="21" height="13" fill="#6c3e27" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={49} rightX={74} y={41} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={49} rightX={74} y={41} />
         </>
       );
     case "honey-cub-shape":
@@ -406,7 +434,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="32" y="72" width="64" height="29" fill="#c9473c" />
           <rect className="cloud-code-monster-pet-left-foot" x="37" y="101" width="18" height="14" fill="#b87a2e" />
           <rect className="cloud-code-monster-pet-right-foot" x="74" y="101" width="18" height="14" fill="#b87a2e" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={48} rightX={75} y={47} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={48} rightX={75} y={47} />
           <rect x="61" y="59" width="7" height="5" fill="#4a2c1e" />
         </>
       );
@@ -422,7 +450,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="39" y="76" width="50" height="26" fill="#d94c5e" />
           <rect className="cloud-code-monster-pet-left-foot" x="38" y="102" width="18" height="11" fill="#f6f3ea" />
           <rect className="cloud-code-monster-pet-right-foot" x="72" y="102" width="18" height="11" fill="#f6f3ea" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={46} rightX={78} y={49} color="#25201f" highlightColor="#fffdfa" mouthX={61} mouthY={64} mouthWidth={7} mouthHeight={2} mouthColor="#7b4542" mouthStyle="smile" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={46} rightX={78} y={49} color="#25201f" highlightColor="#fffdfa" mouthX={61} mouthY={64} mouthWidth={7} mouthHeight={2} mouthColor="#7b4542" mouthStyle="smile" />
           <rect x="61" y="58" width="8" height="6" fill="#e0ad31" />
           <rect x="63" y="59" width="4" height="3" fill="#f6d75b" />
           <rect x="39" y="58" width="7" height="2" fill="#25201f" opacity="0.72" />
@@ -453,7 +481,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="38" y="79" width="52" height="25" fill={accent} />
           <rect className="cloud-code-monster-pet-left-foot" x="39" y="104" width="17" height="10" fill={hood} />
           <rect className="cloud-code-monster-pet-right-foot" x="72" y="104" width="17" height="10" fill={hood} />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={50} rightX={75} y={49} color="#31232f" highlightColor="#fff5ee" mouthX={60} mouthY={64} mouthWidth={9} mouthHeight={3} mouthColor="#7a3c55" mouthStyle="smile" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={50} rightX={75} y={49} color="#31232f" highlightColor="#fff5ee" mouthX={60} mouthY={64} mouthWidth={9} mouthHeight={3} mouthColor="#7a3c55" mouthStyle="smile" />
         </>
       );
     }
@@ -468,7 +496,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="46" y="72" width="8" height="5" fill="#74766a" />
           <rect x="61" y="72" width="8" height="5" fill="#74766a" />
           <rect x="76" y="72" width="8" height="5" fill="#74766a" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={47} rightX={76} y={47} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={47} rightX={76} y={47} />
         </>
       );
     case "dust-puff-shape":
@@ -479,10 +507,21 @@ export function MonsterDirectPixelCharacter({
           <rect x="36" y="83" width="56" height="12" fill="#17181e" />
           <rect x="22" y="45" width="9" height="9" fill="#1f2026" />
           <rect x="97" y="48" width="9" height="9" fill="#1f2026" />
-          <rect x="48" y="52" width="14" height="14" fill="#f5f2dc" />
-          <rect x="69" y="52" width="14" height="14" fill="#f5f2dc" />
-          <rect x="53" y="56" width="5" height="6" fill="#17181e" />
-          <rect x="74" y="56" width="5" height="6" fill="#17181e" />
+          {expression === "sleeping" ? (
+            <>
+              <rect x="48" y="59" width="14" height="3" fill="#f5f2dc" />
+              <rect x="69" y="59" width="14" height="3" fill="#f5f2dc" />
+            </>
+          ) : (
+            <>
+              <rect x="48" y="52" width="14" height="14" fill="#f5f2dc" />
+              <rect x="69" y="52" width="14" height="14" fill="#f5f2dc" />
+              <g className="cloud-code-monster-pet-eyes-track" transform={`translate(${eyeOffset?.x ?? 0} ${eyeOffset?.y ?? 0})`}>
+                <rect className="cloud-code-monster-pet-eye-blink" x="53" y="56" width="5" height="6" fill="#17181e" />
+                <rect className="cloud-code-monster-pet-eye-blink" x="74" y="56" width="5" height="6" fill="#17181e" />
+              </g>
+            </>
+          )}
         </>
       );
     case "straw-voyager-shape":
@@ -496,7 +535,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="45" y="82" width="38" height="20" fill="#2c5ca0" />
           <rect className="cloud-code-monster-pet-left-foot" x="39" y="102" width="18" height="13" fill="#d89064" />
           <rect className="cloud-code-monster-pet-right-foot" x="71" y="102" width="18" height="13" fill="#d89064" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={49} rightX={75} y={44} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={49} rightX={75} y={44} />
         </>
       );
     case "leaf-runner-shape":
@@ -512,7 +551,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="34" y="75" width="60" height="31" fill="#e27a31" />
           <rect className="cloud-code-monster-pet-left-foot" x="39" y="106" width="18" height="10" fill="#2f4560" />
           <rect className="cloud-code-monster-pet-right-foot" x="72" y="106" width="18" height="10" fill="#2f4560" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={49} rightX={75} y={50} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={49} rightX={75} y={50} />
         </>
       );
     case "energy-pearl-shape":
@@ -527,7 +566,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="52" y="77" width="24" height="29" fill="#244f91" />
           <rect className="cloud-code-monster-pet-left-foot" x="39" y="104" width="19" height="12" fill="#244f91" />
           <rect className="cloud-code-monster-pet-right-foot" x="71" y="104" width="19" height="12" fill="#244f91" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={49} rightX={75} y={47} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={49} rightX={75} y={47} />
         </>
       );
     case "moon-wand-shape":
@@ -542,7 +581,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="58" y="80" width="12" height="19" fill="#d9495d" />
           <rect className="cloud-code-monster-pet-left-foot" x="38" y="104" width="18" height="10" fill="#d9495d" />
           <rect className="cloud-code-monster-pet-right-foot" x="72" y="104" width="18" height="10" fill="#d9495d" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={49} rightX={75} y={48} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={49} rightX={75} y={48} />
         </>
       );
     case "mecha-guard-shape":
@@ -554,7 +593,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="54" y="17" width="7" height="17" fill="#e8c64c" />
           <rect x="68" y="17" width="7" height="17" fill="#e8c64c" />
           <rect x="45" y="44" width="38" height="8" fill="#26344f" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={50} rightX={70} y={44} color="#edf6ff" highlightColor="#7fd7ff" mouthX={58} mouthY={57} mouthWidth={13} mouthHeight={3} mouthColor="#d94b43" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={50} rightX={70} y={44} color="#edf6ff" highlightColor="#7fd7ff" mouthX={58} mouthY={57} mouthWidth={13} mouthHeight={3} mouthColor="#d94b43" />
           <rect x="34" y="64" width="60" height="39" fill="#eef1f5" />
           <rect x="48" y="68" width="32" height="19" fill="#315aa8" />
           <rect x="56" y="70" width="16" height="12" fill="#d94b43" />
@@ -569,7 +608,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="42" y="31" width="44" height="13" fill="#69aee2" />
           <rect x="29" y="44" width="70" height="43" fill="#5aa0d8" />
           <rect x="39" y="87" width="50" height="12" fill="#4384ba" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={47} rightX={76} y={55} mouthX={58} mouthY={72} mouthWidth={14} mouthHeight={5} mouthColor="#c4444a" mouthStyle="smile" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={47} rightX={76} y={55} mouthX={58} mouthY={72} mouthWidth={14} mouthHeight={5} mouthColor="#c4444a" mouthStyle="smile" />
           <rect x="58" y="72" width="14" height="5" fill="#c4444a" />
         </>
       );
@@ -583,7 +622,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="56" y="72" width="15" height="29" fill="#3f9188" />
           <rect x="81" y="72" width="15" height="29" fill="#3f9188" />
           <rect x="41" y="78" width="46" height="17" fill="#25292f" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={48} rightX={74} y={45} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={48} rightX={74} y={45} />
         </>
       );
     case "little-beagle-shape":
@@ -612,7 +651,7 @@ export function MonsterDirectPixelCharacter({
           <rect className="cloud-code-monster-pet-right-foot" x="70" y="104" width="24" height="10" fill="#fffaf0" />
           <rect x="36" y="112" width="24" height="4" fill="#e6dfd2" />
           <rect x="70" y="112" width="24" height="4" fill="#e6dfd2" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={61} rightX={61} y={43} color="#1f1f22" highlightColor="#fffaf0" singleEye mouthX={86} mouthY={59} mouthWidth={11} mouthHeight={3} mouthColor="#1f1f22" mouthStyle="flat" />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={61} rightX={61} y={43} color="#1f1f22" highlightColor="#fffaf0" singleEye mouthX={86} mouthY={59} mouthWidth={11} mouthHeight={3} mouthColor="#1f1f22" mouthStyle="flat" />
         </>
       );
     case "tiny-antler-shape":
@@ -629,7 +668,7 @@ export function MonsterDirectPixelCharacter({
           <rect x="36" y="77" width="56" height="27" fill="#c95b70" />
           <rect className="cloud-code-monster-pet-left-foot" x="39" y="104" width="18" height="10" fill="#bd7d55" />
           <rect className="cloud-code-monster-pet-right-foot" x="72" y="104" width="18" height="10" fill="#bd7d55" />
-          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} leftX={49} rightX={75} y={49} />
+          <DirectPixelEyes activityId={activityId} preset={preset} reacting={reacting} shaken={shaken} fainted={fainted} eyeOffset={eyeOffset} leftX={49} rightX={75} y={49} />
         </>
       );
     default:

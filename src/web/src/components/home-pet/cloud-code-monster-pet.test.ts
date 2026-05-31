@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
   calculateMonsterWalkIntensity,
@@ -9,9 +11,11 @@ import {
   CLOUD_CODE_MONSTER_AUTOWALK_ACTIVITY_IDS,
   CLOUD_CODE_MONSTER_FAINT_MIN_EVENTS,
   CLOUD_CODE_MONSTER_FAINT_MS,
+  CLOUD_CODE_MONSTER_NO_WORK_SLEEP_MS,
   CLOUD_CODE_MONSTER_PET_PRESETS,
   createCloudCodeMonsterHiddenState,
   createCloudCodeMonsterIdleState,
+  createCloudCodeMonsterSleepingState,
   createCloudCodeMonsterWalkVelocity,
   createWalkToTargetVelocity,
   getCloudCodeMonsterExpression,
@@ -21,12 +25,20 @@ import {
   isViolentMonsterDrag,
   pickCloudCodeMonsterActivity,
   reflectCloudCodeMonsterWalk,
+  resolveCloudCodeMonsterAgentWorkState,
+  resolveCloudCodeMonsterActivityState,
+  resolveCloudCodeMonsterCursorPose,
+  resolveCloudCodeMonsterEyeOffset,
+  resolveCloudCodeMonsterMotionPose,
   resolveCloudCodeMonsterPeekPosition,
+  resolveCloudCodeMonsterPreviewComebackState,
   resolveCloudCodeMonsterVisibleState,
   shouldCloudCodeMonsterAutoWalk,
   shouldFaintFromMonsterShake,
   shouldRefreshCloudCodeMonsterActivity,
 } from "./cloud-code-monster-pet";
+import { usePetDrag } from "./cloud-code-monster-pet-drag";
+import type { CloudCodeMonsterActivityId } from "./cloud-code-monster-pet-types";
 import { readHomePetSettings } from "../../lib/home-pet-settings";
 
 vi.mock("./cloud-code-monster-pet.module.css", () => ({
@@ -37,6 +49,56 @@ function webRoot() {
   return process.cwd().endsWith(`${path.sep}src${path.sep}web`)
     ? process.cwd()
     : path.join(process.cwd(), "src/web");
+}
+
+function renderDragHarness(activityId: CloudCodeMonsterActivityId | null) {
+  let handlers: ReturnType<typeof usePetDrag> | null = null;
+  const wakeMonsterToDefault = vi.fn();
+  const stopTemporaryMotion = vi.fn();
+  const setIsDragging = vi.fn();
+  const startShockReaction = vi.fn();
+
+  function DragHarness() {
+    handlers = usePetDrag({
+      boundaryRef: { current: null },
+      position: { x: 120, y: 140 },
+      isDragging: false,
+      fainted: false,
+      activityState: { activityId, updatedAt: 1_000, hiddenAt: null },
+      lastFootstepAtRef: { current: 0 },
+      violentDragEventsRef: { current: [] },
+      setIsDragging,
+      setNotificationActive: vi.fn(),
+      setFainted: vi.fn(),
+      setWalkDirection: vi.fn(),
+      setWalkIntensity: vi.fn(),
+      setPosition: vi.fn(),
+      clearPetTimer: vi.fn(),
+      setPetTimer: vi.fn(),
+      pushFootprint: vi.fn(),
+      stopTemporaryMotion,
+      wakeMonsterToDefault,
+      startShockReaction,
+      startShakeReaction: vi.fn(),
+      startFaintReaction: vi.fn(),
+    });
+
+    return null;
+  }
+
+  renderToString(createElement(DragHarness));
+
+  if (!handlers) {
+    throw new Error("drag harness did not render");
+  }
+
+  return {
+    handlers,
+    setIsDragging,
+    startShockReaction,
+    stopTemporaryMotion,
+    wakeMonsterToDefault,
+  };
 }
 
 describe("Cloud Code monster PET helpers", () => {
@@ -131,9 +193,30 @@ describe("Cloud Code monster PET helpers", () => {
       updatedAt,
       hiddenAt: null,
     });
+
+    expect(
+      resolveCloudCodeMonsterVisibleState(
+        { activityId: "coding", updatedAt, hiddenAt: updatedAt },
+        updatedAt + CLOUD_CODE_MONSTER_ACTIVITY_REFRESH_MS
+      )
+    ).toEqual({
+      activityId: null,
+      updatedAt: updatedAt + CLOUD_CODE_MONSTER_ACTIVITY_REFRESH_MS,
+      hiddenAt: null,
+    });
+    expect(resolveCloudCodeMonsterVisibleState(null, 4_000)).toEqual({
+      activityId: null,
+      updatedAt: 4_000,
+      hiddenAt: null,
+    });
+    expect(resolveCloudCodeMonsterPreviewComebackState(7_000)).toEqual({
+      activityId: null,
+      updatedAt: 7_000,
+      hiddenAt: null,
+    });
   });
 
-  it("tracks idle, hidden, and random activity states", () => {
+  it("tracks idle, hidden, and deterministic activity states", () => {
     expect(createCloudCodeMonsterIdleState(8_000)).toEqual({
       activityId: null,
       updatedAt: 8_000,
@@ -152,9 +235,112 @@ describe("Cloud Code monster PET helpers", () => {
     expect(pickCloudCodeMonsterActivity(0).id).toBe(
       CLOUD_CODE_MONSTER_ACTIVITIES[0]!.id
     );
-    expect(pickCloudCodeMonsterActivity(0.999).id).toBe(
-      CLOUD_CODE_MONSTER_ACTIVITIES.at(-1)!.id
+    expect(pickCloudCodeMonsterActivity(0.999).id).toBe("yawning");
+    expect(createCloudCodeMonsterSleepingState(9_000)).toEqual({
+      activityId: "sleeping",
+      updatedAt: 9_000,
+      hiddenAt: null,
+    });
+    expect(
+      resolveCloudCodeMonsterActivityState(
+        { activityId: "coding", updatedAt: 1_000, hiddenAt: null },
+        1_100
+      )
+    ).toEqual({ activityId: "coding", updatedAt: 1_000, hiddenAt: null });
+    expect(
+      resolveCloudCodeMonsterActivityState(
+        { activityId: "coding", updatedAt: 1_000, hiddenAt: null },
+        1_000 + CLOUD_CODE_MONSTER_ACTIVITY_REFRESH_MS
+      )
+    ).toEqual({
+      activityId: null,
+      updatedAt: 1_000 + CLOUD_CODE_MONSTER_ACTIVITY_REFRESH_MS,
+      hiddenAt: null,
+    });
+  });
+
+  it("maps Alook active agent tasks into working and sleep-ready PET states", () => {
+    expect(CLOUD_CODE_MONSTER_NO_WORK_SLEEP_MS).toBe(60_000);
+    expect(resolveCloudCodeMonsterAgentWorkState(1, null, 10_000)).toEqual({
+      activityId: "coding",
+      updatedAt: 10_000,
+      hiddenAt: null,
+    });
+    expect(
+      resolveCloudCodeMonsterAgentWorkState(
+        3,
+        { activityId: "sleeping", updatedAt: 1_000, hiddenAt: null },
+        10_000
+      )
+    ).toEqual({
+      activityId: "building",
+      updatedAt: 10_000,
+      hiddenAt: null,
+    });
+    expect(
+      resolveCloudCodeMonsterAgentWorkState(
+        0,
+        { activityId: "coding", updatedAt: 1_000, hiddenAt: null },
+        10_000
+      )
+    ).toEqual({
+      activityId: null,
+      updatedAt: 10_000,
+      hiddenAt: null,
+    });
+    const sleeping = { activityId: "sleeping" as const, updatedAt: 1_000, hiddenAt: null };
+    expect(resolveCloudCodeMonsterAgentWorkState(0, sleeping, 10_000)).toBe(
+      sleeping
     );
+    expect(
+      resolveCloudCodeMonsterAgentWorkState(
+        2,
+        { activityId: null, updatedAt: 1_000, hiddenAt: null },
+        10_000
+      )
+    ).toEqual({
+      activityId: "juggling",
+      updatedAt: 10_000,
+      hiddenAt: null,
+    });
+    expect(
+      resolveCloudCodeMonsterAgentWorkState(
+        1,
+        { activityId: "coding", updatedAt: 1_000, hiddenAt: 900 },
+        10_000
+      )
+    ).toEqual({
+      activityId: "coding",
+      updatedAt: 1_000,
+      hiddenAt: null,
+    });
+  });
+
+  it("wakes sleepy PET states from click or pointer down before dragging", () => {
+    vi.stubGlobal("window", { innerWidth: 900, innerHeight: 700 });
+
+    const clickHarness = renderDragHarness("sleeping");
+    clickHarness.handlers.handlePetClick();
+
+    expect(clickHarness.wakeMonsterToDefault).toHaveBeenCalledTimes(1);
+    expect(clickHarness.startShockReaction).not.toHaveBeenCalled();
+
+    const pointerHarness = renderDragHarness("dozing");
+    pointerHarness.handlers.handlePointerDown({
+      button: 0,
+      clientX: 180,
+      clientY: 200,
+      pointerId: 1,
+      currentTarget: {
+        setPointerCapture: vi.fn(),
+      },
+    } as never);
+
+    expect(pointerHarness.stopTemporaryMotion).toHaveBeenCalledTimes(1);
+    expect(pointerHarness.wakeMonsterToDefault).toHaveBeenCalledTimes(1);
+    expect(pointerHarness.setIsDragging).not.toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 
   it("limits autonomous walking to selected activities", () => {
@@ -197,6 +383,47 @@ describe("Cloud Code monster PET helpers", () => {
     expect(getCloudCodeMonsterExpression("phone", true, true, true)).toBe(
       "fainted"
     );
+  });
+
+  it("resolves cursor-following eyes and movement body pose", () => {
+    expect(
+      resolveCloudCodeMonsterEyeOffset(
+        { x: 300, y: 210 },
+        { x: 100, y: 100 },
+        { width: 82, height: 82 }
+      )
+    ).toEqual({ x: 3.75, y: 1.25 });
+    expect(
+      resolveCloudCodeMonsterEyeOffset(
+        { x: -80, y: -60 },
+        { x: 100, y: 100 },
+        { width: 82, height: 82 }
+      )
+    ).toEqual({ x: -4, y: -2.75 });
+
+    const cursorPose = resolveCloudCodeMonsterCursorPose(
+      { x: 300, y: 210 },
+      { x: 100, y: 100 },
+      { width: 82, height: 82 }
+    );
+    expect(cursorPose.eyeX).toBeGreaterThan(cursorPose.bodyX);
+    expect(cursorPose.bodyX).toBeGreaterThan(0);
+    expect(cursorPose.leanDeg).toBeGreaterThan(0);
+    expect(cursorPose.shadowScaleX).toBeGreaterThan(1);
+
+    expect(resolveCloudCodeMonsterMotionPose(false, "right", 2)).toEqual({
+      leanDeg: 0,
+      skewDeg: 0,
+      stretchX: 1,
+      stretchY: 1,
+    });
+    const fastRight = resolveCloudCodeMonsterMotionPose(true, "right", 2.4);
+    const fastLeft = resolveCloudCodeMonsterMotionPose(true, "left", 2.4);
+
+    expect(fastRight.leanDeg).toBeGreaterThan(0);
+    expect(fastLeft.leanDeg).toBeLessThan(0);
+    expect(fastRight.stretchX).toBeGreaterThan(1);
+    expect(fastRight.stretchY).toBeLessThan(1);
   });
 
   it("creates autonomous walk velocity and reflects from canvas bounds", () => {
@@ -398,9 +625,62 @@ describe("production workspace PET mounting", () => {
     expect(petComponent).toContain("useAgentContextSafe");
     expect(petComponent).toContain("activeTaskDetails");
     expect(petComponent).toContain("hasRunningTasks");
+    expect(petComponent).toContain("activeAgentTaskCountRef.current");
+    expect(petComponent).toContain('clearPetTimer("attention")');
+    expect(petComponent).toContain("resolveCloudCodeMonsterAgentWorkState");
+    expect(petComponent).toContain("isTextEntryElement");
+    expect(petComponent).toContain('setPlatformActivity("typing")');
+    expect(petComponent).toContain("isSleepyActivity");
+    expect(petComponent).toContain("noWorkSleep");
+    expect(petComponent).toContain("noWorkDoze");
+    expect(petComponent).toContain('current.activityId === "dozing"');
+    expect(petComponent).not.toContain("isMiniMode");
+    expect(petComponent).not.toContain("data-mini=");
+    expect(petComponent).toContain("resolveCloudCodeMonsterEyeOffset");
+    expect(petComponent).toContain("resolveCloudCodeMonsterCursorPose");
+    expect(petComponent).toContain("resolveCloudCodeMonsterMotionPose");
+    expect(petComponent).toContain("const isWalkingBasic = isDragging || isAutoWalking");
+    expect(petPixelParts).toContain("eyeOffset");
+    expect(petPixelParts).toContain("cloud-code-monster-pet-eyes-track");
+    expect(petPixelParts).toContain('activityId === "coding" || activityId === "typing"');
+    expect(petPixelParts).toContain('<rect x="32" y="22" width="64" height="12" fill={preset.bodyTop} />');
+    expect(petPixelParts).toContain('<rect x="16" y="51" width="12" height="24" fill={preset.body} />');
+    expect(petPixelParts).toContain('<rect x="100" y="51" width="12" height="24" fill={preset.body} />');
+    expect(petPixelParts).toContain('x="44" y="42" width="11" height="12"');
+    expect(petDirectShapes).toContain("eyeOffset");
+    expect(petDirectShapes).toContain("eyeOffset={eyeOffset}");
+    expect(petDirectShapes).toContain('case "dust-puff-shape"');
+    expect(petDirectShapes).toContain('expression === "sleeping"');
+    expect(petDirectShapes).toContain('<rect x="48" y="59" width="14" height="3" fill="#f5f2dc" />');
+    expect(petDirectShapes).toContain('transform={`translate(${eyeOffset?.x ?? 0} ${eyeOffset?.y ?? 0})`}');
+    expect(petCssModule).toContain("--monster-cursor-body-x");
+    expect(petCssModule).toContain("cloud-code-monster-eye-blink");
+    expect(petCssModule).toContain('.pet[data-activity="typing"] :global(.cloud-code-monster-pet-laptop)');
+    expect(petCssModule).toContain("cloud-code-monster-fall-asleep 1.5s");
+    expect(petCssModule).toContain("cloud-code-monster-wake 1.5s");
+    expect(petCssModule).toContain('@keyframes cloud-code-monster-fall-asleep');
+    expect(petCssModule).toContain('100% { transform: translateY(11px) rotate(-6deg) scale(1.12, 0.78); }');
+    expect(petCssModule).toContain('50% { transform: translateY(12px) rotate(-6deg) scale(1.14, 0.76); }');
+    expect(petCssModule).not.toContain('cloud-code-monster-doze 3.2s ease-in-out infinite');
+    expect(petPixelParts).not.toContain("function MonsterHands");
+    expect(petCssModule).not.toContain("cloud-code-monster-hand-type-left");
+    expect(petCssModule).toContain("50% { transform: translateY(var(--monster-walk-lift, -2px)) rotate(2deg) scale(1.03, 0.97); }");
+    expect(petComponent).not.toContain("setDragPose");
+    expect(petComponent).not.toContain("--monster-drag-");
+    expect(petCssModule).not.toContain("--monster-drag-");
+    expect(petCssModule).not.toContain("cloud-code-monster-drag-walk");
+    expect(petCssModule).not.toContain("cloud-code-monster-mini-peek");
+    expect(petCssModule).not.toContain('data-mini="true"');
+    expect(petCssModule).not.toContain('.pet[data-dragging="true"] :global(.cloud-code-monster-pet-character)');
+    expect(petCssModule).not.toContain('.pet[data-dragging="true"] :global(.cloud-code-monster-pet-left-foot)');
+    expect(petPixelParts).toContain("cloud-code-monster-pet-shadow-main");
     expect(petComponent).not.toContain("activityTriggerMode");
     expect(petDragHook).toContain("export function usePetDrag");
     expect(petDragHook).toContain("const handlePointerMove = useCallback");
+    expect(petDragHook).toContain("if (isSleepyActivity(activityState?.activityId ?? null))");
+    expect(petDragHook).toContain("wakeMonsterToDefault();");
+    expect(petDragHook).not.toContain("DragMotionPose");
+    expect(petDragHook).not.toContain("setDragPose");
     expect(petComponent).not.toContain("peekTargets = []");
     expect(petComponent).not.toContain("TimerRef = useRef");
     // Walk-to-target hook exists and has correct exports
