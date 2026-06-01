@@ -1,105 +1,74 @@
-import { readdirSync, readFileSync } from "fs";
+import { readdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import type { BlogPost } from "../types";
+import { importMdxMetadata } from "./import-mdx";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const contentDir = join(__dirname, "..", "..", "..", "content");
 
-const REQUIRED_FIELDS = [
+const REQUIRED_FIELDS: (keyof BlogPost)[] = [
   "slug",
   "title",
   "date",
   "author",
   "excerpt",
   "readingTime",
-] as const;
+];
 
-function extractStringField(block: string, field: string): string | undefined {
-  const re = new RegExp(`${field}\\s*:\\s*\\n?\\s*(["'\`])`);
-  const quoteMatch = block.match(re);
-  if (!quoteMatch) return undefined;
-
-  const quote = quoteMatch[1];
-  const escaped = quote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const valueRe = new RegExp(
-    `${field}\\s*:\\s*\\n?\\s*${escaped}([^${escaped}]*)${escaped}`
-  );
-  const match = block.match(valueRe);
-  return match ? match[1] : undefined;
-}
-
-function extractBooleanField(
-  block: string,
-  field: string
-): boolean | undefined {
-  const re = new RegExp(`${field}\\s*:\\s*(true|false)`);
-  const match = block.match(re);
-  return match ? match[1] === "true" : undefined;
-}
-
-function extractMetadata(filePath: string): BlogPost | null {
-  const content = readFileSync(filePath, "utf-8");
-  const match = content.match(
-    /export\s+const\s+metadata\s*=\s*\{([\s\S]*?)\n\};/
-  );
-  if (!match) return null;
-
-  const block = match[1];
-
-  const slug = extractStringField(block, "slug");
-  const title = extractStringField(block, "title");
-  const date = extractStringField(block, "date");
-  const author = extractStringField(block, "author");
-  const excerpt = extractStringField(block, "excerpt");
-  const readingTime = extractStringField(block, "readingTime");
-  const draft = extractBooleanField(block, "draft");
-
-  const parsed = { slug, title, date, author, excerpt, readingTime, draft };
-
+function validateMetadata(
+  metadata: Record<string, unknown>,
+  file: string
+): metadata is BlogPost {
   for (const field of REQUIRED_FIELDS) {
-    if (!parsed[field]) {
+    if (!metadata[field]) {
       console.warn(
-        `[blog] Skipping ${filePath}: missing required field "${field}"`
+        `[blog] Skipping ${file}: missing required field "${field}"`
       );
-      return null;
+      return false;
     }
   }
-
-  return parsed as BlogPost;
-}
-
-function scanPosts(): BlogPost[] {
-  const files = readdirSync(contentDir).filter((f) => f.endsWith(".mdx"));
-  const posts: BlogPost[] = [];
-
-  for (const file of files) {
-    const metadata = extractMetadata(join(contentDir, file));
-    if (metadata && !metadata.draft) {
-      posts.push(metadata);
-    }
-  }
-
-  return posts;
+  return true;
 }
 
 let cachedPosts: BlogPost[] | null = null;
 
-function getPosts(): BlogPost[] {
-  if (!cachedPosts) {
-    cachedPosts = scanPosts();
-  }
-  return cachedPosts;
-}
-
 export type { BlogPost } from "../types";
 
-export function getAllPosts(): BlogPost[] {
-  return [...getPosts()].sort(
+export async function getAllPosts(): Promise<BlogPost[]> {
+  if (cachedPosts) {
+    return [...cachedPosts].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+  }
+
+  const files = readdirSync(contentDir).filter((f) => f.endsWith(".mdx"));
+  const posts: BlogPost[] = [];
+
+  for (const file of files) {
+    const slug = file.replace(/\.mdx$/, "");
+    const metadata = await importMdxMetadata(slug);
+
+    if (
+      !metadata ||
+      !validateMetadata(metadata as Record<string, unknown>, file)
+    )
+      continue;
+    if (metadata.draft) continue;
+
+    posts.push(metadata);
+  }
+
+  cachedPosts = posts;
+
+  return [...posts].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
   );
 }
 
-export function getPostBySlug(slug: string): BlogPost | undefined {
-  return getPosts().find((p) => p.slug === slug);
+export async function getPostBySlug(
+  slug: string
+): Promise<BlogPost | undefined> {
+  const posts = await getAllPosts();
+  return posts.find((p) => p.slug === slug);
 }

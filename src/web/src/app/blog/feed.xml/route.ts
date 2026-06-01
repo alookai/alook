@@ -1,7 +1,7 @@
 import { getAllPosts } from "@/lib/blog/posts";
 
-export function GET() {
-  const posts = getAllPosts();
+export async function GET() {
+  const posts = await getAllPosts();
   const siteUrl = "https://alook.ai";
 
   const items = posts

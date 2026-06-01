@@ -4,7 +4,7 @@ import { getAllPosts } from "@/lib/blog/posts";
 
 const SITE_URL = "https://alook.ai";
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const templateEntries: MetadataRoute.Sitemap = TEMPLATES.map((t) => ({
     url: `${SITE_URL}/templates/${t.id}`,
     lastModified: new Date(),
@@ -12,7 +12,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.7,
   }));
 
-  const blogEntries: MetadataRoute.Sitemap = getAllPosts().map((post) => ({
+  const posts = await getAllPosts();
+  const blogEntries: MetadataRoute.Sitemap = posts.map((post) => ({
     url: `${SITE_URL}/blog/${post.slug}`,
     lastModified: new Date(post.date),
     changeFrequency: "monthly",

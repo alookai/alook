@@ -6,8 +6,9 @@ import { getAllPosts, getPostBySlug } from "@/lib/blog/posts";
 
 export const dynamicParams = false;
 
-export function generateStaticParams(): { slug: string }[] {
-  return getAllPosts().map((post) => ({ slug: post.slug }));
+export async function generateStaticParams(): Promise<{ slug: string }[]> {
+  const posts = await getAllPosts();
+  return posts.map((post) => ({ slug: post.slug }));
 }
 
 export async function generateMetadata({
@@ -16,7 +17,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const post = getPostBySlug(slug);
+  const post = await getPostBySlug(slug);
   if (!post) return {};
 
   return {
@@ -53,10 +54,10 @@ export default async function BlogPostPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const post = getPostBySlug(slug);
+  const post = await getPostBySlug(slug);
   if (!post) notFound();
 
-  const posts = getAllPosts();
+  const posts = await getAllPosts();
   const currentIndex = posts.findIndex((p) => p.slug === slug);
   const prevPost = currentIndex < posts.length - 1 ? posts[currentIndex + 1] : null;
   const nextPost = currentIndex > 0 ? posts[currentIndex - 1] : null;

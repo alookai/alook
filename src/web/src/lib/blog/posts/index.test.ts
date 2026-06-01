@@ -1,24 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { BlogPost } from "../types";
 
 vi.mock("fs", () => ({
   readdirSync: vi.fn(),
-  readFileSync: vi.fn(),
 }));
 
-import { readdirSync, readFileSync } from "fs";
-import { getAllPosts, getPostBySlug } from "./index";
+vi.mock("./import-mdx", () => ({
+  importMdxMetadata: vi.fn(),
+}));
+
+import { readdirSync } from "fs";
+import { importMdxMetadata } from "./import-mdx";
 
 const mockReaddirSync = vi.mocked(readdirSync);
-const mockReadFileSync = vi.mocked(readFileSync);
+const mockImportMdxMetadata = vi.mocked(importMdxMetadata);
 
-function makeMdxContent(metadata: Record<string, unknown>): string {
-  const entries = Object.entries(metadata)
-    .map(([key, value]) => `  ${key}: ${JSON.stringify(value)}`)
-    .join(",\n");
-  return `export const metadata = {\n${entries},\n};\n\n# Hello World\n`;
-}
-
-const postA = {
+const postA: BlogPost = {
   slug: "post-a",
   title: "Post A",
   date: "2026-05-01",
@@ -27,7 +24,7 @@ const postA = {
   readingTime: "3 min read",
 };
 
-const postB = {
+const postB: BlogPost = {
   slug: "post-b",
   title: "Post B",
   date: "2026-06-01",
@@ -36,7 +33,7 @@ const postB = {
   readingTime: "5 min read",
 };
 
-const draftPost = {
+const draftPost: BlogPost = {
   slug: "draft-post",
   title: "Draft Post",
   date: "2026-06-02",
@@ -45,6 +42,11 @@ const draftPost = {
   readingTime: "2 min read",
   draft: true,
 };
+
+const incompletePost = {
+  slug: "incomplete",
+  title: "No Author",
+} as unknown as BlogPost;
 
 beforeEach(() => {
   vi.resetModules();
@@ -58,15 +60,14 @@ describe("getAllPosts", () => {
         typeof readdirSync
       >
     );
-    mockReadFileSync.mockImplementation((filePath) => {
-      const path = filePath.toString();
-      if (path.includes("post-a.mdx")) return makeMdxContent(postA);
-      if (path.includes("post-b.mdx")) return makeMdxContent(postB);
-      return "";
+    mockImportMdxMetadata.mockImplementation(async (slug) => {
+      if (slug === "post-a") return postA;
+      if (slug === "post-b") return postB;
+      return undefined;
     });
 
-    const { getAllPosts: freshGetAllPosts } = await import("./index");
-    const posts = freshGetAllPosts();
+    const { getAllPosts } = await import("./index");
+    const posts = await getAllPosts();
 
     expect(posts).toHaveLength(2);
     expect(posts[0].slug).toBe("post-b");
@@ -79,59 +80,53 @@ describe("getAllPosts", () => {
         typeof readdirSync
       >
     );
-    mockReadFileSync.mockImplementation((filePath) => {
-      const path = filePath.toString();
-      if (path.includes("post-a.mdx")) return makeMdxContent(postA);
-      if (path.includes("draft-post.mdx")) return makeMdxContent(draftPost);
-      return "";
+    mockImportMdxMetadata.mockImplementation(async (slug) => {
+      if (slug === "post-a") return postA;
+      if (slug === "draft-post") return draftPost;
+      return undefined;
     });
 
-    const { getAllPosts: freshGetAllPosts } = await import("./index");
-    const posts = freshGetAllPosts();
+    const { getAllPosts } = await import("./index");
+    const posts = await getAllPosts();
 
     expect(posts).toHaveLength(1);
     expect(posts[0].slug).toBe("post-a");
     expect(posts.find((p) => p.slug === "draft-post")).toBeUndefined();
   });
 
-  it("ignores files without valid metadata export", async () => {
+  it("skips files without metadata export", async () => {
     mockReaddirSync.mockReturnValue(
-      ["post-a.mdx", "invalid.mdx"] as unknown as ReturnType<
+      ["post-a.mdx", "no-metadata.mdx"] as unknown as ReturnType<
         typeof readdirSync
       >
     );
-    mockReadFileSync.mockImplementation((filePath) => {
-      const path = filePath.toString();
-      if (path.includes("post-a.mdx")) return makeMdxContent(postA);
-      if (path.includes("invalid.mdx")) return "# Just markdown, no metadata";
-      return "";
+    mockImportMdxMetadata.mockImplementation(async (slug) => {
+      if (slug === "post-a") return postA;
+      return undefined;
     });
 
-    const { getAllPosts: freshGetAllPosts } = await import("./index");
-    const posts = freshGetAllPosts();
+    const { getAllPosts } = await import("./index");
+    const posts = await getAllPosts();
 
     expect(posts).toHaveLength(1);
     expect(posts[0].slug).toBe("post-a");
   });
 
   it("skips files with missing required fields and logs a warning", async () => {
-    const incompletePost = { slug: "incomplete", title: "No Author" };
     mockReaddirSync.mockReturnValue(
       ["post-a.mdx", "incomplete.mdx"] as unknown as ReturnType<
         typeof readdirSync
       >
     );
-    mockReadFileSync.mockImplementation((filePath) => {
-      const path = filePath.toString();
-      if (path.includes("post-a.mdx")) return makeMdxContent(postA);
-      if (path.includes("incomplete.mdx"))
-        return makeMdxContent(incompletePost);
-      return "";
+    mockImportMdxMetadata.mockImplementation(async (slug) => {
+      if (slug === "post-a") return postA;
+      if (slug === "incomplete") return incompletePost;
+      return undefined;
     });
 
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const { getAllPosts: freshGetAllPosts } = await import("./index");
-    const posts = freshGetAllPosts();
+    const { getAllPosts } = await import("./index");
+    const posts = await getAllPosts();
 
     expect(posts).toHaveLength(1);
     expect(posts[0].slug).toBe("post-a");
@@ -149,15 +144,14 @@ describe("getPostBySlug", () => {
         typeof readdirSync
       >
     );
-    mockReadFileSync.mockImplementation((filePath) => {
-      const path = filePath.toString();
-      if (path.includes("post-a.mdx")) return makeMdxContent(postA);
-      if (path.includes("post-b.mdx")) return makeMdxContent(postB);
-      return "";
+    mockImportMdxMetadata.mockImplementation(async (slug) => {
+      if (slug === "post-a") return postA;
+      if (slug === "post-b") return postB;
+      return undefined;
     });
 
-    const { getPostBySlug: freshGetPostBySlug } = await import("./index");
-    const post = freshGetPostBySlug("post-a");
+    const { getPostBySlug } = await import("./index");
+    const post = await getPostBySlug("post-a");
 
     expect(post).toBeDefined();
     expect(post!.title).toBe("Post A");
@@ -169,15 +163,14 @@ describe("getPostBySlug", () => {
         typeof readdirSync
       >
     );
-    mockReadFileSync.mockImplementation((filePath) => {
-      const path = filePath.toString();
-      if (path.includes("post-a.mdx")) return makeMdxContent(postA);
-      if (path.includes("draft-post.mdx")) return makeMdxContent(draftPost);
-      return "";
+    mockImportMdxMetadata.mockImplementation(async (slug) => {
+      if (slug === "post-a") return postA;
+      if (slug === "draft-post") return draftPost;
+      return undefined;
     });
 
-    const { getPostBySlug: freshGetPostBySlug } = await import("./index");
-    const post = freshGetPostBySlug("draft-post");
+    const { getPostBySlug } = await import("./index");
+    const post = await getPostBySlug("draft-post");
 
     expect(post).toBeUndefined();
   });
