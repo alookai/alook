@@ -41,4 +41,28 @@ describe("GET /onboard.md", () => {
     const body = await response.text();
     expect(body).toContain("https://alook.ai/templates");
   });
+
+  it("orders steps correctly: Login → Reflect → Templates/Init → Daemon+URL", async () => {
+    const response = await GET();
+    const body = await response.text();
+    const loginIdx = body.indexOf("## 1. Login");
+    const reflectIdx = body.indexOf("## 2. Reflect on Your User");
+    const templatesIdx = body.indexOf("## 3. Explore Templates & Set Up Workspace");
+    const daemonIdx = body.indexOf("## 4. Start Daemon & Open Workspace");
+
+    expect(loginIdx).toBeGreaterThan(-1);
+    expect(reflectIdx).toBeGreaterThan(loginIdx);
+    expect(templatesIdx).toBeGreaterThan(reflectIdx);
+    expect(daemonIdx).toBeGreaterThan(templatesIdx);
+  });
+
+  it("outputs workspace URL after daemon start", async () => {
+    const response = await GET();
+    const body = await response.text();
+    const daemonIdx = body.indexOf("## 4. Start Daemon & Open Workspace");
+    const urlIdx = body.indexOf("https://alook.ai/w/{slug}");
+
+    expect(daemonIdx).toBeGreaterThan(-1);
+    expect(urlIdx).toBeGreaterThan(daemonIdx);
+  });
 });
