@@ -13,6 +13,8 @@ export interface TestSeed {
   machineToken: string
   machineTokenId: string
   whitelistId: string
+  /** Cookie string for session-based auth endpoints */
+  sessionCookie: string
 }
 
 function nanoid() {
@@ -43,7 +45,14 @@ export function seedTestData(): TestSeed {
   sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, machineTokenId, userId, workspaceId, rawToken, 'test-token', 'active', now)
   sqlRun(`INSERT INTO agent_whitelist (id, agent_id, workspace_id, email, created_at) VALUES (?, ?, ?, ?, ?)`, whitelistId, agentId, workspaceId, `${userId}@test.local`, now)
 
-  return { userId, workspaceId, memberId, runtimeId, daemonId, agentId, agentEmailHandle: emailHandle, machineToken: rawToken, machineTokenId, whitelistId }
+  const sessionId = `sess_${nanoid()}`
+  const sessionToken = `e2e_${randomUUID().replace(/-/g, "")}`
+  const expiresAt = new Date(Date.now() + 86400000).toISOString()
+  sqlRun(`INSERT INTO "session" (id, userId, token, expiresAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`, sessionId, userId, sessionToken, expiresAt, now, now)
+
+  const sessionCookie = `better-auth.session_token=${sessionToken}`
+
+  return { userId, workspaceId, memberId, runtimeId, daemonId, agentId, agentEmailHandle: emailHandle, machineToken: rawToken, machineTokenId, whitelistId, sessionCookie }
 }
 
 export function cleanupTestData(seed: TestSeed) {

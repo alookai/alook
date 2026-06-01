@@ -97,12 +97,37 @@ jobs:
           pnpm --filter @alook/web dev &
       - name: Wait for services to be ready
         run: |
-          echo "Waiting for email-worker (localhost:8787)..."
-          until curl -sf http://localhost:8787/health; do sleep 2; done
-          echo "Waiting for ws-do (localhost:8789)..."
-          until curl -sf http://localhost:8789/health; do sleep 2; done
-          echo "Waiting for web app (localhost:3000)..."
-          until curl -sf http://localhost:3000/api/health; do sleep 2; done
+          wait_for() {
+            local url=$1 name=$2 timeout=60 elapsed=0
+            echo "Waiting for $name ($url)..."
+            until curl -sf "$url" > /dev/null 2>&1; do
+              sleep 2
+              elapsed=$((elapsed + 2))
+              if [ $elapsed -ge $timeout ]; then
+                echo "WARN: $name not ready after ${timeout}s"
+                return 1
+              fi
+            done
+            echo "$name ready (${elapsed}s)"
+            return 0
+          }
+
+          # First attempt
+          if ! wait_for http://localhost:8787/health "email-worker" || \
+             ! wait_for http://localhost:8789/health "ws-do" || \
+             ! wait_for http://localhost:3000/api/health "web app"; then
+            echo "Some services failed to start, restarting..."
+            pkill -f "wrangler" || true
+            pkill -f "next" || true
+            sleep 3
+            pnpm --filter @alook/email-worker dev &
+            pnpm --filter @alook/ws-do dev &
+            pnpm --filter @alook/web dev &
+            # Second attempt — fail hard
+            wait_for http://localhost:8787/health "email-worker" || exit 1
+            wait_for http://localhost:8789/health "ws-do" || exit 1
+            wait_for http://localhost:3000/api/health "web app" || exit 1
+          fi
       - run: pnpm test:e2e
       - run: pnpm --filter @alook/cli run test:integration
 

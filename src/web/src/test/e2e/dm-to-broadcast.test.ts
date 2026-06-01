@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sessionRequest } from "@alook/test-utils"
 
 const WS_DO_PORT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || 8789
 const WS_DO_HTTP = `http://localhost:${WS_DO_PORT}`
@@ -148,16 +148,12 @@ describe("cross-service: DM → task lifecycle → WS broadcast", () => {
     // Set up a WS client connection
     const ws = await openWs(seed.userId)
 
-    // Authenticate (get token via API)
-    const tokenRes = await tokenRequest(
+    // Authenticate (get token via API using session cookie)
+    const tokenRes = await sessionRequest(
       `/api/ws/token?workspace_id=${seed.workspaceId}`,
-      seed.machineToken,
+      seed.sessionCookie,
     )
-    if (tokenRes.status !== 200) {
-      ws.close()
-      console.log("WS token endpoint not available — skipping")
-      return
-    }
+    expect(tokenRes.status).toBe(200)
     const { token } = await tokenRes.json() as { token: string }
     ws.send(JSON.stringify({ type: "auth", token }))
 
