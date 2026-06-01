@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { APIClient } from "../lib/client.js";
 import { activateAndSave } from "../lib/activate.js";
 import { loadCLIConfigForProfile } from "../lib/config.js";
-import { cmdPrefix, DEFAULT_SERVER_URL } from "../lib/env.js";
+import { cmdPrefix, getServerUrl } from "../lib/env.js";
 
 const DEVICE_CLIENT_ID = process.env.ALOOK_DEVICE_CLIENT_ID || "alook-cli";
 
@@ -214,8 +214,7 @@ export function loginCommand(): Command {
       const serverUrl: string =
         opts.server ||
         command.parent?.opts().server ||
-        process.env.ALOOK_SERVER_URL ||
-        DEFAULT_SERVER_URL;
+        getServerUrl();
 
       // Check if already authenticated (skip with --force)
       if (!opts.force) {

@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { APIClient } from "../lib/client.js";
-import { cmdPrefix, DEFAULT_SERVER_URL } from "../lib/env.js";
+import { cmdPrefix, getServerUrl } from "../lib/env.js";
 import { activateAndSave } from "../lib/activate.js";
 
 interface MeResponse {
@@ -21,8 +21,7 @@ export function registerCommand(): Command {
       const serverUrl: string =
         opts.server ||
         command.parent?.opts().server ||
-        process.env.ALOOK_SERVER_URL ||
-        DEFAULT_SERVER_URL;
+        getServerUrl();
 
       if (!token) {
         console.error(
