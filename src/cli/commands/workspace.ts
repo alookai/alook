@@ -19,7 +19,7 @@ function slugify(name: string): string {
 
 interface StudioResponse {
   studio: { name: string };
-  workspace: { id: string; name: string };
+  workspace: { id: string; name: string; slug: string };
   agents: Array<{ id: string; name: string; email_handle: string | null }>;
 }
 
@@ -140,6 +140,7 @@ export function workspaceCommand(): Command {
           const email = agent.email_handle ? `${agent.email_handle}@alook.ai` : "no email";
           console.log(`  - ${agent.name} (${email})`);
         }
+        console.log(`\n  Open: https://alook.ai/w/${res.workspace.slug}`);
       } catch (err) {
         console.error(`Error: failed to create workspace: ${err instanceof Error ? err.message : err}`);
         process.exit(1);

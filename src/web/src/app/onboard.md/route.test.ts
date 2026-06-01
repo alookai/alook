@@ -41,4 +41,14 @@ describe("GET /onboard.md", () => {
     const body = await response.text();
     expect(body).toContain("https://alook.ai/templates");
   });
+
+  it("outputs workspace URL after daemon start", async () => {
+    const response = await GET();
+    const body = await response.text();
+    const daemonIdx = body.indexOf("## 4. Start Daemon & Open Workspace");
+    const urlIdx = body.indexOf("https://alook.ai/w/{slug}");
+
+    expect(daemonIdx).toBeGreaterThan(-1);
+    expect(urlIdx).toBeGreaterThan(daemonIdx);
+  });
 });

@@ -75,7 +75,7 @@ describe("workspace init", () => {
 
     postJSONMock.mockResolvedValueOnce({
       studio: { name: "Test WS" },
-      workspace: { id: "ws_test", name: "Test WS" },
+      workspace: { id: "ws_test", name: "Test WS", slug: "test-ws" },
       agents: [
         { id: "ag1", name: "Alice", email_handle: "alice" },
         { id: "ag2", name: "Bob", email_handle: "bob" },
@@ -93,6 +93,7 @@ describe("workspace init", () => {
     }));
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Workspace initialized"));
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("alice@alook.ai"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("https://alook.ai/w/test-ws"));
   });
 
   it("errors when JSON file does not exist", async () => {
@@ -141,7 +142,7 @@ describe("workspace init", () => {
       .mockResolvedValueOnce({ id: "ws_new", name: "New WS" }) // POST /api/workspaces
       .mockResolvedValueOnce({ // POST /api/studios
         studio: { name: "New WS" },
-        workspace: { id: "ws_new", name: "New WS" },
+        workspace: { id: "ws_new", name: "New WS", slug: "new-ws" },
         agents: [{ id: "ag1", name: "Charlie", email_handle: "charlie" }],
         links: [],
       });
@@ -173,7 +174,7 @@ describe("workspace init", () => {
       .mockResolvedValueOnce(undefined) // POST /api/runtimes (register)
       .mockResolvedValueOnce({ // POST /api/studios
         studio: { name: "Fresh WS" },
-        workspace: { id: "ws_fresh", name: "Fresh WS" },
+        workspace: { id: "ws_fresh", name: "Fresh WS", slug: "fresh-ws" },
         agents: [{ id: "ag1", name: "Dave", email_handle: "dave" }],
         links: [],
       });
@@ -203,7 +204,7 @@ describe("workspace init", () => {
       .mockResolvedValueOnce({ id: "ws_warn", name: "Warn WS" }) // POST /api/workspaces
       .mockResolvedValueOnce({ // POST /api/studios
         studio: { name: "Warn WS" },
-        workspace: { id: "ws_warn", name: "Warn WS" },
+        workspace: { id: "ws_warn", name: "Warn WS", slug: "warn-ws" },
         agents: [{ id: "ag1", name: "Eve", email_handle: "eve" }],
         links: [],
       });
@@ -229,7 +230,7 @@ describe("workspace init", () => {
 
     postJSONMock.mockResolvedValueOnce({
       studio: { name: "" },
-      workspace: { id: "ws_test", name: "Workspace" },
+      workspace: { id: "ws_test", name: "Workspace", slug: "workspace" },
       agents: [{ id: "ag1", name: "X", email_handle: "x" }],
       links: [],
     });
@@ -282,7 +283,7 @@ describe("workspace init", () => {
 
     postJSONMock.mockResolvedValueOnce({
       studio: { name: "" },
-      workspace: { id: "ws_test", name: "WS" },
+      workspace: { id: "ws_test", name: "WS", slug: "ws" },
       agents: [{ id: "ag1", name: "Y", email_handle: "y" }],
       links: [],
     });
