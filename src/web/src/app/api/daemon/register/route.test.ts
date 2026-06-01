@@ -4,6 +4,8 @@ import { NextRequest } from "next/server";
 const mockGetMember = vi.fn();
 const mockUpsertMachine = vi.fn();
 const mockUpsertAgentRuntime = vi.fn();
+const mockGetMachineByDaemon = vi.fn();
+const mockClearPendingUpdateVersion = vi.fn();
 const mockBroadcastToUser = vi.fn();
 
 function sharedMocks() {
@@ -11,22 +13,28 @@ function sharedMocks() {
     "@opennextjs/cloudflare": {
       getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
     },
-    "@alook/shared": async () => ({
-      createDb: vi.fn(() => ({})),
-      queries: {
-        member: {
-          getMemberByUserAndWorkspace: (...a: any[]) => mockGetMember(...a),
+    "@alook/shared": async () => {
+      const real = await import("@alook/shared");
+      return {
+        createDb: vi.fn(() => ({})),
+        semverGte: real.semverGte,
+        queries: {
+          member: {
+            getMemberByUserAndWorkspace: (...a: any[]) => mockGetMember(...a),
+          },
+          machine: {
+            upsertMachine: (...a: any[]) => mockUpsertMachine(...a),
+            getMachineByDaemon: (...a: any[]) => mockGetMachineByDaemon(...a),
+            clearPendingUpdateVersion: (...a: any[]) => mockClearPendingUpdateVersion(...a),
+          },
+          runtime: {
+            upsertAgentRuntime: (...a: any[]) => mockUpsertAgentRuntime(...a),
+          },
         },
-        machine: {
-          upsertMachine: (...a: any[]) => mockUpsertMachine(...a),
-        },
-        runtime: {
-          upsertAgentRuntime: (...a: any[]) => mockUpsertAgentRuntime(...a),
-        },
-      },
-      RegisterDaemonRequestSchema: (await import("@alook/shared"))
-        .RegisterDaemonRequestSchema,
-    }),
+        RegisterDaemonRequestSchema: real.RegisterDaemonRequestSchema,
+        generateWorkspaceSlug: real.generateWorkspaceSlug,
+      };
+    },
     "@/lib/broadcast": {
       broadcastToUser: (...a: any[]) => mockBroadcastToUser(...a),
     },
@@ -116,12 +124,13 @@ describe("POST /api/daemon/register", () => {
     expect(mockUpsertAgentRuntime).toHaveBeenCalledTimes(1);
   });
 
-  it("broadcasts only runtime.registered after upserts (not runtime.status)", async () => {
+  it("broadcasts only runtime.registered after upserts when no pending update", async () => {
     const POST = await loadRoute(authCtx);
 
     mockGetMember.mockResolvedValue({ userId: "u1", workspaceId: "w1" });
     mockUpsertMachine.mockResolvedValue(undefined);
     mockUpsertAgentRuntime.mockResolvedValue({ id: "r1" });
+    mockGetMachineByDaemon.mockResolvedValue(null);
     mockBroadcastToUser.mockResolvedValue(undefined);
 
     await POST(makeReq(validBody));
@@ -135,12 +144,13 @@ describe("POST /api/daemon/register", () => {
     });
   });
 
-  it("does NOT broadcast runtime.status from register endpoint", async () => {
+  it("does NOT broadcast runtime.status when no pending update version", async () => {
     const POST = await loadRoute(authCtx);
 
     mockGetMember.mockResolvedValue({ userId: "u1", workspaceId: "w1" });
     mockUpsertMachine.mockResolvedValue(undefined);
     mockUpsertAgentRuntime.mockResolvedValue({ id: "r1" });
+    mockGetMachineByDaemon.mockResolvedValue(null);
     mockBroadcastToUser.mockResolvedValue(undefined);
 
     await POST(makeReq(validBody));
@@ -212,6 +222,7 @@ describe("POST /api/daemon/register", () => {
     mockUpsertMachine.mockRejectedValue(new Error("D1 timeout"));
     mockUpsertAgentRuntime.mockResolvedValue({ id: "r1" });
     mockBroadcastToUser.mockResolvedValue(undefined);
+    mockGetMachineByDaemon.mockResolvedValue(null);
 
     const res = await POST(makeReq(validBody));
     const body = await res.json();
@@ -219,5 +230,57 @@ describe("POST /api/daemon/register", () => {
     expect(res.status).toBe(200);
     expect(body.runtimes).toEqual([{ id: "r1" }]);
     expect(mockUpsertAgentRuntime).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears pendingUpdateVersion when cli_version satisfies pending version on register", async () => {
+    const POST = await loadRoute(authCtx);
+
+    mockGetMember.mockResolvedValue({ userId: "u1", workspaceId: "w1" });
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1" });
+    mockGetMachineByDaemon.mockResolvedValue({ pendingUpdateVersion: "0.0.2" });
+    mockClearPendingUpdateVersion.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    const res = await POST(makeReq(validBody));
+
+    expect(res.status).toBe(200);
+    expect(mockClearPendingUpdateVersion).toHaveBeenCalledWith({}, "d1", "w1");
+    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
+      type: "runtime.status",
+      daemonId: "d1",
+      workspaceId: "w1",
+      status: "online",
+    });
+  });
+
+  it("does not clear pendingUpdateVersion when cli_version is older", async () => {
+    const POST = await loadRoute(authCtx);
+
+    mockGetMember.mockResolvedValue({ userId: "u1", workspaceId: "w1" });
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1" });
+    mockGetMachineByDaemon.mockResolvedValue({ pendingUpdateVersion: "2.0.0" });
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    const res = await POST(makeReq(validBody));
+
+    expect(res.status).toBe(200);
+    expect(mockClearPendingUpdateVersion).not.toHaveBeenCalled();
+  });
+
+  it("does not check pendingUpdateVersion when cli_version is missing", async () => {
+    const POST = await loadRoute(authCtx);
+
+    mockGetMember.mockResolvedValue({ userId: "u1", workspaceId: "w1" });
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1" });
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    const bodyWithoutVersion = { ...validBody, cli_version: undefined };
+    const res = await POST(makeReq(bodyWithoutVersion));
+
+    expect(res.status).toBe(200);
+    expect(mockGetMachineByDaemon).not.toHaveBeenCalled();
   });
 });
