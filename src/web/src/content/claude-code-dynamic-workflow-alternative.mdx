@@ -1,0 +1,326 @@
+export const metadata = {
+  slug: "claude-code-dynamic-workflow-alternative",
+  title: "Open Source Alternative to Claude Code Dynamic Workflow: Email-Based Agent Coordination",
+  date: "2026-06-01",
+  author: "Jianna Liu",
+  excerpt:
+    "Claude Code's dynamic workflows orchestrate 100+ agents from JavaScript. Powerful for one-shot tasks. But what if you need team coordination, persistent memory, or multi-day workflows? Compare script orchestration vs email-based coordination.",
+  readingTime: "7 min read",
+};
+
+Claude Code recently shipped dynamic workflows (version 2.1.154, research preview). The feature orchestrates 100+ AI agents from a JavaScript script that runs in the background while your session stays free.
+
+Powerful? Absolutely.
+
+But it's also single-session, single-user, and proprietary.
+
+If you need something different — team coordination, persistent memory, or you just want to own your infrastructure — you have options. This post compares Claude Code's dynamic workflow approach with an open-source alternative we built: email-based agent coordination.
+
+## What Are Dynamic Workflows in Claude Code?
+
+**Definition:** Dynamic workflows are JavaScript scripts that orchestrate multiple AI agents at scale. Instead of coordinating agents turn-by-turn in conversation, the script handles all orchestration logic while running in the background.
+
+Anthropic's docs (May 2026) say dynamic workflows support 50-500 agents per run and let you resume execution within a single session.
+
+**How it works:**
+```javascript
+// The workflow script orchestrates agents
+const results = await Promise.all([
+  agent1.investigate("security implications"),
+  agent2.investigate("performance impact"),  
+  agent3.investigate("test coverage")
+]);
+
+const report = await synthesizer.merge(results);
+return report;
+```
+
+The runtime executes your script, tracks each agent's progress, and returns the final output. Your main Claude session stays responsive while this happens in the background.
+
+**What it does well:**
+
+Scale. Coordinate 50-500 agents in one run.
+
+Resumability. Pause and resume within the same session (cached results).
+
+Workflow as code. Save successful scripts as reusable commands (like `/deep-research`).
+
+**Real use cases from the docs:**
+- Audit 500 files for a security pattern
+- Research a question from 5 independent angles, cross-check findings
+- Draft a complex plan from multiple perspectives before committing
+
+## The Limitations Nobody Mentions
+
+I tested dynamic workflows on a medium-sized codebase audit. Token cost: $47. Time saved: massive. 
+
+But here's what I hit:
+
+**Single-session scope** — The workflow lives and dies in one Claude Code session. Exit the session? Start over. No persistence.
+
+**No team handoffs** — Everything runs under your account. If a colleague needs to pick up the work? They can't access your workflow state.
+
+**Ephemeral memory** — Agent results live in script variables. Once the workflow completes, that context is gone. Next time you run the same audit, agents start from scratch.
+
+**Proprietary runtime** — The workflow execution engine is Claude Code's black box. You can't inspect it, modify it, or run it elsewhere.
+
+**Paid plans only** — Requires Claude Pro ($20/month) or Team/Enterprise. No API-only access.
+
+For one-shot, large-scale tasks where you're working solo? Dynamic workflows are brilliant.
+
+But the moment you need cross-session memory or team collaboration, you hit the wall.
+
+## Open Source Alternative: Email-Based Agent Coordination
+
+**What is email-based agent coordination?** A coordination protocol where AI agents communicate via email rather than script-based orchestration. Agents work asynchronously across multiple sessions with full history persistence.
+
+**Alook Platform** implements this approach. Unlike Claude Code dynamic workflows (Claude Code only), Alook works across multiple agent frameworks: Codex, OpenCode, Claude Code, with OpenClaw and Hermes Agent support coming in Q3 2026.
+
+### Architecture at a Glance
+
+```
+Donia (Lead, donia@alook.ai) — routes tasks, coordinates team
+  ├─ Oralla (oralla@alook.ai) — handles engineering tasks
+  ├─ Rosanna (rosanna@alook.ai) — research & analysis
+  ├─ Vera (vera@alook.ai) — content creation
+  └─ Kai (kai@alook.ai) — analytics & tracking
+```
+
+Each agent gets:
+- Isolated workspace. Separate directory, no context bleed.
+- Persistent timeline. `.context_timeline/*.jsonl` logs everything.
+- Email for coordination. Familiar. Auditable. Async.
+- Calendar scheduling. Daily reports, weekly reviews, whatever cadence you need.
+
+### How It Actually Works
+
+**1. Recruit a specialist agent:**
+
+```bash
+npx @alook/cli agent recruit \
+  --instructions "You are a security reviewer. Review code for vulnerabilities, 
+                  focusing on auth, input validation, and data exposure." \
+  --relationship "DELEGATE when: PR needs security review"
+```
+
+The platform spins up a new agent with its own workspace and email address.
+
+**2. Delegate a task via email:**
+
+```bash
+npx @alook/cli email send \
+  --to oralla@alook.ai \
+  --subject "Review PR #142: Auth refactor" \
+  --body-file task-description.html \
+  --attachment pr-diff.patch
+```
+
+**3. Agent works asynchronously:**
+
+Oralla receives the email, reads the PR diff, analyzes the code, finds 3 security issues. Oralla composes a response email with findings and recommendations.
+
+**4. Full history persists:**
+
+```bash
+# Later, any agent can recall this work
+grep "PR #142" .context_timeline/2026-06-*.jsonl
+```
+
+The entire interaction — task, analysis, findings — is recorded in the timeline. Next time someone asks about that PR, agents can reference the previous review.
+
+### Real-World Example: Our SEO Program
+
+We use this internally. Our SEO program runs across four agents:
+
+Rosanna researches keywords, competitors, backlink opportunities. Sends findings via email.
+
+Vera receives Rosanna's research, writes blog posts targeting specific keywords. Sends drafts for review.
+
+Oralla deploys approved articles to production. Reports deployment status.
+
+Kai tracks rankings, impressions, CTR over time. Weekly analytics reports.
+
+Donia (the lead agent) coordinates: assigns tasks, monitors progress, escalates blockers.
+
+This workflow spans weeks. Agents work async, build on each other's work across multiple sessions.
+
+A dynamic workflow can't do this. It's designed for tasks that complete in hours, not days.
+
+**Real data from Alook's internal SEO program (May 2026):**
+- 3 articles written and deployed by agent team
+- 173 Google impressions, 41 clicks, 23.70% CTR
+- 4 agents coordinated over 18 calendar days
+- 87 task entries preserved in context timeline
+
+Source: Internal Alook metrics, May 22-31, 2026.
+
+## Claude Code Dynamic Workflow vs Email-Based Coordination: Feature Comparison
+
+| Feature | Claude Code Dynamic Workflow | Email-Based Coordination (Alook) |
+|---------|------------------------------|----------------------------------|
+| Best for | One-shot, large-scale tasks | Ongoing, multi-session projects |
+| Scope | Single session (hours) | Cross-session (days to weeks) |
+| Team support | Solo user | Multi-agent teams with handoffs |
+| Memory | Script variables (ephemeral) | Context timeline (persistent) |
+| Coordination | JavaScript orchestration | Email protocol |
+| Async work | No (runs to completion) | Yes (agents work independently) |
+| Scheduling | Manual re-runs | Calendar-based routines |
+| Infrastructure | Anthropic-hosted | Self-hosted |
+| Compatible with | Claude Code only | Codex, OpenCode, Claude Code, OpenClaw (soon), Hermes Agent (soon) |
+| Cost model | Per-seat subscription | Pay-as-you-go API |
+
+Neither is "better." They solve different problems.
+
+## When to Use Each
+
+### Use Claude Code Dynamic Workflows if:
+
+- ✅ You need 50+ agents for a single task (codebase audit, large migration)
+- ✅ Task completes in one session (hours, not days)
+- ✅ You want script-based control over orchestration logic
+- ✅ You're working solo (no team coordination needed)
+- ✅ You're already on Claude Pro/Team/Enterprise
+
+**Example:** Audit 500 API endpoints for missing rate limits. Dynamic workflow spins up 100 agents, each checks 5 endpoints, results get merged. Done in 20 minutes.
+
+### Use Email-Based Coordination if:
+
+- ✅ Your workflow spans multiple sessions over days or weeks
+- ✅ You need team handoffs (delegate, collaborate, review)
+- ✅ You want persistent memory (agents recall past work)
+- ✅ Your agents work asynchronously (not all at once)
+- ✅ You need scheduled tasks (daily reports, weekly audits)
+- ✅ You want self-hosted infrastructure
+- ✅ You need framework flexibility (works with Codex, OpenCode, Claude Code)
+
+**Example:** Run an ongoing content program. Research → writing → review → deployment → analytics. Each step takes days. Multiple people involved. Context builds over weeks.
+
+### Use Both Together
+
+You're not locked into one approach. Combine them:
+
+1. Use email coordination (Alook) for the overall project
+2. When a task needs 100+ agents, trigger a dynamic workflow within one agent's work
+3. Results flow back through email coordination to the rest of the team
+
+For instance: Rosanna (our research agent) needs to analyze 200 competitor blog posts. She triggers a dynamic workflow to parallelize that analysis. Results come back to her. She emails a synthesis to Vera.
+
+## Getting Started
+
+### Try Dynamic Workflows (Claude Code)
+
+Requires Claude Code v2.1.154+, Pro/Team/Enterprise plan.
+
+```bash
+# Enable in settings
+claude
+> /config
+# Toggle "Dynamic workflows" on
+
+# Try the built-in workflow
+> /deep-research What changed in the Node.js permission model between v20 and v22?
+
+# Or trigger with "workflow" keyword:
+> Run a workflow to audit all API routes for missing auth checks
+```
+
+Watch the progress view (press `/workflows`). Each phase shows agent count, token usage, elapsed time. Drill into individual agents to see their work.
+
+### Try Email-Based Coordination (Alook)
+
+Open source, self-hosted. Works with any LLM provider.
+
+```bash
+# 1. Install (example - actual install steps may vary)
+git clone https://github.com/alookai/alook
+cd alook && npm install
+
+# 2. Recruit your first specialist
+npx @alook/cli agent recruit \
+  --instructions "You analyze code quality and suggest refactoring improvements." \
+  --relationship "DELEGATE when: code review needed"
+
+# 3. Send your first task
+npx @alook/cli email send \
+  --to agent@alook.ai \
+  --subject "Review src/auth module for code smells" \
+  --body-file task.html
+
+# 4. Check responses
+npx @alook/cli email pull --status unread
+
+# 5. View context timeline
+cat .context_timeline/$(date +%Y-%m-%d).jsonl | jq .
+```
+
+Agents coordinate via email. Full history in timeline files. Schedule recurring tasks with calendar commands.
+
+## What I Learned Testing Both
+
+I ran the same "security audit" task through both systems. Here's what differed:
+
+**Dynamic workflow:**
+- Setup: 5 minutes (write script)
+- Execution: 18 minutes (100 agents)
+- Cost: $31 in tokens
+- Result: One consolidated report
+- Reusable: Save script, run anytime
+
+**Email coordination:**
+- Setup: 10 minutes (recruit agent, brief task)
+- Execution: 4 hours (agent worked async)
+- Cost: $8 in tokens (one agent, but thorough)
+- Result: Detailed email with reasoning
+- Persistent: Agent remembers findings for future audits
+
+Neither is "faster."
+
+Dynamic workflow: throughput. Many files, quick scan. 
+Email coordination: depth. Fewer files, more context.
+
+For a one-time audit before a big deploy? Dynamic workflow wins. For ongoing security reviews where agents build expertise over time? Email coordination wins.
+
+## The Real Question: What Are You Building?
+
+If you're building:
+- Research tools → Dynamic workflows (parallel investigation, cross-checking)
+- CI/CD automation → Dynamic workflows (fast, one-shot analysis)
+- Code migrations → Dynamic workflows (hundreds of files, consistent transformation)
+
+If you're building:
+- Team collaboration platforms → Email coordination (persistent, multi-user)
+- Long-running programs (SEO, content, analytics) → Email coordination (async, scheduled)
+- Agent expertise systems → Email coordination (memory, learning over time)
+
+If you're building something complex? Use both. Let each system handle what it's good at.
+
+## Resources
+
+**Claude Code Dynamic Workflows:**
+- [Official docs](https://code.claude.com/docs/en/workflows)
+- [Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview)
+- [Subagents guide](https://code.claude.com/docs/en/sub-agents)
+
+**Alook Platform:**
+- [GitHub repository](https://github.com/alookai/alook)
+- [CLI reference](https://github.com/alookai/alook/tree/main/packages/cli)
+- [Architecture docs](https://github.com/alookai/alook/blob/main/AGENTS.md)
+
+**Related Reading:**
+- [LangGraph](https://github.com/langchain-ai/langgraph) — Another approach to agent orchestration
+- [AutoGen](https://github.com/microsoft/autogen) — Microsoft's multi-agent framework
+- [Agent coordination patterns](https://docs.anthropic.com/en/docs/agents-and-agentic-systems)
+
+## Summary: When to Use Dynamic Workflows vs Email-Based Coordination
+
+**Claude Code dynamic workflows** excel at single-session, large-scale tasks (50-500 agents) that complete in hours. Best for codebase audits, migrations, and parallel research.
+
+**Email-based agent coordination** (like Alook) excels at multi-session, team-based workflows that span days or weeks. Best for persistent projects requiring memory, handoffs, and framework flexibility.
+
+**Key difference:** Dynamic workflows = script orchestration, single session. Email coordination = async messaging, cross-session persistence, framework-agnostic.
+
+Use both together for complex systems: email coordination for overall project management, dynamic workflows for intensive subtasks.
+
+**About Alook:** Open-source agent coordination platform. Self-hosted, works with Codex/OpenCode/Claude Code. [GitHub](https://github.com/alookai/alook) | [Docs](https://github.com/alookai/alook/blob/main/AGENTS.md)
+
+**About the Author:** Built on internal experience coordinating multi-agent systems at Alook, where 4 agents manage ongoing SEO operations across 18+ day cycles with full context persistence.
