@@ -5,13 +5,14 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sessionRequest } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, tokenRequest, sessionRequest, signIn } from "@alook/test-utils"
 
 const WS_DO_PORT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || 8789
 const WS_DO_HTTP = `http://localhost:${WS_DO_PORT}`
 const WS_DO_WS = `ws://localhost:${WS_DO_PORT}`
 
 let seed: TestSeed
+let sessionCookie: string
 let wsAvailable = false
 
 async function checkWsAvailable(): Promise<boolean> {
@@ -58,6 +59,7 @@ function waitForWsMessage<T = unknown>(
 
 beforeAll(async () => {
   seed = seedTestData()
+  sessionCookie = await signIn(seed.authEmail, seed.authPassword)
   wsAvailable = await checkWsAvailable()
 })
 afterAll(() => cleanupTestData(seed))
@@ -151,7 +153,7 @@ describe("cross-service: DM → task lifecycle → WS broadcast", () => {
     // Authenticate (get token via API using session cookie)
     const tokenRes = await sessionRequest(
       `/api/ws/token?workspace_id=${seed.workspaceId}`,
-      seed.sessionCookie,
+      sessionCookie,
     )
     expect(tokenRes.status).toBe(200)
     const { token } = await tokenRes.json() as { token: string }

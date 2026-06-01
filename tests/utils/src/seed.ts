@@ -13,8 +13,10 @@ export interface TestSeed {
   machineToken: string
   machineTokenId: string
   whitelistId: string
-  /** Cookie string for session-based auth endpoints */
-  sessionCookie: string
+  /** Email used for better-auth sign-in */
+  authEmail: string
+  /** Password for better-auth sign-in */
+  authPassword: string
 }
 
 function nanoid() {
@@ -45,14 +47,15 @@ export function seedTestData(): TestSeed {
   sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, machineTokenId, userId, workspaceId, rawToken, 'test-token', 'active', now)
   sqlRun(`INSERT INTO agent_whitelist (id, agent_id, workspace_id, email, created_at) VALUES (?, ?, ?, ?, ?)`, whitelistId, agentId, workspaceId, `${userId}@test.local`, now)
 
-  const sessionId = `sess_${nanoid()}`
-  const sessionToken = `e2e_${randomUUID().replace(/-/g, "")}`
-  const expiresAt = new Date(Date.now() + 86400000).toISOString()
-  sqlRun(`INSERT INTO "session" (id, userId, token, expiresAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)`, sessionId, userId, sessionToken, expiresAt, now, now)
+  // Insert account record for better-auth credential provider (scrypt hash of "e2e-test-pass")
+  const accountId = `acc_${nanoid()}`
+  const hashedPassword = "42f5ab765c423b9575aa9a1ed5e9e7ff:34eb25daa674d7b35e4609a239c9f780ad8df3a149442fd956a8515f3c617f0530a9abd8b93dbf7e4b9a416fb39d88936d1d7055a98344748d1b70355c31609f"
+  sqlRun(`INSERT INTO account (id, userId, accountId, providerId, password, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)`, accountId, userId, userId, 'credential', hashedPassword, now, now)
 
-  const sessionCookie = `better-auth.session_token=${sessionToken}`
+  const authEmail = `${userId}@test.local`
+  const authPassword = "e2e-test-pass"
 
-  return { userId, workspaceId, memberId, runtimeId, daemonId, agentId, agentEmailHandle: emailHandle, machineToken: rawToken, machineTokenId, whitelistId, sessionCookie }
+  return { userId, workspaceId, memberId, runtimeId, daemonId, agentId, agentEmailHandle: emailHandle, machineToken: rawToken, machineTokenId, whitelistId, authEmail, authPassword }
 }
 
 export function cleanupTestData(seed: TestSeed) {
@@ -74,6 +77,7 @@ export function cleanupTestData(seed: TestSeed) {
   sqlRun(`DELETE FROM machine_token WHERE workspace_id = ?`, ws)
   sqlRun(`DELETE FROM member WHERE workspace_id = ?`, ws)
   sqlRun(`DELETE FROM "session" WHERE userId = ?`, seed.userId)
+  sqlRun(`DELETE FROM account WHERE userId = ?`, seed.userId)
   sqlRun(`DELETE FROM workspace WHERE id = ?`, ws)
   sqlRun(`DELETE FROM "user" WHERE id = ?`, seed.userId)
 }
