@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-const ONBOARD_MARKDOWN = `---
+function buildOnboardMarkdown(baseUrl: string, cliPrefix: string): string {
+  return `---
 name: alook-onboard
 description: Install Alook CLI, authenticate, and set up your AI workspace.
 keywords: [alook, agent, workspace, CLI, onboarding]
@@ -9,12 +10,12 @@ keywords: [alook, agent, workspace, CLI, onboarding]
 ## 1. Login
 
 \`\`\`bash
-npx @alook/cli login
+${cliPrefix} login
 \`\`\`
 
 - Non-interactive terminal: prints a URL for the user to open manually, then polls until confirmed
 - Interactive terminal: attempts to open browser automatically
-- Verify success: \`npx @alook/cli status\`
+- Verify success: \`${cliPrefix} status\`
 
 ## 2. Reflect on Your User
 
@@ -28,7 +29,7 @@ Use this understanding to choose the best workspace setup.
 
 ## 3. Explore Templates & Set Up Workspace
 
-Visit https://alook.ai/templates to explore available workspace templates.
+Visit ${baseUrl}/templates to explore available workspace templates.
 Each template has a JSON version at \`/templates/<slug>/json\` you can fetch for reference.
 
 Based on what you learned about the user in Step 2, customize the template or create your own configuration:
@@ -58,7 +59,7 @@ Based on what you learned about the user in Step 2, customize the template or cr
 Write your customized JSON to a file, then run:
 
 \`\`\`bash
-npx @alook/cli workspace init --json-file <path_to_json>
+${cliPrefix} workspace init --json-file <path_to_json>
 \`\`\`
 
 If the current workspace already has agents, a new workspace is created automatically.
@@ -66,20 +67,25 @@ If the current workspace already has agents, a new workspace is created automati
 ## 4. Start Daemon & Open Workspace
 
 \`\`\`bash
-npx @alook/cli daemon start
+${cliPrefix} daemon start
 \`\`\`
 
 Once the daemon starts successfully, tell the user their workspace is ready and provide the URL:
 
 \`\`\`
-https://alook.ai/w/{slug}
+${baseUrl}/w/{slug}
 \`\`\`
 
 (Use the workspace slug from the \`workspace init\` output in Step 3.)
 `;
+}
 
-export async function GET() {
-  return new NextResponse(ONBOARD_MARKDOWN, {
+export async function GET(request: NextRequest) {
+  const origin = new URL(request.url).origin;
+  const isCloud = origin === "https://alook.ai";
+  const cliPrefix = isCloud ? "npx @alook/cli" : "npx @alook/app cli";
+
+  return new NextResponse(buildOnboardMarkdown(origin, cliPrefix), {
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
     },
