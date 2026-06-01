@@ -12,6 +12,7 @@
  * running. So after a short grace window we escalate to SIGKILL.
  */
 
+import { execSync } from "child_process";
 import { createLogger } from "../lib/logger.js";
 
 const log = createLogger({ module: "kill-tree" });
@@ -47,6 +48,15 @@ function signalTree(pid: number, signal: NodeJS.Signals): void {
       // EPERM / no-group (legacy non-detached spawn): fall through to plain pid.
     }
   }
+  if (!isPosix) {
+    try {
+      execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" });
+      return;
+    } catch {
+      // process may already be dead
+    }
+    return;
+  }
   try {
     process.kill(pid, signal);
   } catch {
@@ -64,13 +74,18 @@ export async function killProcessTree(
   opts?: { graceMs?: number },
 ): Promise<void> {
   if (!pid || pid < 1) return;
-  const graceMs = opts?.graceMs ?? killGraceMs();
-
   if (!isAlive(pid)) return;
 
+  if (!isPosix) {
+    // Windows: taskkill /T /F kills the entire tree, no grace needed
+    signalTree(pid, "SIGTERM");
+    return;
+  }
+
+  // POSIX: SIGTERM + grace + SIGKILL escalation
+  const graceMs = opts?.graceMs ?? killGraceMs();
   signalTree(pid, "SIGTERM");
 
-  // Poll until dead or the grace window expires.
   const deadline = Date.now() + graceMs;
   while (Date.now() < deadline) {
     if (!isAlive(pid)) return;
