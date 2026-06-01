@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { APIClient } from "../lib/client.js";
 import { activateAndSave } from "../lib/activate.js";
 import { loadCLIConfigForProfile } from "../lib/config.js";
+import { cmdPrefix, DEFAULT_SERVER_URL } from "../lib/env.js";
 
 const DEVICE_CLIENT_ID = process.env.ALOOK_DEVICE_CLIENT_ID || "alook-cli";
 
@@ -214,7 +215,7 @@ export function loginCommand(): Command {
         opts.server ||
         command.parent?.opts().server ||
         process.env.ALOOK_SERVER_URL ||
-        "https://alook.ai";
+        DEFAULT_SERVER_URL;
 
       // Check if already authenticated (skip with --force)
       if (!opts.force) {
@@ -279,7 +280,7 @@ export function loginCommand(): Command {
         child.unref();
 
         console.log("  Polling for authorization in the background (timeout: 5min).");
-        console.log("  Once approved, run `npx @alook/cli status` to verify.");
+        console.log(`  Once approved, run \`${cmdPrefix()} status\` to verify.`);
         return;
       }
 

@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { APIClient } from "../lib/client.js";
-import { cmdPrefix } from "../lib/env.js";
+import { cmdPrefix, DEFAULT_SERVER_URL } from "../lib/env.js";
 import { activateAndSave } from "../lib/activate.js";
 
 interface MeResponse {
@@ -22,7 +22,7 @@ export function registerCommand(): Command {
         opts.server ||
         command.parent?.opts().server ||
         process.env.ALOOK_SERVER_URL ||
-        "https://alook.ai";
+        DEFAULT_SERVER_URL;
 
       if (!token) {
         console.error(

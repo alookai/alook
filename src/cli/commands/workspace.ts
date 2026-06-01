@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { readFileSync } from "fs";
 import { toAlookAddress } from "@alook/shared";
 import { APIClient } from "../lib/client.js";
+import { cmdPrefix } from "../lib/env.js";
 import { printJSON } from "../lib/output.js";
 import { resolveClientOpts } from "../lib/resolve-client.js";
 
@@ -69,7 +70,7 @@ export function workspaceCommand(): Command {
       }
 
       if (runtimes.length === 0) {
-        console.error("Error: No daemon registered. Run 'npx @alook/cli daemon start' first.");
+        console.error(`Error: No daemon registered. Run '${cmdPrefix()} daemon start' first.`);
         process.exit(1);
       }
 

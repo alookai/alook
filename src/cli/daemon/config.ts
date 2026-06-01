@@ -1,6 +1,7 @@
 import { hostname } from "os";
 import { join } from "path";
 import { configDir } from "../lib/config.js";
+import { DEFAULT_SERVER_URL } from "../lib/env.js";
 import { getCurrentVersion } from "../lib/version.js";
 
 export function pidFilePath(profile?: string): string {
@@ -96,7 +97,7 @@ export function loadDaemonConfig(profile?: string): DaemonConfig {
 
   return {
     serverURL: normalizeServerBaseURL(
-      process.env.ALOOK_SERVER_URL || "https://alook.ai",
+      process.env.ALOOK_SERVER_URL || DEFAULT_SERVER_URL,
     ),
     claudePath: process.env.ALOOK_CLAUDE_PATH || "claude",
     codexPath: process.env.ALOOK_CODEX_PATH || "codex",

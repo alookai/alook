@@ -1,5 +1,7 @@
 import { resolveMode, cliCommand } from "@alook/shared";
 
+export const DEFAULT_SERVER_URL = "https://alook.ai";
+
 export function isDev(): boolean {
   return resolveMode({
     serverUrl: process.env.ALOOK_SERVER_URL,
