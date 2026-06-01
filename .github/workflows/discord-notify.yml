@@ -1,115 +1,39 @@
 name: Discord Notify
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
+  release:
+    types: [published]
 
 jobs:
   notify-release:
     name: Notify Discord on release
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 0
-
-      - name: Detect release commit
-        id: detect
-        run: |
-          MSG=$(git log -1 --format='%s' "${{ github.event.workflow_run.head_sha }}")
-          if [[ "$MSG" =~ ^release:\ v([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-            echo "is_release=true" >> "$GITHUB_OUTPUT"
-            echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-          else
-            echo "is_release=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Collect changes since last release
-        if: steps.detect.outputs.is_release == 'true'
-        id: changes
-        run: |
-          PREV_TAG=$(git tag --sort=-creatordate | grep '^v' | head -1)
-          if [ -z "$PREV_TAG" ]; then
-            PREV_TAG=$(git tag --sort=-creatordate | grep '^cli/v' | head -1)
-          fi
-          if [ -n "$PREV_TAG" ]; then
-            LOGS=$(git log "$PREV_TAG"..HEAD~1 --format='• %s' --no-merges | head -15)
-          else
-            LOGS=$(git log -10 --format='• %s' --no-merges)
-          fi
-          # Escape for JSON
-          LOGS_ESCAPED=$(echo "$LOGS" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
-          echo "logs=$LOGS_ESCAPED" >> "$GITHUB_OUTPUT"
-
       - name: Send release notification
-        if: steps.detect.outputs.is_release == 'true'
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          VERSION: ${{ steps.detect.outputs.version }}
-          CHANGES: ${{ steps.changes.outputs.logs }}
+          VERSION: ${{ github.event.release.tag_name }}
+          BODY: ${{ github.event.release.body }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
         run: |
-          export CHANGES_TEXT
-          CHANGES_TEXT=$(echo "$CHANGES" | python3 -c 'import sys,json; print(json.loads(sys.stdin.read()))')
-          BODY=$(python3 -c "
+          PAYLOAD=$(python3 -c "
           import json, os
           version = os.environ['VERSION']
-          changes = os.environ.get('CHANGES_TEXT', 'No changelog available')
+          body = os.environ.get('BODY', '')[:4096] or 'No changelog available'
+          release_url = os.environ['RELEASE_URL']
+          desc = f'{body}\n\n[View Release]({release_url})'
+          if len(desc) > 4096:
+              desc = desc[:4093] + '...'
           payload = {
             'embeds': [{
-              'title': f'🚀 Alook v{version} Released',
-              'description': f'A new version of Alook has been deployed.\n\n**Changes:**\n{changes}',
+              'title': f'\U0001f680 Alook {version} Released',
+              'description': desc,
               'color': 3066993,
+              'url': release_url,
               'footer': {'text': 'Alook CI/CD'},
-              'timestamp': '$(date -u +%Y-%m-%dT%H:%M:%SZ)'
             }]
           }
           print(json.dumps(payload))
           ")
-          curl -sf -H "Content-Type: application/json" -d "$BODY" "$DISCORD_WEBHOOK"
-
-      - name: Collect recent commits for non-release push
-        if: steps.detect.outputs.is_release == 'false'
-        id: commits
-        run: |
-          MSG=$(git log -1 --format='%s' "${{ github.event.workflow_run.head_sha }}")
-          AUTHOR=$(git log -1 --format='%an' "${{ github.event.workflow_run.head_sha }}")
-          SHORT_SHA=$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-7)
-          {
-            echo "msg=$(echo "$MSG" | head -c 200)"
-            echo "author=$AUTHOR"
-            echo "short_sha=$SHORT_SHA"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Send push notification
-        if: steps.detect.outputs.is_release == 'false'
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          MSG: ${{ steps.commits.outputs.msg }}
-          AUTHOR: ${{ steps.commits.outputs.author }}
-          SHORT_SHA: ${{ steps.commits.outputs.short_sha }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          BODY=$(python3 -c "
-          import json, os
-          msg = os.environ['MSG']
-          author = os.environ['AUTHOR']
-          sha = os.environ['SHORT_SHA']
-          full_sha = os.environ['SHA']
-          repo = '${{ github.repository }}'
-          payload = {
-            'embeds': [{
-              'title': '✅ Deploy to main',
-              'description': f'[\`{sha}\`](https://github.com/{repo}/commit/{full_sha}) {msg}\n\nby **{author}**',
-              'color': 5763719,
-              'footer': {'text': 'Alook CI/CD'},
-              'timestamp': '$(date -u +%Y-%m-%dT%H:%M:%SZ)'
-            }]
-          }
-          print(json.dumps(payload))
-          ")
-          curl -sf -H "Content-Type: application/json" -d "$BODY" "$DISCORD_WEBHOOK"
+          curl -sf -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
