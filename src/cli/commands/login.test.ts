@@ -69,7 +69,7 @@ describe("alook login", () => {
 
   function mockFetchSequence(responses: { url: string; status: number; body: unknown }[]) {
     const queue = [...responses];
-    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, _init?: RequestInit) => {
       const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
       const idx = queue.findIndex((r) => urlStr.includes(r.url));
       if (idx >= 0) {
@@ -202,5 +202,103 @@ describe("alook login", () => {
 
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("http://localhost:3000/device?user_code=ABCD-EFGH"));
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("ABCD-EFGH"));
+  });
+
+  describe("already authenticated", () => {
+    it("exits early when token is still valid", async () => {
+      mockLoadCLIConfigForProfile.mockReturnValue({
+        server_url: "http://localhost:3000",
+        watched_workspaces: [{ id: "sp_ws1", name: "My Workspace", token: "al_existing_tok" }],
+      });
+
+      mockFetchSequence([
+        { url: "/api/workspaces", status: 200, body: [{ id: "sp_ws1", name: "My Workspace" }] },
+      ]);
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Already logged in"),
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("--force"),
+      );
+      expect(mockSaveCLIConfigForProfile).not.toHaveBeenCalled();
+    });
+
+    it("proceeds with login when --force is set", async () => {
+      mockLoadCLIConfigForProfile.mockReturnValue({
+        server_url: "http://localhost:3000",
+        watched_workspaces: [{ id: "sp_ws1", name: "My Workspace", token: "al_existing_tok" }],
+      });
+
+      mockFetchSequence(fullSuccessResponses());
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000", "--force"]));
+
+      expect(mockSaveCLIConfigForProfile).toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Logged in as test@alook.ai"));
+    });
+
+    it("proceeds with login when token is invalid/expired", async () => {
+      mockLoadCLIConfigForProfile.mockReturnValue({
+        server_url: "http://localhost:3000",
+        watched_workspaces: [{ id: "sp_ws1", name: "My Workspace", token: "al_expired_tok" }],
+      });
+
+      mockFetchSequence([
+        { url: "/api/workspaces", status: 401, body: { error: "unauthorized" } },
+        { url: "/api/auth/device/code", status: 200, body: deviceCodeResponse() },
+        { url: "/api/auth/device/token", status: 200, body: tokenSuccessResponse() },
+        { url: "/api/me", status: 200, body: { id: "u1", email: "test@alook.ai" } },
+        { url: "/api/workspaces", status: 200, body: [{ id: "sp_ws1", name: "My Workspace" }] },
+        { url: "/api/machine-tokens", status: 201, body: { token: "al_new_tok" } },
+        { url: "/api/machine-tokens/activate", status: 200, body: { daemon_id: "host1", workspace_id: "sp_ws1", runtimes: [{ id: "r1", provider: "claude" }] } },
+        { url: "/api/workspaces", status: 200, body: [{ id: "sp_ws1", name: "My Workspace" }] },
+        { url: "/api/agents", status: 200, body: [] },
+      ]);
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
+
+      expect(mockSaveCLIConfigForProfile).toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Logged in as test@alook.ai"));
+    });
+
+    it("proceeds with login when no workspaces in config", async () => {
+      mockLoadCLIConfigForProfile.mockReturnValue({
+        server_url: "http://localhost:3000",
+        watched_workspaces: [],
+      });
+
+      mockFetchSequence(fullSuccessResponses());
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
+
+      expect(mockSaveCLIConfigForProfile).toHaveBeenCalled();
+    });
+
+    it("works correctly in non-TTY mode with early exit", async () => {
+      Object.defineProperty(process.stdout, "isTTY", { value: false, writable: true });
+      mockLoadCLIConfigForProfile.mockReturnValue({
+        server_url: "http://localhost:3000",
+        watched_workspaces: [{ id: "sp_ws1", name: "My Workspace", token: "al_valid_tok" }],
+      });
+
+      mockFetchSequence([
+        { url: "/api/workspaces", status: 200, body: [{ id: "sp_ws1", name: "My Workspace" }] },
+      ]);
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Already logged in"),
+      );
+      expect(mockSaveCLIConfigForProfile).not.toHaveBeenCalled();
+    });
   });
 });
