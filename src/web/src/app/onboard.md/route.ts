@@ -28,7 +28,15 @@ Review your conversation history with this user. Summarize:
 
 Use this understanding to choose the best workspace setup.
 
-## 3. Explore Templates & Set Up Workspace
+## 3. Start Daemon
+
+\`\`\`bash
+${cliPrefix} daemon start
+\`\`\`
+
+The daemon must be running before initializing a workspace (workspace init requires active runtimes).
+
+## 4. Explore Templates & Set Up Workspace
 
 Visit ${baseUrl}/templates to explore available workspace templates.
 Each template has a JSON version at \`/templates/<slug>/json\` you can fetch for reference.
@@ -65,19 +73,13 @@ ${cliPrefix} workspace init --json-file <path_to_json>
 
 If the current workspace already has agents, a new workspace is created automatically.
 
-## 4. Start Daemon & Open Workspace
-
-\`\`\`bash
-${cliPrefix} daemon start
-\`\`\`
-
-Once the daemon starts successfully, tell the user their workspace is ready and provide the URL:
+Your workspace is ready. Open it at:
 
 \`\`\`
 ${baseUrl}/w/{slug}/home
 \`\`\`
 
-(Use the workspace slug from the \`workspace init\` output in Step 3.)
+(Use the workspace slug from the \`workspace init\` output above.)
 `;
 }
 
