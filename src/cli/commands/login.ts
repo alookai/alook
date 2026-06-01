@@ -162,7 +162,7 @@ if (process.argv.includes("--__login-poll")) {
   pollAndActivate(data).catch(() => process.exit(1));
 }
 
-async function checkExistingAuth(serverUrl: string, profile?: string): Promise<{ valid: boolean; email?: string; workspaceName?: string }> {
+async function checkExistingAuth(serverUrl: string, profile?: string): Promise<{ valid: boolean; workspaceName?: string }> {
   const config = loadCLIConfigForProfile(profile);
   const workspaces = config.watched_workspaces || [];
   if (workspaces.length === 0) {
