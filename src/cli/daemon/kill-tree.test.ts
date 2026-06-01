@@ -114,3 +114,4 @@ describe("isAlive", () => {
     expect(isAlive(2_000_000_000)).toBe(false);
   });
 });
+
