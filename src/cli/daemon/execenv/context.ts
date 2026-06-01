@@ -241,6 +241,15 @@ Recruit new colleague agents directly from the CLI. The server auto-generates a 
 - Example: '${cmdPrefix()} agent recruit --instructions "You are a QA engineer..." --relationship "DELEGATE when: code is ready for review"'
 - Output: 'Recruited Felix (felix@alook.ai) — ag_xK9mPq2z'
 - The new agent shares your runtime, is automatically linked as your colleague, and receives a welcome task.
+
+Set or update the relationship with an EXISTING colleague (create-or-replace):
+- Run '${cmdPrefix()} agent link --to <handleOrId> --relationship "<DELEGATION_CRITERIA>"'
+  - '--to <handleOrId>' — target agent by email handle ('coder' or 'coder@alook.ai') or agent id ('ag_...')
+  - '--relationship <text>' — the delegation criteria both of you see (replaces it if a link already exists)
+  - '--relationship-file <path>' — alternative: read relationship from a file (mutually exclusive with --relationship)
+  - '--json' — output the link object incl. a 'created' boolean
+- Example: '${cmdPrefix()} agent link --to coder --relationship "DELEGATE when implementation is needed"'
+- Output: 'Linked Felix <-> coder (created)' (or '(updated)' when an existing link was replaced).
 `;
 
   content += `\n### Calendar

@@ -31,6 +31,13 @@ vi.mock("nanoid", () => ({
   nanoid: () => `mock-id-${++nanoidCounter}`,
 }))
 
+// Mock cloudflare:email — capture the raw MIME passed to the CF SEND_EMAIL binding.
+vi.mock("cloudflare:email", () => ({
+  EmailMessage: class {
+    constructor(public from: string, public to: string, public raw: string) {}
+  },
+}))
+
 // Mock @alook/shared at module level — the handler never touches Drizzle
 const mockGetAgentByHandle = vi.fn<(db: unknown, handle: unknown) => unknown>()
 const mockGetAgent = vi.fn<(db: unknown, id: unknown, workspaceId: unknown) => unknown>()
@@ -525,23 +532,29 @@ describe("POST /send/agent", () => {
     )
 
     expect(res.status).toBe(200)
-    const json = await res.json() as { ok: boolean; r2Key: string }
+    const json = await res.json() as { ok: boolean; r2Key: string; messageId: string }
     expect(json.ok).toBe(true)
     expect(json.r2Key).toMatch(/^emails\/mock-id-\d+\/raw$/)
 
-    // Verify SEND_EMAIL.send was called with builder
+    // Verify SEND_EMAIL.send was called with a raw-MIME EmailMessage
     expect(send).toHaveBeenCalledOnce()
-    const sendArg = send.mock.calls[0][0]
+    const sendArg = send.mock.calls[0][0] as { from: string; to: string; raw: string }
     expect(sendArg.from).toBe("jarvis@alook.ai")
     expect(sendArg.to).toBe("user@example.com")
-    expect(sendArg.subject).toBe("Hello")
-    expect(sendArg.html).toBe("<p>Hi there</p>")
+    expect(sendArg.raw).toContain("From: jarvis@alook.ai")
+    expect(sendArg.raw).toContain("To: user@example.com")
+    expect(sendArg.raw).toContain("Subject: Hello")
+    expect(sendArg.raw).toContain("<p>Hi there</p>")
 
-    // Verify R2 archive
+    // TC2/TC6: the Message-ID on the wire == the returned id == the archived id
+    expect(sendArg.raw).toContain("Message-ID: " + json.messageId)
+
+    // Verify R2 archive (same MIME as the wire message)
     expect(put).toHaveBeenCalledOnce()
     const [key, body, opts] = put.mock.calls[0]
     expect(key).toMatch(/^emails\/mock-id-\d+\/raw$/)
     expect(opts).toEqual({ httpMetadata: { contentType: "message/rfc822" } })
+    expect(body).toBe(sendArg.raw)
     expect(body).toContain("From: jarvis@alook.ai")
     expect(body).toContain("To: user@example.com")
     expect(body).toContain("Subject: Hello")
@@ -573,18 +586,17 @@ describe("POST /send/agent", () => {
 
     expect(res.status).toBe(200)
 
-    // Verify SEND_EMAIL.send includes attachments with raw ArrayBuffer content
-    const sendArg = send.mock.calls[0][0]
-    expect(sendArg.attachments).toHaveLength(1)
-    expect(sendArg.attachments[0].filename).toBe("doc.txt")
-    expect(sendArg.attachments[0].type).toBe("text/plain")
-    expect(sendArg.attachments[0].disposition).toBe("attachment")
-    expect(sendArg.attachments[0].content).toBeInstanceOf(ArrayBuffer)
-    const decoded = new TextDecoder().decode(sendArg.attachments[0].content)
-    expect(decoded).toBe("file content")
+    // Verify the raw-MIME wire message carries the attachment (base64-encoded)
+    const sendArg = send.mock.calls[0][0] as { raw: string }
+    expect(sendArg.raw).toContain("multipart/mixed")
+    expect(sendArg.raw).toContain('Content-Disposition: attachment; filename="doc.txt"')
+    expect(sendArg.raw).toContain("Content-Transfer-Encoding: base64")
+    // TC2: attachment base64 round-trips intact in the rendered MIME
+    expect(sendArg.raw).toContain(btoa("file content"))
 
-    // Verify R2 MIME archive contains attachment
+    // Verify R2 MIME archive is the same MIME that went on the wire
     const storedMime = put.mock.calls[0][1] as string
+    expect(storedMime).toBe(sendArg.raw)
     expect(storedMime).toContain("multipart/mixed")
     expect(storedMime).toContain('Content-Disposition: attachment; filename="doc.txt"')
     expect(storedMime).toContain("Content-Transfer-Encoding: base64")
@@ -628,11 +640,11 @@ describe("POST /send/agent", () => {
     expect(fetchOrder).toContain("emails/drafts/x/missing.txt")
     expect(fetchOrder).toContain("emails/drafts/x/b.txt")
 
-    // Only non-null attachments included
-    const sendArg = send.mock.calls[0][0]
-    expect(sendArg.attachments).toHaveLength(2)
-    expect(sendArg.attachments[0].filename).toBe("a.txt")
-    expect(sendArg.attachments[1].filename).toBe("b.txt")
+    // Only non-null attachments included in the raw MIME (missing.txt skipped)
+    const sendArg = send.mock.calls[0][0] as { raw: string }
+    expect(sendArg.raw).toContain('filename="a.txt"')
+    expect(sendArg.raw).toContain('filename="b.txt"')
+    expect(sendArg.raw).not.toContain('filename="missing.txt"')
   })
 
   it("returns 404 when agent not found in workspace", async () => {
@@ -684,7 +696,7 @@ describe("POST /send/agent", () => {
 
   it("includes threading headers in outgoing MIME when inReplyTo/references provided", async () => {
     mockGetAgent.mockResolvedValue({ id: "agent-1", workspaceId: "ws-1", emailHandle: "jarvis" })
-    const { env, put } = agentSendEnv()
+    const { env, send, put } = agentSendEnv()
 
     const res = await handler.fetch(
       makeAgentSendRequest({
@@ -702,6 +714,12 @@ describe("POST /send/agent", () => {
     expect(res.status).toBe(200)
     const json = await res.json() as { ok: boolean; messageId: string }
     expect(json.messageId).toMatch(/@alook\.ai>$/)
+
+    // Threading headers now ride the WIRE message (raw MIME), not just the archive.
+    const sendArg = send.mock.calls[0][0] as { raw: string }
+    expect(sendArg.raw).toContain("Message-ID: " + json.messageId)
+    expect(sendArg.raw).toContain("In-Reply-To: <parent-123@example.com>")
+    expect(sendArg.raw).toContain("References: <root-000@example.com> <parent-123@example.com>")
 
     const storedMime = put.mock.calls[0][1] as string
     expect(storedMime).toContain("Message-ID: " + json.messageId)
@@ -773,7 +791,7 @@ describe("POST /send/agent with custom SMTP", () => {
   it("sends via worker-mailer when customAccountId is provided", async () => {
     mockGetAgent.mockResolvedValue({ id: "agent-1", workspaceId: "ws-1", emailHandle: "jarvis" })
     mockGetEmailAccount.mockResolvedValue(CUSTOM_ACCOUNT)
-    const { env, send } = customSmtpEnv()
+    const { env, send, put } = customSmtpEnv()
 
     const res = await handler.fetch(
       makeRequest({
@@ -800,6 +818,14 @@ describe("POST /send/agent with custom SMTP", () => {
     expect(emailOpts.from).toEqual({ name: "Custom User", email: "user@gmail.com" })
     expect(emailOpts.to).toBe("recipient@example.com")
     expect(emailOpts.subject).toBe("Custom SMTP test")
+
+    // TC3: wire Message-ID is controlled, uses the from-account domain, and equals
+    // the returned/archived id (so a human reply threads back).
+    const json = await res.json() as { messageId: string }
+    expect(emailOpts.headers["Message-ID"]).toBe(json.messageId)
+    expect(json.messageId).toMatch(/@gmail\.com>$/)
+    const storedMime = put.mock.calls[0][1] as string
+    expect(storedMime).toContain("Message-ID: " + json.messageId)
   })
 
   it("falls back to CF SendEmail when no customAccountId", async () => {

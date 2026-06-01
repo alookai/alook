@@ -35,8 +35,6 @@ vi.mock("@alook/shared", () => ({
     },
     message: {
       createMessage: vi.fn(),
-      activateNextBufferedMessage: vi.fn(),
-      revertToBuffered: vi.fn(),
     },
   },
 }));

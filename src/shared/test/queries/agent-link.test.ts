@@ -10,6 +10,102 @@ describe("agent-link query module exports", () => {
   it("exports getColleaguesForAgent", () => { expect(typeof agentLinkQueries.getColleaguesForAgent).toBe("function"); });
   it("exports getColleaguesForAgents", () => { expect(typeof agentLinkQueries.getColleaguesForAgents).toBe("function"); });
   it("exports getAllColleaguesForWorkspace", () => { expect(typeof agentLinkQueries.getAllColleaguesForWorkspace).toBe("function"); });
+  it("exports getByPair", () => { expect(typeof agentLinkQueries.getByPair).toBe("function"); });
+  it("exports upsertByPair", () => { expect(typeof agentLinkQueries.upsertByPair).toBe("function"); });
+});
+
+// Helper: a select().from().where() chain that resolves to `rows`.
+function selectChain(rows: unknown[]) {
+  const chain: any = {};
+  chain.select = vi.fn(() => chain);
+  chain.from = vi.fn(() => chain);
+  chain.where = vi.fn(() => Promise.resolve(rows));
+  return chain;
+}
+
+describe("getByPair", () => {
+  // TC4: returns the row for either input order; null when absent.
+  it("queries canonical order (a < b) and returns the row", async () => {
+    const link = { id: "link_1", sourceAgentId: "ag_a", targetAgentId: "ag_z" };
+    const chain = selectChain([link]);
+    const result = await agentLinkQueries.getByPair(chain, "ws_1", "ag_a", "ag_z");
+    expect(result).toEqual(link);
+  });
+
+  it("returns the same row when input order is reversed (b, a)", async () => {
+    const link = { id: "link_1", sourceAgentId: "ag_a", targetAgentId: "ag_z" };
+    const chain = selectChain([link]);
+    const result = await agentLinkQueries.getByPair(chain, "ws_1", "ag_z", "ag_a");
+    expect(result).toEqual(link);
+  });
+
+  it("returns null when no row exists", async () => {
+    const chain = selectChain([]);
+    expect(await agentLinkQueries.getByPair(chain, "ws_1", "ag_a", "ag_z")).toBeNull();
+  });
+});
+
+describe("upsertByPair", () => {
+  // TC1: non-existent pair -> inserts 1 row, created:true, canonical order.
+  it("creates a new row (created:true) when the pair does not exist", async () => {
+    const created = { id: "link_new", sourceAgentId: "ag_a", targetAgentId: "ag_z" };
+    const chain: any = {};
+    // getByPair -> select().from().where() resolves empty
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => Promise.resolve([]));
+    // create() -> insert().values().returning()
+    chain.insert = vi.fn(() => chain);
+    chain.values = vi.fn(() => chain);
+    chain.returning = vi.fn(() => Promise.resolve([created]));
+
+    const res = await agentLinkQueries.upsertByPair(chain, {
+      workspaceId: "ws_1",
+      sourceAgentId: "ag_z",
+      targetAgentId: "ag_a",
+      instruction: "hello",
+    });
+    expect(res).toEqual({ row: created, created: true });
+    // create() canonicalizes ag_z/ag_a -> ag_a/ag_z
+    expect(chain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceAgentId: "ag_a", targetAgentId: "ag_z", instruction: "hello" }),
+    );
+  });
+
+  // TC2/TC3: existing pair (either input order) -> updates the SAME row,
+  // created:false, no duplicate insert.
+  it("updates the existing row (created:false) and does not insert", async () => {
+    const existing = { id: "link_1", sourceAgentId: "ag_a", targetAgentId: "ag_z" };
+    const updated = { ...existing, instruction: "new text" };
+    // getByPair terminates on .where() (resolves rows); update() uses a longer
+    // .update().set().where().returning() chain. Track each independently.
+    const chain: any = {};
+    let whereCall = 0;
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.insert = vi.fn(() => chain);
+    chain.values = vi.fn(() => chain);
+    chain.update = vi.fn(() => chain);
+    chain.set = vi.fn(() => chain);
+    chain.returning = vi.fn(() => Promise.resolve([updated]));
+    chain.where = vi.fn(() => {
+      whereCall++;
+      // 1st where = getByPair lookup (returns existing); later wheres = update chain
+      return whereCall === 1 ? Promise.resolve([existing]) : chain;
+    });
+
+    // reversed input order (ag_z, ag_a) still hits the same canonical row
+    const res = await agentLinkQueries.upsertByPair(chain, {
+      workspaceId: "ws_1",
+      sourceAgentId: "ag_z",
+      targetAgentId: "ag_a",
+      instruction: "new text",
+    });
+    expect(res).toEqual({ row: updated, created: false });
+    expect(chain.update).toHaveBeenCalled();
+    expect(chain.insert).not.toHaveBeenCalled();
+    expect(chain.set).toHaveBeenCalledWith(expect.objectContaining({ instruction: "new text" }));
+  });
 });
 
 describe("create", () => {

@@ -157,6 +157,42 @@ describe("POST /api/email/notify", () => {
     );
   });
 
+  // TC4 (the bug): a human replies from their own mail client. Their reply carries
+  // In-Reply-To = the wire Message-ID of the agent's original email. Because the worker
+  // now puts that SAME id on the wire AND registers it in conversationMap, the inbound
+  // lookup keys on In-Reply-To and resolves back to the original conversation — instead
+  // of opening a brand-new one (the reported bug).
+  it("threads a human reply into the original conversation via In-Reply-To (no new conversation)", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: "r1", ownerId: "u1" });
+    const WIRE_ID = "<wire-abc@alook.ai>"; // the id the agent put on the wire + registered
+    // The map was registered (on send) keyed on the wire id → the original conversation.
+    mockFindByKey.mockImplementation((_db: unknown, key: string) =>
+      key === `email:a1:${WIRE_ID}` ? "conv_original" : null,
+    );
+    mockGetConversation.mockResolvedValue({ id: "conv_original", type: "email_notification", userId: "u1" });
+    mockEnqueueTask.mockResolvedValue({ id: "t1" });
+
+    const res = await POST(makeNotifyReq({
+      ...baseBody,
+      messageId: "<human-reply-999@gmail.com>", // the human's own new Message-ID
+      inReplyTo: WIRE_ID,                         // points at the agent's wire id
+      references: "",
+    }));
+    expect(res.status).toBe(200);
+
+    // Lookup keyed on the In-Reply-To (the wire id), NOT the human's own message id.
+    expect(mockFindByKey).toHaveBeenCalledWith(expect.anything(), `email:a1:${WIRE_ID}`, "ws1");
+    // Threaded into the original conversation — no new conversation, no new mapping.
+    expect(mockCreateConversation).not.toHaveBeenCalled();
+    expect(mockCreateMapping).not.toHaveBeenCalled();
+    expect(mockEnqueueTask).toHaveBeenCalledWith(
+      "a1", "conv_original", "ws1",
+      expect.any(String),
+      "email_notification",
+      expect.objectContaining({ contextKey: "conv_original" }),
+    );
+  });
+
   it("reuses existing DM conversation and includes dmUser in context", async () => {
     mockGetAgent.mockResolvedValue({ id: "a1", workspaceId: "ws1", runtimeId: "r1", ownerId: "u1" });
     mockFindByKey.mockResolvedValue("conv_dm");

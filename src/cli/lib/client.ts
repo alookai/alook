@@ -45,6 +45,10 @@ export class APIClient {
     return this.request("PATCH", path, body);
   }
 
+  putJSON<T>(path: string, body?: unknown): Promise<T> {
+    return this.request("PUT", path, body);
+  }
+
   async postMultipart<T>(path: string, form: FormData): Promise<T> {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${this.token}`,

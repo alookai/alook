@@ -10,7 +10,6 @@ import {
   taskToResponse,
   taskMessageToResponse,
 } from "@/lib/api/responses";
-import { TaskService } from "@/lib/services/task";
 
 const MESSAGE_LIMIT = 20;
 const ARTIFACT_LIMIT = 50;
@@ -50,13 +49,12 @@ export const POST = withAuth(async (req, ctx) => {
 
   const convId = conversation.id;
 
-  const [messagesResult, artifactsResult, bufferedResult, activeTaskResult, hasMoreConvsResult] =
+  const [messagesResult, artifactsResult, activeTaskResult, hasMoreConvsResult] =
     await Promise.allSettled([
       queries.message.listMessages(db, convId, { limit: MESSAGE_LIMIT }),
       queries.artifact.listArtifactsByConversation(db, convId, ws.workspaceId, {
         limit: ARTIFACT_LIMIT,
       }),
-      queries.message.listBufferedMessages(db, convId),
       queries.task.getActiveTaskByConversation(db, convId, ws.workspaceId),
       queries.conversation.hasPreviousConversations(
         db, ws.workspaceId, ctx.userId, id, convId, channel,
@@ -69,8 +67,6 @@ export const POST = withAuth(async (req, ctx) => {
       : { messages: [] as never[], has_more: false };
   const artifacts =
     artifactsResult.status === "fulfilled" ? artifactsResult.value : [];
-  const buffered =
-    bufferedResult.status === "fulfilled" ? bufferedResult.value : [];
   const activeTask =
     activeTaskResult.status === "fulfilled"
       ? activeTaskResult.value
@@ -78,23 +74,7 @@ export const POST = withAuth(async (req, ctx) => {
   const hasMoreConvs =
     hasMoreConvsResult.status === "fulfilled" ? hasMoreConvsResult.value : false;
 
-  // Recover orphaned buffered messages: if there are buffered messages but no
-  // active task, dispatch the first one now (handles race where task completed
-  // just before/after the message was buffered).
-  let resolvedActiveTask = activeTask;
-  let resolvedBuffered = buffered;
-  if (resolvedBuffered.length > 0 && !resolvedActiveTask) {
-    try {
-      const taskService = new TaskService(db);
-      const dispatched = await taskService.dispatchNextBufferedMessage(convId, ws.workspaceId);
-      if (dispatched) {
-        resolvedActiveTask = dispatched;
-        resolvedBuffered = await queries.message.listBufferedMessages(db, convId);
-      }
-    } catch {
-      // non-critical — user can still send a new message to unstick
-    }
-  }
+  const resolvedActiveTask = activeTask;
 
   let taskMessages: unknown[] = [];
   if (
@@ -116,7 +96,6 @@ export const POST = withAuth(async (req, ctx) => {
     conversation: conversationToResponse(conversation),
     messages: messages.map(messageToResponse),
     artifacts: artifacts.map(queries.artifact.artifactToResponse),
-    buffered_messages: resolvedBuffered.map(messageToResponse),
     active_task: resolvedActiveTask ? taskToResponse(resolvedActiveTask) : null,
     task_messages: taskMessages,
     has_more_messages: hasMoreMessages,

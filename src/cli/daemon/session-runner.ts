@@ -182,8 +182,12 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
   // --- State shared by the kill handler, hoisted so the SINGLE handler below
   //     can see it whether the kill lands before or after the agent spawns. ---
   let killed = false;
-  let agentPid: number | undefined = undefined;
-  let flushTimer: ReturnType<typeof setInterval> | undefined = undefined;
+  // Assigned once after the agent spawns (below) but READ earlier inside onKill;
+  // prefer-const can't see the closure read, so it must stay `let`.
+  // eslint-disable-next-line prefer-const
+  let agentPid: number | undefined;
+  // eslint-disable-next-line prefer-const
+  let flushTimer: ReturnType<typeof setInterval> | undefined;
 
   // Message batching
   const pendingMessages: {

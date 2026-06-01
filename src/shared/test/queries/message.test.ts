@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as messageQueries from "../../src/db/queries/message";
+import { message } from "../../src/db/schema";
 
 function createMockDb(rows: any[]) {
   const chain: any = {};
@@ -36,34 +37,6 @@ describe("message query module exports", () => {
 
   it("exports getMessage", () => {
     expect(typeof messageQueries.getMessage).toBe("function");
-  });
-
-  it("exports createBufferedMessage", () => {
-    expect(typeof messageQueries.createBufferedMessage).toBe("function");
-  });
-
-  it("exports listBufferedMessages", () => {
-    expect(typeof messageQueries.listBufferedMessages).toBe("function");
-  });
-
-  it("exports activateNextBufferedMessage", () => {
-    expect(typeof messageQueries.activateNextBufferedMessage).toBe("function");
-  });
-
-  it("exports revertToBuffered", () => {
-    expect(typeof messageQueries.revertToBuffered).toBe("function");
-  });
-
-  it("exports deleteBufferedMessage", () => {
-    expect(typeof messageQueries.deleteBufferedMessage).toBe("function");
-  });
-
-  it("exports deleteAllBufferedMessages", () => {
-    expect(typeof messageQueries.deleteAllBufferedMessages).toBe("function");
-  });
-
-  it("exports countBufferedMessages", () => {
-    expect(typeof messageQueries.countBufferedMessages).toBe("function");
   });
 
   it("exports updateMessageTaskId", () => {
@@ -126,22 +99,14 @@ describe("getMessage", () => {
   });
 });
 
-describe("countBufferedMessages", () => {
-  it("returns count value", async () => {
-    const chain: any = {};
-    chain.select = vi.fn(() => chain);
-    chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => Promise.resolve([{ count: 5 }]));
-    const result = await messageQueries.countBufferedMessages(chain, "conv_1");
-    expect(result).toBe(5);
-  });
 
-  it("returns 0 when no results", async () => {
-    const chain: any = {};
-    chain.select = vi.fn(() => chain);
-    chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => Promise.resolve([]));
-    const result = await messageQueries.countBufferedMessages(chain, "conv_1");
-    expect(result).toBe(0);
+// TC9 — the message.status column (default "active") and the
+// idx_message_conversation_status index survive the buffer teardown.
+describe("message schema (TC9)", () => {
+  it("keeps the status column with default 'active'", () => {
+    expect(message.status).toBeDefined();
+    expect(message.status.name).toBe("status");
+    expect(message.status.notNull).toBe(true);
+    expect(message.status.default).toBe("active");
   });
 });

@@ -108,19 +108,6 @@ describe("chat-cache", () => {
       expect(metaAfter!.messageCount).toBe(4);
     });
 
-    it("filters out buffered messages", async () => {
-      const msgs = [
-        makeMessage({ id: "m1", conversation_id: "conv_1", status: "active" }),
-        makeMessage({ id: "m2", conversation_id: "conv_1", status: "buffered" }),
-      ];
-
-      await mergeCachedMessages("conv_1", msgs, false, WORKSPACE_ID);
-
-      const cached = await getCachedMessages("conv_1", WORKSPACE_ID);
-      expect(cached).toHaveLength(1);
-      expect(cached![0].id).toBe("m1");
-    });
-
     it("filters out temp- messages", async () => {
       const msgs = [
         makeMessage({ id: "m1", conversation_id: "conv_1" }),
@@ -153,24 +140,6 @@ describe("chat-cache", () => {
       expect(cached).toBeNull();
     });
 
-    it("excludes buffered messages on read", async () => {
-      const db = await openCacheDB(WORKSPACE_ID)!;
-      await db.put("messages", makeMessage({ id: "m1", conversation_id: "conv_1", status: "buffered" }));
-      await db.put("messages", makeMessage({ id: "m2", conversation_id: "conv_1", status: "active" }));
-      await db.put("cache_meta", {
-        conversation_id: "conv_1",
-        lastFetchedAt: Date.now(),
-        lastAccessedAt: Date.now(),
-        messageCount: 2,
-        newestMessageId: "m2",
-        hasMore: false,
-        serverMessageCount: 0,
-      });
-
-      const cached = await getCachedMessages("conv_1", WORKSPACE_ID);
-      expect(cached).toHaveLength(1);
-      expect(cached![0].id).toBe("m2");
-    });
   });
 
   describe("appendCachedMessage", () => {
@@ -182,16 +151,6 @@ describe("chat-cache", () => {
 
       const cached = await getCachedMessages("conv_1", WORKSPACE_ID);
       expect(cached).toHaveLength(2);
-    });
-
-    it("skips buffered messages", async () => {
-      const initial = [makeMessage({ id: "m1", conversation_id: "conv_1" })];
-      await mergeCachedMessages("conv_1", initial, false, WORKSPACE_ID);
-
-      await appendCachedMessage("conv_1", makeMessage({ id: "m2", conversation_id: "conv_1", status: "buffered" }), WORKSPACE_ID);
-
-      const cached = await getCachedMessages("conv_1", WORKSPACE_ID);
-      expect(cached).toHaveLength(1);
     });
 
     it("skips temp- messages", async () => {
@@ -507,16 +466,15 @@ describe("chat-cache", () => {
       expect(result!.messages.map((m) => m.id)).toEqual(["aaa", "bbb"]);
     });
 
-    it("filters out buffered and temp- messages", async () => {
+    it("filters out temp- messages", async () => {
       const db = await openCacheDB(WORKSPACE_ID)!;
       const msgs = [
         makeMessage({ id: "m1", conversation_id: "conv_1", created_at: "2024-01-01T00:00:00Z" }),
-        makeMessage({ id: "m2", conversation_id: "conv_1", created_at: "2024-01-01T00:01:00Z", status: "buffered" }),
         makeMessage({ id: "temp-1", conversation_id: "conv_1", created_at: "2024-01-01T00:02:00Z" }),
         makeMessage({ id: "m3", conversation_id: "conv_1", created_at: "2024-01-01T00:03:00Z" }),
         makeMessage({ id: "m4", conversation_id: "conv_1", created_at: "2024-01-01T00:04:00Z" }),
       ];
-      // Write directly to include buffered/temp that mergeCachedMessages would filter
+      // Write directly to include temp that mergeCachedMessages would filter
       for (const msg of msgs) {
         await db.put("messages", msg);
       }
@@ -524,7 +482,7 @@ describe("chat-cache", () => {
         conversation_id: "conv_1",
         lastFetchedAt: Date.now(),
         lastAccessedAt: Date.now(),
-        messageCount: 5,
+        messageCount: 4,
         newestMessageId: "m4",
         hasMore: false,
         serverMessageCount: 0,

@@ -117,9 +117,7 @@ export async function getCachedMessages(conversationId: string, workspaceId?: st
     const messages = await db.getAllFromIndex("messages", "by-conversation", conversationId);
     if (messages.length === 0) return null;
 
-    const filtered = messages.filter(
-      (m) => m.status !== "buffered" && !m.id.startsWith("temp-")
-    );
+    const filtered = messages.filter((m) => !m.id.startsWith("temp-"));
 
     filtered.sort((a, b) => {
       const cmp = a.created_at.localeCompare(b.created_at);
@@ -164,7 +162,7 @@ export async function getCachedMessagesBefore(
     const allInRange = await db.getAllFromIndex("messages", "by-created", range);
 
     const filtered = allInRange.filter((m) => {
-      if (m.status === "buffered" || m.id.startsWith("temp-")) return false;
+      if (m.id.startsWith("temp-")) return false;
       if (m.created_at === beforeCreatedAt && m.id >= beforeId) return false;
       return true;
     });
@@ -204,9 +202,7 @@ export async function mergeCachedMessages(
   try {
     const db = await p;
 
-    const validMessages = messages.filter(
-      (m) => m.status !== "buffered" && !m.id.startsWith("temp-")
-    );
+    const validMessages = messages.filter((m) => !m.id.startsWith("temp-"));
     if (validMessages.length === 0) return;
 
     const tx = db.transaction(["messages", "cache_meta"], "readwrite");
@@ -263,7 +259,7 @@ export async function appendCachedMessage(
   const p = getDB(workspaceId);
   if (!p) return;
 
-  if (message.status === "buffered" || message.id.startsWith("temp-")) return;
+  if (message.id.startsWith("temp-")) return;
 
   try {
     const db = await p;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Message, Artifact } from "@alook/shared";
-import { sortMessages, mergeMessages, buildTimeline, addBufferedIfNew, replaceOptimisticBuffered, getEventIconType, reorderArtifactsAfterAssistant, shouldPersistPointerForLoad, pointerRefreshTargetForTaskCreated } from "./agent-chat-view";
+import { sortMessages, mergeMessages, buildTimeline, computeGroupPositions, getEventIconType, eventTypeFromMessage, reorderArtifactsAfterAssistant, shouldPersistPointerForLoad, pointerRefreshTargetForTaskCreated } from "./agent-chat-view";
 import type { NapMarker } from "./agent-chat-view";
 
 function msg(id: string, created_at: string, role: "user" | "assistant" | "event" = "user", content = ""): Message {
@@ -212,6 +212,23 @@ describe("getEventIconType", () => {
 
   it("lets explicit channel type win over event content", () => {
     expect(getEventIconType("Issue mentioned in an email subject", "email_notification")).toBe("email");
+  });
+});
+
+// Card type is metadata-driven first (robust if copy changes), content heuristic
+// only as a fallback when no resource id is present.
+describe("eventTypeFromMessage (metadata-driven)", () => {
+  it("uses the metadata resource id over the content heuristic", () => {
+    // Content says "email" but the metadata carries an issueId → issue wins.
+    expect(eventTypeFromMessage({ issueId: "iss_1" }, "email-ish text", null)).toBe("issue");
+    expect(eventTypeFromMessage({ emailId: "em_1" }, "no keywords here", null)).toBe("email");
+    expect(eventTypeFromMessage({ calendarEventId: "cal_1" }, "no keywords here", null)).toBe("calendar");
+  });
+
+  it("falls back to the content/conversation heuristic when metadata is absent", () => {
+    expect(eventTypeFromMessage(null, "Issue created: foo", "issue_event")).toBe("issue");
+    expect(eventTypeFromMessage(undefined, "New email from a@b.com: hi", "email_notification")).toBe("email");
+    expect(eventTypeFromMessage({}, "Standup reminder", "calendar_event")).toBe("calendar");
   });
 });
 
@@ -580,110 +597,6 @@ describe("reorderArtifactsAfterAssistant", () => {
   });
 });
 
-describe("addBufferedIfNew", () => {
-  it("adds a new message when id is not present", () => {
-    const prev = [msg("m1", "2024-01-01T00:00:00Z")];
-    const incoming = msg("m2", "2024-01-02T00:00:00Z");
-    const result = addBufferedIfNew(prev, incoming);
-    expect(result).toHaveLength(2);
-    expect(result[1].id).toBe("m2");
-  });
-
-  it("returns the same array when id already exists", () => {
-    const prev = [msg("m1", "2024-01-01T00:00:00Z")];
-    const incoming = msg("m1", "2024-01-01T00:00:00Z");
-    const result = addBufferedIfNew(prev, incoming);
-    expect(result).toBe(prev);
-    expect(result).toHaveLength(1);
-  });
-
-  it("adds to empty array", () => {
-    const result = addBufferedIfNew([], msg("m1", "2024-01-01T00:00:00Z"));
-    expect(result).toHaveLength(1);
-  });
-});
-
-describe("replaceOptimisticBuffered", () => {
-  it("replaces optimistic message with real message (HTTP first)", () => {
-    const prev = [
-      msg("m1", "2024-01-01T00:00:00Z"),
-      msg("temp-123", "2024-01-02T00:00:00Z", "user", "hello"),
-    ];
-    const real = msg("real-abc", "2024-01-02T00:00:00Z", "user", "hello");
-    const result = replaceOptimisticBuffered(prev, "temp-123", real);
-    expect(result).toHaveLength(2);
-    expect(result[1].id).toBe("real-abc");
-    expect(result.find((m) => m.id === "temp-123")).toBeUndefined();
-  });
-
-  it("removes optimistic when WebSocket already delivered the real message (WS first — the race condition fix)", () => {
-    const real = msg("real-abc", "2024-01-02T00:00:00Z", "user", "hello");
-    const prev = [
-      msg("m1", "2024-01-01T00:00:00Z"),
-      msg("temp-123", "2024-01-02T00:00:00Z", "user", "hello"),
-      real,
-    ];
-    const result = replaceOptimisticBuffered(prev, "temp-123", real);
-    expect(result).toHaveLength(2);
-    expect(result.map((m) => m.id)).toEqual(["m1", "real-abc"]);
-    expect(result.find((m) => m.id === "temp-123")).toBeUndefined();
-  });
-
-  it("full race simulation: optimistic → WS add (skipped) → HTTP replace produces no duplicates", () => {
-    const optimisticId = "temp-1716000000000";
-    const optimistic = msg(optimisticId, "2024-01-02T00:00:00Z", "user", "follow-up");
-    const real = msg("PjddM86V1he-JYuedi9tY", "2024-01-02T00:00:00Z", "user", "follow-up");
-
-    let state: Message[] = [msg("m1", "2024-01-01T00:00:00Z")];
-
-    // Step 1: add optimistic
-    state = [...state, optimistic];
-    expect(state).toHaveLength(2);
-
-    // Step 2: WebSocket delivers real message — skipped because temp entry with same timestamp exists
-    state = addBufferedIfNew(state, real);
-    expect(state).toHaveLength(2);
-
-    // Step 3: HTTP response arrives, replaces optimistic
-    state = replaceOptimisticBuffered(state, optimisticId, real);
-    expect(state).toHaveLength(2);
-    expect(state.map((m) => m.id)).toEqual(["m1", "PjddM86V1he-JYuedi9tY"]);
-  });
-
-  it("full normal flow: optimistic → HTTP replace → WS ignored produces no duplicates", () => {
-    const optimisticId = "temp-1716000000000";
-    const optimistic = msg(optimisticId, "2024-01-02T00:00:00Z", "user", "follow-up");
-    const real = msg("server-id", "2024-01-02T00:00:00Z", "user", "follow-up");
-
-    let state: Message[] = [msg("m1", "2024-01-01T00:00:00Z")];
-
-    // Step 1: add optimistic
-    state = [...state, optimistic];
-
-    // Step 2: HTTP response arrives first, replaces optimistic
-    state = replaceOptimisticBuffered(state, optimisticId, real);
-    expect(state).toHaveLength(2);
-    expect(state[1].id).toBe("server-id");
-
-    // Step 3: WebSocket arrives late, dedup blocks it
-    state = addBufferedIfNew(state, real);
-    expect(state).toHaveLength(2);
-    expect(state.map((m) => m.id)).toEqual(["m1", "server-id"]);
-  });
-
-  it("handles multiple buffered messages — only the targeted optimistic is affected", () => {
-    const prev = [
-      msg("m1", "2024-01-01T00:00:00Z"),
-      msg("temp-100", "2024-01-02T00:00:00Z", "user", "first"),
-      msg("temp-200", "2024-01-03T00:00:00Z", "user", "second"),
-    ];
-    const real = msg("real-100", "2024-01-02T00:00:00Z", "user", "first");
-    const result = replaceOptimisticBuffered(prev, "temp-100", real);
-    expect(result).toHaveLength(3);
-    expect(result.map((m) => m.id)).toEqual(["m1", "real-100", "temp-200"]);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Wrong-conversation flash fix: per-channel "latest-created" pointer semantics.
 //
@@ -809,5 +722,52 @@ describe("pointerRefreshTargetForTaskCreated (TODO-2: WS-driven refresh scope)",
         task: { agent_id: "agent_a", channel: undefined, conversation_id: "conv_new" },
       }),
     ).toBe("conv_new");
+  });
+});
+
+// TC1 — grouping: same-role + <60s clusters into first/middle/last/solo;
+// event messages never group (stay null).
+describe("computeGroupPositions (TC1)", () => {
+  const positionsFor = (msgs: Message[]) =>
+    computeGroupPositions(buildTimeline(msgs, [], []));
+
+  it("groups three same-role messages within 60s as first/middle/last", () => {
+    const msgs = [
+      msg("a", "2024-01-01T00:00:00Z", "user", "1"),
+      msg("b", "2024-01-01T00:00:30Z", "user", "2"),
+      msg("c", "2024-01-01T00:00:50Z", "user", "3"),
+    ];
+    expect(positionsFor(msgs)).toEqual(["first", "middle", "last"]);
+  });
+
+  it("breaks a cluster when the gap exceeds 60s", () => {
+    const msgs = [
+      msg("a", "2024-01-01T00:00:00Z", "user", "1"),
+      msg("b", "2024-01-01T00:02:00Z", "user", "2"),
+    ];
+    expect(positionsFor(msgs)).toEqual(["solo", "solo"]);
+  });
+
+  it("breaks a cluster when the role changes", () => {
+    const msgs = [
+      msg("a", "2024-01-01T00:00:00Z", "user", "hi"),
+      msg("b", "2024-01-01T00:00:10Z", "assistant", "hello"),
+    ];
+    expect(positionsFor(msgs)).toEqual(["solo", "solo"]);
+  });
+
+  it("never groups event messages (null) and they break neighbouring clusters", () => {
+    const msgs = [
+      msg("a", "2024-01-01T00:00:00Z", "assistant", "1"),
+      msg("e", "2024-01-01T00:00:10Z", "event", "Email received"),
+      msg("c", "2024-01-01T00:00:20Z", "assistant", "2"),
+    ];
+    // The event sits between two assistant messages but is not groupable, so it
+    // is null and the two assistant messages are each solo (not grouped through it).
+    expect(positionsFor(msgs)).toEqual(["solo", null, "solo"]);
+  });
+
+  it("returns solo for a single message", () => {
+    expect(positionsFor([msg("a", "2024-01-01T00:00:00Z", "user", "1")])).toEqual(["solo"]);
   });
 });

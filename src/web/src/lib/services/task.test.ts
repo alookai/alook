@@ -38,8 +38,6 @@ vi.mock("@alook/shared", () => ({
     },
     message: {
       createMessage: vi.fn(),
-      activateNextBufferedMessage: vi.fn(),
-      revertToBuffered: vi.fn().mockResolvedValue(null),
       updateMessageTaskId: vi.fn().mockResolvedValue(undefined),
     },
     conversation: {
@@ -101,8 +99,6 @@ const service = new TaskService({} as any);
 describe("TaskService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Default: no buffered messages to dispatch
-    messageQ.activateNextBufferedMessage.mockResolvedValue(null);
     // Default: no kill tasks to claim
     taskQ.claimKillTasks.mockResolvedValue([]);
   });
@@ -618,196 +614,35 @@ describe("TaskService", () => {
     });
   });
 
-  // ── dispatchNextBufferedMessage ─────────────────────────────────
+  // ── failTask creates a runtime-error assistant message (TC6) ────
 
-  describe("dispatchNextBufferedMessage", () => {
-    it("returns null when no buffered messages exist", async () => {
-      messageQ.activateNextBufferedMessage.mockResolvedValue(null);
-
-      const result = await service.dispatchNextBufferedMessage("c1", "w1");
-
-      expect(result).toBeNull();
-      expect(conversationQ.getConversation).not.toHaveBeenCalled();
-    });
-
-    it("activates first buffered message and enqueues task", async () => {
-      const activated = {
-        id: "msg1",
-        conversationId: "c1",
-        role: "user",
-        content: "follow-up",
-        taskId: null,
-        attachmentIds: null,
-        status: "active",
-        createdAt: "2026-01-01T00:00:00.000Z",
-      };
-      messageQ.activateNextBufferedMessage.mockResolvedValue(activated);
-      conversationQ.getConversation.mockResolvedValue({
-        id: "c1",
-        agentId: "a1",
-        userId: "u1",
-        workspaceId: "w1",
-      });
-      agentQ.getAgent.mockResolvedValue({ id: "a1", runtimeId: "r1" });
-      taskQ.createTask.mockResolvedValue({
-        id: "t1",
-        agentId: "a1",
-        runtimeId: "r1",
-        workspaceId: "w1",
-        conversationId: "c1",
-        prompt: "follow-up",
-        status: "queued",
-        priority: 0,
-        createdAt: "2026-01-01",
-        dispatchedAt: null,
-        startedAt: null,
-        completedAt: null,
-      });
-
-      const result = await service.dispatchNextBufferedMessage("c1", "w1");
-
-      expect(result).toBeTruthy();
-      expect(result!.id).toBe("t1");
-      expect(broadcastToUser).toHaveBeenCalledWith(
-        "u1",
-        expect.objectContaining({ type: "followup.dispatched" })
-      );
-    });
-
-    it("forwards attachment context when buffered message has attachments", async () => {
-      const activated = {
-        id: "msg2",
-        conversationId: "c1",
-        role: "user",
-        content: "with files",
-        taskId: null,
-        attachmentIds: '["art_1","art_2"]',
-        status: "active",
-        createdAt: "2026-01-01T00:00:00.000Z",
-      };
-      messageQ.activateNextBufferedMessage.mockResolvedValue(activated);
-      conversationQ.getConversation.mockResolvedValue({
-        id: "c1",
-        agentId: "a1",
-        userId: "u1",
-        workspaceId: "w1",
-      });
-      agentQ.getAgent.mockResolvedValue({ id: "a1", runtimeId: "r1" });
-      taskQ.createTask.mockResolvedValue({
-        id: "t2",
-        agentId: "a1",
-        runtimeId: "r1",
-        workspaceId: "w1",
-        conversationId: "c1",
-        prompt: "with files",
-        status: "queued",
-        priority: 0,
-        createdAt: "2026-01-01",
-        dispatchedAt: null,
-        startedAt: null,
-        completedAt: null,
-      });
-
-      await service.dispatchNextBufferedMessage("c1", "w1");
-
-      expect(taskQ.createTask).toHaveBeenCalledWith(
-        {},
-        expect.objectContaining({
-          context: { attachment_ids: ["art_1", "art_2"] },
-        })
-      );
-    });
-
-    it("does NOT re-throw when enqueueTask fails", async () => {
-      const activated = {
-        id: "msg3",
-        conversationId: "c1",
-        role: "user",
-        content: "will fail",
-        taskId: null,
-        attachmentIds: null,
-        status: "active",
-        createdAt: "2026-01-01T00:00:00.000Z",
-      };
-      messageQ.activateNextBufferedMessage.mockResolvedValue(activated);
-      conversationQ.getConversation.mockResolvedValue({
-        id: "c1",
-        agentId: "a1",
-        userId: "u1",
-        workspaceId: "w1",
-      });
-      agentQ.getAgent.mockResolvedValue(null);
-
-      const result = await service.dispatchNextBufferedMessage("c1", "w1");
-
-      expect(result).toBeNull();
-      expect(messageQ.revertToBuffered).toHaveBeenCalledWith({}, "msg3");
-      expect(broadcastToUser).toHaveBeenCalledWith(
-        "u1",
-        expect.objectContaining({ type: "followup.dispatch_failed" })
-      );
-    });
-
-    it("returns null when conversation not found", async () => {
-      const activated = {
-        id: "msg4",
-        conversationId: "c1",
-        role: "user",
-        content: "test",
-        taskId: null,
-        attachmentIds: null,
-        status: "active",
-        createdAt: "2026-01-01T00:00:00.000Z",
-      };
-      messageQ.activateNextBufferedMessage.mockResolvedValue(activated);
-      conversationQ.getConversation.mockResolvedValue(null);
-
-      const result = await service.dispatchNextBufferedMessage("c1", "w1");
-
-      expect(result).toBeNull();
-      expect(messageQ.revertToBuffered).toHaveBeenCalledWith({}, "msg4");
-    });
-  });
-
-  // ── completeTask dispatches buffered ─────────────────────────────
-
-  describe("completeTask dispatches buffered messages", () => {
-    it("calls dispatchNextBufferedMessage after completion", async () => {
-      const task = {
-        id: "t1",
-        agentId: "a1",
-        workspaceId: "w1",
-        conversationId: "c1",
-        status: "completed",
-      };
-      taskQ.completeTask.mockResolvedValue(task);
-      taskQ.countRunningTasks.mockResolvedValue(0);
-      agentQ.updateAgentStatus.mockResolvedValue(undefined);
-
-      await service.completeTask("t1", "w1", JSON.stringify({}), "sess-1");
-
-      expect(messageQ.activateNextBufferedMessage).toHaveBeenCalledWith({}, "c1");
-    });
-  });
-
-  // ── failTask dispatches buffered ────────────────────────────────
-
-  describe("failTask dispatches buffered messages", () => {
-    it("calls dispatchNextBufferedMessage after failure", async () => {
+  describe("failTask runtime-error message", () => {
+    it("creates a role=assistant message with metadata.error_source=runtime + provider", async () => {
       const task = {
         id: "t1",
         agentId: "a1",
         workspaceId: "w1",
         conversationId: "c1",
         status: "failed",
+        runtimeId: "r1",
       };
       taskQ.failTask.mockResolvedValue(task);
       taskQ.countRunningTasks.mockResolvedValue(0);
       agentQ.updateAgentStatus.mockResolvedValue(undefined);
+      runtimeQ.getAgentRuntime.mockResolvedValue({ provider: "claude_code" });
 
-      await service.failTask("t1", "w1", "err");
+      await service.failTask("t1", "w1", "boom");
 
-      expect(messageQ.activateNextBufferedMessage).toHaveBeenCalledWith({}, "c1");
+      expect(messageQ.createMessage).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          conversationId: "c1",
+          role: "assistant",
+          content: "boom",
+          taskId: "t1",
+          metadata: JSON.stringify({ error_source: "runtime", provider: "claude_code" }),
+        })
+      );
     });
   });
 
@@ -831,7 +666,6 @@ describe("TaskService", () => {
       expect(messageQ.createMessage).not.toHaveBeenCalled();
       expect(taskQ.countRunningTasks).not.toHaveBeenCalled();
       expect(agentQ.updateAgentStatus).not.toHaveBeenCalled();
-      expect(messageQ.activateNextBufferedMessage).not.toHaveBeenCalled();
     });
   });
 
@@ -856,8 +690,11 @@ describe("TaskService", () => {
       expect(result!.status).toBe("cancelled");
       expect(taskQ.createTask).not.toHaveBeenCalled();
       expect(messageQ.createMessage).toHaveBeenCalledWith({}, expect.objectContaining({
-        content: "Task cancelled by user",
+        content: "Task cancelled by you",
         taskId: "t1",
+        // Stamped as a lifecycle note so the chat renders it as a centered
+        // system line, not an agent bubble.
+        metadata: JSON.stringify({ kind: "lifecycle" }),
       }));
     });
 
@@ -940,19 +777,6 @@ describe("TaskService", () => {
         type: "kill_task",
         context: { target_task_id: "t1" },
       }));
-    });
-
-    it("dispatches next buffered message after cancel", async () => {
-      const task = { id: "t1", status: "running", agentId: "a1", runtimeId: "r1", conversationId: "c1" };
-      taskQ.getActiveTaskByConversation.mockResolvedValue(task);
-      taskQ.cancelTask.mockResolvedValue({ ...task, status: "cancelled" });
-      taskQ.createTask.mockResolvedValue({ id: "kt1" });
-      taskQ.countRunningTasks.mockResolvedValue(0);
-      runtimeQ.getAgentRuntime.mockResolvedValue({ daemonId: "d1" });
-
-      await service.cancelActiveTask("c1", "w1");
-
-      expect(messageQ.activateNextBufferedMessage).toHaveBeenCalledWith({}, "c1");
     });
 
     it("daemon.kill payload includes agentId from active task", async () => {

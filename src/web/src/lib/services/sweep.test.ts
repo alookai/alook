@@ -5,7 +5,6 @@ const mockFailStaleKillTasks = vi.fn();
 const mockFailStaleRunningTasks = vi.fn();
 const mockCountRunningTasks = vi.fn();
 const mockUpdateAgentStatus = vi.fn();
-const mockActivateNextBufferedMessage = vi.fn();
 const mockGetConversation = vi.fn();
 const mockGetAgent = vi.fn();
 const mockCreateTask = vi.fn();
@@ -26,7 +25,6 @@ vi.mock("@alook/shared", () => ({
       updateAgentStatus: (...args: unknown[]) => mockUpdateAgentStatus(...args),
     },
     message: {
-      activateNextBufferedMessage: (...args: unknown[]) => mockActivateNextBufferedMessage(...args),
       createMessage: vi.fn(),
     },
     conversation: {
@@ -60,7 +58,6 @@ describe("sweepStaleState", () => {
     _resetSweepThrottle();
     mockFailStaleKillTasks.mockResolvedValue([]);
     mockFailStaleRunningTasks.mockResolvedValue([]);
-    mockActivateNextBufferedMessage.mockResolvedValue(null);
   });
 
   it("calls failStaleDispatchedTasks with workspace", async () => {
@@ -107,34 +104,6 @@ describe("sweepStaleState", () => {
 
     expect(mockCountRunningTasks).not.toHaveBeenCalled();
     expect(mockUpdateAgentStatus).not.toHaveBeenCalled();
-  });
-
-  it("dispatches buffered messages for affected conversations", async () => {
-    mockFailStaleDispatchedTasks.mockResolvedValue([
-      { agentId: "a1", workspaceId: "w1", conversationId: "c1" },
-      { agentId: "a2", workspaceId: "w1", conversationId: "c2" },
-    ]);
-    mockCountRunningTasks.mockResolvedValue(0);
-    mockUpdateAgentStatus.mockResolvedValue(undefined);
-
-    await sweepStaleState(db, "w1");
-
-    expect(mockActivateNextBufferedMessage).toHaveBeenCalledTimes(2);
-    expect(mockActivateNextBufferedMessage).toHaveBeenCalledWith(db, "c1");
-    expect(mockActivateNextBufferedMessage).toHaveBeenCalledWith(db, "c2");
-  });
-
-  it("deduplicates dispatch calls by conversationId", async () => {
-    mockFailStaleDispatchedTasks.mockResolvedValue([
-      { agentId: "a1", workspaceId: "w1", conversationId: "c1" },
-      { agentId: "a1", workspaceId: "w1", conversationId: "c1" },
-    ]);
-    mockCountRunningTasks.mockResolvedValue(0);
-    mockUpdateAgentStatus.mockResolvedValue(undefined);
-
-    await sweepStaleState(db, "w1");
-
-    expect(mockActivateNextBufferedMessage).toHaveBeenCalledTimes(1);
   });
 
   it("calls failStaleKillTasks with workspace", async () => {
@@ -185,31 +154,4 @@ describe("sweepStaleState", () => {
     expect(mockUpdateAgentStatus).toHaveBeenCalledTimes(1);
   });
 
-  it("dispatches buffered messages for stale running tasks", async () => {
-    mockFailStaleDispatchedTasks.mockResolvedValue([]);
-    mockFailStaleRunningTasks.mockResolvedValue([
-      { agentId: "a1", workspaceId: "w1", conversationId: "c1" },
-    ]);
-    mockCountRunningTasks.mockResolvedValue(0);
-    mockUpdateAgentStatus.mockResolvedValue(undefined);
-
-    await sweepStaleState(db, "w1");
-
-    expect(mockActivateNextBufferedMessage).toHaveBeenCalledWith(db, "c1");
-  });
-
-  it("deduplicates conversations across both sweeps", async () => {
-    mockFailStaleDispatchedTasks.mockResolvedValue([
-      { agentId: "a1", workspaceId: "w1", conversationId: "c1" },
-    ]);
-    mockFailStaleRunningTasks.mockResolvedValue([
-      { agentId: "a2", workspaceId: "w1", conversationId: "c1" },
-    ]);
-    mockCountRunningTasks.mockResolvedValue(0);
-    mockUpdateAgentStatus.mockResolvedValue(undefined);
-
-    await sweepStaleState(db, "w1");
-
-    expect(mockActivateNextBufferedMessage).toHaveBeenCalledTimes(1);
-  });
 });

@@ -2,7 +2,7 @@ import type { Database } from "@alook/shared";
 import { queries, TASK_TYPES, MAX_TASKS_PER_TRACE } from "@alook/shared";
 import { log } from "@/lib/logger";
 import { broadcastToUser, broadcastToDaemon } from "@/lib/broadcast";
-import { messageToResponse, taskToResponse } from "@/lib/api/responses";
+import { messageToResponse } from "@/lib/api/responses";
 import { invalidate, cacheKeys } from "@/lib/cache";
 import { TaskPayloadBuilder } from "@/lib/services/task-payload-builder";
 
@@ -185,7 +185,6 @@ export class TaskService {
     }
 
     await this.reconcileAgentStatus(task.agentId, task.workspaceId);
-    await this.dispatchNextBufferedMessage(task.conversationId, task.workspaceId);
     return task;
   }
 
@@ -242,7 +241,6 @@ export class TaskService {
 
     await this.reconcileAgentStatus(task.agentId, task.workspaceId);
     await this.syncIssueStatusFromTask(task, "failed");
-    await this.dispatchNextBufferedMessage(task.conversationId, task.workspaceId);
     return task;
   }
 
@@ -291,7 +289,6 @@ export class TaskService {
     }
 
     await this.reconcileAgentStatus(task.agentId, task.workspaceId);
-    await this.dispatchNextBufferedMessage(task.conversationId, task.workspaceId);
     return task;
   }
 
@@ -321,7 +318,7 @@ export class TaskService {
     return { oldTask: marked, newTask };
   }
 
-  async cancelActiveTask(conversationId: string, workspaceId: string, opts?: { skipDispatch?: boolean; reason?: string }) {
+  async cancelActiveTask(conversationId: string, workspaceId: string, opts?: { reason?: string }) {
     const activeTask = await taskQueries.getActiveTaskByConversation(this.db, conversationId, workspaceId);
     if (!activeTask) return null;
 
@@ -355,17 +352,17 @@ export class TaskService {
       }
     }
 
+    // Stamp lifecycle messages (cancelled/superseded) so the chat renders them
+    // as quiet centered system notes, not agent speech bubbles.
     await messageQueries.createMessage(this.db, {
       conversationId,
       role: "assistant",
-      content: opts?.reason ?? "Task cancelled by user",
+      content: opts?.reason ?? "Task cancelled by you",
       taskId: activeTask.id,
+      metadata: JSON.stringify({ kind: "lifecycle" }),
     });
 
     await this.reconcileAgentStatus(activeTask.agentId, workspaceId);
-    if (!opts?.skipDispatch) {
-      await this.dispatchNextBufferedMessage(conversationId, workspaceId);
-    }
     return cancelled;
   }
 
@@ -374,65 +371,6 @@ export class TaskService {
     const status = running > 0 ? "working" : "idle";
     await agentQueries.updateAgentStatus(this.db, agentId, workspaceId, status);
     invalidate(cacheKeys.activeTaskCounts(workspaceId)).catch(() => {});
-  }
-
-  async dispatchNextBufferedMessage(conversationId: string, workspaceId: string) {
-    const activated = await messageQueries.activateNextBufferedMessage(this.db, conversationId);
-    if (!activated) return null;
-
-    const conversation = await conversationQueries.getConversation(this.db, conversationId, workspaceId);
-    if (!conversation) {
-      log.warn("dispatchNextBufferedMessage: conversation not found", { conversationId });
-      await messageQueries.revertToBuffered(this.db, activated.id).catch((revertErr) => {
-        log.error("dispatchNextBufferedMessage: failed to revert message status", { messageId: activated.id, revertErr });
-      });
-      return null;
-    }
-
-    const userId = conversation.userId;
-
-    try {
-      const contextKey = conversationId;
-      const attachmentIds = activated.attachmentIds ? JSON.parse(activated.attachmentIds) as string[] : [];
-      const latestTask = await taskQueries.getLatestTaskForConversation(this.db, conversationId);
-      const traceId = latestTask?.traceId ?? null;
-      const task = await this.enqueueTask(
-        conversation.agentId,
-        conversationId,
-        workspaceId,
-        activated.content,
-        TASK_TYPES.USER_DM_MESSAGE,
-        {
-          contextKey,
-          context: attachmentIds.length > 0 ? { attachment_ids: attachmentIds } : undefined,
-          traceId,
-          parentTaskId: null,
-        },
-      );
-
-      await messageQueries.updateMessageTaskId(this.db, activated.id, task.id);
-
-      broadcastToUser(userId, {
-        type: "followup.dispatched",
-        conversationId,
-        message: messageToResponse(activated),
-        task: taskToResponse(task),
-      }).catch(() => {});
-
-      return task;
-    } catch (err) {
-      log.warn("dispatchNextBufferedMessage: enqueueTask failed", { conversationId, err });
-      await messageQueries.revertToBuffered(this.db, activated.id).catch((revertErr) => {
-        log.error("dispatchNextBufferedMessage: failed to revert message status", { messageId: activated.id, revertErr });
-      });
-      broadcastToUser(userId, {
-        type: "followup.dispatch_failed",
-        conversationId,
-        messageId: activated.id,
-        error: err instanceof Error ? err.message : "Failed to dispatch follow-up",
-      }).catch(() => {});
-      return null;
-    }
   }
 
   async cancelTrace(traceId: string, workspaceId: string, opts?: { reason?: string }) {
@@ -444,7 +382,7 @@ export class TaskService {
     )];
     for (const convId of activeConvIds) {
       try {
-        await this.cancelActiveTask(convId, workspaceId, { skipDispatch: true, reason: opts?.reason });
+        await this.cancelActiveTask(convId, workspaceId, { reason: opts?.reason });
       } catch (err) {
         log.warn("cancelTrace: failed to cancel task", { traceId, convId, err });
       }

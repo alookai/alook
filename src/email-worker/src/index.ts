@@ -3,6 +3,7 @@ import PostalMime from "postal-mime"
 import { createDb, queries, parseEmailHandle, toAlookAddress, DEV_WEB_URL, createLogger, buildMimeMessage, extractAttachmentMeta } from "@alook/shared"
 import { decrypt } from "@alook/shared/crypto"
 import { WorkerMailer, type AuthType } from "worker-mailer"
+import { EmailMessage } from "cloudflare:email"
 
 const SMTP_AUTH_TYPES: AuthType[] = ["plain", "login", "cram-md5"]
 import type { EmailEnv } from "./types"
@@ -151,6 +152,31 @@ export default {
       })
     )).filter((a): a is NonNullable<typeof a> => a !== null)
 
+    // Generate the outbound Message-ID ONCE, before sending. This same id is placed
+    // on the wire, returned to the caller (for conversation-map registration), and
+    // stored in the R2 archive — so a human's reply (In-Reply-To = this id) threads
+    // back into the originating conversation. The id's domain must match the sending
+    // domain: @alook.ai for the CF path, the custom-account domain for the SMTP path.
+    const fromDomain = useCustomSmtp && customAccount
+      ? customAccount.emailAddress.split("@").pop()
+      : "alook.ai"
+    const outMessageId = `<${nanoid()}@${fromDomain}>`
+
+    // Build the raw MIME once — used both as the wire message (CF path) and as the
+    // R2 archive (both paths). buildMimeMessage emits From + Message-ID + threading
+    // headers, so the archived copy always matches what was transmitted.
+    const rawMime = buildMimeMessage({
+      from: fromAddress,
+      to: body.to,
+      subject: body.subject,
+      messageId: outMessageId,
+      inReplyTo: body.inReplyTo,
+      references: body.references,
+      body: htmlBody,
+      bodyType: "text/html",
+      attachments: attachments.map(a => ({ filename: a.filename, contentType: a.type, base64: a.base64 })),
+    })
+
     if (useCustomSmtp && customAccount) {
       const secret = env.ENCRYPTION_KEY
       if (!secret) {
@@ -161,7 +187,9 @@ export default {
         const smtpPassword = decrypt(customAccount.smtpPassword, secret)
         const smtpTls = customAccount.smtpTls as number
 
-        const threadingHeaders: Record<string, string> = {}
+        // Control the wire Message-ID so it equals the registered/archived id.
+        // WorkerMailer respects a provided Message-ID and only auto-generates if absent.
+        const threadingHeaders: Record<string, string> = { "Message-ID": outMessageId }
         if (body.inReplyTo) threadingHeaders["In-Reply-To"] = body.inReplyTo
         if (body.references) threadingHeaders["References"] = body.references
 
@@ -195,38 +223,13 @@ export default {
         return Response.json({ error: `SMTP send failed: ${msg}` }, { status: 500 })
       }
     } else {
-      const sendPayload: Record<string, unknown> = {
-        from: fromAddress,
-        to: body.to,
-        subject: body.subject,
-        html: htmlBody,
-      }
-      if (attachments.length > 0) {
-        sendPayload.attachments = attachments.map(a => ({
-          disposition: a.disposition,
-          filename: a.filename,
-          type: a.type,
-          content: a.raw,
-        }))
-      }
-      await env.SEND_EMAIL.send(sendPayload as any)
+      // Send the raw MIME so the wire Message-ID (and threading headers) are the ones
+      // we control. The CF structured builder has no reliable Message-ID field — its
+      // MTA assigns its own — so we use the raw-MIME overload instead.
+      await env.SEND_EMAIL.send(new EmailMessage(fromAddress, body.to, rawMime))
     }
 
-    // Build raw MIME for R2 archival
-    const outMessageId = `<${nanoid()}@alook.ai>`
-    const rawMime = buildMimeMessage({
-      from: fromAddress,
-      to: body.to,
-      subject: body.subject,
-      messageId: outMessageId,
-      inReplyTo: body.inReplyTo,
-      references: body.references,
-      body: htmlBody,
-      bodyType: "text/html",
-      attachments: attachments.map(a => ({ filename: a.filename, contentType: a.type, base64: a.base64 })),
-    })
-
-    // Store MIME archive in R2
+    // Store the SAME MIME archive in R2 (wire id == archived id).
     const r2Id = nanoid()
     const r2Key = `emails/${r2Id}/raw`
     await env.EMAIL_BUCKET.put(r2Key, rawMime, {

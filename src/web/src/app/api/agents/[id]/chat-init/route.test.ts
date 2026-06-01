@@ -9,7 +9,6 @@ const mockGetOrCreateAgentConversation = vi.fn();
 const mockHasPreviousConversations = vi.fn();
 const mockListMessages = vi.fn();
 const mockListArtifactsByConversation = vi.fn();
-const mockListBufferedMessages = vi.fn();
 const mockGetActiveTaskByConversation = vi.fn();
 const mockListTaskMessages = vi.fn();
 const mockArtifactToResponse = vi.fn((r: any) => ({
@@ -39,8 +38,6 @@ vi.mock("@alook/shared", () => ({
     },
     message: {
       listMessages: (...args: unknown[]) => mockListMessages(...args),
-      listBufferedMessages: (...args: unknown[]) =>
-        mockListBufferedMessages(...args),
     },
     artifact: {
       listArtifactsByConversation: (...args: unknown[]) =>
@@ -69,13 +66,6 @@ vi.mock("@/lib/middleware/auth", () => ({
 
 vi.mock("@/lib/middleware/workspace", () => ({
   withWorkspaceMember: vi.fn(async () => ({ workspaceId: "w1" })),
-}));
-
-const mockDispatchNextBufferedMessage = vi.fn().mockResolvedValue(null);
-vi.mock("@/lib/services/task", () => ({
-  TaskService: vi.fn(() => ({
-    dispatchNextBufferedMessage: mockDispatchNextBufferedMessage,
-  })),
 }));
 
 vi.mock("@/lib/api/responses", () => ({
@@ -132,7 +122,6 @@ function setupDefaults() {
   mockHasPreviousConversations.mockResolvedValue(false);
   mockListMessages.mockResolvedValue({ messages: [], has_more: false });
   mockListArtifactsByConversation.mockResolvedValue([]);
-  mockListBufferedMessages.mockResolvedValue([]);
   mockGetActiveTaskByConversation.mockResolvedValue(null);
 }
 
@@ -162,7 +151,6 @@ describe("POST /api/agents/[id]/chat-init", () => {
     mockHasPreviousConversations.mockResolvedValue(false);
     mockListMessages.mockResolvedValue({ messages: [msg], has_more: false });
     mockListArtifactsByConversation.mockResolvedValue([artifact]);
-    mockListBufferedMessages.mockResolvedValue([]);
     mockGetActiveTaskByConversation.mockResolvedValue(null);
 
     const res = await POST(makeReq(), makeCtx());
@@ -174,7 +162,6 @@ describe("POST /api/agents/[id]/chat-init", () => {
     expect(body.messages[0].id).toBe("m1");
     expect(body.artifacts).toHaveLength(1);
     expect(body.artifacts[0].id).toBe("art1");
-    expect(body.buffered_messages).toEqual([]);
     expect(body.active_task).toBeNull();
     expect(body.task_messages).toEqual([]);
     expect(body.has_more_messages).toBe(false);
@@ -316,7 +303,6 @@ describe("POST /api/agents/[id]/chat-init", () => {
     expect(res.status).toBe(200);
     expect(body.messages).toEqual([]);
     expect(body.artifacts).toEqual([]);
-    expect(body.buffered_messages).toEqual([]);
     expect(body.active_task).toBeNull();
     expect(body.has_more_messages).toBe(false);
   });

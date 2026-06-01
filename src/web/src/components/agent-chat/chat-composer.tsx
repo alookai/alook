@@ -6,6 +6,7 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { useKeyboardScroll } from "@/hooks/use-keyboard-scroll";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -43,6 +44,16 @@ interface ChatComposerProps {
   /** Enter-to-send (only fires in a top-level paragraph, no popup open). */
   onSend: () => void;
   placeholder?: string;
+  /** Editor gained focus (forwarded live via useEditor's onFocus — no re-mount). */
+  onFocus?: () => void;
+  /** Editor lost focus (forwarded live via useEditor's onBlur — no re-mount). */
+  onBlur?: () => void;
+  /**
+   * When set, renders a decorative overlay over the empty editor instead of
+   * TipTap's own placeholder (which is not reactive in this version, and whose
+   * ::before `content` can't cross-fade). The parent drives the text + fade.
+   */
+  overlay?: ReactNode;
   disabled?: boolean;
   /** Drives the rounded-3xl ↔ rounded-2xl pill switch. */
   onMultiLineChange?: (multiline: boolean) => void;
@@ -134,6 +145,64 @@ function MentionList({ state }: { state: MentionPopupState }) {
   );
 }
 
+/** fade duration each way; total swap = 2× this. Matches the spec (200/200). */
+const PLACEHOLDER_FADE_MS = 200;
+
+/**
+ * Decorative overlay for the rotating capability-hint placeholder. Rendered as
+ * a sibling of <EditorContent> inside `.chat-composer` (which is `relative`),
+ * absolutely positioned at the editor's text origin so it overlaps the empty
+ * first paragraph exactly and adds zero layout height.
+ *
+ * Cross-fade: on `hint` change, fade the current text OUT (200ms), swap the
+ * text at zero opacity, then fade the new text IN — so the text never snaps
+ * mid-opacity (the flicker the overlay exists to avoid). With `animate=false`
+ * (reduced motion) the hint swaps instantly, no transition.
+ *
+ * aria-hidden: this is purely visual — the editor keeps its real accessible
+ * name and screen readers must NOT announce hint rotation.
+ */
+export function RotatingPlaceholderOverlay({
+  hint,
+  animate,
+}: {
+  hint: string;
+  /** false → reduced-motion: render the single hint with no fade. */
+  animate: boolean;
+}) {
+  // `shown` is the text currently painted; `visible` drives opacity. On a hint
+  // change we fade out, then swap `shown` + fade back in.
+  const [shown, setShown] = useState(hint);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    if (!animate) {
+      // Reduced motion: no fade, just show the latest hint.
+      setShown(hint);
+      setVisible(true);
+      return;
+    }
+    if (hint === shown) return;
+    setVisible(false); // fade out
+    const id = setTimeout(() => {
+      setShown(hint); // swap at opacity 0
+      setVisible(true); // fade in
+    }, PLACEHOLDER_FADE_MS);
+    return () => clearTimeout(id);
+  }, [hint, shown, animate]);
+
+  return (
+    <div className="chat-placeholder-overlay" aria-hidden="true">
+      <span
+        className={animate ? "chat-placeholder-fade" : undefined}
+        style={animate ? { opacity: visible ? 1 : 0 } : undefined}
+      >
+        {shown}
+      </span>
+    </div>
+  );
+}
+
 export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
   function ChatComposer(
     {
@@ -142,6 +211,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       onEditorState,
       onSend,
       placeholder,
+      onFocus,
+      onBlur,
+      overlay,
       disabled,
       onMultiLineChange,
       onFiles,
@@ -168,6 +240,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const onEditorStateRef = useRef(onEditorState);
     const onChangeRef = useRef(onChange);
     const onFilesRef = useRef(onFiles);
+    const onFocusRef = useRef(onFocus);
+    const onBlurRef = useRef(onBlur);
     const slashIsOpenRef = useRef(slashIsOpen);
     const onSlashKeyDownRef = useRef(onSlashKeyDown);
     useEffect(() => { agentsRef.current = agents; }, [agents]);
@@ -177,6 +251,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     useEffect(() => { onEditorStateRef.current = onEditorState; }, [onEditorState]);
     useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
     useEffect(() => { onFilesRef.current = onFiles; }, [onFiles]);
+    useEffect(() => { onFocusRef.current = onFocus; }, [onFocus]);
+    useEffect(() => { onBlurRef.current = onBlur; }, [onBlur]);
     useEffect(() => { slashIsOpenRef.current = slashIsOpen; }, [slashIsOpen]);
     useEffect(() => { onSlashKeyDownRef.current = onSlashKeyDown; }, [onSlashKeyDown]);
 
@@ -363,6 +439,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       onSelectionUpdate: ({ editor }) => {
         reportState(editor);
       },
+      onFocus: () => onFocusRef.current?.(),
+      onBlur: () => onBlurRef.current?.(),
     });
 
     // Keep editable in sync with disabled.
@@ -432,6 +510,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           editor={editor}
           className="max-h-44 overflow-y-auto thin-scrollbar pr-2 text-base chat-input-line-height"
         />
+        {/* Decorative rotating-placeholder overlay. Renders over the empty
+            editor's text origin (mirrors the ::before float:left;height:0
+            position) so it adds zero layout height. aria-hidden — never
+            announced; the editor keeps its own accessible name. The parent
+            only mounts this while the field is empty + unfocused + idle. */}
+        {overlay}
         <MentionList state={mentionPopup} />
       </div>
     );

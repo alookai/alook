@@ -462,6 +462,12 @@ export const UpdateAgentLinkRequestSchema = z.object({
 });
 export type UpdateAgentLinkRequestInput = z.infer<typeof UpdateAgentLinkRequestSchema>;
 
+export const UpsertAgentLinkRequestSchema = z.object({
+  target_agent_id: z.string().min(1, "target_agent_id is required"),
+  instruction: z.string(),
+});
+export type UpsertAgentLinkRequestInput = z.infer<typeof UpsertAgentLinkRequestSchema>;
+
 // ---------------------------------------------------------------------------
 // Whitelist request schema
 // ---------------------------------------------------------------------------
@@ -535,11 +541,6 @@ export const CreateMessageRequestSchema = z.object({
   content: z.string().min(1, "content is required"),
 });
 export type CreateMessageRequest = z.infer<typeof CreateMessageRequestSchema>;
-
-export const CreateBufferedMessageRequestSchema = z.object({
-  content: z.string().min(1, "content is required"),
-});
-export type CreateBufferedMessageRequest = z.infer<typeof CreateBufferedMessageRequestSchema>;
 
 // ---------------------------------------------------------------------------
 // Email request schemas

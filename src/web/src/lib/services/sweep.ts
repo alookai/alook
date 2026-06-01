@@ -32,7 +32,7 @@ export async function sweepStaleState(db: Database, workspaceId: string) {
   // 2. Fail tasks stuck in "running" with no message activity for >1h
   const staleRunning = await queries.task.failStaleRunningTasks(db, workspaceId);
 
-  // 3. Reconcile agent status + dispatch buffered messages for all affected
+  // 3. Reconcile agent status for all affected agents
   const allStale = [...staleDispatched, ...staleRunning];
   if (allStale.length > 0) {
     const taskService = new TaskService(db);
@@ -42,13 +42,6 @@ export async function sweepStaleState(db: Database, workspaceId: string) {
       if (seenAgents.has(key)) continue;
       seenAgents.add(key);
       await taskService.reconcileAgentStatus(r.agentId, r.workspaceId);
-    }
-
-    const seenConversations = new Set<string>();
-    for (const r of allStale) {
-      if (seenConversations.has(r.conversationId)) continue;
-      seenConversations.add(r.conversationId);
-      await taskService.dispatchNextBufferedMessage(r.conversationId, r.workspaceId);
     }
 
     // Invalidate caches that sweep modified

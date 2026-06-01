@@ -133,7 +133,7 @@ export interface Message {
   task_id: string | null;
   attachment_ids: string[] | null;
   metadata?: Record<string, unknown> | null;
-  status?: "active" | "buffered";
+  status?: "active";
   created_at: string;
 }
 
@@ -288,10 +288,6 @@ export type WsMessage =
   | { type: "email.received"; agentId: string }
   | { type: "email.sent"; agentId: string }
   | { type: "artifact.uploaded"; conversationId: string; artifact: Artifact }
-  | { type: "followup.dispatched"; conversationId: string; message: Message; task: TaskApi }
-  | { type: "followup.created"; conversationId: string; message: Message }
-  | { type: "followup.deleted"; conversationId: string; messageId: string }
-  | { type: "followup.dispatch_failed"; conversationId: string; messageId: string; error: string }
   | { type: "conversation.message"; conversationId: string; message: Message }
   | { type: "agent.created"; agentId: string; workspaceId: string; parentAgentId: string }
   | { type: "issue.comment"; issueId: string; comment: IssueComment }

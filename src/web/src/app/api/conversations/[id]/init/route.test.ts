@@ -12,12 +12,10 @@ const m = {
   getActiveMessageCount: vi.fn(),
   listMessages: vi.fn(),
   listArtifactsByConversation: vi.fn(),
-  listBufferedMessages: vi.fn(),
   getActiveTaskByConversation: vi.fn(),
   listFlaggedMessageIds: vi.fn(),
   hasPreviousConversations: vi.fn(),
   listTaskMessages: vi.fn(),
-  countTextMessagesByTaskIds: vi.fn(),
 };
 
 vi.mock("@alook/shared", async () => {
@@ -33,7 +31,6 @@ vi.mock("@alook/shared", async () => {
         getNewestMessageId: (...a: unknown[]) => m.getNewestMessageId(...a),
         getActiveMessageCount: (...a: unknown[]) => m.getActiveMessageCount(...a),
         listMessages: (...a: unknown[]) => m.listMessages(...a),
-        listBufferedMessages: (...a: unknown[]) => m.listBufferedMessages(...a),
       },
       artifact: {
         listArtifactsByConversation: (...a: unknown[]) => m.listArtifactsByConversation(...a),
@@ -43,7 +40,6 @@ vi.mock("@alook/shared", async () => {
       messageFlag: { listFlaggedMessageIds: (...a: unknown[]) => m.listFlaggedMessageIds(...a) },
       taskMessage: {
         listTaskMessages: (...a: unknown[]) => m.listTaskMessages(...a),
-        countTextMessagesByTaskIds: (...a: unknown[]) => m.countTextMessagesByTaskIds(...a),
       },
     },
   };
@@ -64,17 +60,12 @@ vi.mock("@/lib/api/responses", () => ({
   taskToResponse: (t: any) => ({ id: t.id }),
   taskMessageToResponse: (tm: any) => ({ id: tm.id }),
 }));
-vi.mock("@/lib/services/task", () => ({
-  TaskService: function () { return { dispatchNextBufferedMessage: vi.fn().mockResolvedValue(null) }; },
-}));
-
 import { GET } from "./route";
 
 beforeEach(() => {
   vi.clearAllMocks();
   m.listMessages.mockResolvedValue({ messages: [], has_more: false });
   m.listArtifactsByConversation.mockResolvedValue([]);
-  m.listBufferedMessages.mockResolvedValue([]);
   m.getActiveTaskByConversation.mockResolvedValue(null);
   m.listFlaggedMessageIds.mockResolvedValue([]);
   m.hasPreviousConversations.mockResolvedValue(false);

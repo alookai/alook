@@ -184,7 +184,7 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
       if (task?.traceId) {
         await taskService.cancelTrace(task.traceId, ws.workspaceId, { reason });
       } else {
-        await taskService.cancelActiveTask(issue.conversationId, ws.workspaceId, { skipDispatch: true, reason });
+        await taskService.cancelActiveTask(issue.conversationId, ws.workspaceId, { reason });
       }
     } catch (err) {
       log.warn("failed to cancel tasks during issue deletion", { issueId: id, err });

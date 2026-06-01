@@ -260,7 +260,6 @@ export interface ChatInitResponse {
   conversation: Conversation;
   messages: Message[];
   artifacts: Artifact[];
-  buffered_messages: Message[];
   active_task: TaskApi | null;
   task_messages: TaskMessageResponse[];
   has_more_messages: boolean;
@@ -294,9 +293,7 @@ export interface ConversationInitResponse {
   has_more_conversations: boolean;
   has_more_artifacts: boolean;
   artifacts: Artifact[];
-  buffered_messages: Message[];
   flagged_message_ids: string[];
-  thinking_counts: Record<string, number>;
   active_task: TaskApi | null;
   task_messages: TaskMessageResponse[];
   cache_valid: boolean;
@@ -422,82 +419,6 @@ export const sendMessage = async (
 
   return res.json() as Promise<{ message: Message; task: TaskApi }>;
 };
-
-// Buffered messages (follow-up queue)
-export const listBufferedMessages = (conversationId: string, workspaceId: string) =>
-  apiFetch<Message[]>(
-    `/api/conversations/${conversationId}/buffered-messages${wsQuery(workspaceId)}`
-  );
-
-export const createBufferedMessage = async (
-  conversationId: string,
-  content: string,
-  workspaceId: string,
-  files?: File[],
-): Promise<{ message: Message }> => {
-  if (!files || files.length === 0) {
-    return apiFetch<{ message: Message }>(
-      `/api/conversations/${conversationId}/buffered-messages${wsQuery(workspaceId)}`,
-      {
-        method: "POST",
-        body: JSON.stringify({ content }),
-      },
-    );
-  }
-
-  const fd = new FormData();
-  fd.append("content", content);
-  for (const file of files) {
-    fd.append("file", file);
-  }
-
-  let res: Response;
-  try {
-    res = await fetch(
-      `/api/conversations/${conversationId}/buffered-messages${wsQuery(workspaceId)}`,
-      { method: "POST", credentials: "include", body: fd },
-    );
-  } catch (err) {
-    if (err instanceof TypeError) {
-      throw new ApiError("Unable to connect — check your network", 0);
-    }
-    throw err;
-  }
-
-  if (res.status === 401) {
-    if (typeof window !== "undefined") window.location.href = "/sign-in";
-    throw new ApiError("Unauthorized", 401);
-  }
-
-  if (!res.ok) {
-    let serverError: string | undefined;
-    let details: string[] | undefined;
-    try {
-      const body = (await res.json()) as { error?: string; details?: string[] };
-      serverError = body.error;
-      details = body.details;
-    } catch {
-      // non-JSON body
-    }
-    if (res.status === 429) throw new ApiError(serverError || "Maximum follow-ups reached", 429);
-    if (res.status >= 500) throw new ApiError(serverError || "Something went wrong — please try again", res.status, details);
-    throw new ApiError(serverError || "Something went wrong", res.status, details);
-  }
-
-  return res.json() as Promise<{ message: Message }>;
-};
-
-export const deleteBufferedMessage = (conversationId: string, messageId: string, workspaceId: string) =>
-  apiFetch<void>(
-    `/api/conversations/${conversationId}/buffered-messages/${messageId}${wsQuery(workspaceId)}`,
-    { method: "DELETE" },
-  );
-
-export const deleteAllBufferedMessages = (conversationId: string, workspaceId: string) =>
-  apiFetch<void>(
-    `/api/conversations/${conversationId}/buffered-messages${wsQuery(workspaceId)}`,
-    { method: "DELETE" },
-  );
 
 // Active task for conversation (recovery on page refresh)
 export const getActiveTask = (conversationId: string, workspaceId: string) =>

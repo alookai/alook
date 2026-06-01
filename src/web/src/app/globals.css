@@ -850,6 +850,20 @@
   }
 }
 
+/* iMessage-style typing dots for the presence line. */
+@keyframes typing-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
 @keyframes shimmer {
   0% {
     transform: translateX(-100%);
@@ -1203,6 +1217,41 @@
 }
 .chat-composer .tiptap > p:first-child { margin-top: 0; }
 .chat-composer .tiptap > p:last-child { margin-bottom: 0; }
+
+/* Rotating capability-hint placeholder overlay. Sits over the empty editor's
+   first-line text origin, mirroring the muted ::before placeholder look. It is
+   absolutely positioned so it adds zero layout height (no composer jump), and
+   pointer-events:none so clicks fall through to the editor underneath. */
+.chat-placeholder-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 8px; /* matches EditorContent pr-2 so long hints ellipsize, not wrap */
+  line-height: 24px; /* matches .chat-input-line-height / .tiptap */
+  color: var(--muted-foreground);
+  opacity: 0.5;
+  pointer-events: none;
+  /* Single line: never wrap (no height change); ellipsize on overflow. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chat-placeholder-overlay > span {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-placeholder-fade {
+  transition: opacity 200ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Belt-and-braces: even if JS leaves the fade class on, kill the animation. */
+  .chat-placeholder-fade {
+    transition: none;
+  }
+}
 .chat-composer .tiptap ul,
 .chat-composer .tiptap ol {
   margin: 0;

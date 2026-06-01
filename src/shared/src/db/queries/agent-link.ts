@@ -57,6 +57,51 @@ export async function create(
   return rows[0]!;
 }
 
+export async function getByPair(
+  db: Database,
+  workspaceId: string,
+  a: string,
+  b: string,
+) {
+  let [sourceAgentId, targetAgentId] = a > b ? [b, a] : [a, b];
+  const rows = await db
+    .select()
+    .from(agentLink)
+    .where(
+      and(
+        eq(agentLink.workspaceId, workspaceId),
+        eq(agentLink.sourceAgentId, sourceAgentId),
+        eq(agentLink.targetAgentId, targetAgentId),
+      ),
+    );
+  return rows[0] ?? null;
+}
+
+export async function upsertByPair(
+  db: Database,
+  data: {
+    workspaceId: string;
+    sourceAgentId: string;
+    targetAgentId: string;
+    instruction: string;
+  },
+) {
+  const existing = await getByPair(
+    db,
+    data.workspaceId,
+    data.sourceAgentId,
+    data.targetAgentId,
+  );
+  if (existing) {
+    const updated = await update(db, existing.id, data.workspaceId, {
+      instruction: data.instruction,
+    });
+    return { row: updated!, created: false };
+  }
+  const created = await create(db, data);
+  return { row: created, created: true };
+}
+
 export async function update(
   db: Database,
   id: string,

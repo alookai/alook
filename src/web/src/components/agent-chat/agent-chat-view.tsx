@@ -24,10 +24,6 @@ import {
   getTask,
   getTaskMessages,
   listArtifacts,
-  listBufferedMessages,
-  createBufferedMessage,
-  deleteBufferedMessage,
-  cancelActiveTask,
   getActiveTask,
   retryTask,
   markInboxRead,
@@ -87,7 +83,6 @@ import {
   MessageSquareQuote,
   MoreHorizontal,
   Paperclip,
-  Square,
   X,
 } from "lucide-react";
 import { useCachedMessages } from "@/hooks/use-cached-messages";
@@ -96,7 +91,9 @@ import { SlashCommandPopup } from "@/components/agent-chat/slash-command-popup";
 import {
   ChatComposer,
   type ChatComposerHandle,
+  RotatingPlaceholderOverlay,
 } from "@/components/agent-chat/chat-composer";
+import { useRotatingPlaceholder } from "@/components/agent-chat/use-rotating-placeholder";
 import {
   ArtifactSheet,
   formatSize,
@@ -109,9 +106,10 @@ import {
   getArtifactUrl,
   computeArtifactVersions,
 } from "@/components/artifact-content-renderer";
-import { FollowUpBuffer } from "@/components/agent-chat/follow-up-buffer";
 import { ScrollToBottomButton } from "@/components/ui/scroll-to-bottom-button";
-import { MessageItem } from "@/components/agent-chat/message-list";
+import { MessageItem, SystemCard, AgentRow } from "@/components/agent-chat/message-list";
+import { PresenceLine } from "@/components/agent-chat/presence-line";
+import { parseAvatarUrl } from "@/components/avatar";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
 import {
   Popover,
@@ -192,6 +190,22 @@ export function getEventIconType(
   return "calendar";
 }
 
+/**
+ * Classify a system-event message by its metadata resource id first (reliable,
+ * stamped at all creation sites), falling back to the content/conversationType
+ * heuristic only when no id is present. Drives both the card icon and label.
+ */
+export function eventTypeFromMessage(
+  metadata: Record<string, unknown> | null | undefined,
+  content: string,
+  conversationType?: string | null,
+): EventIconType {
+  if (metadata?.issueId) return "issue";
+  if (metadata?.emailId) return "email";
+  if (metadata?.calendarEventId) return "calendar";
+  return getEventIconType(content, conversationType);
+}
+
 /** Sort messages by (created_at, id) ascending — guarantees chronological order. */
 export function sortMessages(msgs: Message[]): Message[] {
   return msgs.slice().sort((a, b) => {
@@ -212,37 +226,6 @@ export function mergeMessages(
   return sortMessages([...merged.values()]);
 }
 
-export function addBufferedIfNew(
-  prev: Message[],
-  incoming: Message,
-): Message[] {
-  if (prev.some((m) => m.id === incoming.id)) return prev;
-  // Skip if there's a recent optimistic entry — avoids brief duplicate flash
-  // when WS followup.created arrives before createBufferedMessage HTTP response.
-  const t = new Date(incoming.created_at).getTime();
-  if (
-    prev.some(
-      (m) =>
-        m.id.startsWith("temp-") &&
-        Math.abs(new Date(m.created_at).getTime() - t) < 2000,
-    )
-  ) {
-    return prev;
-  }
-  return [...prev, incoming];
-}
-
-export function replaceOptimisticBuffered(
-  prev: Message[],
-  optimisticId: string,
-  real: Message,
-): Message[] {
-  if (prev.some((m) => m.id === real.id)) {
-    return prev.filter((m) => m.id !== optimisticId);
-  }
-  return prev.map((m) => (m.id === optimisticId ? real : m));
-}
-
 export type NapMarker = { agentName: string; created_at: string; id: string };
 
 type TimelineItem =
@@ -252,7 +235,7 @@ type TimelineItem =
 
 export type GroupPosition = "first" | "middle" | "last" | "solo";
 
-function computeGroupPositions(
+export function computeGroupPositions(
   timeline: TimelineItem[],
 ): (GroupPosition | null)[] {
   const positions: (GroupPosition | null)[] = new Array(timeline.length).fill(
@@ -283,7 +266,7 @@ function computeGroupPositions(
         !(prev.data as Message).created_at ||
         Math.abs(
           new Date(msg.created_at).getTime() -
-            new Date((prev.data as Message).created_at).getTime(),
+          new Date((prev.data as Message).created_at).getTime(),
         ) < GROUP_THRESHOLD_MS);
 
     const sameAsNext =
@@ -294,7 +277,7 @@ function computeGroupPositions(
         !(next.data as Message).created_at ||
         Math.abs(
           new Date((next.data as Message).created_at).getTime() -
-            new Date(msg.created_at).getTime(),
+          new Date(msg.created_at).getTime(),
         ) < GROUP_THRESHOLD_MS);
 
     if (sameAsPrev && sameAsNext) positions[i] = "middle";
@@ -494,6 +477,9 @@ function NapSeparator({ agentName }: { agentName: string }) {
   );
 }
 
+// Agent-side artifact (file) card — same shared SystemCard shell + card
+// language as the event cards (locked prototype: icon chip / FILE / filename /
+// size). The version badge rides along as the title's trailing element.
 function ArtifactCard({
   artifact,
   version,
@@ -506,29 +492,20 @@ function ArtifactCard({
   onClick: (a: Artifact) => void;
 }) {
   return (
-    <button
+    <SystemCard
+      icon={FileText}
+      label="FILE"
+      title={artifact.filename}
+      preview={formatSize(artifact.size)}
+      trailing={
+        hasDuplicates ? (
+          <span className="shrink-0 text-xs text-muted-foreground bg-muted rounded-full px-1.5 py-0.5 font-normal">
+            v{version}
+          </span>
+        ) : undefined
+      }
       onClick={() => onClick(artifact)}
-      className={cn(
-        "flex items-center gap-3 w-full max-w-sm rounded-lg border border-border/60 bg-muted/30",
-        "px-3.5 py-2.5 text-left transition-colors duration-150",
-        "hover:bg-muted/60 hover:border-border",
-      )}
-    >
-      <FileText className="size-4 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate">
-          {artifact.filename}
-          {hasDuplicates && (
-            <span className="ml-1.5 text-xs text-muted-foreground bg-muted rounded-full px-1.5 py-0.5 font-normal">
-              v{version}
-            </span>
-          )}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {formatSize(artifact.size)}
-        </p>
-      </div>
-    </button>
+    />
   );
 }
 
@@ -592,7 +569,7 @@ export function AgentChatView({
     );
   });
   const [sending, setSending] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [taskMessages, setTaskMessages] = useState<TaskMessageResponse[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(true);
@@ -624,20 +601,22 @@ export function AgentChatView({
   );
   const [issueActiveTask, setIssueActiveTask] = useState<Task | null>(null);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
-  const [bufferedMessages, setBufferedMessages] = useState<Message[]>([]);
   const [caretIndex, setCaretIndex] = useState<number | null>(null);
   const [previousConversations, setPreviousConversations] = useState<
     PreviousConversation[]
   >([]);
   const [hasMoreConversations, setHasMoreConversations] = useState(false);
   const [napMarkers, setNapMarkers] = useState<NapMarker[]>([]);
-  const [thinkingCounts, setThinkingCounts] = useState<Record<string, number>>(
-    {},
-  );
   const [renderNow] = useState(() => Date.now());
 
   const [pendingFilesByMessage, setPendingFilesByMessage] = useState<
     Map<string, File[]>
+  >(() => new Map());
+  // Optimistic sends that failed to reach the server. The bubble stays in place
+  // with an inline "Not delivered · tap to retry" affordance (iMessage-style),
+  // keyed by the optimistic message id → the content + files to resend.
+  const [failedSends, setFailedSends] = useState<
+    Map<string, { content: string; files: File[] }>
   >(() => new Map());
   const [quotedText, setQuotedText] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -893,10 +872,9 @@ export function AgentChatView({
     initialScrollDone.current = false;
     setActiveTask(null);
     setTaskMessages([]);
-    setBufferedMessages([]);
     setPendingFilesByMessage(new Map());
+    setFailedSends(new Map());
     setNapMarkers([]);
-    setThinkingCounts({});
     setPreviousConversations([]);
     setHasMoreConversations(false);
     oldestConversationCursorRef.current = null;
@@ -1068,7 +1046,7 @@ export function AgentChatView({
                 data.has_more_messages,
                 workspaceId,
                 data.message_count,
-              ).catch(() => {});
+              ).catch(() => { });
             }
             setHasMore(data.has_more_messages);
             if (
@@ -1112,11 +1090,9 @@ export function AgentChatView({
                 serverMessageCount: data.message_count,
               },
               workspaceId,
-            ).catch(() => {});
+            ).catch(() => { });
           }
-          setThinkingCounts(data.thinking_counts);
           setArtifacts(data.artifacts);
-          setBufferedMessages(data.buffered_messages);
           setFlaggedIds(new Set(data.flagged_message_ids));
           if (data.active_task) {
             setActiveTask(data.active_task);
@@ -1170,14 +1146,13 @@ export function AgentChatView({
           );
           setHasMore(data.has_more_messages);
           setArtifacts(data.artifacts);
-          setBufferedMessages(data.buffered_messages);
           setHasMoreConversations(data.has_more_conversations);
           mergeCachedMessages(
             data.conversation.id,
             data.messages,
             data.has_more_messages,
             workspaceId,
-          ).catch(() => {});
+          ).catch(() => { });
           // This branch is reached only when `convId` is null — i.e. the SLOW
           // path's checkFreshness failed and we fell back to chatInit. chatInit
           // returns the server's current (latest-created) conversation, so this
@@ -1204,7 +1179,7 @@ export function AgentChatView({
                 : data.messages.length,
             },
             workspaceId,
-          ).catch(() => {});
+          ).catch(() => { });
           if (hasCachedMessages && initialScrollDone.current && wasNearBottom) {
             scrollToBottom();
           }
@@ -1212,7 +1187,7 @@ export function AgentChatView({
             .then((r) => {
               if (!ignore) setFlaggedIds(new Set(r.message_ids));
             })
-            .catch(() => {});
+            .catch(() => { });
           if (data.active_task) {
             setActiveTask(data.active_task);
             if (data.task_messages.length > 0) {
@@ -1278,7 +1253,7 @@ export function AgentChatView({
     const timer = setTimeout(() => {
       markInboxRead(conversation.id, workspaceId)
         .then(() => refreshInboxCountRef.current())
-        .catch(() => {});
+        .catch(() => { });
     }, 1000);
     return () => {
       markedReadRef.current = null;
@@ -1432,6 +1407,12 @@ export function AgentChatView({
     () => agents.find((a) => a.id === agentId)?.name ?? "Agent",
     [agents, agentId],
   );
+  const agentAvatarConfig = useMemo(
+    () => parseAvatarUrl(agents.find((a) => a.id === agentId)?.avatar_url ?? null),
+    [agents, agentId],
+  );
+  // First name only — presence copy reads socially ("Maya is typing…").
+  const agentFirstName = useMemo(() => agentName.split(/\s+/)[0] || agentName, [agentName]);
 
   const messagesRef = useLatest(messages);
   const hasMoreRef = useLatest(hasMore);
@@ -1511,12 +1492,12 @@ export function AgentChatView({
           const cached =
             paginatingConvId === conversation.id
               ? await getCachedMessagesBefore(
-                  paginatingConvId,
-                  oldest!.created_at,
-                  oldest!.id,
-                  MESSAGE_LIMIT,
-                  workspaceId,
-                )
+                paginatingConvId,
+                oldest!.created_at,
+                oldest!.id,
+                MESSAGE_LIMIT,
+                workspaceId,
+              )
               : null;
 
           if (cached) {
@@ -1637,7 +1618,7 @@ export function AgentChatView({
               currentConvMessages,
               phase1HasMore,
               workspaceId,
-            ).catch(() => {});
+            ).catch(() => { });
           }
         }
 
@@ -1720,7 +1701,7 @@ export function AgentChatView({
       pollTaskIdRef.current = taskId;
 
       pollRef.current = setInterval(async () => {
-        // A new poll was started (e.g. by followup.dispatched) — bail out
+        // A new poll was started (e.g. by a steering task) — bail out
         if (pollTaskIdRef.current !== taskId) return;
 
         try {
@@ -1733,7 +1714,7 @@ export function AgentChatView({
             ),
           ]);
 
-          // Re-check after await — a followup.dispatched may have started a new poll
+          // Re-check after await — a steering task may have started a new poll
           const isStale = pollTaskIdRef.current !== taskId;
 
           pollFailures.current = 0;
@@ -1767,9 +1748,9 @@ export function AgentChatView({
                     latest,
                     null,
                     workspaceId,
-                  ).catch(() => {});
+                  ).catch(() => { });
                 })
-                .catch(() => {});
+                .catch(() => { });
               return;
             }
 
@@ -1781,7 +1762,7 @@ export function AgentChatView({
             markReadTimerRef.current = setTimeout(() => {
               markInboxRead(conversationId, workspaceId)
                 .then(() => refreshInboxCountRef.current())
-                .catch(() => {});
+                .catch(() => { });
             }, 1000);
 
             const shouldScroll =
@@ -1797,7 +1778,7 @@ export function AgentChatView({
                 latestResult.messages,
                 null,
                 workspaceId,
-              ).catch(() => {});
+              ).catch(() => { });
               if (arts) setArtifacts(arts);
               setActiveTask(task);
             } catch {
@@ -1813,17 +1794,15 @@ export function AgentChatView({
               });
             }
 
-            // Fallback: if a follow-up was dispatched but the WebSocket
-            // message was lost, detect the new active task via API.
-            // Also syncs buffered messages to catch orphans from race conditions.
+            // Fallback: if a steering task superseded this one but the
+            // WebSocket message was lost, detect the new active task via API.
             setTimeout(async () => {
               if (pollRef.current) return;
               try {
-                const [nextTask, latestBuffered] = await Promise.all([
-                  getActiveTask(conversationId, workspaceId),
-                  listBufferedMessages(conversationId, workspaceId),
-                ]);
-                setBufferedMessages(latestBuffered);
+                const nextTask = await getActiveTask(
+                  conversationId,
+                  workspaceId,
+                );
                 if (nextTask && nextTask.id !== taskId) {
                   const { messages: latestMsgs } = await listMessages(
                     conversationId,
@@ -1835,12 +1814,12 @@ export function AgentChatView({
                     latestMsgs,
                     null,
                     workspaceId,
-                  ).catch(() => {});
+                  ).catch(() => { });
                   setActiveTask(nextTask);
                   setTaskMessages([]);
                   startPollingRef.current?.(nextTask.id, conversationId);
                 }
-              } catch {}
+              } catch { }
             }, 1000);
           } else if (!isStale) {
             setActiveTask(task);
@@ -1909,9 +1888,9 @@ export function AgentChatView({
               latest,
               null,
               workspaceId,
-            ).catch(() => {});
+            ).catch(() => { });
           })
-          .catch(() => {});
+          .catch(() => { });
         const task = msg.task as Task;
         activeTaskIdRef.current = task.id;
         setActiveTask(task);
@@ -1959,7 +1938,7 @@ export function AgentChatView({
               ),
             );
           })
-          .catch(() => {});
+          .catch(() => { });
       }
       if (msg.type === "conversation.message") {
         // Only cache for the server-confirmed loaded conversation — never write
@@ -1970,7 +1949,7 @@ export function AgentChatView({
             msg.conversationId,
             msg.message,
             workspaceId,
-          ).catch(() => {});
+          ).catch(() => { });
         }
         if (msg.conversationId === conversation?.id) {
           setMessages((prev) => {
@@ -1981,7 +1960,7 @@ export function AgentChatView({
                 m.role === msg.message.role &&
                 m.content === msg.message.content &&
                 Math.abs(new Date(m.created_at).getTime() - incomingTime) <
-                  2000,
+                2000,
             );
             if (optimisticIdx !== -1) {
               const updated = [...prev];
@@ -2009,55 +1988,6 @@ export function AgentChatView({
           return [...prev, msg.artifact];
         });
       }
-      if (
-        msg.type === "followup.dispatched" &&
-        msg.conversationId === conversation?.id
-      ) {
-        // Optimistically remove by real ID
-        setBufferedMessages((prev) =>
-          prev.filter((m) => m.id !== msg.message.id),
-        );
-        // Always sync from server to handle temp-ID / duplicate edge cases
-        listBufferedMessages(msg.conversationId, workspaceId)
-          .then(setBufferedMessages)
-          .catch(() => {});
-        listMessages(msg.conversationId, workspaceId)
-          .then(({ messages: latest }) => {
-            setMessages((prev) => mergeMessages(prev, latest));
-            mergeCachedMessages(
-              msg.conversationId,
-              latest,
-              null,
-              workspaceId,
-            ).catch(() => {});
-          })
-          .catch(() => {});
-        const task = msg.task as Task;
-        activeTaskIdRef.current = task.id;
-        setActiveTask(task);
-        setTaskMessages([]);
-        startPollingRef.current?.(task.id, msg.conversationId);
-      }
-      if (
-        msg.type === "followup.created" &&
-        msg.conversationId === conversation?.id
-      ) {
-        setBufferedMessages((prev) => addBufferedIfNew(prev, msg.message));
-      }
-      if (
-        msg.type === "followup.deleted" &&
-        msg.conversationId === conversation?.id
-      ) {
-        setBufferedMessages((prev) =>
-          prev.filter((m) => m.id !== msg.messageId),
-        );
-      }
-      if (
-        msg.type === "followup.dispatch_failed" &&
-        msg.conversationId === conversation?.id
-      ) {
-        toast.error(msg.error || "Failed to dispatch follow-up");
-      }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps -- activeChannelRef is a stable ref read inside the callback, not a reactive dep
   }, [subscribeWs, conversation?.id, workspaceId, agentId]);
@@ -2079,10 +2009,10 @@ export function AgentChatView({
                   data.has_more_messages,
                   data.message_count,
                 )
-                .catch(() => {});
+                .catch(() => { });
             }
           })
-          .catch(() => {});
+          .catch(() => { });
       });
     });
   }, [subscribeReconnect, conversation?.id, workspaceId]);
@@ -2196,43 +2126,6 @@ export function AgentChatView({
     [addPendingFiles],
   );
 
-  const handleStop = async () => {
-    if (!conversation || cancelling) return;
-    setCancelling(true);
-    try {
-      const cancelled = await cancelActiveTask(conversation.id, workspaceId);
-      if (cancelled) {
-        // If WS followup.dispatched already set a new active task, don't overwrite
-        if (
-          activeTaskIdRef.current &&
-          activeTaskIdRef.current !== cancelled.id
-        ) {
-          return;
-        }
-        if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = null;
-        const [latestResult, latestBuffered] = await Promise.all([
-          listMessages(conversation.id, workspaceId),
-          listBufferedMessages(conversation.id, workspaceId),
-        ]);
-        setMessages((prev) => mergeMessages(prev, latestResult.messages));
-        mergeCachedMessages(
-          conversation.id,
-          latestResult.messages,
-          null,
-          workspaceId,
-        ).catch(() => {});
-        setBufferedMessages(latestBuffered);
-        setActiveTask(cancelled as Task);
-        setTaskMessages([]);
-      }
-    } catch {
-      toast.error("Failed to cancel task");
-    } finally {
-      setCancelling(false);
-    }
-  };
-
   const handleSend = async () => {
     const rawContent = input.trim();
     if ((!rawContent && pendingFiles.length === 0) || sending || !conversation)
@@ -2259,53 +2152,10 @@ export function AgentChatView({
     slashCommand.clearActiveSkill();
     setSending(true);
 
-    const taskActive =
-      !!activeTask &&
-      !["completed", "failed", "cancelled", "superseded"].includes(
-        activeTask.status,
-      );
-
-    if (taskActive) {
-      // Buffer mode: queue message for later dispatch
-      const optimisticId = `temp-${Date.now()}`;
-      const optimistic: Message = {
-        id: optimisticId,
-        conversation_id: conversation.id,
-        role: "user",
-        content,
-        task_id: null,
-        attachment_ids: null,
-        status: "buffered",
-        created_at: new Date().toISOString(),
-      };
-      setBufferedMessages((prev) => [...prev, optimistic]);
-
-      try {
-        const { message } = await createBufferedMessage(
-          conversation.id,
-          content,
-          workspaceId,
-          filesToSend.length > 0 ? filesToSend : undefined,
-        );
-        setBufferedMessages((prev) =>
-          replaceOptimisticBuffered(prev, optimisticId, message),
-        );
-      } catch (err) {
-        setBufferedMessages((prev) =>
-          prev.filter((m) => m.id !== optimisticId),
-        );
-        setInput(content);
-        setPendingFiles(filesToSend);
-        toast.error(
-          err instanceof Error ? err.message : "Failed to queue follow-up",
-        );
-      } finally {
-        setSending(false);
-      }
-      return;
-    }
-
-    // Normal mode: send message and enqueue task
+    // Every send goes through the same enqueue-and-steer path: POST /messages
+    // enqueues a real task carrying contextKey=conversationId, so when a task
+    // is already running the daemon supersedes it (steering). No client-side
+    // buffering — sending while busy just drops a new bubble and steers.
     const optimisticId = `temp-${Date.now()}`;
     const optimistic: Message = {
       id: optimisticId,
@@ -2355,34 +2205,109 @@ export function AgentChatView({
         return sortMessages([...without, message]);
       });
       appendCachedMessage(conversation.id, message, workspaceId).catch(
-        () => {},
+        () => { },
       );
       if (message.attachment_ids && message.attachment_ids.length > 0) {
         listArtifacts(conversation.id, workspaceId)
           .then((arts) => setArtifacts(arts))
-          .catch(() => {});
+          .catch(() => { });
       }
       setActiveTask(task);
       setTaskMessages([]);
       startPolling(task.id, conversation.id);
-    } catch (err) {
-      setPendingFilesByMessage((prev) => {
-        if (!prev.has(optimisticId)) return prev;
+    } catch {
+      // Keep the optimistic bubble in place and surface an inline
+      // "Not delivered · tap to retry" affordance instead of a toast (Priya).
+      setFailedSends((prev) => {
         const next = new Map(prev);
-        next.delete(optimisticId);
+        next.set(optimisticId, { content, files: filesToSend });
         return next;
       });
-      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-      setInput(content);
-      setPendingFiles(filesToSend);
-      toast.error(
-        err instanceof Error ? err.message : "Failed to send message",
-      );
     } finally {
       setSending(false);
       composerRef.current?.focus();
     }
   };
+
+  // Resend a failed optimistic message: drop the dead bubble + its failed state,
+  // then run the normal send with the stored content/files.
+  const handleRetrySend = useCallback(
+    (messageId: string) => {
+      const failed = failedSends.get(messageId);
+      if (!failed || !conversation || sending) return;
+
+      setFailedSends((prev) => {
+        const next = new Map(prev);
+        next.delete(messageId);
+        return next;
+      });
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      setPendingFilesByMessage((prev) => {
+        if (!prev.has(messageId)) return prev;
+        const next = new Map(prev);
+        next.delete(messageId);
+        return next;
+      });
+      setSending(true);
+
+      const optimisticId = `temp-${Date.now()}`;
+      const optimistic: Message = {
+        id: optimisticId,
+        conversation_id: conversation.id,
+        role: "user",
+        content: failed.content,
+        task_id: null,
+        attachment_ids: null,
+        created_at: new Date().toISOString(),
+      };
+      if (failed.files.length > 0) {
+        setPendingFilesByMessage((prev) => {
+          const next = new Map(prev);
+          next.set(optimisticId, failed.files);
+          return next;
+        });
+      }
+      setMessages((prev) => [...prev, optimistic]);
+
+      sendMessage(
+        conversation.id,
+        failed.content,
+        workspaceId,
+        failed.files.length > 0 ? failed.files : undefined,
+      )
+        .then(({ message, task }) => {
+          setPendingFilesByMessage((prev) => {
+            if (!prev.has(optimisticId)) return prev;
+            const next = new Map(prev);
+            next.delete(optimisticId);
+            return next;
+          });
+          setMessages((prev) => {
+            const without = prev.filter(
+              (m) => m.id !== optimisticId && m.id !== message.id,
+            );
+            return sortMessages([...without, message]);
+          });
+          appendCachedMessage(conversation.id, message, workspaceId).catch(
+            () => { },
+          );
+          setActiveTask(task);
+          setTaskMessages([]);
+          startPolling(task.id, conversation.id);
+        })
+        .catch(() => {
+          setFailedSends((prev) => {
+            const next = new Map(prev);
+            next.set(optimisticId, failed);
+            return next;
+          });
+        })
+        .finally(() => {
+          setSending(false);
+        });
+    },
+    [failedSends, conversation, sending, workspaceId, startPolling],
+  );
 
   const handleRetryTask = useCallback(async () => {
     if (!activeTask || !conversation) return;
@@ -2476,7 +2401,7 @@ export function AgentChatView({
       ) {
         getTask(issueTaskId, workspaceId)
           .then((task) => setIssueActiveTask(task))
-          .catch(() => {});
+          .catch(() => { });
       }
       if (
         msg.type === "conversation.message" &&
@@ -2497,12 +2422,12 @@ export function AgentChatView({
             setIssueDetail((prev) =>
               prev
                 ? {
-                    ...prev,
-                    issue: {
-                      ...prev.issue,
-                      status: match[1] as Issue["status"],
-                    },
-                  }
+                  ...prev,
+                  issue: {
+                    ...prev.issue,
+                    status: match[1] as Issue["status"],
+                  },
+                }
                 : prev,
             );
           }
@@ -2567,9 +2492,9 @@ export function AgentChatView({
       setActiveTask(null);
       setTaskMessages([]);
       setArtifacts([]);
-      setBufferedMessages([]);
       setPendingFiles([]);
       setPendingFilesByMessage(new Map());
+      setFailedSends(new Map());
       lastSeqRef.current = 0;
       setConnectionLost(false);
       setHasMore(false);
@@ -2589,38 +2514,50 @@ export function AgentChatView({
       activeTask.status,
     );
 
+  // Rotating capability-hint placeholder for the idle, empty composer. Freezes
+  // on focus/typing, resumes on empty blur; never rotates while a task is
+  // active (that path keeps the static "Type a follow-up..." placeholder).
+  const rotatingPlaceholder = useRotatingPlaceholder({
+    isEmpty: input.trim() === "",
+    isFocused: composerFocused,
+    isTaskActive,
+  });
+
   if (messagesLoading) {
     return (
       <>
         <div className="flex-1 overflow-y-auto px-3 md:px-5">
-          <div className="mx-auto max-w-2xl py-6 space-y-4">
-            {/* Skeleton user message */}
-            <div className="flex justify-end">
-              <Skeleton className="h-10 w-48 rounded-lg" />
-            </div>
-            {/* Skeleton assistant message */}
-            <div className="flex justify-start">
-              <div className="space-y-2 px-1 py-1">
-                <Skeleton className="h-4 w-72" />
-                <Skeleton className="h-4 w-56" />
-                <Skeleton className="h-4 w-64" />
+          <div className="mx-auto max-w-3xl py-6 space-y-4 motion-safe:animate-[fade-up_200ms_ease-out_both]">
+            {/* Agent cluster — top [avatar][name] header, bubbles stacked below
+                in the gutter (mirrors AgentRow's Slack/Discord layout). */}
+            <div className="flex justify-start items-start gap-2">
+              <Skeleton className="size-[30px] shrink-0 rounded-md" />
+              <div className="flex flex-col items-start gap-1 max-w-[86%]">
+                <Skeleton className="h-3 w-20 rounded mb-0.5" />
+                <Skeleton className="h-9 w-64 rounded-[1.05rem]" />
+                <Skeleton className="h-9 w-48 rounded-[1.05rem]" />
               </div>
             </div>
-            {/* Another pair */}
-            <div className="flex justify-end">
-              <Skeleton className="h-10 w-36 rounded-lg" />
+            {/* User cluster — right pills, no avatar/name */}
+            <div className="flex flex-col items-end gap-1">
+              <Skeleton className="h-9 w-44 rounded-[1.05rem]" />
+              <Skeleton className="h-9 w-32 rounded-[1.05rem]" />
             </div>
-            <div className="flex justify-start">
-              <div className="space-y-2 px-1 py-1">
-                <Skeleton className="h-4 w-64" />
-                <Skeleton className="h-4 w-48" />
+            {/* Another agent cluster */}
+            <div className="flex justify-start items-start gap-2">
+              <Skeleton className="size-[30px] shrink-0 rounded-md" />
+              <div className="flex flex-col items-start gap-1 max-w-[86%]">
+                <Skeleton className="h-3 w-20 rounded mb-0.5" />
+                <Skeleton className="h-9 w-56 rounded-[1.05rem]" />
               </div>
             </div>
           </div>
         </div>
-        {/* Skeleton input area — mirrors the real rounded pill */}
+        {/* Presence line + input — mirror the real layout (presence sits above
+            the composer pill, fixed-height so there's no shift on load). */}
         <div className="px-3 md:px-5 pt-3 pb-5 md:pb-6">
-          <div className="mx-auto max-w-2xl">
+          <div className="mx-auto max-w-3xl space-y-2">
+            <Skeleton className="h-4 w-28 rounded" />
             <Skeleton className="h-12 w-full rounded-3xl" />
           </div>
         </div>
@@ -2668,7 +2605,7 @@ export function AgentChatView({
             if (btn) toast.success("Copied to clipboard");
           }}
         >
-          <div className="mx-auto max-w-2xl pt-6 pb-15 min-w-0">
+          <div className="mx-auto max-w-3xl pt-6 pb-15 min-w-0">
             {conversation && canLoadMore && !loadingMore && (
               <div className="flex justify-center py-2">
                 <button
@@ -2692,7 +2629,7 @@ export function AgentChatView({
                 const isNewAgent =
                   agent?.created_at &&
                   renderNow - new Date(agent.created_at).getTime() <
-                    5 * 60 * 1000;
+                  5 * 60 * 1000;
                 const hasEmailTask = (activeTaskCounts[agentId] ?? 0) > 0;
 
                 if (isNewAgent && hasEmailTask && activeChannel === "default") {
@@ -2718,8 +2655,8 @@ export function AgentChatView({
                 }
 
                 return (
-                  <p className="text-center text-muted-foreground py-20 text-sm">
-                    Send a message to start chatting with the agent.
+                  <p className="text-center text-muted-foreground py-20 text-base animate-[fade-up_400ms_ease-out_both]">
+                    Say hi to {agentFirstName}.
                   </p>
                 );
               })()}
@@ -2739,14 +2676,23 @@ export function AgentChatView({
               }
 
               if (item.kind === "artifact") {
+                // The file card belongs to the preceding assistant cluster —
+                // share the agent gutter with a SPACER (no duplicate avatar).
                 return (
                   <div key={`artifact-${item.data.id}`} className={spacing}>
-                    <ArtifactCard
-                      artifact={item.data}
-                      version={versionMap.get(item.data.id) ?? 1}
-                      hasDuplicates={duplicateFilenames.has(item.data.filename)}
-                      onClick={handleArtifactClick}
-                    />
+                    <AgentRow
+                      groupPosition="middle"
+                      agentName={agentName}
+                      config={agentAvatarConfig}
+                      forceSpacer
+                    >
+                      <ArtifactCard
+                        artifact={item.data}
+                        version={versionMap.get(item.data.id) ?? 1}
+                        hasDuplicates={duplicateFilenames.has(item.data.filename)}
+                        onClick={handleArtifactClick}
+                      />
+                    </AgentRow>
                   </div>
                 );
               }
@@ -2761,15 +2707,6 @@ export function AgentChatView({
                     activeTask={activeTask}
                     taskMessages={taskMessages}
                     connectionLost={connectionLost}
-                    isLastMessage={
-                      messages.length > 0 &&
-                      messages[messages.length - 1].id === msg.id
-                    }
-                    thinkingCount={
-                      msg.task_id ? (thinkingCounts[msg.task_id] ?? 0) : 0
-                    }
-                    targetConvId={targetConvId}
-                    workspaceId={workspaceId}
                     conversationType={conversation?.type}
                     pendingFilesByMessage={pendingFilesByMessage}
                     onArtifactClick={handleArtifactClick}
@@ -2790,6 +2727,10 @@ export function AgentChatView({
                     }
                     groupPosition={pos ?? "solo"}
                     provider={runtimeProvider}
+                    agentName={agentName}
+                    agentAvatarConfig={agentAvatarConfig}
+                    isSendFailed={failedSends.has(msg.id)}
+                    onRetrySend={handleRetrySend}
                   />
                 </div>
               );
@@ -2815,28 +2756,22 @@ export function AgentChatView({
         <ScrollToBottomButton scrollRef={scrollRef} />
       </div>
 
-      {/* Follow-up buffer indicator */}
-      {conversation && (
-        <FollowUpBuffer
-          bufferedMessages={bufferedMessages}
-          onDelete={(messageId) => {
-            const prev = bufferedMessages;
-            setBufferedMessages((cur) => cur.filter((m) => m.id !== messageId));
-            deleteBufferedMessage(
-              conversation.id,
-              messageId,
-              workspaceId,
-            ).catch(() => {
-              setBufferedMessages(prev);
-              toast.error("Failed to delete follow-up");
-            });
-          }}
-        />
-      )}
-
       {/* Input */}
-      <div data-keyboard-offset className="relative z-10 px-3 md:px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-6">
-        <div className="mx-auto max-w-2xl relative">
+      <div className="relative z-10 px-3 md:px-5 pt-3 pb-5 md:pb-6">
+        <div className="mx-auto max-w-3xl relative">
+          {/* Social presence line — reads the agent, replaces the old status badge/glow. */}
+          {conversation && (
+            <PresenceLine
+              agentFirstName={agentFirstName}
+              taskStatus={isTaskActive ? activeTask?.status : null}
+              // Only "busy elsewhere" when THIS conversation has no task object at
+              // all. Right after this conversation's task settles, activeTask is
+              // still set (terminal status) but the workspace-wide
+              // activeTaskCounts lags — without this guard it would briefly flip
+              // to "on something, she'll see this" before the count catches up.
+              agentBusyElsewhere={!activeTask && (activeTaskCounts[agentId] ?? 0) > 0}
+            />
+          )}
           <div className="flex items-end gap-2">
             {/* Overflow menu */}
             {!targetConvId && (
@@ -2893,7 +2828,7 @@ export function AgentChatView({
                       {isTaskActive
                         ? "Wait for the task to finish"
                         : currentConvHasMessages
-                          ? "Take a nap"
+                          ? "Take a nap and reset the current session"
                           : `${agentName} is well-rested and ready to go`}
                     </TooltipContent>
                   </Tooltip>
@@ -2907,7 +2842,7 @@ export function AgentChatView({
                 "relative flex-1 min-w-0 flex flex-col rounded-3xl border border-border/50 bg-background/90 transition-[border-radius] duration-200",
                 "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
                 (isMultiLine || quotedText || slashCommand.activeSkill) &&
-                  "rounded-2xl",
+                "rounded-2xl",
                 sending && "opacity-50",
                 dragging && "border-ring ring-3 ring-ring/50",
               )}
@@ -3024,8 +2959,25 @@ export function AgentChatView({
                       setCaretIndex(caret);
                     }}
                     onSend={handleSend}
+                    onFocus={() => setComposerFocused(true)}
+                    onBlur={() => setComposerFocused(false)}
                     placeholder={
-                      isTaskActive ? "Type a follow-up..." : "Type a task..."
+                      isTaskActive
+                        ? // Never "Type a follow-up..." — the composer reads the same
+                        // whether or not a task is running. Warm, no period (Priya).
+                        `Message ${agentFirstName}`
+                        : // Empty idle composer is owned by the rotating overlay
+                        // below — give TipTap an empty placeholder so the two
+                        // systems don't both paint.
+                        ""
+                    }
+                    overlay={
+                      !isTaskActive && input.trim() === "" ? (
+                        <RotatingPlaceholderOverlay
+                          hint={rotatingPlaceholder.hint}
+                          animate={rotatingPlaceholder.isRotating}
+                        />
+                      ) : undefined
                     }
                     disabled={sending}
                     onMultiLineChange={setIsMultiLine}
@@ -3055,51 +3007,31 @@ export function AgentChatView({
                   </TooltipTrigger>
                   <TooltipContent side="top">Attach files</TooltipContent>
                 </Tooltip>
-                {/* Send / Stop button — fixed bottom-right */}
-                {isTaskActive && !input.trim() && !sending ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          size="icon-sm"
-                          onClick={handleStop}
-                          disabled={cancelling}
-                          className="absolute right-2 bottom-2 size-8 rounded-full bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors duration-200"
-                        />
-                      }
-                    >
-                      {cancelling ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <Square className="size-3.5 fill-current" />
-                      )}
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Stop task</TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          size="icon-sm"
-                          onClick={handleSend}
-                          disabled={!input.trim() || sending}
-                          className={cn(
-                            "absolute right-2 bottom-2 size-8 rounded-full bg-primary text-primary-foreground transition-opacity duration-200",
-                            !input.trim() && "opacity-30",
-                          )}
-                        />
-                      }
-                    >
-                      {sending ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <ArrowUp className="size-3.5" />
-                      )}
-                    </TooltipTrigger>
-                    <TooltipContent side="top">Send</TooltipContent>
-                  </Tooltip>
-                )}
+                {/* Send button — fixed bottom-right. Always Send; never a
+                    Stop/pause affordance (task-lifecycle chrome is gone). The
+                    spinner is only the sub-second in-flight double-submit guard. */}
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        size="icon-sm"
+                        onClick={handleSend}
+                        disabled={!input.trim() || sending}
+                        className={cn(
+                          "absolute right-2 bottom-2 size-8 rounded-full bg-primary text-primary-foreground transition-opacity duration-200",
+                          !input.trim() && "opacity-30",
+                        )}
+                      />
+                    }
+                  >
+                    {sending ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <ArrowUp className="size-3.5" />
+                    )}
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Send</TooltipContent>
+                </Tooltip>
               </div>
             </div>
             {/* Symmetric spacer: balances the leading overflow button so the
@@ -3164,11 +3096,11 @@ export function AgentChatView({
         detail={
           issueDetail
             ? {
-                messages: issueDetail.messages,
-                comments: issueDetail.comments,
-                artifacts: issueDetail.artifacts,
-                traceId: issueDetail.issue.trace_id,
-              }
+              messages: issueDetail.messages,
+              comments: issueDetail.comments,
+              artifacts: issueDetail.artifacts,
+              traceId: issueDetail.issue.trace_id,
+            }
             : null
         }
         detailLoading={issueDetailLoading}
@@ -3182,13 +3114,13 @@ export function AgentChatView({
             setIssueDetail((prev) =>
               prev && prev.issue.id === issueId
                 ? {
-                    ...prev,
-                    issue: {
-                      ...prev.issue,
-                      ...patch,
-                      updated_at: updated.updated_at,
-                    },
-                  }
+                  ...prev,
+                  issue: {
+                    ...prev.issue,
+                    ...patch,
+                    updated_at: updated.updated_at,
+                  },
+                }
                 : prev,
             );
           } catch (err) {
@@ -3205,9 +3137,9 @@ export function AgentChatView({
             setIssueDetail((prev) =>
               prev && prev.issue.id === issueId
                 ? {
-                    ...prev,
-                    issue: { ...prev.issue, status: status as Issue["status"] },
-                  }
+                  ...prev,
+                  issue: { ...prev.issue, status: status as Issue["status"] },
+                }
                 : prev,
             );
           } catch (err) {

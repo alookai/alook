@@ -4,6 +4,10 @@ import { NextRequest } from "next/server";
 const mockGetAgent = vi.fn();
 const mockListByWorkspace = vi.fn();
 const mockCreate = vi.fn();
+const mockUpsertByPair = vi.fn();
+const mockGetByPair = vi.fn();
+const mockUpdate = vi.fn();
+const mockInvalidate = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -20,10 +24,22 @@ vi.mock("@alook/shared", async () => {
       agentLink: {
         listByWorkspace: (...a: unknown[]) => mockListByWorkspace(...a),
         create: (...a: unknown[]) => mockCreate(...a),
+        upsertByPair: (...a: unknown[]) => mockUpsertByPair(...a),
+        getByPair: (...a: unknown[]) => mockGetByPair(...a),
+        update: (...a: unknown[]) => mockUpdate(...a),
       },
     },
   };
 });
+
+vi.mock("@/lib/cache", () => ({
+  invalidate: (...a: unknown[]) => mockInvalidate(...a),
+  cached: (_k: string, _t: number, fn: () => unknown) => fn(),
+  cacheKeys: {
+    agentLinks: (ws: string) => `agentLinks:${ws}`,
+    allColleagues: (ws: string) => `allColleagues:${ws}`,
+  },
+}));
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: any) => async (req: any, ctx?: any) => {
@@ -48,7 +64,7 @@ vi.mock("@/lib/api/responses", () => ({
   }),
 }));
 
-import { GET, POST } from "./route";
+import { GET, POST, PUT } from "./route";
 
 describe("GET /api/agent-links", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -143,5 +159,116 @@ describe("POST /api/agent-links", () => {
       target_agent_id: "ag_b",
     });
     expect(res.status).toBe(409);
+  });
+});
+
+describe("PUT /api/agent-links (upsert)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function put(body: unknown, query = "?agentId=ag_a") {
+    const req = new NextRequest(`http://localhost/api/agent-links${query}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    });
+    return PUT(req, {} as any);
+  }
+
+  // TC5
+  it("returns 400 when agentId query param is missing", async () => {
+    const res = await put({ target_agent_id: "ag_b", instruction: "x" }, "");
+    expect(res.status).toBe(400);
+  });
+
+  // TC6
+  it("returns 400 for self-link", async () => {
+    const res = await put({ target_agent_id: "ag_a", instruction: "x" });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("itself");
+  });
+
+  // TC7 — caller not in workspace
+  it("returns 404 when calling agent not found", async () => {
+    mockGetAgent.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "ag_b" });
+    const res = await put({ target_agent_id: "ag_b", instruction: "x" });
+    expect(res.status).toBe(404);
+  });
+
+  // TC7 — target not in workspace
+  it("returns 404 when target agent not found", async () => {
+    mockGetAgent.mockResolvedValueOnce({ id: "ag_a" }).mockResolvedValueOnce(null);
+    const res = await put({ target_agent_id: "ag_nope", instruction: "x" });
+    expect(res.status).toBe(404);
+  });
+
+  // TC8
+  it("creates a new pair -> 201, created:true, invalidates caches", async () => {
+    mockGetAgent.mockResolvedValue({ id: "ag_x" });
+    mockUpsertByPair.mockResolvedValue({
+      row: {
+        id: "al_1",
+        workspaceId: "ws1",
+        sourceAgentId: "ag_a",
+        targetAgentId: "ag_b",
+        instruction: "delegate",
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+      },
+      created: true,
+    });
+    const res = await put({ target_agent_id: "ag_b", instruction: "delegate" });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.created).toBe(true);
+    expect(body.instruction).toBe("delegate");
+    expect(mockInvalidate).toHaveBeenCalledWith("allColleagues:ws1");
+    expect(mockInvalidate).toHaveBeenCalledWith("agentLinks:ws1");
+  });
+
+  // TC9
+  it("updates an existing pair -> 200, created:false, replaced instruction", async () => {
+    mockGetAgent.mockResolvedValue({ id: "ag_x" });
+    mockUpsertByPair.mockResolvedValue({
+      row: {
+        id: "al_1",
+        workspaceId: "ws1",
+        sourceAgentId: "ag_a",
+        targetAgentId: "ag_b",
+        instruction: "new instruction",
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T01:00:00.000Z",
+      },
+      created: false,
+    });
+    const res = await put({ target_agent_id: "ag_b", instruction: "new instruction" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.created).toBe(false);
+    expect(body.instruction).toBe("new instruction");
+  });
+
+  // TC10
+  it("falls back to update on a concurrent-create unique race (no throw)", async () => {
+    mockGetAgent.mockResolvedValue({ id: "ag_x" });
+    const uniqueErr = new Error("UNIQUE constraint failed");
+    (uniqueErr as any).code = "SQLITE_CONSTRAINT_UNIQUE";
+    mockUpsertByPair.mockRejectedValue(uniqueErr);
+    mockGetByPair.mockResolvedValue({ id: "al_1", workspaceId: "ws1" });
+    mockUpdate.mockResolvedValue({
+      id: "al_1",
+      workspaceId: "ws1",
+      sourceAgentId: "ag_a",
+      targetAgentId: "ag_b",
+      instruction: "raced",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T02:00:00.000Z",
+    });
+    const res = await put({ target_agent_id: "ag_b", instruction: "raced" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.created).toBe(false);
+    expect(body.instruction).toBe("raced");
+    expect(mockUpdate).toHaveBeenCalled();
   });
 });
