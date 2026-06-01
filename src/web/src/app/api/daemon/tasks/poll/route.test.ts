@@ -806,4 +806,19 @@ describe("POST /api/daemon/tasks/poll", () => {
       status: "online",
     });
   });
+
+  it("does not fail poll when rescan broadcast rejects", async () => {
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockRejectedValue(new Error("WS unavailable"));
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetMachineByDaemon.mockResolvedValue({ pendingRescan: true });
+    mockClearPendingRescan.mockResolvedValue(undefined);
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.pending_rescan).toBe(true);
+  });
 });

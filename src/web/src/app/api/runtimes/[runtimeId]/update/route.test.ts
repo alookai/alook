@@ -162,6 +162,19 @@ describe("DELETE /api/runtimes/[runtimeId]/update", () => {
     });
   });
 
+  it("returns 204 even when broadcast fails", async () => {
+    mockGetAgentRuntimeForWorkspace.mockResolvedValue({
+      id: "rt1",
+      daemonId: "d1",
+    });
+    mockClearPendingUpdateVersion.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockRejectedValue(new Error("WS unavailable"));
+
+    const res = await DELETE(makeReq("DELETE", "rt1", "w1"));
+
+    expect(res.status).toBe(204);
+  });
+
   it("returns 404 for non-existent runtime", async () => {
     mockGetAgentRuntimeForWorkspace.mockResolvedValue(null);
 
