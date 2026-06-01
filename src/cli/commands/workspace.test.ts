@@ -126,15 +126,16 @@ describe("workspace init", () => {
     expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("No daemon registered"));
   });
 
-  it("creates new workspace when agents already exist", async () => {
+  it("creates new workspace and re-fetches runtimes from it", async () => {
     const jsonPath = writeJson("valid.json", {
       name: "New WS",
       members: [{ role: "leader", instructions: "x" }],
     });
 
     getJSONMock
-      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }]) // runtimes
-      .mockResolvedValueOnce([{ id: "existing-agent" }]); // existing agents
+      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }]) // runtimes (old ws)
+      .mockResolvedValueOnce([{ id: "existing-agent" }]) // existing agents
+      .mockResolvedValueOnce([{ id: "rt_new", machineLastSeenAt: new Date().toISOString() }]); // runtimes (new ws)
 
     postJSONMock
       .mockResolvedValueOnce({ id: "ws_new", name: "New WS" }) // POST /api/workspaces
@@ -149,6 +150,72 @@ describe("workspace init", () => {
 
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("existing agents"));
     expect(postJSONMock).toHaveBeenCalledWith("/api/workspaces", expect.objectContaining({ name: "New WS" }));
+    expect(postJSONMock).toHaveBeenCalledWith("/api/studios", expect.objectContaining({
+      members: expect.arrayContaining([
+        expect.objectContaining({ runtime_id: "rt_new" }),
+      ]),
+    }));
+  });
+
+  it("registers runtime in new workspace when none exist there", async () => {
+    const jsonPath = writeJson("valid.json", {
+      name: "Fresh WS",
+      members: [{ role: "leader", instructions: "x" }],
+    });
+
+    getJSONMock
+      .mockResolvedValueOnce([{ id: "rt_orig", machineLastSeenAt: new Date().toISOString() }]) // runtimes (old ws)
+      .mockResolvedValueOnce([{ id: "existing-agent" }]) // existing agents
+      .mockResolvedValueOnce([]); // runtimes (new ws) — empty
+
+    postJSONMock
+      .mockResolvedValueOnce({ id: "ws_fresh", name: "Fresh WS" }) // POST /api/workspaces
+      .mockResolvedValueOnce(undefined) // POST /api/runtimes (register)
+      .mockResolvedValueOnce({ // POST /api/studios
+        studio: { name: "Fresh WS" },
+        workspace: { id: "ws_fresh", name: "Fresh WS" },
+        agents: [{ id: "ag1", name: "Dave", email_handle: "dave" }],
+        links: [],
+      });
+
+    await runInit(["--json-file", jsonPath]);
+
+    expect(postJSONMock).toHaveBeenCalledWith("/api/runtimes", { id: "rt_orig" });
+    expect(postJSONMock).toHaveBeenCalledWith("/api/studios", expect.objectContaining({
+      members: expect.arrayContaining([
+        expect.objectContaining({ runtime_id: "rt_orig" }),
+      ]),
+    }));
+  });
+
+  it("warns but continues when runtime re-fetch fails in new workspace", async () => {
+    const jsonPath = writeJson("valid.json", {
+      name: "Warn WS",
+      members: [{ role: "leader", instructions: "x" }],
+    });
+
+    getJSONMock
+      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }]) // runtimes (old ws)
+      .mockResolvedValueOnce([{ id: "existing-agent" }]) // existing agents
+      .mockRejectedValueOnce(new Error("timeout")); // runtimes (new ws) fails
+
+    postJSONMock
+      .mockResolvedValueOnce({ id: "ws_warn", name: "Warn WS" }) // POST /api/workspaces
+      .mockResolvedValueOnce({ // POST /api/studios
+        studio: { name: "Warn WS" },
+        workspace: { id: "ws_warn", name: "Warn WS" },
+        agents: [{ id: "ag1", name: "Eve", email_handle: "eve" }],
+        links: [],
+      });
+
+    await runInit(["--json-file", jsonPath]);
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("could not refresh runtimes"));
+    expect(postJSONMock).toHaveBeenCalledWith("/api/studios", expect.objectContaining({
+      members: expect.arrayContaining([
+        expect.objectContaining({ runtime_id: "rt1" }),
+      ]),
+    }));
   });
 
   it("warns when agent existence check fails", async () => {

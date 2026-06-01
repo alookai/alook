@@ -80,7 +80,7 @@ export function workspaceCommand(): Command {
         const lastSeen = new Date(r.machineLastSeenAt.includes("Z") ? r.machineLastSeenAt : r.machineLastSeenAt + "Z").getTime();
         return now - lastSeen < OFFLINE_THRESHOLD_MS;
       });
-      const runtime = onlineRuntime || runtimes[0];
+      let runtime = onlineRuntime || runtimes[0];
 
       // Check if workspace already has agents — if so, create a new workspace
       let targetWorkspaceId = workspaceId;
@@ -94,6 +94,23 @@ export function workspaceCommand(): Command {
           targetWorkspaceId = newWs.id;
           targetClient = new APIClient(serverUrl, token, targetWorkspaceId);
           console.log(`Created workspace: ${newWs.name} (${newWs.id})`);
+
+          // Re-fetch runtimes scoped to the new workspace
+          try {
+            const newRuntimes = await targetClient.getJSON<RuntimeResponse[]>("/api/runtimes");
+            if (newRuntimes.length > 0) {
+              const newOnlineRuntime = newRuntimes.find((r) => {
+                if (!r.machineLastSeenAt) return false;
+                const lastSeen = new Date(r.machineLastSeenAt.includes("Z") ? r.machineLastSeenAt : r.machineLastSeenAt + "Z").getTime();
+                return now - lastSeen < OFFLINE_THRESHOLD_MS;
+              });
+              runtime = newOnlineRuntime || newRuntimes[0];
+            } else {
+              await targetClient.postJSON("/api/runtimes", { id: runtime.id });
+            }
+          } catch (err) {
+            console.warn(`Warning: could not refresh runtimes for new workspace: ${err instanceof Error ? err.message : err}`);
+          }
         }
       } catch (err) {
         console.warn(`Warning: could not check existing agents: ${err instanceof Error ? err.message : err}`);
