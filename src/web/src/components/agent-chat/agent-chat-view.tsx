@@ -235,6 +235,27 @@ type TimelineItem =
 
 export type GroupPosition = "first" | "middle" | "last" | "solo";
 
+// Which conversational SIDE a timeline item belongs to. Items on the same side
+// that are adjacent (within the time threshold, no nap between) form one
+// Slack/Discord-style cluster sharing a single avatar + name header. The agent
+// side intentionally includes event cards (email/issue/calendar) and artifacts
+// (files), so a run like "card → reply → card → reply" reads as ONE Gwennie
+// cluster with one header — not four separate avatars.
+type GroupSide = "user" | "agent" | null;
+
+function groupSideOf(item: TimelineItem): GroupSide {
+  if (item.kind === "artifact") return "agent"; // files come from the agent
+  if (item.kind !== "message") return null; // nap markers break clusters
+  const role = item.data.role;
+  if (role === "user") return "user";
+  if (role === "assistant" || role === "event") return "agent";
+  return null;
+}
+
+function itemCreatedAt(item: TimelineItem): string | undefined {
+  return item.data.created_at;
+}
+
 export function computeGroupPositions(
   timeline: TimelineItem[],
 ): (GroupPosition | null)[] {
@@ -243,42 +264,26 @@ export function computeGroupPositions(
   );
   const GROUP_THRESHOLD_MS = 60_000;
 
-  // Only user/assistant messages group into tight iMessage-style stacks.
-  // Event messages (email/issue/calendar notifications) must keep normal spacing.
-  const isGroupable = (m: Message) =>
-    m.role === "user" || m.role === "assistant";
+  const adjacentSameCluster = (a: TimelineItem | null, b: TimelineItem | null) => {
+    if (!a || !b) return false;
+    const sa = groupSideOf(a);
+    const sb = groupSideOf(b);
+    if (sa === null || sa !== sb) return false;
+    const ta = itemCreatedAt(a);
+    const tb = itemCreatedAt(b);
+    if (!ta || !tb) return true; // missing timestamp → don't split the cluster
+    return Math.abs(new Date(ta).getTime() - new Date(tb).getTime()) < GROUP_THRESHOLD_MS;
+  };
 
   for (let i = 0; i < timeline.length; i++) {
     const item = timeline[i];
-    if (item.kind !== "message") continue;
-
-    const msg = item.data as Message;
-    if (!isGroupable(msg)) continue; // leave as null → normal mt-4 spacing, full rounding
+    if (groupSideOf(item) === null) continue; // nap → leave null
 
     const prev = i > 0 ? timeline[i - 1] : null;
     const next = i < timeline.length - 1 ? timeline[i + 1] : null;
 
-    const sameAsPrev =
-      prev?.kind === "message" &&
-      isGroupable(prev.data as Message) &&
-      (prev.data as Message).role === msg.role &&
-      (!msg.created_at ||
-        !(prev.data as Message).created_at ||
-        Math.abs(
-          new Date(msg.created_at).getTime() -
-          new Date((prev.data as Message).created_at).getTime(),
-        ) < GROUP_THRESHOLD_MS);
-
-    const sameAsNext =
-      next?.kind === "message" &&
-      isGroupable(next.data as Message) &&
-      (next.data as Message).role === msg.role &&
-      (!msg.created_at ||
-        !(next.data as Message).created_at ||
-        Math.abs(
-          new Date((next.data as Message).created_at).getTime() -
-          new Date(msg.created_at).getTime(),
-        ) < GROUP_THRESHOLD_MS);
+    const sameAsPrev = adjacentSameCluster(prev, item);
+    const sameAsNext = adjacentSameCluster(item, next);
 
     if (sameAsPrev && sameAsNext) positions[i] = "middle";
     else if (sameAsPrev && !sameAsNext) positions[i] = "last";
@@ -287,33 +292,6 @@ export function computeGroupPositions(
   }
 
   return positions;
-}
-
-export function reorderArtifactsAfterAssistant(
-  items: TimelineItem[],
-): TimelineItem[] {
-  const result: TimelineItem[] = [];
-  let pending: TimelineItem[] = [];
-  let collecting = false;
-
-  for (const item of items) {
-    if (item.kind === "message" && item.data.role === "user") {
-      collecting = true;
-      result.push(item);
-    } else if (item.kind === "message" && item.data.role === "assistant") {
-      result.push(item);
-      result.push(...pending);
-      pending = [];
-      collecting = false;
-    } else if (collecting && item.kind === "artifact") {
-      pending.push(item);
-    } else {
-      result.push(item);
-    }
-  }
-
-  result.push(...pending);
-  return result;
 }
 
 export function buildTimeline(
@@ -338,7 +316,10 @@ export function buildTimeline(
       if (a.kind !== b.kind) return a.kind === "message" ? -1 : 1;
       return a.data.id.localeCompare(b.data.id);
     });
-    return reorderArtifactsAfterAssistant(items);
+    // Strictly chronological — a file uploaded mid-task stays where it appeared
+    // and the agent's reply follows below it in the same cluster (no reorder, so
+    // nothing jumps when the reply lands). Gus's call, 2026-06-01.
+    return items;
   }
 
   const napConvIds = new Set(napMarkers.map((n) => n.id.replace(/^nap-/, "")));
@@ -359,7 +340,7 @@ export function buildTimeline(
       if (a.kind !== b.kind) return a.kind === "message" ? -1 : 1;
       return a.data.id.localeCompare(b.data.id);
     });
-    return reorderArtifactsAfterAssistant(sorted);
+    return sorted; // chronological, no artifact reorder (see above)
   };
 
   const result: TimelineItem[] = [];
@@ -390,12 +371,11 @@ export function buildTimeline(
       if (a.kind !== b.kind) return a.kind === "message" ? -1 : 1;
       return a.data.id.localeCompare(b.data.id);
     });
-    const reorderedOrphans = reorderArtifactsAfterAssistant(orphanItems);
     const napIdx = result.findIndex((item) => item.kind === "nap");
     if (napIdx >= 0) {
-      result.splice(napIdx, 0, ...reorderedOrphans);
+      result.splice(napIdx, 0, ...orphanItems);
     } else {
-      result.push(...reorderedOrphans);
+      result.push(...orphanItems);
     }
   }
 
@@ -1402,6 +1382,17 @@ export function AgentChatView({
       scrollToBottom();
     }
   }, [taskMessages.length, taskStatus, scrollToBottom]);
+
+  // Auto-scroll when a new agent-side item lands while the user is at the
+  // bottom — covers artifact (file) cards and event cards, which grow the
+  // thread via setArtifacts / setMessages without otherwise nudging scroll.
+  // (Previously only message text scrolled; cards appeared off-screen until the
+  // next message arrived.)
+  useEffect(() => {
+    if (scrollTargetActiveRef.current) return;
+    if (!initialScrollDone.current) return;
+    if (isNearBottom.current) scrollToBottom();
+  }, [artifacts.length, messages.length, scrollToBottom]);
 
   const agentName = useMemo(
     () => agents.find((a) => a.id === agentId)?.name ?? "Agent",
@@ -2553,12 +2544,19 @@ export function AgentChatView({
             </div>
           </div>
         </div>
-        {/* Presence line + input — mirror the real layout (presence sits above
-            the composer pill, fixed-height so there's no shift on load). */}
-        <div className="px-3 md:px-5 pt-3 pb-5 md:pb-6">
-          <div className="mx-auto max-w-3xl space-y-2">
-            <Skeleton className="h-4 w-28 rounded" />
-            <Skeleton className="h-12 w-full rounded-3xl" />
+        {/* Presence line + input — mirror the real layout exactly so nothing
+            shifts on load: presence row (h-5 + mb-2) above, then the composer
+            row of [overflow button][pill][symmetric spacer]. */}
+        <div className="relative z-10 px-3 md:px-5 pt-3 pb-5 md:pb-6">
+          <div className="mx-auto max-w-3xl">
+            <div className="h-5 px-1 mb-2 flex items-center">
+              <Skeleton className="h-3.5 w-28 rounded" />
+            </div>
+            <div className="flex items-center gap-2">
+              <Skeleton className="size-8 shrink-0 rounded-full" />
+              <Skeleton className="h-10 flex-1 rounded-3xl" />
+              <Skeleton className="size-8 shrink-0 rounded-full" />
+            </div>
           </div>
         </div>
       </>
@@ -2665,7 +2663,9 @@ export function AgentChatView({
               const pos = groupPositions[idx];
               const isGroupStart =
                 pos === "first" || pos === "solo" || pos === null;
-              const spacing = idx === 0 ? "" : isGroupStart ? "mt-4" : "mt-0.5";
+              // mt-4 between clusters, a roomier mt-1.5 between grouped bubbles
+              // within a cluster (mt-0.5 read too cramped).
+              const spacing = idx === 0 ? "" : isGroupStart ? "mt-4" : "mt-1.5";
 
               if (item.kind === "nap") {
                 return (
@@ -2676,15 +2676,20 @@ export function AgentChatView({
               }
 
               if (item.kind === "artifact") {
-                // The file card belongs to the preceding assistant cluster —
-                // share the agent gutter with a SPACER (no duplicate avatar).
+                // A file card is part of the agent's cluster (computeGroupPositions
+                // groups it with adjacent agent items). It shows the avatar + name
+                // only when it's the cluster HEAD (first/solo) — e.g. a file
+                // uploaded mid-task before any reply exists; otherwise a spacer, so
+                // it never renders as an orphaned, avatar-less "empty file" state.
+                const artifactPos = pos ?? "solo";
+                const isHead = artifactPos === "first" || artifactPos === "solo";
                 return (
                   <div key={`artifact-${item.data.id}`} className={spacing}>
                     <AgentRow
-                      groupPosition="middle"
+                      groupPosition={artifactPos}
                       agentName={agentName}
                       config={agentAvatarConfig}
-                      forceSpacer
+                      forceSpacer={!isHead}
                     >
                       <ArtifactCard
                         artifact={item.data}

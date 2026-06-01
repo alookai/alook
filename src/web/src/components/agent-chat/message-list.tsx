@@ -75,7 +75,11 @@ export function SystemCard({
       onClick={onClick}
       disabled={!onClick}
       className={cn(
-        "group/card w-full text-left rounded-md border bg-card",
+        // Fixed footprint so email / issue / calendar / file cards are uniform
+        // when stacked — width + height don't follow content (Gus, 2026-06-01).
+        // h fits the 3-line variant; overflow-hidden + per-line truncate keep
+        // any longer content from spilling past the fixed box.
+        "group/card w-[26rem] max-w-full h-[4.75rem] overflow-hidden text-left rounded-md border bg-card",
         "flex items-center gap-3 px-3 py-2",
         onClick &&
           "cursor-pointer transition-all duration-150 hover:-translate-y-px hover:shadow-sm hover:border-foreground/15",
