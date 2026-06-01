@@ -60,7 +60,6 @@ function DeviceAuthPageInner() {
     autoVerify()
   }, [urlCode, session])
 
-
   async function handleVerifyCode(e: React.FormEvent) {
     e.preventDefault()
     setError("")
