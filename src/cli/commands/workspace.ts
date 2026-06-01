@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { readFileSync } from "fs";
+import { toAlookAddress } from "@alook/shared";
 import { APIClient } from "../lib/client.js";
 import { printJSON } from "../lib/output.js";
 import { resolveClientOpts } from "../lib/resolve-client.js";
@@ -137,7 +138,7 @@ export function workspaceCommand(): Command {
         console.log(`\nWorkspace initialized: ${res.studio.name || res.workspace.name}`);
         console.log("Agents created:");
         for (const agent of res.agents) {
-          const email = agent.email_handle ? `${agent.email_handle}@alook.ai` : "no email";
+          const email = agent.email_handle ? toAlookAddress(agent.email_handle) : "no email";
           console.log(`  - ${agent.name} (${email})`);
         }
         console.log(`\n  Open: ${serverUrl}/w/${res.workspace.slug}`);
