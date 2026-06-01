@@ -784,4 +784,26 @@ describe("POST /api/daemon/tasks/poll", () => {
       expect.anything(),
     );
   });
+
+  it("broadcasts runtime.status after clearing pendingRescan", async () => {
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetMachineByDaemon.mockResolvedValue({ pendingRescan: true });
+    mockClearPendingRescan.mockResolvedValue(undefined);
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.pending_rescan).toBe(true);
+    expect(mockClearPendingRescan).toHaveBeenCalledWith({}, "d1", "w1");
+    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
+      type: "runtime.status",
+      daemonId: "d1",
+      workspaceId: "w1",
+      status: "online",
+    });
+  });
 });

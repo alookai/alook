@@ -87,6 +87,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         if (machineRow?.pendingRescan) {
           pendingRescan = true;
           await queries.machine.clearPendingRescan(db, body.daemon_id, ctx.workspaceId);
+          broadcastToUser(ctx.userId, {
+            type: "runtime.status",
+            daemonId: body.daemon_id,
+            workspaceId: ctx.workspaceId,
+            status: "online",
+          }).catch(() => {});
         }
       } catch (e) {
         log.warn("pending check failed", { daemonId: body.daemon_id, err: String(e) });

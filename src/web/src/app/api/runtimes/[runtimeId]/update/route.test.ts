@@ -59,8 +59,11 @@ vi.mock("@/lib/logger", () => ({
   log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
+const mockBroadcastToUser = vi.fn(() => Promise.resolve());
+
 vi.mock("@/lib/broadcast", () => ({
   broadcastToDaemon: vi.fn(() => Promise.resolve({ sent: 1 })),
+  broadcastToUser: (...args: any[]) => mockBroadcastToUser(...args),
 }));
 
 // Mock global fetch for npm registry
@@ -140,7 +143,7 @@ describe("DELETE /api/runtimes/[runtimeId]/update", () => {
     mockGetMemberByUserAndWorkspace.mockResolvedValue({ id: "m1" });
   });
 
-  it("returns 204 when cancelling update", async () => {
+  it("returns 204 when cancelling update and broadcasts runtime.status", async () => {
     mockGetAgentRuntimeForWorkspace.mockResolvedValue({
       id: "rt1",
       daemonId: "d1",
@@ -151,6 +154,12 @@ describe("DELETE /api/runtimes/[runtimeId]/update", () => {
 
     expect(res.status).toBe(204);
     expect(mockClearPendingUpdateVersion).toHaveBeenCalledWith({}, "d1", "w1");
+    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
+      type: "runtime.status",
+      daemonId: "d1",
+      workspaceId: "w1",
+      status: "online",
+    });
   });
 
   it("returns 404 for non-existent runtime", async () => {
