@@ -629,7 +629,7 @@ describe("production workspace PET mounting", () => {
     expect(petComponent).toContain('clearPetTimer("attention")');
     expect(petComponent).toContain("resolveCloudCodeMonsterAgentWorkState");
     expect(petComponent).toContain("isTextEntryElement");
-    expect(petComponent).toContain('setPlatformActivity("typing")');
+    expect(petComponent).toContain('setPlatformActivity("thinking")');
     expect(petComponent).toContain("isSleepyActivity");
     expect(petComponent).toContain("noWorkSleep");
     expect(petComponent).toContain("noWorkDoze");
@@ -642,7 +642,10 @@ describe("production workspace PET mounting", () => {
     expect(petComponent).toContain("const isWalkingBasic = isDragging || isAutoWalking");
     expect(petPixelParts).toContain("eyeOffset");
     expect(petPixelParts).toContain("cloud-code-monster-pet-eyes-track");
-    expect(petPixelParts).toContain('activityId === "coding" || activityId === "typing"');
+    expect(petPixelParts).toContain('activityId === "coding"');
+    expect(petPixelParts).toContain("cloud-code-monster-pet-thought");
+    expect(petPixelParts).toContain('x="81" y="-3" width="36" height="19" fill="#fffdfa"');
+    expect(petPixelParts).toContain("cloud-code-monster-pet-thought-dot-3");
     expect(petPixelParts).toContain('<rect x="32" y="22" width="64" height="12" fill={preset.bodyTop} />');
     expect(petPixelParts).toContain('<rect x="16" y="51" width="12" height="24" fill={preset.body} />');
     expect(petPixelParts).toContain('<rect x="100" y="51" width="12" height="24" fill={preset.body} />');
@@ -655,7 +658,9 @@ describe("production workspace PET mounting", () => {
     expect(petDirectShapes).toContain('transform={`translate(${eyeOffset?.x ?? 0} ${eyeOffset?.y ?? 0})`}');
     expect(petCssModule).toContain("--monster-cursor-body-x");
     expect(petCssModule).toContain("cloud-code-monster-eye-blink");
-    expect(petCssModule).toContain('.pet[data-activity="typing"] :global(.cloud-code-monster-pet-laptop)');
+    expect(petCssModule).toContain('.pet[data-activity="thinking"] :global(.cloud-code-monster-pet-thought)');
+    expect(petCssModule).toContain("cloud-code-monster-thought-dot");
+    expect(petCssModule).not.toContain('.pet[data-activity="typing"] :global(.cloud-code-monster-pet-laptop)');
     expect(petCssModule).toContain("cloud-code-monster-fall-asleep 1.5s");
     expect(petCssModule).toContain("cloud-code-monster-wake 1.5s");
     expect(petCssModule).toContain('@keyframes cloud-code-monster-fall-asleep');

@@ -257,8 +257,7 @@
   animation: cloud-code-monster-phone-glow 1.4s ease-in-out infinite;
 }
 
-.pet[data-activity="coding"] :global(.cloud-code-monster-pet-laptop),
-.pet[data-activity="typing"] :global(.cloud-code-monster-pet-laptop) {
+.pet[data-activity="coding"] :global(.cloud-code-monster-pet-laptop) {
   animation: cloud-code-monster-keytap 1s steps(2, end) infinite;
 }
 
@@ -301,17 +300,23 @@
   transform-origin: 72px 100px;
 }
 
-.pet[data-activity="thinking"] :global(.cloud-code-monster-pet-thought rect) {
+.pet[data-activity="thinking"] :global(.cloud-code-monster-pet-thought) {
   animation: cloud-code-monster-thought 2.8s ease-in-out infinite;
   transform-box: fill-box;
+  transform-origin: center;
 }
 
-.pet[data-activity="thinking"] :global(.cloud-code-monster-pet-thought rect:nth-child(2)) {
-  animation-delay: 240ms;
+.pet[data-activity="thinking"] :global(.cloud-code-monster-pet-thought-dot) {
+  animation: cloud-code-monster-thought-dot 1.35s steps(1, end) infinite;
+  opacity: 0.18;
 }
 
-.pet[data-activity="thinking"] :global(.cloud-code-monster-pet-thought rect:nth-child(3)) {
-  animation-delay: 480ms;
+.pet[data-activity="thinking"] :global(.cloud-code-monster-pet-thought-dot-2) {
+  animation-delay: 180ms;
+}
+
+.pet[data-activity="thinking"] :global(.cloud-code-monster-pet-thought-dot-3) {
+  animation-delay: 360ms;
 }
 
 .pet[data-activity="snacking"] :global(.cloud-code-monster-pet-snack) {
@@ -494,8 +499,14 @@
 }
 
 @keyframes cloud-code-monster-thought {
-  0%, 100% { opacity: 0.22; transform: translateY(3px) scale(0.82); }
-  50% { opacity: 0.78; transform: translateY(-2px) scale(1); }
+  0%, 100% { transform: translateY(1px); }
+  50% { transform: translateY(-2px); }
+}
+
+@keyframes cloud-code-monster-thought-dot {
+  0%, 28% { opacity: 0.18; }
+  29%, 72% { opacity: 0.78; }
+  73%, 100% { opacity: 0.18; }
 }
 
 @keyframes cloud-code-monster-snack {

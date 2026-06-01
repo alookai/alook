@@ -165,7 +165,7 @@ function MonsterActivityAccessory({
     );
   }
 
-  if (activityId === "coding" || activityId === "typing") {
+  if (activityId === "coding") {
     return (
       <g className="cloud-code-monster-pet-accessory cloud-code-monster-pet-laptop">
         <rect x="35" y="68" width="58" height="25" fill="#2b2724" />
@@ -257,9 +257,15 @@ function MonsterActivityAccessory({
 
   return (
     <g className="cloud-code-monster-pet-accessory cloud-code-monster-pet-thought">
-      <rect x="92" y="25" width="8" height="8" fill={preset.accent} />
-      <rect x="104" y="17" width="6" height="6" fill={preset.bodyLight} />
-      <rect x="113" y="9" width="5" height="5" fill={preset.highlight} />
+      <rect x="86" y="-8" width="26" height="5" fill="#fffdfa" />
+      <rect x="81" y="-3" width="36" height="19" fill="#fffdfa" />
+      <rect x="85" y="16" width="27" height="5" fill="#fffdfa" />
+      <rect x="77" y="4" width="44" height="8" fill="#fffdfa" />
+      <rect x="73" y="24" width="5" height="5" fill="#fffdfa" />
+      <rect x="68" y="33" width="3" height="3" fill="#fffdfa" />
+      <rect className="cloud-code-monster-pet-thought-dot cloud-code-monster-pet-thought-dot-1" x="88" y="7" width="4" height="4" fill="#34302b" />
+      <rect className="cloud-code-monster-pet-thought-dot cloud-code-monster-pet-thought-dot-2" x="97" y="7" width="4" height="4" fill="#34302b" />
+      <rect className="cloud-code-monster-pet-thought-dot cloud-code-monster-pet-thought-dot-3" x="106" y="7" width="4" height="4" fill="#34302b" />
     </g>
   );
 }
