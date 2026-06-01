@@ -279,6 +279,67 @@ describe("alook login", () => {
       expect(mockSaveCLIConfigForProfile).toHaveBeenCalled();
     });
 
+    it("shows message without email when /api/me fails", async () => {
+      mockLoadCLIConfigForProfile.mockReturnValue({
+        server_url: "http://localhost:3000",
+        watched_workspaces: [{ id: "sp_ws1", name: "My Workspace", token: "al_existing_tok" }],
+      });
+
+      mockFetchSequence([
+        { url: "/api/workspaces", status: 200, body: [{ id: "sp_ws1", name: "My Workspace" }] },
+        { url: "/api/me", status: 500, body: { error: "internal" } },
+      ]);
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Already logged in (workspace: My Workspace).",
+      );
+      expect(mockSaveCLIConfigForProfile).not.toHaveBeenCalled();
+    });
+
+    it("shows message without email when /api/me throws network error", async () => {
+      mockLoadCLIConfigForProfile.mockReturnValue({
+        server_url: "http://localhost:3000",
+        watched_workspaces: [{ id: "sp_ws1", name: "My Workspace", token: "al_existing_tok" }],
+      });
+
+      let callCount = 0;
+      vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+        const urlStr = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+        callCount++;
+        if (urlStr.includes("/api/workspaces")) {
+          return { ok: true, status: 200, json: async () => [{ id: "sp_ws1" }], text: async () => "[]" };
+        }
+        if (urlStr.includes("/api/me")) {
+          throw new Error("network error");
+        }
+        return { ok: false, status: 404, text: async () => "not found", json: async () => ({}) };
+      }));
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Already logged in (workspace: My Workspace).",
+      );
+    });
+
+    it("proceeds with login when token field is empty", async () => {
+      mockLoadCLIConfigForProfile.mockReturnValue({
+        server_url: "http://localhost:3000",
+        watched_workspaces: [{ id: "sp_ws1", name: "My Workspace", token: "" }],
+      });
+
+      mockFetchSequence(fullSuccessResponses());
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
+
+      expect(mockSaveCLIConfigForProfile).toHaveBeenCalled();
+    });
+
     it("works correctly in non-TTY mode with early exit", async () => {
       Object.defineProperty(process.stdout, "isTTY", { value: false, writable: true });
       mockLoadCLIConfigForProfile.mockReturnValue({
