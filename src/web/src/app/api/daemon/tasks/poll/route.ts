@@ -72,21 +72,28 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       const machineRow = machineResult.value;
       try {
         if (machineRow?.pendingUpdateVersion && body.cli_version) {
-          pendingUpdate = semverGte(body.cli_version, machineRow.pendingUpdateVersion)
-            ? undefined
-            : { version: machineRow.pendingUpdateVersion };
-          await queries.machine.clearPendingUpdateVersion(db, body.daemon_id, ctx.workspaceId);
+          if (semverGte(body.cli_version, machineRow.pendingUpdateVersion)) {
+            await queries.machine.clearPendingUpdateVersion(db, body.daemon_id, ctx.workspaceId);
+            broadcastToUser(ctx.userId, {
+              type: "runtime.status",
+              daemonId: body.daemon_id,
+              workspaceId: ctx.workspaceId,
+              status: "online",
+            }).catch(() => {});
+          } else {
+            pendingUpdate = { version: machineRow.pendingUpdateVersion };
+          }
+        }
+
+        if (machineRow?.pendingRescan) {
+          pendingRescan = true;
+          await queries.machine.clearPendingRescan(db, body.daemon_id, ctx.workspaceId);
           broadcastToUser(ctx.userId, {
             type: "runtime.status",
             daemonId: body.daemon_id,
             workspaceId: ctx.workspaceId,
             status: "online",
           }).catch(() => {});
-        }
-
-        if (machineRow?.pendingRescan) {
-          pendingRescan = true;
-          await queries.machine.clearPendingRescan(db, body.daemon_id, ctx.workspaceId);
         }
       } catch (e) {
         log.warn("pending check failed", { daemonId: body.daemon_id, err: String(e) });

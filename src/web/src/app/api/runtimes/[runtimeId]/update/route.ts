@@ -6,7 +6,7 @@ import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import { fetchLatestCliVersion } from "@/lib/npm";
-import { broadcastToDaemon } from "@/lib/broadcast";
+import { broadcastToDaemon, broadcastToUser } from "@/lib/broadcast";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -53,6 +53,13 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   if (!runtime) return writeError("runtime not found", 404);
 
   await queries.machine.clearPendingUpdateVersion(db, runtime.daemonId, ws.workspaceId);
+
+  broadcastToUser(ctx.userId, {
+    type: "runtime.status",
+    daemonId: runtime.daemonId,
+    workspaceId: ws.workspaceId,
+    status: "online",
+  }).catch(() => {});
 
   return new Response(null, { status: 204 });
 });

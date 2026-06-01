@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries } from "@alook/shared"
+import { queries, semverGte } from "@alook/shared"
 import { getDb, withD1Retry } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, parseBody } from "@/lib/middleware/helpers";
@@ -67,6 +67,24 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     });
   } catch (e) {
     log.warn("register: machine upsert failed", { daemonId, err: String(e) });
+  }
+
+  // Clear pendingUpdateVersion if daemon re-registered with a satisfying version
+  if (cliVersion) {
+    try {
+      const machineRow = await queries.machine.getMachineByDaemon(db, daemonId, workspaceId);
+      if (machineRow?.pendingUpdateVersion && semverGte(cliVersion, machineRow.pendingUpdateVersion)) {
+        await queries.machine.clearPendingUpdateVersion(db, daemonId, workspaceId);
+        broadcastToUser(ctx.userId, {
+          type: "runtime.status",
+          daemonId,
+          workspaceId,
+          status: "online",
+        }).catch(() => {});
+      }
+    } catch (e) {
+      log.warn("register: pending version check failed", { daemonId, err: String(e) });
+    }
   }
 
   const results = [];

@@ -279,7 +279,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(mockClaimTasksForRuntimes).toHaveBeenCalledWith(["r1"], 1, "w1");
   });
 
-  it("returns pending_update when pendingUpdateVersion is set and cli_version is older", async () => {
+  it("returns pending_update when pendingUpdateVersion is set and cli_version is older, without clearing flag", async () => {
     mockUpsertMachine.mockResolvedValue({});
     mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
     mockSweepStaleState.mockResolvedValue(undefined);
@@ -292,6 +292,8 @@ describe("POST /api/daemon/tasks/poll", () => {
 
     expect(res.status).toBe(200);
     expect(body.pending_update).toEqual({ version: "1.0.0" });
+    expect(mockClearPendingUpdateVersion).not.toHaveBeenCalled();
+    expect(mockBroadcastToUser).not.toHaveBeenCalled();
   });
 
   it("does not return pending_update when pendingUpdateVersion is not set", async () => {
@@ -309,7 +311,7 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(body.pending_update).toBeUndefined();
   });
 
-  it("auto-clears pendingUpdateVersion when cli_version >= pending version", async () => {
+  it("auto-clears pendingUpdateVersion and broadcasts when cli_version >= pending version", async () => {
     mockUpsertMachine.mockResolvedValue({});
     mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
     mockSweepStaleState.mockResolvedValue(undefined);
@@ -324,6 +326,12 @@ describe("POST /api/daemon/tasks/poll", () => {
     expect(res.status).toBe(200);
     expect(body.pending_update).toBeUndefined();
     expect(mockClearPendingUpdateVersion).toHaveBeenCalledWith({}, "d1", "w1");
+    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
+      type: "runtime.status",
+      daemonId: "d1",
+      workspaceId: "w1",
+      status: "online",
+    });
   });
 
   it("does not attach pending_update when cli_version is missing (backward compat)", async () => {
@@ -783,5 +791,42 @@ describe("POST /api/daemon/tasks/poll", () => {
       expect.any(String),
       expect.anything(),
     );
+  });
+
+  it("broadcasts runtime.status after clearing pendingRescan", async () => {
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetMachineByDaemon.mockResolvedValue({ pendingRescan: true });
+    mockClearPendingRescan.mockResolvedValue(undefined);
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.pending_rescan).toBe(true);
+    expect(mockClearPendingRescan).toHaveBeenCalledWith({}, "d1", "w1");
+    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
+      type: "runtime.status",
+      daemonId: "d1",
+      workspaceId: "w1",
+      status: "online",
+    });
+  });
+
+  it("does not fail poll when rescan broadcast rejects", async () => {
+    mockGetRuntimeIdsByDaemon.mockResolvedValue(["r1"]);
+    mockSweepStaleState.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockRejectedValue(new Error("WS unavailable"));
+    mockClaimTasksForRuntimes.mockResolvedValue([]);
+    mockGetMachineByDaemon.mockResolvedValue({ pendingRescan: true });
+    mockClearPendingRescan.mockResolvedValue(undefined);
+
+    const res = await POST(postReq({ daemon_id: "d1" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.pending_rescan).toBe(true);
   });
 });
