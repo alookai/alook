@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveMode, cliCommand, daemonCommand } from "./mode";
+import { resolveMode, cliCommand, daemonCommand, getBaseUrl } from "../src/mode";
 
 describe("resolveMode", () => {
   it("production: no signals", () => {
@@ -98,5 +98,27 @@ describe("daemonCommand", () => {
 
   it("app → no --foreground", () => {
     expect(daemonCommand("app")).toBe("npx @alook/app cli daemon start");
+  });
+});
+
+describe("getBaseUrl", () => {
+  it("prefers serverUrl when set", () => {
+    expect(getBaseUrl({ serverUrl: "http://localhost:3000", appUrl: "https://app.example.com" })).toBe("http://localhost:3000");
+  });
+
+  it("falls back to appUrl when serverUrl not set", () => {
+    expect(getBaseUrl({ appUrl: "https://app.example.com" })).toBe("https://app.example.com");
+  });
+
+  it("returns localhost in development when no URLs set", () => {
+    expect(getBaseUrl({ nodeEnv: "development" })).toBe("http://localhost:3000");
+  });
+
+  it("returns production URL when no signals", () => {
+    expect(getBaseUrl({})).toBe("https://alook.ai");
+  });
+
+  it("returns production URL in production mode with no URLs", () => {
+    expect(getBaseUrl({ nodeEnv: "production" })).toBe("https://alook.ai");
   });
 });

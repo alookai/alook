@@ -1,4 +1,4 @@
-import { resolveMode, cliCommand } from "@alook/shared";
+import { resolveMode, cliCommand, getBaseUrl } from "@alook/shared";
 import { NextResponse } from "next/server";
 
 function buildOnboardMarkdown(baseUrl: string, cliPrefix: string): string {
@@ -82,7 +82,11 @@ ${baseUrl}/w/{slug}
 }
 
 export async function GET() {
-  const baseUrl = process.env.ALOOK_SERVER_URL || process.env.NEXT_PUBLIC_APP_URL || "https://alook.ai";
+  const baseUrl = getBaseUrl({
+    serverUrl: process.env.ALOOK_SERVER_URL,
+    appUrl: process.env.NEXT_PUBLIC_APP_URL,
+    nodeEnv: process.env.NODE_ENV,
+  });
   const mode = resolveMode({
     serverUrl: process.env.ALOOK_SERVER_URL,
     cmdPrefix: process.env.ALOOK_CMD_PREFIX,

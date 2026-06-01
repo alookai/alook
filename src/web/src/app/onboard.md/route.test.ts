@@ -37,6 +37,17 @@ describe("GET /onboard.md", () => {
     expect(body).toContain("https://alook.ai/w/{slug}");
   });
 
+  it("uses localhost in development mode when no URLs are set", async () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.ALOOK_SERVER_URL;
+    delete process.env.ALOOK_CMD_PREFIX;
+    process.env.NODE_ENV = "development";
+    const response = await GET();
+    const body = await response.text();
+    expect(body).toContain("pnpm dev:cli login");
+    expect(body).toContain("http://localhost:3000/templates");
+  });
+
   it("uses npx @alook/app cli for self-hosted (app mode)", async () => {
     process.env.NEXT_PUBLIC_APP_URL = "http://localhost:15210";
     process.env.ALOOK_CMD_PREFIX = "npx @alook/app cli";

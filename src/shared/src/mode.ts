@@ -40,3 +40,19 @@ export function daemonCommand(mode: AlookMode): string {
   const base = `${cliCommand(mode)} daemon start`;
   return mode === "dev" ? `${base} --foreground` : base;
 }
+
+export interface BaseUrlSignals {
+  serverUrl?: string;
+  appUrl?: string;
+  nodeEnv?: string;
+}
+
+const DEFAULT_BASE_URL = "https://alook.ai";
+const DEV_BASE_URL = "http://localhost:3000";
+
+export function getBaseUrl(signals: BaseUrlSignals): string {
+  if (signals.serverUrl) return signals.serverUrl;
+  if (signals.appUrl) return signals.appUrl;
+  if (signals.nodeEnv === "development") return DEV_BASE_URL;
+  return DEFAULT_BASE_URL;
+}

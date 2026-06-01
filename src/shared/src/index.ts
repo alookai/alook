@@ -249,5 +249,5 @@ export { isOnline, formatStatus } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
 export { generateWorkspaceSlug } from "./utils/slug";
 export { semverGte } from "./semver";
-export { resolveMode, cliCommand, daemonCommand } from "./mode";
-export type { AlookMode, ModeSignals } from "./mode";
+export { resolveMode, cliCommand, daemonCommand, getBaseUrl } from "./mode";
+export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";

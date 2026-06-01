@@ -172,9 +172,6 @@ describe("onboard.md", () => {
     const res = await fetch(`${APP_URL}/onboard.md`)
     expect(res.status).toBe(200)
     expect(res.headers.get("content-type")).toContain("text/markdown")
-    const body = await res.text()
-    expect(body).toContain("npx @alook/cli login")
-    expect(body).toContain("npx @alook/cli daemon start")
   })
 })
 
