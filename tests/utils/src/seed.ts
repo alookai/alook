@@ -73,6 +73,7 @@ export function cleanupTestData(seed: TestSeed) {
   sqlRun(`DELETE FROM machine WHERE workspace_id = ?`, ws)
   sqlRun(`DELETE FROM machine_token WHERE workspace_id = ?`, ws)
   sqlRun(`DELETE FROM member WHERE workspace_id = ?`, ws)
+  sqlRun(`DELETE FROM "session" WHERE userId = ?`, seed.userId)
   sqlRun(`DELETE FROM workspace WHERE id = ?`, ws)
   sqlRun(`DELETE FROM "user" WHERE id = ?`, seed.userId)
 }
