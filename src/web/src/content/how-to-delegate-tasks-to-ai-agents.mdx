@@ -1,0 +1,172 @@
+export const metadata = {
+  slug: "how-to-delegate-tasks-to-ai-agents",
+  title: "How to Delegate Tasks to AI Agents: A Practical Guide",
+  date: "2026-06-01",
+  author: "Alook Team",
+  excerpt:
+    "Delegating to AI agents is easier than you think. This guide walks you through picking the right tasks, writing clear instructions, and reviewing output.",
+  readingTime: "8 min read",
+};
+
+_You've heard AI agents can handle tasks on their own. Great. But how do you actually hand something off and trust it'll get done right? Here's the practical, no-fluff guide._
+
+## The Core Idea
+
+Delegating to an AI agent is not that different from delegating to a person. You need to:
+
+1. Pick a task that's clear and repeatable.
+2. Write instructions that explain what "done" looks like.
+3. Give the agent access to the tools it needs.
+4. Set a trigger (when should it run?).
+5. Review the first few runs and tweak as needed.
+
+The mistake most people make: they try to delegate something vague ("help me stay organized") or something they haven't fully defined themselves. If _you_ don't know exactly what the output should look like, the agent won't either.
+
+## Step 1: Pick the Right Task
+
+Not every task is delegation-ready. The best candidates are:
+
+- **Repeatable.** You do it more than once (weekly reports, lead routing, content summaries).
+- **Rule-based.** You can describe the steps clearly ("Pull last week's metrics, compare to previous week, send summary").
+- **Time-consuming but not complex.** It takes you 30 minutes, but it doesn't require deep judgment or creativity.
+
+Good examples:
+
+- Weekly performance report (pull data, summarize, email)
+- Lead qualification (new lead comes in → score it → route to right salesperson)
+- Meeting prep (pull notes from last meeting, list open action items, send reminder)
+- Content research (monitor RSS feeds, flag relevant articles, summarize in Slack)
+
+Bad examples (at least to start):
+
+- "Make me more productive" (too vague)
+- "Handle my email" (too broad—start with one email type, like newsletter triage)
+- "Write our marketing strategy" (requires human judgment and context you haven't documented)
+
+**Start narrow.** Pick one task you do every week that follows the same pattern. You can always expand later.
+
+## Step 2: Write Clear Instructions
+
+This is where most delegations fail. Vague instructions produce vague output.
+
+Your instructions should answer:
+
+- **What** does the agent do?
+- **When** does it do it?
+- **Where** does it pull data from?
+- **How** should the output be formatted?
+- **Who** gets the result (and how)?
+
+Here's a bad example:
+
+> "Send me a weekly report on how things are going."
+
+Here's a good example:
+
+> "Every Monday at 9am, pull pageviews from Google Analytics, revenue from Stripe, and new leads from HubSpot. Compare each metric to last week. Write a 3-paragraph summary in plain English: what went up, what went down, what to watch. Email it to me and cc the team."
+
+The second version tells the agent _exactly_ what to do. No guessing.
+
+## Step 3: Give It Access to Tools
+
+An agent can't pull data from Google Analytics if it doesn't have access to Google Analytics. This sounds obvious, but it's a common blocker.
+
+For each task, list:
+
+- **What tools does the agent need?** (Email, calendar, databases, APIs, file storage, Slack, etc.)
+- **What permissions does it need?** (Read-only? Write access? Send on your behalf?)
+
+Most agent platforms (like [alook.ai](https://alook.ai)) handle authentication for you—you connect your tools once, and the agent can use them within the scope you define.
+
+**Pro tip:** Start with read-only access. Let the agent pull data and draft output, but have it send you the result for review before taking actions (like sending emails or updating records). Once you trust it, you can give it write access.
+
+## Step 4: Set the Trigger
+
+When should the agent run? You have three main options:
+
+1. **Time-based.** "Every Monday at 9am." "Daily at 6pm." "First day of the month."
+2. **Event-based.** "When a new lead comes in." "When someone submits the form." "When a calendar event starts."
+3. **Manual.** "Run this when I tell you to."
+
+For your first delegation, **time-based is easiest**—it's predictable, and you can check the output at the same time every week.
+
+Event-based triggers are powerful once you're comfortable, but they require more setup (webhooks, integrations, error handling).
+
+## Step 5: Review the First Few Runs
+
+Don't set it and forget it on day one. The first few runs will surface edge cases you didn't think of:
+
+- What if the data source is down?
+- What if last week's numbers are zero?
+- What if the email subject line is too long?
+
+Check the first 3-5 outputs. Look for:
+
+- **Accuracy.** Is the data correct?
+- **Formatting.** Is the output readable and useful?
+- **Timing.** Did it run when you expected?
+- **Errors.** Did anything break? If so, what failed and why?
+
+Tweak the instructions or tool access as needed. After a few successful runs, you can trust it to run on its own—and only check in when something looks off.
+
+## What to Expect
+
+Here's the honest timeline for delegating a task to an AI agent:
+
+- **Week 1:** You set it up, it runs, and you review every output. You tweak instructions 2-3 times.
+- **Week 2-3:** It's running reliably. You still glance at the output, but you're not editing it anymore.
+- **Week 4+:** You mostly forget it's there. You only look when something breaks or you want to change the format.
+
+The time investment is front-loaded. But once it's running, you get that time back every week—forever.
+
+## Common Pitfalls (and How to Avoid Them)
+
+### 1. Instructions Are Too Vague
+
+**Symptom:** The output is inconsistent or not what you wanted.
+
+**Fix:** Be more specific. Instead of "summarize this," say "write 3 bullet points, each under 20 words, focusing on trends not raw numbers."
+
+### 2. The Task Is Too Broad
+
+**Symptom:** The agent tries to do too much and fails at multiple steps.
+
+**Fix:** Break it into smaller tasks. Instead of "handle my email," start with "triage newsletters into a daily digest."
+
+### 3. You Didn't Test the Trigger
+
+**Symptom:** The agent runs at the wrong time or not at all.
+
+**Fix:** Run it manually first to make sure the logic works. Then set the trigger and confirm it fires when expected.
+
+### 4. You Set It and Forgot It Too Soon
+
+**Symptom:** You discover weeks later that it's been producing junk or hitting errors.
+
+**Fix:** Review the first 3-5 runs. Only after that can you safely stop checking.
+
+## When to Delegate More
+
+Once you've successfully delegated one task, you'll start seeing delegation opportunities everywhere. The pattern becomes obvious:
+
+- "I do this every Monday."
+- "I copy-paste this data into that tool."
+- "I manually route these emails."
+
+All candidates for agents.
+
+The key is to **delegate one task at a time**. Don't try to hand off five workflows at once. Get one running reliably, then move to the next.
+
+## Why alook.ai Makes Delegation Easy
+
+[alook.ai](https://alook.ai) is built for this exact workflow. You define the task, connect the tools, set the trigger, and the platform handles the execution, logging, and error handling. No code required.
+
+You can see what each agent did, when, and what the output was. If something breaks, you get notified and can see exactly which step failed. And if you want to tweak the instructions or add a new tool, you just edit the agent—no need to rewrite a script or rebuild a workflow.
+
+For more context on how agents differ from chatbots (and why delegation is different from just "asking AI"), check out [AI agents vs. chatbots](/blog/ai-agent-vs-chatbot). And if you're curious about how multiple agents can work together on complex workflows, see [AI agent orchestration](/blog/ai-agent-orchestration).
+
+## Ready to Delegate Your First Task?
+
+Pick one task you do every week. Write down the steps. Set up an agent to handle it. Review the first few runs. Then move on to the next one.
+
+That's it. [Start with alook.ai](https://alook.ai/signup)—your first agent can be running in under 10 minutes.

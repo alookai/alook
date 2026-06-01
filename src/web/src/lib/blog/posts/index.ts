@@ -1,8 +1,16 @@
 import type { BlogPost } from "../types";
 
 import { metadata as whyWeBuiltAlook } from "@/content/why-we-built-alook.mdx";
+import { metadata as aiAgentOrchestration } from "@/content/ai-agent-orchestration.mdx";
+import { metadata as aiAgentVsChatbot } from "@/content/ai-agent-vs-chatbot.mdx";
+import { metadata as howToDelegateTasks } from "@/content/how-to-delegate-tasks-to-ai-agents.mdx";
 
-const posts: BlogPost[] = [whyWeBuiltAlook];
+const posts: BlogPost[] = [
+  whyWeBuiltAlook,
+  aiAgentOrchestration,
+  aiAgentVsChatbot,
+  howToDelegateTasks,
+];
 
 export type { BlogPost } from "../types";
 
