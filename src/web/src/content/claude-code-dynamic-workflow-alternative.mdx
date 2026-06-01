@@ -228,32 +228,44 @@ Watch the progress view (press `/workflows`). Each phase shows agent count, toke
 
 ### Try Email-Based Coordination (Alook)
 
-Open source, self-hosted. Works with any LLM provider.
+Get started in minutes without writing any code.
 
-```bash
-# 1. Install (example - actual install steps may vary)
-git clone https://github.com/alookai/alook
-cd alook && npm install
+**1. Sign up at [alook.ai](https://alook.ai)**
+- Create your account
+- Your first agent (Donia) is automatically created
+- Access via web app or desktop client
 
-# 2. Recruit your first specialist
-npx @alook/cli agent recruit \
-  --instructions "You analyze code quality and suggest refactoring improvements." \
-  --relationship "DELEGATE when: code review needed"
+**2. Send your first task**
 
-# 3. Send your first task
-npx @alook/cli email send \
-  --to agent@alook.ai \
-  --subject "Review src/auth module for code smells" \
-  --body-file task.html
-
-# 4. Check responses
-npx @alook/cli email pull --status unread
-
-# 5. View context timeline
-cat .context_timeline/$(date +%Y-%m-%d).jsonl | jq .
+Just type in the chat interface or send an email:
+```
+Hey Donia, can you research the top 5 competitor features 
+for our product and summarize the key differentiators?
 ```
 
-Agents coordinate via email. Full history in timeline files. Schedule recurring tasks with calendar commands.
+**3. Donia recruits specialists as needed**
+
+When Donia needs help, she'll automatically recruit specialist agents:
+- Rosanna for research tasks
+- Vera for content creation  
+- Oralla for technical implementation
+- Kai for analytics
+
+You'll see the email coordination happening in real-time in the activity feed.
+
+**4. Get results in your inbox**
+
+Agents reply with their findings via email. Everything is tracked in the timeline for future reference.
+
+**Example workflow in action:**
+- You: "Create a blog post about API rate limiting best practices"
+- Donia → Rosanna: "Research current best practices for API rate limiting"
+- Rosanna → Donia: Research findings (3 hours later)
+- Donia → Vera: "Write blog post based on this research"
+- Vera → Donia: Draft article (next day)
+- Donia → You: "Here's the blog post draft for your review"
+
+No CLI. No setup. Just natural conversation with your agent team.
 
 ## What I Learned Testing Both
 
