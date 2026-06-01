@@ -4,6 +4,11 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }));
 
+vi.mock("@/components/avatar", () => ({
+  randomConfig: vi.fn(() => ({ shape: "circle", color: "#ff0000" })),
+  serializeAvatarConfig: vi.fn(() => "generated-avatar-config"),
+}));
+
 const mockCreateAgent = vi.fn();
 const mockGetAgentByHandle = vi.fn();
 const mockListAgents = vi.fn();
@@ -296,6 +301,36 @@ describe("POST /api/studios", () => {
     await POST(req, {});
 
     expect(mockAddWhitelist).toHaveBeenCalledTimes(2);
+  });
+
+  it("auto-generates avatar when avatar_url is not provided", async () => {
+    const req = new NextRequest("http://localhost/api/studios", {
+      method: "POST",
+      body: JSON.stringify({
+        members: [{ name: "Solo", role: "leader", runtime_id: "rt1" }],
+      }),
+    });
+
+    await POST(req, {});
+
+    expect(mockCreateAgent).toHaveBeenCalledTimes(1);
+    const agentData = mockCreateAgent.mock.calls[0][1];
+    expect(agentData.avatarUrl).toBe("generated-avatar-config");
+  });
+
+  it("uses provided avatar_url when explicitly set", async () => {
+    const req = new NextRequest("http://localhost/api/studios", {
+      method: "POST",
+      body: JSON.stringify({
+        members: [{ name: "Solo", role: "leader", runtime_id: "rt1", avatar_url: "custom-avatar" }],
+      }),
+    });
+
+    await POST(req, {});
+
+    expect(mockCreateAgent).toHaveBeenCalledTimes(1);
+    const agentData = mockCreateAgent.mock.calls[0][1];
+    expect(agentData.avatarUrl).toBe("custom-avatar");
   });
 
   it("creates agents with auto-generated names when name is omitted", async () => {
