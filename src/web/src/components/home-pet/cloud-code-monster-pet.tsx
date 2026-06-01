@@ -972,7 +972,7 @@ export function CloudCodeMonsterPet({
     }
 
     if (!isUserTyping) {
-      if (activityState?.activityId === "typing") {
+      if (activityState?.activityId === "thinking" || activityState?.activityId === "typing") {
         setPlatformActivity(null);
       }
       return;
@@ -982,19 +982,19 @@ export function CloudCodeMonsterPet({
     clearPetTimer("noWorkSleep");
     stopTemporaryMotion();
 
-    if (activityState?.activityId === "typing" || activityState?.activityId === "waking") {
+    if (activityState?.activityId === "thinking" || activityState?.activityId === "waking") {
       return;
     }
 
     if (isSleepyActivity(activityState?.activityId ?? null)) {
       setPlatformActivity("waking");
       setPetTimer("attention", () => {
-        setPlatformActivity("typing");
+        setPlatformActivity("thinking");
       }, CLOUD_CODE_MONSTER_WAKE_MS);
       return;
     }
 
-    setPlatformActivity("typing");
+    setPlatformActivity("thinking");
   }, [
     activityState?.activityId,
     clearPetTimer,
