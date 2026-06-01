@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 function buildOnboardMarkdown(baseUrl: string, cliPrefix: string): string {
   return `---
@@ -80,12 +80,12 @@ ${baseUrl}/w/{slug}
 `;
 }
 
-export async function GET(request: NextRequest) {
-  const origin = new URL(request.url).origin;
-  const isCloud = origin === "https://alook.ai";
+export async function GET() {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://alook.ai";
+  const isCloud = baseUrl === "https://alook.ai";
   const cliPrefix = isCloud ? "npx @alook/cli" : "npx @alook/app cli";
 
-  return new NextResponse(buildOnboardMarkdown(origin, cliPrefix), {
+  return new NextResponse(buildOnboardMarkdown(baseUrl, cliPrefix), {
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
     },

@@ -1,20 +1,26 @@
-import { describe, it, expect } from "vitest";
-import { NextRequest } from "next/server";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { GET } from "./route";
 
-function makeRequest(url: string) {
-  return new NextRequest(new URL(url));
-}
-
 describe("GET /onboard.md", () => {
+  const originalEnv = process.env.NEXT_PUBLIC_APP_URL;
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.NEXT_PUBLIC_APP_URL;
+    } else {
+      process.env.NEXT_PUBLIC_APP_URL = originalEnv;
+    }
+  });
+
   it("returns 200 with Content-Type text/markdown", async () => {
-    const response = await GET(makeRequest("https://alook.ai/onboard.md"));
+    const response = await GET();
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toBe("text/markdown; charset=utf-8");
   });
 
-  it("uses npx @alook/cli for cloud origin", async () => {
-    const response = await GET(makeRequest("https://alook.ai/onboard.md"));
+  it("uses npx @alook/cli and alook.ai URLs by default", async () => {
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    const response = await GET();
     const body = await response.text();
     expect(body).toContain("npx @alook/cli login");
     expect(body).toContain("https://alook.ai/templates");
@@ -22,7 +28,8 @@ describe("GET /onboard.md", () => {
   });
 
   it("uses npx @alook/app cli for self-hosted origin", async () => {
-    const response = await GET(makeRequest("http://localhost:15210/onboard.md"));
+    process.env.NEXT_PUBLIC_APP_URL = "http://localhost:15210";
+    const response = await GET();
     const body = await response.text();
     expect(body).toContain("npx @alook/app cli login");
     expect(body).toContain("http://localhost:15210/templates");
