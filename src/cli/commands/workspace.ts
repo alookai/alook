@@ -140,7 +140,7 @@ export function workspaceCommand(): Command {
           const email = agent.email_handle ? `${agent.email_handle}@alook.ai` : "no email";
           console.log(`  - ${agent.name} (${email})`);
         }
-        console.log(`\n  Open: https://alook.ai/w/${res.workspace.slug}`);
+        console.log(`\n  Open: ${serverUrl}/w/${res.workspace.slug}`);
       } catch (err) {
         console.error(`Error: failed to create workspace: ${err instanceof Error ? err.message : err}`);
         process.exit(1);

@@ -93,7 +93,7 @@ describe("workspace init", () => {
     }));
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Workspace initialized"));
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("alice@alook.ai"));
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("https://alook.ai/w/test-ws"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("http://localhost:3000/w/test-ws"));
   });
 
   it("errors when JSON file does not exist", async () => {
