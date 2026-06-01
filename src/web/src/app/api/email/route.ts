@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries } from "@alook/shared";
+import { queries, toAlookAddress } from "@alook/shared";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
@@ -29,7 +29,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const folder = req.nextUrl.searchParams.get("folder");
   const address = req.nextUrl.searchParams.get("address");
-  const agentEmail = address || (agent.emailHandle ? `${agent.emailHandle}@alook.ai` : "");
+  const agentEmail = address || (agent.emailHandle ? toAlookAddress(agent.emailHandle) : "");
 
   const limitParam = req.nextUrl.searchParams.get("limit");
   const offsetParam = req.nextUrl.searchParams.get("offset");

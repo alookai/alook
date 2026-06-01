@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
 import { listEmails, getEmailBody, getEmailThread, deleteEmail, sendEmail, listEmailAccounts, updateEmailStatus } from "@/lib/api";
+import { toAlookAddress } from "@alook/shared";
 import type { Email, EmailAttachment, AgentEmailAccount } from "@alook/shared";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -76,7 +77,7 @@ export default function AgentEmailPage() {
   }, []);
 
   type Mailbox = { type: "alook"; address: string } | { type: "custom"; address: string; accountId: string };
-  const alookAddress = agent?.email_handle ? `${agent.email_handle}@alook.ai` : "";
+  const alookAddress = agent?.email_handle ? toAlookAddress(agent.email_handle) : "";
   const mailboxes: Mailbox[] = [
     ...(alookAddress ? [{ type: "alook" as const, address: alookAddress }] : []),
     ...emailAccounts.map((a) => ({ type: "custom" as const, address: a.email_address, accountId: a.id })),

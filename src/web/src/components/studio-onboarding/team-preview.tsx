@@ -12,6 +12,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { ProviderLogo } from "@/components/provider-logo";
+import { toAlookAddress } from "@alook/shared";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import type { MemberRole } from "./scenario-presets";
 
@@ -88,7 +89,7 @@ export function TeamPreview({
               </div>
               {/* Email */}
               <p className="text-[10px] text-muted-foreground/70 font-mono truncate">
-                {m.emailHandle || m.name.toLowerCase()}@alook.ai
+                {toAlookAddress(m.emailHandle || m.name.toLowerCase())}
               </p>
               {/* Description — flex-1 to push runtime picker to bottom */}
               <p className="text-[11px] text-muted-foreground leading-snug flex-1">

@@ -16,6 +16,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
 vi.mock("@alook/shared", () => ({
   createDb: vi.fn(() => ({})),
+  toAlookAddress: (h: string) => `${h}@alook.ai`,
   queries: {
     agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
     email: {

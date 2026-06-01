@@ -18,7 +18,7 @@ describe("resolveMode", () => {
     expect(resolveMode({ nodeEnv: "development" })).toBe("dev");
   });
 
-  it("dev: ALOOK_SERVER_URL without CMD_PREFIX", () => {
+  it("dev: local ALOOK_SERVER_URL without CMD_PREFIX", () => {
     expect(resolveMode({ serverUrl: "http://localhost:3000" })).toBe("dev");
   });
 
@@ -26,6 +26,18 @@ describe("resolveMode", () => {
     expect(
       resolveMode({ serverUrl: "http://localhost:3000", nodeEnv: "development" }),
     ).toBe("dev");
+  });
+
+  it("production: ALOOK_SERVER_URL set with NODE_ENV=production", () => {
+    expect(
+      resolveMode({ serverUrl: "https://alook.ai", nodeEnv: "production" }),
+    ).toBe("production");
+  });
+
+  it("production: non-local ALOOK_SERVER_URL without NODE_ENV", () => {
+    expect(
+      resolveMode({ serverUrl: "https://alook.ai" }),
+    ).toBe("production");
   });
 
   it("app: CMD_PREFIX set (overrides serverUrl)", () => {

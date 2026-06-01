@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid"
 import PostalMime from "postal-mime"
-import { createDb, queries, parseEmailHandle, DEV_WEB_URL, createLogger, buildMimeMessage, extractAttachmentMeta } from "@alook/shared"
+import { createDb, queries, parseEmailHandle, toAlookAddress, DEV_WEB_URL, createLogger, buildMimeMessage, extractAttachmentMeta } from "@alook/shared"
 import { decrypt } from "@alook/shared/crypto"
 import { WorkerMailer, type AuthType } from "worker-mailer"
 
@@ -80,7 +80,7 @@ export default {
     }
 
     await env.SEND_EMAIL.send({
-      from: "no-reply@alook.ai",
+      from: toAlookAddress("no-reply"),
       to: body.to,
       subject: body.subject,
       html: body.html ?? "",
@@ -129,7 +129,7 @@ export default {
       if (!agent.emailHandle) {
         return Response.json({ error: "agent has no email handle configured" }, { status: 400 })
       }
-      fromAddress = `${agent.emailHandle}@alook.ai`
+      fromAddress = toAlookAddress(agent.emailHandle)
     }
 
     const htmlBody = body.htmlBody ?? ""

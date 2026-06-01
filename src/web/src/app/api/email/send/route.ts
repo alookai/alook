@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, DEV_EMAIL_WORKER_URL, DEV_WEB_URL, SendEmailRequestSchema, parseEmailHandle, buildMimeMessage, extractThreadId, buildEmailMapKey } from "@alook/shared";
+import { queries, DEV_EMAIL_WORKER_URL, DEV_WEB_URL, SendEmailRequestSchema, parseEmailHandle, toAlookAddress, buildMimeMessage, extractThreadId, buildEmailMapKey } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
@@ -62,7 +62,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   let fromAddress: string;
 
   if (body.from && !customAccountId) {
-    const alookAddr = agent.emailHandle ? `${agent.emailHandle}@alook.ai` : null;
+    const alookAddr = agent.emailHandle ? toAlookAddress(agent.emailHandle) : null;
     if (body.from === alookAddr) {
       fromAddress = alookAddr;
     } else {
@@ -84,7 +84,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     if (!agent.emailHandle) {
       return writeError("agent has no email handle configured", 400);
     }
-    fromAddress = `${agent.emailHandle}@alook.ai`;
+    fromAddress = toAlookAddress(agent.emailHandle);
   }
 
   let validatedConversationId: string | undefined;

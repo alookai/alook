@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, CreateStudioRequestSchema, isValidHandle, isOnline, TASK_TYPES } from "@alook/shared";
+import { queries, CreateStudioRequestSchema, isValidHandle, isOnline, TASK_TYPES, toAlookAddress } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { uniqueNamesGenerator, names } from "unique-names-generator";
 import { getDb } from "@/lib/db";
@@ -214,7 +214,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     try {
       const teammatesList = createdAgents
         .filter((a) => a.id !== leaderAgent.id)
-        .map((a) => `- ${a.name} (${a.emailHandle}@alook.ai), role: ${a.role}`)
+        .map((a) => `- ${a.name} (${a.emailHandle ? toAlookAddress(a.emailHandle) : a.name}), role: ${a.role}`)
         .join("\n");
 
       const welcomePrompt = createdAgents.length === 1
@@ -246,7 +246,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     try {
       const teammatesList = createdAgents
         .filter((a) => a.id !== leaderAgent.id)
-        .map((a) => `- ${a.name} (${a.emailHandle}@alook.ai), role: ${a.role}`)
+        .map((a) => `- ${a.name} (${a.emailHandle ? toAlookAddress(a.emailHandle) : a.name}), role: ${a.role}`)
         .join("\n");
 
       const welcomeChatPrompt = createdAgents.length === 1

@@ -39,7 +39,7 @@ import { Streamdown } from "streamdown";
 import type { Agent, Artifact, Issue, IssueComment, Message, TaskApi } from "@alook/shared";
 import { isPreviewable, getArtifactUrl } from "@/components/artifact-content-renderer";
 import { formatSize } from "@/components/agent-chat/artifact-sheet";
-import { isTerminalIssueStatus } from "@alook/shared";
+import { isTerminalIssueStatus, toAlookAddress } from "@alook/shared";
 import type { TraceTask } from "@/lib/api";
 import { updateIssue } from "@/lib/api";
 import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
@@ -81,7 +81,7 @@ function AgentAvatar({ agent, size = 24 }: { agent?: Agent | null; size?: number
 }
 
 function AgentIdentity({ agent, size = 24 }: { agent: Agent; size?: number }) {
-  const email = agent.email_handle ? `${agent.email_handle}@alook.ai` : "";
+  const email = agent.email_handle ? toAlookAddress(agent.email_handle) : "";
   return (
     <div className="flex min-w-0 items-center gap-2">
       <AgentAvatar agent={agent} size={size} />

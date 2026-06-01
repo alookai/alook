@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { nanoid } from "nanoid"
-import { queries, MeetingStatus, DEV_WEB_URL, buildMimeMessage } from "@alook/shared"
+import { queries, MeetingStatus, DEV_WEB_URL, buildMimeMessage, toAlookAddress } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -71,8 +71,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       const messageId = `<meeting-${body.meetingId}@alook.ai>`
       const existing = await queries.email.getEmailByMessageId(db, messageId, body.workspaceId)
       if (!existing) {
-        const fromAddr = "no-reply@alook.ai"
-        const toAddr = `${agent.emailHandle}@alook.ai`
+        const fromAddr = toAlookAddress("no-reply")
+        const toAddr = toAlookAddress(agent.emailHandle)
         const meetingTitle = meeting.title || "Untitled"
         const subject = `Meeting completed: ${meetingTitle} — please summarize`
 

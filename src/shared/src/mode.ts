@@ -7,9 +7,18 @@ export interface ModeSignals {
   hostname?: string;
 }
 
+function isLocalUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return ["localhost", "127.0.0.1", "0.0.0.0"].includes(hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function resolveMode(signals: ModeSignals): AlookMode {
   if (signals.nodeEnv === "development" && !signals.cmdPrefix) return "dev";
-  if (signals.serverUrl && !signals.cmdPrefix) return "dev";
+  if (signals.serverUrl && !signals.cmdPrefix && signals.nodeEnv !== "production" && isLocalUrl(signals.serverUrl)) return "dev";
   if (signals.cmdPrefix) return "app";
   if (signals.hostname && ["localhost", "127.0.0.1"].includes(signals.hostname))
     return "app";

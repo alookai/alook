@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { toAlookAddress } from "@alook/shared";
 import type { Agent } from "@alook/shared";
 import { Check, Copy } from "lucide-react";
 import { toast } from "sonner";
@@ -24,7 +25,7 @@ export function AgentPreviewCard({
   isHovered,
 }: AgentPreviewCardProps) {
   const [copied, setCopied] = useState(false);
-  const email = agent.email_handle ? `${agent.email_handle}@alook.ai` : null;
+  const email = agent.email_handle ? toAlookAddress(agent.email_handle) : null;
   const isCompact = variant === "compact";
 
   const handleCopy = useCallback(async () => {

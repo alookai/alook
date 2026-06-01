@@ -58,6 +58,7 @@ vi.mock("@alook/shared", async () => {
       const domain = "@alook.ai"
       return address.endsWith(domain) ? address.slice(0, -domain.length) : ""
     },
+    toAlookAddress: (h: string) => `${h}@alook.ai`,
     DEV_WEB_URL: "http://localhost:3000",
     queries: {
       agent: {

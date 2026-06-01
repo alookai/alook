@@ -82,7 +82,7 @@ ${baseUrl}/w/{slug}
 }
 
 export async function GET() {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://alook.ai";
+  const baseUrl = process.env.ALOOK_SERVER_URL || process.env.NEXT_PUBLIC_APP_URL || "https://alook.ai";
   const mode = resolveMode({
     serverUrl: process.env.ALOOK_SERVER_URL,
     cmdPrefix: process.env.ALOOK_CMD_PREFIX,

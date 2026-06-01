@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Agent } from "@alook/shared";
 import type { AgentRuntime as Runtime } from "@alook/shared";
+import { toAlookAddress } from "@alook/shared";
 import { cn } from "@/lib/utils";
 import { LockIcon } from "lucide-react";
 import { CustomEmailForm } from "@/components/custom-email-form";
@@ -372,7 +373,7 @@ export function AgentEditForm({
                         </span>
                         <span className="text-xs text-muted-foreground">
                           {agent.email_handle
-                            ? `${agent.email_handle}@alook.ai`
+                            ? toAlookAddress(agent.email_handle)
                             : "Not configured"}
                         </span>
                       </div>

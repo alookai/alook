@@ -10,6 +10,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { toAlookAddress } from "@alook/shared";
 import type { Agent } from "@alook/shared";
 import { AnimatedAvatar, parseAvatarUrl } from "@/components/avatar";
 import { useAgentContext } from "@/contexts/agent-context";
@@ -114,7 +115,7 @@ export function AgentChatSheet({ open, onOpenChange, agentId, agent, targetConvI
                 {agent?.name ?? "Chat"}
               </SheetTitle>
               {agent?.email_handle && (
-                <span className="text-xs text-muted-foreground truncate">{agent.email_handle}@alook.ai</span>
+                <span className="text-xs text-muted-foreground truncate">{toAlookAddress(agent.email_handle)}</span>
               )}
             </div>
           </div>
