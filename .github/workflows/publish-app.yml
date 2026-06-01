@@ -73,25 +73,3 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         working-directory: src/app
         run: npm publish --access public
-
-      - name: Notify Discord
-        if: steps.check.outputs.skip == 'false'
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          BODY=$(python3 -c "
-          import json, os
-          version = os.environ['VERSION']
-          payload = {
-            'embeds': [{
-              'title': f'📦 @alook/app v{version} published to npm',
-              'description': 'Run Alook locally with one command:\n\n\`\`\`\nnpx @alook/app onboard\n\`\`\`',
-              'color': 5025616,
-              'url': f'https://www.npmjs.com/package/@alook/app/v/{version}',
-              'footer': {'text': 'npm registry'},
-            }]
-          }
-          print(json.dumps(payload))
-          ")
-          curl -sf -H "Content-Type: application/json" -d "$BODY" "$DISCORD_WEBHOOK"
