@@ -113,6 +113,33 @@ describe("getAllPosts", () => {
     expect(posts).toHaveLength(1);
     expect(posts[0].slug).toBe("post-a");
   });
+
+  it("skips files with missing required fields and logs a warning", async () => {
+    const incompletePost = { slug: "incomplete", title: "No Author" };
+    mockReaddirSync.mockReturnValue(
+      ["post-a.mdx", "incomplete.mdx"] as unknown as ReturnType<
+        typeof readdirSync
+      >
+    );
+    mockReadFileSync.mockImplementation((filePath) => {
+      const path = filePath.toString();
+      if (path.includes("post-a.mdx")) return makeMdxContent(postA);
+      if (path.includes("incomplete.mdx"))
+        return makeMdxContent(incompletePost);
+      return "";
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { getAllPosts: freshGetAllPosts } = await import("./index");
+    const posts = freshGetAllPosts();
+
+    expect(posts).toHaveLength(1);
+    expect(posts[0].slug).toBe("post-a");
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("missing required field")
+    );
+    warnSpy.mockRestore();
+  });
 });
 
 describe("getPostBySlug", () => {
