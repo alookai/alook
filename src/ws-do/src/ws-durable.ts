@@ -101,9 +101,13 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     let sent = 0
     for (const ws of this.ctx.getWebSockets()) {
       const state = ws.deserializeAttachment() as ConnectionState
-      if (state.authenticated && ws.readyState === WebSocket.OPEN) {
-        ws.send(message)
-        sent++
+      if (state.authenticated) {
+        try {
+          ws.send(message)
+          sent++
+        } catch {
+          // Connection already closed — skip
+        }
       }
     }
     return sent

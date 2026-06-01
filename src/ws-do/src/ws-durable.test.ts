@@ -174,13 +174,14 @@ describe("WebSocketDurableObject", () => {
       expect(await res.json()).toEqual({ sent: 0 })
     })
 
-    it("skips connections that are not OPEN", async () => {
+    it("skips connections that throw on send (already closed)", async () => {
       const { durable, ctx } = createDO()
 
       const wsOpen = createMockWebSocket(WebSocket.OPEN)
       wsOpen.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
       const wsClosed = createMockWebSocket(WebSocket.CLOSED)
       wsClosed.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
+      wsClosed.send.mockImplementation(() => { throw new Error("Connection closed") })
       ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsOpen, wsClosed])
 
       const req = new Request("http://internal/broadcast", {
@@ -188,10 +189,11 @@ describe("WebSocketDurableObject", () => {
         body: '{"type":"test"}',
       })
 
-      await durable.fetch(req)
+      const res = await durable.fetch(req)
 
       expect(wsOpen.send).toHaveBeenCalled()
-      expect(wsClosed.send).not.toHaveBeenCalled()
+      expect(wsClosed.send).toHaveBeenCalled()
+      expect(await res.json()).toEqual({ sent: 1 })
     })
   })
 

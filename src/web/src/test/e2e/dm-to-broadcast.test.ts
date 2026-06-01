@@ -170,6 +170,8 @@ describe("cross-service: DM → task lifecycle → WS broadcast", () => {
       body: JSON.stringify(payload),
     })
     expect(broadcastRes.status).toBe(200)
+    const broadcastData = await broadcastRes.json() as { sent: number }
+    expect(broadcastData.sent).toBeGreaterThanOrEqual(1)
 
     const received = await waitForWsMessage<typeof payload>(ws, (m) => m.type === "task.completed")
     expect(received.type).toBe("task.completed")
