@@ -35,6 +35,12 @@ vi.mock("child_process", () => ({
   }),
 }));
 
+vi.mock("../../kill-tree.js", () => ({
+  killProcessTree: vi.fn().mockResolvedValue(undefined),
+  killGraceMs: () => 2000,
+  isAlive: () => false,
+}));
+
 async function collectMessages(
   messages: AsyncIterable<AgentMessage>,
   maxMessages = 100,
@@ -969,19 +975,17 @@ describe("CodexBackend", () => {
 
   it("timeout kills process and sets status to timeout", async () => {
     vi.useFakeTimers();
-    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const killTree = await vi.importMock<typeof import("../../kill-tree.js")>("../../kill-tree.js");
     const session = backend.execute("hello", { cwd: "/tmp", timeout: 5000 });
     const mock = getMock();
 
     vi.advanceTimersByTime(5000);
-    // Timeout now reaps the whole process group (negative pid), not just the leader.
-    expect(killSpy).toHaveBeenCalledWith(-12345, "SIGTERM");
+    expect(killTree.killProcessTree).toHaveBeenCalledWith(12345);
 
     mock.proc.emit("close", null);
 
     const result = await session.result;
     expect(result.status).toBe("timeout");
-    killSpy.mockRestore();
     vi.useRealTimers();
   });
 
