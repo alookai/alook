@@ -213,16 +213,14 @@ describe("alook login", () => {
 
       mockFetchSequence([
         { url: "/api/workspaces", status: 200, body: [{ id: "sp_ws1", name: "My Workspace" }] },
+        { url: "/api/me", status: 200, body: { email: "user@alook.ai" } },
       ]);
 
       const cmd = loginCommand();
       await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Already logged in"),
-      );
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("--force"),
+        "Already logged in as user@alook.ai (workspace: My Workspace).",
       );
       expect(mockSaveCLIConfigForProfile).not.toHaveBeenCalled();
     });
@@ -290,13 +288,14 @@ describe("alook login", () => {
 
       mockFetchSequence([
         { url: "/api/workspaces", status: 200, body: [{ id: "sp_ws1", name: "My Workspace" }] },
+        { url: "/api/me", status: 200, body: { email: "agent@alook.ai" } },
       ]);
 
       const cmd = loginCommand();
       await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Already logged in"),
+        "Already logged in as agent@alook.ai (workspace: My Workspace).",
       );
       expect(mockSaveCLIConfigForProfile).not.toHaveBeenCalled();
     });

@@ -162,7 +162,7 @@ if (process.argv.includes("--__login-poll")) {
   pollAndActivate(data).catch(() => process.exit(1));
 }
 
-async function checkExistingAuth(serverUrl: string, profile?: string): Promise<{ valid: boolean; workspaceName?: string }> {
+async function checkExistingAuth(serverUrl: string, profile?: string): Promise<{ valid: boolean; email?: string; workspaceName?: string }> {
   const config = loadCLIConfigForProfile(profile);
   const workspaces = config.watched_workspaces || [];
   if (workspaces.length === 0) {
@@ -178,10 +178,24 @@ async function checkExistingAuth(serverUrl: string, profile?: string): Promise<{
     const res = await fetch(`${serverUrl}/api/workspaces`, {
       headers: { Authorization: `Bearer ${ws.token}` },
     });
-    if (res.ok) {
-      return { valid: true, workspaceName: ws.name };
+    if (!res.ok) {
+      return { valid: false };
     }
-    return { valid: false };
+
+    let email: string | undefined;
+    try {
+      const meRes = await fetch(`${serverUrl}/api/me`, {
+        headers: { Authorization: `Bearer ${ws.token}` },
+      });
+      if (meRes.ok) {
+        const me = await meRes.json() as { email?: string };
+        email = me.email;
+      }
+    } catch {
+      // Non-fatal — proceed without email
+    }
+
+    return { valid: true, email, workspaceName: ws.name };
   } catch {
     return { valid: false };
   }
@@ -206,10 +220,11 @@ export function loginCommand(): Command {
       if (!opts.force) {
         const existing = await checkExistingAuth(serverUrl, profile);
         if (existing.valid) {
-          const display = existing.workspaceName
-            ? `Already logged in (workspace: ${existing.workspaceName}). Use --force to re-authenticate.`
-            : "Already logged in. Use --force to re-authenticate.";
-          console.log(display);
+          const parts = ["Already logged in"];
+          if (existing.email) parts[0] += ` as ${existing.email}`;
+          if (existing.workspaceName) parts[0] += ` (workspace: ${existing.workspaceName})`;
+          parts[0] += ".";
+          console.log(parts[0]);
           return;
         }
       }
