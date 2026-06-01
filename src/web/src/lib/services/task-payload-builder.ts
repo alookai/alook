@@ -58,7 +58,7 @@ export class TaskPayloadBuilder {
       const agent = agentMap.get(task.agentId) ?? null;
       const emailAddresses: string[] = [];
       if (agent) {
-        if (agent.emailHandle) emailAddresses.push(`${agent.emailHandle}@alook.ai`);
+        if (agent.emailHandle) emailAddresses.push(toAlookAddress(agent.emailHandle));
         const customAccounts = emailAccountsByAgent.get(agent.id) ?? [];
         emailAddresses.push(...customAccounts);
       }
