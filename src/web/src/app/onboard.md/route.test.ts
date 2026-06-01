@@ -34,7 +34,7 @@ describe("GET /onboard.md", () => {
     const body = await response.text();
     expect(body).toContain("npx @alook/cli login");
     expect(body).toContain("https://alook.ai/templates");
-    expect(body).toContain("https://alook.ai/w/{slug}");
+    expect(body).toContain("https://alook.ai/w/{slug}/home");
   });
 
   it("uses localhost in development mode when no URLs are set", async () => {
@@ -57,6 +57,6 @@ describe("GET /onboard.md", () => {
     const body = await response.text();
     expect(body).toContain("npx @alook/app cli login");
     expect(body).toContain("http://localhost:15210/templates");
-    expect(body).toContain("http://localhost:15210/w/{slug}");
+    expect(body).toContain("http://localhost:15210/w/{slug}/home");
   });
 });

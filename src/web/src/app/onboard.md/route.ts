@@ -74,7 +74,7 @@ ${cliPrefix} daemon start
 Once the daemon starts successfully, tell the user their workspace is ready and provide the URL:
 
 \`\`\`
-${baseUrl}/w/{slug}
+${baseUrl}/w/{slug}/home
 \`\`\`
 
 (Use the workspace slug from the \`workspace init\` output in Step 3.)

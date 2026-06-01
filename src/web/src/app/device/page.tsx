@@ -60,14 +60,6 @@ function DeviceAuthPageInner() {
     autoVerify()
   }, [urlCode, session])
 
-  useEffect(() => {
-    if (step === "done") {
-      const timer = setTimeout(() => {
-        router.push("/workspaces?auto")
-      }, 2000)
-      return () => clearTimeout(timer)
-    }
-  }, [step, router])
 
   async function handleVerifyCode(e: React.FormEvent) {
     e.preventDefault()
@@ -195,8 +187,9 @@ function DeviceAuthPageInner() {
 
               {step === "done" && (
                 <div className="text-center space-y-2">
+                  <p className="text-sm font-medium text-green-600">✓ Device authorized</p>
                   <p className="text-sm text-muted-foreground">
-                    Device authorized successfully. Redirecting...
+                    You can close this tab. The CLI will continue automatically.
                   </p>
                 </div>
               )}
