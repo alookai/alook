@@ -51,7 +51,7 @@ jobs:
 
       - name: Read version
         id: version
-        run: echo "version=$(cat src/desktop/.deploy-version | tr -d '\n')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(tr -d '\n' < src/desktop/.deploy-version)" >> "$GITHUB_OUTPUT"
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
