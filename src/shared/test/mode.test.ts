@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { resolveMode, cliCommand, daemonCommand, getBaseUrl } from "../src/mode";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { resolveMode, cliCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "../src/mode";
 
 describe("resolveMode", () => {
   it("production: no signals", () => {
@@ -88,6 +88,142 @@ describe("resolveMode", () => {
     expect(
       resolveMode({ tauri: true, nodeEnv: "development", cmdPrefix: "npx @alook/app cli" }),
     ).toBe("desktop");
+  });
+});
+
+describe("isTauri", () => {
+  afterEach(() => {
+    // Clean up __TAURI__ from globalThis.window if set
+    if ("window" in globalThis) {
+      delete (globalThis as Record<string, unknown>).window;
+    }
+  });
+
+  it("returns false when window is not defined", () => {
+    expect(isTauri()).toBe(false);
+  });
+
+  it("returns false when window exists but __TAURI__ is missing", () => {
+    (globalThis as Record<string, unknown>).window = {};
+    expect(isTauri()).toBe(false);
+  });
+
+  it("returns true when window.__TAURI__ exists", () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
+    expect(isTauri()).toBe(true);
+  });
+});
+
+describe("isDesktop", () => {
+  afterEach(() => {
+    if ("window" in globalThis) {
+      delete (globalThis as Record<string, unknown>).window;
+    }
+    if ("navigator" in globalThis) {
+      delete (globalThis as Record<string, unknown>).navigator;
+    }
+  });
+
+  it("returns false when not in Tauri", () => {
+    expect(isDesktop()).toBe(false);
+  });
+
+  it("returns true in Tauri with desktop user agent", () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
+    (globalThis as Record<string, unknown>).navigator = { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X)" };
+    expect(isDesktop()).toBe(true);
+  });
+
+  it("returns false in Tauri with mobile user agent", () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
+    (globalThis as Record<string, unknown>).navigator = { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS)" };
+    expect(isDesktop()).toBe(false);
+  });
+});
+
+describe("isMobile", () => {
+  afterEach(() => {
+    if ("window" in globalThis) {
+      delete (globalThis as Record<string, unknown>).window;
+    }
+    if ("navigator" in globalThis) {
+      delete (globalThis as Record<string, unknown>).navigator;
+    }
+  });
+
+  it("returns false when not in Tauri", () => {
+    expect(isMobile()).toBe(false);
+  });
+
+  it("returns true in Tauri with iPhone user agent", () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
+    (globalThis as Record<string, unknown>).navigator = { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS)" };
+    expect(isMobile()).toBe(true);
+  });
+
+  it("returns true in Tauri with Android user agent", () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
+    (globalThis as Record<string, unknown>).navigator = { userAgent: "Mozilla/5.0 (Linux; Android 13)" };
+    expect(isMobile()).toBe(true);
+  });
+
+  it("returns true in Tauri with iPad user agent", () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
+    (globalThis as Record<string, unknown>).navigator = { userAgent: "Mozilla/5.0 (iPad; CPU OS)" };
+    expect(isMobile()).toBe(true);
+  });
+
+  it("returns false in Tauri with desktop user agent", () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
+    (globalThis as Record<string, unknown>).navigator = { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64)" };
+    expect(isMobile()).toBe(false);
+  });
+});
+
+describe("tauriInvoke", () => {
+  afterEach(() => {
+    if ("window" in globalThis) {
+      delete (globalThis as Record<string, unknown>).window;
+    }
+  });
+
+  it("throws when not in Tauri context", async () => {
+    await expect(tauriInvoke("test")).rejects.toThrow("tauriInvoke called outside of Tauri context");
+  });
+
+  it("throws when __TAURI__ is undefined", async () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: undefined };
+    await expect(tauriInvoke("test")).rejects.toThrow("window.__TAURI__ not available");
+  });
+
+  it("throws when __TAURI__.core is missing", async () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: {} };
+    await expect(tauriInvoke("test")).rejects.toThrow("window.__TAURI__.core.invoke not available");
+  });
+
+  it("throws when __TAURI__.core.invoke is missing", async () => {
+    (globalThis as Record<string, unknown>).window = { __TAURI__: { core: {} } };
+    await expect(tauriInvoke("test")).rejects.toThrow("window.__TAURI__.core.invoke not available");
+  });
+
+  it("calls invoke with command and args", async () => {
+    const mockInvoke = vi.fn().mockResolvedValue({ success: true });
+    (globalThis as Record<string, unknown>).window = {
+      __TAURI__: { core: { invoke: mockInvoke } },
+    };
+    const result = await tauriInvoke("daemon_start", { force: true });
+    expect(mockInvoke).toHaveBeenCalledWith("daemon_start", { force: true });
+    expect(result).toEqual({ success: true });
+  });
+
+  it("calls invoke without args when not provided", async () => {
+    const mockInvoke = vi.fn().mockResolvedValue("ok");
+    (globalThis as Record<string, unknown>).window = {
+      __TAURI__: { core: { invoke: mockInvoke } },
+    };
+    const result = await tauriInvoke("cli_check");
+    expect(mockInvoke).toHaveBeenCalledWith("cli_check", undefined);
+    expect(result).toBe("ok");
   });
 });
 
