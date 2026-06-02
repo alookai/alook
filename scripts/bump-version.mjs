@@ -25,15 +25,18 @@ function bumpSemver(current, type) {
 
 const args = process.argv.slice(2);
 const updateMinCli = args.includes("--min-cli");
-const filtered = args.filter((a) => a !== "--min-cli");
+const includeDesktop = args.includes("--desktop");
+const includeMobile = args.includes("--mobile");
+const filtered = args.filter((a) => !a.startsWith("--"));
 const arg = filtered[0];
 
 if (!arg) {
-  console.error("Usage: pnpm bump <version|patch|minor|major> [--min-cli]");
-  console.error("  pnpm bump 0.0.11");
-  console.error("  pnpm bump v0.0.11");
+  console.error("Usage: pnpm bump <version|patch|minor|major> [flags]");
   console.error("  pnpm bump patch");
-  console.error("  pnpm bump patch --min-cli   # also update MIN_CLI_VERSION in wrangler.toml");
+  console.error("  pnpm bump patch --desktop        # trigger desktop build");
+  console.error("  pnpm bump patch --mobile         # trigger mobile build");
+  console.error("  pnpm bump patch --desktop --mobile  # trigger both");
+  console.error("  pnpm bump patch --min-cli        # also update MIN_CLI_VERSION");
   process.exit(1);
 }
 
@@ -93,9 +96,19 @@ if (updateMinCli) {
 
 const gitFiles = files.map((f) => f.replace(ROOT + "/", ""));
 execSync(`git add ${gitFiles.join(" ")}`, { cwd: ROOT, stdio: "inherit" });
-execSync(`git commit -m "release: v${version}"`, { cwd: ROOT, stdio: "inherit" });
 
-console.log(`\n✅ Committed: v${version}`);
+const markers = [];
+if (includeDesktop) markers.push("[desktop]");
+if (includeMobile) markers.push("[mobile]");
+const markerSuffix = markers.length ? " " + markers.join(" ") : "";
+execSync(`git commit -m "release: v${version}${markerSuffix}"`, { cwd: ROOT, stdio: "inherit" });
+
+console.log(`\n✅ Committed: v${version}${markerSuffix}`);
 console.log(`\n👉 Next steps:`);
 console.log(`   git push origin main`);
-console.log(`   # CI will auto-tag, create GitHub Release, and trigger deployments\n`);
+console.log(`   # CI will auto-tag and trigger:`);
+console.log(`   #   - CF Workers deploy (always)`);
+if (includeDesktop) console.log(`   #   - Desktop build (macOS/Linux/Windows)`);
+if (includeMobile) console.log(`   #   - Mobile build (iOS/Android)`);
+if (!includeDesktop && !includeMobile) console.log(`   #   - No desktop/mobile builds (add --desktop or --mobile to include)`);
+console.log();

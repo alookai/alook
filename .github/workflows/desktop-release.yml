@@ -3,10 +3,28 @@ name: Desktop Release
 on:
   push:
     tags:
-      - "desktop-v*"
+      - "v*"
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check commit message for [desktop] marker
+        id: check
+        run: |
+          MSG=$(git log -1 --format=%B)
+          if echo "$MSG" | grep -q '\[desktop\]'; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: check
+    if: needs.check.outputs.should_build == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -56,8 +74,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: src/desktop
-          tagName: desktop-v__VERSION__
-          releaseName: "Alook Desktop v__VERSION__"
+          tagName: ${{ github.ref_name }}
+          releaseName: "Alook Desktop ${{ github.ref_name }}"
           releaseBody: "See the assets below for download links."
           releaseDraft: true
           prerelease: false
