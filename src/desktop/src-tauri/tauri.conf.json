@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "identifier": "ai.alook.app",
   "build": {
-    "devUrl": "http://localhost:3000",
-    "frontendDist": "https://app.alook.ai"
+    "devUrl": "http://localhost:3000/workspaces?auto",
+    "frontendDist": "https://app.alook.ai/workspaces?auto"
   },
   "bundle": {
     "icon": [

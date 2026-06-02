@@ -134,6 +134,15 @@ export default function RootLayout({
       <body
         className="min-h-full flex flex-col"
       >
+        <script dangerouslySetInnerHTML={{ __html: `
+          if (window.__TAURI__) {
+            document.documentElement.setAttribute('data-tauri', '');
+            var ua = navigator.userAgent || '';
+            if (!/(android|iphone|ipad|ipod)/i.test(ua)) {
+              document.documentElement.setAttribute('data-tauri-desktop', '');
+            }
+          }
+        `}} />
         <MockNetworkBanner />
         <script
           type="application/ld+json"

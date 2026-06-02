@@ -13,7 +13,6 @@ import {
   SheetContent,
 } from "@/components/ui/sheet";
 import { AgentChatSheetProvider } from "@/contexts/agent-chat-sheet-context";
-import { getAppMode } from "@/lib/utils";
 
 const SidebarTriggerContext = createContext<(() => void) | null>(null);
 
@@ -52,17 +51,10 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     );
   }
 
-  const isDesktopApp = getAppMode() === "desktop";
-
   return (
     <AgentChatSheetProvider>
-      <div ref={shellRef} className={`flex h-dvh overflow-hidden relative ${isDesktopApp ? "pt-7" : ""}`}>
-        {isDesktopApp && (
-          <div
-            data-tauri-drag-region
-            className="absolute inset-x-0 top-0 h-7 z-50"
-          />
-        )}
+      <div ref={shellRef} className="flex h-dvh overflow-hidden relative">
+        <div data-tauri-drag-region />
         <GradientBackground />
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
