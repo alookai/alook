@@ -68,7 +68,7 @@ export function RuntimeVersionGate() {
       try {
         await tauriInvoke("cli_update");
         toast.success("CLI updated");
-      } catch {
+      } finally {
         setUpdating((prev) => {
           const next = new Set(prev);
           next.delete(rt.id);

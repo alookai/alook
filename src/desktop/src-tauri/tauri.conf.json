@@ -31,12 +31,6 @@
         "schemes": ["alook"],
         "universalLinks": ["app.alook.ai"]
       }
-    },
-    "updater": {
-      "endpoints": [
-        "https://github.com/alookai/alook/releases/latest/download/latest.json"
-      ],
-      "pubkey": ""
     }
   }
 }

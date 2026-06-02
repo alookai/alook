@@ -5,7 +5,7 @@
   "windows": ["main"],
   "platforms": ["iOS", "android"],
   "remote": {
-    "urls": ["https://*.alook.ai"]
+    "urls": ["https://app.alook.ai"]
   },
   "permissions": [
     "biometric:default"
