@@ -31,20 +31,16 @@ struct CliConfig {
 #[cfg(desktop)]
 fn cli_config() -> CliConfig {
     if cfg!(debug_assertions) {
-        // In dev, run CLI source directly from monorepo root
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let monorepo_root = manifest_dir
-            .parent() // src/desktop
-            .and_then(|p| p.parent()) // src
-            .and_then(|p| p.parent()) // root
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
             .map(|p| p.to_path_buf());
         CliConfig {
-            command: "bun",
-            base_args: &["run", "src/cli/src/index.ts"],
-            env: vec![
-                ("ALOOK_SERVER_URL", "http://localhost:3000"),
-                ("ALOOK_HEALTH_PORT", "19515"),
-            ],
+            command: "pnpm",
+            base_args: &["dev:cli", "--"],
+            env: vec![],
             cwd: monorepo_root,
         }
     } else {
@@ -142,7 +138,7 @@ pub async fn daemon_stop(app: AppHandle) -> Result<CommandResult, String> {
 pub async fn daemon_status(app: AppHandle) -> Result<DaemonStatusResult, String> {
     let cfg = cli_config();
     let mut args: Vec<&str> = cfg.base_args.to_vec();
-    args.extend_from_slice(&["daemon", "status", "--json"]);
+    args.extend_from_slice(&["daemon", "status"]);
 
     let mut cmd = app.shell().command(cfg.command);
     for (key, val) in &cfg.env {
@@ -157,21 +153,32 @@ pub async fn daemon_status(app: AppHandle) -> Result<DaemonStatusResult, String>
         .await
         .map_err(|e| e.to_string())?;
 
-    if !output.status.success() {
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+    // Try JSON parse first (production CLI supports --json), fall back to text
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
         return Ok(DaemonStatusResult {
-            running: false,
-            pid: None,
-            version: None,
+            running: json["running"].as_bool().unwrap_or(false),
+            pid: json["pid"].as_u64().map(|p| p as u32),
+            version: json["version"].as_str().map(|s| s.to_string()),
         });
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_default();
+    // Text output: "Daemon running (pid=12345)" or "Daemon not running."
+    let running = stdout.contains("running (pid=");
+    let pid = if running {
+        stdout
+            .split("pid=")
+            .nth(1)
+            .and_then(|s| s.trim_end_matches(')').trim().parse::<u32>().ok())
+    } else {
+        None
+    };
 
     Ok(DaemonStatusResult {
-        running: json["running"].as_bool().unwrap_or(false),
-        pid: json["pid"].as_u64().map(|p| p as u32),
-        version: json["version"].as_str().map(|s| s.to_string()),
+        running,
+        pid,
+        version: None,
     })
 }
 
@@ -285,7 +292,7 @@ pub fn auto_start_daemon(handle: AppHandle) {
         let shell = handle.shell();
         let cfg = cli_config();
         let mut args: Vec<&str> = cfg.base_args.to_vec();
-        args.extend_from_slice(&["daemon", "status", "--json"]);
+        args.extend_from_slice(&["daemon", "status"]);
 
         let mut cmd = shell.command(cfg.command);
         for (key, val) in &cfg.env {
@@ -298,8 +305,11 @@ pub fn auto_start_daemon(handle: AppHandle) {
 
         if let Ok(output) = output {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            let json: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_default();
-            let running = json["running"].as_bool().unwrap_or(false);
+            let running = stdout.contains("running (pid=")
+                || serde_json::from_str::<serde_json::Value>(&stdout)
+                    .ok()
+                    .and_then(|j| j["running"].as_bool())
+                    .unwrap_or(false);
 
             if !running {
                 let mut start_args: Vec<&str> = cfg.base_args.to_vec();
