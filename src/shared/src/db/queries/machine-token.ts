@@ -67,10 +67,12 @@ export async function getPendingMachineToken(
 }
 
 export async function activateMachineToken(db: Database, id: string, workspaceId?: string) {
-  await db
+  const rows = await db
     .update(machineToken)
     .set({ status: "active", ...(workspaceId ? { workspaceId } : {}) })
-    .where(eq(machineToken.id, id));
+    .where(and(eq(machineToken.id, id), eq(machineToken.status, "pending")))
+    .returning();
+  return rows.length > 0;
 }
 
 export async function listMachineTokens(
