@@ -1042,14 +1042,10 @@ export function CloudCodeMonsterPet({
     };
 
     return subscribeWs((msg) => {
-      if (msg.type === "task.created" || msg.type === "followup.dispatched") {
+      if (msg.type === "task.created") {
         showTransientActivity("carrying", 3_000);
       } else if (msg.type === "artifact.uploaded" || msg.type === "workspace.files") {
         showTransientActivity("carrying", 3_000);
-      } else if (msg.type === "followup.deleted") {
-        showTransientActivity("sweeping", 3_000);
-      } else if (msg.type === "followup.dispatch_failed") {
-        showTransientActivity("error", CLOUD_CODE_MONSTER_ERROR_MS);
       } else if (msg.type === "email.received") {
         showTransientActivity("notification", CLOUD_CODE_MONSTER_ATTENTION_MS);
       } else if (msg.type === "task.updated") {
