@@ -269,7 +269,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const editor = useEditor({
       immediatelyRender: false,
       content: value || undefined,
-      contentType: "markdown",
       editable: !disabled,
       extensions: [
         StarterKit.configure({
@@ -280,7 +279,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           bold: false,
           italic: false,
           strike: false,
+          code: false,
           link: false,
+          bulletList: false,
+          orderedList: false,
+          listItem: false,
+          listKeymap: false,
         }),
         Placeholder.configure({ placeholder: placeholder ?? "" }),
         Markdown,
@@ -315,11 +319,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           }
 
           if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-            const inList =
-              editor?.isActive("bulletList") ||
-              editor?.isActive("orderedList") ||
-              editor?.isActive("listItem");
-            if (!inList && !slashIsOpenRef.current) {
+            if (!slashIsOpenRef.current) {
               event.preventDefault();
               onSendRef.current();
               return true;
@@ -327,7 +327,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           }
           return false;
         },
-        handlePaste: (_view, event) => {
+        handlePaste: (view, event) => {
           const items = event.clipboardData?.items;
           if (!items) return false;
           const files: File[] = [];
@@ -337,10 +337,18 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
               if (f) files.push(f);
             }
           }
-          if (files.length === 0) return false; // let plain text paste normally
-          event.preventDefault();
-          onFilesRef.current?.(files);
-          return true;
+          if (files.length > 0) {
+            event.preventDefault();
+            onFilesRef.current?.(files);
+            return true;
+          }
+          const text = event.clipboardData?.getData("text/plain");
+          if (text) {
+            event.preventDefault();
+            view.dispatch(view.state.tr.insertText(text));
+            return true;
+          }
+          return false;
         },
         handleDrop: () => false,
       },
@@ -358,9 +366,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       editor?.setEditable(!disabled);
     }, [editor, disabled]);
 
-    // Controlled value: push external markdown changes (draft restore /
+    // Controlled value: push external changes (draft restore /
     // conversation switch / clear-after-send) into the editor.
-    // contentType:"markdown" is required or lists silently break.
     // emitUpdate:false avoids a feedback loop.
     useEffect(() => {
       if (!editor) return;
@@ -370,16 +377,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       // content (and the caret) on every keystroke.
       const current = decodeChatEntities(editor.getMarkdown() || "").trim();
       if (incoming === current) return;
-      // Empty incoming → clearContent(). setContent("", {contentType:"markdown"})
-      // does NOT reliably empty the doc (parsing an empty markdown string can
-      // leave the prior content), which left the just-sent text in the input.
       if (!incoming) {
         editor.commands.clearContent();
       } else {
-        editor.commands.setContent(value || "", {
-          emitUpdate: false,
-          contentType: "markdown",
-        });
+        editor.commands.setContent(value || "", { emitUpdate: false });
       }
       onEditorStateRef.current(editor.getText(), editor.state.selection.from - 1);
     }, [value, editor]);
