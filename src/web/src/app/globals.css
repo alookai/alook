@@ -1443,6 +1443,15 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   opacity: 1;
 }
 
+/* Mermaid download dropdown menu */
+[data-streamdown="mermaid-block-actions"] .absolute {
+  z-index: 50 !important;
+  min-width: 10rem;
+  color: var(--foreground) !important;
+  background: var(--background) !important;
+  border-color: var(--border) !important;
+}
+
 /* Diagram content area */
 [data-streamdown="mermaid-block"] > div:last-child {
   margin: 0 !important;
