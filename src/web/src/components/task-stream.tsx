@@ -10,8 +10,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { Streamdown } from "streamdown";
-import { mermaid } from "@streamdown/mermaid";
-import { cjk } from "@streamdown/cjk";
+import { mermaid, cjk } from "@/lib/streamdown-plugins";
 import { RuntimeErrorBlock } from "@/components/agent-chat/runtime-error-block";
 
 /* ── Grouped stream items ── */

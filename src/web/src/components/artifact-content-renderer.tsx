@@ -5,8 +5,7 @@ import { getArtifactContent } from "@/lib/api";
 import type { Artifact } from "@alook/shared";
 import { Loader2, Download } from "lucide-react";
 import { Streamdown } from "streamdown";
-import { mermaid } from "@streamdown/mermaid";
-import { cjk } from "@streamdown/cjk";
+import { mermaid, cjk } from "@/lib/streamdown-plugins";
 
 const TEXT_TYPES = new Set([
   "application/json",

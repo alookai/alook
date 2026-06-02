@@ -1432,21 +1432,15 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   z-index: 10;
   margin-top: 0 !important;
   height: auto !important;
-  pointer-events: none !important;
-}
-[data-streamdown="mermaid-block"]:hover > div:has([data-streamdown="mermaid-block-actions"]) {
-  pointer-events: auto !important;
 }
 
-/* Actions buttons: show on hover */
+/* Actions buttons: show on hover (opacity only, no pointer-events toggling) */
 [data-streamdown="mermaid-block-actions"] {
   opacity: 0;
-  pointer-events: none;
   transition: opacity 150ms ease;
 }
 [data-streamdown="mermaid-block"]:hover [data-streamdown="mermaid-block-actions"] {
   opacity: 1;
-  pointer-events: auto;
 }
 
 /* Diagram content area */
