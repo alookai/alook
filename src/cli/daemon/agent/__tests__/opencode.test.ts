@@ -142,6 +142,22 @@ describe("OpenCodeBackend", () => {
     expect(messages).toContainEqual({ type: "error", content: "something broke" });
   });
 
+  it("marks the run failed on an error event (so failTask persists the error)", async () => {
+    // Regression guard: an `error` event must set result.status="failed" — the
+    // same as codex and opencode's done/spawn-error branches. Otherwise the run
+    // ends "completed", failTask never runs, and the error is lost on reload.
+    const session = backend.execute("hello", { cwd: "/tmp" });
+    const mock = getMock();
+
+    mock.stdout.push(JSON.stringify({ type: "error", message: "boom on run" }) + "\n");
+    await tick();
+    mock.proc.emit("close", 1);
+
+    const result = await session.result;
+    expect(result.status).toBe("failed");
+    expect(result.error).toBe("boom on run");
+  });
+
   it("error event with content fallback works", async () => {
     const session = backend.execute("hello", { cwd: "/tmp" });
     const mock = getMock();

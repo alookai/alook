@@ -77,19 +77,20 @@ export const POST = withAuth(async (req, ctx) => {
   const resolvedActiveTask = activeTask;
 
   let taskMessages: unknown[] = [];
-  if (
-    resolvedActiveTask &&
-    !["completed", "failed", "cancelled", "superseded"].includes(resolvedActiveTask.status)
-  ) {
+  if (resolvedActiveTask) {
     try {
       // Errors-only: the chat no longer renders thinking/tool steps (replies
-      // arrive via `send-dm`). Preload only `type:"error"` rows so the live
-      // error surface survives a reload.
-      const tmsgs = await queries.taskMessage.listTaskMessages(
+      // arrive via `send-dm`). We preload only `type:"error"` rows for the active
+      // task so a live error survives a reload while the run is still active.
+      // (A run that ended in error is settled to status:"failed" by the daemon and
+      // re-surfaces via its persisted assistant error message, not through here.)
+      // Filters type==="error" + scopes by workspace in SQL.
+      const tmsgs = await queries.taskMessage.listTaskErrorMessages(
         db,
         resolvedActiveTask.id,
+        ws.workspaceId,
       );
-      taskMessages = tmsgs.filter((m) => m.type === "error").map(taskMessageToResponse);
+      taskMessages = tmsgs.map(taskMessageToResponse);
     } catch {
       // non-critical — frontend will recover via polling
     }

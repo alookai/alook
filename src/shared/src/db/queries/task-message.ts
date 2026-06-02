@@ -63,6 +63,41 @@ export async function listTaskMessages(db: Database, taskId: string, workspaceId
     .orderBy(asc(taskMessage.seq));
 }
 
+// Errors-only, workspace-scoped: the chat init routes preload only `type:"error"`
+// rows so a persisted error survives a reload (the rest of a run's messages arrive
+// live via the task.messages WS broadcast / send-dm). Filtering in SQL keeps the
+// route's hot path lean and the workspace join enforces scoping. Kept separate
+// from listTaskMessages (which is the UI-exclusion read) on purpose.
+export async function listTaskErrorMessages(
+  db: Database,
+  taskId: string,
+  workspaceId: string
+) {
+  return db
+    .select({
+      id: taskMessage.id,
+      taskId: taskMessage.taskId,
+      seq: taskMessage.seq,
+      type: taskMessage.type,
+      tool: taskMessage.tool,
+      content: taskMessage.content,
+      callId: taskMessage.callId,
+      input: taskMessage.input,
+      output: taskMessage.output,
+      createdAt: taskMessage.createdAt,
+    })
+    .from(taskMessage)
+    .innerJoin(agentTaskQueue, eq(taskMessage.taskId, agentTaskQueue.id))
+    .where(
+      and(
+        eq(taskMessage.taskId, taskId),
+        eq(agentTaskQueue.workspaceId, workspaceId),
+        eq(taskMessage.type, "error")
+      )
+    )
+    .orderBy(asc(taskMessage.seq));
+}
+
 export async function listTaskMessagesSince(
   db: Database,
   taskId: string,

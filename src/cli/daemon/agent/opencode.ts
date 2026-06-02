@@ -169,6 +169,11 @@ export class OpenCodeBackend implements AgentBackend {
           case "error": {
             const content = (event.message as string) || (event.content as string) || (part?.error as string) || "";
             lastError = content;
+            // Mark the run failed (matches codex.ts + the done/spawn-error branches
+            // below). Without this the run ends "completed", failTask never runs,
+            // no assistant error message is persisted, and the error is lost on
+            // reload — it only ever showed via the live task.messages broadcast.
+            resultStatus = "failed";
             pushMessage({ type: "error", content });
             turnDone();
             break;

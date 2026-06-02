@@ -15,7 +15,7 @@ const m = {
   getActiveTaskByConversation: vi.fn(),
   listFlaggedMessageIds: vi.fn(),
   hasPreviousConversations: vi.fn(),
-  listTaskMessages: vi.fn(),
+  listTaskErrorMessages: vi.fn(),
 };
 
 vi.mock("@alook/shared", async () => {
@@ -39,7 +39,7 @@ vi.mock("@alook/shared", async () => {
       task: { getActiveTaskByConversation: (...a: unknown[]) => m.getActiveTaskByConversation(...a) },
       messageFlag: { listFlaggedMessageIds: (...a: unknown[]) => m.listFlaggedMessageIds(...a) },
       taskMessage: {
-        listTaskMessages: (...a: unknown[]) => m.listTaskMessages(...a),
+        listTaskErrorMessages: (...a: unknown[]) => m.listTaskErrorMessages(...a),
       },
     },
   };
@@ -103,11 +103,11 @@ describe("GET /api/conversations/[id]/init", () => {
     expect(body.cache_valid).toBe(false);
   });
 
-  it("preloads only error task messages for a running active task (drops thinking)", async () => {
+  it("preloads error task messages (workspace-scoped) for a running active task", async () => {
     m.getConversation.mockResolvedValue({ id: "c1", agentId: "a1", channel: null });
     m.getActiveTaskByConversation.mockResolvedValue({ id: "t1", status: "running" });
-    m.listTaskMessages.mockResolvedValue([
-      { id: "tm1", seq: 1, type: "text", content: "working..." },
+    // The query filters to type:"error" in SQL, so the route maps whatever it returns.
+    m.listTaskErrorMessages.mockResolvedValue([
       { id: "tm2", seq: 2, type: "error", content: "boom" },
     ]);
 
@@ -117,6 +117,23 @@ describe("GET /api/conversations/[id]/init", () => {
 
     expect(res.status).toBe(200);
     expect(body.task_messages).toEqual([{ id: "tm2" }]);
+    // Scoped to the authed workspace and the active task.
+    expect(m.listTaskErrorMessages).toHaveBeenCalledWith(expect.anything(), "t1", "w1");
+  });
+
+  it("does not query task errors when there is no active task", async () => {
+    // A run that ended in error is settled to status:"failed" and re-surfaces via
+    // its persisted assistant error message (not through this preload).
+    m.getConversation.mockResolvedValue({ id: "c1", agentId: "a1", channel: null });
+    m.getActiveTaskByConversation.mockResolvedValue(null);
+
+    const req = new NextRequest("http://localhost/api/conversations/c1/init");
+    const res = await GET(req, { params: { id: "c1" } });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.task_messages).toEqual([]);
+    expect(m.listTaskErrorMessages).not.toHaveBeenCalled();
   });
 
   it("returns cache_valid=true and null messages when client cache matches", async () => {
