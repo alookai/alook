@@ -13,7 +13,7 @@ import {
 import { SystemCard } from "@/components/agent-chat/message-list";
 import { formatSize } from "@/components/agent-chat/artifact-sheet";
 
-export function MentionHighlight(
+function MentionHighlight(
   props: Record<string, unknown> & { children?: React.ReactNode },
 ) {
   const { children, ...rest } = props;
