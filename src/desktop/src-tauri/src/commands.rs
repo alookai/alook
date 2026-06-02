@@ -4,6 +4,9 @@ use tauri::{AppHandle, Manager};
 #[cfg(desktop)]
 use tauri_plugin_shell::ShellExt;
 
+#[cfg(desktop)]
+use std::path::PathBuf;
+
 #[derive(Serialize)]
 pub struct DaemonStatusResult {
     pub running: bool,
@@ -22,24 +25,34 @@ struct CliConfig {
     command: &'static str,
     base_args: &'static [&'static str],
     env: Vec<(&'static str, &'static str)>,
+    cwd: Option<PathBuf>,
 }
 
 #[cfg(desktop)]
 fn cli_config() -> CliConfig {
     if cfg!(debug_assertions) {
+        // In dev, run CLI source directly from monorepo root
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let monorepo_root = manifest_dir
+            .parent() // src/desktop
+            .and_then(|p| p.parent()) // src
+            .and_then(|p| p.parent()) // root
+            .map(|p| p.to_path_buf());
         CliConfig {
-            command: "pnpm",
-            base_args: &["dev:cli", "--"],
+            command: "bun",
+            base_args: &["run", "src/cli/src/index.ts"],
             env: vec![
                 ("ALOOK_SERVER_URL", "http://localhost:3000"),
                 ("ALOOK_HEALTH_PORT", "19515"),
             ],
+            cwd: monorepo_root,
         }
     } else {
         CliConfig {
             command: "npx",
             base_args: &["@alook/cli"],
             env: vec![],
+            cwd: None,
         }
     }
 }
@@ -55,6 +68,9 @@ pub async fn register_cli(app: AppHandle, token: String) -> Result<CommandResult
     let mut cmd = app.shell().command(cfg.command);
     for (key, val) in &cfg.env {
         cmd = cmd.env(key, val);
+    }
+    if let Some(cwd) = &cfg.cwd {
+        cmd = cmd.current_dir(cwd.clone());
     }
     let output = cmd
         .args(&args)
@@ -80,6 +96,9 @@ pub async fn daemon_start(app: AppHandle) -> Result<CommandResult, String> {
     for (key, val) in &cfg.env {
         cmd = cmd.env(key, val);
     }
+    if let Some(cwd) = &cfg.cwd {
+        cmd = cmd.current_dir(cwd.clone());
+    }
     let output = cmd
         .args(&args)
         .output()
@@ -103,6 +122,9 @@ pub async fn daemon_stop(app: AppHandle) -> Result<CommandResult, String> {
     for (key, val) in &cfg.env {
         cmd = cmd.env(key, val);
     }
+    if let Some(cwd) = &cfg.cwd {
+        cmd = cmd.current_dir(cwd.clone());
+    }
     let output = cmd
         .args(&args)
         .output()
@@ -125,6 +147,9 @@ pub async fn daemon_status(app: AppHandle) -> Result<DaemonStatusResult, String>
     let mut cmd = app.shell().command(cfg.command);
     for (key, val) in &cfg.env {
         cmd = cmd.env(key, val);
+    }
+    if let Some(cwd) = &cfg.cwd {
+        cmd = cmd.current_dir(cwd.clone());
     }
     let output = cmd
         .args(&args)
@@ -196,6 +221,9 @@ pub async fn cli_check(app: AppHandle) -> Result<CommandResult, String> {
     for (key, val) in &cfg.env {
         cmd = cmd.env(key, val);
     }
+    if let Some(cwd) = &cfg.cwd {
+        cmd = cmd.current_dir(cwd.clone());
+    }
     let output = cmd
         .args(&args)
         .output()
@@ -263,6 +291,9 @@ pub fn auto_start_daemon(handle: AppHandle) {
         for (key, val) in &cfg.env {
             cmd = cmd.env(key, val);
         }
+        if let Some(cwd) = &cfg.cwd {
+            cmd = cmd.current_dir(cwd.clone());
+        }
         let output = cmd.args(&args).output().await;
 
         if let Ok(output) = output {
@@ -277,6 +308,9 @@ pub fn auto_start_daemon(handle: AppHandle) {
                 let mut start_cmd = shell.command(cfg.command);
                 for (key, val) in &cfg.env {
                     start_cmd = start_cmd.env(key, val);
+                }
+                if let Some(cwd) = &cfg.cwd {
+                    start_cmd = start_cmd.current_dir(cwd.clone());
                 }
                 let _ = start_cmd.args(&start_args).output().await;
             }
