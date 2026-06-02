@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Streamdown } from "streamdown";
+import { mermaid } from "@streamdown/mermaid";
+import { cjk } from "@streamdown/cjk";
 import { highlightMentions } from "@/lib/highlight-mentions";
 import { TaskStream } from "@/components/task-stream";
 import { HistoricalTaskThinking } from "@/components/agent-chat/historical-task-thinking";
@@ -243,7 +245,7 @@ export const MessageItem = memo(function MessageItem({
               )}
               {messageBody && (
                 <div className="markdown markdown-user">
-                  <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: false, download: false, fullscreen: false } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(messageBody, agents)}</Streamdown>
+                  <Streamdown plugins={{ mermaid, cjk }} controls={{ code: { copy: true, download: false }, table: { copy: false, download: false, fullscreen: false } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(messageBody, agents)}</Streamdown>
                 </div>
               )}
               {msg.attachment_ids && msg.attachment_ids.length > 0 && (
@@ -291,7 +293,7 @@ export const MessageItem = memo(function MessageItem({
             </div>
           ) : (
             <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
-              <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(msg.content, agents)}</Streamdown>
+              <Streamdown plugins={{ mermaid, cjk }} controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(msg.content, agents)}</Streamdown>
             </div>
           )}
           {actionButtons}

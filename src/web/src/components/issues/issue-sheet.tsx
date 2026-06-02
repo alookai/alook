@@ -36,6 +36,8 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
+import { mermaid } from "@streamdown/mermaid";
+import { cjk } from "@streamdown/cjk";
 import type { Agent, Artifact, Issue, IssueComment, Message, TaskApi } from "@alook/shared";
 import { isPreviewable, getArtifactUrl } from "@/components/artifact-content-renderer";
 import { formatSize } from "@/components/agent-chat/artifact-sheet";
@@ -124,7 +126,7 @@ function MessageRow({ message }: { message: Message }) {
         <span>{new Date(message.created_at).toLocaleString()}</span>
       </div>
       <div className="prose prose-sm dark:prose-invert max-w-none text-sm wrap-break-word">
-        <Streamdown>{message.content}</Streamdown>
+        <Streamdown plugins={{ mermaid, cjk }}>{message.content}</Streamdown>
       </div>
     </div>
   );
@@ -141,7 +143,7 @@ function CommentRow({ comment, agents }: { comment: IssueComment; agents: Agent[
         <span>{new Date(comment.created_at).toLocaleString()}</span>
       </div>
       <div className="prose prose-sm dark:prose-invert max-w-none text-sm wrap-break-word">
-        <Streamdown>{comment.content}</Streamdown>
+        <Streamdown plugins={{ mermaid, cjk }}>{comment.content}</Streamdown>
       </div>
     </div>
   );

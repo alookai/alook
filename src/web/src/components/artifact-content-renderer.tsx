@@ -5,6 +5,8 @@ import { getArtifactContent } from "@/lib/api";
 import type { Artifact } from "@alook/shared";
 import { Loader2, Download } from "lucide-react";
 import { Streamdown } from "streamdown";
+import { mermaid } from "@streamdown/mermaid";
+import { cjk } from "@streamdown/cjk";
 
 const TEXT_TYPES = new Set([
   "application/json",
@@ -111,7 +113,7 @@ export function ArtifactContentRenderer({ artifact, workspaceId }: ArtifactConte
     if (isMarkdown(artifact.filename)) {
       return (
         <div className="markdown text-sm">
-          <Streamdown>{content ?? ""}</Streamdown>
+          <Streamdown plugins={{ mermaid, cjk }}>{content ?? ""}</Streamdown>
         </div>
       );
     }

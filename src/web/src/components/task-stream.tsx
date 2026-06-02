@@ -10,6 +10,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { Streamdown } from "streamdown";
+import { mermaid } from "@streamdown/mermaid";
+import { cjk } from "@streamdown/cjk";
 import { RuntimeErrorBlock } from "@/components/agent-chat/runtime-error-block";
 
 /* ── Grouped stream items ── */
@@ -221,7 +223,7 @@ export function TaskStream({
             )}
             {intermediateTextItems.map((item) => (
               <div key={item.id} className="markdown max-w-full min-w-0 px-1 text-sm text-muted-foreground">
-                <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{item.content}</Streamdown>
+                <Streamdown plugins={{ mermaid, cjk }} controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{item.content}</Streamdown>
               </div>
             ))}
           </div>
@@ -230,7 +232,7 @@ export function TaskStream({
       {/* Final text — shown after completion (not for historical tasks which render it as a message) */}
       {hasFinalText && !onExpandThinking && (
         <div className="markdown max-w-full min-w-0 px-1 py-1 text-base text-foreground">
-          <Streamdown controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{finalTextItem.content}</Streamdown>
+          <Streamdown plugins={{ mermaid, cjk }} controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }}>{finalTextItem.content}</Streamdown>
         </div>
       )}
 
