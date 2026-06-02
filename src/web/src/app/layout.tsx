@@ -128,13 +128,6 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <script dangerouslySetInnerHTML={{ __html: `
           document.addEventListener('gesturestart', function(e) { e.preventDefault(); });
-        `}} />
-      </head>
-      <GoogleTagManager gtmId="GTM-56VHCCQZ" />
-      <body
-        className="min-h-full flex flex-col"
-      >
-        <script dangerouslySetInnerHTML={{ __html: `
           if (window.__TAURI__) {
             document.documentElement.setAttribute('data-tauri', '');
             var ua = navigator.userAgent || '';
@@ -143,6 +136,11 @@ export default function RootLayout({
             }
           }
         `}} />
+      </head>
+      <GoogleTagManager gtmId="GTM-56VHCCQZ" />
+      <body
+        className="min-h-full flex flex-col"
+      >
         <MockNetworkBanner />
         <script
           type="application/ld+json"

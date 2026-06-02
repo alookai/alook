@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, type ReactNode, useRef, useState } from "react";
+import { createContext, useContext, type ReactNode, useRef, useState, useEffect } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { GradientBackground } from "@/components/gradient-background";
@@ -26,6 +26,10 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const { slug } = useWorkspace();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
+  const [desktopInset, setDesktopInset] = useState(false);
+  useEffect(() => {
+    setDesktopInset(isTauri() && isDesktop());
+  }, []);
 
   if (isMobile) {
     return (
@@ -51,8 +55,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       </SidebarTriggerContext.Provider>
     );
   }
-
-  const desktopInset = isTauri() && isDesktop();
 
   return (
     <AgentChatSheetProvider>
