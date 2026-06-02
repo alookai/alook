@@ -342,14 +342,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           onFilesRef.current?.(files);
           return true;
         },
-        handleDrop: (_view, event) => {
-          const dropped = (event as DragEvent).dataTransfer?.files;
-          if (!dropped || dropped.length === 0) return false; // bubble to container
-          event.preventDefault();
-          event.stopPropagation();
-          onFilesRef.current?.(Array.from(dropped));
-          return true;
-        },
+        handleDrop: () => false,
       },
       onUpdate: ({ editor }) => {
         onChangeRef.current(decodeChatEntities(editor.getMarkdown()));
