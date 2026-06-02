@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="820" viewBox="0 0 1280 820" role="img" aria-labelledby="title desc">
+  <title id="title">A-Look PET work-state animation map</title>
+  <desc id="desc">A diagram of the PET animations added for platform work state, user typing, notifications, idle, dozing, sleeping, and wake-up transitions.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f4ec; }
+      .panel { fill: #fffdf8; stroke: #2e2a24; stroke-width: 2; }
+      .hub { fill: #2e2a24; }
+      .hubText { fill: #fffdf8; font: 700 24px Inter, Arial, sans-serif; }
+      .title { fill: #2e2a24; font: 800 34px Inter, Arial, sans-serif; }
+      .subtitle { fill: #655d52; font: 500 16px Inter, Arial, sans-serif; }
+      .label { fill: #2e2a24; font: 800 18px Inter, Arial, sans-serif; }
+      .body { fill: #5b4636; font: 500 13px Inter, Arial, sans-serif; }
+      .small { fill: #655d52; font: 600 12px Inter, Arial, sans-serif; }
+      .line { stroke: #2e2a24; stroke-width: 2.5; fill: none; }
+      .dash { stroke: #9c8f7b; stroke-width: 2; stroke-dasharray: 5 6; fill: none; }
+      .chip { fill: #e9dfcc; stroke: #2e2a24; stroke-width: 1.5; }
+      .accent1 { fill: #f2b84b; }
+      .accent2 { fill: #84b7a5; }
+      .accent3 { fill: #d97d54; }
+      .accent4 { fill: #8da0cb; }
+      .shadow { fill: #000; opacity: 0.08; }
+      .petBody { fill: #c98245; stroke: #2e2a24; stroke-width: 3; }
+      .petFace { fill: #f5d3a3; stroke: #2e2a24; stroke-width: 3; }
+      .eye { fill: #2e2a24; }
+      .sleep { fill: none; stroke: #2e2a24; stroke-width: 4; stroke-linecap: round; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2e2a24"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1280" height="820"/>
+  <text class="title" x="64" y="62">A-Look PET: platform-driven animation states</text>
+  <text class="subtitle" x="64" y="91">Each motion is triggered by A-Look workspace signals, not random behavior.</text>
+
+  <rect class="panel" x="475" y="300" width="330" height="180" rx="22"/>
+  <ellipse class="shadow" cx="640" cy="456" rx="86" ry="18"/>
+  <circle class="petFace" cx="640" cy="370" r="58"/>
+  <ellipse class="petBody" cx="640" cy="440" rx="55" ry="44"/>
+  <circle class="eye" cx="618" cy="358" r="7"/>
+  <circle class="eye" cx="662" cy="358" r="7"/>
+  <path class="sleep" d="M620 390 Q640 402 660 390"/>
+  <text class="hubText" x="541" y="332">PET state resolver</text>
+  <text class="small" x="526" y="503">Input: agents, typing, unread count, click, quiet time</text>
+
+  <path class="line" marker-end="url(#arrow)" d="M475 352 C390 330 340 300 293 245"/>
+  <path class="line" marker-end="url(#arrow)" d="M510 300 C455 224 398 172 310 142"/>
+  <path class="line" marker-end="url(#arrow)" d="M616 300 C600 218 570 165 516 124"/>
+  <path class="line" marker-end="url(#arrow)" d="M766 300 C817 218 876 168 967 142"/>
+  <path class="line" marker-end="url(#arrow)" d="M805 362 C897 340 956 300 1010 238"/>
+  <path class="line" marker-end="url(#arrow)" d="M805 434 C902 470 965 518 1014 590"/>
+  <path class="line" marker-end="url(#arrow)" d="M650 480 C660 562 690 625 748 678"/>
+  <path class="line" marker-end="url(#arrow)" d="M520 474 C430 534 360 598 298 681"/>
+
+  <g transform="translate(64 160)">
+    <rect class="panel" width="260" height="132" rx="18"/>
+    <circle class="chip accent2" cx="36" cy="38" r="18"/>
+    <text class="label" x="68" y="42">Idle breathe</text>
+    <text class="body" x="24" y="73">Trigger: no active agent task</text>
+    <text class="body" x="24" y="93">and user is not typing.</text>
+    <text class="small" x="24" y="116">Eyes follow cursor; body leans lightly.</text>
+  </g>
+
+  <g transform="translate(64 42)">
+    <rect class="panel" width="260" height="98" rx="18"/>
+    <circle class="chip accent1" cx="36" cy="36" r="18"/>
+    <text class="label" x="68" y="40">Typing</text>
+    <text class="body" x="24" y="72">Trigger: user focuses and types in input.</text>
+  </g>
+
+  <g transform="translate(390 48)">
+    <rect class="panel" width="282" height="118" rx="18"/>
+    <circle class="chip accent4" cx="36" cy="38" r="18"/>
+    <text class="label" x="68" y="42">Working</text>
+    <text class="body" x="24" y="73">Trigger: any A-Look agent is running.</text>
+    <text class="small" x="24" y="96">1 task: coding; 2: juggling; 3+: building.</text>
+  </g>
+
+  <g transform="translate(922 42)">
+    <rect class="panel" width="294" height="116" rx="18"/>
+    <circle class="chip accent3" cx="36" cy="38" r="18"/>
+    <text class="label" x="68" y="42">Notification</text>
+    <text class="body" x="24" y="73">Trigger: unread count increases.</text>
+    <text class="small" x="24" y="96">Uses the original bell animation only.</text>
+  </g>
+
+  <g transform="translate(956 172)">
+    <rect class="panel" width="260" height="132" rx="18"/>
+    <circle class="chip accent1" cx="36" cy="38" r="18"/>
+    <text class="label" x="68" y="42">Attention</text>
+    <text class="body" x="24" y="73">Trigger: fresh platform event</text>
+    <text class="body" x="24" y="93">needs the user's attention.</text>
+    <text class="small" x="24" y="116">Short reaction, then returns to state.</text>
+  </g>
+
+  <g transform="translate(946 560)">
+    <rect class="panel" width="282" height="132" rx="18"/>
+    <circle class="chip accent4" cx="36" cy="38" r="18"/>
+    <text class="label" x="68" y="42">Waking</text>
+    <text class="body" x="24" y="73">Trigger: click sleeping PET, typing,</text>
+    <text class="body" x="24" y="93">agent work, or a new notification.</text>
+    <text class="small" x="24" y="116">One-shot stand-up animation.</text>
+  </g>
+
+  <g transform="translate(644 656)">
+    <rect class="panel" width="292" height="124" rx="18"/>
+    <circle class="chip accent2" cx="36" cy="38" r="18"/>
+    <text class="label" x="68" y="42">Sleeping</text>
+    <text class="body" x="24" y="73">Trigger: quiet after dozing.</text>
+    <text class="small" x="24" y="96">Closed eyes for special models too.</text>
+  </g>
+
+  <g transform="translate(64 640)">
+    <rect class="panel" width="282" height="124" rx="18"/>
+    <circle class="chip accent3" cx="36" cy="38" r="18"/>
+    <text class="label" x="68" y="42">Dozing / Yawning</text>
+    <text class="body" x="24" y="73">Trigger: no work and no typing</text>
+    <text class="body" x="24" y="93">for the quiet threshold.</text>
+    <text class="small" x="24" y="116">One-shot lie-down transition.</text>
+  </g>
+
+  <g transform="translate(420 610)">
+    <rect class="panel" width="196" height="130" rx="18"/>
+    <text class="label" x="24" y="38">Extra work poses</text>
+    <text class="body" x="24" y="68">Error: task failure.</text>
+    <text class="body" x="24" y="88">Sweeping: cleanup.</text>
+    <text class="body" x="24" y="108">Carrying: moving bundle.</text>
+  </g>
+
+  <path class="dash" d="M774 682 C850 650 906 624 946 608"/>
+  <path class="dash" d="M240 640 C300 566 388 504 518 460"/>
+  <text class="small" x="990" y="730">All transitions use the existing SVG PET parts.</text>
+</svg>
