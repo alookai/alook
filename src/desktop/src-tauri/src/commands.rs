@@ -39,7 +39,7 @@ fn cli_config() -> CliConfig {
             .map(|p| p.to_path_buf());
         CliConfig {
             command: "pnpm",
-            base_args: &["dev:cli", "--"],
+            base_args: &["dev:cli"],
             env: vec![],
             cwd: monorepo_root,
         }
