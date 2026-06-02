@@ -280,7 +280,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           bold: false,
           italic: false,
           strike: false,
-          code: false,
+          link: false,
         }),
         Placeholder.configure({ placeholder: placeholder ?? "" }),
         Markdown,
@@ -346,6 +346,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           const dropped = (event as DragEvent).dataTransfer?.files;
           if (!dropped || dropped.length === 0) return false; // bubble to container
           event.preventDefault();
+          event.stopPropagation();
           onFilesRef.current?.(Array.from(dropped));
           return true;
         },
