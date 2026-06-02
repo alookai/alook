@@ -48,6 +48,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const [body, err] = await parseBody(req, ReportMessagesRequestSchema);
   if (err) return err;
 
+  // What we persist (INTENTIONAL — do not "clean up" as dead storage):
+  //   - We DROP only "log" and "status" — pure transient runtime noise, never
+  //     useful after the fact.
+  //   - We KEEP text/tool-use/thinking/tool-result rows even though the chat UI
+  //     no longer reads them (since the move to agent-authored `send-dm`, the UI
+  //     only consumes type:"error" + the final reply bubble). These rows are
+  //     retained for FUTURE DATA ANALYSIS of agent runs (tool usage, reasoning,
+  //     etc.). The read paths (listTaskMessages*) filter them out for the UI, but
+  //     the rows must stay in storage. Don't delete this write or narrow it to
+  //     errors-only.
   const filtered = body.messages.filter((m) => m.type !== "log" && m.type !== "status");
   if (filtered.length === 0) {
     return writeJSON({ status: "ok" });
@@ -61,6 +71,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         type: m.type,
         tool: m.tool || "",
         callId: m.call_id || "",
+        // tool-result content/input/output are intentionally blanked: those
+        // payloads can be very large (full tool stdout, file dumps), so we keep
+        // the row (for analysis: which tool ran, when) but not the heavy body.
         content: m.type === "tool-result" ? "" : (m.content || ""),
         input: m.type === "tool-result" ? undefined : m.input,
         output: m.type === "tool-result" ? "" : (m.output || ""),
@@ -75,6 +88,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   });
 
   const succeeded = filtered.filter((_, i) => results[i].status === "fulfilled");
+  // Broadcast is a separate concern from storage: we STORE tool-use/thinking/
+  // tool-result (for later analysis, above) but don't BROADCAST them — the live
+  // chat has no use for them. text is still broadcast (cheap, and harmless if the
+  // client ignores it); only type:"error" actually drives UI today.
   const broadcastable = succeeded.filter((m) => m.type !== "tool-result" && m.type !== "tool-use" && m.type !== "thinking");
   if (broadcastable.length > 0) {
     const wsMessages: TaskMessageResponse[] = broadcastable.map((m) => ({

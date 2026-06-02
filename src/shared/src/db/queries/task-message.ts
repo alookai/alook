@@ -48,12 +48,17 @@ export async function listTaskMessages(db: Database, taskId: string, workspaceId
       })
       .from(taskMessage)
       .innerJoin(agentTaskQueue, eq(taskMessage.taskId, agentTaskQueue.id))
+      // Exclude tool-result/tool-use/thinking from the READ side only: the UI
+      // doesn't render them. They ARE still written (see daemon messages route)
+      // and retained for future data analysis — do NOT take this filter as a
+      // sign the rows are dead and stop persisting them.
       .where(and(eq(taskMessage.taskId, taskId), eq(agentTaskQueue.workspaceId, workspaceId), notInArray(taskMessage.type, ["tool-result", "tool-use", "thinking"])))
       .orderBy(asc(taskMessage.seq));
   }
   return db
     .select()
     .from(taskMessage)
+    // Read-side UI exclusion only; rows are still stored for analysis (see above).
     .where(and(eq(taskMessage.taskId, taskId), notInArray(taskMessage.type, ["tool-result", "tool-use", "thinking"])))
     .orderBy(asc(taskMessage.seq));
 }
@@ -66,6 +71,7 @@ export async function listTaskMessagesSince(
   return db
     .select()
     .from(taskMessage)
+    // Read-side UI exclusion only; rows are still stored for analysis (see listTaskMessages).
     .where(and(eq(taskMessage.taskId, taskId), gt(taskMessage.seq, afterSeq), notInArray(taskMessage.type, ["tool-result", "tool-use", "thinking"])))
     .orderBy(asc(taskMessage.seq));
 }
