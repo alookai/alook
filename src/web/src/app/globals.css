@@ -1424,7 +1424,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   opacity: 0.5;
 }
 
-/* Actions wrapper: absolute top-right */
+/* Actions wrapper: absolute top-right, invisible and non-interactive by default */
 [data-streamdown="mermaid-block"] > div:has([data-streamdown="mermaid-block-actions"]) {
   position: absolute !important;
   top: 0.375rem;
@@ -1432,9 +1432,15 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   z-index: 10;
   margin-top: 0 !important;
   height: auto !important;
+  pointer-events: none;
 }
 
-/* Actions buttons: show on hover (opacity only, no pointer-events toggling) */
+/* On hover of the ENTIRE mermaid block: make actions interactive */
+[data-streamdown="mermaid-block"]:hover > div:has([data-streamdown="mermaid-block-actions"]) {
+  pointer-events: auto;
+}
+
+/* Actions buttons: fade in on hover */
 [data-streamdown="mermaid-block-actions"] {
   opacity: 0;
   transition: opacity 150ms ease;
@@ -1456,8 +1462,9 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 [data-streamdown="mermaid-block"] > div:last-child {
   margin: 0 !important;
   border: none !important;
-  border-radius: 0 !important;
+  border-radius: var(--radius-md) !important;
   padding: 1rem !important;
+  overflow: hidden;
 }
 
 /* ── Streamdown table: strip wrapper chrome, clean rows ── */
