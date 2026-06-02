@@ -100,25 +100,38 @@ pub async fn daemon_status(app: AppHandle) -> Result<DaemonStatusResult, String>
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn cli_update(app: AppHandle) -> Result<CommandResult, String> {
-    let output = app
+    // Stop existing daemon first
+    let _ = app
         .shell()
         .command("npx")
-        .args(["@alook/cli@latest", "daemon", "stop"])
+        .args(["@alook/cli", "daemon", "stop"])
+        .output()
+        .await;
+
+    // Clear npx cache and install latest CLI
+    let install_output = app
+        .shell()
+        .command("npm")
+        .args(["install", "-g", "@alook/cli@latest"])
         .output()
         .await
         .map_err(|e| e.to_string())?;
 
-    if !output.status.success() {
+    if !install_output.status.success() {
         return Ok(CommandResult {
             success: false,
-            message: "Failed to stop daemon for update".to_string(),
+            message: format!(
+                "Failed to install latest CLI: {}",
+                String::from_utf8_lossy(&install_output.stderr)
+            ),
         });
     }
 
+    // Restart daemon with updated CLI
     let start_output = app
         .shell()
         .command("npx")
-        .args(["@alook/cli@latest", "daemon", "start"])
+        .args(["@alook/cli", "daemon", "start"])
         .output()
         .await
         .map_err(|e| e.to_string())?;

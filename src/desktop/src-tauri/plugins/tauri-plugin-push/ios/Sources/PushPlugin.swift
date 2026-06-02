@@ -6,8 +6,11 @@ import WebKit
 class PushPlugin: Plugin {
     private var pushToken: String?
 
+    static var shared: PushPlugin?
+
     override init() {
         super.init()
+        PushPlugin.shared = self
     }
 
     @objc override func load(webview: WKWebView) {
@@ -30,6 +33,17 @@ class PushPlugin: Plugin {
         self.pushToken = token
         let event: [String: Any] = ["token": token, "platform": "ios"]
         self.trigger("token", data: event)
+    }
+
+    func didReceiveRemoteNotification(userInfo: [AnyHashable: Any]) {
+        var event: [String: Any] = [:]
+        if let aps = userInfo["aps"] as? [String: Any],
+           let alert = aps["alert"] as? [String: Any] {
+            event["title"] = alert["title"] ?? ""
+            event["body"] = alert["body"] ?? ""
+        }
+        event["data"] = userInfo
+        self.trigger("notification", data: event)
     }
 
     @objc func getToken(_ invoke: Invoke) {

@@ -9,12 +9,12 @@ class PushMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
         Log.d("AlookPush", "Message received: ${remoteMessage.data}")
-        // Forward to the Tauri plugin event system
+        PushPlugin.instance?.onMessageReceived(remoteMessage)
     }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         Log.d("AlookPush", "New FCM token: $token")
-        // Token refresh — notify the plugin
+        PushPlugin.instance?.onTokenRefresh(token)
     }
 }

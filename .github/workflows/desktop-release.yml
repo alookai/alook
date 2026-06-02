@@ -64,6 +64,7 @@ jobs:
           args: --target ${{ matrix.target }}
 
   mobile-ios:
+    if: ${{ secrets.APPLE_CERTIFICATE != '' }}
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
@@ -104,6 +105,7 @@ jobs:
             --apiIssuer ${{ secrets.APP_STORE_API_ISSUER }}
 
   mobile-android:
+    if: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT != '' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:
