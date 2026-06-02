@@ -2835,7 +2835,7 @@ export function AgentChatView({
       )}
 
       {/* Input */}
-      <div className="relative z-10 px-3 md:px-5 pt-3 pb-5 md:pb-6">
+      <div data-keyboard-offset className="relative z-10 px-3 md:px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-6">
         <div className="mx-auto max-w-2xl relative">
           <div className="flex items-end gap-2">
             {/* Overflow menu */}

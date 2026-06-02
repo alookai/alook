@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useKeyboardScroll } from "@/hooks/use-keyboard-scroll";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -397,6 +398,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       observer.observe(el);
       return () => observer.disconnect();
     }, [editor, onMultiLineChange]);
+
+    // iOS Safari fallback: scroll composer into view when the virtual keyboard resizes
+    // the visual viewport.
+    useKeyboardScroll(contentRef, !!editor?.isFocused);
 
     useImperativeHandle(
       ref,

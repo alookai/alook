@@ -960,7 +960,7 @@
     -moz-osx-font-smoothing: grayscale;
   }
   html {
-    @apply font-sans;
+    @apply font-sans bg-background;
     font-size: 16px;
     line-height: 1.6;
   }
@@ -1718,9 +1718,21 @@ html, body {
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+
+html {
+  background-color: oklch(0.93 0.015 80);
+  min-height: 100dvh;
+}
+
+.dark html,
+html.dark {
+  background-color: oklch(0.16 0.008 60);
 }
 
 body {
+  min-height: 100dvh;
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
