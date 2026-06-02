@@ -2,29 +2,13 @@ name: Mobile Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    paths:
+      - "src/desktop/.deploy-version-mobile"
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
-    steps:
-      - uses: actions/checkout@v6
-      - name: Check commit message for [mobile] marker
-        id: check
-        run: |
-          MSG=$(git log -1 --format=%B)
-          if echo "$MSG" | grep -q '\[mobile\]'; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-          fi
-
   ios:
-    needs: check
-    if: needs.check.outputs.should_build == 'true' && secrets.APPLE_CERTIFICATE != ''
+    if: ${{ secrets.APPLE_CERTIFICATE != '' }}
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
@@ -65,8 +49,7 @@ jobs:
             --apiIssuer ${{ secrets.APP_STORE_API_ISSUER }}
 
   android:
-    needs: check
-    if: needs.check.outputs.should_build == 'true' && secrets.GOOGLE_PLAY_SERVICE_ACCOUNT != ''
+    if: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT != '' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     steps:

@@ -67,6 +67,7 @@ for (const dir of WORKSPACE_DIRS) {
   console.log(`  ${pkg.name}: ${old} → ${version}`);
 }
 
+// CF Workers deploy triggers (always)
 for (const dir of DEPLOY_TRIGGER_DIRS) {
   const triggerPath = join(ROOT, dir, ".deploy-version");
   writeFileSync(triggerPath, version + "\n");
@@ -74,7 +75,7 @@ for (const dir of DEPLOY_TRIGGER_DIRS) {
 }
 console.log(`  CF deploy triggers updated`);
 
-// Sync tauri.conf.json version
+// Sync tauri.conf.json version (always)
 const tauriConfPath = join(ROOT, "src/desktop/src-tauri/tauri.conf.json");
 const tauriConf = JSON.parse(readFileSync(tauriConfPath, "utf8"));
 const oldTauriVersion = tauriConf.version;
@@ -82,6 +83,22 @@ tauriConf.version = version;
 writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + "\n");
 files.push(tauriConfPath);
 console.log(`  tauri.conf.json: ${oldTauriVersion} → ${version}`);
+
+// Desktop deploy trigger (only with --desktop)
+if (includeDesktop) {
+  const triggerPath = join(ROOT, "src/desktop/.deploy-version");
+  writeFileSync(triggerPath, version + "\n");
+  files.push(triggerPath);
+  console.log(`  Desktop deploy trigger written`);
+}
+
+// Mobile deploy trigger (only with --mobile)
+if (includeMobile) {
+  const triggerPath = join(ROOT, "src/desktop/.deploy-version-mobile");
+  writeFileSync(triggerPath, version + "\n");
+  files.push(triggerPath);
+  console.log(`  Mobile deploy trigger written`);
+}
 
 if (updateMinCli) {
   const tomlPath = join(ROOT, "src/web/wrangler.toml");
@@ -96,14 +113,9 @@ if (updateMinCli) {
 
 const gitFiles = files.map((f) => f.replace(ROOT + "/", ""));
 execSync(`git add ${gitFiles.join(" ")}`, { cwd: ROOT, stdio: "inherit" });
+execSync(`git commit -m "release: v${version}"`, { cwd: ROOT, stdio: "inherit" });
 
-const markers = [];
-if (includeDesktop) markers.push("[desktop]");
-if (includeMobile) markers.push("[mobile]");
-const markerSuffix = markers.length ? " " + markers.join(" ") : "";
-execSync(`git commit -m "release: v${version}${markerSuffix}"`, { cwd: ROOT, stdio: "inherit" });
-
-console.log(`\n✅ Committed: v${version}${markerSuffix}`);
+console.log(`\n✅ Committed: v${version}`);
 console.log(`\n👉 Next steps:`);
 console.log(`   git push origin main`);
 console.log(`   # CI will auto-tag and trigger:`);

@@ -2,29 +2,12 @@ name: Desktop Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+    paths:
+      - "src/desktop/.deploy-version"
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
-    steps:
-      - uses: actions/checkout@v6
-      - name: Check commit message for [desktop] marker
-        id: check
-        run: |
-          MSG=$(git log -1 --format=%B)
-          if echo "$MSG" | grep -q '\[desktop\]'; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-          fi
-
   build:
-    needs: check
-    if: needs.check.outputs.should_build == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -66,6 +49,10 @@ jobs:
         run: pnpm install --frozen-lockfile
         working-directory: src/desktop
 
+      - name: Read version
+        id: version
+        run: echo "version=$(cat src/desktop/.deploy-version | tr -d '\n')" >> "$GITHUB_OUTPUT"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -74,8 +61,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: src/desktop
-          tagName: ${{ github.ref_name }}
-          releaseName: "Alook Desktop ${{ github.ref_name }}"
+          tagName: v${{ steps.version.outputs.version }}
+          releaseName: "Alook Desktop v${{ steps.version.outputs.version }}"
           releaseBody: "See the assets below for download links."
           releaseDraft: true
           prerelease: false
