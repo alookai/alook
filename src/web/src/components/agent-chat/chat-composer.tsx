@@ -268,7 +268,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
     const editor = useEditor({
       immediatelyRender: false,
-      content: value || undefined,
+      content: value ? value.replaceAll("\n", "<br>") : undefined,
       editable: !disabled,
       extensions: [
         StarterKit.configure({
@@ -380,7 +380,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       if (!incoming) {
         editor.commands.clearContent();
       } else {
-        editor.commands.setContent(value || "", { emitUpdate: false });
+        editor.commands.setContent((value || "").replaceAll("\n", "<br>"), { emitUpdate: false });
       }
       onEditorStateRef.current(editor.getText(), editor.state.selection.from - 1);
     }, [value, editor]);
