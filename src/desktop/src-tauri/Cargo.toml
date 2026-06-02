@@ -5,7 +5,7 @@ members = ["plugins/tauri-plugin-push"]
 name = "alook-desktop"
 version = "0.1.0"
 edition = "2021"
-description = "Alook Desktop & Mobile App"
+description = "Alook — Your Personal Company"
 
 [lib]
 name = "alook_desktop_lib"

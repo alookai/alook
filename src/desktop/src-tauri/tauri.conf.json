@@ -14,7 +14,9 @@
       "icons/icon.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "shortDescription": "Your Personal Company",
+    "longDescription": "Run your personal company with AI agents that collaborate, stay always on, and learn from every task."
   },
   "app": {
     "withGlobalTauri": true,
