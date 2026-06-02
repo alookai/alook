@@ -15,8 +15,11 @@ const nextConfig: NextConfig = {
 
 const withMDX = createMDX({
 	options: {
-		remarkPlugins: [],
+		remarkPlugins: ["remark-gfm"],
 		rehypePlugins: [
+			"rehype-slug",
+			["rehype-autolink-headings", { behavior: "wrap" }],
+			["rehype-external-links", { target: "_blank", rel: ["noopener", "noreferrer"] }],
 			["rehype-pretty-code", { theme: { light: "vitesse-light", dark: "vitesse-dark" }, keepBackground: false }],
 		],
 	},
