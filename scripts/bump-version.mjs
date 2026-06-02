@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { execSync } from "node:child_process";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "");
-const WORKSPACE_DIRS = ["src/shared", "src/cli", "src/app", "src/web", "src/email-worker", "src/ws-do"];
+const WORKSPACE_DIRS = ["src/shared", "src/cli", "src/app", "src/web", "src/email-worker", "src/ws-do", "src/desktop"];
 const DEPLOY_TRIGGER_DIRS = ["src/web", "src/email-worker", "src/ws-do"];
 
 function readPkg(dir) {
@@ -70,6 +70,15 @@ for (const dir of DEPLOY_TRIGGER_DIRS) {
   files.push(triggerPath);
 }
 console.log(`  CF deploy triggers updated`);
+
+// Sync tauri.conf.json version
+const tauriConfPath = join(ROOT, "src/desktop/src-tauri/tauri.conf.json");
+const tauriConf = JSON.parse(readFileSync(tauriConfPath, "utf8"));
+const oldTauriVersion = tauriConf.version;
+tauriConf.version = version;
+writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + "\n");
+files.push(tauriConfPath);
+console.log(`  tauri.conf.json: ${oldTauriVersion} → ${version}`);
 
 if (updateMinCli) {
   const tomlPath = join(ROOT, "src/web/wrangler.toml");

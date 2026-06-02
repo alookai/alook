@@ -18,12 +18,47 @@ pub struct CommandResult {
 }
 
 #[cfg(desktop)]
+struct CliConfig {
+    command: &'static str,
+    base_args: &'static [&'static str],
+    env: Vec<(&'static str, &'static str)>,
+}
+
+#[cfg(desktop)]
+fn cli_config() -> CliConfig {
+    if cfg!(debug_assertions) {
+        CliConfig {
+            command: "pnpm",
+            base_args: &["dev:cli", "--"],
+            env: vec![
+                ("ALOOK_SERVER_URL", "http://localhost:3000"),
+                ("ALOOK_HEALTH_PORT", "19515"),
+            ],
+        }
+    } else {
+        CliConfig {
+            command: "npx",
+            base_args: &["@alook/cli"],
+            env: vec![],
+        }
+    }
+}
+
+#[cfg(desktop)]
 #[tauri::command]
 pub async fn register_cli(app: AppHandle, token: String) -> Result<CommandResult, String> {
-    let output = app
-        .shell()
-        .command("npx")
-        .args(["@alook/cli", "register", "--token", &token])
+    let cfg = cli_config();
+    let mut args: Vec<&str> = cfg.base_args.to_vec();
+    args.extend_from_slice(&["register", "--token"]);
+    let token_ref: &str = &token;
+
+    let mut cmd = app.shell().command(cfg.command);
+    for (key, val) in &cfg.env {
+        cmd = cmd.env(key, val);
+    }
+    let output = cmd
+        .args(&args)
+        .arg(token_ref)
         .output()
         .await
         .map_err(|e| e.to_string())?;
@@ -37,10 +72,16 @@ pub async fn register_cli(app: AppHandle, token: String) -> Result<CommandResult
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn daemon_start(app: AppHandle) -> Result<CommandResult, String> {
-    let output = app
-        .shell()
-        .command("npx")
-        .args(["@alook/cli", "daemon", "start"])
+    let cfg = cli_config();
+    let mut args: Vec<&str> = cfg.base_args.to_vec();
+    args.extend_from_slice(&["daemon", "start"]);
+
+    let mut cmd = app.shell().command(cfg.command);
+    for (key, val) in &cfg.env {
+        cmd = cmd.env(key, val);
+    }
+    let output = cmd
+        .args(&args)
         .output()
         .await
         .map_err(|e| e.to_string())?;
@@ -54,10 +95,16 @@ pub async fn daemon_start(app: AppHandle) -> Result<CommandResult, String> {
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn daemon_stop(app: AppHandle) -> Result<CommandResult, String> {
-    let output = app
-        .shell()
-        .command("npx")
-        .args(["@alook/cli", "daemon", "stop"])
+    let cfg = cli_config();
+    let mut args: Vec<&str> = cfg.base_args.to_vec();
+    args.extend_from_slice(&["daemon", "stop"]);
+
+    let mut cmd = app.shell().command(cfg.command);
+    for (key, val) in &cfg.env {
+        cmd = cmd.env(key, val);
+    }
+    let output = cmd
+        .args(&args)
         .output()
         .await
         .map_err(|e| e.to_string())?;
@@ -71,10 +118,16 @@ pub async fn daemon_stop(app: AppHandle) -> Result<CommandResult, String> {
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn daemon_status(app: AppHandle) -> Result<DaemonStatusResult, String> {
-    let output = app
-        .shell()
-        .command("npx")
-        .args(["@alook/cli", "daemon", "status", "--json"])
+    let cfg = cli_config();
+    let mut args: Vec<&str> = cfg.base_args.to_vec();
+    args.extend_from_slice(&["daemon", "status", "--json"]);
+
+    let mut cmd = app.shell().command(cfg.command);
+    for (key, val) in &cfg.env {
+        cmd = cmd.env(key, val);
+    }
+    let output = cmd
+        .args(&args)
         .output()
         .await
         .map_err(|e| e.to_string())?;
@@ -100,7 +153,13 @@ pub async fn daemon_status(app: AppHandle) -> Result<DaemonStatusResult, String>
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn cli_update(app: AppHandle) -> Result<CommandResult, String> {
-    // Stop existing daemon first
+    if cfg!(debug_assertions) {
+        return Ok(CommandResult {
+            success: true,
+            message: "CLI update skipped in dev mode".to_string(),
+        });
+    }
+
     let _ = app
         .shell()
         .command("npx")
@@ -108,7 +167,6 @@ pub async fn cli_update(app: AppHandle) -> Result<CommandResult, String> {
         .output()
         .await;
 
-    // Force fetch latest version and restart daemon
     let start_output = app
         .shell()
         .command("npx")
@@ -130,10 +188,16 @@ pub async fn cli_update(app: AppHandle) -> Result<CommandResult, String> {
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn cli_check(app: AppHandle) -> Result<CommandResult, String> {
-    let output = app
-        .shell()
-        .command("npx")
-        .args(["@alook/cli", "--version"])
+    let cfg = cli_config();
+    let mut args: Vec<&str> = cfg.base_args.to_vec();
+    args.push("--version");
+
+    let mut cmd = app.shell().command(cfg.command);
+    for (key, val) in &cfg.env {
+        cmd = cmd.env(key, val);
+    }
+    let output = cmd
+        .args(&args)
         .output()
         .await
         .map_err(|e| e.to_string())?;
@@ -191,11 +255,15 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 pub fn auto_start_daemon(handle: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let shell = handle.shell();
-        let output = shell
-            .command("npx")
-            .args(["@alook/cli", "daemon", "status", "--json"])
-            .output()
-            .await;
+        let cfg = cli_config();
+        let mut args: Vec<&str> = cfg.base_args.to_vec();
+        args.extend_from_slice(&["daemon", "status", "--json"]);
+
+        let mut cmd = shell.command(cfg.command);
+        for (key, val) in &cfg.env {
+            cmd = cmd.env(key, val);
+        }
+        let output = cmd.args(&args).output().await;
 
         if let Ok(output) = output {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -203,11 +271,14 @@ pub fn auto_start_daemon(handle: AppHandle) {
             let running = json["running"].as_bool().unwrap_or(false);
 
             if !running {
-                let _ = shell
-                    .command("npx")
-                    .args(["@alook/cli", "daemon", "start"])
-                    .output()
-                    .await;
+                let mut start_args: Vec<&str> = cfg.base_args.to_vec();
+                start_args.extend_from_slice(&["daemon", "start"]);
+
+                let mut start_cmd = shell.command(cfg.command);
+                for (key, val) in &cfg.env {
+                    start_cmd = start_cmd.env(key, val);
+                }
+                let _ = start_cmd.args(&start_args).output().await;
             }
         }
     });
