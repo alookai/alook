@@ -104,34 +104,15 @@ pub async fn cli_update(app: AppHandle) -> Result<CommandResult, String> {
     let _ = app
         .shell()
         .command("npx")
-        .args(["@alook/cli", "daemon", "stop"])
+        .args(["--yes", "@alook/cli", "daemon", "stop"])
         .output()
         .await;
 
-    // Clear npx cache and install latest CLI
-    let install_output = app
-        .shell()
-        .command("npm")
-        .args(["install", "-g", "@alook/cli@latest"])
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !install_output.status.success() {
-        return Ok(CommandResult {
-            success: false,
-            message: format!(
-                "Failed to install latest CLI: {}",
-                String::from_utf8_lossy(&install_output.stderr)
-            ),
-        });
-    }
-
-    // Restart daemon with updated CLI
+    // Force fetch latest version and restart daemon
     let start_output = app
         .shell()
         .command("npx")
-        .args(["@alook/cli", "daemon", "start"])
+        .args(["--yes", "@alook/cli@latest", "daemon", "start"])
         .output()
         .await
         .map_err(|e| e.to_string())?;
