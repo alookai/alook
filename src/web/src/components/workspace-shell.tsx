@@ -13,6 +13,7 @@ import {
   SheetContent,
 } from "@/components/ui/sheet";
 import { AgentChatSheetProvider } from "@/contexts/agent-chat-sheet-context";
+import { isTauri, isDesktop } from "@alook/shared";
 
 const SidebarTriggerContext = createContext<(() => void) | null>(null);
 
@@ -51,10 +52,12 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     );
   }
 
+  const desktopInset = isTauri() && isDesktop();
+
   return (
     <AgentChatSheetProvider>
-      <div ref={shellRef} className="flex h-dvh overflow-hidden relative">
-        <div data-tauri-drag-region />
+      <div ref={shellRef} className={`flex h-dvh overflow-hidden relative ${desktopInset ? "pt-7" : ""}`}>
+        {desktopInset && <div data-tauri-drag-region />}
         <GradientBackground />
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">

@@ -1825,15 +1825,12 @@ html.dark,
 }
 
 /* Tauri desktop: reserve space for macOS traffic light buttons */
-html[data-tauri-desktop] body {
-  padding-top: env(titlebar-area-height, 28px);
-}
 html[data-tauri-desktop] [data-tauri-drag-region] {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  height: env(titlebar-area-height, 28px);
+  height: 28px;
   z-index: 9999;
   -webkit-app-region: drag;
 }
