@@ -1393,7 +1393,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 
 /* ── Streamdown mermaid block: match code-block visual style ── */
 
-/* Outer container: clean border + radius + clipping */
+/* Outer container: clean border + radius (overflow visible for dropdown menus) */
 [data-streamdown="mermaid-block"] {
   position: relative !important;
   padding: 0 !important;
@@ -1402,7 +1402,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   gap: 0 !important;
   border: 1px solid oklch(1 0 0 / 8%) !important;
   border-radius: var(--radius-md) !important;
-  overflow: hidden !important;
+  overflow: visible !important;
   background: var(--background) !important;
 }
 
