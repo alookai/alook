@@ -58,10 +58,12 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}" --generate-notes --title "${{ steps.version.outputs.tag }}"
           RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}"
           BODY=$(gh release view "${{ steps.version.outputs.tag }}" --json body -q .body)
-          echo "url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
-          echo "body<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$BODY" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "url=$RELEASE_URL"
+            echo "body<<EOF"
+            echo "$BODY"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Notify Discord
         if: steps.check.outputs.exists == 'false'
