@@ -1467,6 +1467,14 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   overflow: hidden;
 }
 
+/* Mermaid node shapes: add rounded corners to rectangles */
+[data-streamdown="mermaid-block"] .node rect,
+[data-streamdown="mermaid-block"] .node .basic {
+  rx: 8 !important;
+  ry: 8 !important;
+}
+
+
 /* ── Streamdown table: strip wrapper chrome, clean rows ── */
 
 /* Outer wrapper: strip bg-sidebar, border, padding, gap, rounded */
