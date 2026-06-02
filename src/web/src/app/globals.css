@@ -1391,6 +1391,72 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   pointer-events: auto;
 }
 
+/* ── Streamdown mermaid block: match code-block visual style ── */
+
+/* Outer container: clean border + radius + clipping */
+[data-streamdown="mermaid-block"] {
+  position: relative !important;
+  padding: 0 !important;
+  margin-top: 0.5em !important;
+  margin-bottom: 0.5em !important;
+  gap: 0 !important;
+  border: 1px solid oklch(1 0 0 / 8%) !important;
+  border-radius: var(--radius-md) !important;
+  overflow: hidden !important;
+  background: var(--background) !important;
+}
+
+/* Header ("mermaid" label): absolute top-left, show on hover */
+[data-streamdown="mermaid-block"] > div:first-child {
+  position: absolute !important;
+  top: 0.375rem;
+  left: 0.625rem;
+  z-index: 5;
+  height: auto !important;
+  padding: 0 !important;
+  background: transparent !important;
+  font-size: 0.7rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+[data-streamdown="mermaid-block"]:hover > div:first-child {
+  opacity: 0.5;
+}
+
+/* Actions wrapper: absolute top-right */
+[data-streamdown="mermaid-block"] > div:has([data-streamdown="mermaid-block-actions"]) {
+  position: absolute !important;
+  top: 0.375rem;
+  right: 0.375rem;
+  z-index: 10;
+  margin-top: 0 !important;
+  height: auto !important;
+  pointer-events: none !important;
+}
+[data-streamdown="mermaid-block"]:hover > div:has([data-streamdown="mermaid-block-actions"]) {
+  pointer-events: auto !important;
+}
+
+/* Actions buttons: show on hover */
+[data-streamdown="mermaid-block-actions"] {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease;
+}
+[data-streamdown="mermaid-block"]:hover [data-streamdown="mermaid-block-actions"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Diagram content area */
+[data-streamdown="mermaid-block"] > div:last-child {
+  margin: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 1rem !important;
+}
+
 /* ── Streamdown table: strip wrapper chrome, clean rows ── */
 
 /* Outer wrapper: strip bg-sidebar, border, padding, gap, rounded */
