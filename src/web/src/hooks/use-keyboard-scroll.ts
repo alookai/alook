@@ -7,10 +7,11 @@ export interface KeyboardScrollController {
   cleanup: () => void;
 }
 
+const DEBOUNCE_MS = 150;
+
 /**
  * Creates a resize handler that calculates the keyboard offset from the visual
- * viewport and applies a CSS variable to the target element so its parent
- * container can shift above the keyboard.
+ * viewport and applies a translateY to shift the input container above the keyboard.
  * Exported for testability — the hook wraps this with lifecycle management.
  */
 export function createKeyboardScrollController(
@@ -29,17 +30,23 @@ export function createKeyboardScrollController(
         el.scrollIntoView({ block: "end", behavior: "smooth" });
         return;
       }
-      const offset = window.innerHeight - vv.height - vv.offsetTop;
+      const keyboardHeight = window.innerHeight - vv.height;
       const inputContainer = el.closest(
         "[data-keyboard-offset]",
       ) as HTMLElement | null;
-      if (inputContainer) {
+      if (inputContainer && keyboardHeight > 0) {
+        // Calculate how much of the container is hidden behind the keyboard.
+        // Only shift enough to keep it visible, not the full keyboard height.
+        const rect = inputContainer.getBoundingClientRect();
+        const overflow = rect.bottom - vv.height - vv.offsetTop;
         inputContainer.style.transform =
-          offset > 0 ? `translateY(-${offset}px)` : "";
+          overflow > 0 ? `translateY(-${overflow}px)` : "";
+      } else if (inputContainer) {
+        inputContainer.style.transform = "";
       } else {
         el.scrollIntoView({ block: "end", behavior: "smooth" });
       }
-    }, 100);
+    }, DEBOUNCE_MS);
   };
   const cleanup = () => {
     clearTimeout(timeoutId);
@@ -85,11 +92,50 @@ export function attachKeyboardScroll(
 }
 
 /**
+ * On Chromium (Android Chrome 94+), uses the VirtualKeyboard API with CSS
+ * env(keyboard-inset-height) for a smoother native experience.
+ * Falls back to visualViewport + translateY for iOS Safari/Chrome.
+ */
+function attachVirtualKeyboardAPI(
+  getTarget: () => HTMLElement | null,
+  isFocused: boolean,
+): (() => void) | null {
+  if (typeof window === "undefined") return null;
+  const vk = (navigator as any).virtualKeyboard;
+  if (!vk) return null;
+
+  vk.overlaysContent = true;
+
+  const inputContainer = getTarget()?.closest(
+    "[data-keyboard-offset]",
+  ) as HTMLElement | null;
+  if (!inputContainer) return null;
+
+  const onGeometryChange = () => {
+    if (!isFocused) {
+      inputContainer.style.transform = "";
+      return;
+    }
+    const { height } = vk.boundingRect;
+    inputContainer.style.transform =
+      height > 0 ? `translateY(-${height}px)` : "";
+  };
+
+  vk.addEventListener("geometrychange", onGeometryChange);
+  return () => {
+    vk.removeEventListener("geometrychange", onGeometryChange);
+    inputContainer.style.transform = "";
+    vk.overlaysContent = false;
+  };
+}
+
+/**
  * On iOS Safari, the virtual keyboard can push the focused input off-screen
  * because the layout viewport doesn't always resize in sync with the visual
  * viewport. This hook listens to `window.visualViewport` resize events and
  * applies a translateY offset to the nearest [data-keyboard-offset] ancestor.
  *
+ * On Android Chrome 94+, uses VirtualKeyboard API for smoother handling.
  * No-op when `visualViewport` is unavailable or the editor isn't focused.
  */
 export function useKeyboardScroll(
@@ -97,6 +143,14 @@ export function useKeyboardScroll(
   isFocused: boolean,
 ) {
   useEffect(() => {
+    // Try VirtualKeyboard API first (Android Chrome 94+)
+    const vkDetach = attachVirtualKeyboardAPI(
+      () => targetRef.current,
+      isFocused,
+    );
+    if (vkDetach) return vkDetach;
+
+    // Fallback: visualViewport resize (iOS Safari/Chrome)
     const detach = attachKeyboardScroll(() => targetRef.current, isFocused);
     return detach ?? undefined;
   }, [targetRef, isFocused]);

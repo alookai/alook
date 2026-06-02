@@ -50,10 +50,12 @@ const OG_IMAGE_URL = "/og?title=Your Personal Company";
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
   viewportFit: "cover",
   interactiveWidget: "resizes-visual",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f5f0e8" },
+    { media: "(prefers-color-scheme: light)", color: "#ede7dd" },
     { media: "(prefers-color-scheme: dark)", color: "#262320" },
   ],
 };
@@ -124,6 +126,9 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <script dangerouslySetInnerHTML={{ __html: `
+          document.addEventListener('gesturestart', function(e) { e.preventDefault(); });
+        `}} />
       </head>
       <GoogleTagManager gtmId="GTM-56VHCCQZ" />
       <body

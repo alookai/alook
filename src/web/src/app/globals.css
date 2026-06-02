@@ -954,13 +954,13 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
     font-kerning: normal;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
   html {
-    @apply font-sans bg-background;
+    @apply font-sans;
     font-size: 16px;
     line-height: 1.6;
   }
@@ -1721,20 +1721,17 @@ html, body {
   touch-action: manipulation;
 }
 
-html {
+[data-keyboard-offset] {
+  transition: transform 0.2s ease-out;
+  will-change: transform;
+}
+
+html, body {
   background-color: oklch(0.93 0.015 80);
   min-height: 100dvh;
 }
 
-.dark html,
-html.dark {
+html.dark,
+.dark body {
   background-color: oklch(0.16 0.008 60);
-}
-
-body {
-  min-height: 100dvh;
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
 }

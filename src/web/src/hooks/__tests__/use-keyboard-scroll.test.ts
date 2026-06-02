@@ -16,8 +16,11 @@ function createMockTarget(container?: HTMLElement | null) {
   return { target, scrollIntoView };
 }
 
-function createMockContainer() {
-  return { style: { transform: "" } } as unknown as HTMLElement;
+function createMockContainer(bottom = 800) {
+  return {
+    style: { transform: "" },
+    getBoundingClientRect: () => ({ top: 0, left: 0, right: 0, bottom, width: 0, height: 0 }),
+  } as unknown as HTMLElement;
 }
 
 describe("createKeyboardScrollController", () => {
@@ -39,7 +42,7 @@ describe("createKeyboardScrollController", () => {
     const { handler } = createKeyboardScrollController(() => target, true);
 
     handler();
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
 
     expect(scrollIntoView).toHaveBeenCalledWith({
       block: "end",
@@ -67,7 +70,7 @@ describe("createKeyboardScrollController", () => {
     const { handler } = createKeyboardScrollController(() => target, true);
 
     handler();
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
 
     expect(container.style.transform).toBe("translateY(-300px)");
 
@@ -93,7 +96,7 @@ describe("createKeyboardScrollController", () => {
     const { handler } = createKeyboardScrollController(() => target, true);
 
     handler();
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
 
     expect(container.style.transform).toBe("");
 
@@ -118,7 +121,7 @@ describe("createKeyboardScrollController", () => {
     const { handler } = createKeyboardScrollController(() => target, false);
 
     handler();
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
 
     expect(container.style.transform).toBe("");
 
@@ -147,7 +150,7 @@ describe("createKeyboardScrollController", () => {
     handler();
     vi.advanceTimersByTime(50);
     handler();
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
 
     expect(container.style.transform).toBe("translateY(-300px)");
 
@@ -178,7 +181,7 @@ describe("createKeyboardScrollController", () => {
     handler();
     vi.advanceTimersByTime(50);
     cleanup();
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
 
     expect(container.style.transform).toBe("");
 
@@ -206,12 +209,12 @@ describe("createKeyboardScrollController", () => {
     const { handler } = createKeyboardScrollController(() => target, true);
 
     handler();
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
     expect(container.style.transform).toBe("translateY(-300px)");
 
     viewportHeight = 600;
     handler();
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
     expect(container.style.transform).toBe("translateY(-200px)");
 
     Object.defineProperty(globalThis, "window", {
@@ -240,7 +243,7 @@ describe("createKeyboardScrollController", () => {
     const { handler } = createKeyboardScrollController(() => target, true);
 
     handler();
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
 
     expect(scrollIntoView).toHaveBeenCalledWith({
       block: "end",
@@ -315,7 +318,7 @@ describe("attachKeyboardScroll", () => {
 
     const handler = listeners.get("resize")!;
     handler(new Event("resize"));
-    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(150);
     expect(container.style.transform).toBe("translateY(-300px)");
 
     detach();
