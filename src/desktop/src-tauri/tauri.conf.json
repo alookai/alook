@@ -48,10 +48,6 @@
           "host": "app.alook.ai"
         }
       ]
-    },
-    "updater": {
-      "endpoints": ["https://releases.alook.ai/desktop/{{target}}/{{arch}}/{{current_version}}"],
-      "pubkey": ""
     }
   }
 }

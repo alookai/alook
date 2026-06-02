@@ -17,7 +17,8 @@ function writePkg(path, pkg) {
 }
 
 function bumpSemver(current, type) {
-  const [major, minor, patch] = current.split(".").map(Number);
+  const base = current.split("-")[0];
+  const [major, minor, patch] = base.split(".").map(Number);
   if (type === "major") return `${major + 1}.0.0`;
   if (type === "minor") return `${major}.${minor + 1}.0`;
   return `${major}.${minor}.${patch + 1}`;
@@ -83,6 +84,16 @@ tauriConf.version = version;
 writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + "\n");
 files.push(tauriConfPath);
 console.log(`  tauri.conf.json: ${oldTauriVersion} → ${version}`);
+
+// Sync Cargo.toml version (always)
+const cargoTomlPath = join(ROOT, "src/desktop/src-tauri/Cargo.toml");
+let cargoToml = readFileSync(cargoTomlPath, "utf8");
+const oldCargoMatch = cargoToml.match(/^version = "([^"]+)"/m);
+const oldCargoVersion = oldCargoMatch ? oldCargoMatch[1] : "unknown";
+cargoToml = cargoToml.replace(/^version = "[^"]+"/m, `version = "${version}"`);
+writeFileSync(cargoTomlPath, cargoToml);
+files.push(cargoTomlPath);
+console.log(`  Cargo.toml: ${oldCargoVersion} → ${version}`);
 
 // Desktop deploy trigger (only with --desktop)
 if (includeDesktop) {
