@@ -14,7 +14,7 @@
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
-    "tray:default",
+    "core:tray:default",
     "updater:default"
   ]
 }
