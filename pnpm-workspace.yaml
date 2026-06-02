@@ -5,4 +5,5 @@ packages:
   - "src/email-worker"
   - "src/ws-do"
   - "src/app"
+  - "src/desktop"
   - "tests/utils"

@@ -71,6 +71,24 @@ describe("resolveMode", () => {
       resolveMode({ nodeEnv: "production", hostname: "localhost" }),
     ).toBe("app");
   });
+
+  it("desktop: tauri signal set", () => {
+    expect(resolveMode({ tauri: true })).toBe("desktop");
+  });
+
+  it("desktop: tauri signal with tauriPlatform desktop", () => {
+    expect(resolveMode({ tauri: true, tauriPlatform: "desktop" })).toBe("desktop");
+  });
+
+  it("mobile: tauri signal with tauriPlatform mobile", () => {
+    expect(resolveMode({ tauri: true, tauriPlatform: "mobile" })).toBe("mobile");
+  });
+
+  it("desktop: tauri overrides other signals", () => {
+    expect(
+      resolveMode({ tauri: true, nodeEnv: "development", cmdPrefix: "npx @alook/app cli" }),
+    ).toBe("desktop");
+  });
 });
 
 describe("cliCommand", () => {
@@ -85,6 +103,14 @@ describe("cliCommand", () => {
   it("app → npx @alook/app cli", () => {
     expect(cliCommand("app")).toBe("npx @alook/app cli");
   });
+
+  it("desktop → npx @alook/cli", () => {
+    expect(cliCommand("desktop")).toBe("npx @alook/cli");
+  });
+
+  it("mobile → npx @alook/cli", () => {
+    expect(cliCommand("mobile")).toBe("npx @alook/cli");
+  });
 });
 
 describe("daemonCommand", () => {
@@ -98,6 +124,14 @@ describe("daemonCommand", () => {
 
   it("app → no --foreground", () => {
     expect(daemonCommand("app")).toBe("npx @alook/app cli daemon start");
+  });
+
+  it("desktop → no --foreground", () => {
+    expect(daemonCommand("desktop")).toBe("npx @alook/cli daemon start");
+  });
+
+  it("mobile → no --foreground", () => {
+    expect(daemonCommand("mobile")).toBe("npx @alook/cli daemon start");
   });
 });
 

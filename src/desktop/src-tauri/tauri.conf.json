@@ -1,0 +1,42 @@
+{
+  "productName": "Alook",
+  "version": "0.1.0",
+  "identifier": "ai.alook.app",
+  "build": {
+    "frontendDist": "https://app.alook.ai"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Alook",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "center": true
+      }
+    ],
+    "security": {
+      "capabilities": []
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["alook"]
+      },
+      "mobile": {
+        "schemes": ["alook"],
+        "universalLinks": ["app.alook.ai"]
+      }
+    },
+    "updater": {
+      "endpoints": [
+        "https://github.com/alookai/alook/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
+    }
+  }
+}

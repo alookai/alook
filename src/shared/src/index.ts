@@ -253,5 +253,5 @@ export { isUniqueConstraintError } from "./utils/db-errors";
 export { generateWorkspaceSlug } from "./utils/slug";
 export { truncateTitle } from "./utils/title";
 export { semverGte } from "./semver";
-export { resolveMode, cliCommand, daemonCommand, getBaseUrl } from "./mode";
+export { resolveMode, cliCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "./mode";
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";

@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile-capability",
+  "description": "Mobile-only capabilities",
+  "windows": ["main"],
+  "platforms": ["iOS", "android"],
+  "remote": {
+    "urls": ["https://*.alook.ai"]
+  },
+  "permissions": [
+    "biometric:default"
+  ]
+}

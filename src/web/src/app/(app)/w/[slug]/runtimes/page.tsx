@@ -27,7 +27,7 @@ import { Monitor, Plus } from "lucide-react";
 
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { semverGte } from "@alook/shared";
-import { cliCmd } from "@/lib/utils";
+import { cliCmd, getAppMode } from "@/lib/utils";
 import { ProviderLogo } from "@/components/provider-logo";
 import { triggerRuntimeUpdate, triggerRuntimeRescan, fetchLatestCliVersion } from "@/lib/api";
 import { Loader2, RefreshCw } from "lucide-react";
@@ -40,6 +40,8 @@ export default function RuntimesPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  const mode = getAppMode();
+  const isMobileApp = mode === "mobile";
 
   const [sheetOpen, setSheetOpen] = useState(() => searchParams.has("connect"));
   const [generatedToken, setGeneratedToken] = useState("");
@@ -271,19 +273,21 @@ export default function RuntimesPage() {
             Your machines and their agent runtimes.
           </p>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            setGeneratedToken("");
-            setRegisteredDaemonId(null);
-            setSheetOpen(true);
-          }}
-          disabled={generatingToken}
-        >
-          <Plus className="size-3.5" />
-          New machine
-        </Button>
+        {!isMobileApp && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setGeneratedToken("");
+              setRegisteredDaemonId(null);
+              setSheetOpen(true);
+            }}
+            disabled={generatingToken}
+          >
+            <Plus className="size-3.5" />
+            New machine
+          </Button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-5">
@@ -291,18 +295,22 @@ export default function RuntimesPage() {
           <div className="flex flex-1 items-center justify-center min-h-[60vh]">
             <div className="text-center animate-[fade-up_400ms_ease-out_both]">
               <p className="text-muted-foreground text-sm">
-                Connect a machine to start running agents locally.
+                {isMobileApp
+                  ? "No machines connected. Use the desktop app or CLI to connect a machine."
+                  : "Connect a machine to start running agents locally."}
               </p>
-              <Button
-                size="sm"
-                className="mt-4 glow-border"
-                onClick={() => {
-                  setGeneratedToken("");
-                  setSheetOpen(true);
-                }}
-              >
-                Connect Machine
-              </Button>
+              {!isMobileApp && (
+                <Button
+                  size="sm"
+                  className="mt-4 glow-border"
+                  onClick={() => {
+                    setGeneratedToken("");
+                    setSheetOpen(true);
+                  }}
+                >
+                  Connect Machine
+                </Button>
+              )}
             </div>
           </div>
         ) : (
