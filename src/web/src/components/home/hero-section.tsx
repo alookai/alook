@@ -147,7 +147,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           style={{ opacity: 0 }}
           onClick={() => {
             navigator.clipboard.writeText(
-              `Read ${window.location.origin}/onboard.md and follow the instructions to install and configure Alook`
+              `Read ${process.env.NEXT_PUBLIC_APP_URL}/onboard.md and follow the instructions to install and configure Alook`
             );
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
