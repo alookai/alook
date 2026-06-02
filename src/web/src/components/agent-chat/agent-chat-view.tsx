@@ -519,7 +519,7 @@ export function AgentChatView({
 
   // Rotating capability-hint placeholder for the idle, empty composer. Freezes
   // on focus/typing, resumes on empty blur; never rotates while a task is
-  // active (that path keeps the static "Type a follow-up..." placeholder).
+  // active (that path shows the static "Message {Name}" overlay below instead).
   const rotatingPlaceholder = useRotatingPlaceholder({
     isEmpty: input.trim() === "",
     isFocused: composerFocused,
@@ -978,22 +978,26 @@ export function AgentChatView({
                     onSend={handleSend}
                     onFocus={() => setComposerFocused(true)}
                     onBlur={() => setComposerFocused(false)}
-                    placeholder={
-                      isTaskActive
-                        ? // Never "Type a follow-up..." — the composer reads the same
-                        // whether or not a task is running. Warm, no period (Priya).
-                        `Message ${agentFirstName}`
-                        : // Empty idle composer is owned by the rotating overlay
-                        // below — give TipTap an empty placeholder so the two
-                        // systems don't both paint.
-                        ""
-                    }
+                    // The overlay is the SOLE placeholder renderer (TipTap's own
+                    // placeholder stays "" — it can't reactively update post-init,
+                    // which is what caused the active↔idle double-image). Shown
+                    // whenever the field is empty, in both states:
+                    //  • active task → static "Message {Name}" (no rotation). Warm,
+                    //    no period (Priya); reads the same whether or not a task runs.
+                    //  • idle → the rotating capability hint.
                     overlay={
-                      !isTaskActive && input.trim() === "" ? (
-                        <RotatingPlaceholderOverlay
-                          hint={rotatingPlaceholder.hint}
-                          animate={rotatingPlaceholder.isRotating}
-                        />
+                      input.trim() === "" ? (
+                        isTaskActive ? (
+                          <RotatingPlaceholderOverlay
+                            hint={`Message ${agentFirstName}`}
+                            animate={false}
+                          />
+                        ) : (
+                          <RotatingPlaceholderOverlay
+                            hint={rotatingPlaceholder.hint}
+                            animate={rotatingPlaceholder.isRotating}
+                          />
+                        )
                       ) : undefined
                     }
                     disabled={sending}

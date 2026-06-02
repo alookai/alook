@@ -43,15 +43,17 @@ interface ChatComposerProps {
   onEditorState: (plainText: string, caretIndex: number) => void;
   /** Enter-to-send (only fires in a top-level paragraph, no popup open). */
   onSend: () => void;
-  placeholder?: string;
   /** Editor gained focus (forwarded live via useEditor's onFocus — no re-mount). */
   onFocus?: () => void;
   /** Editor lost focus (forwarded live via useEditor's onBlur — no re-mount). */
   onBlur?: () => void;
   /**
-   * When set, renders a decorative overlay over the empty editor instead of
-   * TipTap's own placeholder (which is not reactive in this version, and whose
-   * ::before `content` can't cross-fade). The parent drives the text + fade.
+   * The placeholder, rendered as a decorative overlay over the empty editor.
+   * This is the SOLE placeholder renderer — TipTap's own Placeholder is kept
+   * permanently "" because its decoration is captured at plugin-init and does
+   * NOT re-read updated options in this @tiptap/extensions version (so it goes
+   * stale on the in-place active↔idle settle). The parent drives the text + fade
+   * for BOTH the idle rotating hint and the active static "Message {Name}".
    */
   overlay?: ReactNode;
   disabled?: boolean;
@@ -210,7 +212,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       onChange,
       onEditorState,
       onSend,
-      placeholder,
       onFocus,
       onBlur,
       overlay,
@@ -364,11 +365,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           listItem: false,
           listKeymap: false,
         }),
-        // When an overlay is shown it owns the placeholder slot — suppress
-        // TipTap's own placeholder so the two never paint at once (the "重影"
-        // double-image). Kept in sync reactively by the effect below since this
-        // extension is configured once at editor-init.
-        Placeholder.configure({ placeholder: overlay ? "" : placeholder ?? "" }),
+        // TipTap's own placeholder is permanently empty: its decoration value is
+        // captured at plugin-init and does NOT re-read updated options in this
+        // @tiptap/extensions version, so a reactive value goes stale on the
+        // in-place active↔idle settle (the double-image). The `overlay` prop is
+        // the single source of truth for the placeholder instead — see below.
+        Placeholder.configure({ placeholder: "" }),
         Markdown,
         mentionExtension,
       ],
@@ -451,24 +453,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     useEffect(() => {
       editor?.setEditable(!disabled);
     }, [editor, disabled]);
-
-    // The Placeholder extension is configured once at editor-init and is NOT
-    // reactive, so a later change (e.g. an active task settling, which swaps the
-    // rotating overlay on) left TipTap's stale placeholder painting UNDER the
-    // overlay — the double-image. Push the effective placeholder ("" while an
-    // overlay owns the slot) onto the live extension and re-decorate.
-    useEffect(() => {
-      if (!editor) return;
-      const ext = editor.extensionManager.extensions.find(
-        (e) => e.name === "placeholder",
-      );
-      if (!ext) return;
-      const next = overlay ? "" : placeholder ?? "";
-      if (ext.options.placeholder === next) return;
-      ext.options.placeholder = next;
-      // Empty no-op transaction → forces the placeholder decoration to refresh.
-      editor.view.dispatch(editor.state.tr);
-    }, [editor, placeholder, overlay]);
 
     // Controlled value: push external changes (draft restore /
     // conversation switch / clear-after-send) into the editor.
