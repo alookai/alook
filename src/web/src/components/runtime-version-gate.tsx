@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useAgentContext } from "@/contexts/agent-context";
 import { getMinCliVersion, triggerRuntimeUpdate } from "@/lib/api";
-import { semverGte, resolveMode, isTauri, tauriInvoke } from "@alook/shared";
+import { semverGte, isTauri, tauriInvoke } from "@alook/shared";
+import { getAppMode } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -18,20 +19,17 @@ import { AlertTriangle, RefreshCw, Terminal } from "lucide-react";
 import { toast } from "sonner";
 import type { AgentRuntime } from "@alook/shared";
 
-const mode = resolveMode({
-  nodeEnv: process.env.NODE_ENV,
-  hostname: typeof window !== "undefined" ? window.location.hostname : undefined,
-});
-const MANUAL_UPDATE_CMD = mode === "app"
-  ? "npx @alook/app stop && npx @alook/app@latest update && npx @alook/app start"
-  : "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start";
-
 export function RuntimeVersionGate() {
   const { runtimes, workspaceId } = useAgentContext();
   const [minVersion, setMinVersion] = useState<string | null>(null);
   const [updating, setUpdating] = useState<Set<string>>(new Set());
   const [showManualHint, setShowManualHint] = useState(false);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const mode = getAppMode();
+  const MANUAL_UPDATE_CMD = mode === "app"
+    ? "npx @alook/app stop && npx @alook/app@latest update && npx @alook/app start"
+    : "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start";
 
   useEffect(() => {
     getMinCliVersion().then((res) => setMinVersion(res.min_cli_version)).catch(() => {});
