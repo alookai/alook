@@ -6,4 +6,8 @@ export type BlogPost = {
   excerpt: string;
   readingTime: string;
   draft?: boolean;
+  image?: string;
+  imageAlt?: string;
+  imageVariantA?: string;
+  imageVariantB?: string;
 };

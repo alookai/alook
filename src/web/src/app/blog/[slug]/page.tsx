@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { getAllPosts, getPostBySlug } from "@/lib/blog/posts";
+import { BlogHeroImage } from "@/components/blog-hero-image";
 
 export const dynamicParams = false;
 
@@ -115,6 +116,15 @@ export default async function BlogPostPage({
             <span>{post.readingTime}</span>
           </div>
         </header>
+
+        {post.imageVariantA && post.imageVariantB && (
+          <BlogHeroImage
+            imageVariantA={post.imageVariantA}
+            imageVariantB={post.imageVariantB}
+            imageAlt={post.imageAlt || post.title}
+            title={post.title}
+          />
+        )}
 
         <div className="blog-content blog-content-editorial font-sans text-lg leading-[1.7] text-foreground max-w-[65ch] [&_h2]:font-sans [&_h2]:text-[1.625rem] [&_h2]:font-semibold [&_h2]:tracking-tight [&_h2]:mt-16 [&_h2]:mb-6 [&_p]:mb-8 [&_blockquote]:border-l-[3px] [&_blockquote]:border-foreground/20 [&_blockquote]:pl-6 [&_blockquote]:italic [&_blockquote]:text-foreground/70 [&_blockquote]:my-10 [&_blockquote]:text-xl [&_blockquote]:leading-relaxed [&_code]:font-mono [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:text-[0.875em] [&_pre]:bg-muted [&_pre]:rounded-lg [&_pre]:px-5 [&_pre]:py-4 [&_pre]:my-10 [&_pre]:overflow-x-auto [&_pre]:text-[0.875rem] [&_pre]:leading-relaxed [&_pre]:max-w-none [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_img]:rounded-lg [&_img]:my-12 [&_img]:w-full [&_img]:max-w-none [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:mb-8 [&_ul]:-mt-1 [&_li]:mb-3 [&_li]:leading-[1.7] [&_strong]:font-semibold [&_em]:italic [&_a]:underline [&_a]:underline-offset-3 [&_a]:decoration-foreground/30 [&_a]:hover:decoration-foreground/60 [&_a]:transition-colors [&_table]:w-full [&_table]:my-10 [&_table]:border-collapse [&_table]:text-[0.9rem] [&_th]:text-left [&_th]:font-semibold [&_th]:py-3 [&_th]:px-4 [&_th]:border-b-2 [&_th]:border-border [&_td]:py-3 [&_td]:px-4 [&_td]:border-b [&_td]:border-border [&_tr:hover]:bg-muted/50">
           <PostContent />
