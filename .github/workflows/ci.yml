@@ -167,6 +167,30 @@ jobs:
           files: ./coverage/coverage-final.json
           fail_ci_if_error: true
 
+  desktop-rust:
+    name: Desktop Rust (test + machete)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/desktop/src-tauri
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/desktop/src-tauri
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
+      - run: cargo test
+      - name: Install cargo-machete
+        run: cargo install cargo-machete --locked
+      - run: cargo machete
+
   lighthouse:
     name: Lighthouse SEO
     if: github.event_name == 'pull_request'

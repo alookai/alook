@@ -7,7 +7,6 @@ description = "Tauri plugin for push notifications via FCM (Android) and APNs (i
 [dependencies]
 tauri = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }

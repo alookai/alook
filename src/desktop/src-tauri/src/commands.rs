@@ -155,31 +155,7 @@ pub async fn daemon_status(app: AppHandle) -> Result<DaemonStatusResult, String>
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-    // Try JSON parse first (production CLI supports --json), fall back to text
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
-        return Ok(DaemonStatusResult {
-            running: json["running"].as_bool().unwrap_or(false),
-            pid: json["pid"].as_u64().map(|p| p as u32),
-            version: json["version"].as_str().map(|s| s.to_string()),
-        });
-    }
-
-    // Text output: "Daemon running (pid=12345)" or "Daemon not running."
-    let running = stdout.contains("running (pid=");
-    let pid = if running {
-        stdout
-            .split("pid=")
-            .nth(1)
-            .and_then(|s| s.trim_end_matches(')').trim().parse::<u32>().ok())
-    } else {
-        None
-    };
-
-    Ok(DaemonStatusResult {
-        running,
-        pid,
-        version: None,
-    })
+    Ok(parse_daemon_status(&stdout))
 }
 
 #[cfg(desktop)]
@@ -286,6 +262,32 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+pub fn parse_daemon_status(stdout: &str) -> DaemonStatusResult {
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(stdout) {
+        return DaemonStatusResult {
+            running: json["running"].as_bool().unwrap_or(false),
+            pid: json["pid"].as_u64().map(|p| p as u32),
+            version: json["version"].as_str().map(|s| s.to_string()),
+        };
+    }
+
+    let running = stdout.contains("running (pid=");
+    let pid = if running {
+        stdout
+            .split("pid=")
+            .nth(1)
+            .and_then(|s| s.trim_end_matches(')').trim().parse::<u32>().ok())
+    } else {
+        None
+    };
+
+    DaemonStatusResult {
+        running,
+        pid,
+        version: None,
+    }
+}
+
 #[cfg(desktop)]
 pub fn auto_start_daemon(handle: AppHandle) {
     tauri::async_runtime::spawn(async move {
@@ -326,4 +328,108 @@ pub fn auto_start_daemon(handle: AppHandle) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_status_json_running() {
+        let input = r#"{"running":true,"pid":12345,"version":"0.1.0"}"#;
+        let result = parse_daemon_status(input);
+        assert!(result.running);
+        assert_eq!(result.pid, Some(12345));
+        assert_eq!(result.version.as_deref(), Some("0.1.0"));
+    }
+
+    #[test]
+    fn parse_status_json_not_running() {
+        let input = r#"{"running":false,"pid":null,"version":null}"#;
+        let result = parse_daemon_status(input);
+        assert!(!result.running);
+        assert_eq!(result.pid, None);
+        assert_eq!(result.version, None);
+    }
+
+    #[test]
+    fn parse_status_text_running() {
+        let input = "Daemon running (pid=54321)";
+        let result = parse_daemon_status(input);
+        assert!(result.running);
+        assert_eq!(result.pid, Some(54321));
+        assert_eq!(result.version, None);
+    }
+
+    #[test]
+    fn parse_status_text_not_running() {
+        let input = "Daemon not running.";
+        let result = parse_daemon_status(input);
+        assert!(!result.running);
+        assert_eq!(result.pid, None);
+    }
+
+    #[test]
+    fn parse_status_empty_string() {
+        let result = parse_daemon_status("");
+        assert!(!result.running);
+        assert_eq!(result.pid, None);
+        assert_eq!(result.version, None);
+    }
+
+    #[test]
+    fn cli_config_args_construction() {
+        let cfg = cli_config();
+        let mut args: Vec<&str> = cfg.base_args.to_vec();
+        args.extend_from_slice(&["register", "--token"]);
+
+        if cfg!(debug_assertions) {
+            assert_eq!(cfg.command, "pnpm");
+            assert_eq!(args, vec!["dev:cli", "register", "--token"]);
+            assert!(cfg.cwd.is_some());
+        } else {
+            assert_eq!(cfg.command, "npx");
+            assert_eq!(args, vec!["@alook/cli", "register", "--token"]);
+            assert!(cfg.cwd.is_none());
+        }
+    }
+
+    #[test]
+    fn cli_config_daemon_start_args() {
+        let cfg = cli_config();
+        let mut args: Vec<&str> = cfg.base_args.to_vec();
+        args.extend_from_slice(&["daemon", "start"]);
+
+        if cfg!(debug_assertions) {
+            assert_eq!(args, vec!["dev:cli", "daemon", "start"]);
+        } else {
+            assert_eq!(args, vec!["@alook/cli", "daemon", "start"]);
+        }
+    }
+
+    #[test]
+    fn cli_config_daemon_status_args() {
+        let cfg = cli_config();
+        let mut args: Vec<&str> = cfg.base_args.to_vec();
+        args.extend_from_slice(&["daemon", "status"]);
+
+        if cfg!(debug_assertions) {
+            assert_eq!(args, vec!["dev:cli", "daemon", "status"]);
+        } else {
+            assert_eq!(args, vec!["@alook/cli", "daemon", "status"]);
+        }
+    }
+
+    #[test]
+    fn cli_config_version_args() {
+        let cfg = cli_config();
+        let mut args: Vec<&str> = cfg.base_args.to_vec();
+        args.push("--version");
+
+        if cfg!(debug_assertions) {
+            assert_eq!(args, vec!["dev:cli", "--version"]);
+        } else {
+            assert_eq!(args, vec!["@alook/cli", "--version"]);
+        }
+    }
 }
