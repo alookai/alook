@@ -2060,6 +2060,7 @@ export function AgentChatView({
         toast.error(msg.error || "Failed to dispatch follow-up");
       }
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- activeChannelRef is a stable ref read inside the callback, not a reactive dep
   }, [subscribeWs, conversation?.id, workspaceId, agentId]);
 
   useEffect(() => {

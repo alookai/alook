@@ -2,6 +2,11 @@
 
 import { useEffect, type RefObject } from "react";
 
+interface VirtualKeyboard extends EventTarget {
+  overlaysContent: boolean;
+  boundingRect: DOMRect;
+}
+
 export interface KeyboardScrollController {
   handler: () => void;
   cleanup: () => void;
@@ -108,7 +113,7 @@ function attachVirtualKeyboardAPI(
   isFocused: boolean,
 ): (() => void) | null {
   if (typeof window === "undefined") return null;
-  const vk = (navigator as any).virtualKeyboard;
+  const vk = (navigator as unknown as { virtualKeyboard?: VirtualKeyboard }).virtualKeyboard;
   if (!vk) return null;
 
   vk.overlaysContent = true;
