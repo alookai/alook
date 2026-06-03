@@ -40,7 +40,7 @@
   "plugins": {
     "updater": {
       "endpoints": ["https://alook.ai/api/desktop/update/{{target}}/{{arch}}/{{current_version}}"],
-      "pubkey": ""
+      "pubkey": "RWQPlpaQzeEs/+9cMasjAS1iJ21kfounWfvXsXXqTrNI/nF+fz4OCyjJ"
     },
     "deep-link": {
       "desktop": {
