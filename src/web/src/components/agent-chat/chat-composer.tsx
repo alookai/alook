@@ -436,8 +436,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
         },
         handleDrop: () => false,
       },
-      onFocus: () => setEditorFocused(true),
-      onBlur: () => setEditorFocused(false),
+      onFocus: () => { setEditorFocused(true); onFocusRef.current?.(); },
+      onBlur: () => { setEditorFocused(false); onBlurRef.current?.(); },
       onUpdate: ({ editor }) => {
         onChangeRef.current(decodeChatEntities(editor.getMarkdown()));
         reportState(editor);
@@ -445,8 +445,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       onSelectionUpdate: ({ editor }) => {
         reportState(editor);
       },
-      onFocus: () => onFocusRef.current?.(),
-      onBlur: () => onBlurRef.current?.(),
     });
 
     // Keep editable in sync with disabled.
