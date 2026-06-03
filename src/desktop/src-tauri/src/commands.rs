@@ -7,6 +7,9 @@ use tauri_plugin_shell::ShellExt;
 #[cfg(desktop)]
 use std::path::PathBuf;
 
+#[cfg(desktop)]
+use std::sync::atomic::{AtomicBool, Ordering};
+
 #[derive(Serialize)]
 pub struct DaemonStatusResult {
     pub running: bool,
@@ -236,6 +239,9 @@ pub async fn cli_check(app: AppHandle) -> Result<CommandResult, String> {
 }
 
 #[cfg(desktop)]
+pub static DAEMON_ONLINE: AtomicBool = AtomicBool::new(false);
+
+#[cfg(desktop)]
 pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::{
         image::Image,
@@ -254,11 +260,9 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .item(&quit)
         .build()?;
 
-    let _tray = TrayIconBuilder::new()
-        .icon(Image::from_bytes(include_bytes!("../icons/icon.png")).unwrap_or_else(|_| {
-            Image::from_bytes(include_bytes!("../icons/tray-default.png"))
-                .expect("fallback tray icon")
-        }))
+    let tray = TrayIconBuilder::new()
+        .icon(Image::from_bytes(include_bytes!("../icons/tray-default.png"))
+            .expect("tray icon"))
         .menu(&menu)
         .tooltip("Alook")
         .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -268,14 +272,87 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.set_focus();
                 }
             }
+            "status" => {
+                let handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if DAEMON_ONLINE.load(Ordering::Relaxed) {
+                        exec_daemon_cmd(&handle, &["daemon", "stop"]).await;
+                    } else {
+                        exec_daemon_cmd(&handle, &["daemon", "start"]).await;
+                    }
+                });
+            }
             "quit" => {
-                app.exit(0);
+                let handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    exec_daemon_cmd(&handle, &["daemon", "stop"]).await;
+                    handle.exit(0);
+                });
             }
             _ => {}
         })
         .build(app)?;
 
+    let handle = app.handle().clone();
+    let status_item = status;
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let h = handle.clone();
+            let online = tauri::async_runtime::block_on(check_daemon_status(&h));
+            DAEMON_ONLINE.store(online, Ordering::Relaxed);
+            let label = if online { "Daemon: online" } else { "Daemon: offline" };
+            let _ = status_item.set_text(label);
+            let icon_bytes: &[u8] = if online {
+                include_bytes!("../icons/tray-online.png")
+            } else {
+                include_bytes!("../icons/tray-offline.png")
+            };
+            if let Ok(img) = tauri::image::Image::from_bytes(icon_bytes) {
+                let _ = tray.set_icon(Some(img));
+            }
+        }
+    });
+
     Ok(())
+}
+
+#[cfg(desktop)]
+async fn exec_daemon_cmd(handle: &AppHandle, subcommand: &[&str]) {
+    let shell = handle.shell();
+    let cfg = cli_config();
+    let mut args: Vec<&str> = cfg.base_args.to_vec();
+    args.extend_from_slice(subcommand);
+    let mut cmd = shell.command(cfg.command);
+    for (key, val) in &cfg.env {
+        cmd = cmd.env(key, val);
+    }
+    if let Some(cwd) = &cfg.cwd {
+        cmd = cmd.current_dir(cwd.clone());
+    }
+    let _ = cmd.args(&args).output().await;
+}
+
+#[cfg(desktop)]
+async fn check_daemon_status(handle: &AppHandle) -> bool {
+    let shell = handle.shell();
+    let cfg = cli_config();
+    let mut args: Vec<&str> = cfg.base_args.to_vec();
+    args.extend_from_slice(&["daemon", "status"]);
+    let mut cmd = shell.command(cfg.command);
+    for (key, val) in &cfg.env {
+        cmd = cmd.env(key, val);
+    }
+    if let Some(cwd) = &cfg.cwd {
+        cmd = cmd.current_dir(cwd.clone());
+    }
+    match cmd.args(&args).output().await {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            parse_daemon_status(&stdout).running
+        }
+        Err(_) => false,
+    }
 }
 
 pub fn parse_daemon_status(stdout: &str) -> DaemonStatusResult {
@@ -307,43 +384,15 @@ pub fn parse_daemon_status(stdout: &str) -> DaemonStatusResult {
 #[cfg(desktop)]
 pub fn auto_start_daemon(handle: AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let shell = handle.shell();
-        let cfg = cli_config();
-        let mut args: Vec<&str> = cfg.base_args.to_vec();
-        args.extend_from_slice(&["daemon", "status"]);
-
-        let mut cmd = shell.command(cfg.command);
-        for (key, val) in &cfg.env {
-            cmd = cmd.env(key, val);
-        }
-        if let Some(cwd) = &cfg.cwd {
-            cmd = cmd.current_dir(cwd.clone());
-        }
-        let output = cmd.args(&args).output().await;
-
-        if let Ok(output) = output {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let running = stdout.contains("running (pid=")
-                || serde_json::from_str::<serde_json::Value>(&stdout)
-                    .ok()
-                    .and_then(|j| j["running"].as_bool())
-                    .unwrap_or(false);
-
-            if !running {
-                let mut start_args: Vec<&str> = cfg.base_args.to_vec();
-                start_args.extend_from_slice(&["daemon", "start"]);
-
-                let mut start_cmd = shell.command(cfg.command);
-                for (key, val) in &cfg.env {
-                    start_cmd = start_cmd.env(key, val);
-                }
-                if let Some(cwd) = &cfg.cwd {
-                    start_cmd = start_cmd.current_dir(cwd.clone());
-                }
-                let _ = start_cmd.args(&start_args).output().await;
-            }
+        if !check_daemon_status(&handle).await {
+            exec_daemon_cmd(&handle, &["daemon", "start"]).await;
         }
     });
+}
+
+#[cfg(desktop)]
+pub fn stop_daemon_blocking(handle: &AppHandle) {
+    tauri::async_runtime::block_on(exec_daemon_cmd(handle, &["daemon", "stop"]));
 }
 
 #[cfg(test)]

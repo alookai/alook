@@ -51,7 +51,22 @@ pub fn run() {
         });
     }
 
-    builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    #[cfg(desktop)]
+    {
+        let handle = app.handle().clone();
+        app.run(move |_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                commands::stop_daemon_blocking(&handle);
+            }
+        });
+    }
+
+    #[cfg(not(desktop))]
+    {
+        app.run(|_, _| {});
+    }
 }
