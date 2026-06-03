@@ -623,7 +623,7 @@ export async function startDaemon(
     }
   }
 
-  const wsClient = firstToken
+  let wsClient = firstToken
     ? new DaemonWsClient({
         serverURL: config.serverURL,
         daemonId: config.daemonId,
@@ -774,6 +774,25 @@ export async function startDaemon(
         health.setRuntimeCount(
           workspaceStates.reduce((sum, w) => sum + w.runtimeIds.length, 0),
         );
+        if (!wsClient && workspaceStates.length > 0) {
+          const token = workspaceStates[0].token;
+          wsClient = new DaemonWsClient({
+            serverURL: config.serverURL,
+            daemonId: config.daemonId,
+            machineToken: token,
+            onMessage: handleWsPush,
+            onConnected: () => {
+              log.info("WS connected — switching to low-frequency poll");
+              updatePollInterval(config.wsPollInterval);
+            },
+            onDisconnected: () => {
+              log.info("WS disconnected — reverting to high-frequency poll");
+              updatePollInterval(config.pollInterval);
+            },
+          });
+          wsClient.connect();
+          log.info("WS push client initialized after SIGHUP reload");
+        }
         log.info(`Reload complete — now polling ${workspaceStates.length} workspace(s)`);
       } else {
         log.info("Reload complete — no new workspaces found");

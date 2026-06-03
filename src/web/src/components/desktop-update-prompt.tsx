@@ -19,9 +19,14 @@ export function DesktopUpdatePrompt() {
             action: {
               label: "Update now",
               onClick: () => {
-                tauriInvoke("install_update").catch(() => {
-                  toast.error("Update failed — try again later");
-                });
+                const toastId = toast.loading("Downloading update...");
+                tauriInvoke("install_update")
+                  .then(() => {
+                    toast.success("Update installed — restarting...", { id: toastId });
+                  })
+                  .catch(() => {
+                    toast.error("Update failed — try again later", { id: toastId });
+                  });
               },
             },
           });
