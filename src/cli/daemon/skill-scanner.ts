@@ -265,6 +265,17 @@ function writeCacheFile(filePath: string, hash: string, skills: SkillEntry[]) {
   writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
 }
 
+export function isClientError(err: unknown): boolean {
+  if (err instanceof Error) {
+    const match = err.message.match(/^HTTP (\d+):/);
+    if (match) {
+      const status = parseInt(match[1], 10);
+      return status >= 400 && status < 500;
+    }
+  }
+  return false;
+}
+
 let scanTimer: ReturnType<typeof setInterval> | null = null;
 let scannerConfig: SkillScannerConfig | null = null;
 let clientRef: DaemonClient | null = null;
@@ -346,7 +357,12 @@ function runScan() {
         );
         Promise.all(syncPromises).then(() => {
           writeCacheFile(globalCachePath(daemonId, runtime), hash, skills);
-        }).catch((e) => log.debug("Global skill sync failed", e));
+        }).catch((e) => {
+          if (isClientError(e)) {
+            writeCacheFile(globalCachePath(daemonId, runtime), hash, skills);
+          }
+          log.debug("Global skill sync failed", e);
+        });
       }
     } catch (e) {
       log.debug(`Global scan error for ${runtime}`, e);
@@ -373,7 +389,12 @@ function runScan() {
           skills: skillItems,
         }).then(() => {
           writeCacheFile(agentCachePath(target.agentId, target.runtime), hash, skills);
-        }).catch((e) => log.debug("Agent skill sync failed", e));
+        }).catch((e) => {
+          if (isClientError(e)) {
+            writeCacheFile(agentCachePath(target.agentId, target.runtime), hash, skills);
+          }
+          log.debug("Agent skill sync failed", e);
+        });
       }
     } catch (e) {
       log.debug(`Agent scan error for ${target.agentId}:${target.runtime}`, e);

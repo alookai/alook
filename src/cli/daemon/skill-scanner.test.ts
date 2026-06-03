@@ -18,7 +18,7 @@ vi.mock("../lib/config.js", () => ({
   configDir: () => join(tmpdir(), "alook-skill-scanner-test-config-" + process.pid),
 }));
 
-import { startSkillScanner, stopSkillScanner, parseFrontmatter } from "./skill-scanner.js";
+import { startSkillScanner, stopSkillScanner, parseFrontmatter, isClientError } from "./skill-scanner.js";
 import type { DaemonClient } from "./client.js";
 
 describe("parseFrontmatter", () => {
@@ -29,6 +29,33 @@ describe("parseFrontmatter", () => {
 
   it("returns null without frontmatter", () => {
     expect(parseFrontmatter("Just text")).toBeNull();
+  });
+});
+
+describe("isClientError", () => {
+  it("returns true for 4xx HTTP errors", () => {
+    expect(isClientError(new Error("HTTP 400: Bad Request"))).toBe(true);
+    expect(isClientError(new Error("HTTP 401: Unauthorized"))).toBe(true);
+    expect(isClientError(new Error("HTTP 403: Forbidden"))).toBe(true);
+    expect(isClientError(new Error("HTTP 404: Not Found"))).toBe(true);
+    expect(isClientError(new Error("HTTP 422: Unprocessable Entity"))).toBe(true);
+  });
+
+  it("returns false for 5xx HTTP errors", () => {
+    expect(isClientError(new Error("HTTP 500: Internal Server Error"))).toBe(false);
+    expect(isClientError(new Error("HTTP 502: Bad Gateway"))).toBe(false);
+    expect(isClientError(new Error("HTTP 503: Service Unavailable"))).toBe(false);
+  });
+
+  it("returns false for network errors", () => {
+    expect(isClientError(new TypeError("fetch failed"))).toBe(false);
+    expect(isClientError(new Error("ECONNREFUSED"))).toBe(false);
+  });
+
+  it("returns false for non-Error values", () => {
+    expect(isClientError("string error")).toBe(false);
+    expect(isClientError(null)).toBe(false);
+    expect(isClientError(undefined)).toBe(false);
   });
 });
 
@@ -122,5 +149,97 @@ describe("runScan global skills syncs to all workspaces", () => {
       (args) => (args[1] as { scope: string }).scope === "global"
     );
     expect(globalCalls.length).toBe(2);
+  });
+
+  it("writes cache on 4xx error so next scan does not retry", async () => {
+    const home = join(tempDir, "home-4xx");
+    mockState.home = home;
+
+    const skillDir = join(home, ".claude", "skills", "my-skill");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "---\nname: my-skill\ndescription: Test 4xx\n---\nBody");
+
+    const wsDir = join(workspacesRoot, "ws1", "agent1");
+    mkdirSync(join(wsDir, "workdir"), { recursive: true });
+
+    mockClient.syncSkills.mockRejectedValue(new Error("HTTP 401: Unauthorized"));
+
+    startSkillScanner(mockClient as unknown as DaemonClient, {
+      workspacesRoot,
+      workspaces: [
+        { workspaceId: "ws1", token: "token-ws1", agentIds: ["agent1"] },
+      ],
+      runtimes: ["claude"],
+      daemonId: "test-daemon-4xx",
+    }, 999_999);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    // First scan should have attempted the sync
+    expect(mockClient.syncSkills).toHaveBeenCalled();
+    const callCount = mockClient.syncSkills.mock.calls.length;
+
+    // Stop and restart to trigger a second scan — cache should prevent re-request
+    stopSkillScanner();
+    mockClient.syncSkills.mockClear();
+
+    startSkillScanner(mockClient as unknown as DaemonClient, {
+      workspacesRoot,
+      workspaces: [
+        { workspaceId: "ws1", token: "token-ws1", agentIds: ["agent1"] },
+      ],
+      runtimes: ["claude"],
+      daemonId: "test-daemon-4xx",
+    }, 999_999);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Second scan should NOT call syncSkills because cache was written after 4xx
+    expect(mockClient.syncSkills).not.toHaveBeenCalled();
+  });
+
+  it("does not write cache on 5xx error so next scan retries", async () => {
+    const home = join(tempDir, "home-5xx");
+    mockState.home = home;
+
+    const skillDir = join(home, ".claude", "skills", "retry-skill");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "---\nname: retry-skill\ndescription: Test 5xx\n---\nBody");
+
+    const wsDir = join(workspacesRoot, "ws1", "agent1");
+    mkdirSync(join(wsDir, "workdir"), { recursive: true });
+
+    mockClient.syncSkills.mockRejectedValue(new Error("HTTP 500: Internal Server Error"));
+
+    startSkillScanner(mockClient as unknown as DaemonClient, {
+      workspacesRoot,
+      workspaces: [
+        { workspaceId: "ws1", token: "token-ws1", agentIds: ["agent1"] },
+      ],
+      runtimes: ["claude"],
+      daemonId: "test-daemon-5xx",
+    }, 999_999);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(mockClient.syncSkills).toHaveBeenCalled();
+
+    // Stop and restart to trigger a second scan — no cache, so it should retry
+    stopSkillScanner();
+    mockClient.syncSkills.mockClear();
+
+    startSkillScanner(mockClient as unknown as DaemonClient, {
+      workspacesRoot,
+      workspaces: [
+        { workspaceId: "ws1", token: "token-ws1", agentIds: ["agent1"] },
+      ],
+      runtimes: ["claude"],
+      daemonId: "test-daemon-5xx",
+    }, 999_999);
+
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Second scan SHOULD call syncSkills because cache was NOT written after 5xx
+    expect(mockClient.syncSkills).toHaveBeenCalled();
   });
 });
