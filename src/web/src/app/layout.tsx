@@ -11,6 +11,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ToasterProvider } from "@/components/toaster-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MockNetworkBanner } from "@/components/mock-network-banner";
+import { TauriDragRegion } from "@/components/tauri-drag-region";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -141,6 +142,7 @@ export default function RootLayout({
       <body
         className="min-h-full flex flex-col"
       >
+        <TauriDragRegion />
         <MockNetworkBanner />
         <script
           type="application/ld+json"

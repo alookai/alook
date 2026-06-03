@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, type ReactNode, useRef, useState, useEffect } from "react";
+import { createContext, useContext, type ReactNode, useRef, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { GradientBackground } from "@/components/gradient-background";
@@ -13,8 +13,6 @@ import {
   SheetContent,
 } from "@/components/ui/sheet";
 import { AgentChatSheetProvider } from "@/contexts/agent-chat-sheet-context";
-import { isTauri, isDesktop } from "@alook/shared";
-
 const SidebarTriggerContext = createContext<(() => void) | null>(null);
 
 export function useSidebarTrigger() {
@@ -26,10 +24,6 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   const { slug } = useWorkspace();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
-  const [desktopInset, setDesktopInset] = useState(false);
-  useEffect(() => {
-    setDesktopInset(isTauri() && isDesktop());
-  }, []);
 
   if (isMobile) {
     return (
@@ -58,8 +52,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   return (
     <AgentChatSheetProvider>
-      <div ref={shellRef} className={`flex h-dvh overflow-hidden relative ${desktopInset ? "pt-7" : ""}`}>
-        {desktopInset && <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-7 z-50" />}
+      <div ref={shellRef} className="flex h-dvh overflow-hidden relative">
         <GradientBackground />
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
