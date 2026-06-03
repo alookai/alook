@@ -59,7 +59,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   return (
     <AgentChatSheetProvider>
       <div ref={shellRef} className={`flex h-dvh overflow-hidden relative ${desktopInset ? "pt-7" : ""}`}>
-        {desktopInset && <div data-tauri-drag-region />}
+        {desktopInset && <div data-tauri-drag-region className="fixed top-0 left-0 right-0 h-7 z-50" />}
         <GradientBackground />
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
