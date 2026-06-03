@@ -75,6 +75,7 @@ describe("createKeyboardScrollController", () => {
     vi.advanceTimersByTime(150);
 
     expect(container.style.transform).toBe("translateY(-300px)");
+    expect(container.setAttribute).toHaveBeenCalledWith("data-keyboard-active", "");
 
     Object.defineProperty(globalThis, "window", {
       value: undefined,
@@ -101,6 +102,7 @@ describe("createKeyboardScrollController", () => {
     vi.advanceTimersByTime(150);
 
     expect(container.style.transform).toBe("");
+    expect(container.removeAttribute).toHaveBeenCalledWith("data-keyboard-active");
 
     Object.defineProperty(globalThis, "window", {
       value: undefined,
@@ -186,6 +188,7 @@ describe("createKeyboardScrollController", () => {
     vi.advanceTimersByTime(150);
 
     expect(container.style.transform).toBe("");
+    expect(container.removeAttribute).toHaveBeenCalledWith("data-keyboard-active");
 
     Object.defineProperty(globalThis, "window", {
       value: undefined,
@@ -322,6 +325,7 @@ describe("attachKeyboardScroll", () => {
     handler(new Event("resize"));
     vi.advanceTimersByTime(150);
     expect(container.style.transform).toBe("translateY(-300px)");
+    expect(container.setAttribute).toHaveBeenCalledWith("data-keyboard-active", "");
 
     detach();
 
@@ -330,6 +334,7 @@ describe("attachKeyboardScroll", () => {
       expect.any(Function),
     );
     expect(container.style.transform).toBe("");
+    expect(container.removeAttribute).toHaveBeenCalledWith("data-keyboard-active");
   });
 
   it("applies transform on resize when focused", () => {
@@ -342,6 +347,7 @@ describe("attachKeyboardScroll", () => {
     vi.advanceTimersByTime(300);
 
     expect(container.style.transform).toBe("translateY(-300px)");
+    expect(container.setAttribute).toHaveBeenCalledWith("data-keyboard-active", "");
   });
 
   it("does not fire when not focused", () => {
