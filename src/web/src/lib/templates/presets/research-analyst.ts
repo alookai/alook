@@ -47,10 +47,7 @@ export const researchAnalyst: TemplatePreset = {
 - Cross-reference important claims with multiple sources. Flag outdated or unreliable info.
 - Identify signals: unusual activity, pattern breaks, emerging trends.
 - Organize findings categorized for the leader to synthesize: discoveries, notable signals, sources, and confidence assessment.`,
-      relationship: {
-        leaderSees: "Delegate monitoring with: competitors to track, signals to watch for, sources to check, and reporting cadence.",
-        memberSees: "Report back with: categorized findings (discoveries, signals, sources), confidence per claim, and items flagged for urgency.",
-      },
+      relationship: "Delegate monitoring with: competitors to track, signals to watch for, sources to check, and reporting cadence.\n\nReport back with: categorized findings (discoveries, signals, sources), confidence per claim, and items flagged for urgency.",
     },
   ],
 };

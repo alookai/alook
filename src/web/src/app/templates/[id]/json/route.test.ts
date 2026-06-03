@@ -50,8 +50,7 @@ describe("GET /templates/[id]/json", () => {
     expect(specialists.length).toBeGreaterThanOrEqual(1);
     for (const spec of specialists) {
       expect(spec.relationship).toBeTruthy();
-      expect(spec.relationship.leaderSees).toBeTruthy();
-      expect(spec.relationship.memberSees).toBeTruthy();
+      expect(typeof spec.relationship).toBe("string");
     }
   });
 

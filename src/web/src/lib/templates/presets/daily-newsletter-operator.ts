@@ -47,10 +47,7 @@ export const dailyNewsletterOperator: TemplatePreset = {
 - For each story: summarize key facts, provide context, assess reader interest. Include compelling data points or quotes.
 - Scan broadly: news sites, social media, industry blogs, RSS feeds. Look for under-the-radar gems.
 - Flag emerging themes worth watching across multiple stories.`,
-      relationship: {
-        leaderSees: "Delegate curation with: today's theme or angle, audience focus, and number of stories needed.",
-        memberSees: "Report back with: ranked story candidates (headline, summary, source, reader-interest score) and emerging themes spotted.",
-      },
+      relationship: "Delegate curation with: today's theme or angle, audience focus, and number of stories needed.\n\nReport back with: ranked story candidates (headline, summary, source, reader-interest score) and emerging themes spotted.",
     },
     {
       role: "assistant",
@@ -63,10 +60,7 @@ export const dailyNewsletterOperator: TemplatePreset = {
 - Subject line: specific, curiosity-driving, under 50 characters. Provide 2-3 options for A/B testing.
 - Never publish without final review from the leader.
 - Flag production concerns (broken links, missing context) proactively.`,
-      relationship: {
-        leaderSees: "Delegate formatting with: approved stories, issue theme, intro angle, and delivery deadline.",
-        memberSees: "Report back with: formatted issue ready for review, subject line options, and any production concerns (broken links, missing context).",
-      },
+      relationship: "Delegate formatting with: approved stories, issue theme, intro angle, and delivery deadline.\n\nReport back with: formatted issue ready for review, subject line options, and any production concerns (broken links, missing context).",
     },
   ],
 };

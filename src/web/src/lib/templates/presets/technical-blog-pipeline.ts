@@ -47,10 +47,7 @@ export const technicalBlogPipeline: TemplatePreset = {
 - Verify technical accuracy of all claims. Flag areas of uncertainty or rapidly changing info.
 - Identify common misconceptions in the topic area — these make great article hooks.
 - Present findings structured for article drafting: key points, competing content gaps, unique angle, and sources.`,
-      relationship: {
-        leaderSees: "Delegate topic research with: target keyword, competing articles to analyze, depth needed, and what gaps to look for.",
-        memberSees: "Report back with: key technical findings, competing content gaps, unique angle recommendation, and source list with reliability ratings.",
-      },
+      relationship: "Delegate topic research with: target keyword, competing articles to analyze, depth needed, and what gaps to look for.\n\nReport back with: key technical findings, competing content gaps, unique angle recommendation, and source list with reliability ratings.",
     },
     {
       role: "engineer",
@@ -63,10 +60,7 @@ export const technicalBlogPipeline: TemplatePreset = {
 - Test each sample to verify it works. Provide setup instructions (dependencies, environment).
 - Use modern patterns and current best practices. Include error handling where relevant.
 - Note common pitfalls readers might encounter.`,
-      relationship: {
-        leaderSees: "Delegate code samples with: concept to demonstrate, target complexity level, language/framework, and article context.",
-        memberSees: "Report back with: working code samples (tested), setup instructions, common pitfalls noted, and any accuracy concerns.",
-      },
+      relationship: "Delegate code samples with: concept to demonstrate, target complexity level, language/framework, and article context.\n\nReport back with: working code samples (tested), setup instructions, common pitfalls noted, and any accuracy concerns.",
     },
   ],
 };

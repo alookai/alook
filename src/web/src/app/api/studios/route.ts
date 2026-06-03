@@ -167,16 +167,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const memberPayload = body.members[specIndex];
     if (!memberPayload?.relationship) continue;
 
-    const leaderMention = `[@ id="${leaderAgent.id}" label="${leaderAgent.name}"]`;
-    const specMention = `[@ id="${specialist.id}" label="${specialist.name}"]`;
-    const linkText = `${leaderMention} → ${specMention}: ${memberPayload.relationship.leaderSees}\n\n${specMention} → ${leaderMention}: ${memberPayload.relationship.memberSees}`;
-
     try {
       const link = await queries.agentLink.create(db, {
         workspaceId: ws.workspaceId,
         sourceAgentId: leaderAgent.id,
         targetAgentId: specialist.id,
-        instruction: linkText,
+        instruction: memberPayload.relationship,
       });
       createdLinks.push(link);
     } catch {

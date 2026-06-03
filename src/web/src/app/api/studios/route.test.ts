@@ -151,8 +151,8 @@ describe("POST /api/studios", () => {
         scenario: "software-dev",
         members: [
           { name: "Jarvis", role: "leader", runtime_id: "rt1" },
-          { name: "Mira", role: "researcher", runtime_id: "rt1", relationship: { leaderSees: "Delegate research tasks", memberSees: "Report findings" } },
-          { name: "Linus", role: "engineer", runtime_id: "rt1", relationship: { leaderSees: "Delegate coding tasks", memberSees: "Report implementation" } },
+          { name: "Mira", role: "researcher", runtime_id: "rt1", relationship: "Delegate research tasks\n\nReport findings" },
+          { name: "Linus", role: "engineer", runtime_id: "rt1", relationship: "Delegate coding tasks\n\nReport implementation" },
         ],
       }),
     });
@@ -346,7 +346,7 @@ describe("POST /api/studios", () => {
       body: JSON.stringify({
         members: [
           { role: "leader", runtime_id: "rt1", instructions: "You lead" },
-          { role: "engineer", runtime_id: "rt1", instructions: "You code", relationship: { leaderSees: "delegate tasks", memberSees: "report results" } },
+          { role: "engineer", runtime_id: "rt1", instructions: "You code", relationship: "delegate tasks\n\nreport results" },
         ],
       }),
     });

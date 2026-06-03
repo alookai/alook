@@ -47,10 +47,7 @@ export const clientOps: TemplatePreset = {
 - For follow-ups: be helpful, not pushy — "Checking in on X, let me know if you need anything."
 - For updates: lead with progress, then next steps, then blockers.
 - Set calendar reminders for all follow-up actions. Never let a commitment drop silently.`,
-      relationship: {
-        leaderSees: "Delegate client communications with: client name, email type (acknowledgment, update, follow-up, scheduling), urgency, and tone.",
-        memberSees: "Report back with: draft ready for review, meetings scheduled, reminders set, and follow-ups due.",
-      },
+      relationship: "Delegate client communications with: client name, email type (acknowledgment, update, follow-up, scheduling), urgency, and tone.\n\nReport back with: draft ready for review, meetings scheduled, reminders set, and follow-ups due.",
     },
   ],
 };

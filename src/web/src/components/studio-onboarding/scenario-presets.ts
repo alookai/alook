@@ -6,10 +6,7 @@ export interface ScenarioMemberPreset {
   role: MemberRole;
   description: string;
   instructions: string;
-  relationship?: {
-    leaderSees: string;
-    memberSees: string;
-  };
+  relationship?: string;
 }
 
 export interface ScenarioPreset {
@@ -119,19 +116,13 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
         role: "engineer",
         description: "Writes code, runs tests, and verifies implementations",
         instructions: ENGINEER_INSTRUCTIONS,
-        relationship: {
-          leaderSees: "Delegate coding tasks with: clear requirement description, acceptance criteria (3-5 specific testable items), relevant file paths, existing patterns to follow, and context from research findings if applicable.",
-          memberSees: "Report back with: implementation status, files changed, acceptance criteria checklist (pass/fail each), test results, and self-review concerns. After implementation, send work to the reviewer if one exists.",
-        },
+        relationship: "Delegate coding tasks with: clear requirement description, acceptance criteria (3-5 specific testable items), relevant file paths, existing patterns to follow, and context from research findings if applicable.\n\nReport back with: implementation status, files changed, acceptance criteria checklist (pass/fail each), test results, and self-review concerns. After implementation, send work to the reviewer if one exists.",
       },
       {
         role: "researcher",
         description: "Reads code, explores APIs, and gathers technical context",
         instructions: RESEARCHER_SOFTWARE_DEV,
-        relationship: {
-          leaderSees: "Delegate technical research with: what to investigate, what decision it informs, scope boundary, and relevant file paths or code pointers.",
-          memberSees: "Report back with: technical summary, evidence (file paths, doc URLs, code snippets), recommendation, and confidence level (High/Medium/Low). Flag anything unverified.",
-        },
+        relationship: "Delegate technical research with: what to investigate, what decision it informs, scope boundary, and relevant file paths or code pointers.\n\nReport back with: technical summary, evidence (file paths, doc URLs, code snippets), recommendation, and confidence level (High/Medium/Low). Flag anything unverified.",
       },
     ],
   },
@@ -146,19 +137,13 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
         role: "researcher",
         description: "Finds sources, verifies facts, and organizes references",
         instructions: RESEARCHER_CONTENT,
-        relationship: {
-          leaderSees: "Delegate content research with: topic or claim to investigate, target content format (article, report, social), depth needed, and specific sources to check if any.",
-          memberSees: "Report back with: key facts for the writer, organized source list (URL, date, reliability), verification gaps, framing suggestion, and per-claim confidence.",
-        },
+        relationship: "Delegate content research with: topic or claim to investigate, target content format (article, report, social), depth needed, and specific sources to check if any.\n\nReport back with: key facts for the writer, organized source list (URL, date, reliability), verification gaps, framing suggestion, and per-claim confidence.",
       },
       {
         role: "assistant",
         description: "Handles formatting, publishing workflows, and follow-ups",
         instructions: ASSISTANT_CONTENT,
-        relationship: {
-          leaderSees: "Delegate content operations with: what content to format or publish, target platform, deadline, and style requirements.",
-          memberSees: "Report back with: what was done (formatted, published, submitted), next step (awaiting review, scheduled date), and blockers if any.",
-        },
+        relationship: "Delegate content operations with: what content to format or publish, target platform, deadline, and style requirements.\n\nReport back with: what was done (formatted, published, submitted), next step (awaiting review, scheduled date), and blockers if any.",
       },
     ],
   },
@@ -182,19 +167,13 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
         role: "researcher",
         description: "Researches prospects, companies, and market intelligence",
         instructions: RESEARCHER_SALES,
-        relationship: {
-          leaderSees: "Delegate prospect research with: target criteria, market or industry focus, what intelligence is needed, and how it will be used (outreach, pitch, proposal).",
-          memberSees: "Report back with: prioritized prospect list (name, role, company, relevance, suggested angle), market signals, and confidence per finding.",
-        },
+        relationship: "Delegate prospect research with: target criteria, market or industry focus, what intelligence is needed, and how it will be used (outreach, pitch, proposal).\n\nReport back with: prioritized prospect list (name, role, company, relevance, suggested angle), market signals, and confidence per finding.",
       },
       {
         role: "assistant",
         description: "Handles outreach emails, follow-ups, and pipeline tracking",
         instructions: ASSISTANT_SALES,
-        relationship: {
-          leaderSees: "Delegate outreach with: who to contact, messaging angle, follow-up cadence, and desired outcome.",
-          memberSees: "Report back with: emails sent or scheduled, responses received, pipeline updates, and deals needing escalation.",
-        },
+        relationship: "Delegate outreach with: who to contact, messaging angle, follow-up cadence, and desired outcome.\n\nReport back with: emails sent or scheduled, responses received, pipeline updates, and deals needing escalation.",
       },
     ],
   },
@@ -209,10 +188,7 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
         role: "assistant",
         description: "Drafts customer responses and tracks open issues",
         instructions: ASSISTANT_SUPPORT,
-        relationship: {
-          leaderSees: "Delegate support tasks with: customer issue summary, urgency level, prior interaction context, and resolution approach.",
-          memberSees: "Report back with: response drafted or sent, resolution status, follow-up schedule, and recurring patterns to flag.",
-        },
+        relationship: "Delegate support tasks with: customer issue summary, urgency level, prior interaction context, and resolution approach.\n\nReport back with: response drafted or sent, resolution status, follow-up schedule, and recurring patterns to flag.",
       },
     ],
   },
