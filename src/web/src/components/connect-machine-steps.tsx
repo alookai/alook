@@ -40,6 +40,15 @@ export function ConnectMachineSteps({
   const mode = getAppMode();
   const isDesktopApp = mode === "desktop";
   const [executing, setExecuting] = useState<"register" | "daemon" | null>(null);
+  const [cliPrefix, setCliPrefix] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isDesktopApp && isTauri()) {
+      tauriInvoke<{ command: string; is_dev: boolean }>("get_cli_info")
+        .then((info) => setCliPrefix(info.command))
+        .catch(() => {});
+    }
+  }, [isDesktopApp]);
 
   useEffect(() => {
     if (!generatedToken && !generatingToken && !hasTriggered.current) {
@@ -122,7 +131,7 @@ export function ConnectMachineSteps({
                 onClick={executeRegister}
                 disabled={executing === "register" || registered}
                 className="w-full"
-                title={`${cliCmd()} register --token <token>`}
+                title={cliPrefix ? `${cliPrefix} register --token <token>` : undefined}
               >
                 {executing === "register" ? (
                   <><Loader2 className="size-3 animate-spin mr-1" /> Registering...</>
@@ -182,7 +191,7 @@ export function ConnectMachineSteps({
               onClick={executeDaemonStart}
               disabled={executing === "daemon" || daemonOnline}
               className="w-full"
-              title={`${cliCmd()} daemon start`}
+              title={cliPrefix ? `${cliPrefix} daemon start` : undefined}
             >
               {executing === "daemon" ? (
                 <><Loader2 className="size-3 animate-spin mr-1" /> Starting...</>

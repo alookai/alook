@@ -20,6 +20,12 @@ pub struct CommandResult {
     pub message: String,
 }
 
+#[derive(Serialize)]
+pub struct CliInfo {
+    pub command: String,
+    pub is_dev: bool,
+}
+
 #[cfg(desktop)]
 struct CliConfig {
     command: &'static str,
@@ -50,6 +56,16 @@ fn cli_config() -> CliConfig {
             env: vec![],
             cwd: None,
         }
+    }
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+pub fn get_cli_info() -> CliInfo {
+    let cfg = cli_config();
+    CliInfo {
+        command: format!("{} {}", cfg.command, cfg.base_args.join(" ")),
+        is_dev: cfg!(debug_assertions),
     }
 }
 

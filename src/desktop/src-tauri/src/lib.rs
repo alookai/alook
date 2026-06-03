@@ -31,6 +31,7 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.invoke_handler(tauri::generate_handler![
+            commands::get_cli_info,
             commands::register_cli,
             commands::daemon_start,
             commands::daemon_stop,
