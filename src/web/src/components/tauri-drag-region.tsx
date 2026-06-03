@@ -13,7 +13,7 @@ export function TauriDragRegion() {
 
   return (
     <div
-      className="fixed top-0 left-0 right-0 h-7 z-[9999] cursor-grab active:cursor-grabbing"
+      className="fixed top-0 left-0 right-0 h-7 z-[9999]"
       onPointerDown={async (e) => {
         if (e.button !== 0) return;
         e.preventDefault();
