@@ -1117,19 +1117,15 @@ describe("daemon startup failures release pidfile", () => {
     for (const t of intervalTimers) realClearInterval(t);
   });
 
-  it("exits with code 1 and logs when no workspaces are configured", async () => {
+  it("starts in standby mode when no workspaces are configured", async () => {
     vi.mocked(loadCLIConfigForProfile).mockReturnValue({
       server_url: "",
       watched_workspaces: [],
     });
-    const stderrWrite = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
     await startDaemon();
 
-    expect(mockProcessExit.mock.calls[0]?.[0]).toBe(1);
-    const logs = stderrWrite.mock.calls.map((c) => String(c[0])).join("");
-    expect(logs).toContain("No watched workspaces configured.");
-    stderrWrite.mockRestore();
+    expect(mockProcessExit).not.toHaveBeenCalled();
   });
 
   it("registers an exit handler that releases the pidfile", async () => {
