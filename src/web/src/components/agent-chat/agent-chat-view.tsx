@@ -763,17 +763,16 @@ export function AgentChatView({
     [agents, agentId],
   );
 
-  // Slash command skills — fetch from D1 on mount
+  // Slash command skills — fetch from D1 on mount (and when agentId changes)
   const [agentSkills, setAgentSkills] = useState<SkillEntry[]>([]);
-  const skillsFetchedRef = useRef(false);
   const draftMetaRestoredRef = useRef(false);
 
   useEffect(() => {
-    if (skillsFetchedRef.current) return;
-    skillsFetchedRef.current = true;
+    let stale = false;
     getAgentSkills(agentId, workspaceId)
-      .then((res) => setAgentSkills(res.skills as SkillEntry[]))
+      .then((res) => { if (!stale) setAgentSkills(res.skills as SkillEntry[]); })
       .catch(() => {});
+    return () => { stale = true; };
   }, [agentId, workspaceId]);
 
   const [initialActiveSkill] = useState<SkillEntry | null>(() => {

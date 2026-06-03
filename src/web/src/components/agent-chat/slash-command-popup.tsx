@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from "react"
+import { createPortal } from "react-dom"
 import type { SkillEntry } from "@alook/shared"
 import { cn } from "@/lib/utils"
 
@@ -69,7 +70,7 @@ export function SlashCommandPopup({ isOpen, skills, selectedIndex, onSelect, anc
     : anchorPos.left
   const clampedLeft = Math.min(anchorPos.left, maxLeft)
 
-  return (
+  return createPortal(
     <div
       className="fixed z-100 w-70 rounded-lg border border-border bg-popover text-popover-foreground shadow-md transition-opacity duration-150"
       style={{
@@ -88,6 +89,7 @@ export function SlashCommandPopup({ isOpen, skills, selectedIndex, onSelect, anc
           />
         ))}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
