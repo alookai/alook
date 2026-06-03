@@ -2,6 +2,11 @@
 
 import { useEffect, type RefObject } from "react";
 
+interface VirtualKeyboard extends EventTarget {
+  overlaysContent: boolean;
+  boundingRect: DOMRect;
+}
+
 export interface KeyboardScrollController {
   handler: () => void;
   cleanup: () => void;
@@ -39,10 +44,16 @@ export function createKeyboardScrollController(
         // Only shift enough to keep it visible, not the full keyboard height.
         const rect = inputContainer.getBoundingClientRect();
         const overflow = rect.bottom - vv.height - vv.offsetTop;
-        inputContainer.style.transform =
-          overflow > 0 ? `translateY(-${overflow}px)` : "";
+        if (overflow > 0) {
+          inputContainer.style.transform = `translateY(-${overflow}px)`;
+          inputContainer.setAttribute("data-keyboard-active", "");
+        } else {
+          inputContainer.style.transform = "";
+          inputContainer.removeAttribute("data-keyboard-active");
+        }
       } else if (inputContainer) {
         inputContainer.style.transform = "";
+        inputContainer.removeAttribute("data-keyboard-active");
       } else {
         el.scrollIntoView({ block: "end", behavior: "smooth" });
       }
@@ -57,6 +68,7 @@ export function createKeyboardScrollController(
     ) as HTMLElement | null;
     if (inputContainer) {
       inputContainer.style.transform = "";
+      inputContainer.removeAttribute("data-keyboard-active");
     }
   };
   return { handler, cleanup };
@@ -101,7 +113,7 @@ function attachVirtualKeyboardAPI(
   isFocused: boolean,
 ): (() => void) | null {
   if (typeof window === "undefined") return null;
-  const vk = (navigator as any).virtualKeyboard;
+  const vk = (navigator as unknown as { virtualKeyboard?: VirtualKeyboard }).virtualKeyboard;
   if (!vk) return null;
 
   vk.overlaysContent = true;
@@ -114,17 +126,24 @@ function attachVirtualKeyboardAPI(
   const onGeometryChange = () => {
     if (!isFocused) {
       inputContainer.style.transform = "";
+      inputContainer.removeAttribute("data-keyboard-active");
       return;
     }
     const { height } = vk.boundingRect;
-    inputContainer.style.transform =
-      height > 0 ? `translateY(-${height}px)` : "";
+    if (height > 0) {
+      inputContainer.style.transform = `translateY(-${height}px)`;
+      inputContainer.setAttribute("data-keyboard-active", "");
+    } else {
+      inputContainer.style.transform = "";
+      inputContainer.removeAttribute("data-keyboard-active");
+    }
   };
 
   vk.addEventListener("geometrychange", onGeometryChange);
   return () => {
     vk.removeEventListener("geometrychange", onGeometryChange);
     inputContainer.style.transform = "";
+    inputContainer.removeAttribute("data-keyboard-active");
     vk.overlaysContent = false;
   };
 }

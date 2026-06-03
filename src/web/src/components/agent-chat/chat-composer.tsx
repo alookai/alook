@@ -153,6 +153,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     },
     ref,
   ) {
+    const [editorFocused, setEditorFocused] = useState(false);
     const [mentionPopup, setMentionPopup] = useState<MentionPopupState>(EMPTY_MENTION_STATE);
     const mentionPopupRef = useRef(mentionPopup);
     useEffect(() => {
@@ -353,6 +354,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
         },
         handleDrop: () => false,
       },
+      onFocus: () => setEditorFocused(true),
+      onBlur: () => setEditorFocused(false),
       onUpdate: ({ editor }) => {
         onChangeRef.current(decodeChatEntities(editor.getMarkdown()));
         reportState(editor);
@@ -401,7 +404,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
     // iOS Safari fallback: scroll composer into view when the virtual keyboard resizes
     // the visual viewport.
-    useKeyboardScroll(contentRef, !!editor?.isFocused);
+    useKeyboardScroll(contentRef, editorFocused);
 
     useImperativeHandle(
       ref,
