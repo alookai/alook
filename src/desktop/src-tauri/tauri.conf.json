@@ -4,7 +4,7 @@
   "identifier": "ai.alook.app",
   "build": {
     "devUrl": "http://localhost:3000/workspaces?auto",
-    "frontendDist": "https://app.alook.ai/workspaces?auto"
+    "frontendDist": "https://alook.ai/workspaces?auto"
   },
   "bundle": {
     "icon": [
@@ -45,7 +45,7 @@
       "mobile": [
         {
           "scheme": ["alook"],
-          "host": "app.alook.ai"
+          "host": "alook.ai"
         }
       ]
     }
