@@ -14,12 +14,16 @@ export function TauriDragRegion() {
   return (
     <div
       className="fixed top-0 left-0 right-0 h-7 z-[9999]"
-      onMouseDown={(e) => {
+      onPointerDown={async (e) => {
         if (e.button !== 0) return;
-        const tauri = (window as any).__TAURI__;
-        if (tauri?.window?.getCurrentWindow) {
-          tauri.window.getCurrentWindow().startDragging();
-        }
+        e.preventDefault();
+        try {
+          const tauri = (window as any).__TAURI__;
+          if (tauri) {
+            const { getCurrentWindow } = tauri.window;
+            await getCurrentWindow().startDragging();
+          }
+        } catch {}
       }}
     />
   );
