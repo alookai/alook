@@ -270,6 +270,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let tray = TrayIconBuilder::new()
         .icon(Image::from_bytes(include_bytes!("../icons/tray-default.png"))
             .expect("tray icon"))
+        .icon_as_template(true)
         .menu(&menu)
         .tooltip("Alook")
         .on_menu_event(move |app, event| match event.id().as_ref() {
