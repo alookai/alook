@@ -10,14 +10,6 @@ use std::path::PathBuf;
 #[cfg(desktop)]
 use std::sync::atomic::{AtomicBool, Ordering};
 
-#[cfg(desktop)]
-use std::sync::Mutex;
-
-#[cfg(desktop)]
-use tauri_plugin_shell::process::CommandChild;
-
-#[cfg(desktop)]
-static DAEMON_CHILD: Mutex<Option<CommandChild>> = Mutex::new(None);
 
 #[derive(Serialize)]
 pub struct DaemonStatusResult {
@@ -380,56 +372,22 @@ pub fn parse_daemon_status(stdout: &str) -> DaemonStatusResult {
 }
 
 #[cfg(desktop)]
-async fn start_daemon(handle: &AppHandle) {
-    if cfg!(debug_assertions) {
-        let shell = handle.shell();
-        let cfg = cli_config();
-        let mut args: Vec<&str> = cfg.base_args.to_vec();
-        args.extend_from_slice(&["daemon", "start", "--foreground"]);
-        let mut cmd = shell.command(cfg.command);
-        for (key, val) in &cfg.env {
-            cmd = cmd.env(key, val);
-        }
-        if let Some(cwd) = &cfg.cwd {
-            cmd = cmd.current_dir(cwd.clone());
-        }
-        if let Ok((_rx, child)) = cmd.args(&args).spawn() {
-            *DAEMON_CHILD.lock().unwrap() = Some(child);
-        }
-    } else {
-        exec_daemon_cmd(handle, &["daemon", "start"]).await;
-    }
-}
-
-#[cfg(desktop)]
 async fn stop_daemon_async(handle: &AppHandle) {
-    if cfg!(debug_assertions) {
-        if let Some(child) = DAEMON_CHILD.lock().unwrap().take() {
-            let _ = child.kill();
-        }
-    } else {
-        exec_daemon_cmd(handle, &["daemon", "stop"]).await;
-    }
+    exec_daemon_cmd(handle, &["daemon", "stop"]).await;
 }
 
 #[cfg(desktop)]
 pub fn auto_start_daemon(handle: AppHandle) {
     tauri::async_runtime::spawn(async move {
         if !check_daemon_status(&handle).await {
-            start_daemon(&handle).await;
+            exec_daemon_cmd(&handle, &["daemon", "start"]).await;
         }
     });
 }
 
 #[cfg(desktop)]
 pub fn stop_daemon_blocking(handle: &AppHandle) {
-    if cfg!(debug_assertions) {
-        if let Some(child) = DAEMON_CHILD.lock().unwrap().take() {
-            let _ = child.kill();
-        }
-    } else {
-        tauri::async_runtime::block_on(exec_daemon_cmd(handle, &["daemon", "stop"]));
-    }
+    tauri::async_runtime::block_on(exec_daemon_cmd(handle, &["daemon", "stop"]));
 }
 
 #[cfg(test)]
