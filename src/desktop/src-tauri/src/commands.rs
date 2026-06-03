@@ -259,12 +259,10 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let show = MenuItemBuilder::with_id("show", "Show Alook").build(app)?;
-    let status = MenuItemBuilder::with_id("status", "Daemon: checking...").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
     let menu = MenuBuilder::new(app)
         .item(&show)
-        .item(&status)
         .separator()
         .item(&quit)
         .build()?;
@@ -281,16 +279,6 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.set_focus();
                 }
             }
-            "status" => {
-                let handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    if DAEMON_ONLINE.load(Ordering::Relaxed) {
-                        stop_daemon_async(&handle).await;
-                    } else {
-                        start_daemon(&handle).await;
-                    }
-                });
-            }
             "quit" => {
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
@@ -303,15 +291,12 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build(app)?;
 
     let handle = app.handle().clone();
-    let status_item = status;
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(std::time::Duration::from_secs(5));
             let h = handle.clone();
             let online = tauri::async_runtime::block_on(check_daemon_status(&h));
             DAEMON_ONLINE.store(online, Ordering::Relaxed);
-            let label = if online { "Daemon: online" } else { "Daemon: offline" };
-            let _ = status_item.set_text(label);
             let icon_bytes: &[u8] = if online {
                 include_bytes!("../icons/tray-online.png")
             } else {
