@@ -49,6 +49,17 @@ pub fn run() {
             commands::auto_start_daemon(app.handle().clone());
             Ok(())
         });
+
+        // macOS: hide window on close instead of quitting
+        #[cfg(target_os = "macos")]
+        {
+            builder = builder.on_window_event(|window, event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            });
+        }
     }
 
     let app = builder

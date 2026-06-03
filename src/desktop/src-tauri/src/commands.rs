@@ -305,6 +305,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             };
             if let Ok(img) = tauri::image::Image::from_bytes(icon_bytes) {
                 let _ = tray.set_icon(Some(img));
+                let _ = tray.set_icon_as_template(true);
             }
         }
     });
