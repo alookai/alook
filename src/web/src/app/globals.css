@@ -1726,6 +1726,15 @@ html, body {
   will-change: transform;
 }
 
+[data-keyboard-offset][data-keyboard-active]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  bottom: -100vh;
+  background: var(--background);
+  z-index: -1;
+}
+
 html, body {
   background-color: oklch(0.93 0.015 80);
   min-height: 100dvh;

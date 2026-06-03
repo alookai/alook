@@ -20,6 +20,8 @@ function createMockContainer(bottom = 800) {
   return {
     style: { transform: "" },
     getBoundingClientRect: () => ({ top: 0, left: 0, right: 0, bottom, width: 0, height: 0 }),
+    setAttribute: vi.fn(),
+    removeAttribute: vi.fn(),
   } as unknown as HTMLElement;
 }
 
