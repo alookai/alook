@@ -16,7 +16,8 @@ import {
   createTimelineEntry,
   findResumableSessionByContextKey,
   findRunningPidByTaskId,
-  findRunningEntryByContextKey,
+  findSupersedablePredecessor,
+  steerWarmupGraceMs,
   _todayFilename,
   _localISOString,
   _filenameForDate,
@@ -536,7 +537,33 @@ describe("timeline", () => {
     });
   });
 
-  describe("findRunningEntryByContextKey", () => {
+  // TC1 — agent_started round-trips through createTimelineEntry → updateEntry → re-read.
+  describe("agent_started marker round-trip", () => {
+    it("is falsy on a freshly-created entry and true after updateEntry sets it", () => {
+      const entry = createTimelineEntry("t_marker", "do something", TASK_TYPES.USER_DM_MESSAGE);
+      initEntry(dir, entry);
+
+      // Fresh row: marker absent → reads falsy.
+      expect(readEntries()[0].agent_started).toBeFalsy();
+
+      updateEntry(dir, "t_marker", (e) => {
+        e.agent_started = true;
+      });
+
+      // JSONL serialize/parse preserves the new field.
+      expect(readEntries()[0].agent_started).toBe(true);
+    });
+
+    it("a row written without the field reads as falsy", () => {
+      const entry = createTimelineEntry("t_legacy", "legacy row", TASK_TYPES.USER_DM_MESSAGE);
+      // Strip the field entirely to emulate an older/legacy row.
+      delete (entry as Partial<ContextTimelineEntry>).agent_started;
+      initEntry(dir, entry);
+      expect(readEntries()[0].agent_started).toBeFalsy();
+    });
+  });
+
+  describe("findSupersedablePredecessor", () => {
     function writeEntry(filename: string, entry: ContextTimelineEntry) {
       const filePath = join(dir, filename);
       let existing = "";
@@ -544,14 +571,18 @@ describe("timeline", () => {
       writeFileSync(filePath, existing + JSON.stringify(entry) + "\n");
     }
 
+    // Fixed reference "now" so datetime math is deterministic.
+    const NOW = Date.parse("2026-06-03T12:00:00.000Z");
+    const GRACE = 30_000;
+
     function makeEntry(overrides: Partial<ContextTimelineEntry>): ContextTimelineEntry {
       return {
         task_id: "t_1",
-        context_key: null,
+        context_key: "conv_thread",
         session_id: null,
-        pid: null,
+        pid: 1000,
         status: "running",
-        datetime: new Date().toISOString(),
+        datetime: new Date(NOW).toISOString(),
         type: "user_dm_message",
         prompt: "test",
         agent_responses: [],
@@ -562,111 +593,104 @@ describe("timeline", () => {
       };
     }
 
-    it("returns running entry for same context_key and provider", () => {
+    // TC2 — fresh, not-started predecessor → pending.
+    it("returns pending for a fresh not-started running row", () => {
+      writeEntry(_todayFilename(), makeEntry({ task_id: "t_warmup" }));
+      const result = findSupersedablePredecessor(dir, "conv_thread", "claude", GRACE, NOW);
+      expect(result).not.toBeNull();
+      expect(result && "pending" in result && result.pending.task_id).toBe("t_warmup");
+    });
+
+    // TC3 — agent_started === true → supersedable (agent-started).
+    it("returns supersedable/agent-started when agent_started is true", () => {
+      writeEntry(_todayFilename(), makeEntry({ task_id: "t_live", agent_started: true }));
+      const result = findSupersedablePredecessor(dir, "conv_thread", "claude", GRACE, NOW);
+      expect(result && "reason" in result && result.reason).toBe("agent-started");
+      expect(result && "entry" in result && result.entry.task_id).toBe("t_live");
+    });
+
+    // TC4 — not started but older than grace → supersedable (stale).
+    it("returns supersedable/stale when not started but older than the grace window", () => {
       writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_running",
-        status: "running",
-        pid: 12345,
-        context_key: "conv_thread",
-        provider: "claude",
+        task_id: "t_stale",
+        datetime: new Date(NOW - GRACE - 1).toISOString(),
       }));
-
-      const entry = findRunningEntryByContextKey(dir, "conv_thread", "claude");
-      expect(entry).not.toBeNull();
-      expect(entry!.task_id).toBe("t_running");
-      expect(entry!.pid).toBe(12345);
+      const result = findSupersedablePredecessor(dir, "conv_thread", "claude", GRACE, NOW);
+      expect(result && "reason" in result && result.reason).toBe("stale");
+      expect(result && "entry" in result && result.entry.task_id).toBe("t_stale");
     });
 
-    it("returns null when no running entries exist", () => {
-      expect(findRunningEntryByContextKey(dir, "conv_thread", "claude")).toBeNull();
+    // TC5 — no matching running row; ignores wrong provider / context_key / status.
+    it("returns null when no running row matches ctxKey/provider", () => {
+      expect(findSupersedablePredecessor(dir, "conv_thread", "claude", GRACE, NOW)).toBeNull();
     });
 
-    it("ignores non-running entries", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_done",
-        status: "completed",
-        context_key: "conv_thread",
-        provider: "claude",
-      }));
-
-      expect(findRunningEntryByContextKey(dir, "conv_thread", "claude")).toBeNull();
+    it("ignores a different provider", () => {
+      writeEntry(_todayFilename(), makeEntry({ task_id: "t_codex", provider: "codex" }));
+      expect(findSupersedablePredecessor(dir, "conv_thread", "claude", GRACE, NOW)).toBeNull();
     });
 
-    it("ignores different provider", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_codex",
-        status: "running",
-        pid: 22222,
-        context_key: "conv_thread",
-        provider: "codex",
-      }));
-
-      expect(findRunningEntryByContextKey(dir, "conv_thread", "claude")).toBeNull();
+    it("ignores a different context_key", () => {
+      writeEntry(_todayFilename(), makeEntry({ task_id: "t_other", context_key: "conv_other" }));
+      expect(findSupersedablePredecessor(dir, "conv_thread", "claude", GRACE, NOW)).toBeNull();
     });
 
-    it("ignores different context_key", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_other",
-        status: "running",
-        pid: 33333,
-        context_key: "conv_other",
-        provider: "claude",
-      }));
-
-      expect(findRunningEntryByContextKey(dir, "conv_thread", "claude")).toBeNull();
+    it("ignores non-running rows", () => {
+      writeEntry(_todayFilename(), makeEntry({ task_id: "t_done", status: "completed" }));
+      expect(findSupersedablePredecessor(dir, "conv_thread", "claude", GRACE, NOW)).toBeNull();
     });
 
-    it("returns the newest running entry for same context_key", () => {
-      const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000);
-      const oneMinAgo = new Date(Date.now() - 1 * 60 * 1000);
-
+    // TC6 — newest matching running row wins (reverse iteration).
+    it("picks the newest matching running row", () => {
       writeEntry(_todayFilename(), makeEntry({
         task_id: "t_older",
-        status: "running",
-        pid: 11111,
-        context_key: "conv_thread",
-        provider: "claude",
-        datetime: twoMinAgo.toISOString(),
+        agent_started: true,
+        datetime: new Date(NOW - 120_000).toISOString(),
       }));
       writeEntry(_todayFilename(), makeEntry({
         task_id: "t_newer",
-        status: "running",
-        pid: 22222,
-        context_key: "conv_thread",
-        provider: "claude",
-        datetime: oneMinAgo.toISOString(),
+        datetime: new Date(NOW - 1_000).toISOString(),
       }));
-
-      const entry = findRunningEntryByContextKey(dir, "conv_thread", "claude");
-      expect(entry!.task_id).toBe("t_newer");
+      // Newest is fresh + not started → pending (older agent-started row is shadowed).
+      const result = findSupersedablePredecessor(dir, "conv_thread", "claude", GRACE, NOW);
+      expect(result && "pending" in result && result.pending.task_id).toBe("t_newer");
     });
 
-    it("scans up to 7 days for running entries", () => {
-      const threeDaysAgo = new Date();
-      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-      writeEntry(_filenameForDate(threeDaysAgo), makeEntry({
-        task_id: "t_old_running",
-        status: "running",
-        pid: 44444,
-        context_key: "conv_thread",
-        provider: "claude",
-        datetime: threeDaysAgo.toISOString(),
-      }));
+    // TC14 (helper-level) — pending → stale transition as `now` crosses the grace window,
+    // proving the local wait is bounded.
+    it("transitions pending → stale once the row crosses the grace window", () => {
+      writeEntry(_todayFilename(), makeEntry({ task_id: "t_wedge" }));
+      // Just inside the window → still pending (newcomer would wait).
+      const before = findSupersedablePredecessor(dir, "conv_thread", "claude", GRACE, NOW + GRACE);
+      expect(before && "pending" in before).toBe(true);
+      // Past the window → stale (newcomer supersedes, spin ends).
+      const after = findSupersedablePredecessor(dir, "conv_thread", "claude", GRACE, NOW + GRACE + 1);
+      expect(after && "reason" in after && after.reason).toBe("stale");
+    });
+  });
 
-      const entry = findRunningEntryByContextKey(dir, "conv_thread", "claude");
-      expect(entry!.task_id).toBe("t_old_running");
+  describe("steerWarmupGraceMs", () => {
+    const KEY = "ALOOK_STEER_WARMUP_GRACE_MS";
+    let saved: string | undefined;
+    beforeEach(() => { saved = process.env[KEY]; });
+    afterEach(() => {
+      if (saved === undefined) delete process.env[KEY];
+      else process.env[KEY] = saved;
     });
 
-    it("null context_key tasks are never matched", () => {
-      writeEntry(_todayFilename(), makeEntry({
-        task_id: "t_null_ctx",
-        status: "running",
-        pid: 55555,
-        context_key: null,
-        provider: "claude",
-      }));
+    it("defaults to 30000 when unset", () => {
+      delete process.env[KEY];
+      expect(steerWarmupGraceMs()).toBe(30_000);
+    });
 
-      expect(findRunningEntryByContextKey(dir, "conv_1", "claude")).toBeNull();
+    it("reads a valid override from the env", () => {
+      process.env[KEY] = "5000";
+      expect(steerWarmupGraceMs()).toBe(5_000);
+    });
+
+    it("falls back to the default on a non-numeric override", () => {
+      process.env[KEY] = "not-a-number";
+      expect(steerWarmupGraceMs()).toBe(30_000);
     });
   });
 

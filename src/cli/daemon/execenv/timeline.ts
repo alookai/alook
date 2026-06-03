@@ -28,6 +28,10 @@ export interface ContextTimelineEntry {
   session_id: string | null;
   pid: number | null;
   status: "running" | "completed" | "failed" | "killed" | "superseded" | "cancelled";
+  // True once the agent CLI has genuinely started executing (session id resolved).
+  // Absent/false during the launch+warm-up window. Steering only supersedes a
+  // predecessor whose agent has actually started — a not-yet-started row is left alone.
+  agent_started?: boolean;
   successor_task_id?: string | null;
   supersede_reason?: string | null;
   datetime: string;
@@ -262,11 +266,41 @@ export function findRunningPidByTaskId(
   return null;
 }
 
-export function findRunningEntryByContextKey(
+
+/**
+ * Steering warm-up grace window (ms). A predecessor row that is still "running"
+ * but whose agent never marked itself started becomes supersedable once it is
+ * older than this window — the crash-during-warm-up fallback so a conversation
+ * can never wedge if a session-runner dies before the agent-started marker lands.
+ */
+export function steerWarmupGraceMs(): number {
+  const raw = process.env.ALOOK_STEER_WARMUP_GRACE_MS;
+  const parsed = raw != null ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 30_000;
+}
+
+export type SupersedablePredecessor =
+  | { entry: ContextTimelineEntry; reason: "agent-started" | "stale" }
+  | { pending: ContextTimelineEntry }
+  | null;
+
+/**
+ * Find the newest "running" timeline row for this context_key+provider and decide
+ * whether the newcomer may supersede it:
+ *  - agent_started === true              → supersedable (reason "agent-started")
+ *  - not started but row older than grace → supersedable (reason "stale", crash fallback)
+ *  - not started and fresh                → pending (newcomer must wait its turn)
+ *  - no matching running row              → null (no predecessor)
+ *
+ * `now` is injected for deterministic tests; do NOT call Date.now() internally.
+ */
+export function findSupersedablePredecessor(
   timelineDir: string,
   contextKey: string,
   provider: string,
-): ContextTimelineEntry | null {
+  warmupGraceMs: number,
+  now: number,
+): SupersedablePredecessor {
   for (const filename of recentFilenames(7)) {
     const dayEntries = readJsonl(join(timelineDir, filename));
     for (let i = dayEntries.length - 1; i >= 0; i--) {
@@ -276,7 +310,13 @@ export function findRunningEntryByContextKey(
         entry.context_key === contextKey &&
         entry.provider === provider
       ) {
-        return entry;
+        if (entry.agent_started === true) {
+          return { entry, reason: "agent-started" };
+        }
+        if (now - Date.parse(entry.datetime) > warmupGraceMs) {
+          return { entry, reason: "stale" };
+        }
+        return { pending: entry };
       }
     }
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPrompt } from "./prompt.js";
+import { buildPrompt, buildTaskObject, buildMergedPrompt } from "./prompt.js";
 import { localISOString } from "./execenv/timeline.js";
 import type { Task } from "./types.js";
 
@@ -333,5 +333,57 @@ describe("buildPrompt", () => {
     const parsed = JSON.parse(buildPrompt(task));
     expect(parsed.notice).toBeDefined();
     expect(parsed.sender).toBeUndefined();
+  });
+});
+
+describe("buildTaskObject", () => {
+  it("returns the same object that buildPrompt would JSON.stringify", () => {
+    const task = makeTask("Fix bug");
+    const obj = buildTaskObject(task);
+    expect(JSON.stringify(obj)).toBe(buildPrompt(task));
+  });
+
+  it("includes attachments when provided", () => {
+    const task = makeTask("Fix bug");
+    const att = [{ path: "/tmp/a.txt", content_type: "text/plain", filename: "a.txt" }];
+    const obj = buildTaskObject(task, att);
+    expect(obj.attachments).toEqual([{ path: "/tmp/a.txt", content_type: "text/plain", filename: "a.txt" }]);
+  });
+});
+
+describe("buildMergedPrompt", () => {
+  it("wraps multiple sub-tasks in a merge_tasks envelope sorted by received_at", () => {
+    const taskA: Task = { ...makeTask("DM message", "user_dm_message"), id: "tA", createdAt: "2026-06-03T12:00:02.000Z" };
+    const taskB: Task = {
+      ...makeTask("New email from X: subject", "email_notification"),
+      id: "tB",
+      createdAt: "2026-06-03T12:00:01.000Z",
+      context: { emailId: "em_abc" },
+    };
+    const taskC: Task = { ...makeTask("Another DM", "user_dm_message"), id: "tC", createdAt: "2026-06-03T12:00:03.000Z" };
+
+    const attMap = new Map<string, any[]>();
+    attMap.set("tA", [{ path: "/tmp/a.txt", content_type: "text/plain", filename: "a.txt" }]);
+
+    const result = JSON.parse(buildMergedPrompt([taskA, taskB, taskC], attMap));
+
+    expect(result.type).toBe("merge_tasks");
+    expect(result.notice).toContain("simultaneously");
+    expect(result.tasks).toHaveLength(3);
+    // Sorted by received_at ascending (B=12:00:01, A=12:00:02, C=12:00:03).
+    expect(result.tasks[0].instruction).toBe("New email from X: subject");
+    expect(result.tasks[0].email_id).toBe("em_abc");
+    expect(result.tasks[1].instruction).toBe("DM message");
+    expect(result.tasks[1].attachments).toHaveLength(1);
+    expect(result.tasks[2].instruction).toBe("Another DM");
+  });
+
+  it("produces valid JSON with self-contained sub-tasks", () => {
+    const task = makeTask("Single task", "user_dm_message");
+    const result = JSON.parse(buildMergedPrompt([task], new Map()));
+    expect(result.type).toBe("merge_tasks");
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0].type).toBe("user_dm_message");
+    expect(result.tasks[0].instruction).toBe("Single task");
   });
 });

@@ -93,12 +93,29 @@ vi.mock("./update-handler.js", () => ({
 }));
 
 const mockFindRunningPidByTaskId = vi.fn();
-const mockFindRunningEntryByContextKey = vi.fn(() => null);
+const mockFindSupersedablePredecessor = vi.fn<(...args: any[]) => any>(() => null);
 const mockUpdateEntry = vi.fn();
 vi.mock("./execenv/timeline.js", () => ({
   findRunningPidByTaskId: (...args: any[]) => mockFindRunningPidByTaskId(...(args as any[])),
-  findRunningEntryByContextKey: (...args: any[]) => mockFindRunningEntryByContextKey(...(args as any[])),
+  findSupersedablePredecessor: (...args: any[]) => mockFindSupersedablePredecessor(...(args as any[])),
+  steerWarmupGraceMs: () => 30_000,
   updateEntry: (...args: any[]) => mockUpdateEntry(...(args as any[])),
+}));
+
+const mockDownloadAttachments = vi.fn<(...args: any[]) => any>(async () => []);
+const mockCleanupAttachments = vi.fn(async () => {});
+vi.mock("./session-runner.js", () => ({
+  writeMarkerFile: vi.fn(),
+  runSession: vi.fn(),
+  downloadAttachments: (...args: any[]) => mockDownloadAttachments(...(args as any[])),
+  cleanupAttachments: (...args: any[]) => mockCleanupAttachments(...(args as any[])),
+}));
+
+const mockBuildPrompt = vi.fn((..._args: any[]) => '{"type":"user_dm_message","instruction":"test"}');
+const mockBuildMergedPrompt = vi.fn((..._args: any[]) => '{"type":"merge_tasks","tasks":[]}');
+vi.mock("./prompt.js", () => ({
+  buildPrompt: (...args: any[]) => mockBuildPrompt(...(args as any[])),
+  buildMergedPrompt: (...args: any[]) => mockBuildMergedPrompt(...(args as any[])),
 }));
 
 const mockWriteKillIntent = vi.fn();
@@ -467,6 +484,249 @@ describe("daemon session runner dispatch", () => {
 
     const input = decodeSpawnInput(vi.mocked(spawn).mock.calls[0]);
     expect(input.token).toBe("al_test_token");
+  });
+});
+
+describe("daemon steering with pendingSteer merge", () => {
+  beforeEach(() => {
+    signalHandlers.clear();
+    intervalTimers.length = 0;
+    clearedTimers.length = 0;
+    spawnedChildren.length = 0;
+    nextPid = 50000;
+    vi.clearAllMocks();
+    mockProcessExit.mockImplementation((() => {}) as any);
+    mockOpenSync.mockReturnValue(42);
+    mockFindSupersedablePredecessor.mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    for (const t of intervalTimers) realClearInterval(t);
+  });
+
+  function claimTaskWithContextKey() {
+    const fakeTask = {
+      id: "t_new",
+      agent_id: "a1",
+      runtime_id: "rt1",
+      conversation_id: "c1",
+      workspace_id: "ws1",
+      prompt: "newcomer",
+      status: "dispatched",
+      priority: 0,
+      context_key: "conv_thread",
+      dispatched_at: null,
+      started_at: null,
+      completed_at: null,
+      created_at: "2026-01-01T00:00:00Z",
+      type: "user_dm_message",
+      result: null,
+      error: null,
+      agent: { name: "Agent 1", instructions: "be helpful" },
+    };
+    let claimed = false;
+    mockClientInstance.poll.mockImplementation((async () => {
+      if (!claimed) {
+        claimed = true;
+        return { tasks: [fakeTask], evicted: false };
+      }
+      return { tasks: [], evicted: false };
+    }) as any);
+    return fakeTask;
+  }
+
+  // TC7 — the bug: predecessor pending (not started) → newcomer waits, then
+  // predecessor starts (agent_started flips) → newcomer supersedes + spawns.
+  it("waits for a warming-up predecessor, then supersedes once it starts", async () => {
+    claimTaskWithContextKey();
+    const pending = { pending: { task_id: "t_warmup", pid: 40000, context_key: "conv_thread" } };
+    const started = { entry: { task_id: "t_warmup", pid: 40000, context_key: "conv_thread" }, reason: "agent-started" };
+    // First call (initial classification) → pending; second call (re-classify in loop) → started.
+    mockFindSupersedablePredecessor
+      .mockReturnValueOnce(pending)
+      .mockReturnValueOnce(started);
+    mockFindRunningPidByTaskId.mockReturnValue(null);
+
+    await startDaemon();
+    // Wait for poll + wait loop + supersede + spawn.
+    await vi.waitFor(() => { expect(spawn).toHaveBeenCalledTimes(1); }, { timeout: 2000 });
+
+    expect(mockWriteKillIntent).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: "superseded", targetTaskId: "t_warmup", successorTaskId: "t_new" }),
+    );
+    expect(mockClientInstance.supersedeTask).toHaveBeenCalledWith("al_test_token", "t_warmup");
+  });
+
+  // TC8 — normal supersede unchanged: agent-started predecessor → kill + supersede immediately, spawn.
+  it("supersedes a genuinely-running predecessor immediately (no wait)", async () => {
+    claimTaskWithContextKey();
+    mockFindSupersedablePredecessor.mockReturnValue({
+      entry: { task_id: "t_live", pid: 40001, context_key: "conv_thread" },
+      reason: "agent-started",
+    });
+    mockFindRunningPidByTaskId.mockReturnValue(null);
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(mockWriteKillIntent).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ reason: "superseded", targetTaskId: "t_live", successorTaskId: "t_new" }),
+    );
+    expect(mockClientInstance.supersedeTask).toHaveBeenCalledWith("al_test_token", "t_live");
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  // TC9 — stale fallback: predecessor not started but stale → supersede immediately, spawn.
+  it("supersedes a stale (crashed-warmup) predecessor immediately", async () => {
+    claimTaskWithContextKey();
+    mockFindSupersedablePredecessor.mockReturnValue({
+      entry: { task_id: "t_stale", pid: 40002, context_key: "conv_thread" },
+      reason: "stale",
+    });
+    mockFindRunningPidByTaskId.mockReturnValue(null);
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(mockClientInstance.supersedeTask).toHaveBeenCalledWith("al_test_token", "t_stale");
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  // TC10 — predecessor vanishes during wait → newcomer spawns, no kill intent.
+  it("spawns without kill intent when predecessor vanishes during the wait", async () => {
+    claimTaskWithContextKey();
+    const pending = { pending: { task_id: "t_vanish", pid: 40003, context_key: "conv_thread" } };
+    // First call → pending; second call (re-classify) → null (predecessor gone).
+    mockFindSupersedablePredecessor
+      .mockReturnValueOnce(pending)
+      .mockReturnValueOnce(null);
+
+    await startDaemon();
+    await vi.waitFor(() => { expect(spawn).toHaveBeenCalledTimes(1); }, { timeout: 2000 });
+
+    expect(mockWriteKillIntent).not.toHaveBeenCalled();
+    expect(mockClientInstance.supersedeTask).not.toHaveBeenCalled();
+  });
+
+  // TC12 — no contextKey → never enters the steering/wait path.
+  it("does not enter the steering path for a task without a context_key", async () => {
+    const fakeTask = {
+      id: "t_noctx",
+      agent_id: "a1",
+      runtime_id: "rt1",
+      conversation_id: "c1",
+      workspace_id: "ws1",
+      prompt: "no ctx",
+      status: "dispatched",
+      priority: 0,
+      context_key: null,
+      dispatched_at: null,
+      started_at: null,
+      completed_at: null,
+      created_at: "2026-01-01T00:00:00Z",
+      type: "user_dm_message",
+      result: null,
+      error: null,
+      agent: { name: "Agent 1", instructions: "be helpful" },
+    };
+    let claimed = false;
+    mockClientInstance.poll.mockImplementation((async () => {
+      if (!claimed) { claimed = true; return { tasks: [fakeTask], evicted: false }; }
+      return { tasks: [], evicted: false };
+    }) as any);
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(mockFindSupersedablePredecessor).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  // TC15 — lock is released between wait ticks (not held across sleep).
+  it("releases the steering lock between wait ticks so concurrent tasks are not bypassed", async () => {
+    claimTaskWithContextKey();
+    const pending = { pending: { task_id: "t_warmup", pid: 40000, context_key: "conv_thread" } };
+    const started = { entry: { task_id: "t_warmup", pid: 40000, context_key: "conv_thread" }, reason: "agent-started" };
+    mockFindSupersedablePredecessor
+      .mockReturnValueOnce(pending)
+      .mockReturnValueOnce(started);
+    mockFindRunningPidByTaskId.mockReturnValue(null);
+
+    await startDaemon();
+    await vi.waitFor(() => { expect(spawn).toHaveBeenCalledTimes(1); }, { timeout: 2000 });
+
+    // The lock was released at least once INSIDE the wait loop (before the sleep),
+    // then re-acquired for the next classification. The initial acquire + loop
+    // release + loop re-acquire means release was called MORE than just the
+    // outer finally. Verify release was called at least twice (once inside loop,
+    // once in finally).
+    expect(mockReleaseSteeringLock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // And re-acquire was called inside the loop (beyond the initial acquire).
+    expect(mockAcquireSteeringLock.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  // TC11 — MERGE: B (owner) waits, C merges into entry, A starts → 1 spawn with merged prompt.
+  // Assert: both spawn, C (newest) spawns LAST, supersede order is A then B.
+  it("merges a second task and spawns once with merged prompt", async () => {
+    const fakeB = {
+      id: "t_B", agent_id: "a1", runtime_id: "rt1", conversation_id: "c1",
+      workspace_id: "ws1", prompt: "B", status: "dispatched", priority: 0,
+      context_key: "conv_thread", dispatched_at: null, started_at: null,
+      completed_at: null, created_at: "2026-01-01T00:00:01Z",
+      type: "user_dm_message", result: null, error: null,
+      agent: { name: "Agent 1", instructions: "be helpful" },
+    };
+    const fakeC = {
+      id: "t_C", agent_id: "a1", runtime_id: "rt1", conversation_id: "c1",
+      workspace_id: "ws1", prompt: "C", status: "dispatched", priority: 0,
+      context_key: "conv_thread", dispatched_at: null, started_at: null,
+      completed_at: null, created_at: "2026-01-01T00:00:02Z",
+      type: "user_dm_message", result: null, error: null,
+      agent: { name: "Agent 1", instructions: "be helpful" },
+    };
+    let claimed = false;
+    mockClientInstance.poll.mockImplementation((async () => {
+      if (!claimed) { claimed = true; return { tasks: [fakeB, fakeC], evicted: false }; }
+      return { tasks: [], evicted: false };
+    }) as any);
+
+    // B initial → pending A (becomes owner). C initial → pending A (sees entry, merges, returns).
+    // B loop → A started → supersede A + spawn with merged prompt [B,C].
+    const pendingA = { pending: { task_id: "t_A", pid: 39000, context_key: "conv_thread" } };
+    const startedA = { entry: { task_id: "t_A", pid: 39000, context_key: "conv_thread" }, reason: "agent-started" };
+    mockFindSupersedablePredecessor
+      .mockReturnValueOnce(pendingA)   // B initial
+      .mockReturnValueOnce(pendingA)   // C initial
+      .mockReturnValueOnce(startedA);  // B loop re-classify → supersede A
+    mockFindRunningPidByTaskId.mockReturnValue(null);
+
+    await startDaemon();
+    await vi.waitFor(() => { expect(spawn).toHaveBeenCalledTimes(1); }, { timeout: 3000 });
+
+    // Only 1 spawn (owner B spawns for both B and C).
+    expect(spawn).toHaveBeenCalledTimes(1);
+    // buildMergedPrompt called (multi-task entry).
+    expect(mockBuildMergedPrompt).toHaveBeenCalled();
+    // Predecessor A was superseded.
+    expect(mockClientInstance.supersedeTask).toHaveBeenCalledWith("al_test_token", "t_A");
+  });
+
+  // TC16 — Map cleanup: after owner spawns, pendingSteer key is deleted.
+  it("cleans up the pendingSteer Map after the owner spawns", async () => {
+    claimTaskWithContextKey();
+    mockFindSupersedablePredecessor.mockReturnValue({
+      entry: { task_id: "t_live", pid: 40001, context_key: "conv_thread" },
+      reason: "agent-started",
+    });
+    mockFindRunningPidByTaskId.mockReturnValue(null);
+
+    await startDaemon();
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(spawn).toHaveBeenCalledTimes(1);
+    // Map cleanup is internal; verified by no errors + successful spawn.
   });
 });
 

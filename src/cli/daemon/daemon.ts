@@ -2,8 +2,9 @@ import { DaemonClient } from "./client.js";
 import { type DaemonConfig, loadDaemonConfig, sessionRunnerLogDir, daemonLogFilePath } from "./config.js";
 import { createHealthServer } from "./health.js";
 import { detectVersion } from "./agent/index.js";
-import { type Task, type SessionRunnerInput, fromApiTask } from "./types.js";
-import { type MarkerData, writeMarkerFile } from "./session-runner.js";
+import { type Task, type Attachment, type SessionRunnerInput, fromApiTask } from "./types.js";
+import { type MarkerData, writeMarkerFile, downloadAttachments } from "./session-runner.js";
+import { buildPrompt, buildMergedPrompt } from "./prompt.js";
 import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
 import { createLogger } from "../lib/logger.js";
 import { DaemonWsClient } from "./ws-client.js";
@@ -13,7 +14,7 @@ const log = createLogger({ module: "daemon" });
 import { cmdPrefix } from "../lib/env.js";
 import { acquireDaemonPid, releaseDaemonPid } from "./pidfile.js";
 import { handleCliUpdate, isUpdating, readUpdateMarker, clearUpdateMarker } from "./update-handler.js";
-import { findRunningPidByTaskId, findRunningEntryByContextKey, updateEntry } from "./execenv/timeline.js";
+import { findRunningPidByTaskId, findSupersedablePredecessor, steerWarmupGraceMs, updateEntry, type ContextTimelineEntry } from "./execenv/timeline.js";
 import { isAlive, killGraceMs } from "./kill-tree.js";
 import {
   writeKillIntent,
@@ -51,6 +52,13 @@ interface RuntimeData {
   id: string;
   workspaceId: string;
   provider: string;
+}
+
+interface PendingEntry {
+  tasks: Task[];
+  attachments: Map<string, Attachment[]>;
+  ownerTaskId: string;
+  wake: () => void;
 }
 
 function isCommandAvailable(cmd: string): boolean {
@@ -343,6 +351,7 @@ export async function startDaemon(
   );
 
   const activeTasks = new Set<string>();
+  const pendingSteer = new Map<string, PendingEntry>();
 
   // Seed known agent IDs from config so we only write on genuinely new ones
   const knownAgentIds = new Set<string>(
@@ -441,7 +450,7 @@ export async function startDaemon(
           syncAgentId(task.agentId, ws.workspaceId);
           activeTasks.add(task.id);
           remaining--;
-          handleTask(client, config, runtimeIndex, task, ws.token, activeTasks)
+          handleTask(client, config, runtimeIndex, task, ws.token, activeTasks, pendingSteer)
             .catch((e) => {
               log.error("Task error", e);
               activeTasks.delete(task.id);
@@ -530,7 +539,7 @@ export async function startDaemon(
           if (!ws) continue;
           syncAgentId(task.agentId, ws.workspaceId);
           activeTasks.add(task.id);
-          handleTask(client, config, runtimeIndex, task, ws.token, activeTasks)
+          handleTask(client, config, runtimeIndex, task, ws.token, activeTasks, pendingSteer)
             .catch((e) => { log.error("WS task error", e); activeTasks.delete(task.id); });
         }
         break;
@@ -607,7 +616,7 @@ export async function startDaemon(
             sender: null,
           });
           activeTasks.add(killTask.id);
-          handleTask(client, config, runtimeIndex, killTask, ws.token, activeTasks)
+          handleTask(client, config, runtimeIndex, killTask, ws.token, activeTasks, pendingSteer)
             .catch((e) => { log.error("WS kill task error", e); activeTasks.delete(killTask.id); });
         }
         break;
@@ -914,6 +923,7 @@ async function handleTask(
   task: Task,
   token: string,
   activeTasks: Set<string>,
+  pendingSteer: Map<string, PendingEntry>,
 ): Promise<void> {
   log.info(`Task ${task.id} claimed agent=${task.agentId}`);
 
@@ -985,61 +995,130 @@ async function handleTask(
   const provider = runtimeData.provider;
 
   // --- Steering: supersede predecessor if same context_key + provider ---
+  let promptOverride: string | undefined;
   if (task.contextKey) {
     const agentBaseDir = join(config.workspacesRoot, task.workspaceId, task.agentId, "workdir");
     cleanupStaleIntents(agentBaseDir);
     const timelineDir = join(agentBaseDir, ".context_timeline");
+    const ctxKey = task.contextKey;
 
-    const lockAcquired = acquireSteeringLock(agentBaseDir, task.contextKey);
+    const lockAcquired = acquireSteeringLock(agentBaseDir, ctxKey);
     if (!lockAcquired) {
-      log.warn(`Steering lock contention for context_key=${task.contextKey}, proceeding without steering`);
+      log.warn(`Steering lock contention for context_key=${ctxKey}, proceeding without steering`);
     } else {
       try {
-        const predecessor = findRunningEntryByContextKey(timelineDir, task.contextKey, provider);
-        if (predecessor && predecessor.task_id !== task.id) {
-          log.info(`Steering: task ${task.id} supersedes predecessor ${predecessor.task_id} (context_key=${task.contextKey})`);
+        const result = findSupersedablePredecessor(timelineDir, ctxKey, provider, steerWarmupGraceMs(), Date.now());
 
-          if (predecessor.pid != null) {
-            writeKillIntent(agentBaseDir, {
-              reason: "superseded",
-              targetTaskId: predecessor.task_id,
-              expectedPid: predecessor.pid,
-              successorTaskId: task.id,
-            });
-            try {
-              const delivered = await killAndVerify(predecessor.pid);
-              log.info(
-                delivered
-                  ? `Steering: terminated predecessor pid=${predecessor.pid}`
-                  : `Steering: predecessor pid=${predecessor.pid} already exited`,
-              );
-            } catch (e: unknown) {
-              log.warn(`Steering: kill failed for pid=${predecessor.pid}`, e);
-            }
-            // Wait for predecessor to stop (poll timeline for up to 15 seconds)
-            const waitStart = Date.now();
-            const MAX_WAIT_MS = 15_000;
-            const POLL_MS = 200;
-            while (Date.now() - waitStart < MAX_WAIT_MS) {
-              const stillRunning = findRunningPidByTaskId(timelineDir, predecessor.task_id);
-              if (stillRunning == null) break;
-              await new Promise((r) => setTimeout(r, POLL_MS));
-            }
-            if (findRunningPidByTaskId(timelineDir, predecessor.task_id) != null) {
-              log.warn(`Steering: predecessor pid=${predecessor.pid} did not exit within ${MAX_WAIT_MS}ms, proceeding anyway`);
-            }
-          }
+        if (result) {
+          // CASE 2: predecessor exists (pending or supersedable) — go through the pendingSteer Map.
+          const existing = pendingSteer.get(ctxKey);
 
-          // Mark predecessor superseded server-side regardless of PID state
-          try {
-            await client.supersedeTask(token, predecessor.task_id);
-            log.info(`Steering: predecessor ${predecessor.task_id} marked superseded`);
-          } catch (e) {
-            log.warn(`Steering: failed to mark predecessor superseded server-side`, e);
+          if (!existing) {
+            // I am the owner (first waiter). Download my attachments, create the entry, run the wait loop.
+            const attachmentIds = (task.context?.attachment_ids as string[]) ?? [];
+            let myAttachments: Attachment[] = [];
+            if (attachmentIds.length > 0) {
+              try {
+                myAttachments = await downloadAttachments(client, token, task.workspaceId, task.id, attachmentIds);
+              } catch (e) {
+                log.warn(`Steering: failed to download attachments for ${task.id}`, e);
+              }
+            }
+
+            let ownerWake!: () => void;
+            const ownerSignal = new Promise<void>((resolve) => { ownerWake = resolve; });
+            const entry: PendingEntry = {
+              tasks: [task],
+              attachments: new Map([[task.id, myAttachments]]),
+              ownerTaskId: task.id,
+              wake: ownerWake,
+            };
+            pendingSteer.set(ctxKey, entry);
+
+            // Owner's wait loop: poll predecessor until started/stale/gone.
+            let predecessor = "entry" in result ? result.entry : null;
+            if (!predecessor) {
+              log.info(`Steering: predecessor ${(result as { pending: ContextTimelineEntry }).pending.task_id} warming up; ${task.id} waiting`);
+              const POLL_MS = 200;
+              const MAX_WAIT_MS = steerWarmupGraceMs();
+              const waitStart = Date.now();
+              while (Date.now() - waitStart < MAX_WAIT_MS) {
+                releaseSteeringLock(agentBaseDir, ctxKey);
+                await Promise.race([new Promise((r) => setTimeout(r, POLL_MS)), ownerSignal]);
+                if (!acquireSteeringLock(agentBaseDir, ctxKey)) continue;
+                const r = findSupersedablePredecessor(timelineDir, ctxKey, provider, steerWarmupGraceMs(), Date.now());
+                if (!r) { log.info(`Steering: predecessor vanished; ${task.id} proceeding`); break; }
+                if ("entry" in r) { predecessor = r.entry; break; }
+              }
+              if (!predecessor && Date.now() - waitStart >= MAX_WAIT_MS) {
+                releaseSteeringLock(agentBaseDir, ctxKey);
+                if (acquireSteeringLock(agentBaseDir, ctxKey)) {
+                  const finalCheck = findSupersedablePredecessor(timelineDir, ctxKey, provider, 0, Date.now());
+                  if (finalCheck && "entry" in finalCheck) predecessor = finalCheck.entry;
+                }
+              }
+            }
+
+            // Supersede predecessor if found.
+            if (predecessor && predecessor.task_id !== task.id) {
+              log.info(`Steering: task ${task.id} supersedes predecessor ${predecessor.task_id} (context_key=${ctxKey})`);
+              if (predecessor.pid != null) {
+                writeKillIntent(agentBaseDir, { reason: "superseded", targetTaskId: predecessor.task_id, expectedPid: predecessor.pid, successorTaskId: task.id });
+                try {
+                  const delivered = await killAndVerify(predecessor.pid);
+                  log.info(delivered ? `Steering: terminated predecessor pid=${predecessor.pid}` : `Steering: predecessor pid=${predecessor.pid} already exited`);
+                } catch (e: unknown) { log.warn(`Steering: kill failed for pid=${predecessor.pid}`, e); }
+                const killWaitStart = Date.now();
+                while (Date.now() - killWaitStart < 15_000) {
+                  if (findRunningPidByTaskId(timelineDir, predecessor.task_id) == null) break;
+                  await new Promise((r) => setTimeout(r, 200));
+                }
+              }
+              try {
+                await client.supersedeTask(token, predecessor.task_id);
+              } catch (e) { log.warn(`Steering: failed to mark predecessor superseded`, e); }
+            }
+
+            // Build merged prompt if multiple tasks accumulated.
+            const finalEntry = pendingSteer.get(ctxKey);
+            if (finalEntry && finalEntry.tasks.length > 1) {
+              promptOverride = buildMergedPrompt(finalEntry.tasks, finalEntry.attachments);
+              log.info(`Steering: merged ${finalEntry.tasks.length} tasks for context_key=${ctxKey}`);
+            } else if (finalEntry && finalEntry.tasks.length === 1) {
+              const att = finalEntry.attachments.get(task.id);
+              if (att && att.length > 0) {
+                promptOverride = buildPrompt(task, att);
+              }
+            }
+            pendingSteer.delete(ctxKey);
+          } else {
+            // I am NOT the owner — merge my content into the existing entry and exit.
+            const attachmentIds = (task.context?.attachment_ids as string[]) ?? [];
+            let myAttachments: Attachment[] = [];
+            if (attachmentIds.length > 0) {
+              try {
+                myAttachments = await downloadAttachments(client, token, task.workspaceId, task.id, attachmentIds);
+              } catch (e) { log.warn(`Steering: failed to download attachments for ${task.id}`, e); }
+            }
+
+            // Mark all previous tasks in the entry as superseded server-side (content kept in tasks array).
+            for (const prev of existing.tasks) {
+              if (prev.id !== existing.ownerTaskId) {
+                try { await client.supersedeTask(token, prev.id); } catch { /* best effort */ }
+              }
+            }
+
+            existing.tasks.push(task);
+            existing.attachments.set(task.id, myAttachments);
+            log.info(`Steering: ${task.id} merged into pending entry for context_key=${ctxKey} (${existing.tasks.length} tasks)`);
+            existing.wake();
+            activeTasks.delete(task.id);
+            return; // Non-owner exits — owner spawns on my behalf. Lock released by finally.
           }
         }
+        // CASE 1 (null result) falls through: no predecessor → spawn immediately.
       } finally {
-        releaseSteeringLock(agentBaseDir, task.contextKey);
+        releaseSteeringLock(agentBaseDir, ctxKey);
       }
     }
   }
@@ -1069,6 +1148,7 @@ async function handleTask(
     workspacesRoot: config.workspacesRoot,
     agentTimeout: config.agentTimeout,
     messageInactivityTimeout: config.messageInactivityTimeout,
+    ...(promptOverride && { promptOverride }),
   };
 
   const child = spawnSessionRunner(input);

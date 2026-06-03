@@ -102,6 +102,7 @@ export interface SessionRunnerInput {
   agentTimeout: number;
   messageInactivityTimeout: number;
   logFilePath?: string;
+  promptOverride?: string;
 }
 
 /** Convert a validated TaskApi (snake_case wire format) to the internal Task type. */

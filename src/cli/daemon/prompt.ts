@@ -38,9 +38,7 @@ function buildDmNotice(name: string, email: string): string {
   );
 }
 
-export function buildPrompt(task: Task, attachments?: Attachment[]): string {
-  // The arrival time of this info (when the message/task was created server-side).
-  // Lets a resumed agent reason about elapsed wall-clock time between turns.
+export function buildTaskObject(task: Task, attachments?: Attachment[]): Record<string, unknown> {
   const createdAt = new Date(task.createdAt);
   const receivedAt = Number.isNaN(createdAt.getTime())
     ? localISOString()
@@ -108,5 +106,20 @@ export function buildPrompt(task: Task, attachments?: Attachment[]): string {
       filename: a.filename,
     }));
   }
-  return JSON.stringify(obj);
+  return obj;
+}
+
+export function buildPrompt(task: Task, attachments?: Attachment[]): string {
+  return JSON.stringify(buildTaskObject(task, attachments));
+}
+
+export function buildMergedPrompt(tasks: Task[], attachmentsMap: Map<string, Attachment[]>): string {
+  const subTasks = tasks
+    .map((t) => buildTaskObject(t, attachmentsMap.get(t.id)))
+    .sort((a, b) => String(a.received_at).localeCompare(String(b.received_at)));
+  return JSON.stringify({
+    type: "merge_tasks",
+    notice: "These messages arrived simultaneously. Process each one completely.",
+    tasks: subTasks,
+  });
 }

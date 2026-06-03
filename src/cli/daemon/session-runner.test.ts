@@ -295,13 +295,34 @@ describe("session-runner runSession", () => {
 
     await runSession(makeInput());
 
-    // The first updateEntry call should set session_id
+    // The first updateEntry call should set session_id and mark the agent started.
     const firstCall = mockUpdateEntry.mock.calls[0];
     expect(firstCall[0]).toBe("/tmp/ws/ws1/a1/workdir/.context_timeline");
     expect(firstCall[1]).toBe("t1");
-    const entry = { session_id: null as string | null };
+    const entry = { session_id: null as string | null, agent_started: undefined as boolean | undefined };
     firstCall[2](entry);
     expect(entry.session_id).toBe("sess-1");
+    expect(entry.agent_started).toBe(true);
+  });
+
+  // TC13 — codex handshake failure: sessionId resolves to "" → agent_started NOT set.
+  // The row then falls through to the staleness path rather than looking like a live agent.
+  it("does not mark agent_started when sessionId resolves to an empty string", async () => {
+    setupBackend([], {
+      status: "completed",
+      output: "Done",
+      error: "",
+      durationMs: 100,
+      sessionId: "",
+    }, "");
+
+    await runSession(makeInput());
+
+    const firstCall = mockUpdateEntry.mock.calls[0];
+    const entry = { session_id: "stale" as string | null, agent_started: undefined as boolean | undefined };
+    firstCall[2](entry);
+    expect(entry.session_id).toBeNull();
+    expect(entry.agent_started).toBeUndefined();
   });
 
   it("initEntryAsync is called with detailedLog from input.logFilePath", async () => {
