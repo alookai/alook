@@ -122,6 +122,7 @@ export function ConnectMachineSteps({
                 onClick={executeRegister}
                 disabled={executing === "register" || registered}
                 className="w-full"
+                title={`${cliCmd()} register --token <token>`}
               >
                 {executing === "register" ? (
                   <><Loader2 className="size-3 animate-spin mr-1" /> Registering...</>
@@ -181,6 +182,7 @@ export function ConnectMachineSteps({
               onClick={executeDaemonStart}
               disabled={executing === "daemon" || daemonOnline}
               className="w-full"
+              title={`${cliCmd()} daemon start`}
             >
               {executing === "daemon" ? (
                 <><Loader2 className="size-3 animate-spin mr-1" /> Starting...</>
