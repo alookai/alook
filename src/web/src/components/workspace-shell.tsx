@@ -29,7 +29,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
     return (
       <SidebarTriggerContext.Provider value={() => setSidebarOpen(true)}>
         <AgentChatSheetProvider>
-          <div ref={shellRef} className="flex flex-col h-[calc(100dvh-var(--titlebar-h))] overflow-hidden relative">
+          <div ref={shellRef} className="flex flex-col h-full overflow-hidden relative">
             <GradientBackground />
             <div className="flex-1 min-h-0 px-2 pb-2 pt-2 flex flex-col">
               <MobileTopBar />
@@ -52,7 +52,7 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
 
   return (
     <AgentChatSheetProvider>
-      <div ref={shellRef} className="flex h-[calc(100dvh-var(--titlebar-h))] overflow-hidden relative">
+      <div ref={shellRef} className="flex h-full overflow-hidden relative">
         <GradientBackground />
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">

@@ -1824,16 +1824,3 @@ html.dark,
   background-color: oklch(0.16 0.008 60);
 }
 
-/* Tauri desktop: reserve space for macOS traffic light buttons */
-html[data-tauri-desktop] {
-  --titlebar-h: 28px;
-}
-html:not([data-tauri-desktop]) {
-  --titlebar-h: 0px;
-}
-body {
-  min-height: calc(100dvh - var(--titlebar-h));
-}
-html[data-tauri-desktop] body {
-  padding-top: var(--titlebar-h);
-}

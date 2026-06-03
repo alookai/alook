@@ -140,7 +140,7 @@ export default function RootLayout({
       </head>
       <GoogleTagManager gtmId="GTM-56VHCCQZ" />
       <body
-        className="min-h-full flex flex-col"
+        className="h-dvh overflow-hidden flex flex-col"
       >
         <TauriDragRegion />
         <MockNetworkBanner />
@@ -179,9 +179,11 @@ export default function RootLayout({
           }}
         />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <TooltipProvider>
-            {children}
-          </TooltipProvider>
+          <main className="flex-1 min-h-0 overflow-auto">
+            <TooltipProvider>
+              {children}
+            </TooltipProvider>
+          </main>
           <ToasterProvider />
         </ThemeProvider>
       </body>

@@ -357,7 +357,7 @@ export default function SignInPage() {
   const postLoginUrl = safeRedirectUrl(searchParams.get("redirect"))
 
   return (
-    <div className="relative flex min-h-[calc(100dvh-var(--titlebar-h))] flex-col items-center justify-center p-6 md:p-10">
+    <div className="relative flex min-h-full flex-col items-center justify-center p-6 md:p-10">
       <GradientBackground />
       <div className="w-full max-w-sm md:max-w-4xl">
         <div className="flex flex-col gap-6">

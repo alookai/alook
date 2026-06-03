@@ -13,16 +13,13 @@ export function TauriDragRegion() {
 
   return (
     <div
-      className="fixed top-0 left-0 right-0 h-7 z-[9999]"
+      className="h-7 w-full shrink-0"
       onPointerDown={async (e) => {
         if (e.button !== 0) return;
         e.preventDefault();
         try {
           const tauri = (window as any).__TAURI__;
-          if (tauri) {
-            const { getCurrentWindow } = tauri.window;
-            await getCurrentWindow().startDragging();
-          }
+          if (tauri) await tauri.window.getCurrentWindow().startDragging();
         } catch {}
       }}
     />
