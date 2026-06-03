@@ -1831,8 +1831,10 @@ html[data-tauri-desktop] {
 html:not([data-tauri-desktop]) {
   --titlebar-h: 0px;
 }
+body {
+  height: calc(100dvh - var(--titlebar-h));
+}
 html[data-tauri-desktop] body {
   padding-top: var(--titlebar-h);
-  height: calc(100dvh - var(--titlebar-h));
   overflow: hidden;
 }
