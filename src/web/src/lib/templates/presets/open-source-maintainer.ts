@@ -47,10 +47,7 @@ export const openSourceMaintainer: TemplatePreset = {
 - For releases: verify all changes, update version numbers, generate changelog entries.
 - Include specific file paths and line numbers in all findings.
 - Ship quality. If something looks off, flag it — don't let it slide.`,
-      relationship: {
-        leaderSees: "Delegate code review or fix with: PR/issue link, affected files, what to check or fix, and acceptance criteria.",
-        memberSees: "Report back with: review findings (approve/request changes), fix implemented with test results, or release checklist status.",
-      },
+      relationship: "Delegate code review or fix with: PR/issue link, affected files, what to check or fix, and acceptance criteria.\n\nReport back with: review findings (approve/request changes), fix implemented with test results, or release checklist status.",
     },
     {
       role: "researcher",
@@ -64,10 +61,7 @@ export const openSourceMaintainer: TemplatePreset = {
 - Always cite sources (file paths, issue numbers, doc URLs). Distinguish confirmed facts from hypotheses.
 - Include reproduction steps for bugs and flag confidence level for each finding.
 - Lead with your recommendation, then supporting evidence.`,
-      relationship: {
-        leaderSees: "Delegate investigation with: issue/PR link, what to research (bug repro, prior art, dependency compat), and scope boundary.",
-        memberSees: "Report back with: reproduction steps, root cause analysis, relevant prior issues, and confidence level per finding.",
-      },
+      relationship: "Delegate investigation with: issue/PR link, what to research (bug repro, prior art, dependency compat), and scope boundary.\n\nReport back with: reproduction steps, root cause analysis, relevant prior issues, and confidence level per finding.",
     },
   ],
 };

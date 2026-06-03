@@ -56,10 +56,7 @@ Based on what you learned about the user in Step 3, customize the template or cr
       "role": "engineer",
       "description": "Implements features and fixes bugs",
       "instructions": "System prompt for this agent",
-      "relationship": {
-        "leaderSees": "When/how the leader delegates to this agent",
-        "memberSees": "How this agent reports back to the leader"
-      }
+      "relationship": "When/how to delegate to this agent and how they report back"
     }
   ]
 }

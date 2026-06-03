@@ -48,10 +48,7 @@ export const devopsMonitor: TemplatePreset = {
 - For known issues: execute the runbook (restart, clear cache, rollback). For unknown: investigate systematically — recent deploys, dependency status, resource utilization.
 - Document what happened: root cause, action taken, verification method, and prevention recommendation.
 - If unsure about impact, ask before executing.`,
-      relationship: {
-        leaderSees: "Delegate investigation with: alert context, affected service, severity, and recent changes to check.",
-        memberSees: "Report back with: root cause, action taken, verification method, and prevention recommendation.",
-      },
+      relationship: "Delegate investigation with: alert context, affected service, severity, and recent changes to check.\n\nReport back with: root cause, action taken, verification method, and prevention recommendation.",
     },
   ],
 };

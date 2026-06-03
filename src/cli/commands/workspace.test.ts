@@ -65,7 +65,7 @@ describe("workspace init", () => {
       name: "Test WS",
       members: [
         { role: "leader", instructions: "You lead" },
-        { role: "engineer", instructions: "You code", relationship: { leaderSees: "delegate", memberSees: "report" } },
+        { role: "engineer", instructions: "You code", relationship: "delegate\n\nreport" },
       ],
     });
 

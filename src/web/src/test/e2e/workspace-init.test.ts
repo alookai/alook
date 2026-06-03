@@ -57,9 +57,7 @@ describe("workspace init flow", () => {
       const specialist = members.find(m => m.role !== "leader")
       expect(specialist).toBeTruthy()
       expect(specialist!.relationship).toBeTruthy()
-      const rel = specialist!.relationship as Record<string, string>
-      expect(rel.leaderSees).toBeTruthy()
-      expect(rel.memberSees).toBeTruthy()
+      expect(typeof specialist!.relationship).toBe("string")
     })
 
     it("GET /templates/nonexistent-slug/json returns 404", async () => {
@@ -88,10 +86,7 @@ describe("workspace init flow", () => {
             runtime_id: seed.runtimeId,
             description: "Test engineer agent",
             instructions: "You are the test engineer",
-            relationship: {
-              leaderSees: "Delegate code tasks to this engineer",
-              memberSees: "Report back with implementation results",
-            },
+            relationship: "Delegate code tasks to this engineer\n\nReport back with implementation results",
           },
         ],
       }
