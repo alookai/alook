@@ -1,6 +1,6 @@
 {
   "name": "@alook/web",
-  "version": "0.0.115",
+  "version": "0.0.116",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -1,6 +1,6 @@
 {
   "name": "@alook/ws-do",
-  "version": "0.0.115",
+  "version": "0.0.116",
   "private": true,
   "scripts": {
     "dev": "wrangler dev --persist-to ../web/.wrangler/state",
