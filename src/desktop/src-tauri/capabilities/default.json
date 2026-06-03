@@ -4,7 +4,7 @@
   "description": "Default capability for all platforms",
   "windows": ["main"],
   "remote": {
-    "urls": ["https://app.alook.ai", "http://localhost:3000"]
+    "urls": ["https://alook.ai", "http://localhost:3000"]
   },
   "permissions": [
     "core:default",
