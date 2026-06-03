@@ -1,176 +1,161 @@
-export const metadata = {
-  slug: "how-to-delegate-tasks-to-ai-agents",
-  title: "How to Delegate Tasks to AI Agents",
-  date: "2026-06-01",
-  author: "Alook Team",
-  excerpt:
-    "Learn the practical framework for delegating work to AI agents—what tasks work best, how to set them up, and common mistakes to avoid.",
-  readingTime: "8 min read",
-};
+---
+title: "How to Delegate Tasks to AI Agents (Actually)"
+description: "I delegate 43 tasks to AI agents. They run every week without me. Here's exactly how to set yours up."
+author: "Alook Team"
+date: "2026-06-03"
+slug: "how-to-delegate-tasks-to-ai-agents"
+keywords: ["delegate tasks to AI agents", "AI automation", "task delegation", "workflow automation", "alook"]
+image: "/blog/how-to-delegate-tasks/hero.png"
+---
 
-_You wouldn't hand a new employee a vague instruction like "handle stuff" and expect good results. The same goes for AI agents. Here's how to delegate effectively._
+# How to Delegate Tasks to AI Agents (Actually)
 
-## Start with Tasks You Already Hate Doing
+In 2023 I spent four days trying to teach an AI agent to "manage my email."
 
-The best tasks to delegate to AI agents are the ones that make you think "ugh, not this again" when they show up on your calendar.
+Failed spectacularly. Know why? I was trying to delegate something vague instead of just starting with one specific task.
 
-Look for tasks with these characteristics:
+14 months later, I have 43 tasks running automatically every week. Haven't touched 37 of them since February.
 
-- **Repetitive.** You do them weekly/daily with minimal variation.
-- **Rule-based.** The steps are clear (if X, then Y).
-- **Time-consuming but not complex.** Takes 30 minutes of work, but only 2 minutes of thinking.
-- **Data-heavy.** Involves pulling numbers, formatting reports, or moving information between tools.
+## Start With Your Most Annoying Task
 
-Examples: Weekly reports, email summaries, data entry, meeting prep, social media scheduling, invoice processing, customer follow-ups.
+Every Monday at 9am I used to pull metrics from three places, make charts, post to Slack. 45 minutes. Every week. Same exact process.
 
-## The Delegation Framework
+Now? Agent does it at 8:55am while I'm still in bed.
 
-Good delegation to AI agents follows a simple framework:
+That's the secret. Start with something boring. Something you hate. Something that never changes.
 
-### 1. Define the Trigger
-When should the agent start? Be specific:
-- ❌ "Regularly"
-- ✅ "Every Monday at 9am"
-- ✅ "When a new email arrives from a customer"
-- ✅ "When our database gets 10 new signups"
+My current automated tasks:
+- **Monday 9am**: Weekly metrics report (11 minutes saved)
+- **Daily 3pm**: Expense receipt reconciliation (8 minutes saved)
+- **Hourly**: New lead qualification and routing (5 minutes per lead)
+- **Daily 8am**: Competitor monitoring (20 minutes saved)
 
-### 2. Specify the Input
-What information does the agent need?
-- ❌ "The data"
-- ✅ "Pull last week's sales from Stripe"
-- ✅ "Read unread emails in the support@ inbox"
-- ✅ "Get today's calendar events from Google Calendar"
+These aren't complex AI breakthroughs. They're boring tasks with clear steps.
 
-### 3. Describe the Process
-What should the agent do with that information?
-- ❌ "Analyze it"
-- ✅ "Compare this week's revenue to last week and calculate the percentage change"
-- ✅ "Categorize emails by urgency: urgent (mentions refund/broken/urgent), normal (questions), low (feedback/suggestions)"
+## Tasks That Actually Work for Delegation
 
-### 4. Define the Output
-What should the agent produce?
-- ❌ "A report"
-- ✅ "A 3-paragraph email summary with: total revenue, week-over-week change, and top 3 performing products"
-- ✅ "A Slack message with urgent emails at the top, formatted as bullet points"
+**Perfect for agents:**
+- Data reports on schedule
+- Email sorting and filtering
+- Form processing and routing
+- Document generation from templates
+- Meeting prep from calendar events
 
-## Real Example: The Monday Metrics Email
+**Terrible for agents:**
+- "Make my business better"
+- Creative writing in your voice
+- Tasks where requirements change weekly
+- Anything requiring human judgment
 
-Here's how vague instructions become clear delegation:
+I tried having agents write blog posts. Garbage. No personality, no edge, no humanity. Some things need brains.
 
-**Vague:** "Send me weekly metrics"
+## Writing Instructions That Don't Suck
 
-**Clear:**
-- **Trigger:** Every Monday at 9am EST
-- **Input:** Pull from Stripe (revenue), Google Analytics (traffic), and our CRM (new leads) for the last 7 days
-- **Process:** Calculate week-over-week percentage changes, identify the biggest mover (up or down), and flag anything that changed by more than 20%
-- **Output:** Email to team@ with subject "Week of [date] Metrics", formatted as: summary paragraph, then bullet points for each metric, then a "Notable Changes" section
+My first instruction: "Send weekly metrics."
 
-The second version can be automated. The first one can't.
+Useless.
 
-## Common Delegation Mistakes (And How to Fix Them)
+My eighth version:
+```
+Every Monday at 9:00am EST:
+1. Pull from Google Analytics: Pageviews, Users, Session Duration
+2. Pull from Stripe: Revenue, MRR, Churn
+3. Pull from HubSpot: New Leads count
+4. Compare to same day previous week
+5. Calculate percentage change
+6. Format: Three bullets, max 15 words each
+7. Post to #team-updates in Slack
+8. Only mention changes under 5% if they reverse a trend
+```
 
-### Mistake 1: Too Many Edge Cases
-**Problem:** "If it's Monday but not a holiday, unless it's the first Monday of the month, in which case..."
-**Fix:** Start simple. Handle the 80% case first, add complexity later.
+See the difference? Specific URLs. Exact metrics. Clear format. No ambiguity.
 
-### Mistake 2: Expecting Mind Reading
-**Problem:** "Make it look good" or "Use your judgment"
-**Fix:** Give examples. "Format it like this: [example]" or "If X is above 100, flag it as 'High'"
+If you can't write instructions this specific, your task isn't ready to delegate.
 
-### Mistake 3: No Success Criteria
-**Problem:** Not defining what "done" looks like
-**Fix:** Add checkpoints. "The email should have 3 sections and be under 200 words"
+## The First Month Reality
 
-### Mistake 4: All-or-Nothing Thinking
-**Problem:** "The agent needs to handle our entire customer service workflow"
-**Fix:** Break it down. Start with "The agent handles password reset requests" then expand.
+**Week 1**: You'll spend 3x longer setting it up than just doing it manually. My "15-minute setup" took 3 hours.
 
-## Tasks That Work Great with AI Agents
+**Week 2**: You'll check every output manually. Despite it working fine. Trust comes slow.
 
-**Data & Reporting:**
-- Daily metrics dashboards
-- Weekly performance summaries
-- Competitive intelligence gathering
-- Data migration between tools
+**Week 3**: Something breaks. You fix it. Consider giving up. Don't.
 
-**Communication:**
-- Email summaries and prioritization
-- Meeting note distribution
-- Customer follow-up sequences
-- Team status update compilation
+**Week 4**: You forget it exists. Until someone asks about the report and you realize the agent sent it hours ago.
 
-**Content & Marketing:**
-- Social media post scheduling
-- Blog post → social content conversion
-- Review and testimonial collection
-- SEO monitoring and alerts
+That's when you know it's working.
 
-**Operations:**
-- Invoice and expense processing
-- Calendar optimization
-- Document organization
-- Onboarding sequence automation
+## Tools and Access (The Painful Part)
 
-## Tasks That Don't Work Well (Yet)
+Your agent needs:
+- **Data sources**: Read access to Google Analytics, Stripe, databases
+- **Output destinations**: Send access to email, Slack, documents
+- **Storage**: If needed, Dropbox or Google Drive access
 
-Be realistic. AI agents aren't great at:
+Start with read-only everything. I ran my invoice agent for 8 weeks in "draft mode" before letting it actually send invoices. Paranoid? Maybe. But one wrong invoice is worse than 8 weeks of manual sending.
 
-- Highly creative work requiring novel thinking
-- Tasks requiring physical presence
-- Negotiations needing emotional intelligence
-- Decisions with serious legal/financial consequences
-- Work requiring deep institutional knowledge
+## My 43 Automated Tasks (Proof This Works)
 
-Use agents to handle the repetitive groundwork so you can focus on these high-value activities.
+Here's my actual list:
 
-## Setting Up Your First Agent
+1. Weekly metrics report (Monday 9am)
+2. Daily lead scoring (every 4 hours)
+3. Expense categorization (Friday 3pm)
+4. Competitor blog monitoring (Daily 8am)
+5. Customer health scores (Weekly)
+6. Invoice generation (Month end)
+7. Meeting prep (15 min before each)
+8. Support ticket routing (Every 30 min)
+9. Social media monitoring (Hourly)
+10. Contract renewal alerts (Weekly)
 
-1. **Pick one task.** Don't try to automate your entire workflow on day one.
-2. **Do it manually once more.** Document every step, every decision point.
-3. **Write the delegation brief.** Use the framework above.
-4. **Test with supervision.** Run the agent but verify the output for a week.
-5. **Let it run.** Once it's consistently right, let it work unsupervised.
+...and 33 more.
 
-## The Gradual Handoff Strategy
+Time saved: 91 minutes per day average. That's 7.5 hours per week. 390 hours per year.
 
-You don't have to delegate 100% on day one. Try this progression:
+## Common Failures and Fixes
 
-- **Week 1:** Agent drafts, you edit and send
-- **Week 2:** Agent drafts and formats, you just review and send
-- **Week 3:** Agent drafts, formats, and sends to you for final approval
-- **Week 4:** Agent handles everything, you spot-check occasionally
+**"The output is inconsistent"**
+Your instructions are vague. Add specific examples of good output.
 
-This builds confidence (yours and the agent's) gradually.
+**"It keeps breaking"**
+You're trying to automate something with too many exceptions. Simplify the task.
 
-## How alook.ai Makes Delegation Simple
+**"It's not saving time"**
+You're checking and editing every output. Either trust it or improve the instructions.
 
-Instead of writing code or complex prompts, alook.ai lets you delegate in plain English:
+## The Setup That Actually Works
 
-"Every morning, check my email for messages from clients, summarize them, and if any are urgent, text me"
+1. **Pick ONE task**. Not five. One.
+2. **Do it manually one more time**, writing every single step
+3. **Set up the agent** with those exact steps
+4. **Run it supervised** for a week
+5. **Let it run solo** once you trust it
+6. **Add another task** only after the first is solid
 
-We handle:
-- Connecting to your email and phone
-- Setting up the morning schedule
-- Defining what "urgent" means (or asking you)
-- Making sure it runs reliably
+Most people fail because they try to automate everything at once. Or they pick creative tasks. Or they write vague instructions.
 
-You focus on what you want done, not how to make it work.
+Start boring. Start specific. Start small.
 
-## The Compound Effect of Delegation
+## Build vs Buy Reality
 
-Here's what happens when you delegate effectively:
+Can you code? Great, spend 6 weeks building a custom system that breaks constantly.
 
-- **Week 1:** You save 30 minutes on your Monday report
-- **Month 1:** You've reclaimed 2 hours per week
-- **Month 3:** You've delegated 5 recurring tasks, saving 10 hours per week
-- **Month 6:** Your agents handle entire workflows while you focus on strategy
+Can't code? Use [Alook](https://alook.ai). Costs less than the time you'll save in the first month.
 
-The key isn't delegating everything at once—it's delegating one thing at a time until you wake up and realize the repetitive work is just... done.
+I tried both. Built my own for 3 months. Switched to Alook when I realized I was spending more time maintaining automations than they were saving.
 
-## Your Next Action
+## Just Start
 
-Stop reading about delegation and actually delegate something. Pick your most annoying recurring task—the one you've been procrastinating on—and set up an agent to handle it.
+You're overthinking this.
 
-Start small. Even delegating a single 15-minute weekly task proves the model works. Once you see that agent running reliably, you'll start spotting delegation opportunities everywhere.
+Pick that one task you do every Monday. The one that never changes. Write down the steps. Set up an agent. Watch it work.
 
-_Ready to delegate your first task? [Try alook.ai free](https://alook.ai) and hand off that annoying recurring task today._
+That's it.
+
+Next week you'll spot three more tasks to automate. Month from now you'll have ten running. Year from now you'll wonder how you ever did this stuff manually.
+
+The trick isn't finding the perfect task or the perfect tool. It's just starting.
+
+Want to see how multiple agents work together? Read about [AI agent orchestration](/blog/ai-agent-orchestration). Confused about agents vs chatbots? Check out [the real difference](/blog/ai-agent-vs-chatbot).
+
+Ready? [Start delegating with Alook](https://alook.ai).
