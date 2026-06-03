@@ -38,6 +38,10 @@
     }
   },
   "plugins": {
+    "updater": {
+      "endpoints": ["https://alook.ai/api/desktop/update/{{target}}/{{arch}}/{{current_version}}"],
+      "pubkey": ""
+    },
     "deep-link": {
       "desktop": {
         "schemes": ["alook"]

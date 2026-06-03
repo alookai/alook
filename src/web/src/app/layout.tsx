@@ -12,6 +12,7 @@ import { ToasterProvider } from "@/components/toaster-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MockNetworkBanner } from "@/components/mock-network-banner";
 import { TauriDragRegion } from "@/components/tauri-drag-region";
+import { DesktopUpdatePrompt } from "@/components/desktop-update-prompt";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -143,6 +144,7 @@ export default function RootLayout({
         className="h-dvh overflow-hidden flex flex-col"
       >
         <TauriDragRegion />
+        <DesktopUpdatePrompt />
         <MockNetworkBanner />
         <script
           type="application/ld+json"
