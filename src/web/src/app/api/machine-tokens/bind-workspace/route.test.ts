@@ -248,6 +248,53 @@ describe("POST /api/machine-tokens/bind-workspace", () => {
     expect(body.error).toBe("no registered token found");
   });
 
+  it("returns 400 for invalid request body", async () => {
+    const POST = await loadRoute();
+
+    const req = new NextRequest("http://localhost/api/machine-tokens/bind-workspace", {
+      method: "POST",
+      body: "not json",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for missing workspace_id", async () => {
+    const POST = await loadRoute();
+
+    const req = new NextRequest("http://localhost/api/machine-tokens/bind-workspace", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+  });
+
+  it("succeeds even when broadcast throws (fire-and-forget)", async () => {
+    const POST = await loadRoute();
+
+    mockGetRegisteredTokenForUser.mockResolvedValue(registeredToken);
+    mockGetMemberByUserAndWorkspace.mockResolvedValue({ id: "mem_1" });
+    mockActivateMachineToken.mockResolvedValue(undefined);
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1", provider: "claude" });
+    mockBroadcastToUser.mockRejectedValue(new Error("ws down"));
+    mockBroadcastToDaemon.mockRejectedValue(new Error("ws down"));
+
+    const req = new NextRequest("http://localhost/api/machine-tokens/bind-workspace", {
+      method: "POST",
+      body: JSON.stringify({ workspace_id: "sp_ws1" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+  });
+
   it("binds the earliest registered token when multiple exist", async () => {
     const POST = await loadRoute();
 

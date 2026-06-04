@@ -283,4 +283,49 @@ describe("POST /api/daemon/register", () => {
     expect(res.status).toBe(200);
     expect(mockGetMachineByDaemon).not.toHaveBeenCalled();
   });
+
+  it("returns standby when no workspace_id is provided or resolved", async () => {
+    const POST = await loadRoute(authCtx);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    const standbyBody = {
+      daemon_id: "d1",
+      device_name: "MyMachine",
+      cli_version: "0.0.2",
+      runtimes: [{ type: "claude", version: "1.0", runtime_mode: "local" }],
+    };
+    const res = await POST(makeReq(standbyBody));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.standby).toBe(true);
+    expect(body.runtimes).toEqual([]);
+    expect(mockUpsertMachine).not.toHaveBeenCalled();
+    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", expect.objectContaining({
+      type: "runtime.status",
+      status: "online",
+      standby: true,
+    }));
+  });
+
+  it("uses auth context workspaceId when body workspace_id is missing", async () => {
+    const POST = await loadRoute({ ...authCtx, workspaceId: "w_from_token" });
+
+    mockGetMember.mockResolvedValue({ userId: "u1", workspaceId: "w_from_token" });
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1" });
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    const bodyWithoutWs = {
+      daemon_id: "d1",
+      device_name: "MyMachine",
+      cli_version: "0.0.2",
+      runtimes: [{ type: "claude", version: "1.0", runtime_mode: "local" }],
+    };
+    const res = await POST(makeReq(bodyWithoutWs));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.workspaceId).toBe("w_from_token");
+  });
 });
