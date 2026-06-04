@@ -74,6 +74,13 @@ type AuthOptions = {
       maxAge?: number
     }
   }
+  databaseHooks?: {
+    user?: {
+      create?: {
+        after?: (user: unknown, ctx: unknown) => Promise<void>
+      }
+    }
+  }
 }
 
 async function loadCreateAuth() {
@@ -235,5 +242,63 @@ describe("createAuth device authorization plugin", () => {
     const devicePlugin = opts.plugins.find((p: any) => p.__plugin === "deviceAuthorization")
     const { validateClient } = devicePlugin.cfg
     expect(validateClient("")).toBe(false)
+  })
+})
+
+describe("createAuth databaseHooks — user.create.after", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  function makeCtx(url: string) {
+    const cookies: Record<string, { value: string; opts: unknown }> = {}
+    return {
+      request: { url },
+      setCookie: vi.fn((name: string, value: string, opts: unknown) => {
+        cookies[name] = { value, opts }
+      }),
+      cookies,
+    }
+  }
+
+  it("sets is_new_signup cookie with method=email for email-otp path", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const afterHook = opts.databaseHooks!.user!.create!.after!
+    const ctx = makeCtx("http://localhost:3000/api/auth/sign-in/email-otp")
+    await afterHook({ id: "u1", email: "a@b.com" }, ctx)
+    expect(ctx.setCookie).toHaveBeenCalledWith("is_new_signup", "email", expect.objectContaining({ maxAge: 60 }))
+  })
+
+  it("sets method=github for github callback path", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const afterHook = opts.databaseHooks!.user!.create!.after!
+    const ctx = makeCtx("http://localhost:3000/api/auth/callback/github")
+    await afterHook({ id: "u2" }, ctx)
+    expect(ctx.setCookie).toHaveBeenCalledWith("is_new_signup", "github", expect.anything())
+  })
+
+  it("sets method=google for google callback path", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const afterHook = opts.databaseHooks!.user!.create!.after!
+    const ctx = makeCtx("http://localhost:3000/api/auth/callback/google")
+    await afterHook({ id: "u3" }, ctx)
+    expect(ctx.setCookie).toHaveBeenCalledWith("is_new_signup", "google", expect.anything())
+  })
+
+  it("sets method=unknown for unrecognized path", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const afterHook = opts.databaseHooks!.user!.create!.after!
+    const ctx = makeCtx("http://localhost:3000/api/auth/sign-up/email")
+    await afterHook({ id: "u4" }, ctx)
+    expect(ctx.setCookie).toHaveBeenCalledWith("is_new_signup", "unknown", expect.anything())
+  })
+
+  it("does nothing when ctx is null", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const afterHook = opts.databaseHooks!.user!.create!.after!
+    await expect(afterHook({ id: "u5" }, null)).resolves.toBeUndefined()
   })
 })

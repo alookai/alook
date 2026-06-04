@@ -76,6 +76,27 @@ export function createAuth(env: Env) {
         },
       },
     },
+    databaseHooks: {
+      user: {
+        create: {
+          after: async (user, ctx) => {
+            if (!ctx) return
+            const path = ctx.request?.url ? new URL(ctx.request.url).pathname : ""
+            let method = "unknown"
+            if (path.includes("email-otp")) method = "email"
+            else if (path.includes("github")) method = "github"
+            else if (path.includes("google")) method = "google"
+            ctx.setCookie("is_new_signup", method, {
+              maxAge: 60,
+              path: "/",
+              httpOnly: false,
+              secure: isProd,
+              sameSite: "lax",
+            })
+          },
+        },
+      },
+    },
     plugins: isProd
       ? [
           deviceAuthorization({ verificationUri: "/device", validateClient, expiresIn: "5m", schema: {} }),
