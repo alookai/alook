@@ -396,13 +396,13 @@ describe("WebSocketDurableObject", () => {
   })
 
   describe("webSocketMessage — check_daemon_status", () => {
-    it("returns runtime.status online when daemon lastUsedAt is recent", async () => {
-      const { durable } = createDO()
-      mockGetValidSession.mockResolvedValue("user-42")
-      mockGetLatestTokenForUser.mockResolvedValue({
-        id: "mt_1", status: "registered", hostname: "MyMachine.local",
-        lastUsedAt: new Date(Date.now() - 30_000).toISOString(),
-      })
+    it("returns runtime.status online when daemon WS is connected", async () => {
+      const { durable, getWebSockets } = createDO()
+
+      // Simulate a connected daemon WS
+      const daemonWs = createMockWebSocket()
+      daemonWs.serializeAttachment({ type: "daemon", daemonId: "MyMachine.local", authenticated: true })
+      getWebSockets().push(daemonWs as any)
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
@@ -414,12 +414,8 @@ describe("WebSocketDurableObject", () => {
       )
     })
 
-    it("does not respond when daemon is offline (stale lastUsedAt)", async () => {
+    it("does not respond when no daemon WS is connected", async () => {
       const { durable } = createDO()
-      mockGetLatestTokenForUser.mockResolvedValue({
-        id: "mt_1", status: "registered", hostname: "MyMachine.local",
-        lastUsedAt: new Date(Date.now() - 300_000).toISOString(),
-      })
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
@@ -429,9 +425,12 @@ describe("WebSocketDurableObject", () => {
       expect(ws.send).not.toHaveBeenCalled()
     })
 
-    it("does not respond when no token exists", async () => {
-      const { durable } = createDO()
-      mockGetLatestTokenForUser.mockResolvedValue(null)
+    it("ignores unauthenticated daemon connections", async () => {
+      const { durable, getWebSockets } = createDO()
+
+      const daemonWs = createMockWebSocket()
+      daemonWs.serializeAttachment({ type: "daemon", daemonId: "Ghost", authenticated: false })
+      getWebSockets().push(daemonWs as any)
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })

@@ -85,10 +85,15 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     }
 
     if (msg.type === "check_daemon_status" && state.type === "user") {
-      const online = await this.checkDaemonOnline(state.userId)
-      if (online) {
-        ws.send(JSON.stringify({ type: "runtime.status", status: "online", daemonId: online.daemonId }))
+      const daemonConn = this.ctx.getWebSockets().find(other => {
+        const s = other.deserializeAttachment() as ConnectionState
+        return s?.type === "daemon" && s.authenticated
+      })
+      if (daemonConn) {
+        const ds = daemonConn.deserializeAttachment() as Extract<ConnectionState, { type: "daemon" }>
+        ws.send(JSON.stringify({ type: "runtime.status", status: "online", daemonId: ds.daemonId }))
       }
+      return
     }
   }
 
@@ -123,15 +128,6 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   private async validateToken(token: string): Promise<string | null> {
     const db = createDb(this.env.DB)
     return queries.session.getValidSession(db, token)
-  }
-
-  private async checkDaemonOnline(userId: string): Promise<{ daemonId: string } | null> {
-    const db = createDb(this.env.DB)
-    const token = await queries.machineToken.getLatestTokenForUser(db, userId)
-    if (!token || !token.lastUsedAt) return null
-    const age = Date.now() - new Date(token.lastUsedAt).getTime()
-    if (age > 120_000) return null
-    return { daemonId: token.hostname || "unknown" }
   }
 
   private async validateMachineToken(token: string, daemonId: string): Promise<boolean> {
