@@ -1692,10 +1692,14 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 }
 
 /* ── Streamdown fullscreen views: unified styling ── */
-/* Table fullscreen: match mermaid's semi-transparent backdrop-blur look */
+/* Mermaid fullscreen (portaled to body): override translucent bg to opaque */
+.fixed.inset-0.z-50.bg-background\/95.backdrop-blur-sm {
+  background: var(--background) !important;
+  backdrop-filter: none !important;
+}
+/* Table fullscreen */
 [data-streamdown="table-fullscreen"] {
-  background: oklch(from var(--background) l c h / 95%) !important;
-  backdrop-filter: blur(8px);
+  background: var(--background) !important;
   overflow: hidden;
 }
 /* Content area: centered with max-width for readability */
