@@ -34,3 +34,8 @@ tauri-plugin-push = { path = "plugins/tauri-plugin-push" }
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = 3

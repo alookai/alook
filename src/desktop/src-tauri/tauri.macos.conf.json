@@ -1,0 +1,11 @@
+{
+  "$schema": "./gen/schemas/desktop-schema.json",
+  "identifier": "ai.alook.desktop",
+  "bundle": {
+    "targets": ["app", "dmg"],
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "entitlements": "entitlements.plist"
+    }
+  }
+}
