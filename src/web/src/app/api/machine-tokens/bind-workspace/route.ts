@@ -95,10 +95,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     });
   });
 
+  const ws = await withD1Retry(() =>
+    queries.workspace.getWorkspace(db, workspaceId, ctx.userId)
+  );
+
   broadcastToDaemon(daemonId, {
     type: "daemon.workspace_added",
     workspaceId,
-    workspaceName: "Personal",
+    workspaceName: ws?.name || "Personal",
     token: token.token,
   }).catch((err) => {
     log.warn("daemon push after bind failed", {

@@ -31,6 +31,9 @@ function sharedMocks() {
         runtime: {
           upsertAgentRuntime: (...a: any[]) => mockUpsertAgentRuntime(...a),
         },
+        workspace: {
+          getWorkspace: vi.fn(() => Promise.resolve({ id: "sp_ws1", name: "Test Workspace" })),
+        },
       },
       BindWorkspaceRequestSchema: (await import("@alook/shared")).BindWorkspaceRequestSchema,
       createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
@@ -142,7 +145,7 @@ describe("POST /api/machine-tokens/bind-workspace", () => {
     expect(mockBroadcastToDaemon).toHaveBeenCalledWith("TestMachine.local", {
       type: "daemon.workspace_added",
       workspaceId: "sp_ws1",
-      workspaceName: "Personal",
+      workspaceName: "Test Workspace",
       token: "al_test123",
     });
   });
