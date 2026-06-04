@@ -52,6 +52,7 @@ export function StudioOnboardingClient({
     isNewWorkspace ? "" : (workspaceName === "Personal" ? "" : workspaceName),
   );
   const [nameAvailable, setNameAvailable] = useState<boolean | null>(null);
+  const [nameLocked, setNameLocked] = useState(false);
   const [checkingName, setCheckingName] = useState(false);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [creating, setCreating] = useState(false);
@@ -229,12 +230,18 @@ export function StudioOnboardingClient({
       }
       const data = (await res.json()) as { available: boolean };
       setNameAvailable(data.available);
+      if (data.available) setNameLocked(true);
     } catch {
       setNameAvailable(null);
       toast.error("Failed to check name availability");
     } finally {
       setCheckingName(false);
     }
+  };
+
+  const handleUnlockName = () => {
+    setNameLocked(false);
+    setNameAvailable(null);
   };
 
   const handleGenerateToken = useCallback(async () => {
@@ -499,16 +506,28 @@ export function StudioOnboardingClient({
                   }}
                   placeholder="e.g. Atlas Lab"
                   className="text-sm"
+                  disabled={nameLocked}
                 />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleCheckName}
-                  disabled={!studioName.trim() || checkingName}
-                  className="shrink-0"
-                >
-                  {checkingName ? <Loader2 className="size-3 animate-spin" /> : "Check"}
-                </Button>
+                {nameLocked ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleUnlockName}
+                    className="shrink-0"
+                  >
+                    Edit
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCheckName}
+                    disabled={!studioName.trim() || checkingName}
+                    className="shrink-0"
+                  >
+                    {checkingName ? <Loader2 className="size-3 animate-spin" /> : "Check"}
+                  </Button>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5">
@@ -603,7 +622,9 @@ export function StudioOnboardingClient({
                   <Loader2 className="size-4 animate-spin mr-2" />
                   Launching...
                 </>
-              ) : isNewWorkspace && studioName.trim() && nameAvailable !== true ? (
+              ) : isNewWorkspace && nameAvailable === false ? (
+                "Name unavailable"
+              ) : isNewWorkspace && nameAvailable !== true ? (
                 "Check company name first"
               ) : (
                 "Launch company"
