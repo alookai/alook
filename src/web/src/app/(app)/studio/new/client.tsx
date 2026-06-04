@@ -201,6 +201,12 @@ export function StudioOnboardingClient({
         ? `/api/studios/check-name?name=${encodeURIComponent(studioName.trim())}&workspace_id=${workspaceId}`
         : `/api/studios/check-name?name=${encodeURIComponent(studioName.trim())}`;
       const res = await fetch(url);
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        toast.error(err.error || "Invalid company name");
+        setNameAvailable(false);
+        return;
+      }
       const data = (await res.json()) as { available: boolean };
       setNameAvailable(data.available);
     } catch {
@@ -452,24 +458,28 @@ export function StudioOnboardingClient({
                   {checkingName ? <Loader2 className="size-3 animate-spin" /> : "Check"}
                 </Button>
               </div>
-              {nameAvailable === false && (
-                <p className="text-xs text-red-500 flex items-center gap-1">
-                  <XCircle className="size-3" /> Name is taken, try another
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                {nameAvailable === true && (
-                  <span className="text-emerald-600 flex items-center gap-0.5">
-                    <CheckCircle2 className="size-3" /> Available
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  {nameAvailable === true && (
+                    <>
+                      <span className="text-emerald-600 flex items-center gap-0.5">
+                        <CheckCircle2 className="size-3" /> Available
+                      </span>
+                      <span>·</span>
+                    </>
+                  )}
+                  {!isNewWorkspace ? (
+                    <span>Optional — you can always rename later.</span>
+                  ) : (
+                    <span>Required — pick a name for your company.</span>
+                  )}
+                </span>
+                {nameAvailable === false && (
+                  <span className="text-red-500 flex items-center gap-1 ml-auto">
+                    <XCircle className="size-3" /> Name is taken, try another
                   </span>
                 )}
-                {nameAvailable === true && <span>·</span>}
-                {!isNewWorkspace ? (
-                  <span>Optional — you can always rename later.</span>
-                ) : (
-                  <span>Required — pick a name for your company.</span>
-                )}
-              </p>
+              </div>
             </div>
 
             {/* Team Preview */}

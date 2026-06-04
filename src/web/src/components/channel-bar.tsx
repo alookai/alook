@@ -88,7 +88,7 @@ export function ChannelBar() {
   }
 
   return (
-    <div className="h-8 flex items-center gap-1.5 px-4 md:px-5 mb-1 overflow-x-auto thin-scrollbar shrink-0">
+    <div className="h-8 flex items-center gap-1.5 px-4 md:px-5 mb-1 min-w-0 overflow-x-auto thin-scrollbar shrink-0">
       {defaultChannel && (
         <ChannelPill
           id={defaultChannel.id}
