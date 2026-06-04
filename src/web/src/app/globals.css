@@ -1829,3 +1829,8 @@ html[data-tauri-desktop] [data-workspace-shell] {
   padding-top: 1.75rem;
 }
 
+/* Tauri desktop: push public layout pages below the fixed drag region */
+html[data-tauri-desktop] [data-public-layout] {
+  padding-top: 1.75rem;
+}
+

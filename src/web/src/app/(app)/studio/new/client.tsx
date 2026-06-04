@@ -291,7 +291,7 @@ export function StudioOnboardingClient({
   // Page 1: Scenario selection
   if (!scenarioId) {
     return (
-      <div className="relative flex min-h-dvh flex-col items-center justify-center px-6 pt-14 pb-6 sm:p-6">
+      <div className="relative flex min-h-dvh flex-col items-center justify-center px-6 pt-14 pb-6 sm:p-6" data-public-layout>
         <Button
           variant="ghost"
           size="sm"
@@ -347,7 +347,7 @@ export function StudioOnboardingClient({
 
   // Page 2: Build your company
   return (
-    <div className="relative flex min-h-dvh flex-col items-center p-6">
+    <div className="relative flex min-h-dvh flex-col items-center p-6" data-public-layout>
       <div className="absolute top-4 left-4 flex items-center gap-1">
         <Button
           variant="ghost"

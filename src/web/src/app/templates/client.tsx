@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { ArrowLeft } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
+import { PublicLayout } from "@/components/public-layout";
 import { TemplateCard } from "./_components/template-card";
 import type { TemplatePreset, TemplateCategory } from "@/lib/templates";
 
@@ -27,29 +27,21 @@ export function TemplatesClient({
       : templates.filter((t) => t.category === activeCategory);
 
   return (
-    <div className="min-h-dvh bg-background">
-      {/* Nav */}
-      <nav className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur-sm">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-3">
-          <Link href="/" className="flex items-center gap-2">
-            <Image src="/alook.svg" alt="Alook" width={22} height={22} />
-            <span className="text-lg tracking-tight" style={{ fontFamily: "var(--font-brand)", fontWeight: 700 }}>Alook</span>
+    <PublicLayout
+      maxWidth="4xl"
+      rightSlot={
+        isLoggedIn ? (
+          <Link href="/workspaces?auto" className={buttonVariants({ variant: "outline", size: "sm" })}>
+            <ArrowLeft className="mr-1.5 size-3" />
+            Back to App
           </Link>
-          <div className="flex items-center gap-2">
-            {isLoggedIn ? (
-              <Link href="/workspaces?auto" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                <ArrowLeft className="mr-1.5 size-3" />
-                Back to App
-              </Link>
-            ) : (
-              <Link href="/sign-in" className={buttonVariants({ size: "sm" })}>
-                Sign In
-              </Link>
-            )}
-          </div>
-        </div>
-      </nav>
-
+        ) : (
+          <Link href="/sign-in" className={buttonVariants({ size: "sm" })}>
+            Sign In
+          </Link>
+        )
+      }
+    >
       {/* Header */}
       <div className="mx-auto max-w-4xl px-6 pt-16 pb-2">
         <h1
@@ -102,6 +94,6 @@ export function TemplatesClient({
           </div>
         )}
       </div>
-    </div>
+    </PublicLayout>
   );
 }
