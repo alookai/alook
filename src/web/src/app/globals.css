@@ -1,9 +1,11 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "katex/dist/katex.min.css";
 @source "../node_modules/streamdown/dist/*.js";
 @source "../node_modules/@streamdown/mermaid/dist/*.js";
 @source "../node_modules/@streamdown/cjk/dist/*.js";
+@source "../node_modules/@streamdown/math/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -1456,15 +1458,14 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   opacity: 0;
   pointer-events: none;
   transition: opacity 150ms ease;
-  background: oklch(0.25 0.01 60) !important;
-  border-color: oklch(1 0.005 80 / 12%) !important;
+  background: oklch(0.2 0.01 60 / 80%) !important;
+  backdrop-filter: blur(4px);
+  border: 1px solid oklch(1 0 0 / 10%) !important;
+  border-radius: var(--radius-md) !important;
   color: #e1e4e8 !important;
 }
 [data-streamdown="code-block-actions"] button:hover {
   color: #ffffff !important;
-}
-.dark [data-streamdown="code-block-actions"] {
-  background: oklch(0.22 0.008 60) !important;
 }
 [data-streamdown="code-block"]:hover [data-streamdown="code-block-actions"] {
   opacity: 1;
@@ -1523,10 +1524,20 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 /* Actions buttons: fade in on hover */
 [data-streamdown="mermaid-block-actions"] {
   opacity: 0;
+  pointer-events: none;
   transition: opacity 150ms ease;
+  background: oklch(0.2 0.01 60 / 80%) !important;
+  backdrop-filter: blur(4px);
+  border: 1px solid oklch(1 0 0 / 10%) !important;
+  border-radius: var(--radius-md) !important;
+  color: #e1e4e8 !important;
+}
+[data-streamdown="mermaid-block-actions"] button:hover {
+  color: #ffffff !important;
 }
 [data-streamdown="mermaid-block"]:hover [data-streamdown="mermaid-block-actions"] {
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* Mermaid download dropdown menu */
@@ -1622,6 +1633,14 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   opacity: 0;
   pointer-events: none;
   transition: opacity 150ms ease;
+  background: oklch(0.2 0.01 60 / 80%) !important;
+  backdrop-filter: blur(4px);
+  border: 1px solid oklch(1 0 0 / 10%) !important;
+  border-radius: var(--radius-md) !important;
+  color: #e1e4e8 !important;
+}
+[data-streamdown="table-wrapper"] > div:first-child:not(:has([data-streamdown="table"])) button:hover {
+  color: #ffffff !important;
 }
 [data-streamdown="table-wrapper"]:hover > div:first-child:not(:has([data-streamdown="table"])) {
   opacity: 1;

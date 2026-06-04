@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Streamdown } from "streamdown";
-import { mermaid, cjk } from "@/lib/streamdown-plugins";
+import { mermaid, cjk, math } from "@/lib/streamdown-plugins";
 import { highlightMentions } from "@/lib/highlight-mentions";
 import { TaskStream } from "@/components/task-stream";
 import { RuntimeErrorBlock } from "@/components/agent-chat/runtime-error-block";
@@ -566,7 +566,7 @@ export const MessageItem = memo(function MessageItem({
               )}
               {messageBody && (
                 <div className="markdown markdown-user">
-                  <Streamdown plugins={{ mermaid, cjk }} controls={{ code: { copy: true, download: false }, table: { copy: false, download: false, fullscreen: false } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(messageBody, agents)}</Streamdown>
+                  <Streamdown plugins={{ mermaid, cjk, math }} controls={{ code: { copy: true, download: false }, table: { copy: false, download: false, fullscreen: false } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(messageBody, agents)}</Streamdown>
                 </div>
               )}
               {(() => {
@@ -676,7 +676,7 @@ export const MessageItem = memo(function MessageItem({
                   // whether or not the toolbar/sheet is open (bubble-only).
                   isFlagged && "shadow-[inset_2px_0_0_var(--foreground)]",
                 )}>
-                  <Streamdown plugins={{ mermaid, cjk }} controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(msg.content, agents)}</Streamdown>
+                  <Streamdown plugins={{ mermaid, cjk, math }} controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(msg.content, agents)}</Streamdown>
                 </div>
                 {isFlagged && <FlagDot />}
                 {toolbar}
