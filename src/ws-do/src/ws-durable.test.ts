@@ -63,6 +63,8 @@ vi.mock("cloudflare:workers", () => ({
 
 // Mock @alook/shared
 const mockGetValidSession = vi.fn<(db: unknown, token: string) => Promise<string | null>>()
+const mockGetMachineTokenByToken = vi.fn()
+const mockGetRuntimeIdsByDaemon = vi.fn()
 const mockCreateDb = vi.fn().mockReturnValue({})
 
 vi.mock("@alook/shared", () => {
@@ -78,6 +80,8 @@ vi.mock("@alook/shared", () => {
     createLogger: () => noopLogger,
     queries: {
       session: { getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token) },
+      machineToken: { getMachineTokenByToken: (...a: any[]) => mockGetMachineTokenByToken(...a) },
+      runtime: { getRuntimeIdsByDaemon: (...a: any[]) => mockGetRuntimeIdsByDaemon(...a) },
     },
   }
 })
@@ -295,6 +299,95 @@ describe("WebSocketDurableObject", () => {
 
       expect(ws.close).not.toHaveBeenCalled()
       expect(ws.send).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("webSocketMessage — daemon auth flow", () => {
+    it("authenticates daemon with registered token (standby mode)", async () => {
+      const { durable } = createDO()
+      mockGetMachineTokenByToken.mockResolvedValue({
+        id: "mt_1", userId: "u1", status: "registered", workspaceId: null,
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "auth", machineToken: "al_standby123", daemonId: "my-daemon" }),
+      )
+
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
+      expect(ws.deserializeAttachment()).toEqual({ type: "daemon", daemonId: "my-daemon", authenticated: true })
+      expect(mockGetRuntimeIdsByDaemon).not.toHaveBeenCalled()
+    })
+
+    it("authenticates daemon with active token and runtimes", async () => {
+      const { durable } = createDO()
+      mockGetMachineTokenByToken.mockResolvedValue({
+        id: "mt_1", userId: "u1", status: "active", workspaceId: "sp_ws1",
+      })
+      mockGetRuntimeIdsByDaemon.mockResolvedValue(["rt_1"])
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "auth", machineToken: "al_active123", daemonId: "my-daemon" }),
+      )
+
+      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
+      expect(mockGetRuntimeIdsByDaemon).toHaveBeenCalledWith({}, "my-daemon", "sp_ws1")
+    })
+
+    it("rejects daemon with active token but no runtimes", async () => {
+      const { durable } = createDO()
+      mockGetMachineTokenByToken.mockResolvedValue({
+        id: "mt_1", userId: "u1", status: "active", workspaceId: "sp_ws1",
+      })
+      mockGetRuntimeIdsByDaemon.mockResolvedValue([])
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "auth", machineToken: "al_noruntimes", daemonId: "my-daemon" }),
+      )
+
+      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+
+    it("rejects daemon with unknown token", async () => {
+      const { durable } = createDO()
+      mockGetMachineTokenByToken.mockResolvedValue(null)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "auth", machineToken: "al_unknown", daemonId: "my-daemon" }),
+      )
+
+      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
+    })
+
+    it("rejects daemon with non-al_ prefixed token", async () => {
+      const { durable } = createDO()
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "auth", machineToken: "bad_prefix", daemonId: "my-daemon" }),
+      )
+
+      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
+      expect(mockGetMachineTokenByToken).not.toHaveBeenCalled()
     })
   })
 

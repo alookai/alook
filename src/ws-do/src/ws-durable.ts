@@ -122,7 +122,9 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     if (!token.startsWith("al_")) return false
     const db = createDb(this.env.DB)
     const mt = await queries.machineToken.getMachineTokenByToken(db, token)
-    if (!mt || mt.status !== "active" || !mt.workspaceId) return false
+    if (!mt) return false
+    if (mt.status === "registered") return true
+    if (mt.status !== "active" || !mt.workspaceId) return false
     const runtimes = await queries.runtime.getRuntimeIdsByDaemon(db, daemonId, mt.workspaceId)
     return runtimes.length > 0
   }
