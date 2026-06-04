@@ -144,7 +144,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build --filter='!@alook/desktop'
+      - run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do
 
   coverage:
     name: Coverage
