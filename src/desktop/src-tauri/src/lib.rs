@@ -44,12 +44,27 @@ pub fn run() {
         ]);
     }
 
-    // System tray (desktop only)
+    // System tray + window setup (desktop only)
     #[cfg(desktop)]
     {
         builder = builder.setup(|app| {
             commands::setup_tray(app)?;
             commands::auto_start_daemon(app.handle().clone());
+
+            // macOS: apply vibrancy effect for a native-feeling window background
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window_vibrancy::apply_vibrancy(
+                        &window,
+                        window_vibrancy::NSVisualEffectMaterial::Sidebar,
+                        None,
+                        None,
+                    );
+                }
+            }
+
             Ok(())
         });
 
