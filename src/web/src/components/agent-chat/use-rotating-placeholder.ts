@@ -117,7 +117,7 @@ export function useRotatingPlaceholder(
   // The latest index is read from a ref so the effect doesn't re-run (and
   // reset the timer) on every advance.
   const indexRef = useRef(index);
-  indexRef.current = index;
+  indexRef.current = index; // eslint-disable-line react-hooks/refs -- sync ref to avoid stale closure in interval
 
   useEffect(() => {
     if (!rotating) return;

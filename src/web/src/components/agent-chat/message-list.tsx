@@ -4,23 +4,17 @@ import type { Agent, Artifact, Message, TaskApi as Task, TaskMessageResponse } f
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Streamdown } from "streamdown";
 import { mermaid, cjk } from "@/lib/streamdown-plugins";
 import { highlightMentions } from "@/lib/highlight-mentions";
 import { TaskStream } from "@/components/task-stream";
 import { RuntimeErrorBlock } from "@/components/agent-chat/runtime-error-block";
 import { AnimatedAvatar, type AvatarConfig } from "@/components/avatar";
-import { FileText, Flag, Copy, Check } from "lucide-react";
-import { EmailCard } from "@/components/agent-chat/event-cards/email-card";
-import { CalendarCard } from "@/components/agent-chat/event-cards/calendar-card";
-import { IssueCard } from "@/components/agent-chat/event-cards/issue-card";
+import { FileText, Calendar, CircleDot, Mail, Flag, Copy, Check, ChevronRight } from "lucide-react";
 
 import { eventTypeFromMessage, type GroupPosition } from "@/components/agent-chat/chat-message-utils";
 import { toast } from "sonner";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
-import { useHoverCapable } from "@/hooks/use-hover-capable";
-import { useLongPress } from "@/hooks/use-long-press";
 
 const MENTION_ALLOWED_TAGS = { mention: ["data-agent-id"] };
 const MENTION_LITERAL_TAGS = ["mention"];
@@ -79,86 +73,120 @@ export interface MessageItemProps {
   onRetrySend?: (messageId: string) => void;
 }
 
-type EmailData = {
-  type: "email";
-  subject: string;
-  address: string;
-  direction: "inbound" | "outbound";
-};
-type CalendarData = {
-  type: "calendar";
+/**
+ * Shared visual shell for agent-side system cards (event + artifact). A tinted
+ * icon chip, an uppercase label, a title line, and an OPTIONAL muted preview
+ * line. Height follows content — a 2-line card (no preview) is genuinely
+ * shorter; we never reserve a blank row to force parity (Gus). Hairline border,
+ * quiet chevron, hover lift. Monochrome.
+ */
+export function SystemCard({
+  icon: Icon,
+  label,
+  title,
+  preview,
+  trailing,
+  onClick,
+}: {
+  icon: typeof Mail;
+  label: string;
   title: string;
-  scheduledAt?: string;
-  repeatInterval?: string;
-};
-type IssueData = {
-  type: "issue";
-  title: string;
-  event: "created" | "status_changed" | "dispatch_failed";
-  fromStatus?: string;
-  toStatus?: string;
-  agentId?: string;
-};
-type EventData = EmailData | CalendarData | IssueData;
+  preview?: string | null;
+  /** Optional inline element after the title (e.g. an artifact version badge). */
+  trailing?: React.ReactNode;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className={cn(
+        // Fixed footprint so email / issue / calendar / file cards are uniform
+        // when stacked — width + height don't follow content (Gus, 2026-06-01).
+        // h fits the 3-line variant; overflow-hidden + per-line truncate keep
+        // any longer content from spilling past the fixed box.
+        "group/card w-104 max-w-full h-19 overflow-hidden text-left rounded-md border bg-card",
+        "flex items-center gap-3 px-3 py-2",
+        onClick &&
+          "cursor-pointer transition-all duration-150 hover:-translate-y-px hover:shadow-sm hover:border-foreground/15",
+      )}
+    >
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+        <Icon className="size-4" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+          {label}
+        </span>
+        <span className="flex items-center gap-1.5 min-w-0">
+          <span className="truncate text-sm font-medium text-foreground">{title}</span>
+          {trailing}
+        </span>
+        {preview ? (
+          <span className="truncate text-xs text-muted-foreground">{preview}</span>
+        ) : null}
+      </span>
+      {onClick && (
+        <ChevronRight className="size-4 shrink-0 self-center text-muted-foreground/40 transition-colors duration-150 group-hover/card:text-muted-foreground" />
+      )}
+    </button>
+  );
+}
 
-function parseEventData(
-  metadata: Record<string, unknown> | null | undefined,
+// Parse the honest label / title / preview out of a system-event message. The
+// card describes the EVENT (an immutable historical fact), never live state —
+// so no "current status" pill. Preview is honest or omitted (Gus/Priya).
+//   Email:    "New email from {sender}: {subject}" | "Email sent to {recipient}: {subject}"
+//   Issue:    "Issue created/opened: {title}" | "Issue status changed: {X} -> {Y}"
+//   Calendar: "{title}" (sometimes "Calendar event: {title}")
+function parseEventCard(
+  type: "issue" | "email" | "calendar",
   content: string,
-  conversationType?: string | null,
-): EventData {
-  const type = eventTypeFromMessage(metadata, content, conversationType);
-
+): { label: string; title: string; preview?: string } {
   if (type === "email") {
-    if (metadata?.subject) {
-      return {
-        type: "email",
-        subject: metadata.subject as string,
-        address: (metadata.direction === "inbound" ? metadata.from : metadata.to) as string,
-        direction: metadata.direction as "inbound" | "outbound",
-      };
-    }
     const sent = /^Email sent to (.+?): ([\s\S]+)$/.exec(content);
-    if (sent) return { type: "email", subject: sent[2], address: sent[1], direction: "outbound" };
+    if (sent) return { label: "EMAIL", title: sent[2], preview: `to ${sent[1]}` };
     const inbound = /^New email from (.+?): ([\s\S]+)$/.exec(content);
-    if (inbound) return { type: "email", subject: inbound[2], address: inbound[1], direction: "inbound" };
+    if (inbound) return { label: "EMAIL", title: inbound[2], preview: `from ${inbound[1]}` };
     const colon = content.indexOf(": ");
-    return {
-      type: "email",
-      subject: colon > -1 ? content.slice(colon + 2) : content,
-      address: "",
-      direction: "inbound",
-    };
+    return colon > -1
+      ? { label: "EMAIL", title: content.slice(colon + 2) }
+      : { label: "EMAIL", title: content };
   }
-
   if (type === "issue") {
-    if (metadata?.event) {
-      return {
-        type: "issue",
-        title: (metadata.title as string) ?? content.replace(/^Issue (?:created|opened|status changed):?\s*/i, ""),
-        event: metadata.event as "created" | "status_changed" | "dispatch_failed",
-        fromStatus: metadata.fromStatus as string | undefined,
-        toStatus: metadata.toStatus as string | undefined,
-        agentId: metadata.agentId as string | undefined,
-      };
-    }
     const status = /^Issue status changed: ([\s\S]+?) -> ([\s\S]+)$/.exec(content);
-    if (status) return { type: "issue", title: `${status[1]} → ${status[2]}`, event: "status_changed", fromStatus: status[1], toStatus: status[2] };
+    // The status transition is the immutable event fact — show it as the preview.
+    if (status) return { label: "ISSUE", title: "Status changed", preview: `Status: ${status[1]} → ${status[2]}` };
     const created = /^Issue (?:created|opened): ([\s\S]+)$/.exec(content);
-    if (created) return { type: "issue", title: created[1], event: "created" };
-    if (/dispatch failed/i.test(content)) return { type: "issue", title: content.replace(/^Issue dispatch failed:?\s*/i, ""), event: "dispatch_failed" };
-    return { type: "issue", title: content.replace(/^Issue:?\s*/i, ""), event: "created" };
+    if (created) return { label: "ISSUE", title: created[1] }; // 2-line: no honest preview
+    return { label: "ISSUE", title: content.replace(/^Issue:?\s*/i, "") };
   }
+  // calendar — title only; strip a "Calendar event:" prefix if present. No
+  // datetime/repeat preview unless it is later stamped into the message.
+  return { label: "CALENDAR", title: content.replace(/^Calendar event:\s*/i, "") };
+}
 
-  // calendar
-  if (metadata?.title) {
-    return {
-      type: "calendar",
-      title: metadata.title as string,
-      scheduledAt: metadata.scheduledAt as string | undefined,
-      repeatInterval: metadata.repeatInterval as string | undefined,
-    };
-  }
-  return { type: "calendar", title: content.replace(/^Calendar event:\s*/i, "") };
+/**
+ * System event (email / issue / calendar) as a clickable card. Type + icon are
+ * metadata-driven (msg.metadata.{issueId,emailId,calendarEventId}), falling back
+ * to the content heuristic only if metadata is absent.
+ */
+function EventCard({
+  content,
+  metadata,
+  conversationType,
+  onClick,
+}: {
+  content: string;
+  metadata?: Record<string, unknown> | null;
+  conversationType?: string | null;
+  onClick?: () => void;
+}) {
+  const type = eventTypeFromMessage(metadata, content, conversationType);
+  const Icon = type === "issue" ? CircleDot : type === "email" ? Mail : Calendar;
+  const { label, title, preview } = parseEventCard(type, content);
+  return <SystemCard icon={Icon} label={label} title={title} preview={preview} onClick={onClick} />;
 }
 
 function AttachmentChips({
@@ -289,116 +317,6 @@ export function AgentRow({
   );
 }
 
-// One per-message action (Copy / Flag / …). Rendered as a toolbar icon button
-// (desktop hover) or a sheet row (touch long-press) — same descriptor, two
-// presentations.
-interface MessageAction {
-  key: string;
-  label: string;
-  icon: React.ReactNode;
-  onClick: () => void;
-  /** Persistent on-state (e.g. flagged) — shown full-contrast in both surfaces. */
-  active?: boolean;
-}
-
-// Desktop: a small horizontal toolbar pinned to the bubble's TOP-RIGHT corner,
-// overlapping it (sits above the bubble top so it never covers text), fading in
-// on hover. Always right-anchored regardless of message role.
-function MessageActionsToolbar({
-  actions,
-}: {
-  actions: MessageAction[];
-}) {
-  if (actions.length === 0) return null;
-  return (
-    <div
-      className={cn(
-        "absolute -top-3 right-0 z-10 flex items-center gap-0.5 rounded-lg border bg-card p-0.5 shadow-sm",
-        // Fade-only reveal (reduced-motion safe — no transform/lift).
-        "opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 focus-within:opacity-100",
-      )}
-    >
-      {actions.map((a) => (
-        <Tooltip key={a.key}>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={a.label}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  a.onClick();
-                }}
-                className={cn(
-                  a.active ? "text-foreground" : "text-muted-foreground",
-                )}
-              />
-            }
-          >
-            {a.icon}
-          </TooltipTrigger>
-          <TooltipContent>{a.label}</TooltipContent>
-        </Tooltip>
-      ))}
-    </div>
-  );
-}
-
-// Touch: the same actions as a bottom action sheet, opened by long-pressing the
-// bubble. No persistently-visible on-bubble controls (the clutter we removed).
-function MessageActionsSheet({
-  open,
-  onOpenChange,
-  actions,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  actions: MessageAction[];
-}) {
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" showCloseButton={false} className="rounded-t-2xl p-2">
-        <div className="flex flex-col">
-          {actions.map((a) => (
-            <button
-              key={a.key}
-              type="button"
-              onClick={() => {
-                a.onClick();
-                onOpenChange(false);
-              }}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-3 text-left text-[0.95rem] active:bg-muted",
-                a.active ? "text-foreground" : "text-foreground",
-              )}
-            >
-              <span className="text-muted-foreground">{a.icon}</span>
-              {a.label}
-            </button>
-          ))}
-        </div>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
-// Persistent, glanceable flagged marker that lives on the BUBBLE itself (not in
-// the action UI), so a flagged message reads as flagged whether or not the
-// toolbar/sheet is open. Monochrome corner dot; paired with an inset left rail
-// on the bubble. Bubble-only — non-bubble cases (runtime error / failed stream)
-// use the existing row-tint instead.
-function FlagDot() {
-  return (
-    <span
-      aria-hidden
-      className="absolute -left-1.5 -top-1.5 z-10 flex size-3.5 items-center justify-center rounded-full border-2 border-background bg-foreground text-background"
-    >
-      <Flag className="size-2 fill-current" />
-    </span>
-  );
-}
-
 export const MessageItem = memo(function MessageItem({
   msg,
   agents,
@@ -462,63 +380,58 @@ export const MessageItem = memo(function MessageItem({
       msg.content === "Task cancelled by you" ||
       msg.content === "Task cancelled by user");
 
-  // Per-message actions: one descriptor list, two presentations (hover toolbar
-  // on hover-capable devices, long-press action sheet on touch). Copy is
-  // available on both user and assistant messages; Flag is assistant-only
-  // (flagging your own message is meaningless). Capability is detected, not
-  // viewport-sized, so a touch laptop gets the sheet and a desktop stays hover.
-  const hoverCapable = useHoverCapable();
-  const [actionSheetOpen, setActionSheetOpen] = React.useState(false);
-
-  const doCopy = React.useCallback(async () => {
-    const ok = await copy(msg.content);
-    if (ok) toast.success("Copied to clipboard");
-    else toast.error("Failed to copy");
-  }, [copy, msg.content]);
-
-  const canCopy = msg.role === "assistant" || msg.role === "user";
-  const messageActions: MessageAction[] = [];
-  if (canCopy) {
-    messageActions.push({
-      key: "copy",
-      label: copied ? "Copied" : "Copy",
-      icon: copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />,
-      onClick: doCopy,
-    });
-  }
-  if (msg.role === "assistant" && onToggleFlag) {
-    messageActions.push({
-      key: "flag",
-      label: isFlagged ? "Unflag" : "Flag",
-      icon: <Flag className={cn("size-3.5", isFlagged && "fill-current")} />,
-      onClick: () => onToggleFlag(msg.id),
-      active: isFlagged,
-    });
-  }
-
-  // Long-press (touch only) opens the action sheet. Cancels on movement so it
-  // never hijacks text selection. Spread onto the bubble's interactive surface.
-  const longPress = useLongPress(() => {
-    if (messageActions.length > 0) setActionSheetOpen(true);
-  });
-  // On hover-capable devices, no long-press handlers (mouse keeps select/click).
-  const bubblePressHandlers = !hoverCapable && messageActions.length > 0 ? longPress : {};
-
-  // The shared touch sheet — rendered once per message, opened by long-press.
-  const actionSheet =
-    !hoverCapable && messageActions.length > 0 ? (
-      <MessageActionsSheet
-        open={actionSheetOpen}
-        onOpenChange={setActionSheetOpen}
-        actions={messageActions}
-      />
-    ) : null;
-
-  // The desktop hover toolbar for a given side. Only on hover-capable devices.
-  const toolbar =
-    hoverCapable && messageActions.length > 0 ? (
-      <MessageActionsToolbar actions={messageActions} />
-    ) : null;
+  const actionButtons = msg.role === "assistant" ? (
+    // Vertical on mobile so the right-of-bubble actions don't get clipped at
+    // the screen edge; horizontal from md up where there's room.
+    <div className="flex flex-col sm:flex-row items-center gap-1">
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={copied ? "Copied" : "Copy message"}
+              onClick={async (e) => {
+                e.stopPropagation();
+                const ok = await copy(msg.content);
+                if (ok) toast.success("Copied to clipboard");
+                else toast.error("Failed to copy");
+              }}
+              className={cn(
+                copied
+                  ? "text-green-500 opacity-100"
+                  : "text-muted-foreground sm:opacity-0 sm:group-hover/msg:opacity-100"
+              )}
+            />
+          }
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </TooltipTrigger>
+        <TooltipContent>{copied ? "Copied" : "Copy"}</TooltipContent>
+      </Tooltip>
+      {onToggleFlag && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => onToggleFlag(msg.id)}
+                className={cn(
+                  isFlagged
+                    ? "text-primary opacity-100"
+                    : "text-muted-foreground sm:opacity-0 sm:group-hover/msg:opacity-100"
+                )}
+              />
+            }
+          >
+            <Flag className={cn("size-3.5", isFlagged && "fill-current")} />
+          </TooltipTrigger>
+          <TooltipContent>{isFlagged ? "Unflag" : "Flag"}</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  ) : null;
 
   return (
     <React.Fragment>
@@ -528,10 +441,7 @@ export const MessageItem = memo(function MessageItem({
           {...(isTaskDone ? { "data-quote-source": true } : {})}
         >
           <AgentRow groupPosition={groupPosition} agentName={agentName} config={agentAvatarConfig}>
-            <div
-              className="relative min-w-0 w-fit max-w-full"
-              {...(isTaskDone ? bubblePressHandlers : {})}
-            >
+            <div className="relative min-w-0 w-fit max-w-full">
               <TaskStream
                 task={activeTask}
                 messages={taskMessages}
@@ -539,8 +449,9 @@ export const MessageItem = memo(function MessageItem({
                 onRetry={onRetry}
                 provider={provider}
               />
-              {isTaskDone && toolbar}
-              {isTaskDone && actionSheet}
+              {isTaskDone && actionButtons && (
+                <div className="absolute left-full top-0 ml-1 z-10">{actionButtons}</div>
+              )}
             </div>
           </AgentRow>
         </div>
@@ -550,15 +461,12 @@ export const MessageItem = memo(function MessageItem({
         const skillName = slashMatch?.[1] ?? null;
         const messageBody = slashMatch ? (slashMatch[2] || "") : msg.content;
         return (
-          <div className="group/msg flex flex-col items-end" data-message-id={msg.id} {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
-            <div
-              className={cn(
-                "max-w-[80%] px-3 py-1.5 bg-primary text-primary-foreground text-base relative",
-                USER_BUBBLE_RADIUS[groupPosition],
-                isSendFailed && "opacity-60",
-              )}
-              {...bubblePressHandlers}
-            >
+          <div className="flex flex-col items-end" data-message-id={msg.id} {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
+            <div className={cn(
+              "max-w-[80%] px-4 py-2 bg-primary text-primary-foreground text-base relative",
+              USER_BUBBLE_RADIUS[groupPosition],
+              isSendFailed && "opacity-60",
+            )}>
               {skillName && (
                 <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-primary-foreground/15 text-primary-foreground mb-1">
                   /{skillName}
@@ -569,16 +477,13 @@ export const MessageItem = memo(function MessageItem({
                   <Streamdown plugins={{ mermaid, cjk }} controls={{ code: { copy: true, download: false }, table: { copy: false, download: false, fullscreen: false } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(messageBody, agents)}</Streamdown>
                 </div>
               )}
-              {(() => {
-                if (msg.attachment_ids && msg.attachment_ids.length > 0) {
-                  const hasMatch = msg.attachment_ids.some((id: string) => artifacts.some((a) => a.id === id));
-                  if (hasMatch) return <AttachmentChips attachmentIds={msg.attachment_ids} artifacts={artifacts} onArtifactClick={onArtifactClick} />;
-                }
-                return <PendingFileChips pendingFiles={pendingFilesByMessage} messageId={msg.id} />;
-              })()}
-              {toolbar}
+              {msg.attachment_ids && msg.attachment_ids.length > 0 && (
+                <AttachmentChips attachmentIds={msg.attachment_ids} artifacts={artifacts} onArtifactClick={onArtifactClick} />
+              )}
+              {!msg.attachment_ids && (
+                <PendingFileChips pendingFiles={pendingFilesByMessage} messageId={msg.id} />
+              )}
             </div>
-            {actionSheet}
             {isSendFailed && (
               <button
                 type="button"
@@ -601,19 +506,10 @@ export const MessageItem = memo(function MessageItem({
             : eventCalendarEventId
               ? () => onCalendarEventClick(eventCalendarEventId)
               : undefined;
-        const data = parseEventData(msg.metadata, msg.content, conversationType);
-        let card: React.ReactNode;
-        if (data.type === "email") {
-          card = <EmailCard subject={data.subject} address={data.address} direction={data.direction} onClick={onClick} />;
-        } else if (data.type === "calendar") {
-          card = <CalendarCard title={data.title} scheduledAt={data.scheduledAt} repeatInterval={data.repeatInterval} onClick={onClick} />;
-        } else {
-          card = <IssueCard title={data.title} event={data.event} fromStatus={data.fromStatus} toStatus={data.toStatus} assigneeName={data.agentId ? agents.find(a => a.id === data.agentId)?.name : undefined} onClick={onClick} />;
-        }
         return (
           <div data-message-id={msg.id} {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
             <AgentRow groupPosition={groupPosition} agentName={agentName} config={agentAvatarConfig}>
-              {card}
+              <EventCard content={msg.content} metadata={msg.metadata} conversationType={conversationType} onClick={onClick} />
             </AgentRow>
           </div>
         );
@@ -635,52 +531,32 @@ export const MessageItem = memo(function MessageItem({
         // swallowed (QA AC4). A runtime-error message is the exception: it IS the
         // error, surfaced by the TaskStream above while live, so it still only
         // renders its own RuntimeErrorBlock when no stream owns it (!hasTaskStream).
-        <div
-          className={cn(
-            "group/msg overflow-x-clip",
-            // Non-bubble flagged case (runtime error) → row-tint, since the
-            // rail/dot is bubble-only. The normal text bubble uses the rail+dot
-            // instead, so it must NOT get the tint.
-            isFlagged && msg.metadata?.error_source === "runtime" && "bg-muted/30 rounded-lg px-2 -mx-2",
-          )}
-          data-message-id={msg.id}
-          data-quote-source
-          {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}
-        >
+        <div className="group/msg overflow-x-clip" data-message-id={msg.id} data-quote-source {...(msg.task_id ? { "data-task-id": msg.task_id } : {})}>
           <AgentRow groupPosition={groupPosition} agentName={agentName} config={agentAvatarConfig}>
             {msg.metadata?.error_source === "runtime" ? (
               // A failure is a real message, not a bubble — surface it plainly
-              // with Retry. The action toolbar pins to the OPEN-side (left) top
-              // corner; no on-block flag rail/dot (that's bubble-only) — a
-              // flagged error uses the row-tint instead (see wrapper below).
-              <div
-                className="relative min-w-0 w-fit max-w-full"
-                {...bubblePressHandlers}
-              >
+              // with Retry. actionButtons render as an out-of-flow top-right
+              // overlay so the hidden hover row never reserves height.
+              <div className="relative min-w-0 w-fit max-w-full">
                 <RuntimeErrorBlock
                   provider={(msg.metadata.provider as string | null | undefined) ?? provider}
                   message={msg.content}
                 />
-                {toolbar}
-                {actionSheet}
+                {actionButtons && (
+                  <div className="absolute left-full top-0 ml-1 z-10">{actionButtons}</div>
+                )}
               </div>
             ) : (
-              <div
-                className="relative min-w-0 w-fit max-w-full"
-                {...bubblePressHandlers}
-              >
+              <div className="relative min-w-0 w-fit max-w-full">
                 <div className={cn(
-                  "markdown min-w-0 max-w-full px-3 py-1.5 bg-muted text-foreground text-base",
+                  "markdown min-w-0 max-w-full px-4 py-2 bg-muted text-foreground text-base",
                   AGENT_BUBBLE_RADIUS[groupPosition],
-                  // Persistent flagged rail on the bubble itself — glanceable
-                  // whether or not the toolbar/sheet is open (bubble-only).
-                  isFlagged && "shadow-[inset_2px_0_0_var(--foreground)]",
                 )}>
                   <Streamdown plugins={{ mermaid, cjk }} controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(msg.content, agents)}</Streamdown>
                 </div>
-                {isFlagged && <FlagDot />}
-                {toolbar}
-                {actionSheet}
+                {actionButtons && (
+                  <div className="absolute left-full top-0 ml-1 z-10">{actionButtons}</div>
+                )}
               </div>
             )}
           </AgentRow>

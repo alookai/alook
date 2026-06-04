@@ -18,6 +18,7 @@ export function TauriDragRegion() {
         if (e.button !== 0) return;
         e.preventDefault();
         try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Tauri injects __TAURI__ globally at runtime
           const tauri = (window as any).__TAURI__;
           if (tauri) await tauri.window.getCurrentWindow().startDragging();
         } catch {}

@@ -44,7 +44,16 @@ export async function GET(
     return NextResponse.json({ error: "Failed to fetch releases" }, { status: 502 });
   }
 
-  const releases = (await res.json()) as any[];
+  interface GitHubRelease {
+    tag_name: string;
+    draft: boolean;
+    prerelease: boolean;
+    assets: { name: string; browser_download_url: string }[];
+    body: string | null;
+    published_at: string | null;
+  }
+
+  const releases = (await res.json()) as GitHubRelease[];
   const desktopRelease = releases.find(
     (r) => !r.draft && !r.prerelease && r.tag_name?.startsWith(TAG_PREFIX),
   );
@@ -63,7 +72,7 @@ export async function GET(
     return new NextResponse(null, { status: 204 });
   }
 
-  const assets = desktopRelease.assets as { name: string; browser_download_url: string }[];
+  const assets = desktopRelease.assets;
   const binary = assets.find((a) => a.name.endsWith(suffix) && !a.name.endsWith(".sig"));
   const sig = assets.find((a) => a.name.endsWith(`${suffix}.sig`));
 

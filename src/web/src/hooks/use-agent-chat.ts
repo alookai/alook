@@ -1363,6 +1363,7 @@ export function useAgentChat(
         }
       }, 3000);
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- persistArtifactsToCache is stable (useCallback with no deps)
     [workspaceId],
   );
   useEffect(() => {
@@ -1538,6 +1539,7 @@ export function useAgentChat(
         });
       }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- activeChannelRef is a stable ref, read inside to avoid re-subscribing on channel change
   }, [subscribeWs, conversation?.id, workspaceId, agentId, persistArtifactsToCache]);
 
   useEffect(() => {

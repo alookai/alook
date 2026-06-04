@@ -309,6 +309,7 @@ export function AgentChatView({
         window.open(getArtifactUrl(artifact.id, workspaceId, true), "_blank");
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setState fns are stable
     [workspaceId],
   );
 
@@ -321,6 +322,7 @@ export function AgentChatView({
         window.open(getArtifactUrl(artifact.id, workspaceId, true), "_blank");
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setState fns are stable
     [workspaceId],
   );
 
@@ -368,10 +370,12 @@ export function AgentChatView({
     getAnchorPos: useCallback(
       (triggerStart: number) =>
         composerRef.current?.coordsAtTextIndex(triggerStart) ?? null,
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- composerRef is stable
       [],
     ),
     onAfterSelect: useCallback(() => {
       requestAnimationFrame(() => composerRef.current?.focus());
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- composerRef is stable
     }, []),
   });
 
@@ -434,6 +438,7 @@ export function AgentChatView({
     if (!sending) {
       composerRef.current?.focus();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- composerRef is stable
   }, [sending]);
 
 
@@ -446,6 +451,7 @@ export function AgentChatView({
       window.getSelection()?.removeAllRanges();
       composerRef.current?.focus();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- composerRef and setSelectionPopup are stable
   }, [selectionPopup]);
 
 
@@ -500,6 +506,7 @@ export function AgentChatView({
         });
       }
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setState fns are stable
   }, [
     issueSheetOpen,
     selectedIssueId,
@@ -534,7 +541,7 @@ export function AgentChatView({
             {/* Agent cluster — top [avatar][name] header, bubbles stacked below
                 in the gutter (mirrors AgentRow's Slack/Discord layout). */}
             <div className="flex justify-start items-start gap-2">
-              <Skeleton className="size-[30px] shrink-0 rounded-md" />
+              <Skeleton className="size-7.5 shrink-0 rounded-md" />
               <div className="flex flex-col items-start gap-1 max-w-[86%]">
                 <Skeleton className="h-3 w-20 rounded mb-0.5" />
                 <Skeleton className="h-9 w-64 rounded-[1.05rem]" />
@@ -548,7 +555,7 @@ export function AgentChatView({
             </div>
             {/* Another agent cluster */}
             <div className="flex justify-start items-start gap-2">
-              <Skeleton className="size-[30px] shrink-0 rounded-md" />
+              <Skeleton className="size-7.5 shrink-0 rounded-md" />
               <div className="flex flex-col items-start gap-1 max-w-[86%]">
                 <Skeleton className="h-3 w-20 rounded mb-0.5" />
                 <Skeleton className="h-9 w-56 rounded-[1.05rem]" />
