@@ -32,6 +32,15 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     queries.machineToken.getRegisteredTokenForUser(db, ctx.userId)
   );
   if (!token) {
+    const latest = await withD1Retry(() =>
+      queries.machineToken.getLatestTokenForUser(db, ctx.userId)
+    );
+    if (latest) {
+      return writeJSON(
+        { error: `token exists but status is "${latest.status}", expected "registered"` },
+        409,
+      );
+    }
     return writeJSON({ error: "no registered token found" }, 404);
   }
 

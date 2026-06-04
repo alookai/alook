@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockGetRegisteredTokenForUser = vi.fn();
+const mockGetLatestTokenForUser = vi.fn();
 const mockActivateMachineToken = vi.fn();
 const mockGetMemberByUserAndWorkspace = vi.fn();
 const mockUpsertMachine = vi.fn();
@@ -20,6 +21,7 @@ function sharedMocks() {
       queries: {
         machineToken: {
           getRegisteredTokenForUser: (...a: any[]) => mockGetRegisteredTokenForUser(...a),
+          getLatestTokenForUser: (...a: any[]) => mockGetLatestTokenForUser(...a),
           activateMachineToken: (...a: any[]) => mockActivateMachineToken(...a),
         },
         member: {
@@ -185,5 +187,96 @@ describe("POST /api/machine-tokens/bind-workspace", () => {
 
     expect(res.status).toBe(403);
     expect(body.error).toBe("not a member of this workspace");
+  });
+
+  it("returns 409 when token exists but status is not registered (pending)", async () => {
+    const POST = await loadRoute();
+
+    mockGetRegisteredTokenForUser.mockResolvedValue(null);
+    mockGetLatestTokenForUser.mockResolvedValue({ id: "mt_1", status: "pending" });
+
+    const req = new NextRequest("http://localhost/api/machine-tokens/bind-workspace", {
+      method: "POST",
+      body: JSON.stringify({ workspace_id: "sp_ws1" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body.error).toContain("pending");
+    expect(body.error).toContain("expected \"registered\"");
+  });
+
+  it("returns 409 when token exists but status is active", async () => {
+    const POST = await loadRoute();
+
+    mockGetRegisteredTokenForUser.mockResolvedValue(null);
+    mockGetLatestTokenForUser.mockResolvedValue({ id: "mt_1", status: "active" });
+
+    const req = new NextRequest("http://localhost/api/machine-tokens/bind-workspace", {
+      method: "POST",
+      body: JSON.stringify({ workspace_id: "sp_ws1" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body.error).toContain("active");
+    expect(body.error).toContain("expected \"registered\"");
+  });
+
+  it("returns 404 when no tokens exist at all", async () => {
+    const POST = await loadRoute();
+
+    mockGetRegisteredTokenForUser.mockResolvedValue(null);
+    mockGetLatestTokenForUser.mockResolvedValue(null);
+
+    const req = new NextRequest("http://localhost/api/machine-tokens/bind-workspace", {
+      method: "POST",
+      body: JSON.stringify({ workspace_id: "sp_ws1" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(404);
+    expect(body.error).toBe("no registered token found");
+  });
+
+  it("binds the earliest registered token when multiple exist", async () => {
+    const POST = await loadRoute();
+
+    const earliestToken = {
+      ...registeredToken,
+      id: "mt_earliest",
+      createdAt: "2025-01-01T00:00:00Z",
+    };
+    mockGetRegisteredTokenForUser.mockResolvedValue(earliestToken);
+    mockGetMemberByUserAndWorkspace.mockResolvedValue({ id: "mem_1" });
+    mockActivateMachineToken.mockResolvedValue(undefined);
+    mockUpsertMachine.mockResolvedValue(undefined);
+    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1", provider: "claude" });
+    mockBroadcastToUser.mockResolvedValue(undefined);
+    mockBroadcastToDaemon.mockResolvedValue({ sent: 1 });
+
+    const req = new NextRequest("http://localhost/api/machine-tokens/bind-workspace", {
+      method: "POST",
+      body: JSON.stringify({ workspace_id: "sp_ws1" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+
+    expect(mockActivateMachineToken).toHaveBeenCalledWith(
+      expect.anything(),
+      "mt_earliest",
+      "sp_ws1",
+    );
   });
 });

@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const mockListMachineTokens = vi.fn();
 const mockCreateMachineToken = vi.fn();
 const mockGetPendingMachineToken = vi.fn();
+const mockGetRegisteredTokenForUser = vi.fn();
 const mockMachineTokenToResponse = vi.fn((mt: any) => ({
   id: mt.id,
   name: mt.name,
@@ -36,6 +37,7 @@ vi.mock("@alook/shared", () => ({
       listMachineTokens: (...args: any[]) => mockListMachineTokens(...args),
       createMachineToken: (...args: any[]) => mockCreateMachineToken(...args),
       getPendingMachineToken: (...args: any[]) => mockGetPendingMachineToken(...args),
+      getRegisteredTokenForUser: (...args: any[]) => mockGetRegisteredTokenForUser(...args),
     },
   },
 }));
@@ -101,8 +103,29 @@ describe("POST /api/machine-tokens", () => {
     expect(mockGenerateMachineToken).not.toHaveBeenCalled();
   });
 
+  it("returns existing registered token if one exists (no pending)", async () => {
+    mockGetPendingMachineToken.mockResolvedValue(null);
+    const registered = { id: "mt0", token: "al_registered", name: "default", lastUsedAt: null, createdAt: "2025-01-01T00:00:00Z" };
+    mockGetRegisteredTokenForUser.mockResolvedValue(registered);
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/machine-tokens", {
+        method: "POST",
+        body: JSON.stringify({}),
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.token).toBe("al_registered");
+    expect(mockCreateMachineToken).not.toHaveBeenCalled();
+    expect(mockGenerateMachineToken).not.toHaveBeenCalled();
+  });
+
   it("creates pending token when none exists and returns 201", async () => {
     mockGetPendingMachineToken.mockResolvedValue(null);
+    mockGetRegisteredTokenForUser.mockResolvedValue(null);
     const mt = { id: "mt1", name: "my-token", lastUsedAt: null, createdAt: "2025-01-01T00:00:00Z" };
     mockCreateMachineToken.mockResolvedValue(mt);
 
@@ -134,6 +157,7 @@ describe("POST /api/machine-tokens", () => {
 
   it("returns the raw token in the response", async () => {
     mockGetPendingMachineToken.mockResolvedValue(null);
+    mockGetRegisteredTokenForUser.mockResolvedValue(null);
     const mt = { id: "mt2", name: "default", lastUsedAt: null, createdAt: "2025-01-01T00:00:00Z" };
     mockCreateMachineToken.mockResolvedValue(mt);
 

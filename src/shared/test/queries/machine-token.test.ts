@@ -21,6 +21,7 @@ describe("machine-token exports", () => {
   it("exports registerMachineToken", () => { expect(typeof mt.registerMachineToken).toBe("function"); });
   it("exports activateMachineToken", () => { expect(typeof mt.activateMachineToken).toBe("function"); });
   it("exports getRegisteredTokenForUser", () => { expect(typeof mt.getRegisteredTokenForUser).toBe("function"); });
+  it("exports getLatestTokenForUser", () => { expect(typeof mt.getLatestTokenForUser).toBe("function"); });
   it("exports listMachineTokens", () => { expect(typeof mt.listMachineTokens).toBe("function"); });
   it("exports deleteMachineToken", () => { expect(typeof mt.deleteMachineToken).toBe("function"); });
   it("exports updateMachineTokenLastUsed", () => { expect(typeof mt.updateMachineTokenLastUsed).toBe("function"); });
@@ -109,15 +110,36 @@ describe("getRegisteredTokenForUser", () => {
   it("returns null when none", async () => {
     const chain: any = {};
     chain.select = vi.fn(() => chain); chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain); chain.limit = vi.fn(() => Promise.resolve([]));
+    chain.where = vi.fn(() => chain); chain.orderBy = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([]));
     expect(await mt.getRegisteredTokenForUser(chain, "u")).toBeNull();
   });
-  it("returns registered token", async () => {
+  it("returns registered token ordered by createdAt ASC", async () => {
     const t = { id: "mt_1", status: "registered" };
     const chain: any = {};
     chain.select = vi.fn(() => chain); chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain); chain.limit = vi.fn(() => Promise.resolve([t]));
+    chain.where = vi.fn(() => chain); chain.orderBy = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([t]));
     expect(await mt.getRegisteredTokenForUser(chain, "u")).toEqual(t);
+    expect(chain.orderBy).toHaveBeenCalled();
+  });
+});
+
+describe("getLatestTokenForUser", () => {
+  it("returns null when no tokens exist", async () => {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain); chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain); chain.orderBy = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([]));
+    expect(await mt.getLatestTokenForUser(chain, "u")).toBeNull();
+  });
+  it("returns latest token with status", async () => {
+    const t = { id: "mt_1", status: "active" };
+    const chain: any = {};
+    chain.select = vi.fn(() => chain); chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain); chain.orderBy = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([t]));
+    expect(await mt.getLatestTokenForUser(chain, "u")).toEqual(t);
   });
 });
 

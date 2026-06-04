@@ -216,4 +216,16 @@ export class DaemonClient {
     );
   }
 
+  async checkStandby(
+    token: string,
+    body: RegisterDaemonRequest,
+  ): Promise<RegisterResponse & { standby?: boolean; workspaceId?: string }> {
+    return this.request(
+      "POST",
+      "/api/daemon/register",
+      token,
+      body,
+    );
+  }
+
 }

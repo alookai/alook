@@ -707,6 +707,37 @@ export async function startDaemon(
 
   wsClient?.connect();
 
+  // --- Standby poll fallback: if WS push is lost, periodically check for workspace bindings ---
+  const STANDBY_POLL_MS = 30_000;
+  let standbyPollTimer: ReturnType<typeof setInterval> | null = null;
+
+  if (standbyToken && workspaceStates.length === 0) {
+    const standbyPollTick = async () => {
+      if (workspaceStates.length > 0) {
+        if (standbyPollTimer) { clearInterval(standbyPollTimer); standbyPollTimer = null; }
+        return;
+      }
+      try {
+        const runtimes = providers.map((p) => ({ type: p.type, version: p.version }));
+        const resp = await client.checkStandby(standbyToken, {
+          daemon_id: config.daemonId,
+          device_name: config.deviceName,
+          cli_version: config.cliVersion,
+          workspaces_root: config.workspacesRoot,
+          runtimes,
+        });
+        if (!resp.standby && resp.runtimes.length > 0 && resp.workspaceId) {
+          log.info(`Standby poll: workspace ${resp.workspaceId} discovered via fallback`);
+          await handleWorkspaceAdded(resp.workspaceId, "", standbyToken);
+          if (standbyPollTimer) { clearInterval(standbyPollTimer); standbyPollTimer = null; }
+        }
+      } catch (e) {
+        log.debug("standby poll failed", { err: e instanceof Error ? e.message : String(e) });
+      }
+    };
+    standbyPollTimer = setInterval(standbyPollTick, STANDBY_POLL_MS);
+  }
+
   // --- Sweep timer: triggers server-side sweep + local reconciliation ---
   const sweepTick = async () => {
     for (const ws of workspaceStates) {
@@ -749,6 +780,7 @@ export async function startDaemon(
     clearInterval(pollTimer);
     clearInterval(heartbeatTimer);
     clearInterval(sweepTimer);
+    if (standbyPollTimer) clearInterval(standbyPollTimer);
     stopSkillScanner();
     wsClient?.close();
 
