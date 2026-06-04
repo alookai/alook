@@ -8,10 +8,8 @@ const CORNER_RADIUS: f64 = 10.0;
 pub fn setup_inset_webview(window: &WebviewWindow) {
     use objc2::runtime::AnyObject;
     use objc2::msg_send;
-    use objc2_foundation::NSRect;
 
     unsafe {
-        // Get the WKWebView directly
         let ns_view = window.ns_view().unwrap() as *mut AnyObject;
 
         // Enable layer-backed view for corner radius
@@ -22,62 +20,65 @@ pub fn setup_inset_webview(window: &WebviewWindow) {
             let _: () = msg_send![layer, setMasksToBounds: true];
         }
 
-        // Get the superview (content view) to calculate frame
         let superview: *mut AnyObject = msg_send![ns_view, superview];
-        if !superview.is_null() {
-            let superview_frame: NSRect = msg_send![superview, frame];
-
-            let inset_frame = NSRect::new(
-                objc2_foundation::NSPoint::new(INSET_SIDE, INSET_BOTTOM),
-                objc2_foundation::NSSize::new(
-                    superview_frame.size.width - INSET_SIDE * 2.0,
-                    superview_frame.size.height - INSET_TOP - INSET_BOTTOM,
-                ),
-            );
-            let _: () = msg_send![ns_view, setFrame: inset_frame];
-
-            // Disable autoresizing mask so our manual frame sticks
-            let _: () = msg_send![ns_view, setAutoresizingMask: 0u64];
-        }
-    }
-}
-
-pub fn update_webview_frame(window: &tauri::Window) {
-    use objc2::runtime::AnyObject;
-    use objc2::msg_send;
-    use objc2_foundation::NSRect;
-
-    unsafe {
-        let ns_window = window.ns_window().unwrap() as *mut AnyObject;
-        let content_view: *mut AnyObject = msg_send![ns_window, contentView];
-        if content_view.is_null() {
+        if superview.is_null() {
             return;
         }
 
-        let content_frame: NSRect = msg_send![content_view, frame];
+        // Opt in to Auto Layout for the webview
+        let _: () = msg_send![ns_view, setTranslatesAutoresizingMaskIntoConstraints: false];
 
-        // Find the webview — it's the subview we set the corner radius on
-        let subviews: *mut AnyObject = msg_send![content_view, subviews];
-        let count: usize = msg_send![subviews, count];
-
+        // Remove any existing constraints on the webview (WRY may have added some)
+        let existing: *mut AnyObject = msg_send![ns_view, constraints];
+        let count: usize = msg_send![existing, count];
         for i in 0..count {
-            let view: *mut AnyObject = msg_send![subviews, objectAtIndex: i];
-            let layer: *mut AnyObject = msg_send![view, layer];
-            if layer.is_null() {
-                continue;
-            }
-            let radius: f64 = msg_send![layer, cornerRadius];
-            if radius > 0.0 {
-                let inset_frame = NSRect::new(
-                    objc2_foundation::NSPoint::new(INSET_SIDE, INSET_BOTTOM),
-                    objc2_foundation::NSSize::new(
-                        content_frame.size.width - INSET_SIDE * 2.0,
-                        content_frame.size.height - INSET_TOP - INSET_BOTTOM,
-                    ),
-                );
-                let _: () = msg_send![view, setFrame: inset_frame];
-                break;
+            let c: *mut AnyObject = msg_send![existing, objectAtIndex: i];
+            let _: () = msg_send![ns_view, removeConstraint: c];
+        }
+
+        // Also remove superview constraints that reference this view
+        let sv_constraints: *mut AnyObject = msg_send![superview, constraints];
+        let sv_count: usize = msg_send![sv_constraints, count];
+        // Iterate in reverse so removal doesn't shift indices
+        for i in (0..sv_count).rev() {
+            let c: *mut AnyObject = msg_send![sv_constraints, objectAtIndex: i];
+            let first_item: *mut AnyObject = msg_send![c, firstItem];
+            let second_item: *mut AnyObject = msg_send![c, secondItem];
+            if first_item == ns_view || second_item == ns_view {
+                let _: () = msg_send![superview, removeConstraint: c];
             }
         }
+
+        // Pin webview to superview edges with insets using Auto Layout.
+        // These constraints resize the webview synchronously during layout,
+        // eliminating the flicker from async resize event handlers.
+
+        // leading: webview.leading = superview.leading + INSET_SIDE
+        let leading: *mut AnyObject = msg_send![ns_view, leadingAnchor];
+        let sv_leading: *mut AnyObject = msg_send![superview, leadingAnchor];
+        let c: *mut AnyObject = msg_send![leading, constraintEqualToAnchor: sv_leading, constant: INSET_SIDE];
+        let _: () = msg_send![c, setActive: true];
+
+        // trailing: superview.trailing = webview.trailing + INSET_SIDE
+        let trailing: *mut AnyObject = msg_send![ns_view, trailingAnchor];
+        let sv_trailing: *mut AnyObject = msg_send![superview, trailingAnchor];
+        let c: *mut AnyObject = msg_send![sv_trailing, constraintEqualToAnchor: trailing, constant: INSET_SIDE];
+        let _: () = msg_send![c, setActive: true];
+
+        // top: webview.top = superview.top + INSET_TOP
+        let top: *mut AnyObject = msg_send![ns_view, topAnchor];
+        let sv_top: *mut AnyObject = msg_send![superview, topAnchor];
+        let c: *mut AnyObject = msg_send![top, constraintEqualToAnchor: sv_top, constant: INSET_TOP];
+        let _: () = msg_send![c, setActive: true];
+
+        // bottom: superview.bottom = webview.bottom + INSET_BOTTOM
+        let bottom: *mut AnyObject = msg_send![ns_view, bottomAnchor];
+        let sv_bottom: *mut AnyObject = msg_send![superview, bottomAnchor];
+        let c: *mut AnyObject = msg_send![sv_bottom, constraintEqualToAnchor: bottom, constant: INSET_BOTTOM];
+        let _: () = msg_send![c, setActive: true];
     }
 }
+
+/// No-op — Auto Layout constraints handle resizing synchronously.
+/// Kept as a stub so the on_window_event handler compiles without changes.
+pub fn update_webview_frame(_window: &tauri::Window) {}
