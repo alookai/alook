@@ -112,64 +112,66 @@ export function ConnectMachineSteps({
           Register your CLI
           {registered && <span className="text-xs text-emerald-500 font-normal">Done</span>}
         </p>
-        <p className="text-xs text-muted-foreground pl-7">
-          {isDesktopApp
-            ? "Click to register your machine with Alook."
-            : "Run this in your terminal to link your machine."}
-        </p>
-        {generatingToken ? (
-          <div className="pl-7">
-            <div className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground animate-pulse">
-              Generating token...
-            </div>
-          </div>
-        ) : generatedToken ? (
-          <div className="pl-7 space-y-2">
-            {isDesktopApp ? (
-              <Button
-                size="sm"
-                onClick={executeRegister}
-                disabled={executing === "register" || registered}
-                className="w-full"
-                title={cliPrefix ? `${cliPrefix} register --token <token>` : undefined}
-              >
-                {executing === "register" ? (
-                  <><Loader2 className="size-3 animate-spin mr-1" /> Registering...</>
-                ) : (
-                  <><Play className="size-3 mr-1" /> Register CLI</>
-                )}
-              </Button>
-            ) : (
-              <>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <div
-                        className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors break-all"
-                        onClick={copyRegister}
-                      />
-                    }
-                  >
-                    {cliCmd()} register --token{" "}
-                    <span className="text-foreground/70">
-                      {generatedToken}
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>Click to copy</TooltipContent>
-                </Tooltip>
-                {!registered && (
+        {!registered && (
+          <>
+            <p className="text-xs text-muted-foreground pl-7">
+              {isDesktopApp
+                ? "Click to register your machine with Alook."
+                : "Run this in your terminal to link your machine."}
+            </p>
+            {generatingToken ? (
+              <div className="pl-7">
+                <div className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground animate-pulse">
+                  Generating token...
+                </div>
+              </div>
+            ) : generatedToken ? (
+              <div className="pl-7 space-y-2">
+                {isDesktopApp ? (
                   <Button
                     size="sm"
-                    onClick={copyRegister}
+                    onClick={executeRegister}
+                    disabled={executing === "register"}
                     className="w-full"
+                    title={cliPrefix ? `${cliPrefix} register --token <token>` : undefined}
                   >
-                    Copy Command
+                    {executing === "register" ? (
+                      <><Loader2 className="size-3 animate-spin mr-1" /> Registering...</>
+                    ) : (
+                      <><Play className="size-3 mr-1" /> Register CLI</>
+                    )}
                   </Button>
+                ) : (
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <div
+                            className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors break-all"
+                            onClick={copyRegister}
+                          />
+                        }
+                      >
+                        {cliCmd()} register --token{" "}
+                        <span className="text-foreground/70">
+                          {generatedToken}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>Click to copy</TooltipContent>
+                    </Tooltip>
+                    <Button
+                      size="sm"
+                      onClick={copyRegister}
+                      className="w-full"
+                    >
+                      Copy Command
+                    </Button>
+                  </>
                 )}
-              </>
-            )}
-          </div>
-        ) : null}
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
 
       {/* Step 2 */}
@@ -181,50 +183,54 @@ export function ConnectMachineSteps({
           Start the daemon
           {daemonOnline && <span className="text-xs text-emerald-500 font-normal">Done</span>}
         </p>
-        <p className="text-xs text-muted-foreground pl-7">
-          The daemon connects your local agents to Alook.
-        </p>
-        {isDesktopApp ? (
-          <div className="pl-7">
-            <Button
-              size="sm"
-              onClick={executeDaemonStart}
-              disabled={executing === "daemon" || daemonOnline}
-              className="w-full"
-              title={cliPrefix ? `${cliPrefix} daemon start` : undefined}
-            >
-              {executing === "daemon" ? (
-                <><Loader2 className="size-3 animate-spin mr-1" /> Starting...</>
-              ) : (
-                <><Play className="size-3 mr-1" /> Start Daemon</>
-              )}
-            </Button>
-          </div>
-        ) : (
+        {!daemonOnline && (
           <>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <div
-                    className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
-                    onClick={copyDaemon}
-                  />
-                }
-              >
-                {daemonCmd}
-              </TooltipTrigger>
-              <TooltipContent>Click to copy</TooltipContent>
-            </Tooltip>
-            {registered && !daemonOnline && (
+            <p className="text-xs text-muted-foreground pl-7">
+              The daemon connects your local agents to Alook.
+            </p>
+            {isDesktopApp ? (
               <div className="pl-7">
                 <Button
                   size="sm"
-                  onClick={copyDaemon}
+                  onClick={executeDaemonStart}
+                  disabled={executing === "daemon"}
                   className="w-full"
+                  title={cliPrefix ? `${cliPrefix} daemon start` : undefined}
                 >
-                  Copy Command
+                  {executing === "daemon" ? (
+                    <><Loader2 className="size-3 animate-spin mr-1" /> Starting...</>
+                  ) : (
+                    <><Play className="size-3 mr-1" /> Start Daemon</>
+                  )}
                 </Button>
               </div>
+            ) : (
+              <>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <div
+                        className="ml-7 rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                        onClick={copyDaemon}
+                      />
+                    }
+                  >
+                    {daemonCmd}
+                  </TooltipTrigger>
+                  <TooltipContent>Click to copy</TooltipContent>
+                </Tooltip>
+                {registered && (
+                  <div className="pl-7">
+                    <Button
+                      size="sm"
+                      onClick={copyDaemon}
+                      className="w-full"
+                    >
+                      Copy Command
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}
