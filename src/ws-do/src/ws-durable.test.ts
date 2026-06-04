@@ -93,11 +93,21 @@ vi.mock("@alook/shared", () => {
 // Import after mocks
 import { WebSocketDurableObject } from "./ws-durable"
 
+const mockStubFetch = vi.fn().mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ sent: 1 })))
+const mockCheckAliveFetch = vi.fn().mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ alive: true })))
+
 function createDO() {
   const { ctx, getWebSockets } = createMockCtx()
-  const env = { DB: {} as D1Database, WS_DO: {} as DurableObjectNamespace }
+  const stubGet = vi.fn().mockReturnValue({ fetch: mockStubFetch })
+  const env = {
+    DB: {} as D1Database,
+    WS_DO: {
+      idFromName: vi.fn().mockReturnValue("mock-do-id"),
+      get: stubGet,
+    } as unknown as DurableObjectNamespace,
+  }
   const durable = new WebSocketDurableObject(ctx, env)
-  return { durable, ctx, getWebSockets, env }
+  return { durable, ctx, getWebSockets, env, stubGet }
 }
 
 describe("WebSocketDurableObject", () => {
@@ -314,7 +324,7 @@ describe("WebSocketDurableObject", () => {
       })
 
       const ws = createMockWebSocket()
-      ws.serializeAttachment({ type: "daemon", daemonId: "", authenticated: false })
+      ws.serializeAttachment({ type: "daemon", daemonId: "", userId: "", authenticated: false })
 
       await durable.webSocketMessage(
         ws as any,
@@ -322,7 +332,7 @@ describe("WebSocketDurableObject", () => {
       )
 
       expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
-      expect(ws.deserializeAttachment()).toEqual({ type: "daemon", daemonId: "my-daemon", authenticated: true })
+      expect(ws.deserializeAttachment()).toEqual({ type: "daemon", daemonId: "my-daemon", userId: "u1", authenticated: true })
       expect(mockGetRuntimeIdsByDaemon).not.toHaveBeenCalled()
     })
 
@@ -395,27 +405,31 @@ describe("WebSocketDurableObject", () => {
     })
   })
 
-  describe("webSocketMessage — check_daemon_status", () => {
-    it("returns runtime.status online when daemon WS is connected", async () => {
-      const { durable, getWebSockets } = createDO()
+  describe("webSocketMessage — check_daemon_status (cross-DO)", () => {
+    it("returns runtime.status online when daemon DO reports alive", async () => {
+      const { durable, env } = createDO()
+      mockGetLatestTokenForUser.mockResolvedValue({ hostname: "MyMachine.local" })
 
-      // Simulate a connected daemon WS
-      const daemonWs = createMockWebSocket()
-      daemonWs.serializeAttachment({ type: "daemon", daemonId: "MyMachine.local", authenticated: true })
-      getWebSockets().push(daemonWs as any)
+      const aliveStub = { fetch: vi.fn().mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ alive: true }))) }
+      ;(env.WS_DO as any).get = vi.fn().mockReturnValue(aliveStub)
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
 
       await durable.webSocketMessage(ws as any, JSON.stringify({ type: "check_daemon_status" }))
 
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("daemon:MyMachine.local")
       expect(ws.send).toHaveBeenCalledWith(
         JSON.stringify({ type: "runtime.status", status: "online", daemonId: "MyMachine.local" }),
       )
     })
 
-    it("does not respond when no daemon WS is connected", async () => {
-      const { durable } = createDO()
+    it("does not respond when daemon DO reports not alive", async () => {
+      const { durable, env } = createDO()
+      mockGetLatestTokenForUser.mockResolvedValue({ hostname: "MyMachine.local" })
+
+      const deadStub = { fetch: vi.fn().mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ alive: false }))) }
+      ;(env.WS_DO as any).get = vi.fn().mockReturnValue(deadStub)
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
@@ -425,12 +439,9 @@ describe("WebSocketDurableObject", () => {
       expect(ws.send).not.toHaveBeenCalled()
     })
 
-    it("ignores unauthenticated daemon connections", async () => {
-      const { durable, getWebSockets } = createDO()
-
-      const daemonWs = createMockWebSocket()
-      daemonWs.serializeAttachment({ type: "daemon", daemonId: "Ghost", authenticated: false })
-      getWebSockets().push(daemonWs as any)
+    it("does not respond when no token/hostname found", async () => {
+      const { durable } = createDO()
+      mockGetLatestTokenForUser.mockResolvedValue(null)
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
