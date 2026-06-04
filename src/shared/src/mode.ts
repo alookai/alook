@@ -89,6 +89,18 @@ export function daemonCommand(mode: AlookMode): string {
   return mode === "dev" ? `${base} --foreground` : base;
 }
 
+export function cliPackageName(mode: AlookMode): string {
+  return mode === "app" ? "@alook/app" : "@alook/cli";
+}
+
+export function updateCommand(mode: AlookMode): string {
+  const pkg = cliPackageName(mode);
+  if (mode === "app") {
+    return `npx ${pkg} stop && npx ${pkg}@latest update && npx ${pkg} start`;
+  }
+  return `npx ${pkg}@latest daemon stop && npx ${pkg}@latest daemon start`;
+}
+
 export interface BaseUrlSignals {
   serverUrl?: string;
   appUrl?: string;

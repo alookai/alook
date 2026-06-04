@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { resolveMode, cliCommand, daemonCommand, isTauri, isMobile, type AlookMode } from "@alook/shared"
+import { resolveMode, cliCommand, updateCommand, daemonCommand, isTauri, isMobile, type AlookMode } from "@alook/shared"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -30,4 +30,8 @@ export function cliCmd(): string {
 
 export function daemonStartCmd(): string {
   return daemonCommand(getMode())
+}
+
+export function updateCmd(): string {
+  return updateCommand(getMode())
 }

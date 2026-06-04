@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAgentContext } from "@/contexts/agent-context";
 import { getMinCliVersion, triggerRuntimeUpdate } from "@/lib/api";
 import { semverGte, isTauri, tauriInvoke } from "@alook/shared";
-import { getAppMode } from "@/lib/utils";
+import { getAppMode, updateCmd } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -27,9 +27,7 @@ export function RuntimeVersionGate() {
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const mode = getAppMode();
-  const MANUAL_UPDATE_CMD = mode === "app"
-    ? "npx @alook/app stop && npx @alook/app@latest update && npx @alook/app start"
-    : "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start";
+  const MANUAL_UPDATE_CMD = updateCmd();
 
   useEffect(() => {
     getMinCliVersion().then((res) => setMinVersion(res.min_cli_version)).catch(() => {});

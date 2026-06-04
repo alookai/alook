@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { resolveMode, cliCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "../src/mode";
+import { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "../src/mode";
 
 describe("resolveMode", () => {
   it("production: no signals", () => {
@@ -268,6 +268,60 @@ describe("daemonCommand", () => {
 
   it("mobile → no --foreground", () => {
     expect(daemonCommand("mobile")).toBe("npx @alook/cli daemon start");
+  });
+});
+
+describe("cliPackageName", () => {
+  it("app → @alook/app", () => {
+    expect(cliPackageName("app")).toBe("@alook/app");
+  });
+
+  it("production → @alook/cli", () => {
+    expect(cliPackageName("production")).toBe("@alook/cli");
+  });
+
+  it("desktop → @alook/cli", () => {
+    expect(cliPackageName("desktop")).toBe("@alook/cli");
+  });
+
+  it("mobile → @alook/cli", () => {
+    expect(cliPackageName("mobile")).toBe("@alook/cli");
+  });
+
+  it("dev → @alook/cli", () => {
+    expect(cliPackageName("dev")).toBe("@alook/cli");
+  });
+});
+
+describe("updateCommand", () => {
+  it("app → stop, update, start with @alook/app", () => {
+    expect(updateCommand("app")).toBe(
+      "npx @alook/app stop && npx @alook/app@latest update && npx @alook/app start",
+    );
+  });
+
+  it("production → daemon stop and start with @alook/cli", () => {
+    expect(updateCommand("production")).toBe(
+      "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start",
+    );
+  });
+
+  it("desktop → daemon stop and start with @alook/cli", () => {
+    expect(updateCommand("desktop")).toBe(
+      "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start",
+    );
+  });
+
+  it("mobile → daemon stop and start with @alook/cli", () => {
+    expect(updateCommand("mobile")).toBe(
+      "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start",
+    );
+  });
+
+  it("dev → daemon stop and start with @alook/cli", () => {
+    expect(updateCommand("dev")).toBe(
+      "npx @alook/cli@latest daemon stop && npx @alook/cli@latest daemon start",
+    );
   });
 });
 
