@@ -584,11 +584,11 @@ export function StudioOnboardingClient({
             {!isTauriDesktop && (
               <div className="space-y-3">
                 <h2 className="text-base font-semibold tracking-tight">Connect a computer</h2>
-                {hasOnlineRuntime ? (
+                {(hasOnlineRuntime || (machineRegistered && daemonOnline)) ? (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <p className="text-xs text-emerald-600 flex items-center gap-1">
-                        <CheckCircle2 className="size-3" /> {onlineMachineCount} computer{onlineMachineCount > 1 ? "s" : ""} connected
+                        <CheckCircle2 className="size-3" /> {onlineMachineCount || 1} computer{(onlineMachineCount || 1) > 1 ? "s" : ""} connected
                       </p>
                       <button
                         type="button"
