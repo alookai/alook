@@ -13,14 +13,18 @@ const footerLinks = [
 export function PublicLayout({
   maxWidth = "5xl",
   breadcrumb,
+  leftSlot,
   rightSlot,
   footer = "none",
+  mainClassName,
   children,
 }: {
   maxWidth?: "4xl" | "5xl";
   breadcrumb?: string;
+  leftSlot?: React.ReactNode;
   rightSlot?: React.ReactNode;
   footer?: "simple" | "rich" | "none";
+  mainClassName?: string;
   children: React.ReactNode;
 }) {
   const maxWClass = maxWidth === "4xl" ? "max-w-4xl" : "max-w-5xl";
@@ -29,33 +33,37 @@ export function PublicLayout({
     <div className="min-h-dvh flex flex-col bg-background text-foreground" data-public-layout>
       <nav className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur-sm">
         <div className={`mx-auto flex ${maxWClass} items-center justify-between px-6 py-3`}>
-          <div className="flex items-center gap-1.5">
-            <Link href="/" className="flex items-center gap-1">
-              <Image src="/alook.svg" alt="Alook" width={22} height={22} />
-              <span
-                className="text-lg tracking-tight font-bold"
-                style={{ fontFamily: "var(--font-brand)" }}
-              >
-                Alook
-              </span>
-            </Link>
-            {breadcrumb && (
-              <>
-                <span className="text-muted-foreground/50 text-sm">/</span>
-                <Link
-                  href={`/${breadcrumb.toLowerCase()}`}
-                  className="text-sm font-medium text-foreground hover:text-muted-foreground transition-colors"
+          {leftSlot ? (
+            <div className="flex items-center gap-1.5">{leftSlot}</div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <Link href="/" className="flex items-center gap-1">
+                <Image src="/alook.svg" alt="Alook" width={22} height={22} />
+                <span
+                  className="text-lg tracking-tight font-bold"
+                  style={{ fontFamily: "var(--font-brand)" }}
                 >
-                  {breadcrumb}
-                </Link>
-              </>
-            )}
-          </div>
+                  Alook
+                </span>
+              </Link>
+              {breadcrumb && (
+                <>
+                  <span className="text-muted-foreground/50 text-sm">/</span>
+                  <Link
+                    href={`/${breadcrumb.toLowerCase()}`}
+                    className="text-sm font-medium text-foreground hover:text-muted-foreground transition-colors"
+                  >
+                    {breadcrumb}
+                  </Link>
+                </>
+              )}
+            </div>
+          )}
           {rightSlot && <div className="flex items-center gap-2">{rightSlot}</div>}
         </div>
       </nav>
 
-      <main className="flex-1">{children}</main>
+      <main className={mainClassName ? `flex-1 ${mainClassName}` : "flex-1"}>{children}</main>
 
       {footer === "simple" && (
         <footer className="border-t border-border px-6 py-12">

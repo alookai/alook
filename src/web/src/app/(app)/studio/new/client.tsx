@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { signOut } from "@/lib/auth-client";
 import { clearAllCache } from "@/lib/chat-cache";
 
+import { PublicLayout } from "@/components/public-layout";
 import { ConnectMachineSteps } from "@/components/connect-machine-steps";
 import { ScenarioPicker } from "@/components/studio-onboarding/scenario-picker";
 import { TeamPreview, type TeamMember } from "@/components/studio-onboarding/team-preview";
@@ -291,27 +292,32 @@ export function StudioOnboardingClient({
   // Page 1: Scenario selection
   if (!scenarioId) {
     return (
-      <div className="relative flex min-h-dvh flex-col items-center justify-center px-6 pt-14 pb-6 sm:p-6" data-public-layout>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="absolute top-4 left-4 text-xs text-muted-foreground"
-          onClick={() => router.push("/workspaces")}
-        >
-          <LayoutGrid className="size-3 mr-1.5" />
-          Workspaces
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="absolute top-4 right-4 text-xs text-muted-foreground"
-          onClick={async () => { await clearAllCache(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
-        >
-          <LogOut className="size-3 mr-1.5" />
-          Sign out
-        </Button>
-
-        <div className="w-full max-w-3xl space-y-8">
+      <PublicLayout
+        leftSlot={
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground"
+            onClick={() => router.push("/workspaces")}
+          >
+            <LayoutGrid className="size-3 mr-1.5" />
+            Workspaces
+          </Button>
+        }
+        rightSlot={
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground"
+            onClick={async () => { await clearAllCache(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
+          >
+            <LogOut className="size-3 mr-1.5" />
+            Sign out
+          </Button>
+        }
+        mainClassName="flex items-center justify-center"
+      >
+        <div className="w-full max-w-3xl space-y-8 px-6 py-6">
           <div className="text-center space-y-2">
             <h1
               className="text-2xl font-semibold tracking-tight"
@@ -341,45 +347,49 @@ export function StudioOnboardingClient({
             </div>
           )}
         </div>
-      </div>
+      </PublicLayout>
     );
   }
 
   // Page 2: Build your company
   return (
-    <div className="relative flex min-h-dvh flex-col items-center p-6" data-public-layout>
-      <div className="absolute top-4 left-4 flex items-center gap-1">
+    <PublicLayout
+      leftSlot={
+        <>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground"
+            onClick={() => router.push("/workspaces")}
+          >
+            <LayoutGrid className="size-3 mr-1.5" />
+            Workspaces
+          </Button>
+          <span className="text-muted-foreground/40">/</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs text-muted-foreground"
+            onClick={() => setScenarioId(null)}
+          >
+            <ArrowLeft className="size-3 mr-1.5" />
+            Back
+          </Button>
+        </>
+      }
+      rightSlot={
         <Button
           variant="ghost"
           size="sm"
           className="text-xs text-muted-foreground"
-          onClick={() => router.push("/workspaces")}
+          onClick={async () => { await clearAllCache(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
         >
-          <LayoutGrid className="size-3 mr-1.5" />
-          Workspaces
+          <LogOut className="size-3 mr-1.5" />
+          Sign out
         </Button>
-        <span className="text-muted-foreground/40">/</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-xs text-muted-foreground"
-          onClick={() => setScenarioId(null)}
-        >
-          <ArrowLeft className="size-3 mr-1.5" />
-          Back
-        </Button>
-      </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="absolute top-4 right-4 text-xs text-muted-foreground"
-        onClick={async () => { await clearAllCache(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
-      >
-        <LogOut className="size-3 mr-1.5" />
-        Sign out
-      </Button>
-
-      <div className="w-full max-w-3xl space-y-10 py-14">
+      }
+    >
+      <div className="mx-auto w-full max-w-3xl space-y-10 px-6 py-14">
         {/* Header */}
         <div className="text-center">
           <h1
@@ -516,6 +526,6 @@ export function StudioOnboardingClient({
           </>
         )}
       </div>
-    </div>
+    </PublicLayout>
   );
 }
