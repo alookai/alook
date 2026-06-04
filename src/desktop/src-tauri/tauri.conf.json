@@ -1,12 +1,14 @@
 {
   "productName": "Alook",
   "version": "0.1.0",
-  "identifier": "ai.alook.app",
+  "identifier": "ai.alook.desktop",
   "build": {
     "devUrl": "http://localhost:3000/workspaces?auto",
     "frontendDist": "https://alook.ai/workspaces?auto"
   },
   "bundle": {
+    "active": true,
+    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
