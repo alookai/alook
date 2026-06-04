@@ -1692,16 +1692,23 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 }
 
 /* ── Streamdown fullscreen views: unified styling ── */
+/* Table fullscreen: match mermaid's semi-transparent backdrop-blur look */
 [data-streamdown="table-fullscreen"] {
-  background: var(--background) !important;
-  backdrop-filter: blur(4px);
+  background: oklch(from var(--background) l c h / 95%) !important;
+  backdrop-filter: blur(8px);
   overflow: hidden;
 }
+/* Content area: centered with max-width for readability */
 [data-streamdown="table-fullscreen"] .flex-1.overflow-auto {
   overflow: auto !important;
   display: flex !important;
   align-items: center;
+  justify-content: center !important;
   padding: 1rem !important;
+}
+[data-streamdown="table-fullscreen"] .flex-1.overflow-auto > * {
+  max-width: 64rem !important;
+  width: 100% !important;
 }
 [data-streamdown="table-fullscreen"] [data-streamdown="table"] {
   width: max-content !important;
