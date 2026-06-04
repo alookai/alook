@@ -82,7 +82,7 @@ export function StudioOnboardingClient({
   useEffect(() => {
     getMachineTokenStatus()
       .then((data) => {
-        if (data.status === "registered") {
+        if (data.status === "registered" || data.status === "active") {
           setMachineRegistered(true);
           if (data.daemon_online) setDaemonOnline(true);
           if (data.runtimes?.length) {
@@ -99,12 +99,6 @@ export function StudioOnboardingClient({
               created_at: "",
               updated_at: "",
             })));
-          }
-        } else if (data.status === "active" && data.workspace_id) {
-          setMachineRegistered(true);
-          if (data.daemon_online) setDaemonOnline(true);
-          if (!workspaceId) {
-            setWorkspaceId(data.workspace_id);
           }
         }
       })
