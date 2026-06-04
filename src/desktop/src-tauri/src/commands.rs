@@ -287,27 +287,19 @@ pub fn set_window_theme(window: tauri::WebviewWindow, dark: bool) {
 
         unsafe {
             let ns_window = window.ns_window().unwrap() as *mut AnyObject;
-            if dark {
-                // Dark: oklch(0.16 0.008 60) ≈ RGB(35, 33, 30)
-                let color: *mut AnyObject = msg_send![
-                    objc2::class!(NSColor),
-                    colorWithRed: 0.137f64
-                    green: 0.129f64
-                    blue: 0.118f64
-                    alpha: 1.0f64
-                ];
-                let _: () = msg_send![ns_window, setBackgroundColor: color];
+            let (r, g, b) = if dark {
+                (0.137f64, 0.129f64, 0.118f64)
             } else {
-                // Light: oklch(0.93 0.015 80) ≈ RGB(237, 232, 222)
-                let color: *mut AnyObject = msg_send![
-                    objc2::class!(NSColor),
-                    colorWithRed: 0.929f64
-                    green: 0.910f64
-                    blue: 0.871f64
-                    alpha: 1.0f64
-                ];
-                let _: () = msg_send![ns_window, setBackgroundColor: color];
-            }
+                (0.929f64, 0.910f64, 0.871f64)
+            };
+            let color: *mut AnyObject = msg_send![
+                objc2::class!(NSColor),
+                colorWithRed: r,
+                green: g,
+                blue: b,
+                alpha: 1.0f64
+            ];
+            let _: () = msg_send![ns_window, setBackgroundColor: color];
         }
     }
 }
