@@ -237,6 +237,32 @@ export function StudioOnboardingClient({
         setCreating(false);
         return;
       }
+
+      // In Tauri desktop, the app IS the computer — wait for its runtime to
+      // come online if members don't have runtimeIds assigned yet.
+      let resolvedMembers = members;
+      if (isTauriDesktop && members.some((m) => !m.runtimeId)) {
+        let attempts = 0;
+        let freshRuntimes: Runtime[] = [];
+        while (attempts < 10) {
+          freshRuntimes = await listRuntimes(workspaceId);
+          const firstOnline = freshRuntimes.find((r) => r.status === "online");
+          if (firstOnline) {
+            resolvedMembers = members.map((m) =>
+              m.runtimeId ? m : { ...m, runtimeId: firstOnline.id },
+            );
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 1000));
+          attempts++;
+        }
+        if (resolvedMembers.some((m) => !m.runtimeId)) {
+          toast.error("Waiting for runtime — please ensure the daemon is running");
+          setCreating(false);
+          return;
+        }
+      }
+
       const res = await fetch("/api/studios", {
         method: "POST",
         headers: {
@@ -246,7 +272,7 @@ export function StudioOnboardingClient({
         body: JSON.stringify({
           name: studioName.trim() || undefined,
           scenario: scenarioId,
-          members: members.map((m) => ({
+          members: resolvedMembers.map((m) => ({
             name: m.name,
             role: m.role,
             runtime_id: m.runtimeId,
@@ -281,7 +307,7 @@ export function StudioOnboardingClient({
   const canCreate =
     scenarioId &&
     members.length > 0 &&
-    members.every((m) => m.runtimeId) &&
+    (isTauriDesktop || members.every((m) => m.runtimeId)) &&
     nameValid &&
     (hasOnlineRuntime || machineRegistered || isTauriDesktop);
 
