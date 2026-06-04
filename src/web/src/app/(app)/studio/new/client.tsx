@@ -129,12 +129,14 @@ export function StudioOnboardingClient({
       }
     } else if (msg.type === "runtime.status" && msg.status === "online") {
       setDaemonOnline(true);
+      setRuntimes(prev => prev.map(r => ({ ...r, status: "online" })));
       const wsId = workspaceIdRef.current;
       if (wsId) {
         listRuntimes(wsId).then(setRuntimes).catch(() => {});
       }
     } else if (msg.type === "runtime.status" && msg.status === "offline") {
       setDaemonOnline(false);
+      setRuntimes(prev => prev.map(r => ({ ...r, status: "offline" })));
     }
   }, []);
 
