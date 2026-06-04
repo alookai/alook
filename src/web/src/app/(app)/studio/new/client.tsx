@@ -118,6 +118,8 @@ export function StudioOnboardingClient({
       if (wsId) {
         listRuntimes(wsId).then(setRuntimes).catch(() => {});
       }
+    } else if (msg.type === "runtime.status" && msg.status === "offline") {
+      setDaemonOnline(false);
     }
   }, []);
 

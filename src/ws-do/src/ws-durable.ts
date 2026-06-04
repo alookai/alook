@@ -101,6 +101,14 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     const state = ws.deserializeAttachment() as ConnectionState
     if (state?.type === "daemon" && state.authenticated) {
       log.info("daemon websocket closed", { daemonId: state.daemonId })
+      const msg = JSON.stringify({ type: "runtime.status", status: "offline", daemonId: state.daemonId })
+      for (const other of this.ctx.getWebSockets()) {
+        if (other === ws) continue
+        const s = other.deserializeAttachment() as ConnectionState
+        if (s?.type === "user" && s.authenticated) {
+          try { other.send(msg) } catch {}
+        }
+      }
     }
   }
 
