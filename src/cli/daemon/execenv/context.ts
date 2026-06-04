@@ -243,6 +243,8 @@ Don't bundle everything into one giant message at the end. The user shouldn't ha
 
 \`${cmdPrefix()} sync send-dm --message "…"\` for short messages. For longer or markdown-rich messages, write to a file first and use \`--message-file <path>\` — this preserves formatting and avoids shell escaping issues. The conversation is in $ALOOK_CONVERSATION_ID, so you usually need no flags. You can send several times in one task.
 
+Your messages are rendered as **markdown** in the user's app. Use formatting to make your responses clear and scannable — headers, bullet lists, code blocks, bold for key points. Don't send a wall of plain text when structure would help the reader. For anything beyond a one-liner, prefer \`--message-file\` so you can write proper markdown without fighting shell escaping.
+
 ### Attachments
 When your task includes attachments, their local paths are listed in the prompt JSON under "attachments".
 Use your Read tool to open them. Images and PDFs are read visually.
