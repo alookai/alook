@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, isNull } from "drizzle-orm";
+import { eq, and, desc, asc, isNull, isNotNull } from "drizzle-orm";
 import { machineToken, user } from "../schema";
 import type { Database } from "../index";
 
@@ -107,6 +107,20 @@ export async function getLatestTokenForUser(db: Database, userId: string) {
     })
     .from(machineToken)
     .where(eq(machineToken.userId, userId))
+    .orderBy(desc(machineToken.createdAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getTokenWithRuntimes(db: Database, userId: string) {
+  const rows = await db
+    .select({
+      hostname: machineToken.hostname,
+      runtimesJson: machineToken.runtimesJson,
+      lastUsedAt: machineToken.lastUsedAt,
+    })
+    .from(machineToken)
+    .where(and(eq(machineToken.userId, userId), isNotNull(machineToken.runtimesJson)))
     .orderBy(desc(machineToken.createdAt))
     .limit(1);
   return rows[0] ?? null;
