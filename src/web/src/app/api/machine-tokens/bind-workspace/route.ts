@@ -67,9 +67,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     })
   );
 
-  const runtimesData: Array<{ type: string; version?: string }> = token.runtimesJson
-    ? JSON.parse(token.runtimesJson)
-    : [];
+  let runtimesData: Array<{ type: string; version?: string }> = [];
+  try {
+    runtimesData = token.runtimesJson ? JSON.parse(token.runtimesJson) : [];
+  } catch {
+    return writeJSON({ error: "corrupt runtimes data on token" }, 422);
+  }
 
   const results = [];
   for (const rt of runtimesData) {

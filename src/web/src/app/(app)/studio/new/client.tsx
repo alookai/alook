@@ -44,6 +44,8 @@ export function StudioOnboardingClient({
   const workspaceIdRef = useRef(workspaceId);
   useEffect(() => { workspaceIdRef.current = workspaceId; }, [workspaceId]);
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
+  const runtimesRef = useRef(runtimes);
+  useEffect(() => { runtimesRef.current = runtimes; }, [runtimes]);
   const [loadingRuntimes, setLoadingRuntimes] = useState(!!initialWorkspaceId);
   const [scenarioId, setScenarioId] = useState<ScenarioId | null>(
     initialTemplate ? initialTemplate.baseScenario : null,
@@ -122,29 +124,27 @@ export function StudioOnboardingClient({
       }
     } else if (msg.type === "runtime.status" && msg.status === "online") {
       setDaemonOnline(true);
-      setRuntimes(prev => {
-        if (prev.length === 0) {
-          getMachineTokenStatus().then(data => {
-            if (data.runtimes?.length) {
-              setRuntimes(data.runtimes.map(rt => ({
-                id: rt.id,
-                workspace_id: "",
-                daemon_id: data.hostname || null,
-                runtime_mode: "local",
-                provider: rt.type,
-                status: "online" as const,
-                device_info: data.hostname || "",
-                metadata: { version: rt.version },
-                last_seen_at: null,
-                created_at: "",
-                updated_at: "",
-              })));
-            }
-          }).catch(() => {});
-          return prev;
-        }
-        return prev.map(r => ({ ...r, status: "online" }));
-      });
+      if (runtimesRef.current.length === 0) {
+        getMachineTokenStatus().then(data => {
+          if (data.runtimes?.length) {
+            setRuntimes(data.runtimes.map(rt => ({
+              id: rt.id,
+              workspace_id: "",
+              daemon_id: data.hostname || null,
+              runtime_mode: "local",
+              provider: rt.type,
+              status: "online" as const,
+              device_info: data.hostname || "",
+              metadata: { version: rt.version },
+              last_seen_at: null,
+              created_at: "",
+              updated_at: "",
+            })));
+          }
+        }).catch(() => {});
+      } else {
+        setRuntimes(prev => prev.map(r => ({ ...r, status: "online" })));
+      }
       const wsId = workspaceIdRef.current;
       if (wsId) {
         listRuntimes(wsId).then(setRuntimes).catch(() => {});
@@ -328,6 +328,9 @@ export function StudioOnboardingClient({
           body: JSON.stringify({ workspace_id: resolvedWorkspaceId }),
         });
         if (!bindRes.ok) {
+          // Cleanup orphaned workspace
+          await fetch(`/api/workspaces/${resolvedWorkspaceId}`, { method: "DELETE" }).catch(() => {});
+          setWorkspaceId(null);
           const err = (await bindRes.json().catch(() => ({}))) as { error?: string };
           throw new Error(err.error || "Failed to bind workspace");
         }
