@@ -4,6 +4,8 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON } from "@/lib/middleware/helpers";
 
+const DAEMON_ONLINE_THRESHOLD_MS = 120_000;
+
 export const GET = withAuth(async (_req, ctx) => {
   const { env } = await getCloudflareContext({ async: true });
   const db = getDb((env as Env).DB);
@@ -13,9 +15,14 @@ export const GET = withAuth(async (_req, ctx) => {
     return writeJSON({ status: null });
   }
 
+  const daemonOnline = token.lastUsedAt
+    ? Date.now() - new Date(token.lastUsedAt).getTime() < DAEMON_ONLINE_THRESHOLD_MS
+    : false;
+
   return writeJSON({
     status: token.status,
     workspace_id: token.workspaceId || undefined,
     hostname: token.hostname || undefined,
+    daemon_online: daemonOnline,
   });
 });

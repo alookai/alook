@@ -85,8 +85,10 @@ export function StudioOnboardingClient({
       .then((data) => {
         if (data.status === "registered") {
           setMachineRegistered(true);
+          if (data.daemon_online) setDaemonOnline(true);
         } else if (data.status === "active" && data.workspace_id) {
           setMachineRegistered(true);
+          if (data.daemon_online) setDaemonOnline(true);
           if (!workspaceId) {
             setWorkspaceId(data.workspace_id);
           }
@@ -303,10 +305,10 @@ export function StudioOnboardingClient({
         return;
       }
 
-      // In Tauri desktop, the app IS the computer — wait for its runtime to
-      // come online if members don't have runtimeIds assigned yet.
+      // Wait for runtime to come online if members don't have runtimeIds assigned yet.
+      // After bind-workspace, the daemon registers runtimes — poll until available.
       let resolvedMembers = members;
-      if (isTauriDesktop && members.some((m) => !m.runtimeId)) {
+      if (members.some((m) => !m.runtimeId)) {
         let attempts = 0;
         let freshRuntimes: Runtime[] = [];
         while (attempts < 10) {
@@ -372,7 +374,7 @@ export function StudioOnboardingClient({
   const canCreate =
     scenarioId &&
     members.length > 0 &&
-    (isTauriDesktop || members.every((m) => m.runtimeId)) &&
+    (isTauriDesktop || isNewWorkspace || members.every((m) => m.runtimeId)) &&
     nameValid &&
     (hasOnlineRuntime || machineRegistered || isTauriDesktop);
 
