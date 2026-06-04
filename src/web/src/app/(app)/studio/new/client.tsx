@@ -80,7 +80,6 @@ export function StudioOnboardingClient({
 
   // Recover token state on mount (handles page refresh after register)
   useEffect(() => {
-    if (isTauriDesktop) return;
     getMachineTokenStatus()
       .then((data) => {
         if (data.status === "registered") {
