@@ -122,7 +122,29 @@ export function StudioOnboardingClient({
       }
     } else if (msg.type === "runtime.status" && msg.status === "online") {
       setDaemonOnline(true);
-      setRuntimes(prev => prev.map(r => ({ ...r, status: "online" })));
+      setRuntimes(prev => {
+        if (prev.length === 0) {
+          getMachineTokenStatus().then(data => {
+            if (data.runtimes?.length) {
+              setRuntimes(data.runtimes.map(rt => ({
+                id: rt.id,
+                workspace_id: "",
+                daemon_id: data.hostname || null,
+                runtime_mode: "local",
+                provider: rt.type,
+                status: "online" as const,
+                device_info: data.hostname || "",
+                metadata: { version: rt.version },
+                last_seen_at: null,
+                created_at: "",
+                updated_at: "",
+              })));
+            }
+          }).catch(() => {});
+          return prev;
+        }
+        return prev.map(r => ({ ...r, status: "online" }));
+      });
       const wsId = workspaceIdRef.current;
       if (wsId) {
         listRuntimes(wsId).then(setRuntimes).catch(() => {});
