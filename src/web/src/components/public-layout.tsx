@@ -14,6 +14,7 @@ export function PublicLayout({
   maxWidth = "5xl",
   breadcrumb,
   leftSlot,
+  centerSlot,
   rightSlot,
   footer = "none",
   mainClassName,
@@ -22,6 +23,7 @@ export function PublicLayout({
   maxWidth?: "4xl" | "5xl";
   breadcrumb?: string;
   leftSlot?: React.ReactNode;
+  centerSlot?: React.ReactNode;
   rightSlot?: React.ReactNode;
   footer?: "simple" | "rich" | "none";
   mainClassName?: string;
@@ -31,8 +33,8 @@ export function PublicLayout({
 
   return (
     <div className="min-h-dvh flex flex-col bg-background text-foreground" data-public-layout>
-      <nav className="sticky top-0 z-50 border-b bg-background/90 backdrop-blur-sm">
-        <div className={`mx-auto flex ${maxWClass} items-center justify-between px-6 py-3`}>
+      <nav className="sticky top-0 z-50 bg-background/90 backdrop-blur-[8px] border-b border-border/40">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-2.5">
           {leftSlot ? (
             <div className="flex items-center gap-1.5">{leftSlot}</div>
           ) : (
@@ -59,7 +61,8 @@ export function PublicLayout({
               )}
             </div>
           )}
-          {rightSlot && <div className="flex items-center gap-2">{rightSlot}</div>}
+          {centerSlot && <div className="flex items-center gap-3">{centerSlot}</div>}
+          {rightSlot && <div className="flex items-center gap-3">{rightSlot}</div>}
         </div>
       </nav>
 

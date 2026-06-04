@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { PublicLayout } from "@/components/public-layout";
 import { MemberCard } from "./_components/member-card";
@@ -34,16 +34,35 @@ export function TemplateDetailClient({
     <PublicLayout
       maxWidth="4xl"
       rightSlot={
-        isLoggedIn ? (
-          <Link href="/workspaces?auto" className={buttonVariants({ variant: "outline", size: "sm" })}>
-            <ArrowLeft className="mr-1.5 size-3" />
-            Back to App
+        <>
+          <Link
+            href="/templates"
+            className="hidden sm:block px-3 py-1.5 text-xs uppercase tracking-widest font-mono transition-opacity hover:opacity-70"
+          >
+            Templates
           </Link>
-        ) : (
-          <Link href="/sign-in" className={buttonVariants({ size: "sm" })}>
-            Sign In
+          <Link
+            href="/blog"
+            className="hidden sm:block px-3 py-1.5 text-xs uppercase tracking-widest font-mono transition-opacity hover:opacity-70"
+          >
+            Blog
           </Link>
-        )
+          {isLoggedIn ? (
+            <Link
+              href="/workspaces?auto"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs uppercase tracking-widest font-mono border border-current transition-opacity hover:opacity-70"
+            >
+              App
+            </Link>
+          ) : (
+            <Link
+              href="/sign-in"
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs uppercase tracking-widest font-mono bg-foreground text-background transition-opacity hover:opacity-70"
+            >
+              Get Started
+            </Link>
+          )}
+        </>
       }
     >
       <div className="mx-auto max-w-4xl px-6 py-10">
