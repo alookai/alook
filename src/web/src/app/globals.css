@@ -1692,14 +1692,21 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 }
 
 /* ── Streamdown fullscreen views: unified styling ── */
-/* Mermaid fullscreen (portaled to body): override translucent bg to opaque */
+/* Mermaid fullscreen (portaled to body): unified background */
 .fixed.inset-0.z-50.bg-background\/95.backdrop-blur-sm {
-  background: var(--background) !important;
-  backdrop-filter: none !important;
+  background: oklch(0.1 0.01 60 / 95%) !important;
+  backdrop-filter: blur(8px) !important;
+}
+/* Mermaid fullscreen: apply same node styling as in-bubble */
+.fixed.inset-0.z-50.bg-background\/95 .node rect,
+.fixed.inset-0.z-50.bg-background\/95 .node .basic {
+  rx: 8 !important;
+  ry: 8 !important;
 }
 /* Table fullscreen */
 [data-streamdown="table-fullscreen"] {
-  background: var(--background) !important;
+  background: oklch(0.1 0.01 60 / 95%) !important;
+  backdrop-filter: blur(8px);
   overflow: hidden;
 }
 /* Content area: centered with max-width for readability */
