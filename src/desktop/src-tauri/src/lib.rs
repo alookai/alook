@@ -1,5 +1,8 @@
 mod commands;
 
+#[cfg(target_os = "macos")]
+mod macos_window;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut builder = tauri::Builder::default();
@@ -51,7 +54,7 @@ pub fn run() {
             commands::setup_tray(app)?;
             commands::auto_start_daemon(app.handle().clone());
 
-            // macOS: apply vibrancy effect for a native-feeling window background
+            // macOS: inset the webview with rounded corners, window bg visible as "frame"
             #[cfg(target_os = "macos")]
             {
                 use tauri::Manager;
@@ -62,6 +65,7 @@ pub fn run() {
                         None,
                         None,
                     );
+                    macos_window::setup_inset_webview(&window);
                 }
             }
 
@@ -69,9 +73,16 @@ pub fn run() {
         });
 
         builder = builder.on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                #[cfg(target_os = "macos")]
+                tauri::WindowEvent::Resized(_) => {
+                    macos_window::update_webview_frame(window);
+                }
+                _ => {}
             }
         });
     }
