@@ -416,7 +416,7 @@ export function StudioOnboardingClient({
     members.length > 0 &&
     (isTauriDesktop || isNewWorkspace || members.every((m) => m.runtimeId)) &&
     nameValid &&
-    (hasOnlineRuntime || (machineRegistered && daemonOnline) || isTauriDesktop);
+    (hasOnlineRuntime || (machineRegistered && daemonOnline && runtimes.length > 0) || isTauriDesktop);
 
   // Page 1: Scenario selection
   if (!scenarioId) {
@@ -607,7 +607,7 @@ export function StudioOnboardingClient({
             {!isTauriDesktop && (
               <div className="space-y-3">
                 <h2 className="text-base font-semibold tracking-tight">Connect a computer</h2>
-                {(hasOnlineRuntime || (machineRegistered && daemonOnline)) ? (
+                {(hasOnlineRuntime || (machineRegistered && daemonOnline && runtimes.length > 0)) ? (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <p className="text-xs text-emerald-600 flex items-center gap-1">
