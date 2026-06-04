@@ -86,6 +86,21 @@ export function StudioOnboardingClient({
         if (data.status === "registered") {
           setMachineRegistered(true);
           if (data.daemon_online) setDaemonOnline(true);
+          if (data.runtimes?.length) {
+            setRuntimes(data.runtimes.map((rt) => ({
+              id: rt.id,
+              workspace_id: "",
+              daemon_id: data.hostname || null,
+              runtime_mode: "local",
+              provider: rt.type,
+              status: rt.status,
+              device_info: data.hostname || "",
+              metadata: { version: rt.version },
+              last_seen_at: null,
+              created_at: "",
+              updated_at: "",
+            })));
+          }
         } else if (data.status === "active" && data.workspace_id) {
           setMachineRegistered(true);
           if (data.daemon_online) setDaemonOnline(true);

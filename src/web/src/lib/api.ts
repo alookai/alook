@@ -442,7 +442,7 @@ export const createMachineToken = (name?: string, workspaceId?: string) =>
   );
 
 export const getMachineTokenStatus = () =>
-  apiFetch<{ status: "pending" | "registered" | "active" | null; workspace_id?: string; hostname?: string; daemon_online?: boolean }>(
+  apiFetch<{ status: "pending" | "registered" | "active" | null; workspace_id?: string; hostname?: string; daemon_online?: boolean; runtimes?: Array<{ id: string; type: string; version: string; status: string }> }>(
     "/api/machine-tokens/status",
   );
 

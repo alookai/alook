@@ -103,6 +103,7 @@ export async function getLatestTokenForUser(db: Database, userId: string) {
       workspaceId: machineToken.workspaceId,
       hostname: machineToken.hostname,
       lastUsedAt: machineToken.lastUsedAt,
+      runtimesJson: machineToken.runtimesJson,
     })
     .from(machineToken)
     .where(eq(machineToken.userId, userId))
