@@ -74,7 +74,7 @@ describe("alook register", () => {
     }));
   }
 
-  it("stores workspace_id from activate response in config", async () => {
+  it("stores machine_token in config (not watched_workspaces)", async () => {
     mockLoadCLIConfigForProfile.mockReturnValue({
       server_url: "http://localhost:3000",
       watched_workspaces: [],
@@ -85,10 +85,8 @@ describe("alook register", () => {
       "/api/me": { status: 200, body: { id: "u1", email: "test@test.com" } },
       "/api/machine-tokens/activate": {
         status: 200,
-        body: { daemon_id: "host1", workspace_id: "sp_new123", runtimes: [{ id: "r1", provider: "claude" }] },
+        body: { daemon_id: "host1", token_status: "registered" },
       },
-      "/api/workspaces": { status: 200, body: [{ id: "sp_new123", name: "New WS" }] },
-      "/api/agents": { status: 200, body: [] },
     });
 
     const cmd = registerCommand();
@@ -97,14 +95,14 @@ describe("alook register", () => {
     expect(mockSaveCLIConfigForProfile).toHaveBeenCalledWith(
       undefined,
       expect.objectContaining({
-        watched_workspaces: [
-          { id: "sp_new123", name: "New WS", token: "al_testtoken123", agent_ids: [] },
-        ],
+        server_url: "http://localhost:3000",
+        machine_token: "al_testtoken123",
+        watched_workspaces: [],
       }),
     );
   });
 
-  it("appends new workspace to existing config (does not replace)", async () => {
+  it("preserves existing watched_workspaces", async () => {
     mockLoadCLIConfigForProfile.mockReturnValue({
       server_url: "http://localhost:3000",
       watched_workspaces: [
@@ -117,16 +115,8 @@ describe("alook register", () => {
       "/api/me": { status: 200, body: { id: "u1", email: "test@test.com" } },
       "/api/machine-tokens/activate": {
         status: 200,
-        body: { daemon_id: "host1", workspace_id: "sp_second", runtimes: [{ id: "r1", provider: "claude" }] },
+        body: { daemon_id: "host1", token_status: "registered" },
       },
-      "/api/workspaces": {
-        status: 200,
-        body: [
-          { id: "sp_existing", name: "Existing" },
-          { id: "sp_second", name: "Second WS" },
-        ],
-      },
-      "/api/agents": { status: 200, body: [{ id: "ag_new" }] },
     });
 
     const cmd = registerCommand();
@@ -137,40 +127,8 @@ describe("alook register", () => {
       expect.objectContaining({
         watched_workspaces: [
           { id: "sp_existing", name: "Existing", token: "al_old", agent_ids: ["ag_1"] },
-          { id: "sp_second", name: "Second WS", token: "al_newtoken", agent_ids: ["ag_new"] },
         ],
-      }),
-    );
-  });
-
-  it("updates workspace in-place when same workspace_id already exists", async () => {
-    mockLoadCLIConfigForProfile.mockReturnValue({
-      server_url: "http://localhost:3000",
-      watched_workspaces: [
-        { id: "sp_same", name: "Old Name", token: "al_old", agent_ids: [] },
-      ],
-    });
-    mockReadDaemonPid.mockReturnValue(null);
-
-    mockFetch({
-      "/api/me": { status: 200, body: { id: "u1", email: "test@test.com" } },
-      "/api/machine-tokens/activate": {
-        status: 200,
-        body: { daemon_id: "host1", workspace_id: "sp_same", runtimes: [{ id: "r1", provider: "claude" }] },
-      },
-      "/api/workspaces": { status: 200, body: [{ id: "sp_same", name: "Updated Name" }] },
-      "/api/agents": { status: 200, body: [{ id: "ag_x" }] },
-    });
-
-    const cmd = registerCommand();
-    await cmd.parseAsync(["node", "register", "--token", "al_renewed", "--server", "http://localhost:3000"]);
-
-    expect(mockSaveCLIConfigForProfile).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        watched_workspaces: [
-          { id: "sp_same", name: "Updated Name", token: "al_renewed", agent_ids: ["ag_x"] },
-        ],
+        machine_token: "al_newtoken",
       }),
     );
   });
@@ -187,10 +145,8 @@ describe("alook register", () => {
       "/api/me": { status: 200, body: { id: "u1", email: "test@test.com" } },
       "/api/machine-tokens/activate": {
         status: 200,
-        body: { daemon_id: "host1", workspace_id: "sp_1", runtimes: [{ id: "r1", provider: "claude" }] },
+        body: { daemon_id: "host1", token_status: "registered" },
       },
-      "/api/workspaces": { status: 200, body: [{ id: "sp_1", name: "WS" }] },
-      "/api/agents": { status: 200, body: [] },
     });
 
     const cmd = registerCommand();
@@ -211,10 +167,8 @@ describe("alook register", () => {
       "/api/me": { status: 200, body: { id: "u1", email: "test@test.com" } },
       "/api/machine-tokens/activate": {
         status: 200,
-        body: { daemon_id: "host1", workspace_id: "sp_1", runtimes: [{ id: "r1", provider: "claude" }] },
+        body: { daemon_id: "host1", token_status: "registered" },
       },
-      "/api/workspaces": { status: 200, body: [{ id: "sp_1", name: "WS" }] },
-      "/api/agents": { status: 200, body: [] },
     });
 
     const cmd = registerCommand();

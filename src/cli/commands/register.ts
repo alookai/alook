@@ -53,8 +53,8 @@ export function registerCommand(): Command {
       const result = await activateAndSave({ token, serverUrl, profile });
 
       console.log(`\nRegistered as ${me.email}`);
-      console.log(`Workspace: ${result.workspaceName} (${result.workspaceId})`);
-      console.log(`Runtimes: ${result.runtimeProviders.join(", ")}`);
+      console.log(`Machine: ${result.daemonId} (status: ${result.tokenStatus})`);
+      console.log(`Workspace binding will happen when you launch a company.`);
     });
 
   return cmd;

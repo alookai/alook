@@ -66,11 +66,32 @@ export async function getPendingMachineToken(
   return rows[0] ?? null;
 }
 
+export async function registerMachineToken(
+  db: Database,
+  id: string,
+  hostname: string,
+  runtimesJson: string,
+) {
+  await db
+    .update(machineToken)
+    .set({ status: "registered", hostname, runtimesJson })
+    .where(eq(machineToken.id, id));
+}
+
 export async function activateMachineToken(db: Database, id: string, workspaceId?: string) {
   await db
     .update(machineToken)
     .set({ status: "active", ...(workspaceId ? { workspaceId } : {}) })
     .where(eq(machineToken.id, id));
+}
+
+export async function getRegisteredTokenForUser(db: Database, userId: string) {
+  const rows = await db
+    .select()
+    .from(machineToken)
+    .where(and(eq(machineToken.userId, userId), eq(machineToken.status, "registered")))
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 export async function listMachineTokens(

@@ -2,13 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockGetMachineTokenByToken = vi.fn();
-const mockActivateMachineToken = vi.fn();
-const mockUpsertMachine = vi.fn();
-const mockUpsertAgentRuntime = vi.fn();
+const mockRegisterMachineToken = vi.fn();
 const mockBroadcastToUser = vi.fn();
-const mockListWorkspaces = vi.fn();
-const mockCreateWorkspace = vi.fn();
-const mockCreateMember = vi.fn();
 
 function sharedMocks() {
   return {
@@ -20,32 +15,15 @@ function sharedMocks() {
       queries: {
         machineToken: {
           getMachineTokenByToken: (...a: any[]) => mockGetMachineTokenByToken(...a),
-          activateMachineToken: (...a: any[]) => mockActivateMachineToken(...a),
-        },
-        machine: {
-          upsertMachine: (...a: any[]) => mockUpsertMachine(...a),
-        },
-        runtime: {
-          upsertAgentRuntime: (...a: any[]) => mockUpsertAgentRuntime(...a),
-        },
-        workspace: {
-          listWorkspaces: (...a: any[]) => mockListWorkspaces(...a),
-          createWorkspace: (...a: any[]) => mockCreateWorkspace(...a),
-        },
-        member: {
-          createMember: (...a: any[]) => mockCreateMember(...a),
+          registerMachineToken: (...a: any[]) => mockRegisterMachineToken(...a),
         },
       },
       ActivateTokenRequestSchema: (await import("@alook/shared"))
         .ActivateTokenRequestSchema,
-      generateWorkspaceSlug: () => "studio-test1234",
       createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }),
     }),
     "@/lib/broadcast": {
       broadcastToUser: (...a: any[]) => mockBroadcastToUser(...a),
-    },
-    "@/lib/api/responses": {
-      runtimeToResponse: (rt: any) => ({ id: rt.id, provider: rt.provider }),
     },
   };
 }
@@ -70,7 +48,10 @@ describe("POST /api/machine-tokens/activate", () => {
     vi.doMock("@alook/shared", mocks["@alook/shared"]);
     vi.doMock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
     vi.doMock("@/lib/broadcast", () => mocks["@/lib/broadcast"]);
-    vi.doMock("@/lib/api/responses", () => mocks["@/lib/api/responses"]);
+    vi.doMock("@/lib/cache", () => ({
+      invalidate: vi.fn(() => Promise.resolve()),
+      cacheKeys: { machineToken: (t: string) => `mt:${t}` },
+    }));
     vi.doMock("@/lib/middleware/helpers", async () => {
       return await vi.importActual<typeof import("@/lib/middleware/helpers")>(
         "@/lib/middleware/helpers"
@@ -90,26 +71,58 @@ describe("POST /api/machine-tokens/activate", () => {
   const pendingToken = {
     id: "mt_1",
     userId: "u1",
-    workspaceId: "sp_correct_workspace",
+    workspaceId: null,
     status: "pending",
   };
 
-  it("returns workspace_id in the response", async () => {
+  it("transitions token to registered status", async () => {
     const POST = await loadRoute();
 
     mockGetMachineTokenByToken.mockResolvedValue(pendingToken);
-    mockUpsertMachine.mockResolvedValue(undefined);
-    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1", provider: "claude" });
-    mockActivateMachineToken.mockResolvedValue(undefined);
+    mockRegisterMachineToken.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
 
     const res = await POST(makeReq(validBody));
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.workspace_id).toBe("sp_correct_workspace");
     expect(body.daemon_id).toBe("TestMachine.local");
-    expect(body.runtimes).toHaveLength(1);
+    expect(body.token_status).toBe("registered");
+    expect(body.workspace_id).toBeUndefined();
+    expect(body.runtimes).toBeUndefined();
+  });
+
+  it("stores hostname and runtimes on the token", async () => {
+    const POST = await loadRoute();
+
+    mockGetMachineTokenByToken.mockResolvedValue(pendingToken);
+    mockRegisterMachineToken.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    await POST(makeReq(validBody));
+
+    expect(mockRegisterMachineToken).toHaveBeenCalledWith(
+      expect.anything(),
+      "mt_1",
+      "TestMachine.local",
+      JSON.stringify([{ type: "claude", version: "2.1.0" }]),
+    );
+  });
+
+  it("broadcasts machine.registered event", async () => {
+    const POST = await loadRoute();
+
+    mockGetMachineTokenByToken.mockResolvedValue(pendingToken);
+    mockRegisterMachineToken.mockResolvedValue(undefined);
+    mockBroadcastToUser.mockResolvedValue(undefined);
+
+    await POST(makeReq(validBody));
+
+    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", {
+      type: "machine.registered",
+      daemonId: "TestMachine.local",
+      hostname: "TestMachine.local",
+    });
   });
 
   it("returns 404 when token not found", async () => {
@@ -122,7 +135,7 @@ describe("POST /api/machine-tokens/activate", () => {
 
     expect(res.status).toBe(404);
     expect(body.error).toBe("token not found");
-    expect(mockUpsertMachine).not.toHaveBeenCalled();
+    expect(mockRegisterMachineToken).not.toHaveBeenCalled();
   });
 
   it("returns 409 when token already used", async () => {
@@ -135,62 +148,19 @@ describe("POST /api/machine-tokens/activate", () => {
 
     expect(res.status).toBe(409);
     expect(body.error).toBe("token already used");
-    expect(mockUpsertMachine).not.toHaveBeenCalled();
+    expect(mockRegisterMachineToken).not.toHaveBeenCalled();
   });
 
-  it("creates machine and runtime with token's workspace_id", async () => {
+  it("does not create workspace or machine rows", async () => {
     const POST = await loadRoute();
 
     mockGetMachineTokenByToken.mockResolvedValue(pendingToken);
-    mockUpsertMachine.mockResolvedValue(undefined);
-    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1", provider: "claude" });
-    mockActivateMachineToken.mockResolvedValue(undefined);
+    mockRegisterMachineToken.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
 
     await POST(makeReq(validBody));
 
-    expect(mockUpsertMachine).toHaveBeenCalledWith(expect.anything(), {
-      daemonId: "TestMachine.local",
-      workspaceId: "sp_correct_workspace",
-      deviceInfo: "TestMachine.local",
-      lastSeenAt: null,
-    });
-
-    expect(mockUpsertAgentRuntime).toHaveBeenCalledWith(expect.anything(), {
-      workspaceId: "sp_correct_workspace",
-      daemonId: "TestMachine.local",
-      runtimeMode: "local",
-      provider: "claude",
-      deviceInfo: "TestMachine.local",
-      metadata: { version: "2.1.0" },
-    });
-  });
-
-  it("creates a new workspace when token has no workspace_id", async () => {
-    const POST = await loadRoute();
-
-    const tokenNoWs = { id: "mt_2", userId: "u1", workspaceId: null, status: "pending" };
-    mockGetMachineTokenByToken.mockResolvedValue(tokenNoWs);
-    mockCreateWorkspace.mockResolvedValue({ id: "sp_new_ws" });
-    mockCreateMember.mockResolvedValue(undefined);
-    mockUpsertMachine.mockResolvedValue(undefined);
-    mockUpsertAgentRuntime.mockResolvedValue({ id: "r1", provider: "claude" });
-    mockActivateMachineToken.mockResolvedValue(undefined);
-    mockBroadcastToUser.mockResolvedValue(undefined);
-
-    const res = await POST(makeReq(validBody));
-    const body = await res.json();
-
-    expect(res.status).toBe(200);
-    expect(body.workspace_id).toBe("sp_new_ws");
-    expect(mockCreateWorkspace).toHaveBeenCalledWith(expect.anything(), {
-      name: "Personal",
-      slug: "studio-test1234",
-    });
-    expect(mockCreateMember).toHaveBeenCalledWith(expect.anything(), {
-      workspaceId: "sp_new_ws",
-      userId: "u1",
-      role: "owner",
-    });
+    // Only registerMachineToken should be called — no workspace/machine/runtime creation
+    expect(mockRegisterMachineToken).toHaveBeenCalledTimes(1);
   });
 });

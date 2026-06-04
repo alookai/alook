@@ -650,6 +650,8 @@ export const machineToken = sqliteTable(
     token: text("token").unique().notNull(),
     name: text("name").notNull().default(""),
     status: text("status").notNull().default("active"),
+    hostname: text("hostname"),
+    runtimesJson: text("runtimes_json"),
     lastUsedAt: text("last_used_at"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },

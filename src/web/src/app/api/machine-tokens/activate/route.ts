@@ -1,9 +1,8 @@
 import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, ActivateTokenRequestSchema, createLogger, generateWorkspaceSlug } from "@alook/shared";
+import { queries, ActivateTokenRequestSchema, createLogger } from "@alook/shared";
 import { getDb } from "@/lib/db"
 import { writeJSON } from "@/lib/middleware/helpers";
-import { runtimeToResponse } from "@/lib/api/responses";
 import { broadcastToUser } from "@/lib/broadcast";
 import { invalidate, cacheKeys } from "@/lib/cache";
 
@@ -35,70 +34,28 @@ export async function POST(req: NextRequest) {
     return writeJSON({ error: "token already used" }, 409);
   }
 
-  // Resolve workspace: use token's workspace or create new
-  let workspaceId = mt.workspaceId;
-  if (!workspaceId) {
-    const ws = await queries.workspace.createWorkspace(db, {
-      name: "Personal",
-      slug: generateWorkspaceSlug(),
-    });
-    await queries.member.createMember(db, {
-      workspaceId: ws.id,
-      userId: mt.userId,
-      role: "owner",
-    });
-    workspaceId = ws.id;
-  }
-
-  // Use hostname as daemonId — must match what the daemon uses (os.hostname())
-  // so that daemon start's upsert hits the same records instead of creating duplicates
-  const daemonId = hostname;
-
-  // Create machine row with last_seen_at = null (offline by default until daemon starts)
-  await queries.machine.upsertMachine(db, {
-    daemonId,
-    workspaceId,
-    deviceInfo: hostname,
-    lastSeenAt: null,
-  });
-
-  const results = [];
-  for (const rt of runtimes) {
-    const result = await queries.runtime.upsertAgentRuntime(db, {
-      workspaceId,
-      daemonId,
-      runtimeMode: "local",
-      provider: rt.type,
-      deviceInfo: hostname,
-      metadata: { version: rt.version },
-    });
-    results.push({ ...result, machineLastSeenAt: null });
-  }
-
-  await queries.machineToken.activateMachineToken(db, mt.id, workspaceId);
-  await Promise.all([
-    invalidate(cacheKeys.machineToken(token)),
-    invalidate(cacheKeys.runtimeIds(workspaceId, daemonId)),
-    invalidate(cacheKeys.allRuntimes(workspaceId)),
-  ]);
-
-  // Notify the web UI (fire-and-forget to avoid blocking the response)
-  broadcastToUser(mt.userId, {
-    type: "runtime.registered",
-    daemonId,
+  await queries.machineToken.registerMachineToken(
+    db,
+    mt.id,
     hostname,
-    workspaceId,
+    JSON.stringify(runtimes),
+  );
+
+  await invalidate(cacheKeys.machineToken(token));
+
+  broadcastToUser(mt.userId, {
+    type: "machine.registered",
+    daemonId: hostname,
+    hostname,
   }).catch((err) => {
-    log.warn("broadcast after activation failed", {
+    log.warn("broadcast after registration failed", {
       userId: mt.userId,
-      daemonId,
       err: err instanceof Error ? err.message : String(err),
     });
   });
 
   return writeJSON({
-    daemon_id: daemonId,
-    workspace_id: workspaceId,
-    runtimes: results.map(runtimeToResponse),
+    daemon_id: hostname,
+    token_status: "registered",
   });
 }

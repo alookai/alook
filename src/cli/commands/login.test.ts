@@ -135,9 +135,8 @@ describe("alook login", () => {
       undefined,
       expect.objectContaining({
         server_url: "http://localhost:3000",
-        watched_workspaces: [
-          { id: "sp_ws1", name: "My Workspace", token: "al_machine_tok", agent_ids: ["ag_1"] },
-        ],
+        machine_token: "al_machine_tok",
+        watched_workspaces: [],
       }),
     );
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Logged in as test@alook.ai"));

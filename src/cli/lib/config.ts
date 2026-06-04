@@ -12,11 +12,13 @@ interface WatchedWorkspace {
 interface ProfileConfig {
   server_url: string;
   watched_workspaces: WatchedWorkspace[];
+  machine_token?: string;
 }
 
 interface CLIConfig {
   server_url?: string;
   watched_workspaces?: WatchedWorkspace[];
+  machine_token?: string;
   default_profile?: string;
   profiles?: Record<string, ProfileConfig>;
 }
@@ -48,6 +50,7 @@ export function loadCLIConfigForProfile(profile?: string): ProfileConfig {
   return {
     server_url: cfg.server_url || "",
     watched_workspaces: cfg.watched_workspaces || [],
+    machine_token: cfg.machine_token,
   };
 }
 
@@ -67,6 +70,9 @@ export function saveCLIConfigForProfile(
   } else {
     cfg.server_url = profileConfig.server_url;
     cfg.watched_workspaces = profileConfig.watched_workspaces;
+    if (profileConfig.machine_token !== undefined) {
+      cfg.machine_token = profileConfig.machine_token;
+    }
   }
   saveCLIConfig(cfg);
 }

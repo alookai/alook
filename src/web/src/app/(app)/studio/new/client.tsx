@@ -80,7 +80,9 @@ export function StudioOnboardingClient({
   // WebSocket for runtime registration events
   const handleWsMessage = useCallback((msg: WsMessage) => {
     const currentWsId = workspaceIdRef.current;
-    if (msg.type === "runtime.registered") {
+    if (msg.type === "machine.registered") {
+      setMachineRegistered(true);
+    } else if (msg.type === "runtime.registered") {
       setMachineRegistered(true);
       const eventWsId = msg.workspaceId;
       if (eventWsId && !currentWsId) {
@@ -238,7 +240,39 @@ export function StudioOnboardingClient({
   const handleCreate = async () => {
     setCreating(true);
     try {
-      if (!workspaceId) {
+      let resolvedWorkspaceId = workspaceId;
+
+      if (!resolvedWorkspaceId) {
+        // Create workspace + bind machine token
+        const wsRes = await fetch("/api/workspaces", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: studioName.trim() || "Personal",
+            slug: (studioName.trim() || "personal").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+          }),
+        });
+        if (!wsRes.ok) {
+          const err = (await wsRes.json().catch(() => ({}))) as { error?: string };
+          throw new Error(err.error || "Failed to create workspace");
+        }
+        const wsData = (await wsRes.json()) as { id: string; slug: string };
+        resolvedWorkspaceId = wsData.id;
+        setWorkspaceId(resolvedWorkspaceId);
+
+        // Bind workspace to machine token
+        const bindRes = await fetch("/api/machine-tokens/bind-workspace", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workspace_id: resolvedWorkspaceId }),
+        });
+        if (!bindRes.ok) {
+          const err = (await bindRes.json().catch(() => ({}))) as { error?: string };
+          throw new Error(err.error || "Failed to bind workspace");
+        }
+      }
+
+      if (!resolvedWorkspaceId) {
         toast.error("Please connect a computer first");
         setCreating(false);
         return;
@@ -251,7 +285,7 @@ export function StudioOnboardingClient({
         let attempts = 0;
         let freshRuntimes: Runtime[] = [];
         while (attempts < 10) {
-          freshRuntimes = await listRuntimes(workspaceId);
+          freshRuntimes = await listRuntimes(resolvedWorkspaceId);
           const firstOnline = freshRuntimes.find((r) => r.status === "online");
           if (firstOnline) {
             resolvedMembers = members.map((m) =>
@@ -273,7 +307,7 @@ export function StudioOnboardingClient({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Workspace-ID": workspaceId,
+          "X-Workspace-ID": resolvedWorkspaceId,
         },
         body: JSON.stringify({
           name: studioName.trim() || undefined,
