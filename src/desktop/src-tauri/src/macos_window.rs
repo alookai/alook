@@ -8,8 +8,8 @@ const CORNER_RADIUS: f64 = 10.0;
 pub fn setup_inset_webview(window: &WebviewWindow) {
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
-    use objc2::{msg_send, class};
-    use objc2_app_kit::{NSView, NSWindow, NSColor};
+    use objc2::msg_send;
+    use objc2_app_kit::{NSWindow, NSColor};
     use objc2_foundation::NSRect;
 
     let ns_window: Retained<NSWindow> = unsafe {
@@ -18,14 +18,15 @@ pub fn setup_inset_webview(window: &WebviewWindow) {
     };
 
     unsafe {
-        // Make window background transparent so vibrancy shows through
         ns_window.setBackgroundColor(Some(&NSColor::clearColor()));
 
         let content_view = ns_window.contentView().unwrap();
         let subviews = content_view.subviews();
+        let count: usize = msg_send![&*subviews, count];
 
-        // The WKWebView is typically the first (or only) subview of the content view
-        if let Some(webview) = subviews.first() {
+        if count > 0 {
+            let webview: *mut AnyObject = msg_send![&*subviews, objectAtIndex: 0usize];
+
             // Enable layer-backed view for corner radius
             let _: () = msg_send![webview, setWantsLayer: true];
             let layer: *mut AnyObject = msg_send![webview, layer];
@@ -43,7 +44,7 @@ pub fn setup_inset_webview(window: &WebviewWindow) {
                     content_frame.size.height - INSET_TOP - INSET_BOTTOM,
                 ),
             );
-            webview.setFrame(inset_frame);
+            let _: () = msg_send![webview, setFrame: inset_frame];
 
             // Disable autoresizing mask so our manual frame sticks
             let _: () = msg_send![webview, setAutoresizingMask: 0u64];
@@ -54,8 +55,8 @@ pub fn setup_inset_webview(window: &WebviewWindow) {
 pub fn update_webview_frame(window: &tauri::Window) {
     use objc2::rc::Retained;
     use objc2::runtime::AnyObject;
-    use objc2::{msg_send};
-    use objc2_app_kit::{NSView, NSWindow};
+    use objc2::msg_send;
+    use objc2_app_kit::NSWindow;
     use objc2_foundation::NSRect;
 
     let ns_window: Retained<NSWindow> = unsafe {
@@ -66,8 +67,10 @@ pub fn update_webview_frame(window: &tauri::Window) {
     unsafe {
         let content_view = ns_window.contentView().unwrap();
         let subviews = content_view.subviews();
+        let count: usize = msg_send![&*subviews, count];
 
-        if let Some(webview) = subviews.first() {
+        if count > 0 {
+            let webview: *mut AnyObject = msg_send![&*subviews, objectAtIndex: 0usize];
             let content_frame = content_view.frame();
             let inset_frame = NSRect::new(
                 objc2_foundation::NSPoint::new(INSET_SIDE, INSET_BOTTOM),
@@ -76,7 +79,7 @@ pub fn update_webview_frame(window: &tauri::Window) {
                     content_frame.size.height - INSET_TOP - INSET_BOTTOM,
                 ),
             );
-            webview.setFrame(inset_frame);
+            let _: () = msg_send![webview, setFrame: inset_frame];
         }
     }
 }
