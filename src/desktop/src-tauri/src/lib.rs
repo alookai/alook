@@ -44,6 +44,7 @@ pub fn run() {
             commands::cli_check,
             commands::check_for_updates,
             commands::install_update,
+            commands::set_window_theme,
         ]);
     }
 
@@ -54,17 +55,13 @@ pub fn run() {
             commands::setup_tray(app)?;
             commands::auto_start_daemon(app.handle().clone());
 
-            // macOS: inset the webview with rounded corners, window bg visible as "frame"
+            // macOS: inset the webview with rounded corners, window bg as frame
             #[cfg(target_os = "macos")]
             {
                 use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window_vibrancy::apply_vibrancy(
-                        &window,
-                        window_vibrancy::NSVisualEffectMaterial::Sidebar,
-                        None,
-                        None,
-                    );
+                    // Set default light background (Web will call set_window_theme to sync)
+                    commands::set_window_theme(window.clone(), false);
                     macos_window::setup_inset_webview(&window);
                 }
             }

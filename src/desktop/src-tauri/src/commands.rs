@@ -278,6 +278,41 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 }
 
 #[cfg(desktop)]
+#[tauri::command]
+pub fn set_window_theme(window: tauri::WebviewWindow, dark: bool) {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::runtime::AnyObject;
+        use objc2::msg_send;
+
+        unsafe {
+            let ns_window = window.ns_window().unwrap() as *mut AnyObject;
+            if dark {
+                // Dark: oklch(0.16 0.008 60) ≈ RGB(35, 33, 30)
+                let color: *mut AnyObject = msg_send![
+                    objc2::class!(NSColor),
+                    colorWithRed: 0.137f64
+                    green: 0.129f64
+                    blue: 0.118f64
+                    alpha: 1.0f64
+                ];
+                let _: () = msg_send![ns_window, setBackgroundColor: color];
+            } else {
+                // Light: oklch(0.93 0.015 80) ≈ RGB(237, 232, 222)
+                let color: *mut AnyObject = msg_send![
+                    objc2::class!(NSColor),
+                    colorWithRed: 0.929f64
+                    green: 0.910f64
+                    blue: 0.871f64
+                    alpha: 1.0f64
+                ];
+                let _: () = msg_send![ns_window, setBackgroundColor: color];
+            }
+        }
+    }
+}
+
+#[cfg(desktop)]
 pub static DAEMON_ONLINE: AtomicBool = AtomicBool::new(false);
 
 #[cfg(desktop)]

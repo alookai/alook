@@ -28,7 +28,6 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"
 
 [target."cfg(target_os = \"macos\")".dependencies]
-window-vibrancy = "0.6"
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
 objc2-app-kit = { version = "0.3", features = ["NSView", "NSWindow", "NSColor"] }
