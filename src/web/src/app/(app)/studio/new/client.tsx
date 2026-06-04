@@ -324,25 +324,31 @@ export function StudioOnboardingClient({
         return;
       }
 
-      // Wait for runtime to come online if members don't have runtimeIds assigned yet.
+      // Wait for real runtimes and resolve temp IDs to actual runtime IDs.
       // After bind-workspace, the daemon registers runtimes — poll until available.
       let resolvedMembers = members;
-      if (members.some((m) => !m.runtimeId)) {
+      const needsRuntimeResolution = members.some((m) => !m.runtimeId || m.runtimeId.startsWith("temp_"));
+      if (needsRuntimeResolution) {
         let attempts = 0;
         let freshRuntimes: Runtime[] = [];
         while (attempts < 10) {
           freshRuntimes = await listRuntimes(resolvedWorkspaceId);
-          const firstOnline = freshRuntimes.find((r) => r.status === "online");
-          if (firstOnline) {
-            resolvedMembers = members.map((m) =>
-              m.runtimeId ? m : { ...m, runtimeId: firstOnline.id },
-            );
-            break;
-          }
+          if (freshRuntimes.some((r) => r.status === "online")) break;
           await new Promise((r) => setTimeout(r, 1000));
           attempts++;
         }
-        if (resolvedMembers.some((m) => !m.runtimeId)) {
+        const onlineFresh = freshRuntimes.filter((r) => r.status === "online");
+        if (onlineFresh.length > 0) {
+          resolvedMembers = members.map((m) => {
+            if (!m.runtimeId || m.runtimeId.startsWith("temp_")) {
+              const tempProvider = runtimes.find((r) => r.id === m.runtimeId)?.provider;
+              const match = onlineFresh.find((r) => r.provider === tempProvider) || onlineFresh[0];
+              return { ...m, runtimeId: match.id };
+            }
+            return m;
+          });
+        }
+        if (resolvedMembers.some((m) => !m.runtimeId || m.runtimeId.startsWith("temp_"))) {
           toast.error("Waiting for runtime — please ensure the daemon is running");
           setCreating(false);
           return;
