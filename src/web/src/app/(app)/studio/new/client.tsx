@@ -114,6 +114,26 @@ export function StudioOnboardingClient({
     const currentWsId = workspaceIdRef.current;
     if (msg.type === "machine.registered") {
       setMachineRegistered(true);
+      if (runtimesRef.current.length === 0) {
+        getMachineTokenStatus().then(data => {
+          if (data.runtimes?.length) {
+            setRuntimes(data.runtimes.map(rt => ({
+              id: rt.id,
+              workspace_id: "",
+              daemon_id: data.hostname || null,
+              runtime_mode: "local",
+              provider: rt.type,
+              status: "online" as const,
+              device_info: data.hostname || "",
+              metadata: { version: rt.version },
+              last_seen_at: null,
+              created_at: "",
+              updated_at: "",
+            })));
+          }
+          if (data.daemon_online) setDaemonOnline(true);
+        }).catch(() => {});
+      }
     } else if (msg.type === "runtime.registered") {
       setMachineRegistered(true);
       const eventWsId = msg.workspaceId;
