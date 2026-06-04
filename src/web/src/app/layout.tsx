@@ -11,8 +11,6 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ToasterProvider } from "@/components/toaster-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { MockNetworkBanner } from "@/components/mock-network-banner";
-import { TauriDragRegion } from "@/components/tauri-drag-region";
-import { DesktopUpdatePrompt } from "@/components/desktop-update-prompt";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -124,27 +122,18 @@ export default function RootLayout({
     >
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <script dangerouslySetInnerHTML={{ __html: `
           document.addEventListener('gesturestart', function(e) { e.preventDefault(); });
-          if (window.__TAURI__) {
-            document.documentElement.setAttribute('data-tauri', '');
-            var ua = navigator.userAgent || '';
-            if (!/(android|iphone|ipad|ipod)/i.test(ua)) {
-              document.documentElement.setAttribute('data-tauri-desktop', '');
-            }
-          }
         `}} />
       </head>
       <GoogleTagManager gtmId="GTM-56VHCCQZ" />
       <body
         className="min-h-full flex flex-col"
       >
-        <TauriDragRegion />
-        <DesktopUpdatePrompt />
         <MockNetworkBanner />
         <script
           type="application/ld+json"

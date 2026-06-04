@@ -1824,18 +1824,4 @@ html.dark,
   background-color: oklch(0.16 0.008 60);
 }
 
-/* Tauri desktop: push workspace shell content below the fixed drag region */
-html[data-tauri-desktop] [data-workspace-shell] {
-  padding-top: 1.75rem;
-}
-
-/* Tauri desktop: push public layout pages below the fixed drag region */
-html[data-tauri-desktop] [data-public-layout] {
-  padding-top: 1.75rem;
-}
-
-/* Tauri desktop: offset fixed marketing nav below the drag region */
-html[data-tauri-desktop] .marketing-nav {
-  top: 1.75rem;
-}
 

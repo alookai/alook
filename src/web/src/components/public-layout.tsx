@@ -32,8 +32,8 @@ export function PublicLayout({
   const maxWClass = maxWidth === "4xl" ? "max-w-4xl" : "max-w-5xl";
 
   return (
-    <div className="min-h-dvh flex flex-col bg-background text-foreground" data-public-layout>
-      <nav className="sticky top-0 z-50 bg-background/90 backdrop-blur-[8px] border-b border-border/40">
+    <div className="min-h-dvh flex flex-col bg-background text-foreground">
+      <nav className="sticky top-0 z-50 bg-background/90 backdrop-blur-sm border-b border-border/40">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-2.5">
           {leftSlot ? (
             <div className="flex items-center gap-1.5">{leftSlot}</div>
