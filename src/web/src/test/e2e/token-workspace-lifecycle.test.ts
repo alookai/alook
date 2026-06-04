@@ -248,4 +248,52 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
       sqlRun(`DELETE FROM machine_token WHERE id = ?`, standbyTokenId)
     })
   })
+
+  describe("GET /api/machine-tokens/status — page refresh recovery", () => {
+    let statusTokenId: string
+    let statusToken: string
+
+    beforeAll(() => {
+      statusTokenId = `mt_${randomUUID().replace(/-/g, "").slice(0, 21)}`
+      statusToken = `al_${randomUUID().replace(/-/g, "")}`
+      const now = new Date().toISOString()
+      sqlRun(
+        `INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, hostname, runtimes_json, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
+        statusTokenId, seed.userId, statusToken, "status-test", "registered", "StatusHost.local", '[{"type":"claude"}]', now,
+      )
+    })
+
+    it("returns registered status after activate (page refresh recovery)", async () => {
+      const res = await tokenRequest("/api/machine-tokens/status", statusToken)
+      expect(res.status).toBe(200)
+      const data = await res.json() as { status: string; hostname?: string; workspace_id?: string }
+      expect(data.status).toBe("registered")
+      expect(data.hostname).toBe("StatusHost.local")
+      expect(data.workspace_id).toBeUndefined()
+    })
+
+    it("returns active status with workspace_id after bind", async () => {
+      // Bind workspace
+      const bindRes = await tokenRequest("/api/machine-tokens/bind-workspace", statusToken, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspace_id: seed.workspaceId }),
+      })
+      expect(bindRes.status).toBe(200)
+
+      // Status should now show active
+      const res = await tokenRequest("/api/machine-tokens/status", statusToken)
+      expect(res.status).toBe(200)
+      const data = await res.json() as { status: string; hostname?: string; workspace_id?: string }
+      expect(data.status).toBe("active")
+      expect(data.workspace_id).toBe(seed.workspaceId)
+      expect(data.hostname).toBe("StatusHost.local")
+    })
+
+    afterAll(() => {
+      sqlRun(`DELETE FROM agent_runtime WHERE daemon_id = 'StatusHost.local' AND workspace_id = ?`, seed.workspaceId)
+      sqlRun(`DELETE FROM machine WHERE daemon_id = 'StatusHost.local' AND workspace_id = ?`, seed.workspaceId)
+      sqlRun(`DELETE FROM machine_token WHERE id = ?`, statusTokenId)
+    })
+  })
 })

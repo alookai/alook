@@ -22,7 +22,7 @@ import {
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import type { WsMessage } from "@alook/shared";
 import { isTauri, isDesktop } from "@alook/shared";
-import { listRuntimes, createMachineToken } from "@/lib/api";
+import { listRuntimes, createMachineToken, getMachineTokenStatus } from "@/lib/api";
 import { useUserWs } from "@/lib/use-user-ws";
 import type { TemplatePreset } from "@/lib/templates";
 
@@ -76,6 +76,24 @@ export function StudioOnboardingClient({
       .catch(() => {})
       .finally(() => setLoadingRuntimes(false));
   }, [workspaceId]);
+
+  // Recover token state on mount (handles page refresh after register)
+  useEffect(() => {
+    if (isTauriDesktop) return;
+    getMachineTokenStatus()
+      .then((data) => {
+        if (data.status === "registered") {
+          setMachineRegistered(true);
+        } else if (data.status === "active" && data.workspace_id) {
+          setMachineRegistered(true);
+          if (!workspaceId) {
+            setWorkspaceId(data.workspace_id);
+          }
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // WebSocket for runtime registration events
   const handleWsMessage = useCallback((msg: WsMessage) => {

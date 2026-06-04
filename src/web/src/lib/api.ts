@@ -441,6 +441,11 @@ export const createMachineToken = (name?: string, workspaceId?: string) =>
     }
   );
 
+export const getMachineTokenStatus = () =>
+  apiFetch<{ status: "pending" | "registered" | "active" | null; workspace_id?: string; hostname?: string }>(
+    "/api/machine-tokens/status",
+  );
+
 // Agent active tasks
 export const listAgentActiveTaskCounts = (workspaceId: string) =>
   apiFetch<{ counts: Record<string, number> }>(`/api/agents/active-task-counts${wsQuery(workspaceId)}`);

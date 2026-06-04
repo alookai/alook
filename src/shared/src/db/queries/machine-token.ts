@@ -97,7 +97,12 @@ export async function getRegisteredTokenForUser(db: Database, userId: string) {
 
 export async function getLatestTokenForUser(db: Database, userId: string) {
   const rows = await db
-    .select({ id: machineToken.id, status: machineToken.status })
+    .select({
+      id: machineToken.id,
+      status: machineToken.status,
+      workspaceId: machineToken.workspaceId,
+      hostname: machineToken.hostname,
+    })
     .from(machineToken)
     .where(eq(machineToken.userId, userId))
     .orderBy(desc(machineToken.createdAt))
