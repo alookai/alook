@@ -64,6 +64,7 @@ vi.mock("cloudflare:workers", () => ({
 // Mock @alook/shared
 const mockGetValidSession = vi.fn<(db: unknown, token: string) => Promise<string | null>>()
 const mockGetMachineTokenByToken = vi.fn()
+const mockGetLatestTokenForUser = vi.fn()
 const mockGetRuntimeIdsByDaemon = vi.fn()
 const mockCreateDb = vi.fn().mockReturnValue({})
 
@@ -80,7 +81,10 @@ vi.mock("@alook/shared", () => {
     createLogger: () => noopLogger,
     queries: {
       session: { getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token) },
-      machineToken: { getMachineTokenByToken: (...a: any[]) => mockGetMachineTokenByToken(...a) },
+      machineToken: {
+        getMachineTokenByToken: (...a: any[]) => mockGetMachineTokenByToken(...a),
+        getLatestTokenForUser: (...a: any[]) => mockGetLatestTokenForUser(...a),
+      },
       runtime: { getRuntimeIdsByDaemon: (...a: any[]) => mockGetRuntimeIdsByDaemon(...a) },
     },
   }
@@ -388,6 +392,53 @@ describe("WebSocketDurableObject", () => {
 
       expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
       expect(mockGetMachineTokenByToken).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("webSocketMessage — check_daemon_status", () => {
+    it("returns runtime.status online when daemon lastUsedAt is recent", async () => {
+      const { durable } = createDO()
+      mockGetValidSession.mockResolvedValue("user-42")
+      mockGetLatestTokenForUser.mockResolvedValue({
+        id: "mt_1", status: "registered", hostname: "MyMachine.local",
+        lastUsedAt: new Date(Date.now() - 30_000).toISOString(),
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+
+      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "check_daemon_status" }))
+
+      expect(ws.send).toHaveBeenCalledWith(
+        JSON.stringify({ type: "runtime.status", status: "online", daemonId: "MyMachine.local" }),
+      )
+    })
+
+    it("does not respond when daemon is offline (stale lastUsedAt)", async () => {
+      const { durable } = createDO()
+      mockGetLatestTokenForUser.mockResolvedValue({
+        id: "mt_1", status: "registered", hostname: "MyMachine.local",
+        lastUsedAt: new Date(Date.now() - 300_000).toISOString(),
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+
+      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "check_daemon_status" }))
+
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+
+    it("does not respond when no token exists", async () => {
+      const { durable } = createDO()
+      mockGetLatestTokenForUser.mockResolvedValue(null)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
+
+      await durable.webSocketMessage(ws as any, JSON.stringify({ type: "check_daemon_status" }))
+
+      expect(ws.send).not.toHaveBeenCalled()
     })
   })
 
