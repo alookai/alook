@@ -26,7 +26,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   if (!workspaceId) {
-    // Token is "registered" but not yet bound to a workspace — standby mode
+    broadcastToUser(ctx.userId, {
+      type: "runtime.status",
+      daemonId,
+      status: "online",
+      standby: true,
+    }).catch(() => {});
     return writeJSON({ runtimes: [], standby: true });
   }
 
