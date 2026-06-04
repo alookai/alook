@@ -376,7 +376,7 @@ export function StudioOnboardingClient({
     members.length > 0 &&
     (isTauriDesktop || isNewWorkspace || members.every((m) => m.runtimeId)) &&
     nameValid &&
-    (hasOnlineRuntime || machineRegistered || isTauriDesktop);
+    (hasOnlineRuntime || (machineRegistered && daemonOnline) || isTauriDesktop);
 
   // Page 1: Scenario selection
   if (!scenarioId) {

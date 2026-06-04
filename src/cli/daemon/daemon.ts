@@ -735,6 +735,7 @@ export async function startDaemon(
         log.debug("standby poll failed", { err: e instanceof Error ? e.message : String(e) });
       }
     };
+    standbyPollTick();
     standbyPollTimer = setInterval(standbyPollTick, STANDBY_POLL_MS);
   }
 
