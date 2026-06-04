@@ -6,8 +6,21 @@ let seed: TestSeed
 
 beforeAll(() => {
   seed = seedTestData()
+  // Ensure seed token has hostname + runtimes for status API tests
+  sqlRun(
+    `UPDATE machine_token SET hostname = ?, runtimes_json = ? WHERE id = ?`,
+    "SeedHost.local", '[{"type":"claude","version":"4.0"}]', seed.machineTokenId,
+  )
 })
-afterAll(() => cleanupTestData(seed))
+afterAll(() => {
+  // Clean up any leftover tokens with NULL workspace_id (not caught by cleanupTestData)
+  sqlRun(`DELETE FROM machine_token WHERE user_id = ? AND id != ?`, seed.userId, seed.machineTokenId)
+  cleanupTestData(seed)
+})
+
+function ensureSeedIsLatest() {
+  sqlRun(`DELETE FROM machine_token WHERE user_id = ? AND id != ?`, seed.userId, seed.machineTokenId)
+}
 
 const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
 const WS_DO_PORT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || 8789
@@ -324,7 +337,7 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
     })
 
     afterAll(() => {
-      sqlRun(`DELETE FROM workspace_member WHERE user_id IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
+      sqlRun(`DELETE FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
       sqlRun(`DELETE FROM "session" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
       sqlRun(`DELETE FROM "account" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)`, testEmail)
       sqlRun(`DELETE FROM "user" WHERE email = ?`, testEmail)
@@ -334,14 +347,14 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
       const res = await sessionRequest("/api/workspaces", cookie, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "E2E NewCo", slug: "e2e-newco" }),
+        body: JSON.stringify({ name: "E2E NewCo", slug: `e2e-newco-${randomUUID().slice(0, 8)}` }),
       })
       expect(res.status).toBe(201)
       const data = await res.json() as { id: string; name: string }
       expect(data.name).toBe("E2E NewCo")
       expect(data.id).toMatch(/^sp_/)
 
-      sqlRun(`DELETE FROM workspace_member WHERE workspace_id = ?`, data.id)
+      sqlRun(`DELETE FROM member WHERE workspace_id = ?`, data.id)
       sqlRun(`DELETE FROM workspace WHERE id = ?`, data.id)
     })
 
@@ -350,7 +363,7 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
       const createRes = await sessionRequest("/api/workspaces", cookie, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "E2E ReuseCo", slug: "e2e-reuseco" }),
+        body: JSON.stringify({ name: "E2E ReuseCo", slug: `e2e-reuseco-${randomUUID().slice(0, 8)}` }),
       })
       expect(createRes.status).toBe(201)
       const ws = await createRes.json() as { id: string }
@@ -361,7 +374,7 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
       const workspaces = await listRes.json() as Array<{ id: string }>
       expect(workspaces.some((w) => w.id === ws.id)).toBe(true)
 
-      sqlRun(`DELETE FROM workspace_member WHERE workspace_id = ?`, ws.id)
+      sqlRun(`DELETE FROM member WHERE workspace_id = ?`, ws.id)
       sqlRun(`DELETE FROM workspace WHERE id = ?`, ws.id)
     })
 
@@ -369,7 +382,7 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
       const res1 = await sessionRequest("/api/workspaces", cookie, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "First Launch", slug: "first-launch-e2e" }),
+        body: JSON.stringify({ name: "First Launch", slug: `first-launch-${randomUUID().slice(0, 8)}` }),
       })
       expect(res1.status).toBe(201)
       const ws1 = await res1.json() as { id: string }
@@ -377,13 +390,13 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
       const res2 = await sessionRequest("/api/workspaces", cookie, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Second Launch", slug: "second-launch-e2e" }),
+        body: JSON.stringify({ name: "Second Launch", slug: `second-launch-${randomUUID().slice(0, 8)}` }),
       })
       expect(res2.status).toBe(201)
       const ws2 = await res2.json() as { id: string }
       expect(ws2.id).not.toBe(ws1.id)
 
-      sqlRun(`DELETE FROM workspace_member WHERE workspace_id IN (?, ?)`, ws1.id, ws2.id)
+      sqlRun(`DELETE FROM member WHERE workspace_id IN (?, ?)`, ws1.id, ws2.id)
       sqlRun(`DELETE FROM workspace WHERE id IN (?, ?)`, ws1.id, ws2.id)
     })
 
@@ -648,12 +661,8 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
     })
 
     describe("Case 20: WS online → runtimes status updates to online", () => {
-      it("status shows daemon_online=true when machine last_seen_at is recent", () => {
-        // Set last_used_at to now (simulating active daemon)
-        sqlRun(`UPDATE machine_token SET last_used_at = ? WHERE id = ?`, new Date().toISOString(), seed.machineTokenId)
-      })
-
       it("status API returns daemon_online=true for recently active token", async () => {
+        ensureSeedIsLatest()
         sqlRun(`UPDATE machine_token SET last_used_at = ? WHERE id = ?`, new Date().toISOString(), seed.machineTokenId)
         const res = await tokenRequest("/api/machine-tokens/status", seed.machineToken)
         expect(res.status).toBe(200)
@@ -759,6 +768,7 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
 
     describe("Case 25: daemon online + refresh → daemonOnline recovers to true", () => {
       it("status returns daemon_online=true when last_used_at is recent", async () => {
+        ensureSeedIsLatest()
         sqlRun(`UPDATE machine_token SET last_used_at = ? WHERE id = ?`, new Date().toISOString(), seed.machineTokenId)
         const res = await tokenRequest("/api/machine-tokens/status", seed.machineToken)
         expect(res.status).toBe(200)
@@ -799,6 +809,7 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
 
     describe("Case 27: connect steps done + daemon online → shows connected", () => {
       it("status returns all signals needed to show '1 computer connected'", async () => {
+        ensureSeedIsLatest()
         sqlRun(`UPDATE machine_token SET last_used_at = ? WHERE id = ?`, new Date().toISOString(), seed.machineTokenId)
         const res = await tokenRequest("/api/machine-tokens/status", seed.machineToken)
         expect(res.status).toBe(200)
@@ -839,12 +850,12 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
         const ws2 = await res2.json() as { id: string; slug: string }
         expect(ws2.slug).not.toBe(ws1.slug)
 
-        sqlRun(`DELETE FROM workspace_member WHERE workspace_id IN (?, ?)`, ws1.id, ws2.id)
+        sqlRun(`DELETE FROM member WHERE workspace_id IN (?, ?)`, ws1.id, ws2.id)
         sqlRun(`DELETE FROM workspace WHERE id IN (?, ?)`, ws1.id, ws2.id)
       })
 
       afterAll(() => {
-        sqlRun(`DELETE FROM workspace_member WHERE user_id IN (SELECT id FROM "user" WHERE email = ?)`, email)
+        sqlRun(`DELETE FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = ?)`, email)
         sqlRun(`DELETE FROM "session" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)`, email)
         sqlRun(`DELETE FROM "account" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)`, email)
         sqlRun(`DELETE FROM "user" WHERE email = ?`, email)
@@ -872,12 +883,12 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
         expect(data.name).toBe("Valid Company")
         expect(data.slug).toBe(slug)
 
-        sqlRun(`DELETE FROM workspace_member WHERE workspace_id = ?`, data.id)
+        sqlRun(`DELETE FROM member WHERE workspace_id = ?`, data.id)
         sqlRun(`DELETE FROM workspace WHERE id = ?`, data.id)
       })
 
       afterAll(() => {
-        sqlRun(`DELETE FROM workspace_member WHERE user_id IN (SELECT id FROM "user" WHERE email = ?)`, email)
+        sqlRun(`DELETE FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = ?)`, email)
         sqlRun(`DELETE FROM "session" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)`, email)
         sqlRun(`DELETE FROM "account" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)`, email)
         sqlRun(`DELETE FROM "user" WHERE email = ?`, email)
@@ -915,12 +926,12 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
         const ws2 = await res2.json() as { id: string }
         expect(ws2.id).not.toBe(ws1.id)
 
-        sqlRun(`DELETE FROM workspace_member WHERE workspace_id IN (?, ?)`, ws1.id, ws2.id)
+        sqlRun(`DELETE FROM member WHERE workspace_id IN (?, ?)`, ws1.id, ws2.id)
         sqlRun(`DELETE FROM workspace WHERE id IN (?, ?)`, ws1.id, ws2.id)
       })
 
       afterAll(() => {
-        sqlRun(`DELETE FROM workspace_member WHERE user_id IN (SELECT id FROM "user" WHERE email = ?)`, email)
+        sqlRun(`DELETE FROM member WHERE user_id IN (SELECT id FROM "user" WHERE email = ?)`, email)
         sqlRun(`DELETE FROM "session" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)`, email)
         sqlRun(`DELETE FROM "account" WHERE userId IN (SELECT id FROM "user" WHERE email = ?)`, email)
         sqlRun(`DELETE FROM "user" WHERE email = ?`, email)
@@ -929,6 +940,7 @@ describe("token/workspace lifecycle — decoupled activate + bind", () => {
 
     describe("Case 31: completed steps collapse (API always returns full state)", () => {
       it("status API returns complete state for frontend to determine step completion", async () => {
+        ensureSeedIsLatest()
         sqlRun(`UPDATE machine_token SET last_used_at = ? WHERE id = ?`, new Date().toISOString(), seed.machineTokenId)
         const res = await tokenRequest("/api/machine-tokens/status", seed.machineToken)
         expect(res.status).toBe(200)

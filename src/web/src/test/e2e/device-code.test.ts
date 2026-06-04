@@ -254,7 +254,7 @@ describe("device-code-flow workspace reuse", () => {
     const machineToken = mtData.token as string
     expect(machineToken).toBeTruthy()
 
-    // Activate with the machine token
+    // Activate with the machine token (transitions to "registered", no workspace binding)
     const activateRes = await fetch(`${APP_URL}/api/machine-tokens/activate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -266,9 +266,9 @@ describe("device-code-flow workspace reuse", () => {
     })
     expect(activateRes.status).toBe(200)
     const activateBody = await activateRes.json() as Record<string, unknown>
-    expect(activateBody.workspace_id).toBe(originalWorkspaceId)
+    expect(activateBody.token_status).toBe("registered")
 
-    // Verify user still has exactly 1 workspace
+    // Verify user still has exactly 1 workspace (activate no longer creates workspaces)
     const wsAfterRes = await sessionRequest("/api/workspaces", wsCookie)
     const wsAfter = await wsAfterRes.json() as { id: string }[]
     expect(wsAfter).toHaveLength(1)
