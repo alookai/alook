@@ -55,10 +55,14 @@ export async function activateAndSave(opts: {
 
   const existing = loadCLIConfigForProfile(profile);
 
+  const watched = existing.watched_workspaces || [];
+  if (!watched.some((w) => w.token === token)) {
+    watched.push({ id: null, name: null, token, status: "registered", agent_ids: [] });
+  }
+
   saveCLIConfigForProfile(profile, {
     server_url: serverUrl,
-    watched_workspaces: existing.watched_workspaces || [],
-    machine_token: token,
+    watched_workspaces: watched,
   });
 
   const daemonPid = readDaemonPid(profile);

@@ -3,22 +3,21 @@ import { join } from "path";
 import { homedir } from "os";
 
 interface WatchedWorkspace {
-  id: string;
-  name: string;
+  id: string | null;
+  name: string | null;
   token: string;
+  status?: "registered" | "active";
   agent_ids?: string[];
 }
 
 interface ProfileConfig {
   server_url: string;
   watched_workspaces: WatchedWorkspace[];
-  machine_token?: string;
 }
 
 interface CLIConfig {
   server_url?: string;
   watched_workspaces?: WatchedWorkspace[];
-  machine_token?: string;
   default_profile?: string;
   profiles?: Record<string, ProfileConfig>;
 }
@@ -47,11 +46,23 @@ export function loadCLIConfigForProfile(profile?: string): ProfileConfig {
   if (profileName && cfg.profiles?.[profileName]) {
     return cfg.profiles[profileName];
   }
-  return {
+  const result: ProfileConfig = {
     server_url: cfg.server_url || "",
     watched_workspaces: cfg.watched_workspaces || [],
-    machine_token: cfg.machine_token,
   };
+
+  // Migration: move legacy machine_token into watched_workspaces as a registered item
+  const legacy = (cfg as Record<string, unknown>).machine_token as string | undefined;
+  if (legacy && !result.watched_workspaces.some((w) => w.token === legacy)) {
+    result.watched_workspaces.push({ id: null, name: null, token: legacy, status: "registered", agent_ids: [] });
+  }
+
+  // Default status for old entries without it
+  for (const ws of result.watched_workspaces) {
+    if (!ws.status) ws.status = ws.id ? "active" : "registered";
+  }
+
+  return result;
 }
 
 export function saveCLIConfig(cfg: CLIConfig): void {
@@ -70,9 +81,8 @@ export function saveCLIConfigForProfile(
   } else {
     cfg.server_url = profileConfig.server_url;
     cfg.watched_workspaces = profileConfig.watched_workspaces;
-    if (profileConfig.machine_token !== undefined) {
-      cfg.machine_token = profileConfig.machine_token;
-    }
+    // Remove legacy machine_token if present
+    delete (cfg as Record<string, unknown>).machine_token;
   }
   saveCLIConfig(cfg);
 }

@@ -196,7 +196,7 @@ async function checkExistingAuth(serverUrl: string, profile?: string): Promise<{
       // Non-fatal — proceed without email
     }
 
-    return { valid: true, email, workspaceName: ws.name };
+    return { valid: true, email, workspaceName: ws.name ?? undefined };
   } catch {
     return { valid: false };
   }

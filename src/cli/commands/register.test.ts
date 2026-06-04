@@ -74,7 +74,7 @@ describe("alook register", () => {
     }));
   }
 
-  it("stores machine_token in config (not watched_workspaces)", async () => {
+  it("stores token as registered entry in watched_workspaces", async () => {
     mockLoadCLIConfigForProfile.mockReturnValue({
       server_url: "http://localhost:3000",
       watched_workspaces: [],
@@ -96,17 +96,18 @@ describe("alook register", () => {
       undefined,
       expect.objectContaining({
         server_url: "http://localhost:3000",
-        machine_token: "al_testtoken123",
-        watched_workspaces: [],
+        watched_workspaces: [
+          { id: null, name: null, token: "al_testtoken123", status: "registered", agent_ids: [] },
+        ],
       }),
     );
   });
 
-  it("preserves existing watched_workspaces", async () => {
+  it("preserves existing watched_workspaces and appends registered entry", async () => {
     mockLoadCLIConfigForProfile.mockReturnValue({
       server_url: "http://localhost:3000",
       watched_workspaces: [
-        { id: "sp_existing", name: "Existing", token: "al_old", agent_ids: ["ag_1"] },
+        { id: "sp_existing", name: "Existing", token: "al_old", status: "active", agent_ids: ["ag_1"] },
       ],
     });
     mockReadDaemonPid.mockReturnValue(null);
@@ -126,9 +127,9 @@ describe("alook register", () => {
       undefined,
       expect.objectContaining({
         watched_workspaces: [
-          { id: "sp_existing", name: "Existing", token: "al_old", agent_ids: ["ag_1"] },
+          { id: "sp_existing", name: "Existing", token: "al_old", status: "active", agent_ids: ["ag_1"] },
+          { id: null, name: null, token: "al_newtoken", status: "registered", agent_ids: [] },
         ],
-        machine_token: "al_newtoken",
       }),
     );
   });

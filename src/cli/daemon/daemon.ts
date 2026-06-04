@@ -251,15 +251,18 @@ export async function startDaemon(
 
   const cliConfig = loadCLIConfigForProfile(profile);
 
-  const workspaces = cliConfig.watched_workspaces || [];
-  const standbyToken = cliConfig.machine_token;
+  const allEntries = cliConfig.watched_workspaces || [];
+  const workspaces = allEntries.filter((ws): ws is typeof ws & { id: string; name: string } => ws.status !== "registered" && !!ws.id);
+  const registeredEntries = allEntries.filter((ws) => ws.status === "registered" && !ws.id);
+  const standbyToken = registeredEntries[0]?.token ?? null;
+
   if (workspaces.length === 0 && standbyToken) {
     log.info("No workspaces configured — daemon starting in standby mode with machine token. Awaiting workspace binding.");
   } else if (workspaces.length === 0) {
     log.info("No workspaces configured — daemon starting in standby mode. Register a workspace to begin.");
   }
 
-  // Validate: each workspace must have its own token
+  // Validate: each active workspace must have its own token
   const hasPerWorkspaceTokens = workspaces.every((ws) => !!ws.token);
   if (!hasPerWorkspaceTokens) {
     log.error(
@@ -438,11 +441,15 @@ export async function startDaemon(
       try {
         const cfg = loadCLIConfigForProfile(profile);
         const watched = cfg.watched_workspaces || [];
-        if (!watched.some((w) => w.id === workspaceId)) {
-          watched.push({ id: workspaceId, name: workspaceName, token });
-          cfg.watched_workspaces = watched;
-          saveCLIConfigForProfile(profile, cfg);
+        // Find the registered entry with this token and promote it to active
+        const registeredIdx = watched.findIndex((w) => w.token === token && w.status === "registered" && !w.id);
+        if (registeredIdx !== -1) {
+          watched[registeredIdx] = { id: workspaceId, name: workspaceName, token, status: "active", agent_ids: [] };
+        } else if (!watched.some((w) => w.id === workspaceId)) {
+          watched.push({ id: workspaceId, name: workspaceName, token, status: "active" });
         }
+        cfg.watched_workspaces = watched;
+        saveCLIConfigForProfile(profile, cfg);
       } catch {
         // Best-effort config write
       }
@@ -833,7 +840,8 @@ export async function startDaemon(
     log.info("SIGHUP received — reloading config...");
     try {
       const freshConfig = loadCLIConfigForProfile(profile);
-      const freshWorkspaces = freshConfig.watched_workspaces || [];
+      const freshWorkspaces = (freshConfig.watched_workspaces || [])
+        .filter((ws): ws is typeof ws & { id: string } => ws.status !== "registered" && !!ws.id);
       const existingIds = new Set(workspaceStates.map((ws) => ws.workspaceId));
 
       const newWorkspaces = freshWorkspaces.filter(

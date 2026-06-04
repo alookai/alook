@@ -106,7 +106,7 @@ describe("loadCLIConfigForProfile", () => {
 
     expect(loadCLIConfigForProfile()).toEqual({
       server_url: "http://root.example.com",
-      watched_workspaces: [{ id: "w2", name: "Root WS", token: "ws-token" }],
+      watched_workspaces: [{ id: "w2", name: "Root WS", token: "ws-token", status: "active" }],
     });
   });
 
@@ -119,6 +119,50 @@ describe("loadCLIConfigForProfile", () => {
       server_url: "",
       watched_workspaces: [],
     });
+  });
+
+  it("migrates legacy machine_token into watched_workspaces as registered item", () => {
+    const cfg = {
+      server_url: "http://example.com",
+      watched_workspaces: [{ id: "w1", name: "WS1", token: "t1" }],
+      machine_token: "al_legacy_token",
+    };
+    mockedReadFileSync.mockReturnValue(JSON.stringify(cfg));
+
+    const result = loadCLIConfigForProfile();
+    expect(result.watched_workspaces).toHaveLength(2);
+    expect(result.watched_workspaces[0]).toMatchObject({ id: "w1", status: "active" });
+    expect(result.watched_workspaces[1]).toMatchObject({
+      id: null,
+      name: null,
+      token: "al_legacy_token",
+      status: "registered",
+      agent_ids: [],
+    });
+  });
+
+  it("does not duplicate if machine_token already in watched_workspaces", () => {
+    const cfg = {
+      server_url: "http://example.com",
+      watched_workspaces: [{ id: null, name: null, token: "al_same", status: "registered" }],
+      machine_token: "al_same",
+    };
+    mockedReadFileSync.mockReturnValue(JSON.stringify(cfg));
+
+    const result = loadCLIConfigForProfile();
+    expect(result.watched_workspaces).toHaveLength(1);
+    expect(result.watched_workspaces[0].token).toBe("al_same");
+  });
+
+  it("defaults status to active for old entries with an id", () => {
+    const cfg = {
+      server_url: "http://example.com",
+      watched_workspaces: [{ id: "w1", name: "WS1", token: "t1" }],
+    };
+    mockedReadFileSync.mockReturnValue(JSON.stringify(cfg));
+
+    const result = loadCLIConfigForProfile();
+    expect(result.watched_workspaces[0].status).toBe("active");
   });
 });
 
@@ -195,9 +239,9 @@ describe("saveCLIConfigForProfile", () => {
     const profileCfg = {
       server_url: "http://example.com",
       watched_workspaces: [
-        { id: "w1", name: "First", token: "t1" },
-        { id: "w2", name: "Second", token: "t2" },
-        { id: "w3", name: "Third", token: "t3" },
+        { id: "w1", name: "First", token: "t1", status: "active" as const },
+        { id: "w2", name: "Second", token: "t2", status: "active" as const },
+        { id: null, name: null, token: "t3", status: "registered" as const },
       ],
     };
     saveCLIConfigForProfile(undefined, profileCfg);
@@ -207,8 +251,21 @@ describe("saveCLIConfigForProfile", () => {
     );
     expect(written.watched_workspaces).toHaveLength(3);
     expect(written.watched_workspaces[0].id).toBe("w1");
-    expect(written.watched_workspaces[1].id).toBe("w2");
-    expect(written.watched_workspaces[2].id).toBe("w3");
+    expect(written.watched_workspaces[2].status).toBe("registered");
+  });
+
+  it("removes legacy machine_token from config on save", () => {
+    mockedReadFileSync.mockReturnValue(JSON.stringify({ machine_token: "al_old", server_url: "" }));
+
+    saveCLIConfigForProfile(undefined, {
+      server_url: "http://example.com",
+      watched_workspaces: [{ id: null, name: null, token: "al_old", status: "registered" }],
+    });
+
+    const written = JSON.parse(
+      mockedWriteFileSync.mock.calls[0][1] as string,
+    );
+    expect(written.machine_token).toBeUndefined();
   });
 });
 
