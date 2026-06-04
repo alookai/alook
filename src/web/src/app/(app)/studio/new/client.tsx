@@ -21,7 +21,8 @@ import {
 
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import type { WsMessage } from "@alook/shared";
-import { listRuntimes, createMachineToken, createWorkspace } from "@/lib/api";
+import { isTauri, isDesktop } from "@alook/shared";
+import { listRuntimes, createMachineToken } from "@/lib/api";
 import { useUserWs } from "@/lib/use-user-ws";
 import type { TemplatePreset } from "@/lib/templates";
 
@@ -62,6 +63,7 @@ export function StudioOnboardingClient({
   const [daemonOnline, setDaemonOnline] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
 
+  const isTauriDesktop = isTauri() && isDesktop();
   const onlineRuntimes = runtimes.filter((r) => r.status === "online");
   const hasOnlineRuntime = onlineRuntimes.length > 0;
   const onlineMachineCount = new Set(onlineRuntimes.map((r) => r.daemon_id).filter(Boolean)).size;
@@ -212,20 +214,14 @@ export function StudioOnboardingClient({
   const handleGenerateToken = useCallback(async () => {
     setGeneratingToken(true);
     try {
-      let wsId = workspaceIdRef.current;
-      if (!wsId && isNewWorkspace) {
-        const ws = await createWorkspace("Personal");
-        wsId = ws.id;
-        setWorkspaceId(wsId);
-      }
-      const res = await createMachineToken("cli", wsId || undefined);
+      const res = await createMachineToken("cli", workspaceIdRef.current || undefined);
       setGeneratedToken(res.token);
     } catch {
       toast.error("Failed to generate token");
     } finally {
       setGeneratingToken(false);
     }
-  }, [isNewWorkspace]);
+  }, []);
 
   const handleAssignRuntime = (memberIndex: number, runtimeId: string) => {
     setMembers((prev) =>
@@ -287,7 +283,7 @@ export function StudioOnboardingClient({
     members.length > 0 &&
     members.every((m) => m.runtimeId) &&
     nameValid &&
-    (hasOnlineRuntime || machineRegistered);
+    (hasOnlineRuntime || machineRegistered || isTauriDesktop);
 
   // Page 1: Scenario selection
   if (!scenarioId) {
@@ -458,24 +454,41 @@ export function StudioOnboardingClient({
               onAssignRuntime={handleAssignRuntime}
             />
 
-            {/* Connect Machine */}
-            <div className="space-y-3">
-              <h2 className="text-base font-semibold tracking-tight">Connect a computer</h2>
-              {hasOnlineRuntime ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-emerald-600 flex items-center gap-1">
-                      <CheckCircle2 className="size-3" /> {onlineMachineCount} computer{onlineMachineCount > 1 ? "s" : ""} connected
-                    </p>
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={() => setShowRegister((v) => !v)}
-                    >
-                      Register another
-                    </button>
+            {/* Connect Machine — hidden in Tauri desktop (the app IS the computer) */}
+            {!isTauriDesktop && (
+              <div className="space-y-3">
+                <h2 className="text-base font-semibold tracking-tight">Connect a computer</h2>
+                {hasOnlineRuntime ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-emerald-600 flex items-center gap-1">
+                        <CheckCircle2 className="size-3" /> {onlineMachineCount} computer{onlineMachineCount > 1 ? "s" : ""} connected
+                      </p>
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => setShowRegister((v) => !v)}
+                      >
+                        Register another
+                      </button>
+                    </div>
+                    {showRegister && (
+                      <div className="rounded-xl bg-muted/40 p-5">
+                        <ConnectMachineSteps
+                          generatedToken={generatedToken}
+                          generatingToken={generatingToken}
+                          onGenerateToken={handleGenerateToken}
+                          registered={machineRegistered}
+                          daemonOnline={daemonOnline}
+                        />
+                      </div>
+                    )}
                   </div>
-                  {showRegister && (
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Your company needs a connected computer to run tasks.
+                    </p>
                     <div className="rounded-xl bg-muted/40 p-5">
                       <ConnectMachineSteps
                         generatedToken={generatedToken}
@@ -485,25 +498,10 @@ export function StudioOnboardingClient({
                         daemonOnline={daemonOnline}
                       />
                     </div>
-                  )}
-                </div>
-              ) : (
-                <>
-                  <p className="text-xs text-muted-foreground">
-                    Your company needs a connected computer to run tasks.
-                  </p>
-                  <div className="rounded-xl bg-muted/40 p-5">
-                    <ConnectMachineSteps
-                      generatedToken={generatedToken}
-                      generatingToken={generatingToken}
-                      onGenerateToken={handleGenerateToken}
-                      registered={machineRegistered}
-                      daemonOnline={daemonOnline}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Create */}
             <Button

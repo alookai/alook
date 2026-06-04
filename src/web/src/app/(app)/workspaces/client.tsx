@@ -17,8 +17,10 @@ interface WorkspaceItem {
 
 export function WorkspaceListClient({
   workspaces,
+  emptyWorkspaceId,
 }: {
   workspaces: WorkspaceItem[]
+  emptyWorkspaceId?: string | null
 }) {
   const router = useRouter()
 
@@ -69,7 +71,7 @@ export function WorkspaceListClient({
         <Button
           variant="outline"
           className="w-full"
-          onClick={() => router.push("/studio/new")}
+          onClick={() => router.push(emptyWorkspaceId ? `/studio/new?workspace_id=${emptyWorkspaceId}` : "/studio/new")}
         >
           <Plus className="size-4" />
           New workspace
