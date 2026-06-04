@@ -1691,18 +1691,39 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   background: var(--muted-foreground);
 }
 
-/* ── Streamdown table fullscreen: enable horizontal scroll for wide tables ── */
+/* ── Streamdown fullscreen views: unified styling ── */
 [data-streamdown="table-fullscreen"] {
+  background: var(--background) !important;
+  backdrop-filter: blur(4px);
   overflow: hidden;
 }
 [data-streamdown="table-fullscreen"] .flex-1.overflow-auto {
   overflow: auto !important;
   display: flex !important;
   align-items: center;
+  padding: 1rem !important;
 }
 [data-streamdown="table-fullscreen"] [data-streamdown="table"] {
   width: max-content !important;
   min-width: 100%;
+}
+/* Table fullscreen close button: match mermaid's absolute top-right style */
+[data-streamdown="table-fullscreen"] > div > div:first-child {
+  position: absolute !important;
+  top: 0;
+  right: 0;
+  z-index: 10;
+  padding: 1rem !important;
+}
+[data-streamdown="table-fullscreen"] > div > div:first-child button {
+  padding: 0.5rem !important;
+  border-radius: var(--radius-md) !important;
+  color: var(--muted-foreground) !important;
+  transition: all 150ms ease !important;
+}
+[data-streamdown="table-fullscreen"] > div > div:first-child button:hover {
+  background: var(--muted) !important;
+  color: var(--foreground) !important;
 }
 
 /* ── Task highlight (activity page scroll-to-task) ── */
