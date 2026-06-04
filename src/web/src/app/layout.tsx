@@ -181,11 +181,9 @@ export default function RootLayout({
           }}
         />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <main className="flex-1 min-h-0">
-            <TooltipProvider>
-              {children}
-            </TooltipProvider>
-          </main>
+          <TooltipProvider>
+            {children}
+          </TooltipProvider>
           <ToasterProvider />
         </ThemeProvider>
       </body>

@@ -23,7 +23,7 @@ export function WorkspaceListClient({
   const router = useRouter()
 
   return (
-    <div className="relative flex min-h-full flex-col items-center justify-center p-6">
+    <div className="relative flex min-h-dvh flex-col items-center justify-center p-6">
       <GradientBackground />
 
       <Button

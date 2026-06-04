@@ -1824,12 +1824,8 @@ html.dark,
   background-color: oklch(0.16 0.008 60);
 }
 
-/* Tauri desktop: fixed viewport with internal scroll so the drag region stays pinned */
-html[data-tauri-desktop] body {
-  height: 100dvh;
-  overflow: hidden;
-}
-html[data-tauri-desktop] main {
-  overflow: auto;
+/* Tauri desktop: push workspace shell content below the fixed drag region */
+html[data-tauri-desktop] [data-workspace-shell] {
+  padding-top: 1.75rem;
 }
 
