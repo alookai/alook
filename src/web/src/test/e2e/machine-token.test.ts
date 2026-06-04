@@ -82,95 +82,59 @@ describe("machine tokens", () => {
   })
 })
 
-describe("machine token activation", () => {
-  const createdWorkspaceIds: string[] = []
-
-  afterAll(() => {
-    for (const wsId of createdWorkspaceIds) {
-      try {
-        sqlRun(`DELETE FROM agent_runtime WHERE workspace_id = ?`, wsId)
-        sqlRun(`DELETE FROM machine WHERE workspace_id = ?`, wsId)
-        sqlRun(`DELETE FROM machine_token WHERE workspace_id = ?`, wsId)
-        sqlRun(`DELETE FROM member WHERE workspace_id = ?`, wsId)
-        sqlRun(`DELETE FROM workspace WHERE id = ?`, wsId)
-      } catch { /* ignore */ }
-    }
-  })
-
-  it("activation without workspace_id creates a new workspace (never reuses)", async () => {
-    // Create a pending token WITHOUT workspace_id
+describe("machine token activation (decoupled — no workspace creation)", () => {
+  it("activation sets token to registered status and stores hostname/runtimes", async () => {
     const tokenId = `mt_${randomUUID().replace(/-/g, "").slice(0, 21)}`
     const rawToken = `al_${randomUUID().replace(/-/g, "")}`
     const now = new Date().toISOString()
-    sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)`, tokenId, seed.userId, rawToken, 'no-ws-token', 'pending', now)
+    sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)`, tokenId, seed.userId, rawToken, 'activate-test', 'pending', now)
 
-    // Activate
     const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
     const res = await fetchWithRetry(`${APP_URL}/api/machine-tokens/activate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         token: rawToken,
-        hostname: "e2e-no-ws-machine",
+        hostname: "e2e-activate-machine",
         runtimes: [{ type: "claude", version: "4.0" }],
       }),
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as { workspace_id: string; daemon_id: string; runtimes: unknown[] }
+    const data = await res.json() as { daemon_id: string; token_status: string }
 
-    // workspace_id should be NEW (not the seed workspace)
-    expect(data.workspace_id).toBeTruthy()
-    expect(data.workspace_id).not.toBe(seed.workspaceId)
-    createdWorkspaceIds.push(data.workspace_id)
+    expect(data.token_status).toBe("registered")
+    expect(data.daemon_id).toBe("e2e-activate-machine")
 
-    // Verify workspace exists in DB and user is owner
-    const wsRows = sqlQuery<{ id: string; name: string }>(
-      `SELECT id, name FROM workspace WHERE id = ?`, data.workspace_id
+    // Verify DB state
+    const rows = sqlQuery<{ status: string; hostname: string; runtimes_json: string }>(
+      `SELECT status, hostname, runtimes_json FROM machine_token WHERE id = ?`, tokenId,
     )
-    expect(wsRows).toHaveLength(1)
-    expect(wsRows[0]!.name).toBe("Personal")
+    expect(rows[0]!.status).toBe("registered")
+    expect(rows[0]!.hostname).toBe("e2e-activate-machine")
+    expect(JSON.parse(rows[0]!.runtimes_json)).toEqual([{ type: "claude", version: "4.0" }])
 
-    const memberRows = sqlQuery<{ user_id: string; role: string }>(
-      `SELECT user_id, role FROM member WHERE workspace_id = ? AND user_id = ?`, data.workspace_id, seed.userId
-    )
-    expect(memberRows).toHaveLength(1)
-    expect(memberRows[0]!.role).toBe("owner")
+    // No workspace should be created
+    expect(data).not.toHaveProperty("workspace_id")
   })
 
-  it("activation with workspace_id uses that workspace (does not create new)", async () => {
-    // Create a pending token WITH workspace_id
+  it("activation rejects already-used token with 409", async () => {
     const tokenId = `mt_${randomUUID().replace(/-/g, "").slice(0, 21)}`
     const rawToken = `al_${randomUUID().replace(/-/g, "")}`
     const now = new Date().toISOString()
-    sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, tokenId, seed.userId, seed.workspaceId, rawToken, 'with-ws-token', 'pending', now)
+    sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, tokenId, seed.userId, seed.workspaceId, rawToken, 'active-token', 'active', now)
 
-    // Count workspaces before
-    const beforeRows = sqlQuery<{ cnt: number }>(
-      `SELECT COUNT(*) as cnt FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id = ?)`, seed.userId
-    )
-    const countBefore = beforeRows[0]!.cnt
-
-    // Activate
     const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
     const res = await fetchWithRetry(`${APP_URL}/api/machine-tokens/activate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         token: rawToken,
-        hostname: "e2e-with-ws-machine",
+        hostname: "e2e-rejected",
         runtimes: [{ type: "claude", version: "4.0" }],
       }),
     })
-    expect(res.status).toBe(200)
-    const data = await res.json() as { workspace_id: string }
-
-    // Should use the specified workspace
-    expect(data.workspace_id).toBe(seed.workspaceId)
-
-    // No new workspace should be created
-    const afterRows = sqlQuery<{ cnt: number }>(
-      `SELECT COUNT(*) as cnt FROM workspace WHERE id IN (SELECT workspace_id FROM member WHERE user_id = ?)`, seed.userId
-    )
-    expect(afterRows[0]!.cnt).toBe(countBefore)
+    expect(res.status).toBe(409)
+    const data = await res.json() as { error: string }
+    expect(data.error).toBe("token already used")
   })
 })
