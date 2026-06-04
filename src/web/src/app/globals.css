@@ -1824,3 +1824,12 @@ html.dark,
   background-color: oklch(0.16 0.008 60);
 }
 
+/* Tauri desktop: fixed viewport with internal scroll so the drag region stays pinned */
+html[data-tauri-desktop] body {
+  height: 100dvh;
+  overflow: hidden;
+}
+html[data-tauri-desktop] main {
+  overflow: auto;
+}
+

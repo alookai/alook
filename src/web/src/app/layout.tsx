@@ -141,7 +141,7 @@ export default function RootLayout({
       </head>
       <GoogleTagManager gtmId="GTM-56VHCCQZ" />
       <body
-        className="h-dvh overflow-hidden flex flex-col"
+        className="min-h-full flex flex-col"
       >
         <TauriDragRegion />
         <DesktopUpdatePrompt />
@@ -181,7 +181,7 @@ export default function RootLayout({
           }}
         />
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <main className="flex-1 min-h-0 overflow-auto">
+          <main className="flex-1 min-h-0">
             <TooltipProvider>
               {children}
             </TooltipProvider>
