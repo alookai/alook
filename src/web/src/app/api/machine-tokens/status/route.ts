@@ -20,7 +20,7 @@ export const GET = withAuth(async (_req, ctx) => {
     : false;
 
   let runtimes: Array<{ id: string; type: string; version: string; status: string }> | undefined;
-  if (token.runtimesJson) {
+  if (token.runtimesJson && !token.workspaceId) {
     try {
       const parsed = JSON.parse(token.runtimesJson) as Array<{ type: string; version?: string }>;
       runtimes = parsed.map((rt, i) => ({

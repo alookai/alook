@@ -85,6 +85,8 @@ export function StudioOnboardingClient({
     getMachineTokenStatus()
       .then((data) => {
         if (data.status === "registered" || data.status === "active") {
+          // If this is a new workspace and the token is already bound elsewhere, ignore its runtimes
+          if (isNewWorkspace && data.workspace_id) return;
           setMachineRegistered(true);
           if (data.daemon_online) setDaemonOnline(true);
           if (data.runtimes?.length) {

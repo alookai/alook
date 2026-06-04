@@ -111,4 +111,40 @@ describe("GET /api/machine-tokens/status", () => {
     expect(body.daemon_online).toBe(false);
   });
 
+  it("does NOT return runtimes when token is already bound to a workspace", async () => {
+    mockGetLatestTokenForUser.mockResolvedValue({
+      id: "mt_1", status: "active", workspaceId: "sp_ws1", hostname: "MacBook.local",
+      lastUsedAt: new Date(Date.now() - 30_000).toISOString(),
+      runtimesJson: '[{"type":"claude","version":"4.0"}]',
+    });
+
+    const req = new NextRequest("http://localhost/api/machine-tokens/status");
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("active");
+    expect(body.workspace_id).toBe("sp_ws1");
+    expect(body.runtimes).toBeUndefined();
+  });
+
+  it("returns runtimes when token is NOT bound to a workspace", async () => {
+    mockGetLatestTokenForUser.mockResolvedValue({
+      id: "mt_1", status: "registered", workspaceId: null, hostname: "MacBook.local",
+      lastUsedAt: new Date(Date.now() - 30_000).toISOString(),
+      runtimesJson: '[{"type":"claude","version":"4.0"}]',
+    });
+
+    const req = new NextRequest("http://localhost/api/machine-tokens/status");
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("registered");
+    expect(body.workspace_id).toBeUndefined();
+    expect(body.runtimes).toBeDefined();
+    expect(body.runtimes).toHaveLength(1);
+    expect(body.runtimes[0].type).toBe("claude");
+  });
+
 });
