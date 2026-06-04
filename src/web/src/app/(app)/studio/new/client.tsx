@@ -64,7 +64,6 @@ export function StudioOnboardingClient({
   const [generatingToken, setGeneratingToken] = useState(false);
   const [machineRegistered, setMachineRegistered] = useState(false);
   const [daemonOnline, setDaemonOnline] = useState(false);
-  const [showRegister, setShowRegister] = useState(false);
 
   const isTauriDesktop = isTauri() && isDesktop();
   const onlineRuntimes = runtimes.filter((r) => r.status === "online");
@@ -613,31 +612,9 @@ export function StudioOnboardingClient({
               <div className="space-y-3">
                 <h2 className="text-base font-semibold tracking-tight">Connect a computer</h2>
                 {(hasOnlineRuntime || (machineRegistered && daemonOnline && runtimes.length > 0)) ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-emerald-600 flex items-center gap-1">
-                        <CheckCircle2 className="size-3" /> {onlineMachineCount || 1} computer{(onlineMachineCount || 1) > 1 ? "s" : ""} connected
-                      </p>
-                      <button
-                        type="button"
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                        onClick={() => setShowRegister((v) => !v)}
-                      >
-                        Register another
-                      </button>
-                    </div>
-                    {showRegister && (
-                      <div className="rounded-xl bg-muted/40 p-5">
-                        <ConnectMachineSteps
-                          generatedToken={generatedToken}
-                          generatingToken={generatingToken}
-                          onGenerateToken={handleGenerateToken}
-                          registered={machineRegistered}
-                          daemonOnline={daemonOnline}
-                        />
-                      </div>
-                    )}
-                  </div>
+                  <p className="text-xs text-emerald-600 flex items-center gap-1">
+                    <CheckCircle2 className="size-3" /> {onlineMachineCount || 1} computer{(onlineMachineCount || 1) > 1 ? "s" : ""} connected
+                  </p>
                 ) : (
                   <>
                     <p className="text-xs text-muted-foreground">
