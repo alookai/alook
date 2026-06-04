@@ -3,7 +3,7 @@ members = ["plugins/tauri-plugin-push"]
 
 [package]
 name = "alook-desktop"
-version = "0.0.120"
+version = "0.0.121"
 edition = "2021"
 description = "Alook — Your Personal Company"
 
