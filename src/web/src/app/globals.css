@@ -1464,7 +1464,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   backdrop-filter: blur(4px);
   border: 1px solid oklch(1 0 0 / 10%) !important;
   border-radius: 0.5rem !important;
-  color: #e1e4e8 !important;
+  color: rgba(255, 255, 255, 0.7) !important;
   padding: 0.125rem !important;
   gap: 0.125rem !important;
 }
@@ -1478,7 +1478,8 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   align-items: center !important;
   justify-content: center !important;
   border-radius: 0.375rem !important;
-  color: #e1e4e8 !important;
+  color: rgba(255, 255, 255, 0.7) !important;
+  transition: color 150ms ease !important;
 }
 [data-streamdown="code-block-actions"] button:hover,
 [data-streamdown="mermaid-block-actions"] button:hover,
@@ -1490,6 +1491,36 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
 [data-streamdown="table-wrapper"] > div:first-child:not(:has([data-streamdown="table"])) button svg {
   width: 0.875rem !important;
   height: 0.875rem !important;
+}
+
+/* ── Streamdown block actions: dropdown popups ── */
+[data-streamdown="code-block-actions"] .absolute,
+[data-streamdown="mermaid-block-actions"] .absolute,
+[data-streamdown="table-wrapper"] > div:first-child:not(:has([data-streamdown="table"])) .absolute {
+  z-index: 50 !important;
+  min-width: 10rem;
+  overflow: visible !important;
+  background: var(--background) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-md) !important;
+  color: var(--foreground) !important;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+}
+[data-streamdown="code-block-actions"] .absolute button,
+[data-streamdown="mermaid-block-actions"] .absolute button,
+[data-streamdown="table-wrapper"] > div:first-child:not(:has([data-streamdown="table"])) .absolute button {
+  width: auto !important;
+  height: auto !important;
+  padding: 0.5rem 0.75rem !important;
+  border-radius: 0 !important;
+  color: var(--foreground) !important;
+  display: block !important;
+}
+[data-streamdown="code-block-actions"] .absolute button:hover,
+[data-streamdown="mermaid-block-actions"] .absolute button:hover,
+[data-streamdown="table-wrapper"] > div:first-child:not(:has([data-streamdown="table"])) .absolute button:hover {
+  background: var(--muted) !important;
+  color: var(--foreground) !important;
 }
 [data-streamdown="code-block"]:hover [data-streamdown="code-block-actions"] {
   opacity: 1;
@@ -1551,14 +1582,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   pointer-events: auto;
 }
 
-/* Mermaid download dropdown menu */
-[data-streamdown="mermaid-block-actions"] .absolute {
-  z-index: 50 !important;
-  min-width: 10rem;
-  color: var(--foreground) !important;
-  background: var(--background) !important;
-  border-color: var(--border) !important;
-}
+/* Mermaid download dropdown menu — covered by unified dropdown rule above */
 
 /* Diagram content area */
 [data-streamdown="mermaid-block"] > div:last-child {
@@ -1647,11 +1671,7 @@ html.dark .blog-content [data-rehype-pretty-code-figure] span {
   pointer-events: auto;
 }
 
-/* Table copy/download dropdown: escape parent overflow clip */
-[data-streamdown="table-wrapper"] > div:first-child:not(:has([data-streamdown="table"])) .absolute {
-  min-width: 10rem;
-  overflow: visible !important;
-}
+/* Table copy/download dropdown — covered by unified dropdown rule above */
 
 /* Thin scrollbar for table container */
 [data-streamdown="table-wrapper"] > div:has([data-streamdown="table"])::-webkit-scrollbar {
