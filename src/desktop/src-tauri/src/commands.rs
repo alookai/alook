@@ -280,6 +280,7 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
 #[cfg(desktop)]
 #[tauri::command]
 pub fn set_window_theme(window: tauri::WebviewWindow, dark: bool) {
+    let _ = (&window, dark);
     #[cfg(target_os = "macos")]
     {
         use objc2::runtime::AnyObject;
