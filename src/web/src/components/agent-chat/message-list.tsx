@@ -256,7 +256,7 @@ export function AgentRow({
         ) : null
       }
       name={agentName}
-      position={effectivePosition === "solo" ? "solo" : effectivePosition}
+      position={effectivePosition}
     >
       {children}
     </MessageCluster>
