@@ -15,8 +15,7 @@
     "@tailwindcss/node"
   ],
   "ignore": [
-    "src/components/ui/**",
-    "src/components/chat-primitives/**"
+    "src/components/ui/**"
   ],
   "vitest": {
     "entry": ["src/**/*.test.{ts,tsx}", "src/test/**/*.{ts,tsx}"]
