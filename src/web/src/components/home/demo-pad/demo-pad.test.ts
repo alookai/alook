@@ -1,14 +1,152 @@
-import { describe, it, expect } from "vitest";
-
-// The web suite runs node-env (no jsdom/RTL). Component rendering is QA'd in
-// a browser. Here we assert the module exports and integration constraints.
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { DemoPad } from "./demo-pad";
+import { AnimatedStep } from "./animated-step";
+import { useStepSequence } from "./use-step-sequence";
 
 describe("demo-pad module exports", () => {
-  it("exports DemoPad, AnimatedStep, and useStepSequence", async () => {
-    const mod = await import("./index");
-    expect(typeof mod.DemoPad).toBe("function");
-    expect(typeof mod.AnimatedStep).toBe("function");
-    expect(typeof mod.useStepSequence).toBe("function");
+  it("exports DemoPad component", () => {
+    expect(typeof DemoPad).toBe("function");
+  });
+
+  it("exports AnimatedStep component", () => {
+    expect(typeof AnimatedStep).toBe("function");
+  });
+
+  it("exports useStepSequence hook", () => {
+    expect(typeof useStepSequence).toBe("function");
+  });
+});
+
+describe("DemoPad server-side render", () => {
+  it("renders children via render prop pattern", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DemoPad,
+        { totalSteps: 3 },
+        ({ currentStep, isResetting, showAll, Step }) => {
+          return createElement(
+            "div",
+            { "data-testid": "container" },
+            createElement(
+              Step,
+              { step: 0, currentStep, isResetting, showAll },
+              createElement("span", null, "step-0")
+            ),
+            createElement(
+              Step,
+              { step: 1, currentStep, isResetting, showAll },
+              createElement("span", null, "step-1")
+            ),
+            createElement(
+              Step,
+              { step: 2, currentStep, isResetting, showAll },
+              createElement("span", null, "step-2")
+            )
+          );
+        }
+      )
+    );
+    expect(markup).toContain("step-0");
+    expect(markup).toContain("step-1");
+    expect(markup).toContain("step-2");
+  });
+
+  it("renders a container div for IntersectionObserver ref", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DemoPad,
+        { totalSteps: 1 },
+        () => createElement("span", null, "content")
+      )
+    );
+    expect(markup).toContain("<div>");
+    expect(markup).toContain("content");
+  });
+
+  it("passes Step as AnimatedStep in children render prop", () => {
+    let receivedStep: unknown = null;
+    renderToStaticMarkup(
+      createElement(
+        DemoPad,
+        { totalSteps: 1 },
+        ({ Step }) => {
+          receivedStep = Step;
+          return createElement("span", null, "test");
+        }
+      )
+    );
+    expect(receivedStep).toBe(AnimatedStep);
+  });
+
+  it("initial currentStep is -1 (nothing visible on SSR)", () => {
+    let receivedCurrentStep: number | null = null;
+    renderToStaticMarkup(
+      createElement(
+        DemoPad,
+        { totalSteps: 5 },
+        ({ currentStep }) => {
+          receivedCurrentStep = currentStep;
+          return createElement("span", null, "test");
+        }
+      )
+    );
+    expect(receivedCurrentStep).toBe(-1);
+  });
+
+  it("initial isResetting is false", () => {
+    let receivedIsResetting: boolean | null = null;
+    renderToStaticMarkup(
+      createElement(
+        DemoPad,
+        { totalSteps: 5 },
+        ({ isResetting }) => {
+          receivedIsResetting = isResetting;
+          return createElement("span", null, "test");
+        }
+      )
+    );
+    expect(receivedIsResetting).toBe(false);
+  });
+
+  it("initial showAll is false (reduced motion detected in useEffect only)", () => {
+    let receivedShowAll: boolean | null = null;
+    renderToStaticMarkup(
+      createElement(
+        DemoPad,
+        { totalSteps: 5 },
+        ({ showAll }) => {
+          receivedShowAll = showAll;
+          return createElement("span", null, "test");
+        }
+      )
+    );
+    expect(receivedShowAll).toBe(false);
+  });
+});
+
+describe("DemoPad configuration", () => {
+  it("accepts custom stepInterval", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DemoPad,
+        { totalSteps: 3, stepInterval: 3000 },
+        () => createElement("span", null, "ok")
+      )
+    );
+    expect(markup).toContain("ok");
+  });
+
+  it("accepts custom loopPause", () => {
+    const markup = renderToStaticMarkup(
+      createElement(
+        DemoPad,
+        { totalSteps: 3, loopPause: 7000 },
+        () => createElement("span", null, "ok")
+      )
+    );
+    expect(markup).toContain("ok");
   });
 });
 
