@@ -15,6 +15,7 @@ import { FileText, Flag, Copy, Check, MessageSquareQuote } from "lucide-react";
 import { EmailCard } from "@/components/agent-chat/event-cards/email-card";
 import { CalendarCard } from "@/components/agent-chat/event-cards/calendar-card";
 import { IssueCard } from "@/components/agent-chat/event-cards/issue-card";
+import { MessageBubble, MessageCluster, AVATAR_SIZE, type BubblePosition } from "@/components/chat-primitives";
 
 import { eventTypeFromMessage, type GroupPosition } from "@/components/agent-chat/chat-message-utils";
 import { toast } from "sonner";
@@ -24,6 +25,10 @@ import { useLongPress } from "@/hooks/use-long-press";
 
 const MENTION_ALLOWED_TAGS = { mention: ["data-agent-id"] };
 const MENTION_LITERAL_TAGS = ["mention"];
+
+function toBubblePosition(gp: GroupPosition): BubblePosition {
+  return gp === "solo" ? "single" : gp;
+}
 
 /**
  * Whether an assistant message renders its own body (text bubble or, for a
@@ -219,35 +224,10 @@ function PendingFileChips({
   );
 }
 
-// Bubble grouping (locked prototype v2): base radius 1.05rem; the corner FACING
-// the neighbor in the cluster tucks to 0.35rem. User bubbles tuck the RIGHT
-// edge; agent bubbles mirror to the LEFT edge.
-//   first → tuck the bottom (corner toward the next bubble)
-//   middle → tuck top + bottom
-//   last → tuck the top (corner toward the previous bubble)
-const USER_BUBBLE_RADIUS: Record<GroupPosition, string> = {
-  solo: "rounded-[1.05rem]",
-  first: "rounded-[1.05rem] rounded-br-[0.35rem]",
-  middle: "rounded-[1.05rem] rounded-tr-[0.35rem] rounded-br-[0.35rem]",
-  last: "rounded-[1.05rem] rounded-tr-[0.35rem]",
-};
 
-const AGENT_BUBBLE_RADIUS: Record<GroupPosition, string> = {
-  solo: "rounded-[1.05rem]",
-  first: "rounded-[1.05rem] rounded-bl-[0.35rem]",
-  middle: "rounded-[1.05rem] rounded-tl-[0.35rem] rounded-bl-[0.35rem]",
-  last: "rounded-[1.05rem] rounded-tl-[0.35rem]",
-};
-
-// Slack/Discord cluster model (locked prototype): a TOP header [avatar] [name]
-// on the cluster's FIRST message (first/solo); bubbles/cards stack below it in
-// the gutter. Subsequent grouped messages get a spacer (no repeated
-// avatar/name). The avatar is TOP-aligned to the header — it anchors to the
-// name row, not a variable-height column, which dissolves the floating-avatar
-// bug. `forceSpacer` keeps the gutter width but never paints a header — for
-// items (e.g. an artifact card) that belong to the preceding message's cluster.
-const AVATAR_SIZE = 30; // matches the prototype's 30px gutter column
-const GUTTER_W = "w-[30px]";
+// Slack/Discord cluster model: delegates to <MessageCluster> from
+// chat-primitives. This wrapper adapts the product's AnimatedAvatar + the
+// `forceSpacer` concept into the primitive's props interface.
 
 export function AgentRow({
   groupPosition,
@@ -262,31 +242,24 @@ export function AgentRow({
   forceSpacer?: boolean;
   children: React.ReactNode;
 }) {
-  const isClusterHead =
-    !forceSpacer && (groupPosition === "first" || groupPosition === "solo");
+  const effectivePosition: GroupPosition = forceSpacer ? "middle" : groupPosition;
   return (
-    <div className="flex justify-start items-start gap-2 min-w-0">
-      <div className={cn(GUTTER_W, "shrink-0")} aria-hidden={!isClusterHead}>
-        {isClusterHead && config && (
+    <MessageCluster
+      avatar={
+        config ? (
           <AnimatedAvatar
             config={config}
             size={AVATAR_SIZE}
             className="rounded-md"
             isHovered={false}
           />
-        )}
-      </div>
-      <div className="min-w-0 max-w-[86%] flex flex-col items-start gap-0.5">
-        {isClusterHead && (
-          // Top-aligned with the avatar (prototype v2): tight line-height + a
-          // hair of top padding so the name's top edge lines up with the avatar.
-          <span className="text-[0.85rem] font-semibold text-foreground leading-[1.15] pt-0.5 mb-1">
-            {agentName}
-          </span>
-        )}
-        {children}
-      </div>
-    </div>
+        ) : null
+      }
+      name={agentName}
+      position={effectivePosition === "solo" ? "solo" : effectivePosition}
+    >
+      {children}
+    </MessageCluster>
   );
 }
 
@@ -579,10 +552,11 @@ export const MessageItem = memo(function MessageItem({
                 </button>
               );
             })()}
-            <div
+            <MessageBubble
+              variant="user"
+              position={toBubblePosition(groupPosition)}
               className={cn(
-                "max-w-[80%] px-3 py-1.5 bg-primary text-primary-foreground text-base relative",
-                USER_BUBBLE_RADIUS[groupPosition],
+                "max-w-[80%] relative",
                 isSendFailed && "opacity-60",
               )}
               {...bubblePressHandlers}
@@ -605,7 +579,7 @@ export const MessageItem = memo(function MessageItem({
                 return <PendingFileChips pendingFiles={pendingFilesByMessage} messageId={msg.id} />;
               })()}
               {toolbar}
-            </div>
+            </MessageBubble>
             {actionSheet}
             {isSendFailed && (
               <button
@@ -697,15 +671,16 @@ export const MessageItem = memo(function MessageItem({
                 className="relative min-w-0 w-fit max-w-full"
                 {...bubblePressHandlers}
               >
-                <div className={cn(
-                  "markdown min-w-0 max-w-full px-3 py-1.5 bg-muted text-foreground text-base",
-                  AGENT_BUBBLE_RADIUS[groupPosition],
-                  // Persistent flagged rail on the bubble itself — glanceable
-                  // whether or not the toolbar/sheet is open (bubble-only).
-                  isFlagged && "shadow-[inset_2px_0_0_var(--foreground)]",
-                )}>
+                <MessageBubble
+                  variant="agent"
+                  position={toBubblePosition(groupPosition)}
+                  className={cn(
+                    "markdown min-w-0 max-w-full",
+                    isFlagged && "shadow-[inset_2px_0_0_var(--foreground)]",
+                  )}
+                >
                   <Streamdown plugins={{ mermaid, cjk, math }} controls={{ code: { copy: true, download: false }, table: { copy: true, download: false, fullscreen: true } }} linkSafety={{ enabled: false }} allowedTags={MENTION_ALLOWED_TAGS} literalTagContent={MENTION_LITERAL_TAGS} components={mentionComponents}>{highlightMentions(msg.content, agents)}</Streamdown>
-                </div>
+                </MessageBubble>
                 {isFlagged && <FlagDot />}
                 {toolbar}
                 {actionSheet}
