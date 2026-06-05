@@ -1890,9 +1890,8 @@ html, body {
   content: "";
   position: absolute;
   inset: 0;
-  top: -100vh;
   bottom: -100vh;
-  background: linear-gradient(to top, var(--background) 50%, transparent);
+  background: linear-gradient(to bottom, transparent, var(--background) 15%);
   z-index: -1;
 }
 
