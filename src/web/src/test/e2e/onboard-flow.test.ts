@@ -207,8 +207,8 @@ describe("onboard flow — user scenarios", () => {
         rtId, existingWorkspaceId, "old-daemon", "local", "claude", "online", "old-device", now, now,
       )
       sqlRun(
-        `INSERT INTO agent (id, workspace_id, name, email_handle, role, instructions, runtime_id, status, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        `ag_e2e_${Date.now()}`, existingWorkspaceId, "Existing Agent", "existing", "leader", "You are existing", rtId, "active", "claude", now, now,
+        `INSERT INTO agent (id, workspace_id, name, runtime_id, email_handle, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `ag_e2e_${Date.now()}`, existingWorkspaceId, "Existing Agent", rtId, "existing", userId, now, now,
       )
     })
 
