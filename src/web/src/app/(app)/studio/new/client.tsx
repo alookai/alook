@@ -8,6 +8,7 @@ import { Loader2, CheckCircle2, XCircle, LogOut, ArrowLeft, LayoutGrid } from "l
 import { toast } from "sonner";
 import { signOut } from "@/lib/auth-client";
 import { clearAllCache } from "@/lib/chat-cache";
+import { trackWorkspaceCreated, trackOnboardingCompleted, trackAgentCreated } from "@/lib/analytics";
 
 import { PublicLayout } from "@/components/public-layout";
 import { ConnectMachineSteps } from "@/components/connect-machine-steps";
@@ -422,6 +423,19 @@ export function StudioOnboardingClient({
       }
 
       const data = (await res.json()) as { workspace: { slug: string }; leader_agent_id: string };
+      if (!initialWorkspaceId) {
+        trackWorkspaceCreated("onboarding");
+      }
+      trackOnboardingCompleted({
+        template_used: scenarioId ?? undefined,
+        agent_count: resolvedMembers.length,
+      });
+      for (let i = 0; i < resolvedMembers.length; i++) {
+        trackAgentCreated({
+          is_first_agent: i === 0,
+          has_email: !!resolvedMembers[i].emailHandle,
+        });
+      }
       toast.success("Company created!");
       router.push(`/w/${data.workspace.slug}/agents/${data.leader_agent_id}`);
     } catch (e) {

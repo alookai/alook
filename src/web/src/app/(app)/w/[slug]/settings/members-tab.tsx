@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { trackTeamMemberInvited } from "@/lib/analytics";
 
 function getInviteLink(token: string) {
   return `${window.location.origin}/invite/${token}`;
@@ -60,6 +61,7 @@ export function MembersTab() {
     setGeneratingInvite(true);
     try {
       const invite = await createInvite(workspaceId);
+      trackTeamMemberInvited({ workspace_id: workspaceId });
       setInvites((prev) => [...prev, invite]);
       const link = getInviteLink(invite.token);
       await navigator.clipboard.writeText(link);

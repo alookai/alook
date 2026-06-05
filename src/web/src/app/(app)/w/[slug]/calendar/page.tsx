@@ -34,6 +34,7 @@ import { getWeekStart, weekRangeIso } from "@/components/calendar/calendar-week-
 import type { CalendarEvent, UpdateCalendarEventRequest } from "@alook/shared";
 import { isTypingTarget } from "@/components/calendar/keyboard";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { trackCalendarEventCreated } from "@/lib/analytics";
 
 /**
  * The month grid always renders six full weeks (42 cells), which means the
@@ -275,6 +276,10 @@ export default function CalendarPage() {
     setSubmitting(true);
     try {
       const created = await createCalendarEvent(values, workspaceId);
+      trackCalendarEventCreated({
+        agent_id: values.agent_id,
+        is_recurring: !!values.repeat_interval,
+      });
       const { from, to } =
         view === "week"
           ? weekRangeIso(weekAnchor)

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { getInviteInfo, acceptInvite, type InviteInfo } from "@/lib/api";
+import { trackInviteAccepted } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -35,6 +36,7 @@ export default function InvitePage() {
     setState("accepting");
     try {
       const result = await acceptInvite(token);
+      trackInviteAccepted({ workspace_id: result.workspace_id ?? "" });
       setState("done");
       toast.success(`Joined ${info?.workspace_name ?? "workspace"}`);
       router.replace(`/w/${result.workspace_slug}/home`);

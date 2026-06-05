@@ -67,6 +67,7 @@ import type {
 import { toast } from "sonner";
 import type { ChatComposerHandle } from "@/components/agent-chat/chat-composer";
 import { useCachedMessages } from "@/hooks/use-cached-messages";
+import { trackAgentChatOpened, trackMessageSent } from "@/lib/analytics";
 
 const MESSAGE_LIMIT = 20;
 const MAX_CONV_FETCHES_PER_CLICK = 5;
@@ -166,6 +167,16 @@ export function useAgentChat(
   useEffect(() => {
     writeToCacheRef.current = writeToCache;
   }, [writeToCache]);
+
+  const chatOpenedTracked = useRef(false);
+  useEffect(() => {
+    if (!conversation || chatOpenedTracked.current) return;
+    chatOpenedTracked.current = true;
+    trackAgentChatOpened({
+      agent_id: agentId,
+      is_first_chat: messages.length === 0,
+    });
+  }, [conversation, agentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const agentArtifacts = useMemo(
     () => artifacts.filter((a) => a.source === "agent"),
@@ -1586,6 +1597,7 @@ export function useAgentChat(
     }
 
     const filesToSend = [...pendingFilesRef.current];
+    trackMessageSent({ agent_id: agentId, message_length: content.length });
     setInput("");
     setPendingFiles([]);
     setQuotedMessage(null);

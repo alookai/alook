@@ -8,6 +8,7 @@ import { AgentCreateForm } from "@/components/agent-create-form";
 import { fetchModelOptions, createEmailAccount } from "@/lib/api";
 import { toast } from "sonner";
 import { CircleHelp } from "lucide-react";
+import { trackAgentCreated, trackSecondAgentCreated, trackCustomEmailConnected } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
@@ -76,10 +77,19 @@ export default function CreateAgentPage() {
               avatar_url: data.avatar_url,
             });
             if (agent) {
+              trackAgentCreated({
+                is_first_agent: agents.length === 0,
+                has_email: !!data.email_handle || !!data.custom_email,
+              });
+              if (agents.length === 1) {
+                trackSecondAgentCreated({ total_agents: 2 });
+              }
               if (data.custom_email) {
                 try {
                   await createEmailAccount(agent.id, data.custom_email, workspaceId);
                   toast.success("Custom email connected");
+                  const domain = data.custom_email.emailAddress?.split("@")[1] ?? "";
+                  trackCustomEmailConnected({ email_domain: domain });
                 } catch (err) {
                   toast.error(err instanceof Error ? err.message : "Failed to connect custom email");
                 }

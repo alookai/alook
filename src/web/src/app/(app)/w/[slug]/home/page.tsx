@@ -52,6 +52,7 @@ import {
 } from "@/lib/api";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/errors";
+import { trackAgentLinkCreated, trackCanvasLayoutChanged } from "@/lib/analytics";
 import { AgentNode, type AgentNodeData } from "@/components/canvas/agent-node";
 import { LinkEdge } from "@/components/canvas/link-edge";
 import { LinkSidecar } from "@/components/canvas/link-sidecar";
@@ -312,6 +313,10 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
           },
           workspaceId,
         );
+        trackAgentLinkCreated({
+          source_agent: connection.source,
+          target_agent: connection.target,
+        });
         if (connection.sourceHandle || connection.targetHandle) {
           handleMap.current[created.id] = {
             sourceHandle: connection.sourceHandle ?? "right",
@@ -359,6 +364,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
   );
 
   const handleLayoutChange = useCallback((newLayout: LayoutType) => {
+    trackCanvasLayoutChanged({ layout_type: newLayout });
     setLayoutType(newLayout);
     saveLayoutType(workspaceId, newLayout);
     try {

@@ -8,6 +8,7 @@ import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { SplitText } from "gsap/SplitText";
 import { TypewriterVisual } from "@/components/typewriter-visual";
+import { trackLandingCtaClicked } from "@/lib/analytics";
 
 gsap.registerPlugin(ScrollTrigger, SplitText);
 
@@ -285,6 +286,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           {isLoggedIn ? (
             <a
               href="/workspaces?auto"
+              onClick={() => trackLandingCtaClicked({ cta_name: "open_app" })}
               className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
               style={{
                 fontFamily: "var(--font-mono)",
@@ -303,6 +305,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           ) : (
             <a
               href="/sign-in"
+              onClick={() => trackLandingCtaClicked({ cta_name: "get_started" })}
               className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
               style={{
                 fontFamily: "var(--font-mono)",
@@ -321,6 +324,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           )}
           <Link
             href="/templates"
+            onClick={() => trackLandingCtaClicked({ cta_name: "templates" })}
             className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
             style={{
               fontFamily: "var(--font-mono)",

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import type { TemplatePreset } from "@/lib/templates";
+import { trackTemplateUsed } from "@/lib/analytics";
 
 const ROLE_DOT_COLORS: Record<string, string> = {
   leader: "bg-amber-500/70 dark:bg-amber-400/60",
@@ -72,6 +73,7 @@ export function TemplateCard({
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            trackTemplateUsed({ template_id: template.id, template_name: template.name });
             router.push(href);
           }}
           className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground opacity-0 transition-all duration-150 group-hover:opacity-100 group-hover:bg-foreground group-hover:text-background"
