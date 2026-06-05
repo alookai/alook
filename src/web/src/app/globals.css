@@ -1891,7 +1891,7 @@ html, body {
   position: absolute;
   inset: 0;
   bottom: -100vh;
-  background: var(--background);
+  background: linear-gradient(to bottom, transparent, var(--background) 15%);
   z-index: -1;
 }
 
