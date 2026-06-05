@@ -5,6 +5,7 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Mail, Calendar, FileText, MessageSquare, Check, DollarSign, BarChart3, Bug, Brain } from "lucide-react";
+import { DemoPad } from "./demo-pad";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -89,83 +90,80 @@ function GitHubIcon({ className }: { className?: string }) {
 
 function DemoScene1() {
   return (
-    <div className="flex flex-col gap-3 p-4 h-full">
-      {/* 1. Bug report email arrives */}
-      <AnimatedItem delay={0}>
-        <div className="w-full rounded-md border border-border/60 bg-muted/50 text-sm px-3 py-2 flex items-center gap-2">
-          <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">New email from <span className="font-medium text-foreground">user@company.com</span>: &ldquo;Login page crashes on Safari&rdquo;</span>
-        </div>
-      </AnimatedItem>
-
-      {/* 2. Planner analyzes and writes plan */}
-      <AnimatedItem delay={400}>
-        <div className="flex items-start gap-2">
-          <DemoAvatar letter="P" />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className="text-xs font-medium">Planner</span>
-              <DemoStatusDot status="working" />
+    <DemoPad totalSteps={7} stepInterval={2500} loopPause={5000}>
+      {({ currentStep, isResetting, showAll, Step }) => (
+        <div className="flex flex-col gap-3 p-4 h-full">
+          <Step step={0} currentStep={currentStep} isResetting={isResetting} showAll={showAll}>
+            <div className="w-full rounded-md border border-border/60 bg-muted/50 text-sm px-3 py-2 flex items-center gap-2">
+              <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">New email from <span className="font-medium text-foreground">user@company.com</span>: &ldquo;Login page crashes on Safari&rdquo;</span>
             </div>
-            <div className="text-sm text-foreground">Reproduced it — WebKit flex gap bug in Safari 14. Writing fix plan and emailing Coder.</div>
-          </div>
-        </div>
-      </AnimatedItem>
+          </Step>
 
-      {/* 3. Planner → Coder email */}
-      <AnimatedItem delay={800}>
-        <div className="w-full rounded-md border border-border/60 bg-muted/50 text-sm px-3 py-2 flex items-center gap-2">
-          <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Planner → Coder:</span> Replace flex gap with margin-based spacing in login page. See repro + plan attached.</span>
-        </div>
-      </AnimatedItem>
-
-      {/* 4. Coder implements and emails Reviewer */}
-      <AnimatedItem delay={1200}>
-        <div className="flex items-start gap-2">
-          <DemoAvatar letter="C" />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className="text-xs font-medium">Coder</span>
-              <DemoStatusDot status="working" />
+          <Step step={1} currentStep={currentStep} isResetting={isResetting} showAll={showAll}>
+            <div className="flex items-start gap-2">
+              <DemoAvatar letter="P" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-xs font-medium">Planner</span>
+                  <DemoStatusDot status="working" />
+                </div>
+                <div className="text-sm text-foreground">Reproduced it — WebKit flex gap bug in Safari 14. Writing fix plan and emailing Coder.</div>
+              </div>
             </div>
-            <div className="text-sm text-foreground">Fixed. PR opened. Emailing Reviewer.</div>
-          </div>
-        </div>
-      </AnimatedItem>
+          </Step>
 
-      {/* 5. Coder → Reviewer email */}
-      <AnimatedItem delay={1600}>
-        <div className="w-full rounded-md border border-border/60 bg-muted/50 text-sm px-3 py-2 flex items-center gap-2">
-          <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Coder → Reviewer:</span> PR #142 ready. Safari flex gap fix.</span>
-        </div>
-      </AnimatedItem>
-
-      {/* 6. Reviewer approves */}
-      <AnimatedItem delay={2000}>
-        <div className="flex items-start gap-2">
-          <DemoAvatar letter="R" />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className="text-xs font-medium">Reviewer</span>
+          <Step step={2} currentStep={currentStep} isResetting={isResetting} showAll={showAll}>
+            <div className="w-full rounded-md border border-border/60 bg-muted/50 text-sm px-3 py-2 flex items-center gap-2">
+              <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Planner → Coder:</span> Replace flex gap with margin-based spacing in login page. See repro + plan attached.</span>
             </div>
-            <div className="text-sm text-foreground">All tests pass. Approved.</div>
-          </div>
-        </div>
-      </AnimatedItem>
+          </Step>
 
-      {/* 7. GitHub PR result */}
-      <AnimatedItem delay={2400}>
-        <div className="rounded-lg border border-border/60 bg-background/75 p-3">
-          <div className="flex items-center gap-1.5">
-            <GitHubIcon className="size-3.5 shrink-0" />
-            <span className="text-xs font-medium">#142 Fix Safari flex gap</span>
-            <span className="ml-auto rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-600">Approved</span>
-          </div>
+          <Step step={3} currentStep={currentStep} isResetting={isResetting} showAll={showAll}>
+            <div className="flex items-start gap-2">
+              <DemoAvatar letter="C" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-xs font-medium">Coder</span>
+                  <DemoStatusDot status="working" />
+                </div>
+                <div className="text-sm text-foreground">Fixed. PR opened. Emailing Reviewer.</div>
+              </div>
+            </div>
+          </Step>
+
+          <Step step={4} currentStep={currentStep} isResetting={isResetting} showAll={showAll}>
+            <div className="w-full rounded-md border border-border/60 bg-muted/50 text-sm px-3 py-2 flex items-center gap-2">
+              <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground"><span className="font-medium text-foreground">Coder → Reviewer:</span> PR #142 ready. Safari flex gap fix.</span>
+            </div>
+          </Step>
+
+          <Step step={5} currentStep={currentStep} isResetting={isResetting} showAll={showAll}>
+            <div className="flex items-start gap-2">
+              <DemoAvatar letter="R" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-xs font-medium">Reviewer</span>
+                </div>
+                <div className="text-sm text-foreground">All tests pass. Approved.</div>
+              </div>
+            </div>
+          </Step>
+
+          <Step step={6} currentStep={currentStep} isResetting={isResetting} showAll={showAll}>
+            <div className="rounded-lg border border-border/60 bg-background/75 p-3">
+              <div className="flex items-center gap-1.5">
+                <GitHubIcon className="size-3.5 shrink-0" />
+                <span className="text-xs font-medium">#142 Fix Safari flex gap</span>
+                <span className="ml-auto rounded bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-600">Approved</span>
+              </div>
+            </div>
+          </Step>
         </div>
-      </AnimatedItem>
-    </div>
+      )}
+    </DemoPad>
   );
 }
 
