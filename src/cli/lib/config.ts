@@ -6,17 +6,19 @@ interface WatchedWorkspace {
   id: string | null;
   name: string | null;
   token: string;
-  status?: "registered" | "active";
+  status?: "registered" | "active" | "deleted";
   agent_ids?: string[];
 }
 
 interface ProfileConfig {
   server_url: string;
+  session_token?: string;
   watched_workspaces: WatchedWorkspace[];
 }
 
 interface CLIConfig {
   server_url?: string;
+  session_token?: string;
   watched_workspaces?: WatchedWorkspace[];
   default_profile?: string;
   profiles?: Record<string, ProfileConfig>;
@@ -48,6 +50,7 @@ export function loadCLIConfigForProfile(profile?: string): ProfileConfig {
   }
   const result: ProfileConfig = {
     server_url: cfg.server_url || "",
+    session_token: cfg.session_token,
     watched_workspaces: cfg.watched_workspaces || [],
   };
 
@@ -80,6 +83,7 @@ export function saveCLIConfigForProfile(
     cfg.profiles[profile] = profileConfig;
   } else {
     cfg.server_url = profileConfig.server_url;
+    cfg.session_token = profileConfig.session_token;
     cfg.watched_workspaces = profileConfig.watched_workspaces;
     // Remove legacy machine_token if present
     delete (cfg as Record<string, unknown>).machine_token;

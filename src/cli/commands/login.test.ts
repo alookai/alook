@@ -18,6 +18,7 @@ vi.mock("../daemon/pidfile.js", () => ({
 vi.mock("../lib/env.js", () => ({
   cmdPrefix: () => "alook",
   isDev: () => false,
+  getServerUrl: () => "http://localhost:3000",
 }));
 
 vi.mock("../lib/runtimes.js", () => ({
@@ -116,7 +117,6 @@ describe("alook login", () => {
   }
 
   async function runWithTimers(promise: Promise<unknown>) {
-    // Advance timers repeatedly until the promise settles
     let settled = false;
     const result = promise.finally(() => { settled = true; });
     while (!settled) {
@@ -131,13 +131,24 @@ describe("alook login", () => {
     const cmd = loginCommand();
     await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
 
+    // syncWorkspacesToConfig is called first (stores session token + synced workspaces)
     expect(mockSaveCLIConfigForProfile).toHaveBeenCalledWith(
       undefined,
       expect.objectContaining({
         server_url: "http://localhost:3000",
-        watched_workspaces: [
-          { id: null, name: null, token: "al_machine_tok", status: "registered", agent_ids: [] },
-        ],
+        session_token: "session_tok_123",
+        watched_workspaces: expect.arrayContaining([
+          expect.objectContaining({ id: "sp_ws1", name: "My Workspace", status: "active" }),
+        ]),
+      }),
+    );
+    // activateAndSave adds the machine token entry
+    expect(mockSaveCLIConfigForProfile).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        watched_workspaces: expect.arrayContaining([
+          expect.objectContaining({ token: "al_machine_tok", status: "registered" }),
+        ]),
       }),
     );
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Logged in as test@alook.ai"));
@@ -359,6 +370,95 @@ describe("alook login", () => {
         "Already logged in as agent@alook.ai (workspace: My Workspace).",
       );
       expect(mockSaveCLIConfigForProfile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("session token and workspace sync", () => {
+    it("stores session_token in config after login", async () => {
+      mockFetchSequence(fullSuccessResponses());
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
+
+      expect(mockSaveCLIConfigForProfile).toHaveBeenCalledWith(
+        undefined,
+        expect.objectContaining({ session_token: "session_tok_123" }),
+      );
+    });
+
+    it("syncs server workspaces to local config during login", async () => {
+      mockFetchSequence([
+        { url: "/api/auth/device/code", status: 200, body: deviceCodeResponse() },
+        { url: "/api/auth/device/token", status: 200, body: tokenSuccessResponse() },
+        { url: "/api/me", status: 200, body: { id: "u1", email: "test@alook.ai" } },
+        { url: "/api/workspaces", status: 200, body: [
+          { id: "sp_ws1", name: "Work" },
+          { id: "sp_ws2", name: "Personal" },
+        ] },
+        { url: "/api/machine-tokens", status: 201, body: { token: "al_mt" } },
+        { url: "/api/machine-tokens/activate", status: 200, body: { daemon_id: "h1", token_status: "registered" } },
+      ]);
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
+
+      expect(mockSaveCLIConfigForProfile).toHaveBeenCalledWith(
+        undefined,
+        expect.objectContaining({
+          watched_workspaces: expect.arrayContaining([
+            expect.objectContaining({ id: "sp_ws1", name: "Work", status: "active" }),
+            expect.objectContaining({ id: "sp_ws2", name: "Personal", status: "active" }),
+          ]),
+        }),
+      );
+    });
+
+    it("syncs workspaces when existing auth valid but no local workspace id", async () => {
+      mockLoadCLIConfigForProfile.mockReturnValue({
+        server_url: "http://localhost:3000",
+        session_token: "old_session_tok",
+        watched_workspaces: [{ id: null, name: null, token: "al_reg_tok", status: "registered" }],
+      });
+
+      mockFetchSequence([
+        { url: "/api/workspaces", status: 200, body: [{ id: "sp_synced", name: "Synced WS" }] },
+        { url: "/api/me", status: 200, body: { email: "sync@alook.ai" } },
+      ]);
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
+
+      expect(mockSaveCLIConfigForProfile).toHaveBeenCalledWith(
+        undefined,
+        expect.objectContaining({
+          watched_workspaces: expect.arrayContaining([
+            expect.objectContaining({ id: "sp_synced", name: "Synced WS", status: "active" }),
+          ]),
+        }),
+      );
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Already logged in as sync@alook.ai (workspace: Synced WS).",
+      );
+    });
+
+    it("uses session token for auth check when machine token not available", async () => {
+      mockLoadCLIConfigForProfile.mockReturnValue({
+        server_url: "http://localhost:3000",
+        session_token: "session_valid",
+        watched_workspaces: [{ id: "sp_ws1", name: "Session WS", token: "" }],
+      });
+
+      mockFetchSequence([
+        { url: "/api/workspaces", status: 200, body: [{ id: "sp_ws1", name: "Session WS" }] },
+        { url: "/api/me", status: 200, body: { email: "session@alook.ai" } },
+      ]);
+
+      const cmd = loginCommand();
+      await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "Already logged in as session@alook.ai (workspace: Session WS).",
+      );
     });
   });
 });

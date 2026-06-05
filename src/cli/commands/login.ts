@@ -3,7 +3,7 @@ import { fork, spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { APIClient } from "../lib/client.js";
 import { activateAndSave } from "../lib/activate.js";
-import { loadCLIConfigForProfile } from "../lib/config.js";
+import { loadCLIConfigForProfile, saveCLIConfigForProfile } from "../lib/config.js";
 import { cmdPrefix, getServerUrl } from "../lib/env.js";
 
 const DEVICE_CLIENT_ID = process.env.ALOOK_DEVICE_CLIENT_ID || "alook-cli";
@@ -29,6 +29,11 @@ interface TokenErrorResponse {
   error_description?: string;
 }
 
+interface WorkspaceResponse {
+  id: string;
+  name: string;
+}
+
 
 function openBrowser(url: string): void {
   try {
@@ -47,6 +52,38 @@ function openBrowser(url: string): void {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function syncWorkspacesToConfig(
+  serverWorkspaces: WorkspaceResponse[],
+  profile?: string,
+  sessionToken?: string,
+): void {
+  const cfg = loadCLIConfigForProfile(profile);
+  const watched = cfg.watched_workspaces || [];
+  const serverIds = new Set(serverWorkspaces.map((w) => w.id));
+
+  for (const sw of serverWorkspaces) {
+    const existing = watched.find((w) => w.id === sw.id);
+    if (existing) {
+      existing.status = "active";
+      existing.name = sw.name;
+    } else {
+      watched.push({ id: sw.id, name: sw.name, token: "", status: "active", agent_ids: [] });
+    }
+  }
+
+  for (const w of watched) {
+    if (w.id && !serverIds.has(w.id) && w.status !== "registered") {
+      w.status = "deleted";
+    }
+  }
+
+  saveCLIConfigForProfile(profile, {
+    server_url: cfg.server_url,
+    session_token: sessionToken ?? cfg.session_token,
+    watched_workspaces: watched,
+  });
 }
 
 async function pollAndActivate(opts: {
@@ -117,17 +154,16 @@ async function pollAndActivate(opts: {
     // Non-fatal — we can proceed without the email for display
   }
 
-  // If user already has a workspace, pass it when creating machine token
-  // so activate won't create a duplicate
-  let existingWorkspaceId = "";
+  // Sync workspaces from server and store session token
+  let serverWorkspaces: WorkspaceResponse[] = [];
   try {
-    const workspaces = await client.getJSON<{ id: string }[]>("/api/workspaces");
-    if (workspaces.length > 0) {
-      existingWorkspaceId = workspaces[0].id;
-    }
+    serverWorkspaces = await client.getJSON<WorkspaceResponse[]>("/api/workspaces");
   } catch {
     // Non-fatal — will create new workspace during activate
   }
+  syncWorkspacesToConfig(serverWorkspaces, profile, sessionToken);
+
+  const existingWorkspaceId = serverWorkspaces.length > 0 ? serverWorkspaces[0].id : "";
 
   const mtUrl = existingWorkspaceId
     ? `/api/machine-tokens?workspace_id=${existingWorkspaceId}`
@@ -165,28 +201,37 @@ if (process.argv.includes("--__login-poll")) {
 
 async function checkExistingAuth(serverUrl: string, profile?: string): Promise<{ valid: boolean; email?: string; workspaceName?: string }> {
   const config = loadCLIConfigForProfile(profile);
-  const workspaces = config.watched_workspaces || [];
-  if (workspaces.length === 0) {
-    return { valid: false };
-  }
 
+  // Try session token first, then machine token from workspaces
+  const sessionToken = config.session_token;
+  const workspaces = config.watched_workspaces || [];
   const ws = workspaces[0];
-  if (!ws.token) {
+  const authToken = sessionToken || ws?.token;
+
+  if (!authToken) {
     return { valid: false };
   }
 
   try {
     const res = await fetch(`${serverUrl}/api/workspaces`, {
-      headers: { Authorization: `Bearer ${ws.token}` },
+      headers: { Authorization: `Bearer ${authToken}` },
     });
     if (!res.ok) {
       return { valid: false };
     }
 
+    const serverWorkspaces = await res.json() as WorkspaceResponse[];
+
+    // Sync workspaces when config has no workspace with a valid id
+    const hasValidWorkspace = workspaces.some((w) => w.id && w.status !== "deleted");
+    if (!hasValidWorkspace && serverWorkspaces.length > 0) {
+      syncWorkspacesToConfig(serverWorkspaces, profile);
+    }
+
     let email: string | undefined;
     try {
       const meRes = await fetch(`${serverUrl}/api/me`, {
-        headers: { Authorization: `Bearer ${ws.token}` },
+        headers: { Authorization: `Bearer ${authToken}` },
       });
       if (meRes.ok) {
         const me = await meRes.json() as { email?: string };
@@ -196,7 +241,11 @@ async function checkExistingAuth(serverUrl: string, profile?: string): Promise<{
       // Non-fatal — proceed without email
     }
 
-    return { valid: true, email, workspaceName: ws.name ?? undefined };
+    const workspaceName = (serverWorkspaces.length > 0 ? serverWorkspaces[0].name : undefined)
+      || ws?.name
+      || undefined;
+
+    return { valid: true, email, workspaceName };
   } catch {
     return { valid: false };
   }

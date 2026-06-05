@@ -20,9 +20,31 @@ vi.mock("../lib/resolve-client.js", () => ({
     token: "test-token",
     workspaceId: "ws_test",
   })),
+  resolveClientOptsPartial: vi.fn(() => ({
+    serverUrl: "http://localhost:3000",
+    token: "test-token",
+    workspaceId: "ws_test",
+  })),
+}));
+
+vi.mock("../lib/config.js", () => ({
+  loadCLIConfigForProfile: vi.fn(() => ({
+    server_url: "http://localhost:3000",
+    watched_workspaces: [{ id: "ws_test", name: "Test", token: "test-token", status: "active" }],
+  })),
+  saveCLIConfigForProfile: vi.fn(),
+}));
+
+vi.mock("../lib/command-utils.js", () => ({
+  getRootOpts: vi.fn(() => ({})),
 }));
 
 import { workspaceCommand } from "./workspace";
+import { resolveClientOptsPartial } from "../lib/resolve-client.js";
+import { loadCLIConfigForProfile } from "../lib/config.js";
+
+const mockedResolvePartial = vi.mocked(resolveClientOptsPartial);
+const mockedLoadConfig = vi.mocked(loadCLIConfigForProfile);
 
 const TMP_DIR = "/tmp/alook-workspace-test";
 
@@ -296,5 +318,149 @@ describe("workspace init", () => {
         expect.objectContaining({ runtime_id: "rt_online" }),
       ]),
     }));
+  });
+});
+
+describe("workspace init — self-resolve (no workspaceId)", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleErrSpy: ReturnType<typeof vi.spyOn>;
+  let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+  let mockExit: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mkdirSync(TMP_DIR, { recursive: true });
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockExit = vi.spyOn(process, "exit").mockImplementation((code) => { throw new Error(`process.exit(${code})`); });
+
+    // Return no workspaceId — triggers self-resolve path
+    mockedResolvePartial.mockReturnValue({
+      serverUrl: "http://localhost:3000",
+      token: "test-token",
+      workspaceId: undefined,
+    });
+    mockedLoadConfig.mockReturnValue({
+      server_url: "http://localhost:3000",
+      watched_workspaces: [{ id: null, name: null, token: "test-token", status: "registered" }],
+    });
+  });
+
+  afterEach(() => {
+    rmSync(TMP_DIR, { recursive: true, force: true });
+    consoleSpy.mockRestore();
+    consoleErrSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
+    mockExit.mockRestore();
+  });
+
+  function writeJson(filename: string, data: unknown) {
+    const path = join(TMP_DIR, filename);
+    writeFileSync(path, JSON.stringify(data));
+    return path;
+  }
+
+  async function runInit(args: string[]) {
+    const cmd = workspaceCommand();
+    await cmd.parseAsync(["node", "workspace", "init", ...args]);
+  }
+
+  it("finds empty workspace from server and uses it", async () => {
+    const jsonPath = writeJson("valid.json", {
+      name: "My WS",
+      members: [{ role: "leader", instructions: "You lead" }],
+    });
+
+    getJSONMock
+      .mockResolvedValueOnce([{ id: "sp_ws1", name: "Existing WS" }]) // GET /api/workspaces
+      .mockResolvedValueOnce([]) // GET /api/agents?workspace_id=sp_ws1 (empty!)
+      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }]); // GET /api/runtimes (after bind-workspace polling)
+
+    postJSONMock
+      .mockResolvedValueOnce({}) // POST /api/machine-tokens/bind-workspace
+      .mockResolvedValueOnce({ // POST /api/studios
+        studio: { name: "My WS" },
+        workspace: { id: "sp_ws1", name: "My WS", slug: "my-ws" },
+        agents: [{ id: "ag1", name: "Leader", email_handle: "leader" }],
+      });
+
+    await runInit(["--json-file", jsonPath]);
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Workspace initialized"));
+    expect(postJSONMock).toHaveBeenCalledWith("/api/machine-tokens/bind-workspace", { workspace_id: "sp_ws1" });
+  });
+
+  it("creates new workspace when all existing ones have agents", async () => {
+    const jsonPath = writeJson("valid.json", {
+      name: "Fresh WS",
+      members: [{ role: "leader", instructions: "You lead" }],
+    });
+
+    getJSONMock
+      .mockResolvedValueOnce([{ id: "sp_ws1", name: "Full WS" }]) // GET /api/workspaces
+      .mockResolvedValueOnce([{ id: "ag_existing" }]) // GET /api/agents?workspace_id=sp_ws1 (has agents)
+      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }]); // GET /api/runtimes (polling)
+
+    postJSONMock
+      .mockResolvedValueOnce({ id: "sp_new", name: "Fresh WS" }) // POST /api/workspaces
+      .mockResolvedValueOnce({}) // POST /api/machine-tokens/bind-workspace
+      .mockResolvedValueOnce({ // POST /api/studios
+        studio: { name: "Fresh WS" },
+        workspace: { id: "sp_new", name: "Fresh WS", slug: "fresh-ws" },
+        agents: [{ id: "ag1", name: "Leader", email_handle: "leader" }],
+      });
+
+    await runInit(["--json-file", jsonPath]);
+
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Created workspace"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Workspace initialized"));
+  });
+
+  it("creates workspace with 'Personal' name when no name configured", async () => {
+    const jsonPath = writeJson("valid.json", {
+      members: [{ role: "leader", instructions: "You lead" }],
+    });
+
+    getJSONMock
+      .mockResolvedValueOnce([]) // GET /api/workspaces (empty — new user)
+      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }]); // GET /api/runtimes
+
+    postJSONMock
+      .mockResolvedValueOnce({ id: "sp_personal", name: "Personal" }) // POST /api/workspaces
+      .mockResolvedValueOnce({}) // POST /api/machine-tokens/bind-workspace
+      .mockResolvedValueOnce({ // POST /api/studios
+        studio: { name: "Personal" },
+        workspace: { id: "sp_personal", name: "Personal", slug: "personal" },
+        agents: [{ id: "ag1", name: "Leader", email_handle: "leader" }],
+      });
+
+    await runInit(["--json-file", jsonPath]);
+
+    expect(postJSONMock).toHaveBeenCalledWith("/api/workspaces", expect.objectContaining({ name: "Personal" }));
+  });
+
+  it("polls for runtimes and errors if none appear", async () => {
+    vi.useFakeTimers();
+    const jsonPath = writeJson("valid.json", {
+      members: [{ role: "leader", instructions: "x" }],
+    });
+
+    getJSONMock
+      .mockResolvedValueOnce([{ id: "sp_ws1", name: "WS" }]) // GET /api/workspaces
+      .mockResolvedValueOnce([]) // GET /api/agents (empty)
+      .mockResolvedValue([]); // GET /api/runtimes (always empty)
+
+    postJSONMock.mockResolvedValueOnce({}); // POST /api/machine-tokens/bind-workspace
+
+    const promise = runInit(["--json-file", jsonPath]).catch((e) => e);
+    for (let i = 0; i < 20; i++) {
+      await vi.advanceTimersByTimeAsync(1100);
+    }
+    const err = await promise;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe("process.exit(1)");
+    expect(consoleErrSpy).toHaveBeenCalledWith(expect.stringContaining("No daemon registered after waiting"));
+    vi.useRealTimers();
   });
 });
