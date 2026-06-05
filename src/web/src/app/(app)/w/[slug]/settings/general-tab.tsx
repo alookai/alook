@@ -20,6 +20,7 @@ import {
   hasWorkspaceFormErrors,
   validateWorkspaceForm,
 } from "@/lib/form-validation";
+import { trackSettingsUpdated } from "@/lib/analytics";
 
 export function GeneralTab() {
   const { workspaceId, slug } = useWorkspace();
@@ -88,6 +89,7 @@ export function GeneralTab() {
         name: workspaceName.trim(),
         slug: workspaceSlug.trim(),
       });
+      trackSettingsUpdated({ setting_tab: "general" });
       setSavedWorkspaceName(updated.name);
       setSavedWorkspaceSlug(updated.slug);
       toast.success("Workspace updated");

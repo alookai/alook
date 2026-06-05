@@ -96,6 +96,27 @@ export function createAuth(env: Env) {
           },
         },
       },
+      session: {
+        create: {
+          after: async (session, ctx) => {
+            if (!ctx) return
+            const signupCookie = ctx.getCookie("is_new_signup")
+            if (signupCookie) return
+            const path = ctx.request?.url ? new URL(ctx.request.url).pathname : ""
+            let method = "unknown"
+            if (path.includes("email-otp")) method = "email_otp"
+            else if (path.includes("github")) method = "github"
+            else if (path.includes("google")) method = "google"
+            ctx.setCookie("is_sign_in", method, {
+              maxAge: 60,
+              path: "/",
+              httpOnly: false,
+              secure: isProd,
+              sameSite: "lax",
+            })
+          },
+        },
+      },
     },
     plugins: isProd
       ? [

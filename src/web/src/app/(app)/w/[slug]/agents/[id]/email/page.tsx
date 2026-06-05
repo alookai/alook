@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldAlert, ChevronDown } from "lucide-react";
+import { trackEmailComposed, trackEmailReceived } from "@/lib/analytics";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { EmailBodyFrame } from "@/components/email-body-frame";
@@ -111,14 +112,17 @@ export default function AgentEmailPage() {
 
   useEffect(() => {
     return subscribeWs((msg) => {
-      if (
-        (msg.type === "email.received" && msg.agentId === agentId) ||
-        (msg.type === "email.sent" && msg.agentId === agentId)
-      ) {
+      if (msg.type === "email.received" && msg.agentId === agentId) {
+        trackEmailReceived({
+          agent_id: agentId,
+          mailbox_type: activeMailbox?.type === "custom" ? "imap" : "alook",
+        });
+        loadEmails(folder, activeAddress);
+      } else if (msg.type === "email.sent" && msg.agentId === agentId) {
         loadEmails(folder, activeAddress);
       }
     });
-  }, [subscribeWs, agentId, folder, activeAddress, loadEmails]);
+  }, [subscribeWs, agentId, folder, activeAddress, loadEmails, activeMailbox?.type]);
 
   const handleSelect = async (emailId: string) => {
     setComposing(false);
@@ -196,6 +200,7 @@ export default function AgentEmailPage() {
   const handleSend = async (to: string, subject: string, htmlBody: string, attachments: EmailAttachment[], threading?: { inReplyTo?: string; references?: string }): Promise<boolean> => {
     try {
       await sendEmail(agentId, to, subject, htmlBody, workspaceId, attachments.length > 0 ? attachments : undefined, threading, activeAccountId);
+      trackEmailComposed({ agent_id: agentId, has_attachments: attachments.length > 0 });
       toast.success("Email sent");
       setComposing(false);
       switchFolder("sent");

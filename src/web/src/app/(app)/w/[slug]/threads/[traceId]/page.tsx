@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { getTrace, type TraceTask } from "@/lib/api";
+import { trackThreadViewed } from "@/lib/analytics";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft } from "lucide-react";
 import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar";
@@ -178,6 +179,9 @@ export default function TraceDetailPage() {
       .then((data) => {
         setTasks(data.tasks);
         setChannel(data.channel);
+        const agentIds = new Set(data.tasks.map((t: TraceTask) => t.agent_id));
+        const rootStatus = data.tasks.find((t: TraceTask) => !t.parent_task_id)?.status ?? "unknown";
+        trackThreadViewed({ agent_count: agentIds.size, status: rootStatus });
       })
       .catch(() => { })
       .finally(() => setLoading(false));

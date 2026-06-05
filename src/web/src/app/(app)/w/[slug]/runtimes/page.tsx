@@ -33,6 +33,7 @@ import { triggerRuntimeUpdate, triggerRuntimeRescan, fetchLatestCliVersion } fro
 import { Loader2, RefreshCw } from "lucide-react";
 
 import { ConnectMachineSteps } from "@/components/connect-machine-steps";
+import { trackRuntimeConnected } from "@/lib/analytics";
 
 export default function RuntimesPage() {
   const { agents, runtimes, loading, handleGenerateToken, handleDeleteMachine, subscribeWs, workspaceId } =
@@ -97,6 +98,7 @@ export default function RuntimesPage() {
         registeredDaemonIdRef.current &&
         msg.daemonId === registeredDaemonIdRef.current
       ) {
+        trackRuntimeConnected({ runtime_type: "desktop" });
         setSheetOpen(false);
         setGeneratedToken("");
         setRegisteredDaemonId(null);

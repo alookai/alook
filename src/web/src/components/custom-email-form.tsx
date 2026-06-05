@@ -31,6 +31,7 @@ import {
   hasCustomEmailErrors,
   validateCustomEmailFields,
 } from "@/lib/form-validation";
+import { trackCustomEmailConnected } from "@/lib/analytics";
 
 const PRESETS: Record<string, { imapHost: string; imapPort: number; smtpHost: string; smtpPort: number }> = {
   Gmail: { imapHost: "imap.gmail.com", imapPort: 993, smtpHost: "smtp.gmail.com", smtpPort: 587 },
@@ -278,6 +279,8 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
     setSaving(true);
     try {
       await createEmailAccount(agentId, data, workspaceId);
+      const domain = fields.emailAddress.split("@")[1] ?? "";
+      trackCustomEmailConnected({ email_domain: domain });
       toast.success("Custom email configured");
       setOpen(false);
       await load();

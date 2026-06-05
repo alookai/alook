@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { PublicLayout } from "@/components/public-layout";
 import { TemplateCard } from "./_components/template-card";
 import type { TemplatePreset, TemplateCategory } from "@/lib/templates";
+import { trackTemplatesBrowsed } from "@/lib/analytics";
 
 export function TemplatesClient({
   templates,
@@ -18,6 +19,19 @@ export function TemplatesClient({
   workspaceId?: string;
 }) {
   const [activeCategory, setActiveCategory] = useState<"All" | TemplateCategory>("All");
+  const tracked = useRef(false);
+
+  useEffect(() => {
+    if (!tracked.current) {
+      tracked.current = true;
+      trackTemplatesBrowsed({ category_filter: "All" });
+    }
+  }, []);
+
+  const handleCategoryChange = (cat: "All" | TemplateCategory) => {
+    setActiveCategory(cat);
+    trackTemplatesBrowsed({ category_filter: cat });
+  };
 
   const filtered =
     activeCategory === "All"
@@ -78,7 +92,7 @@ export function TemplatesClient({
           {["All", ...categories].map((cat) => (
             <button
               key={cat}
-              onClick={() => setActiveCategory(cat as "All" | TemplateCategory)}
+              onClick={() => handleCategoryChange(cat as "All" | TemplateCategory)}
               className={`rounded-full px-4 py-1.5 text-xs font-medium transition-colors duration-150 ${
                 activeCategory === cat
                   ? "bg-foreground text-background"

@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, useDraggable, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { IssueSheet } from "@/components/issues/issue-sheet";
+import { trackIssueCreated, trackIssueStatusChanged } from "@/lib/analytics";
 import { ArtifactSheet } from "@/components/agent-chat/artifact-sheet";
 import { isPreviewable, getArtifactUrl, computeArtifactVersions } from "@/components/artifact-content-renderer";
 
@@ -468,6 +469,7 @@ export default function IssuesPage() {
         title: values.title,
         description: values.description,
       });
+      trackIssueCreated({ agent_id: values.agent_id ?? "" });
       setIssues((prev) => [res.issue, ...prev]);
       if (values.agent_id) setRecentAgentId(values.agent_id);
       setDraft({ title: "", description: "", agentId: "" });
@@ -497,6 +499,8 @@ export default function IssuesPage() {
     if (!issue) return;
     const oldStatus = issue.status;
     if (newStatus === oldStatus) return;
+
+    trackIssueStatusChanged({ from: oldStatus, to: newStatus, method: "button" });
 
     const now = new Date().toISOString();
     setIssues((prev) => prev.map((i) => i.id === issueId ? { ...i, status: newStatus as Issue["status"], updated_at: now } : i));
@@ -574,6 +578,8 @@ export default function IssuesPage() {
 
     const newStatus = targetColId === "completed" ? "done" : targetColId;
     const oldStatus = issue.status;
+
+    trackIssueStatusChanged({ from: oldStatus, to: newStatus, method: "drag" });
 
     const now = new Date().toISOString();
     setIssues((prev) => prev.map((i) => i.id === issueId ? { ...i, status: newStatus as Issue["status"], updated_at: now } : i));
