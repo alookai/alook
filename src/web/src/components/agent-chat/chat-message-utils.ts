@@ -94,6 +94,41 @@ export function getLatestBranchableMessageId(
   return null;
 }
 
+export function isMessageBranchActionCandidate({
+  message,
+  isTaskActive,
+  activeBranchRootMessageId,
+  hasExistingBranch,
+}: {
+  message: Message;
+  isTaskActive: boolean;
+  activeBranchRootMessageId: string | null;
+  hasExistingBranch: boolean;
+}): boolean {
+  if (!isBranchableMessage(message)) return false;
+  if (!isTaskActive) return true;
+  return hasExistingBranch || message.id === activeBranchRootMessageId;
+}
+
+export function getBranchReturnTarget({
+  agentId,
+  conversationId,
+  message,
+  fallbackTaskId,
+}: {
+  agentId: string;
+  conversationId: string;
+  message: Message;
+  fallbackTaskId?: string | null;
+}) {
+  return {
+    agentId,
+    conversationId,
+    taskId: message.task_id ?? fallbackTaskId ?? null,
+    messageId: message.id,
+  };
+}
+
 export type NapMarker = { agentName: string; created_at: string; id: string };
 
 type TimelineItem =

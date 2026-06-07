@@ -164,12 +164,15 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     workspaceId: ws.workspaceId,
     branchConversationId: id,
   });
-  const latestBranchTask = branch
-    ? await queries.task.getLatestTaskForConversation(db, id)
+  const resumableBranchTask = branch
+    ? await queries.task.getLatestCompletedTaskWithSessionForConversation(db, {
+        workspaceId: ws.workspaceId,
+        conversationId: id,
+      })
     : null;
   let runtimeBranchContext: Record<string, string> | undefined;
   let effectiveMessageMetadata = messageMetadata;
-  if (branch && !latestBranchTask) {
+  if (branch && !resumableBranchTask) {
     if (!branch.forkSourceTaskId || !branch.forkSourceSessionId) {
       return writeError(FORK_SOURCE_UNAVAILABLE, 409);
     }
@@ -253,7 +256,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     ...(quote ? { quoted_message: { message_id: quote.messageId, excerpt: quote.excerpt } } : {}),
     ...(runtimeBranchContext ? { runtime_branch: runtimeBranchContext } : {}),
   };
-  const traceId = latestBranchTask?.traceId ?? "tr_" + nanoid();
+  const traceId = resumableBranchTask?.traceId ?? "tr_" + nanoid();
   const taskService = new TaskService(db);
   try {
     const task = await taskService.enqueueTask(
@@ -266,7 +269,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         contextKey,
         context: Object.keys(taskContext).length > 0 ? taskContext : undefined,
         traceId,
-        parentTaskId: latestBranchTask?.id ?? null,
+        parentTaskId: resumableBranchTask?.id ?? null,
       },
     );
     queries.message.updateMessageTaskId(db, message.id, task.id).catch(() => {});

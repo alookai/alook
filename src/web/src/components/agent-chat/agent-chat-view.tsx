@@ -23,7 +23,9 @@ import {
 } from "@/lib/api";
 import {
   canShowBranchAction,
-  isBranchableMessage,
+  getBranchReturnTarget,
+  getLatestBranchableMessageId,
+  isMessageBranchActionCandidate,
   useLatest,
 } from "@/components/agent-chat/chat-message-utils";
 import type {
@@ -318,6 +320,14 @@ export function AgentChatView({
   >(() => new Map());
   const [branchOrigin, setBranchOrigin] = useState<BranchOriginResponse | null>(null);
 
+  const activeBranchRootMessageId = useMemo(
+    () =>
+      isTaskActive
+        ? getLatestBranchableMessageId(messages, activeTask?.id ?? null)
+        : null,
+    [messages, isTaskActive, activeTask?.id],
+  );
+
   useEffect(() => {
     if (!conversation || !supportsBranch || conversation.type === "message_branch") {
       setBranchByRootMessageId(new Map());
@@ -365,17 +375,18 @@ export function AgentChatView({
     async (message: Message) => {
       if (!conversation || !supportsBranch || conversation.type === "message_branch") return;
 
+      const returnTo = getBranchReturnTarget({
+        agentId,
+        conversationId: conversation.id,
+        message,
+        fallbackTaskId: scrollToTaskId,
+      });
       const existingBranch = branchByRootMessageId.get(message.id);
       if (existingBranch) {
         openAgentChat(agentId, {
           conversationId: existingBranch.branch_conversation_id,
           mode: "branch",
-          returnTo: {
-            agentId,
-            conversationId: conversation.id,
-            taskId: scrollToTaskId,
-            messageId: scrollToMessageId,
-          },
+          returnTo,
         });
         return;
       }
@@ -411,12 +422,7 @@ export function AgentChatView({
         openAgentChat(agentId, {
           conversationId: res.conversation.id,
           mode: "branch",
-          returnTo: {
-            agentId,
-            conversationId: conversation.id,
-            taskId: scrollToTaskId,
-            messageId: scrollToMessageId,
-          },
+          returnTo,
         });
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Failed to create branch");
@@ -430,7 +436,6 @@ export function AgentChatView({
       conversation,
       openAgentChat,
       supportsBranch,
-      scrollToMessageId,
       scrollToTaskId,
       workspaceId,
     ],
@@ -898,6 +903,13 @@ export function AgentChatView({
               }
 
               const msg = item.data;
+              const hasExistingBranch = branchByRootMessageId.has(msg.id);
+              const messageIsBranchable = isMessageBranchActionCandidate({
+                message: msg,
+                isTaskActive,
+                activeBranchRootMessageId,
+                hasExistingBranch,
+              });
               return (
                 <div key={msg.id} className={spacing}>
                   <MessageItem
@@ -925,10 +937,10 @@ export function AgentChatView({
                       conversationType: conversation?.type,
                       supportsBranch,
                       branchingMessageId,
-                      hasExistingBranch: branchByRootMessageId.has(msg.id),
-                      messageIsBranchable: isBranchableMessage(msg),
+                      hasExistingBranch,
+                      messageIsBranchable,
                     })}
-                    isBranched={branchByRootMessageId.has(msg.id)}
+                    isBranched={hasExistingBranch}
                     onBranchClick={handleBranch}
                     mentionComponents={MENTION_COMPONENTS}
                     isFlagged={flaggedIds.has(msg.id)}
