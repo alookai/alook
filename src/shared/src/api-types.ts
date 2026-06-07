@@ -129,6 +129,7 @@ export interface UpdateAgentRequest {
 
 export interface SendMessageRequest {
   content: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface CreateMachineTokenRequest {

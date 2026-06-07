@@ -7,6 +7,7 @@ import type {
   CalendarEvent,
   Channel,
   Conversation,
+  ConversationBranch,
   CreateIssueRequest,
   CreateAgentLinkRequest,
   CreateAgentRequest,
@@ -250,6 +251,43 @@ export const getOrCreateAgentConversation = (agentId: string, workspaceId: strin
     method: "POST",
     body: JSON.stringify({ ...(channel ? { channel } : {}) }),
   });
+
+export interface CreateBranchResponse {
+  branch: ConversationBranch;
+  conversation: Conversation;
+}
+
+export interface ListBranchesResponse {
+  branches: ConversationBranch[];
+}
+
+export interface BranchOriginResponse {
+  branch: ConversationBranch;
+  root_message: Message;
+}
+
+export const listBranches = (conversationId: string, workspaceId: string) =>
+  apiFetch<ListBranchesResponse>(
+    `/api/conversations/${conversationId}/branches${wsQuery(workspaceId)}`,
+  );
+
+export const createBranch = (
+  conversationId: string,
+  rootMessageId: string,
+  workspaceId: string,
+) =>
+  apiFetch<CreateBranchResponse>(
+    `/api/conversations/${conversationId}/branches${wsQuery(workspaceId)}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ root_message_id: rootMessageId }),
+    },
+  );
+
+export const getBranchOrigin = (conversationId: string, workspaceId: string) =>
+  apiFetch<BranchOriginResponse>(
+    `/api/conversations/${conversationId}/branch-origin${wsQuery(workspaceId)}`,
+  );
 
 export interface PreviousConversation {
   id: string;

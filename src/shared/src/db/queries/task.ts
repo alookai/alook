@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, inArray, notInArray, ne, count, lt, or, sql, exists } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, notInArray, ne, count, lt, or, sql, exists, isNotNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { agentTaskQueue, taskMessage, conversation } from "../schema";
 import type { Database } from "../index";
@@ -57,6 +57,31 @@ export async function getLatestTaskForConversation(db: Database, conversationId:
     .from(agentTaskQueue)
     .where(eq(agentTaskQueue.conversationId, conversationId))
     .orderBy(desc(agentTaskQueue.createdAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getLatestCompletedTaskWithSessionForConversation(
+  db: Database,
+  data: { workspaceId: string; conversationId: string },
+) {
+  const rows = await db
+    .select({
+      id: agentTaskQueue.id,
+      runtimeId: agentTaskQueue.runtimeId,
+      sessionId: agentTaskQueue.sessionId,
+      traceId: agentTaskQueue.traceId,
+    })
+    .from(agentTaskQueue)
+    .where(
+      and(
+        eq(agentTaskQueue.workspaceId, data.workspaceId),
+        eq(agentTaskQueue.conversationId, data.conversationId),
+        eq(agentTaskQueue.status, "completed"),
+        isNotNull(agentTaskQueue.sessionId),
+      ),
+    )
+    .orderBy(desc(agentTaskQueue.completedAt), desc(agentTaskQueue.createdAt))
     .limit(1);
   return rows[0] ?? null;
 }

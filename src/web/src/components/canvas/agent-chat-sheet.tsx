@@ -17,9 +17,10 @@ import { useAgentContext } from "@/contexts/agent-context";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { ChannelBar } from "@/components/channel-bar";
 import { AgentChatView } from "@/components/agent-chat/agent-chat-view";
-import { ArrowUpRight, XIcon } from "lucide-react";
+import { ArrowUpRight, CornerUpLeft, XIcon } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import type { AgentChatSheetMode } from "@/contexts/agent-chat-sheet-state";
 
 interface AgentChatSheetProps {
   open: boolean;
@@ -34,13 +35,27 @@ interface AgentChatSheetProps {
   targetConvId?: string | null;
   scrollToTaskId?: string | null;
   scrollToMessageId?: string | null;
+  mode?: AgentChatSheetMode;
+  canReturnToPreviousMain?: boolean;
+  onReturnToPreviousMain?: () => void;
 }
 
 const MIN_WIDTH = 320;
 const MAX_WIDTH_RATIO = 0.8;
 const DEFAULT_WIDTH = 480;
 
-export function AgentChatSheet({ open, onOpenChange, agentId, agent, targetConvId, scrollToTaskId, scrollToMessageId }: AgentChatSheetProps) {
+export function AgentChatSheet({
+  open,
+  onOpenChange,
+  agentId,
+  agent,
+  targetConvId,
+  scrollToTaskId,
+  scrollToMessageId,
+  mode = "main",
+  canReturnToPreviousMain = false,
+  onReturnToPreviousMain,
+}: AgentChatSheetProps) {
   const { runtimes, activeTaskCounts } = useAgentContext();
   const { slug } = useWorkspace();
   const router = useRouter();
@@ -62,7 +77,24 @@ export function AgentChatSheet({ open, onOpenChange, agentId, agent, targetConvI
 
         {/* Top-right action buttons */}
         <div className="absolute top-3 right-3 z-10 flex items-center gap-1">
-          {agentId && (() => {
+          {canReturnToPreviousMain && onReturnToPreviousMain && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Return to main conversation"
+                    onClick={onReturnToPreviousMain}
+                  />
+                }
+              >
+                <CornerUpLeft />
+              </TooltipTrigger>
+              <TooltipContent>Return to main conversation</TooltipContent>
+            </Tooltip>
+          )}
+          {agentId && mode !== "branch" && (() => {
             const params = new URLSearchParams();
             if (scrollToTaskId) params.set("task", scrollToTaskId);
             if (scrollToMessageId) params.set("msg", scrollToMessageId);
@@ -114,6 +146,11 @@ export function AgentChatSheet({ open, onOpenChange, agentId, agent, targetConvI
               <SheetTitle className="truncate shrink-0">
                 {agent?.name ?? "Chat"}
               </SheetTitle>
+              {mode === "branch" && (
+                <span className="shrink-0 rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                  Branch
+                </span>
+              )}
               {agent?.email_handle && (
                 <span className="text-xs text-muted-foreground truncate">{toAlookAddress(agent.email_handle)}</span>
               )}

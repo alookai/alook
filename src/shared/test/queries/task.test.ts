@@ -39,6 +39,12 @@ describe("task query module exports", () => {
   it("exports failStaleRunningTasks", () => {
     expect(typeof taskQueries.failStaleRunningTasks).toBe("function");
   });
+
+  it("exports getLatestCompletedTaskWithSessionForConversation", () => {
+    expect(
+      typeof taskQueries.getLatestCompletedTaskWithSessionForConversation,
+    ).toBe("function");
+  });
 });
 
 describe("task query function signatures", () => {
@@ -102,6 +108,36 @@ describe("getLatestTaskForConversation", () => {
     const mockDb = createMockDb([task]);
     const result = await taskQueries.getLatestTaskForConversation(mockDb, "conv_1");
     expect(result).toEqual(task);
+  });
+});
+
+describe("getLatestCompletedTaskWithSessionForConversation", () => {
+  it("returns null when no completed session-backed task exists", async () => {
+    const mockDb = createMockDb([]);
+    const result =
+      await taskQueries.getLatestCompletedTaskWithSessionForConversation(
+        mockDb,
+        { workspaceId: "w1", conversationId: "conv_empty" },
+      );
+    expect(result).toBeNull();
+  });
+
+  it("returns the latest completed task with a session", async () => {
+    const task = {
+      id: "task_done",
+      runtimeId: "rt1",
+      sessionId: "session_1",
+      traceId: "trace_1",
+    };
+    const mockDb = createMockDb([task]);
+    const result =
+      await taskQueries.getLatestCompletedTaskWithSessionForConversation(
+        mockDb,
+        { workspaceId: "w1", conversationId: "conv_1" },
+      );
+    expect(result).toEqual(task);
+    expect(mockDb.orderBy).toHaveBeenCalled();
+    expect(mockDb.limit).toHaveBeenCalledWith(1);
   });
 });
 

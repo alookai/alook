@@ -48,6 +48,17 @@ export const TASK_TYPES = {
 
 export type TaskType = (typeof TASK_TYPES)[keyof typeof TASK_TYPES];
 
+export const CONVERSATION_TYPES = {
+  USER_DM_MESSAGE: TASK_TYPES.USER_DM_MESSAGE,
+  EMAIL_NOTIFICATION: TASK_TYPES.EMAIL_NOTIFICATION,
+  CALENDAR_EVENT: TASK_TYPES.CALENDAR_EVENT,
+  ISSUE_EVENT: TASK_TYPES.ISSUE_EVENT,
+  MESSAGE_BRANCH: "message_branch",
+} as const;
+
+export type ConversationType =
+  (typeof CONVERSATION_TYPES)[keyof typeof CONVERSATION_TYPES];
+
 export const IssueStatus = {
   TODO: "todo",
   IN_PROGRESS: "in_progress",

@@ -53,6 +53,47 @@ export function mergeMessages(
   return sortMessages([...merged.values()]);
 }
 
+const NON_BRANCHABLE_MESSAGE_KINDS = new Set([
+  "event",
+  "lifecycle",
+  "process",
+  "progress",
+  "status",
+  "transient",
+  "typing",
+]);
+
+export function isBranchableMessage(
+  message: Message,
+): boolean {
+  const status = message.status as string | undefined;
+  if (status && status !== "active") return false;
+  if (message.role !== "user" && message.role !== "assistant") return false;
+
+  const kind =
+    typeof message.metadata?.kind === "string"
+      ? message.metadata.kind.toLowerCase()
+      : null;
+  if (kind && NON_BRANCHABLE_MESSAGE_KINDS.has(kind)) return false;
+  if (message.metadata?.transient === true) return false;
+  if (message.metadata?.error_source) return false;
+  if (message.role === "assistant") return kind === null || kind === "dm";
+
+  return true;
+}
+
+export function getLatestBranchableMessageId(
+  messages: Message[],
+  activeTaskId?: string | null,
+): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (activeTaskId && messages[i].role === "user") continue;
+    if (activeTaskId && messages[i].task_id === activeTaskId) continue;
+    if (isBranchableMessage(messages[i])) return messages[i].id;
+  }
+  return null;
+}
+
 export type NapMarker = { agentName: string; created_at: string; id: string };
 
 type TimelineItem =
@@ -262,6 +303,19 @@ export function pointerRefreshTargetForTaskCreated(args: {
   // Already pointing here — nothing to do.
   if (task.conversation_id === currentPointerConvId) return null;
   return task.conversation_id;
+}
+
+export function canShowBranchAction(args: {
+  conversationType?: string | null;
+  supportsBranch: boolean;
+  branchingMessageId: string | null;
+  hasExistingBranch: boolean;
+  messageIsBranchable: boolean;
+}): boolean {
+  if (args.conversationType === "message_branch") return false;
+  if (!args.supportsBranch || args.branchingMessageId !== null) return false;
+  if (!args.messageIsBranchable) return false;
+  return true;
 }
 
 export function useLatest<T>(value: T) {

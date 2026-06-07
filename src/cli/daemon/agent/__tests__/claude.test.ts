@@ -72,6 +72,23 @@ describe("ClaudeBackend", () => {
     return currentMockProc!;
   }
 
+  it("passes --fork-session when resuming a branch", async () => {
+    const session = backend.execute("hello", {
+      cwd: "/tmp",
+      resumeSessionId: "parent_session",
+      forkSession: true,
+    });
+    const mock = getMock();
+
+    const spawnCall = (spawn as any).mock.calls[0];
+    expect(spawnCall[1]).toContain("--resume");
+    expect(spawnCall[1]).toContain("parent_session");
+    expect(spawnCall[1]).toContain("--fork-session");
+
+    mock.proc.emit("close", 0);
+    await session.result;
+  });
+
   it("emits MessageText for assistant text blocks", async () => {
     const session = backend.execute("hello", { cwd: "/tmp" });
     const mock = getMock();

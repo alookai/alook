@@ -9,7 +9,7 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { TASK_TYPES } from "../constants";
+import { CONVERSATION_TYPES, TASK_TYPES } from "../constants";
 
 // ---------------------------------------------------------------------------
 // Better Auth tables
@@ -302,7 +302,7 @@ export const conversation = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     title: text("title").notNull().default(""),
-    type: text("type").notNull().default(TASK_TYPES.USER_DM_MESSAGE),
+    type: text("type").notNull().default(CONVERSATION_TYPES.USER_DM_MESSAGE),
     channel: text("channel").notNull().default("default"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
@@ -335,6 +335,44 @@ export const message = sqliteTable(
   (t) => [
     index("idx_message_conversation_status").on(t.conversationId, t.status),
   ]
+);
+
+export const conversationBranch = sqliteTable(
+  "conversation_branch",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "br_" + nanoid()),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "cascade" }),
+    parentConversationId: text("parent_conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    branchConversationId: text("branch_conversation_id")
+      .notNull()
+      .references(() => conversation.id, { onDelete: "cascade" }),
+    rootMessageId: text("root_message_id")
+      .notNull()
+      .references(() => message.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    forkSourceTaskId: text("fork_source_task_id"),
+    forkSourceSessionId: text("fork_source_session_id"),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    unique("conversation_branch_root_unique").on(
+      t.workspaceId,
+      t.parentConversationId,
+      t.rootMessageId,
+    ),
+    unique("conversation_branch_conversation_unique").on(t.branchConversationId),
+    index("idx_conversation_branch_parent").on(
+      t.workspaceId,
+      t.parentConversationId,
+    ),
+  ],
 );
 
 export const agentTaskQueue = sqliteTable(

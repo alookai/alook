@@ -130,6 +130,21 @@ export function conversationToResponse(c: any) {
   return resp;
 }
 
+export function conversationBranchToResponse(b: any) {
+  return {
+    id: b.id,
+    workspace_id: b.workspaceId,
+    parent_conversation_id: b.parentConversationId,
+    branch_conversation_id: b.branchConversationId,
+    root_message_id: b.rootMessageId,
+    provider: b.provider,
+    fork_source_task_id: b.forkSourceTaskId ?? null,
+    fork_source_session_id: b.forkSourceSessionId ?? null,
+    created_by: b.createdBy,
+    created_at: formatTimestamp(b.createdAt),
+  };
+}
+
 export function channelToResponse(c: any) {
   return {
     id: c.id,

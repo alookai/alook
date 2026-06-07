@@ -14,9 +14,26 @@ import { invalidate, cacheKeys } from "@/lib/cache";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const MAX_FILES = 10;
+const FORK_SOURCE_UNAVAILABLE = "branch fork source session is not available";
+
+type QuoteMetadata = { messageId: string; excerpt: string };
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[/\\]/g, "_").replace(/\.\./g, "_").slice(0, 255) || "file";
+}
+
+function normalizeQuote(value: unknown): QuoteMetadata | null {
+  if (!value || typeof value !== "object") return null;
+  const quote = value as { messageId?: unknown; excerpt?: unknown };
+  if (typeof quote.messageId !== "string" || !quote.messageId) return null;
+  return {
+    messageId: quote.messageId,
+    excerpt: typeof quote.excerpt === "string" ? quote.excerpt : "",
+  };
+}
+
+function quoteExcerpt(content: string): string {
+  return content.trim().replace(/\s+/g, " ").slice(0, 100);
 }
 
 export const GET = withAuth(async (req, ctx) => {
@@ -143,12 +160,52 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     artifactIds.push(artifactId);
   }
 
+  const branch = await queries.conversationBranch.getBranchByConversation(db, {
+    workspaceId: ws.workspaceId,
+    branchConversationId: id,
+  });
+  const latestBranchTask = branch
+    ? await queries.task.getLatestTaskForConversation(db, id)
+    : null;
+  let runtimeBranchContext: Record<string, string> | undefined;
+  let effectiveMessageMetadata = messageMetadata;
+  if (branch && !latestBranchTask) {
+    if (!branch.forkSourceTaskId || !branch.forkSourceSessionId) {
+      return writeError(FORK_SOURCE_UNAVAILABLE, 409);
+    }
+    const rootMessage = await queries.message.getMessageForConversation(
+      db,
+      branch.parentConversationId,
+      branch.rootMessageId,
+    );
+    if (!rootMessage) {
+      return writeError("branch root message not found", 409);
+    }
+    const explicitQuote = normalizeQuote(messageMetadata?.quote);
+    if (!explicitQuote) {
+      effectiveMessageMetadata = {
+        ...(messageMetadata ?? {}),
+        quote: {
+          messageId: branch.rootMessageId,
+          excerpt: quoteExcerpt(rootMessage.content),
+        },
+      };
+    }
+    runtimeBranchContext = {
+      parent_context_key: branch.parentConversationId,
+      parent_task_id: branch.forkSourceTaskId,
+      parent_session_id: branch.forkSourceSessionId,
+      root_message_id: branch.rootMessageId,
+      provider: branch.provider,
+    };
+  }
+
   const message = await queries.message.createMessage(db, {
     conversationId: id,
     role: "user",
     content,
     attachmentIds: artifactIds.length > 0 ? JSON.stringify(artifactIds) : null,
-    metadata: messageMetadata ? JSON.stringify(messageMetadata) : null,
+    metadata: effectiveMessageMetadata ? JSON.stringify(effectiveMessageMetadata) : null,
   });
 
   broadcastToUser(ctx.userId, {
@@ -188,14 +245,15 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   const contextKey = id;
-  const quote = messageMetadata?.quote as { messageId?: string; excerpt?: string } | undefined;
+  const quote = normalizeQuote(effectiveMessageMetadata?.quote);
   const taskContext: Record<string, unknown> = {
     message_id: message.id,
     ...(artifactIds.length > 0 ? { attachment_ids: artifactIds } : {}),
     ...mentionContext,
     ...(quote ? { quoted_message: { message_id: quote.messageId, excerpt: quote.excerpt } } : {}),
+    ...(runtimeBranchContext ? { runtime_branch: runtimeBranchContext } : {}),
   };
-  const traceId = "tr_" + nanoid();
+  const traceId = latestBranchTask?.traceId ?? "tr_" + nanoid();
   const taskService = new TaskService(db);
   try {
     const task = await taskService.enqueueTask(
@@ -208,7 +266,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         contextKey,
         context: Object.keys(taskContext).length > 0 ? taskContext : undefined,
         traceId,
-        parentTaskId: null,
+        parentTaskId: latestBranchTask?.id ?? null,
       },
     );
     queries.message.updateMessageTaskId(db, message.id, task.id).catch(() => {});
