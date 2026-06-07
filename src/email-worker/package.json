@@ -16,11 +16,11 @@
     "worker-mailer": "^1.2.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260524.1",
-    "@types/node": "^25.9.1",
-    "knip": "^6.14.2",
+    "@cloudflare/workers-types": "^4.20260607.1",
+    "@types/node": "^25.9.2",
+    "knip": "^6.16.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7",
-    "wrangler": "^4.94.0"
+    "vitest": "^4.1.8",
+    "wrangler": "^4.98.0"
   }
 }
