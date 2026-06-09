@@ -269,39 +269,60 @@ export function ArchitectureOverview() {
       {/* Triple-window demo */}
       <div
         ref={containerRef}
-        className={`arch-demo-container relative w-full max-w-6xl mx-auto h-140 lg:h-130 transition-opacity duration-300 ${
+        className={`arch-demo-container relative w-full max-w-5xl mx-auto h-130 lg:h-120 transition-opacity duration-300 ${
           isResetting ? "opacity-0" : "opacity-100"
         }`}
       >
-        {/* Dashboard (desktop) — top-left */}
-        <div className="absolute top-0 left-0 w-[55%] h-[85%] z-10 hover:z-30 transition-[z-index] hidden md:block">
-          <DemoWindow title="Alook Cloud" className="h-full shadow-[0_28px_70px_rgba(0,0,0,0.14),0_14px_32px_rgba(0,0,0,0.1)]">
+        {/* Desktop — top-left, behind */}
+        <div className="absolute top-0 left-0 w-[60%] h-[88%] z-10 hover:z-30 transition-[z-index] hidden md:block">
+          <DemoWindow title="Alook Desktop" className="h-full shadow-[0_28px_70px_rgba(0,0,0,0.14),0_14px_32px_rgba(0,0,0,0.1)]">
             <DemoDashboard state={dashboardState} config={ARCH_CONFIG} />
           </DemoWindow>
         </div>
 
-        {/* Mobile phone — center-left, overlapping dashboard */}
-        <div className="absolute top-[5%] left-[42%] w-[180px] h-[360px] z-20 hover:z-30 transition-[z-index] hidden lg:block">
-          <DemoWindow title="Alook Mobile" className="h-full shadow-[0_28px_70px_rgba(0,0,0,0.18),0_14px_32px_rgba(0,0,0,0.12)] !rounded-2xl">
-            <DemoMobile state={dashboardState} config={ARCH_CONFIG} />
-          </DemoWindow>
+        {/* Mobile + Terminal — side by side, overlapping desktop from left */}
+        <div className="absolute top-[25%] left-[40%] right-0 h-[75%] z-20 hover:z-30 transition-[z-index] hidden md:flex gap-3">
+          {/* Mobile — phone frame */}
+          <div className="w-[180px] shrink-0 h-full hidden lg:block">
+            <div className="h-full rounded-[1.5rem] border-[3px] border-neutral-700 bg-background shadow-[0_28px_70px_rgba(0,0,0,0.18),0_14px_32px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col dark">
+              {/* Dynamic Island */}
+              <div className="flex justify-center pt-1 shrink-0">
+                <div className="px-2 py-px bg-neutral-800 rounded-full flex items-center justify-center">
+                  <span className="text-[8px] text-neutral-400">Alook Mobile</span>
+                </div>
+              </div>
+              <div className="flex-1 min-h-0">
+                <DemoMobile state={dashboardState} config={ARCH_CONFIG} />
+              </div>
+              {/* Home indicator */}
+              <div className="flex justify-center py-1 shrink-0">
+                <div className="w-12 h-1 bg-muted-foreground/30 rounded-full" />
+              </div>
+            </div>
+          </div>
+          {/* Terminal */}
+          <div className="flex-1 min-w-0 h-full">
+            <DemoWindow title="Your Machine" className="h-full shadow-[0_28px_70px_rgba(0,0,0,0.18),0_14px_32px_rgba(0,0,0,0.12)]">
+              <DemoTerminal lines={TERMINAL_LINES} visibleCount={terminalVisible} />
+            </DemoWindow>
+          </div>
         </div>
 
-        {/* Terminal — right, in front */}
-        <div className="absolute top-[25%] right-0 w-[48%] h-[75%] z-15 hover:z-30 transition-[z-index] hidden md:block">
-          <DemoWindow title="Your Machine" className="h-full shadow-[0_28px_70px_rgba(0,0,0,0.18),0_14px_32px_rgba(0,0,0,0.12)]">
-            <DemoTerminal lines={TERMINAL_LINES} visibleCount={terminalVisible} />
-          </DemoWindow>
-        </div>
-
-        {/* Responsive (< md): stacked */}
-        <div className="md:hidden flex flex-col gap-4 h-full">
-          <DemoWindow title="Alook Cloud" className="flex-1 min-h-0">
-            <DemoDashboard state={dashboardState} config={ARCH_CONFIG} />
-          </DemoWindow>
-          <DemoWindow title="Your Machine" className="h-50">
-            <DemoTerminal lines={TERMINAL_LINES} visibleCount={terminalVisible} />
-          </DemoWindow>
+        {/* Responsive (< md): mobile phone only */}
+        <div className="md:hidden flex justify-center h-full">
+          <div className="w-[260px] h-full rounded-[2rem] border-[3px] border-neutral-700 bg-background shadow-lg overflow-hidden flex flex-col dark">
+            <div className="flex justify-center pt-2 shrink-0">
+              <div className="px-4 py-1 bg-neutral-800 rounded-full flex items-center justify-center">
+                <span className="text-[11px] text-neutral-400 leading-none">Alook Mobile</span>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0">
+              <DemoMobile state={dashboardState} config={ARCH_CONFIG} />
+            </div>
+            <div className="flex justify-center py-1 shrink-0">
+              <div className="w-16 h-1 bg-muted-foreground/30 rounded-full" />
+            </div>
+          </div>
         </div>
       </div>
     </section>
