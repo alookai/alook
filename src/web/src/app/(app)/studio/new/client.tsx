@@ -85,8 +85,17 @@ export function StudioOnboardingClient({
     getMachineTokenStatus()
       .then(async (data) => {
         if (data.status === "registered" || data.status === "active") {
-          // If this is a new workspace and the token is already bound elsewhere, ignore its runtimes
-          if (isNewWorkspace && data.workspace_id) return;
+          if (isNewWorkspace && data.workspace_id && !isTauriDesktop) return;
+          if (isNewWorkspace && data.workspace_id && isTauriDesktop) {
+            // Desktop: token is bound to another workspace, but runtimes are local.
+            // Fetch runtimes from the existing workspace so the picker has data.
+            listRuntimes(data.workspace_id).then((rts) => {
+              setRuntimes(rts);
+              setMachineRegistered(true);
+              setDaemonOnline(rts.some((r) => r.status === "online"));
+            }).catch(() => {});
+            return;
+          }
           setMachineRegistered(true);
           if (data.daemon_online) setDaemonOnline(true);
           if (data.runtimes?.length) {
