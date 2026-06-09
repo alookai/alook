@@ -58,26 +58,31 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     httpMetadata: { contentType },
   });
 
-  const row = await queries.artifact.createArtifact(db, {
-    id: artifactId,
-    conversationId,
-    agentId,
-    workspaceId: ws.workspaceId,
-    filename,
-    contentType,
-    size: file.size,
-    r2Key,
-  });
-  const response = queries.artifact.artifactToResponse(row);
-
-  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId);
-  if (agent?.ownerId) {
-    broadcastToUser(agent.ownerId, {
-      type: "artifact.uploaded",
+  try {
+    const row = await queries.artifact.createArtifact(db, {
+      id: artifactId,
       conversationId,
-      artifact: response,
-    }).catch(() => {});
-  }
+      agentId,
+      workspaceId: ws.workspaceId,
+      filename,
+      contentType,
+      size: file.size,
+      r2Key,
+    });
+    const response = queries.artifact.artifactToResponse(row);
 
-  return writeJSON(response);
+    const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId);
+    if (agent?.ownerId) {
+      broadcastToUser(agent.ownerId, {
+        type: "artifact.uploaded",
+        conversationId,
+        artifact: response,
+      }).catch(() => {});
+    }
+
+    return writeJSON(response);
+  } catch (e) {
+    await bucket.delete(r2Key).catch(() => {});  // cleanup orphan
+    throw e;
+  }
 });
