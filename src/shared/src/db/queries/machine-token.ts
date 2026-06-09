@@ -74,7 +74,7 @@ export async function registerMachineToken(
 ) {
   await db
     .update(machineToken)
-    .set({ status: "registered", hostname, runtimesJson })
+    .set({ status: "registered", hostname, runtimesJson, lastUsedAt: null })
     .where(eq(machineToken.id, id));
 }
 

@@ -68,6 +68,8 @@ export function StudioOnboardingClient({
 
   const isTauriDesktop = isTauri() && isDesktop();
   const onlineRuntimes = runtimes.filter((r) => r.status === "online");
+  // Desktop: runtimes are local, show all regardless of daemon status
+  const availableRuntimes = isTauriDesktop ? runtimes : onlineRuntimes;
   const hasOnlineRuntime = onlineRuntimes.length > 0;
   const onlineMachineCount = new Set(onlineRuntimes.map((r) => r.daemon_id).filter(Boolean)).size;
 
@@ -247,17 +249,17 @@ export function StudioOnboardingClient({
 
   useUserWs(handleWsMessage);
 
-  // Auto-assign first online runtime when runtimes load/change
+  // Auto-assign first available runtime when runtimes load/change
   useEffect(() => {
-    const firstOnline = onlineRuntimes[0]?.id;
-    if (!firstOnline) return;
+    const firstAvailable = availableRuntimes[0]?.id;
+    if (!firstAvailable) return;
     setMembers((prev) => {
       if (prev.length === 0) return prev;
       const needsUpdate = prev.some((m) => !m.runtimeId);
       if (!needsUpdate) return prev;
-      return prev.map((m) => m.runtimeId ? m : { ...m, runtimeId: firstOnline });
+      return prev.map((m) => m.runtimeId ? m : { ...m, runtimeId: firstAvailable });
     });
-  }, [onlineRuntimes]);
+  }, [availableRuntimes]);
 
   const resolveHandles = useCallback(async (memberNames: string[]) => {
     try {
@@ -278,7 +280,7 @@ export function StudioOnboardingClient({
     if (!initialTemplate || loadingRuntimes) return;
     if (members.length > 0) return;
     const generated = shuffleMembers(initialTemplate.members.length);
-    const defaultRuntimeId = onlineRuntimes[0]?.id || "";
+    const defaultRuntimeId = availableRuntimes[0]?.id || "";
     const newMembers = initialTemplate.members.map((m, i) => ({
       name: generated[i].name,
       role: m.role,
@@ -306,7 +308,7 @@ export function StudioOnboardingClient({
     setScenarioId(id);
     const preset = SCENARIO_PRESETS.find((s) => s.id === id)!;
     const generated = shuffleMembers(preset.members.length);
-    const defaultRuntimeId = onlineRuntimes[0]?.id || "";
+    const defaultRuntimeId = availableRuntimes[0]?.id || "";
     const newMembers = preset.members.map((m, i) => ({
       name: generated[i].name,
       role: m.role,
@@ -704,7 +706,7 @@ export function StudioOnboardingClient({
             {/* Team Preview */}
             <TeamPreview
               members={members}
-              runtimes={onlineRuntimes as Runtime[]}
+              runtimes={availableRuntimes as Runtime[]}
               onShuffle={handleShuffle}
               onAssignRuntime={handleAssignRuntime}
             />
