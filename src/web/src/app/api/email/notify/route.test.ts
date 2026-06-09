@@ -80,7 +80,7 @@ vi.mock("@/lib/api/responses", () => ({
 import { POST } from "./route";
 
 function makeNotifyReq(body: Record<string, unknown>) {
-  return new NextRequest("http://localhost/api/email/notify", {
+  return new NextRequest("http://internal/api/email/notify", {
     method: "POST",
     body: JSON.stringify(body),
   });

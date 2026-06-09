@@ -294,7 +294,8 @@ export class ImapPollerDO extends DurableObject<EmailEnv> {
     } catch (serviceErr) {
       try {
         const { DEV_WEB_URL } = await import("@alook/shared")
-        const fallback = await fetch(`${DEV_WEB_URL}/api/email/notify`, init)
+        const fallbackHeaders = { ...headers, "X-Internal-Secret": this.env.ENCRYPTION_KEY }
+        const fallback = await fetch(`${DEV_WEB_URL}/api/email/notify`, { ...init, headers: fallbackHeaders })
         if (!fallback.ok) throw new Error(`fallback responded ${fallback.status}`)
       } catch {
         throw serviceErr instanceof Error ? serviceErr : new Error(String(serviceErr))
