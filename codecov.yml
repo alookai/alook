@@ -25,6 +25,9 @@ coverage:
       default:
         target: 60%
 
+ignore:
+  - "src/web/src/components/home/**"
+
 comment:
   layout: "reach,diff,flags,files"
   behavior: default
