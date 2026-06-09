@@ -8,8 +8,10 @@
     "citty",
     "playwright-core",
     "postal-mime",
-    "wrangler",
     "bun-types"
+  ],
+  "ignoreBinaries": [
+    "predev"
   ],
   "vitest": {
     "entry": ["test/**/*.test.ts"]
