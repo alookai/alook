@@ -21,6 +21,10 @@ export const user = sqliteTable("user", {
   email: text("email").unique().notNull(),
   emailVerified: integer("emailVerified", { mode: "boolean" }),
   image: text("image"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  referrer: text("referrer"),
   createdAt: text("createdAt").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updatedAt").notNull().$defaultFn(() => new Date().toISOString()),
 });

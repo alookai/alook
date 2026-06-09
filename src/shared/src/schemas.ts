@@ -802,3 +802,15 @@ export const RecruitAgentRequestSchema = z.object({
   context_key: z.string().optional(),
 });
 export type RecruitAgentRequest = z.infer<typeof RecruitAgentRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// Registration source
+// ---------------------------------------------------------------------------
+
+export const RegistrationSourceSchema = z.object({
+  utm_source: z.string().max(500).nullable().optional(),
+  utm_medium: z.string().max(500).nullable().optional(),
+  utm_campaign: z.string().max(500).nullable().optional(),
+  referrer: z.string().max(2000).nullable().optional(),
+});
+export type RegistrationSource = z.infer<typeof RegistrationSourceSchema>;

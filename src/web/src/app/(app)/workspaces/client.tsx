@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -8,6 +9,7 @@ import { Logo } from "@/components/logo"
 import { Plus, ArrowRight, LogOut } from "lucide-react"
 import { signOut } from "@/lib/auth-client"
 import { clearAllCache } from "@/lib/chat-cache"
+import { sendRegistrationSource } from "@/lib/registration-source"
 
 interface WorkspaceItem {
   id: string
@@ -23,6 +25,10 @@ export function WorkspaceListClient({
   emptyWorkspaceId?: string | null
 }) {
   const router = useRouter()
+
+  useEffect(() => {
+    sendRegistrationSource()
+  }, [])
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center p-6">

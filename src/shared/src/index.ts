@@ -168,6 +168,7 @@ export {
   CreateStudioRequestSchema,
   RecruitAgentRequestSchema,
   DaemonPushMessageSchema,
+  RegistrationSourceSchema,
 } from "./schemas";
 
 export type {
