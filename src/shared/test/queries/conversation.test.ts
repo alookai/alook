@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
+import { drizzle } from "drizzle-orm/d1";
+import { desc } from "drizzle-orm";
+import { CONVERSATION_TYPES } from "../../src/constants";
+import { conversation } from "../../src/db/schema";
 import * as conversationQueries from "../../src/db/queries/conversation";
+
+const fakeDb = drizzle({} as never);
 
 function createMockDb(rows: any[]) {
   const chain: any = {};
@@ -17,6 +23,24 @@ function createMockDb(rows: any[]) {
   chain.leftJoin = vi.fn(() => chain);
   chain.groupBy = vi.fn(() => chain);
   return chain;
+}
+
+function createOrderedMockDb(rows: any[]) {
+  const calls: { select?: unknown; where?: unknown } = {};
+  const chain: any = {};
+  chain.select = vi.fn((selection?: unknown) => {
+    calls.select = selection;
+    return chain;
+  });
+  chain.from = vi.fn(() => chain);
+  chain.where = vi.fn((where: unknown) => {
+    calls.where = where;
+    return chain;
+  });
+  chain.orderBy = vi.fn(() => Promise.resolve(rows));
+  chain.leftJoin = vi.fn(() => chain);
+  chain.groupBy = vi.fn(() => chain);
+  return { chain, calls };
 }
 
 describe("conversation query module exports", () => {
@@ -98,6 +122,67 @@ describe("getConversation", () => {
     const mockDb = createMockDb([conv]);
     const result = await conversationQueries.getConversation(mockDb, "conv_1", "ws_1");
     expect(result).toEqual(conv);
+  });
+});
+
+describe("listConversations", () => {
+  it("filters normal conversation history to user DM conversations", async () => {
+    const rows = [{ id: "conv_1", type: "user_dm_message" }];
+    const { chain, calls } = createOrderedMockDb(rows);
+
+    const result = await conversationQueries.listConversations(
+      chain,
+      "ws_1",
+      "usr_1",
+    );
+
+    expect(result).toEqual(rows);
+    expect(calls.where).toBeDefined();
+    const { sql, params } = fakeDb
+      .select()
+      .from(conversation)
+      .where(calls.where as any)
+      .orderBy(desc(conversation.createdAt))
+      .toSQL();
+
+    expect(sql).toContain('"conversation"."type" = ?');
+    expect(params).toEqual([
+      "ws_1",
+      "usr_1",
+      CONVERSATION_TYPES.USER_DM_MESSAGE,
+    ]);
+  });
+});
+
+describe("listConversationsByAgent", () => {
+  it("filters agent history to user DM conversations and selects type", async () => {
+    const rows = [{ id: "conv_1", type: "user_dm_message" }];
+    const { chain, calls } = createOrderedMockDb(rows);
+
+    const result = await conversationQueries.listConversationsByAgent(
+      chain,
+      "ws_1",
+      "usr_1",
+      "ag_1",
+    );
+
+    expect(result).toEqual(rows);
+    expect((calls.select as { type?: unknown }).type).toBe(conversation.type);
+    expect(calls.where).toBeDefined();
+    const { sql, params } = fakeDb
+      .select()
+      .from(conversation)
+      .where(calls.where as any)
+      .orderBy(desc(conversation.createdAt))
+      .toSQL();
+
+    expect(sql).toContain('"conversation"."type" = ?');
+    expect(params).toEqual([
+      "ws_1",
+      "usr_1",
+      "ag_1",
+      CONVERSATION_TYPES.USER_DM_MESSAGE,
+    ]);
   });
 });
 

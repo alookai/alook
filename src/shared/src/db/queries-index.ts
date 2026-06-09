@@ -4,6 +4,7 @@ export * as member from "./queries/member";
 export * as agent from "./queries/agent";
 export * as runtime from "./queries/runtime";
 export * as conversation from "./queries/conversation";
+export * as conversationBranch from "./queries/conversation-branch";
 export * as message from "./queries/message";
 export * as task from "./queries/task";
 export * as taskMessage from "./queries/task-message";

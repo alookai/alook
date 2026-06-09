@@ -1,7 +1,11 @@
 import { eq, and, desc, ne, lt, sql, count as drizzleCount, inArray } from "drizzle-orm";
 import { conversation, message } from "../schema";
 import type { Database } from "../index";
-import { TASK_TYPES, type TaskType } from "../../constants";
+import {
+  CONVERSATION_TYPES,
+  TASK_TYPES,
+  type ConversationType,
+} from "../../constants";
 
 
 export async function createConversation(
@@ -11,7 +15,7 @@ export async function createConversation(
     agentId: string;
     userId: string;
     title: string;
-    type?: TaskType;
+    type?: ConversationType;
     channel?: string;
   }
 ) {
@@ -22,7 +26,7 @@ export async function createConversation(
       agentId: data.agentId,
       userId: data.userId,
       title: data.title,
-      type: data.type ?? TASK_TYPES.USER_DM_MESSAGE,
+      type: data.type ?? CONVERSATION_TYPES.USER_DM_MESSAGE,
       channel: data.channel ?? "default",
     })
     .returning();
@@ -54,6 +58,7 @@ export async function listConversations(
   const conditions = [
     eq(conversation.workspaceId, workspaceId),
     eq(conversation.userId, userId),
+    eq(conversation.type, CONVERSATION_TYPES.USER_DM_MESSAGE),
   ];
   if (channel) {
     conditions.push(eq(conversation.channel, channel));
@@ -76,6 +81,7 @@ export async function listConversationsByAgent(
     eq(conversation.workspaceId, workspaceId),
     eq(conversation.userId, userId),
     eq(conversation.agentId, agentId),
+    eq(conversation.type, CONVERSATION_TYPES.USER_DM_MESSAGE),
   ];
   if (channel) {
     conditions.push(eq(conversation.channel, channel));
@@ -87,6 +93,7 @@ export async function listConversationsByAgent(
       agentId: conversation.agentId,
       userId: conversation.userId,
       title: conversation.title,
+      type: conversation.type,
       channel: conversation.channel,
       createdAt: conversation.createdAt,
       messageCount:

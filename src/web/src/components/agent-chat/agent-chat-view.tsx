@@ -13,15 +13,25 @@ import { useWorkspace } from "@/contexts/workspace-context";
 import { Button } from "@/components/ui/button";
 import { TaskStream } from "@/components/task-stream";
 import {
+  createBranch,
+  getBranchOrigin,
   getTask,
+  listBranches,
   updateIssue,
   getAgentSkills,
   cancelActiveTask,
 } from "@/lib/api";
-import { useLatest } from "@/components/agent-chat/chat-message-utils";
+import {
+  canShowBranchAction,
+  getBranchReturnTarget,
+  getLatestBranchableMessageId,
+  isMessageBranchActionCandidate,
+  useLatest,
+} from "@/components/agent-chat/chat-message-utils";
 import type {
   Artifact,
   Issue,
+  Message,
   SkillEntry,
   WsMessage,
 } from "@alook/shared";
@@ -86,6 +96,11 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
+import type {
+  BranchOriginResponse,
+  CreateBranchResponse,
+} from "@/lib/api";
 
 export function AgentChatView({
   agentId: propAgentId,
@@ -110,6 +125,7 @@ export function AgentChatView({
     subscribeReconnect,
   } = useAgentContext();
   const { refresh: refreshInboxCount } = useInboxCount();
+  const { openAgentChat } = useAgentChatSheet();
   const {
     activeChannel,
     loading: channelLoading,
@@ -123,6 +139,7 @@ export function AgentChatView({
     ? runtimes.find((r) => r.id === activeAgent.runtime_id)
     : null;
   const runtimeProvider = activeRuntime?.provider ?? null;
+  const supportsBranch = runtimeProvider === "claude" || runtimeProvider === "codex";
   const scrollToTaskId =
     propScrollToTaskId !== undefined
       ? propScrollToTaskId
@@ -290,6 +307,139 @@ export function AgentChatView({
     handleRetryTask,
     handleNap,
   } = chat;
+
+  const isTaskActive =
+    !!activeTask &&
+    !["completed", "failed", "cancelled", "superseded"].includes(
+      activeTask.status,
+    );
+
+  const [branchingMessageId, setBranchingMessageId] = useState<string | null>(null);
+  const [branchByRootMessageId, setBranchByRootMessageId] = useState<
+    Map<string, CreateBranchResponse["branch"]>
+  >(() => new Map());
+  const [branchOrigin, setBranchOrigin] = useState<BranchOriginResponse | null>(null);
+
+  const activeBranchRootMessageId = useMemo(
+    () =>
+      isTaskActive
+        ? getLatestBranchableMessageId(messages, activeTask?.id ?? null)
+        : null,
+    [messages, isTaskActive, activeTask?.id],
+  );
+
+  useEffect(() => {
+    if (!conversation || !supportsBranch || conversation.type === "message_branch") {
+      setBranchByRootMessageId(new Map());
+      return;
+    }
+
+    let ignore = false;
+    listBranches(conversation.id, workspaceId)
+      .then((res) => {
+        if (ignore) return;
+        setBranchByRootMessageId(
+          new Map(res.branches.map((branch) => [branch.root_message_id, branch])),
+        );
+      })
+      .catch(() => {
+        if (!ignore) setBranchByRootMessageId(new Map());
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [conversation, supportsBranch, workspaceId]);
+
+  useEffect(() => {
+    if (!conversation || conversation.type !== "message_branch") {
+      setBranchOrigin(null);
+      return;
+    }
+
+    let ignore = false;
+    getBranchOrigin(conversation.id, workspaceId)
+      .then((origin) => {
+        if (!ignore) setBranchOrigin(origin);
+      })
+      .catch(() => {
+        if (!ignore) setBranchOrigin(null);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [conversation, workspaceId]);
+
+  const handleBranch = useCallback(
+    async (message: Message) => {
+      if (!conversation || !supportsBranch || conversation.type === "message_branch") return;
+
+      const returnTo = getBranchReturnTarget({
+        agentId,
+        conversationId: conversation.id,
+        message,
+        fallbackTaskId: scrollToTaskId,
+      });
+      const existingBranch = branchByRootMessageId.get(message.id);
+      if (existingBranch) {
+        openAgentChat(agentId, {
+          conversationId: existingBranch.branch_conversation_id,
+          mode: "branch",
+          returnTo,
+        });
+        return;
+      }
+
+      setBranchingMessageId(message.id);
+      try {
+        const res = await createBranch(conversation.id, message.id, workspaceId);
+        setBranchByRootMessageId((prev) => {
+          const next = new Map(prev);
+          next.set(message.id, res.branch);
+          return next;
+        });
+        if (typeof window !== "undefined") {
+          const key = `chat-draft-meta:${agentId}:${res.conversation.id}`;
+          const meta = (() => {
+            try {
+              return JSON.parse(localStorage.getItem(key) ?? "{}");
+            } catch {
+              return {};
+            }
+          })();
+          localStorage.setItem(
+            key,
+            JSON.stringify({
+              ...meta,
+              quote: {
+                id: message.id,
+                excerpt: message.content.trim().replace(/\s+/g, " ").slice(0, 100),
+              },
+            }),
+          );
+        }
+        openAgentChat(agentId, {
+          conversationId: res.conversation.id,
+          mode: "branch",
+          returnTo,
+        });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to create branch");
+      } finally {
+        setBranchingMessageId(null);
+      }
+    },
+    [
+      agentId,
+      branchByRootMessageId,
+      conversation,
+      openAgentChat,
+      supportsBranch,
+      scrollToTaskId,
+      workspaceId,
+    ],
+  );
 
   const { versionMap, duplicateFilenames } = useMemo(
     () => computeArtifactVersions(agentArtifacts),
@@ -532,12 +682,6 @@ export function AgentChatView({
   const [menuOpen, setMenuOpen] = useState(false);
   const [stopping, setStopping] = useState(false);
 
-  const isTaskActive =
-    !!activeTask &&
-    !["completed", "failed", "cancelled", "superseded"].includes(
-      activeTask.status,
-    );
-
   const handleStop = useCallback(async () => {
     if (!conversation?.id || stopping) return;
     setStopping(true);
@@ -665,6 +809,18 @@ export function AgentChatView({
               </div>
             )}
 
+            {branchOrigin && (
+              <div className="mb-3 rounded-lg border border-primary/15 bg-primary/5 px-3 py-2.5 text-sm">
+                <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-primary">
+                  <MessageSquareQuote className="size-3.5" />
+                  <span>Branched from {branchOrigin.root_message.role} message</span>
+                </div>
+                <div className="max-h-24 overflow-hidden whitespace-pre-wrap wrap-break-word text-muted-foreground">
+                  {branchOrigin.root_message.content || "(empty message)"}
+                </div>
+              </div>
+            )}
+
             {messages.length === 0 &&
               !activeTask &&
               (() => {
@@ -747,6 +903,13 @@ export function AgentChatView({
               }
 
               const msg = item.data;
+              const hasExistingBranch = branchByRootMessageId.has(msg.id);
+              const messageIsBranchable = isMessageBranchActionCandidate({
+                message: msg,
+                isTaskActive,
+                activeBranchRootMessageId,
+                hasExistingBranch,
+              });
               return (
                 <div key={msg.id} className={spacing}>
                   <MessageItem
@@ -770,6 +933,15 @@ export function AgentChatView({
                     }}
                     onIssueClick={(issueId) => openIssue(issueId)}
                     onRetry={handleRetryTask}
+                    canBranch={canShowBranchAction({
+                      conversationType: conversation?.type,
+                      supportsBranch,
+                      branchingMessageId,
+                      hasExistingBranch,
+                      messageIsBranchable,
+                    })}
+                    isBranched={hasExistingBranch}
+                    onBranchClick={handleBranch}
                     mentionComponents={MENTION_COMPONENTS}
                     isFlagged={flaggedIds.has(msg.id)}
                     onToggleFlag={

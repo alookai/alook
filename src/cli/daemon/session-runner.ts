@@ -318,11 +318,83 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
 
   const prompt = input.promptOverride ?? buildPrompt(task, attachments);
 
-  const resumeSessionId = task.contextKey
-    ? findResumableSessionByContextKey(timelineDir, task.contextKey, provider) ?? undefined
-    : undefined;
+  async function failBeforeSpawn(errMsg: string) {
+    log.error(errMsg);
+    updateEntry(timelineDir, task.id, (entry) => {
+      entry.pid = null;
+      entry.status = "failed";
+      entry.errmsg = errMsg;
+    });
+    await reportToServer(
+      () => client.failTask(token, task.id, errMsg),
+      { taskId: task.id, type: "fail", payload: { error: errMsg }, token, serverURL, createdAt: new Date().toISOString() },
+      workspacesRoot,
+    );
+    process.removeListener("SIGTERM", onKill);
+    process.removeListener("SIGINT", onKill);
+  }
+
+  const runtimeBranch = task.context?.runtime_branch as
+    | {
+        parent_context_key?: unknown;
+        parent_task_id?: unknown;
+        parent_session_id?: unknown;
+        root_message_id?: unknown;
+        provider?: unknown;
+      }
+    | undefined;
+  const branchTask = Boolean(runtimeBranch);
+  const branchParentContextKey =
+    typeof runtimeBranch?.parent_context_key === "string"
+      ? runtimeBranch.parent_context_key
+      : null;
+  const branchParentTaskId =
+    typeof runtimeBranch?.parent_task_id === "string"
+      ? runtimeBranch.parent_task_id
+      : null;
+  const branchParentSessionId =
+    typeof runtimeBranch?.parent_session_id === "string"
+      ? runtimeBranch.parent_session_id
+      : null;
+  const branchRootMessageId =
+    typeof runtimeBranch?.root_message_id === "string"
+      ? runtimeBranch.root_message_id
+      : null;
+  const branchProvider =
+    typeof runtimeBranch?.provider === "string" ? runtimeBranch.provider : null;
+  const forkSession = branchTask;
+  if (forkSession && !branchParentContextKey) {
+    await failBeforeSpawn("cannot branch: parent context key is required");
+    return;
+  }
+  if (forkSession && !branchParentSessionId) {
+    await failBeforeSpawn(
+      `cannot branch: pinned parent session is required for root_message_id ${branchRootMessageId ?? "unknown"}`,
+    );
+    return;
+  }
+  if (forkSession && !branchProvider) {
+    await failBeforeSpawn("cannot branch: branch provider is required");
+    return;
+  }
+  if (forkSession && branchProvider !== provider) {
+    await failBeforeSpawn(
+      `cannot branch: branch provider ${branchProvider} does not match runtime provider ${provider}`,
+    );
+    return;
+  }
+  const resumeContextKey = forkSession ? branchParentContextKey : task.contextKey ?? null;
+  const resumeSessionId = forkSession
+    ? branchParentSessionId!
+    : resumeContextKey
+      ? findResumableSessionByContextKey(timelineDir, resumeContextKey, provider) ?? undefined
+      : undefined;
   if (resumeSessionId) {
-    log.info(`resuming session ${resumeSessionId} (context_key: ${task.contextKey})`);
+    log.info(
+      `${forkSession ? "forking" : "resuming"} session ${resumeSessionId} (context_key: ${resumeContextKey}${
+        branchParentTaskId ? `, parent_task_id: ${branchParentTaskId}` : ""
+      })`,
+    );
   }
 
   const session = backend.execute(prompt, {
@@ -331,6 +403,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
     env,
     timeout: agentTimeout,
     resumeSessionId,
+    forkSession,
   });
 
   // Capture agent PID so the handler can reap it. backend.execute() spawns

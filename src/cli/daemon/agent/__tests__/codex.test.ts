@@ -214,6 +214,40 @@ describe("CodexBackend", () => {
     await session.result;
   });
 
+  it("uses thread/fork instead of thread/resume when resuming a branch", async () => {
+    const session = backend.execute("branch prompt", {
+      cwd: "/tmp",
+      model: "gpt-4",
+      resumeSessionId: "parent_thread",
+      forkSession: true,
+    });
+    const mock = getMock();
+
+    await tick();
+    sendResponse(1, {});
+    await tick();
+
+    const forkWrite = mock.stdinWrites.find((w) => w.includes('"thread/fork"'));
+    expect(forkWrite).toBeDefined();
+    const parsedFork = JSON.parse(forkWrite!);
+    expect(parsedFork.params.threadId).toBe("parent_thread");
+    expect(parsedFork.params.model).toBe("gpt-4");
+    expect(mock.stdinWrites.some((w) => w.includes('"thread/resume"'))).toBe(false);
+
+    sendResponse(2, { thread: { id: "branch_thread" } });
+    await tick();
+
+    const turnWrite = mock.stdinWrites.find((w) => w.includes('"turn/start"'));
+    expect(turnWrite).toBeDefined();
+    const parsedTurn = JSON.parse(turnWrite!);
+    expect(parsedTurn.params.threadId).toBe("branch_thread");
+    expect(parsedTurn.params.input).toEqual([{ type: "text", text: "branch prompt" }]);
+
+    sendResponse(3, {});
+    mock.proc.emit("close", 0);
+    await session.result;
+  });
+
   it("extracts session ID from thread/start response", async () => {
     const session = backend.execute("hello", { cwd: "/tmp" });
     const mock = getMock();

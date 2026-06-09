@@ -474,7 +474,13 @@ export class CodexBackend implements AgentBackend {
 
           // 3. Start or resume thread
           let threadResponse: unknown;
-          if (options.resumeSessionId) {
+          if (options.resumeSessionId && options.forkSession) {
+            threadResponse = await sendRpc("thread/fork", {
+              threadId: options.resumeSessionId,
+              ...(options.model ? { model: options.model } : {}),
+            });
+            sessionId = extractThreadID(threadResponse);
+          } else if (options.resumeSessionId) {
             // thread/resume reopens an existing thread by ID
             threadResponse = await sendRpc("thread/resume", {
               threadId: options.resumeSessionId,

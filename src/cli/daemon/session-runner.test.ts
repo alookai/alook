@@ -854,6 +854,101 @@ describe("session-runner runSession", () => {
     );
   });
 
+  it("forks from the pinned root-message parent session for branch tasks", async () => {
+    setupBackend([], {
+      status: "completed",
+      output: "Forked",
+      error: "",
+      durationMs: 100,
+      sessionId: "branch-session",
+    });
+
+    await runSession(
+      makeInput({
+        task: {
+          ...makeInput().task,
+          conversationId: "branch_c",
+          contextKey: "branch_c",
+          context: {
+            runtime_branch: {
+              parent_context_key: "parent_c",
+              parent_task_id: "root_task",
+              parent_session_id: "root-message-session",
+              root_message_id: "root_m",
+              provider: "claude",
+            },
+          },
+        },
+      }),
+    );
+
+    expect(mockFindResumableSessionByContextKey).not.toHaveBeenCalled();
+    expect(mockBackendExecute).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        resumeSessionId: "root-message-session",
+        forkSession: true,
+      }),
+    );
+  });
+
+  it("fails branch tasks before spawning when runtime provider does not match branch provider", async () => {
+    await runSession(
+      makeInput({
+        provider: "claude",
+        task: {
+          ...makeInput().task,
+          conversationId: "branch_c",
+          contextKey: "branch_c",
+          context: {
+            runtime_branch: {
+              parent_context_key: "parent_c",
+              parent_task_id: "root_task",
+              parent_session_id: "root-session",
+              root_message_id: "root_m",
+              provider: "codex",
+            },
+          },
+        },
+      }),
+    );
+
+    expect(mockFindResumableSessionByContextKey).not.toHaveBeenCalled();
+    expect(mockBackendExecute).not.toHaveBeenCalled();
+    expect(mockClientInstance.failTask).toHaveBeenCalledWith(
+      "test_token",
+      "t1",
+      expect.stringContaining("does not match runtime provider claude"),
+    );
+  });
+
+  it("fails branch tasks before spawning when no pinned parent session is provided", async () => {
+    await runSession(
+      makeInput({
+        task: {
+          ...makeInput().task,
+          conversationId: "branch_c",
+          contextKey: "branch_c",
+          context: {
+            runtime_branch: {
+              parent_context_key: "parent_c",
+              root_message_id: "root_m",
+              provider: "claude",
+            },
+          },
+        },
+      }),
+    );
+
+    expect(mockFindResumableSessionByContextKey).not.toHaveBeenCalled();
+    expect(mockBackendExecute).not.toHaveBeenCalled();
+    expect(mockClientInstance.failTask).toHaveBeenCalledWith(
+      "test_token",
+      "t1",
+      expect.stringContaining("pinned parent session is required"),
+    );
+  });
+
   it("session starts fresh when provider has no matching prior entry", async () => {
     mockFindResumableSessionByContextKey.mockReturnValueOnce(null);
 

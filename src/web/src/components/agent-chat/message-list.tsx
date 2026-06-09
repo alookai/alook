@@ -11,7 +11,7 @@ import { highlightMentions } from "@/lib/highlight-mentions";
 import { TaskStream } from "@/components/task-stream";
 import { RuntimeErrorBlock } from "@/components/agent-chat/runtime-error-block";
 import { AnimatedAvatar, type AvatarConfig } from "@/components/avatar";
-import { FileText, Flag, Copy, Check, MessageSquareQuote } from "lucide-react";
+import { FileText, Flag, Copy, Check, GitBranch, MessageSquareQuote } from "lucide-react";
 import { EmailCard } from "@/components/agent-chat/event-cards/email-card";
 import { CalendarCard } from "@/components/agent-chat/event-cards/calendar-card";
 import { IssueCard } from "@/components/agent-chat/event-cards/issue-card";
@@ -70,6 +70,9 @@ export interface MessageItemProps {
   onIssueClick: (issueId: string) => void;
   onCalendarEventClick: (calendarEventId: string) => void;
   onRetry?: () => void;
+  canBranch?: boolean;
+  isBranched?: boolean;
+  onBranchClick?: (message: Message) => void;
   mentionComponents: Record<string, React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }>>;
   isFlagged?: boolean;
   onToggleFlag?: (messageId: string) => void;
@@ -388,6 +391,9 @@ export const MessageItem = memo(function MessageItem({
   onIssueClick,
   onCalendarEventClick,
   onRetry,
+  canBranch = false,
+  isBranched = false,
+  onBranchClick,
   mentionComponents,
   isFlagged,
   onToggleFlag,
@@ -453,6 +459,15 @@ export const MessageItem = memo(function MessageItem({
 
   const canCopy = msg.role === "assistant" || msg.role === "user";
   const messageActions: MessageAction[] = [];
+  if (canBranch && onBranchClick) {
+    messageActions.push({
+      key: "branch",
+      label: isBranched ? "Open branch" : "Branch",
+      icon: <GitBranch className={cn("size-3.5", isBranched && "fill-current")} />,
+      onClick: () => onBranchClick(msg),
+      active: isBranched,
+    });
+  }
   if (canCopy) {
     messageActions.push({
       key: "copy",

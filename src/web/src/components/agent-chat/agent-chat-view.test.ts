@@ -1,6 +1,20 @@
 import { describe, it, expect } from "vitest";
 import type { Message, Artifact } from "@alook/shared";
-import { sortMessages, mergeMessages, buildTimeline, computeGroupPositions, getEventIconType, eventTypeFromMessage, shouldPersistPointerForLoad, pointerRefreshTargetForTaskCreated } from "./chat-message-utils";
+import {
+  canShowBranchAction,
+  computeGroupPositions,
+  getBranchReturnTarget,
+  getEventIconType,
+  getLatestBranchableMessageId,
+  isBranchableMessage,
+  isMessageBranchActionCandidate,
+  eventTypeFromMessage,
+  mergeMessages,
+  pointerRefreshTargetForTaskCreated,
+  shouldPersistPointerForLoad,
+  sortMessages,
+  buildTimeline,
+} from "./chat-message-utils";
 import type { NapMarker } from "./chat-message-utils";
 
 function msg(id: string, created_at: string, role: "user" | "assistant" | "event" = "user", content = ""): Message {
@@ -583,6 +597,251 @@ describe("pointerRefreshTargetForTaskCreated (TODO-2: WS-driven refresh scope)",
         task: { agent_id: "agent_a", channel: undefined, conversation_id: "conv_new" },
       }),
     ).toBe("conv_new");
+  });
+});
+
+describe("last-message branch action safety", () => {
+  it("ignores event rows when choosing the latest branchable message", () => {
+    const messages = [
+      {
+        ...msg("assistant_done", "2024-01-01T00:00:00Z", "assistant", "done"),
+        metadata: { kind: "dm" },
+      },
+      msg("event_status", "2024-01-01T00:00:10Z", "event", "Agent is typing"),
+    ];
+
+    expect(getLatestBranchableMessageId(messages)).toBe("assistant_done");
+  });
+
+  it("uses the previous complete visible reply while the current task is active", () => {
+    const messages: Message[] = [
+      {
+        ...msg("assistant_done", "2024-01-01T00:00:00Z", "assistant", "done"),
+        task_id: "task_done",
+        metadata: { kind: "dm" },
+      },
+      {
+        ...msg("active_user", "2024-01-01T00:00:05Z", "user", "next"),
+        task_id: null,
+      },
+      {
+        ...msg("process_row", "2024-01-01T00:00:10Z", "assistant", "working"),
+        task_id: "task_running",
+        metadata: { kind: "process", transient: true },
+      },
+    ];
+
+    expect(getLatestBranchableMessageId(messages, "task_running")).toBe(
+      "assistant_done",
+    );
+  });
+
+  it("hides Branch on a freshly sent active user prompt while keeping the completed active root", () => {
+    const messages: Message[] = [
+      {
+        ...msg("assistant_done", "2024-01-01T00:00:00Z", "assistant", "done"),
+        task_id: "task_done",
+        metadata: { kind: "dm" },
+      },
+      {
+        ...msg("active_user", "2024-01-01T00:00:05Z", "user", "next"),
+        task_id: null,
+      },
+      {
+        ...msg("process_row", "2024-01-01T00:00:10Z", "assistant", "working"),
+        task_id: "task_running",
+        metadata: { kind: "process", transient: true },
+      },
+    ];
+    const activeBranchRootMessageId = getLatestBranchableMessageId(
+      messages,
+      "task_running",
+    );
+
+    expect(activeBranchRootMessageId).toBe("assistant_done");
+    expect(
+      isMessageBranchActionCandidate({
+        message: messages[1],
+        isTaskActive: true,
+        activeBranchRootMessageId,
+        hasExistingBranch: false,
+      }),
+    ).toBe(false);
+    expect(
+      canShowBranchAction({
+        conversationType: "user_dm_message",
+        supportsBranch: true,
+        branchingMessageId: null,
+        hasExistingBranch: false,
+        messageIsBranchable: isMessageBranchActionCandidate({
+          message: messages[1],
+          isTaskActive: true,
+          activeBranchRootMessageId,
+          hasExistingBranch: false,
+        }),
+      }),
+    ).toBe(false);
+    expect(
+      isMessageBranchActionCandidate({
+        message: messages[0],
+        isTaskActive: true,
+        activeBranchRootMessageId,
+        hasExistingBranch: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("skips runtime-error assistant rows when choosing a branch root", () => {
+    const messages: Message[] = [
+      {
+        ...msg("assistant_done", "2024-01-01T00:00:00Z", "assistant", "done"),
+        metadata: { kind: "dm" },
+      },
+      {
+        ...msg("runtime_error", "2024-01-01T00:00:10Z", "assistant", "boom"),
+        metadata: { error_source: "runtime" },
+      },
+    ];
+
+    expect(getLatestBranchableMessageId(messages)).toBe("assistant_done");
+  });
+
+  it("shows branch creation on the previous completed reply while typing is active", () => {
+    expect(
+      canShowBranchAction({
+        conversationType: "user_dm_message",
+        supportsBranch: true,
+        branchingMessageId: null,
+        hasExistingBranch: false,
+        messageIsBranchable: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("shows branch creation on historical user messages", () => {
+    const historicalUser = msg(
+      "historical_user",
+      "2024-01-01T00:00:00Z",
+      "user",
+      "previous prompt",
+    );
+
+    expect(isBranchableMessage(historicalUser)).toBe(true);
+    expect(
+      canShowBranchAction({
+        conversationType: "user_dm_message",
+        supportsBranch: true,
+        branchingMessageId: null,
+        hasExistingBranch: false,
+        messageIsBranchable: isBranchableMessage(historicalUser),
+      }),
+    ).toBe(true);
+  });
+
+  it("hides branch creation on non-branchable process rows", () => {
+    const processMessage: Message = {
+      ...msg("process_row", "2024-01-01T00:00:00Z", "assistant", "working"),
+      metadata: { kind: "process", transient: true },
+    };
+
+    expect(isBranchableMessage(processMessage)).toBe(false);
+    expect(
+      canShowBranchAction({
+        conversationType: "user_dm_message",
+        supportsBranch: true,
+        branchingMessageId: null,
+        hasExistingBranch: false,
+        messageIsBranchable: isBranchableMessage(processMessage),
+      }),
+    ).toBe(false);
+  });
+
+  it("still allows opening an existing branch while the parent task is active", () => {
+    const historicalUser = msg(
+      "historical_user",
+      "2024-01-01T00:00:00Z",
+      "user",
+      "previous prompt",
+    );
+
+    expect(
+      isMessageBranchActionCandidate({
+        message: historicalUser,
+        isTaskActive: true,
+        activeBranchRootMessageId: "assistant_done",
+        hasExistingBranch: true,
+      }),
+    ).toBe(true);
+    expect(
+      canShowBranchAction({
+        conversationType: "user_dm_message",
+        supportsBranch: true,
+        branchingMessageId: null,
+        hasExistingBranch: true,
+        messageIsBranchable: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("never shows another branch action inside a branch conversation", () => {
+    expect(
+      canShowBranchAction({
+        conversationType: "message_branch",
+        supportsBranch: true,
+        branchingMessageId: null,
+        hasExistingBranch: false,
+        messageIsBranchable: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("returns to the clicked historical message for new branch paths", () => {
+    const historicalUser = {
+      ...msg(
+        "historical_user",
+        "2024-01-01T00:00:00Z",
+        "user",
+        "previous prompt",
+      ),
+      task_id: "task_historical",
+    };
+
+    expect(
+      getBranchReturnTarget({
+        agentId: "agent_1",
+        conversationId: "conv_parent",
+        message: historicalUser,
+        fallbackTaskId: "task_visible",
+      }),
+    ).toEqual({
+      agentId: "agent_1",
+      conversationId: "conv_parent",
+      taskId: "task_historical",
+      messageId: "historical_user",
+    });
+  });
+
+  it("returns to the clicked message for existing branch paths when the message has no task id", () => {
+    const historicalUser = msg(
+      "historical_user_no_task",
+      "2024-01-01T00:00:00Z",
+      "user",
+      "previous prompt",
+    );
+
+    expect(
+      getBranchReturnTarget({
+        agentId: "agent_1",
+        conversationId: "conv_parent",
+        message: historicalUser,
+        fallbackTaskId: "task_visible",
+      }),
+    ).toEqual({
+      agentId: "agent_1",
+      conversationId: "conv_parent",
+      taskId: "task_visible",
+      messageId: "historical_user_no_task",
+    });
   });
 });
 

@@ -28,6 +28,9 @@ export class ClaudeBackend implements AgentBackend {
     }
     if (options.resumeSessionId) {
       args.push("--resume", options.resumeSessionId);
+      if (options.forkSession) {
+        args.push("--fork-session");
+      }
     }
 
     const proc = spawn(this.cliPath, args, {

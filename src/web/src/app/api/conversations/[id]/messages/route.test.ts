@@ -6,6 +6,12 @@ const mockUpdateConversationTitle = vi.fn();
 const mockListMessages = vi.fn();
 const mockCreateMessage = vi.fn();
 const mockEnqueueTask = vi.fn();
+const mockGetBranchByConversation = vi.fn();
+const mockGetLatestTaskForConversation = vi.fn();
+const mockGetLatestCompletedTaskWithSessionForConversation = vi.fn();
+const mockGetMessageForConversation = vi.fn();
+const mockGetTask = vi.fn();
+const mockGetRuntime = vi.fn();
 const mockMessageToResponse = vi.fn((m: any) => ({ id: m.id, content: m.content }));
 const mockTaskToResponse = vi.fn((t: any) => ({ id: t.id, status: t.status }));
 
@@ -36,7 +42,23 @@ vi.mock("@alook/shared", async () => {
       message: {
         listMessages: (...args: any[]) => mockListMessages(...args),
         createMessage: (...args: any[]) => mockCreateMessage(...args),
+        getMessageForConversation: (...args: any[]) =>
+          mockGetMessageForConversation(...args),
         updateMessageTaskId: vi.fn().mockResolvedValue(undefined),
+      },
+      task: {
+        getTask: (...args: any[]) => mockGetTask(...args),
+        getLatestTaskForConversation: (...args: any[]) =>
+          mockGetLatestTaskForConversation(...args),
+        getLatestCompletedTaskWithSessionForConversation: (...args: any[]) =>
+          mockGetLatestCompletedTaskWithSessionForConversation(...args),
+      },
+      runtime: {
+        getAgentRuntimeForWorkspace: (...args: any[]) => mockGetRuntime(...args),
+      },
+      conversationBranch: {
+        getBranchByConversation: (...args: any[]) =>
+          mockGetBranchByConversation(...args),
       },
     },
   };
@@ -179,7 +201,12 @@ describe("GET /api/conversations/[id]/messages", () => {
 });
 
 describe("POST /api/conversations/[id]/messages", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetBranchByConversation.mockResolvedValue(null);
+    mockGetLatestTaskForConversation.mockResolvedValue(null);
+    mockGetLatestCompletedTaskWithSessionForConversation.mockResolvedValue(null);
+  });
 
   it("sends message and enqueues task, returns 201", async () => {
     const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
@@ -204,6 +231,304 @@ describe("POST /api/conversations/[id]/messages", () => {
     expect(body.message).toEqual({ id: "m1", content: "Hi there" });
     expect(body.task).toEqual({ id: "t1", status: "pending" });
     expect(mockEnqueueTask).toHaveBeenCalledWith("a1", "c1", "w1", "Hi there", "user_dm_message", expect.objectContaining({ contextKey: "c1", traceId: expect.stringMatching(/^tr_/), parentTaskId: null }));
+  });
+
+  it("adds runtime branch context to the first message in a branch conversation", async () => {
+    const conv = { id: "branch_c", workspaceId: "w1", agentId: "a1" };
+    const msg = { id: "m1", content: "fork from here" };
+    const task = { id: "t1", status: "pending" };
+    mockGetConversation.mockResolvedValue(conv);
+    mockCreateMessage.mockResolvedValue(msg);
+    mockUpdateConversationTitle.mockResolvedValue(undefined);
+    mockGetBranchByConversation.mockResolvedValue({
+      parentConversationId: "parent_c",
+      rootMessageId: "root_m",
+      provider: "codex",
+      forkSourceTaskId: "fork_task",
+      forkSourceSessionId: "fork-session-before-parent-advanced",
+    });
+    mockGetLatestTaskForConversation.mockResolvedValue(null);
+    mockGetMessageForConversation.mockResolvedValue({
+      id: "root_m",
+      conversationId: "parent_c",
+      content: "Historical root text",
+    });
+    mockEnqueueTask.mockResolvedValue(task);
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/conversations/branch_c/messages", {
+        method: "POST",
+        body: JSON.stringify({ content: "fork from here" }),
+        headers: { "Content-Type": "application/json" },
+      }),
+      withParams("branch_c")
+    );
+
+    expect(res.status).toBe(201);
+    expect(mockEnqueueTask).toHaveBeenCalledWith(
+      "a1",
+      "branch_c",
+      "w1",
+      "fork from here",
+      "user_dm_message",
+      expect.objectContaining({
+        contextKey: "branch_c",
+        context: expect.objectContaining({
+          message_id: "m1",
+          quoted_message: {
+            message_id: "root_m",
+            excerpt: "Historical root text",
+          },
+          runtime_branch: {
+            parent_context_key: "parent_c",
+            parent_task_id: "fork_task",
+            parent_session_id: "fork-session-before-parent-advanced",
+            root_message_id: "root_m",
+            provider: "codex",
+          },
+        }),
+        traceId: expect.stringMatching(/^tr_/),
+        parentTaskId: null,
+      }),
+    );
+    expect(mockCreateMessage).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        metadata: JSON.stringify({
+          quote: { messageId: "root_m", excerpt: "Historical root text" },
+        }),
+      }),
+    );
+  });
+
+  it("uses an explicit quote instead of the branch root quote on first branch send", async () => {
+    const conv = { id: "branch_c", workspaceId: "w1", agentId: "a1" };
+    const msg = { id: "m1", content: "fork from here" };
+    const task = { id: "t1", status: "pending" };
+    mockGetConversation.mockResolvedValue(conv);
+    mockCreateMessage.mockResolvedValue(msg);
+    mockUpdateConversationTitle.mockResolvedValue(undefined);
+    mockGetBranchByConversation.mockResolvedValue({
+      parentConversationId: "parent_c",
+      rootMessageId: "root_m",
+      provider: "codex",
+      forkSourceTaskId: "fork_task",
+      forkSourceSessionId: "fork_session",
+    });
+    mockGetLatestTaskForConversation.mockResolvedValue(null);
+    mockGetMessageForConversation.mockResolvedValue({
+      id: "root_m",
+      conversationId: "parent_c",
+      content: "Historical root text",
+    });
+    mockEnqueueTask.mockResolvedValue(task);
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/conversations/branch_c/messages", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "fork from here",
+          metadata: {
+            quote: { messageId: "explicit_m", excerpt: "Explicit quote" },
+          },
+        }),
+        headers: { "Content-Type": "application/json" },
+      }),
+      withParams("branch_c")
+    );
+
+    expect(res.status).toBe(201);
+    expect(mockCreateMessage).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        metadata: JSON.stringify({
+          quote: { messageId: "explicit_m", excerpt: "Explicit quote" },
+        }),
+      }),
+    );
+    expect(mockEnqueueTask).toHaveBeenCalledWith(
+      "a1",
+      "branch_c",
+      "w1",
+      "fork from here",
+      "user_dm_message",
+      expect.objectContaining({
+        context: expect.objectContaining({
+          quoted_message: {
+            message_id: "explicit_m",
+            excerpt: "Explicit quote",
+          },
+          runtime_branch: expect.objectContaining({
+            parent_task_id: "fork_task",
+            parent_session_id: "fork_session",
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("keeps runtime branch context after a failed branch task without a session", async () => {
+    const conv = { id: "branch_c", workspaceId: "w1", agentId: "a1" };
+    const msg = { id: "m1", content: "retry fork" };
+    const task = { id: "t_retry", status: "pending" };
+    mockGetConversation.mockResolvedValue(conv);
+    mockCreateMessage.mockResolvedValue(msg);
+    mockUpdateConversationTitle.mockResolvedValue(undefined);
+    mockGetBranchByConversation.mockResolvedValue({
+      parentConversationId: "parent_c",
+      rootMessageId: "root_m",
+      provider: "codex",
+      forkSourceTaskId: "fork_task",
+      forkSourceSessionId: "fork_session",
+    });
+    mockGetLatestTaskForConversation.mockResolvedValue({
+      id: "failed_before_session",
+      traceId: "trace_failed",
+      status: "failed",
+    });
+    mockGetLatestCompletedTaskWithSessionForConversation.mockResolvedValue(null);
+    mockGetMessageForConversation.mockResolvedValue({
+      id: "root_m",
+      conversationId: "parent_c",
+      content: "Historical root text",
+    });
+    mockEnqueueTask.mockResolvedValue(task);
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/conversations/branch_c/messages", {
+        method: "POST",
+        body: JSON.stringify({ content: "retry fork" }),
+        headers: { "Content-Type": "application/json" },
+      }),
+      withParams("branch_c")
+    );
+
+    expect(res.status).toBe(201);
+    const options = mockEnqueueTask.mock.calls[0][5];
+    expect(options.parentTaskId).toBeNull();
+    expect(options.traceId).toMatch(/^tr_/);
+    expect(options.context.runtime_branch).toEqual({
+      parent_context_key: "parent_c",
+      parent_task_id: "fork_task",
+      parent_session_id: "fork_session",
+      root_message_id: "root_m",
+      provider: "codex",
+    });
+  });
+
+  it("keeps runtime branch context after a queued branch task without a session", async () => {
+    const conv = { id: "branch_c", workspaceId: "w1", agentId: "a1" };
+    const msg = { id: "m1", content: "retry fork" };
+    const task = { id: "t_retry", status: "pending" };
+    mockGetConversation.mockResolvedValue(conv);
+    mockCreateMessage.mockResolvedValue(msg);
+    mockUpdateConversationTitle.mockResolvedValue(undefined);
+    mockGetBranchByConversation.mockResolvedValue({
+      parentConversationId: "parent_c",
+      rootMessageId: "root_m",
+      provider: "codex",
+      forkSourceTaskId: "fork_task",
+      forkSourceSessionId: "fork_session",
+    });
+    mockGetLatestTaskForConversation.mockResolvedValue({
+      id: "queued_before_session",
+      traceId: "trace_queued",
+      status: "queued",
+    });
+    mockGetLatestCompletedTaskWithSessionForConversation.mockResolvedValue(null);
+    mockGetMessageForConversation.mockResolvedValue({
+      id: "root_m",
+      conversationId: "parent_c",
+      content: "Historical root text",
+    });
+    mockEnqueueTask.mockResolvedValue(task);
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/conversations/branch_c/messages", {
+        method: "POST",
+        body: JSON.stringify({ content: "retry fork" }),
+        headers: { "Content-Type": "application/json" },
+      }),
+      withParams("branch_c")
+    );
+
+    expect(res.status).toBe(201);
+    const options = mockEnqueueTask.mock.calls[0][5];
+    expect(options.parentTaskId).toBeNull();
+    expect(options.traceId).toMatch(/^tr_/);
+    expect(options.context.runtime_branch).toEqual({
+      parent_context_key: "parent_c",
+      parent_task_id: "fork_task",
+      parent_session_id: "fork_session",
+      root_message_id: "root_m",
+      provider: "codex",
+    });
+  });
+
+  it("resumes branch conversation after a completed session-backed branch task exists", async () => {
+    const conv = { id: "branch_c", workspaceId: "w1", agentId: "a1" };
+    const msg = { id: "m1", content: "continue branch" };
+    const task = { id: "t_next", status: "pending" };
+    mockGetConversation.mockResolvedValue(conv);
+    mockCreateMessage.mockResolvedValue(msg);
+    mockUpdateConversationTitle.mockResolvedValue(undefined);
+    mockGetBranchByConversation.mockResolvedValue({
+      parentConversationId: "parent_c",
+      rootMessageId: "root_m",
+      provider: "codex",
+      forkSourceTaskId: "fork_task",
+      forkSourceSessionId: "fork_session",
+    });
+    mockGetLatestCompletedTaskWithSessionForConversation.mockResolvedValue({
+      id: "branch_done",
+      traceId: "trace_branch",
+      sessionId: "branch_session",
+    });
+    mockEnqueueTask.mockResolvedValue(task);
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/conversations/branch_c/messages", {
+        method: "POST",
+        body: JSON.stringify({ content: "continue branch" }),
+        headers: { "Content-Type": "application/json" },
+      }),
+      withParams("branch_c")
+    );
+
+    expect(res.status).toBe(201);
+    const options = mockEnqueueTask.mock.calls[0][5];
+    expect(options.parentTaskId).toBe("branch_done");
+    expect(options.traceId).toBe("trace_branch");
+    expect(options.context).toEqual({ message_id: "m1" });
+    expect(mockGetMessageForConversation).not.toHaveBeenCalled();
+  });
+
+  it("rejects the first branch message when the persisted fork source is missing", async () => {
+    const conv = { id: "branch_c", workspaceId: "w1", agentId: "a1" };
+    mockGetConversation.mockResolvedValue(conv);
+    mockGetBranchByConversation.mockResolvedValue({
+      parentConversationId: "parent_c",
+      rootMessageId: "root_m",
+      provider: "codex",
+      forkSourceTaskId: null,
+      forkSourceSessionId: null,
+    });
+    mockGetLatestTaskForConversation.mockResolvedValue(null);
+
+    const res = await POST(
+      new NextRequest("http://localhost/api/conversations/branch_c/messages", {
+        method: "POST",
+        body: JSON.stringify({ content: "fork from here" }),
+        headers: { "Content-Type": "application/json" },
+      }),
+      withParams("branch_c")
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(body.error).toBe("branch fork source session is not available");
+    expect(mockCreateMessage).not.toHaveBeenCalled();
+    expect(mockEnqueueTask).not.toHaveBeenCalled();
   });
 
   it("auto-titles conversation with truncated first message", async () => {

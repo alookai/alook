@@ -88,6 +88,7 @@ export interface ExecOptions {
   maxTurns?: number;
   timeout?: number;
   resumeSessionId?: string;
+  forkSession?: boolean;
 }
 
 /** Serialized input passed from daemon to the detached session-runner process. */

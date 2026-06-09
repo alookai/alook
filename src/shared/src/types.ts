@@ -71,6 +71,19 @@ export interface Conversation {
   message_count?: number;
 }
 
+export interface ConversationBranch {
+  id: string;
+  workspace_id: string;
+  parent_conversation_id: string;
+  branch_conversation_id: string;
+  root_message_id: string;
+  provider: string;
+  fork_source_task_id: string | null;
+  fork_source_session_id: string | null;
+  created_by: string;
+  created_at: string;
+}
+
 export interface Channel {
   id: string;
   workspace_id: string;

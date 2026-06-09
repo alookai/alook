@@ -539,6 +539,11 @@ export type CreateConversationRequest = z.infer<
   typeof CreateConversationRequestSchema
 >;
 
+export const CreateBranchRequestSchema = z.object({
+  root_message_id: z.string().min(1, "root_message_id is required"),
+});
+export type CreateBranchRequest = z.infer<typeof CreateBranchRequestSchema>;
+
 // ---------------------------------------------------------------------------
 // Message request schema (JSON body only — FormData path is separate)
 // ---------------------------------------------------------------------------
