@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 
-export interface TerminalSpan {
+interface TerminalSpan {
   text: string;
   color?: "dim" | "info" | "highlight" | "success" | "keyword" | "string" | "muted";
 }

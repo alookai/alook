@@ -283,7 +283,7 @@ export function ArchitectureOverview() {
         {/* Mobile + Terminal — side by side, overlapping desktop from left */}
         <div className="absolute top-[25%] left-[40%] right-0 h-[75%] z-20 hover:z-30 transition-[z-index] hidden md:flex gap-3">
           {/* Mobile — phone frame */}
-          <div className="w-[180px] shrink-0 h-full hidden lg:block">
+          <div className="w-45 shrink-0 h-full hidden lg:block">
             <div className="h-full rounded-[1.5rem] border-[3px] border-neutral-700 bg-background shadow-[0_28px_70px_rgba(0,0,0,0.18),0_14px_32px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col dark">
               {/* Dynamic Island */}
               <div className="flex justify-center pt-1 shrink-0">
@@ -310,7 +310,7 @@ export function ArchitectureOverview() {
 
         {/* Responsive (< md): mobile phone only */}
         <div className="md:hidden flex justify-center h-full">
-          <div className="w-[260px] h-full rounded-[2rem] border-[3px] border-neutral-700 bg-background shadow-lg overflow-hidden flex flex-col dark">
+          <div className="w-65 h-full rounded-[2rem] border-[3px] border-neutral-700 bg-background shadow-lg overflow-hidden flex flex-col dark">
             <div className="flex justify-center pt-2 shrink-0">
               <div className="px-4 py-1 bg-neutral-800 rounded-full flex items-center justify-center">
                 <span className="text-[11px] text-neutral-400 leading-none">Alook Mobile</span>

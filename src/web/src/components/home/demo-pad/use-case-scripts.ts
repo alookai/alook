@@ -1,7 +1,5 @@
-import type { DashboardStep, DashboardState, AgentInfo } from "./demo-dashboard";
-import type { TimelineStep } from "./use-scripted-timeline";
+import type { DashboardStep, AgentInfo } from "./demo-dashboard";
 import type { UseCaseScript } from "./use-case-demo";
-import type { AvatarConfig } from "@/components/avatar/avatar-parts";
 
 /* ─── Agent Configs ─── */
 const SALES: AgentInfo = { name: "Sales", email: "sales@alook.ai", config: { shape: "hexagon", eye: "dots", nose: "dash", bg: 5 } };

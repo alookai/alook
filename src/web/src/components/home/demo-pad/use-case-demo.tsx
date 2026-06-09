@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { DemoDashboard, type DashboardStep, type DashboardState, type DashboardConfig, type AgentInfo } from "./demo-dashboard";
+import { DemoDashboard, type DashboardState, type DashboardConfig, type AgentInfo } from "./demo-dashboard";
 import { useScriptedTimeline, type TimelineStep } from "./use-scripted-timeline";
 
 export interface UseCaseScript {
