@@ -7,6 +7,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { DemoWindow } from "./demo-window";
 import { DemoDashboard, type DashboardStep, type DashboardState, type DashboardConfig, type AgentInfo } from "./demo-pad/demo-dashboard";
 import { DemoTerminal, type TerminalLine } from "./demo-pad/demo-terminal";
+import { DemoMobile } from "./demo-pad/demo-mobile";
 import { useScriptedTimeline, type TimelineStep } from "./demo-pad/use-scripted-timeline";
 
 gsap.registerPlugin(ScrollTrigger);
@@ -265,28 +266,35 @@ export function ArchitectureOverview() {
         </p>
       </div>
 
-      {/* Dual-window demo */}
+      {/* Triple-window demo */}
       <div
         ref={containerRef}
-        className={`arch-demo-container relative w-full max-w-5xl mx-auto h-130 lg:h-120 transition-opacity duration-300 ${
+        className={`arch-demo-container relative w-full max-w-6xl mx-auto h-140 lg:h-130 transition-opacity duration-300 ${
           isResetting ? "opacity-0" : "opacity-100"
         }`}
       >
-        {/* Dashboard — top-left, behind */}
-        <div className="absolute top-0 left-0 w-[60%] h-[88%] z-10 hover:z-30 transition-[z-index] hidden md:block">
+        {/* Dashboard (desktop) — top-left */}
+        <div className="absolute top-0 left-0 w-[55%] h-[85%] z-10 hover:z-30 transition-[z-index] hidden md:block">
           <DemoWindow title="Alook Cloud" className="h-full shadow-[0_28px_70px_rgba(0,0,0,0.14),0_14px_32px_rgba(0,0,0,0.1)]">
             <DemoDashboard state={dashboardState} config={ARCH_CONFIG} />
           </DemoWindow>
         </div>
 
-        {/* Terminal — right, in front, bottom extends past dashboard */}
-        <div className="absolute top-[28%] right-0 w-[54%] h-[78%] z-20 hover:z-30 transition-[z-index] hidden md:block">
+        {/* Mobile phone — center-left, overlapping dashboard */}
+        <div className="absolute top-[5%] left-[42%] w-[180px] h-[360px] z-20 hover:z-30 transition-[z-index] hidden lg:block">
+          <DemoWindow title="Alook Mobile" className="h-full shadow-[0_28px_70px_rgba(0,0,0,0.18),0_14px_32px_rgba(0,0,0,0.12)] !rounded-2xl">
+            <DemoMobile state={dashboardState} config={ARCH_CONFIG} />
+          </DemoWindow>
+        </div>
+
+        {/* Terminal — right, in front */}
+        <div className="absolute top-[25%] right-0 w-[48%] h-[75%] z-15 hover:z-30 transition-[z-index] hidden md:block">
           <DemoWindow title="Your Machine" className="h-full shadow-[0_28px_70px_rgba(0,0,0,0.18),0_14px_32px_rgba(0,0,0,0.12)]">
             <DemoTerminal lines={TERMINAL_LINES} visibleCount={terminalVisible} />
           </DemoWindow>
         </div>
 
-        {/* Mobile: stacked */}
+        {/* Responsive (< md): stacked */}
         <div className="md:hidden flex flex-col gap-4 h-full">
           <DemoWindow title="Alook Cloud" className="flex-1 min-h-0">
             <DemoDashboard state={dashboardState} config={ARCH_CONFIG} />
