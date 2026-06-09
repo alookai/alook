@@ -22,7 +22,7 @@ import {
 
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import type { WsMessage } from "@alook/shared";
-import { isTauri, isDesktop } from "@alook/shared";
+import { isTauri, isDesktop, tauriInvoke } from "@alook/shared";
 import { listRuntimes, createMachineToken, getMachineTokenStatus } from "@/lib/api";
 import { useUserWs } from "@/lib/use-user-ws";
 import type { TemplatePreset } from "@/lib/templates";
@@ -83,7 +83,7 @@ export function StudioOnboardingClient({
   // Recover token state on mount (handles page refresh after register)
   useEffect(() => {
     getMachineTokenStatus()
-      .then((data) => {
+      .then(async (data) => {
         if (data.status === "registered" || data.status === "active") {
           // If this is a new workspace and the token is already bound elsewhere, ignore its runtimes
           if (isNewWorkspace && data.workspace_id) return;
@@ -103,6 +103,17 @@ export function StudioOnboardingClient({
               created_at: "",
               updated_at: "",
             })));
+          }
+        } else if (data.status === "pending" && isTauriDesktop) {
+          // Desktop mode: auto-register the pending token so the daemon can report runtimes
+          try {
+            const { token } = await createMachineToken("cli");
+            const result = await tauriInvoke<{ success: boolean; message: string }>("register_cli", { token });
+            if (!result.success) {
+              toast.error(result.message || "Auto-registration failed — please check CLI installation");
+            }
+          } catch {
+            toast.error("Failed to auto-register CLI — please check that Claude or Codex is installed");
           }
         }
       })
