@@ -1,18 +1,12 @@
 "use client";
 
 import { useMemo } from "react";
-import { DemoDashboard, type DashboardStep, type DashboardState } from "./demo-dashboard";
+import { DemoDashboard, type DashboardStep, type DashboardState, type DashboardConfig, type AgentInfo } from "./demo-dashboard";
 import { useScriptedTimeline, type TimelineStep } from "./use-scripted-timeline";
 
-export interface AgentPhase {
-  agent: "planner" | "coder";
-  steps: DashboardStep[];
-}
-
 export interface UseCaseScript {
-  phases: AgentPhase[];
+  agents: AgentInfo[];
   timeline: TimelineStep[];
-  /** Maps timeline step index → { phaseIndex, visibleCount, isTyping } */
   derive: (isStepVisible: (i: number) => boolean) => DashboardState;
 }
 
@@ -25,12 +19,14 @@ export function UseCaseDemo({ script }: { script: UseCaseScript }) {
     [visibleCount], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
+  const config: DashboardConfig = useMemo(() => ({ agents: script.agents }), [script.agents]);
+
   return (
     <div
       ref={containerRef}
       className={`h-full transition-opacity duration-300 ${isResetting ? "opacity-0" : "opacity-100"}`}
     >
-      <DemoDashboard state={state} />
+      <DemoDashboard state={state} config={config} />
     </div>
   );
 }

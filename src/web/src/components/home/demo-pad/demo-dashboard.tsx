@@ -10,9 +10,11 @@ import { AvatarRenderer, type AvatarConfig } from "@/components/avatar/avatar-pa
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
-const PLANNER_CONFIG: AvatarConfig = { shape: "hexagon", eye: "dots", nose: "dash", bg: 5 };
-const CODER_CONFIG: AvatarConfig = { shape: "task", eye: "happy", nose: "dot", bg: 0 };
-const REVIEWER_CONFIG: AvatarConfig = { shape: "circle", eye: "arches", nose: "smile", bg: 8 };
+export interface AgentInfo {
+  name: string;
+  email: string;
+  config: AvatarConfig;
+}
 
 export interface DashboardStep {
   type: "email-in" | "email-out" | "message" | "user-message";
@@ -23,24 +25,23 @@ export interface DashboardStep {
 }
 
 export interface DashboardState {
-  activeAgent: "planner" | "coder";
+  activeAgent: string;
   steps: DashboardStep[];
   visibleCount: number;
   isTyping: boolean;
   isWorking: boolean;
 }
 
-const AGENT_INFO = {
-  planner: { name: "Planner", email: "planner@alook.ai", config: PLANNER_CONFIG },
-  coder: { name: "Coder", email: "coder@alook.ai", config: CODER_CONFIG },
-} as const;
+export interface DashboardConfig {
+  agents: AgentInfo[];
+}
 
-export function DemoDashboard({ state, className }: { state: DashboardState; className?: string }) {
-  const agent = AGENT_INFO[state.activeAgent];
+export function DemoDashboard({ state, config, className }: { state: DashboardState; config: DashboardConfig; className?: string }) {
+  const agent = config.agents.find(a => a.name.toLowerCase() === state.activeAgent) ?? config.agents[0];
   const visibleSteps = state.steps.slice(0, state.visibleCount);
 
   return (
-    <div className={cn("flex h-full overflow-hidden", className)}>
+    <div className={cn("flex h-full overflow-hidden dark", className)}>
       {/* Sidebar */}
       <div className="flex h-full w-11 flex-col items-center py-2 gap-1 border-r border-border/40 shrink-0">
         <div className="mb-1.5">
@@ -55,21 +56,17 @@ export function DemoDashboard({ state, className }: { state: DashboardState; cla
           </div>
         </div>
         <div className="flex flex-col items-center gap-1.5 flex-1">
-          <div className={cn(
-            "size-7 rounded-lg overflow-hidden ring-1 transition-all duration-300",
-            state.activeAgent === "planner" ? "ring-primary/60 shadow-sm" : "ring-transparent",
-          )}>
-            <AvatarRenderer config={PLANNER_CONFIG} size={28} />
-          </div>
-          <div className={cn(
-            "size-7 rounded-lg overflow-hidden ring-1 transition-all duration-300",
-            state.activeAgent === "coder" ? "ring-primary/60 shadow-sm" : "ring-transparent",
-          )}>
-            <AvatarRenderer config={CODER_CONFIG} size={28} />
-          </div>
-          <div className="size-7 rounded-lg overflow-hidden ring-1 ring-transparent">
-            <AvatarRenderer config={REVIEWER_CONFIG} size={28} />
-          </div>
+          {config.agents.map((a) => (
+            <div
+              key={a.name}
+              className={cn(
+                "size-7 rounded-lg overflow-hidden ring-1 transition-all duration-300",
+                state.activeAgent === a.name.toLowerCase() ? "ring-primary/60 shadow-sm" : "ring-transparent",
+              )}
+            >
+              <AvatarRenderer config={a.config} size={28} />
+            </div>
+          ))}
         </div>
       </div>
 

@@ -13,7 +13,7 @@ export function DemoWindow({
   return (
     <div
       className={cn(
-        "rounded-xl border border-border/60 bg-background shadow-lg overflow-hidden flex flex-col",
+        "rounded-xl border border-border/60 bg-background shadow-lg overflow-hidden flex flex-col dark",
         className,
       )}
     >

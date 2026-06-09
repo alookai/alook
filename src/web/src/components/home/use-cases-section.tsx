@@ -5,6 +5,7 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Calendar, DollarSign, BarChart3, Bug, MessageSquare, Brain } from "lucide-react";
+import { DemoWindow } from "./demo-window";
 import { UseCaseDemo } from "./demo-pad/use-case-demo";
 import {
   leadFollowupScript,
@@ -206,32 +207,16 @@ export function UseCasesSection() {
         <div className="flex-1 min-w-0 overflow-hidden rounded-2xl" style={{ perspective: "1200px" }}>
           <div
             key={activeIndex}
-            className={`rounded-2xl overflow-hidden ${slideDir === "left" ? "usecase-demo-slide-left" : "usecase-demo-slide-right"}`}
-            style={{
-              border: "1px solid var(--landing-border)",
-              boxShadow: "0 4px 24px oklch(0.15 0.01 55 / 10%)",
-            }}
+            className={`overflow-hidden ${slideDir === "left" ? "usecase-demo-slide-left" : "usecase-demo-slide-right"}`}
           >
-            {/* Window chrome */}
-            <div
-              className="flex items-center gap-1.5 px-4 py-2.5 border-b"
-              style={{ borderColor: "var(--landing-border)", backgroundColor: "var(--landing-surface)" }}
+            <DemoWindow
+              title={`alook — ${scenarios[activeIndex].title}`}
+              className="shadow-[0_4px_24px_oklch(0.15_0.01_55/10%)]"
             >
-              <span className="size-2.5 rounded-full bg-[oklch(0.65_0.2_25)]" />
-              <span className="size-2.5 rounded-full bg-[oklch(0.75_0.15_85)]" />
-              <span className="size-2.5 rounded-full bg-[oklch(0.65_0.15_145)]" />
-              <span
-                className="ml-3 text-[11px]"
-                style={{ fontFamily: "var(--font-mono)", color: "var(--landing-text-muted)" }}
-              >
-                alook — {scenarios[activeIndex].title}
-              </span>
-            </div>
-
-            {/* Demo content area */}
-            <div className="h-120 overflow-hidden">
-              <UseCaseDemo script={scenarios[activeIndex].script} />
-            </div>
+              <div className="h-120 overflow-hidden">
+                <UseCaseDemo script={scenarios[activeIndex].script} />
+              </div>
+            </DemoWindow>
           </div>
         </div>
       </div>

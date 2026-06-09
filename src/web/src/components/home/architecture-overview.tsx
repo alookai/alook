@@ -5,11 +5,17 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { DemoWindow } from "./demo-window";
-import { DemoDashboard, type DashboardStep, type DashboardState } from "./demo-pad/demo-dashboard";
+import { DemoDashboard, type DashboardStep, type DashboardState, type DashboardConfig, type AgentInfo } from "./demo-pad/demo-dashboard";
 import { DemoTerminal, type TerminalLine } from "./demo-pad/demo-terminal";
 import { useScriptedTimeline, type TimelineStep } from "./demo-pad/use-scripted-timeline";
 
 gsap.registerPlugin(ScrollTrigger);
+
+const ARCH_AGENTS: AgentInfo[] = [
+  { name: "Planner", email: "planner@alook.ai", config: { shape: "hexagon", eye: "dots", nose: "dash", bg: 5 } },
+  { name: "Coder", email: "coder@alook.ai", config: { shape: "task", eye: "happy", nose: "dot", bg: 0 } },
+];
+const ARCH_CONFIG: DashboardConfig = { agents: ARCH_AGENTS };
 
 /* ─── Planner's chat steps ─── */
 const PLANNER_STEPS: DashboardStep[] = [
@@ -269,7 +275,7 @@ export function ArchitectureOverview() {
         {/* Dashboard — top-left, behind */}
         <div className="absolute top-0 left-0 w-[60%] h-[88%] z-10 hover:z-30 transition-[z-index] hidden md:block">
           <DemoWindow title="Alook Cloud" className="h-full shadow-[0_28px_70px_rgba(0,0,0,0.14),0_14px_32px_rgba(0,0,0,0.1)]">
-            <DemoDashboard state={dashboardState} />
+            <DemoDashboard state={dashboardState} config={ARCH_CONFIG} />
           </DemoWindow>
         </div>
 
@@ -283,7 +289,7 @@ export function ArchitectureOverview() {
         {/* Mobile: stacked */}
         <div className="md:hidden flex flex-col gap-4 h-full">
           <DemoWindow title="Alook Cloud" className="flex-1 min-h-0">
-            <DemoDashboard state={dashboardState} />
+            <DemoDashboard state={dashboardState} config={ARCH_CONFIG} />
           </DemoWindow>
           <DemoWindow title="Your Machine" className="h-50">
             <DemoTerminal lines={TERMINAL_LINES} visibleCount={terminalVisible} />
