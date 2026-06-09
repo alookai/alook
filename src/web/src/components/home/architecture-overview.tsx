@@ -274,14 +274,14 @@ export function ArchitectureOverview() {
         }`}
       >
         {/* Desktop — top-left, behind */}
-        <div className="absolute top-0 left-0 w-[60%] h-[88%] z-10 hover:z-30 transition-[z-index] hidden md:block">
+        <div className="absolute top-0 left-0 w-[60%] h-[88%] z-10 hidden md:block">
           <DemoWindow title="Alook Desktop" className="h-full shadow-[0_28px_70px_rgba(0,0,0,0.14),0_14px_32px_rgba(0,0,0,0.1)]">
             <DemoDashboard state={dashboardState} config={ARCH_CONFIG} />
           </DemoWindow>
         </div>
 
         {/* Mobile + Terminal — side by side, overlapping desktop from left */}
-        <div className="absolute top-[25%] left-[40%] right-0 h-[75%] z-20 hover:z-30 transition-[z-index] hidden md:flex gap-3">
+        <div className="absolute top-[25%] left-[40%] right-0 h-[75%] z-20 hidden md:flex gap-3">
           {/* Mobile — phone frame */}
           <div className="w-45 shrink-0 h-full hidden lg:block">
             <div className="h-full rounded-[1.5rem] border-[3px] border-neutral-700 bg-background shadow-[0_28px_70px_rgba(0,0,0,0.18),0_14px_32px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col dark">
