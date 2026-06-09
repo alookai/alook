@@ -104,12 +104,30 @@ export function StudioOnboardingClient({
               updated_at: "",
             })));
           }
-        } else if (data.status === "pending" && isTauriDesktop) {
-          // Desktop mode: auto-register the pending token so the daemon can report runtimes
+        } else if ((data.status === "pending" || data.status === null) && isTauriDesktop) {
+          // Desktop mode: auto-register so runtimes are available before Launch
           try {
             const { token } = await createMachineToken("cli");
             const result = await tauriInvoke<{ success: boolean; message: string }>("register_cli", { token });
-            if (!result.success) {
+            if (result.success) {
+              setMachineRegistered(true);
+              const fresh = await getMachineTokenStatus();
+              if (fresh.runtimes?.length) {
+                setRuntimes(fresh.runtimes.map((rt) => ({
+                  id: rt.id,
+                  workspace_id: "",
+                  daemon_id: fresh.hostname || null,
+                  runtime_mode: "local",
+                  provider: rt.type,
+                  status: "online" as const,
+                  device_info: fresh.hostname || "",
+                  metadata: { version: rt.version },
+                  last_seen_at: null,
+                  created_at: "",
+                  updated_at: "",
+                })));
+              }
+            } else {
               toast.error(result.message || "Auto-registration failed — please check CLI installation");
             }
           } catch {
