@@ -353,10 +353,10 @@ export const postUpdateScript: UseCaseScript = {
    ═══════════════════════════════════════════ */
 
 const FILL_STEPS: DashboardStep[] = [
-  { type: "user-message", text: "Fill this for me — YC_Application_W27.pdf" },
+  { type: "user-message", text: "Fill this for me", attachment: "YC_Application_W27.pdf" },
   { type: "message", text: "I have most of this from memory. Let me check what I know..." },
-  { type: "message", markdown: "<strong>Recalled from memory:</strong><br/>✓ Company name, address, EIN<br/>✓ Founder name, email, background<br/>✓ Product description, tech stack<br/>✓ Revenue, team size, launch date" },
-  { type: "message", markdown: "All <strong>31 fields</strong> filled from memory. No questions needed.<br/><br/>📄 <code>YC_Application_W27_filled.pdf</code>" },
+  { type: "message", markdown: `<span style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6">Recalled from memory</span><br/><span style="color:#10b981">✓</span> Company name, address, EIN<br/><span style="color:#10b981">✓</span> Founder name, email, background<br/><span style="color:#10b981">✓</span> Product description, tech stack<br/><span style="color:#10b981">✓</span> Revenue, team size, launch date` },
+  { type: "message", markdown: `All <strong>31 fields</strong> filled from memory. No questions needed.<br/><br/><span style="display:inline-flex;align-items:center;gap:4px;background:var(--muted);border:1px solid var(--border);border-radius:6px;padding:4px 10px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg><span style="font-size:13px;font-weight:500">YC_Application_W27_filled.pdf</span></span>` },
 ];
 
 export const fillFormScript: UseCaseScript = {

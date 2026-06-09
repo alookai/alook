@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, Home, Mail, MessageSquare } from "lucide-react";
+import { ArrowUp, FileText, Home, Mail, MessageSquare } from "lucide-react";
 import { MessageBubble } from "@/components/chat-primitives/message-bubble";
 import { MessageCluster } from "@/components/chat-primitives/message-cluster";
 import { PresenceLine } from "@/components/agent-chat/presence-line";
@@ -22,6 +22,7 @@ export interface DashboardStep {
   address?: string;
   text?: string;
   markdown?: string;
+  attachment?: string;
 }
 
 export interface DashboardState {
@@ -59,20 +60,16 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
           {config.agents.map((a) => {
             const isActive = state.activeAgent === a.name.toLowerCase();
             return (
-              <div key={a.name} className="relative group">
-                <div
-                  className={cn(
-                    "size-8 rounded-xl overflow-hidden ring-2 transition-all duration-300",
-                    isActive
-                      ? "ring-primary shadow-md shadow-primary/20 scale-105"
-                      : "ring-transparent hover:ring-border/60",
-                  )}
-                >
-                  <AvatarRenderer config={a.config} size={32} />
-                </div>
-                {isActive && (
-                  <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-green-500 ring-2 ring-background" />
+              <div
+                key={a.name}
+                className={cn(
+                  "size-8 rounded-xl overflow-hidden ring-2 transition-all duration-300",
+                  isActive
+                    ? "ring-primary shadow-md shadow-primary/20 scale-105"
+                    : "ring-transparent hover:ring-border/60",
                 )}
+              >
+                <AvatarRenderer config={a.config} size={32} />
               </div>
             );
           })}
@@ -150,6 +147,12 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                     <div className="flex justify-end">
                       <MessageBubble variant="user" position="single">
                         <span className="text-sm">{step.text}</span>
+                        {step.attachment && (
+                          <div className="flex items-center gap-1 mt-1.5 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-1">
+                            <FileText className="size-3 shrink-0" />
+                            <span className="text-xs opacity-80">{step.attachment}</span>
+                          </div>
+                        )}
                       </MessageBubble>
                     </div>
                   )}
