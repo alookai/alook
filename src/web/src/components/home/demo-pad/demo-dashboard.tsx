@@ -56,36 +56,45 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
           </div>
         </div>
         <div className="flex flex-col items-center gap-1.5 flex-1">
-          {config.agents.map((a) => (
-            <div
-              key={a.name}
-              className={cn(
-                "size-7 rounded-lg overflow-hidden ring-1 transition-all duration-300",
-                state.activeAgent === a.name.toLowerCase() ? "ring-primary/60 shadow-sm" : "ring-transparent",
-              )}
-            >
-              <AvatarRenderer config={a.config} size={28} />
-            </div>
-          ))}
+          {config.agents.map((a) => {
+            const isActive = state.activeAgent === a.name.toLowerCase();
+            return (
+              <div key={a.name} className="relative group">
+                <div
+                  className={cn(
+                    "size-8 rounded-xl overflow-hidden ring-2 transition-all duration-300",
+                    isActive
+                      ? "ring-primary shadow-md shadow-primary/20 scale-105"
+                      : "ring-transparent hover:ring-border/60",
+                  )}
+                >
+                  <AvatarRenderer config={a.config} size={32} />
+                </div>
+                {isActive && (
+                  <span className="absolute -right-1 -top-1 size-2.5 rounded-full bg-green-500 ring-2 ring-background" />
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Navbar */}
-        <div className="flex items-center justify-between border-b border-border/40 px-3 py-1.5">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="size-1.5 rounded-full bg-green-500" />
-            <span className="text-[11px] font-medium text-foreground">{agent.name}</span>
-            <span className="text-[10px] text-muted-foreground/60">/ Chat</span>
+        {/* Navbar — matches real product agent layout */}
+        <div className="flex items-center justify-between border-b border-border/50 px-3 py-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="size-2 rounded-full bg-green-500" />
+            <span className="text-sm font-medium text-foreground">{agent.name}</span>
+            <span className="text-xs text-muted-foreground">/ Chat</span>
           </div>
           <div className="flex items-center gap-0.5">
-            <span className="inline-flex items-center rounded text-[10px] h-4 px-1 text-foreground bg-muted/60">
-              <MessageSquare className="size-2.5 mr-0.5" />
+            <span className="inline-flex items-center rounded-lg text-xs h-6 px-2 text-foreground bg-muted">
+              <MessageSquare className="size-3 mr-1" />
               Chat
             </span>
-            <span className="inline-flex items-center rounded text-[10px] h-4 px-1 text-muted-foreground/60">
-              <Mail className="size-2.5 mr-0.5" />
+            <span className="inline-flex items-center rounded-lg text-xs h-6 px-2 text-muted-foreground hover:bg-muted">
+              <Mail className="size-3 mr-1" />
               Email
             </span>
           </div>
@@ -114,7 +123,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                   {step.type === "email-in" && (
                     <MessageCluster
                       avatar={
-                        <div className="size-[26px] rounded-lg overflow-hidden">
+                        <div className="size-6.5 rounded-lg overflow-hidden">
                           <AnimatedAvatar config={agent.config} size={26} isHovered={false} isWorking={state.isWorking} />
                         </div>
                       }
@@ -127,7 +136,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                   {step.type === "email-out" && (
                     <MessageCluster
                       avatar={
-                        <div className="size-[26px] rounded-lg overflow-hidden">
+                        <div className="size-6.5 rounded-lg overflow-hidden">
                           <AnimatedAvatar config={agent.config} size={26} isHovered={false} isWorking={false} />
                         </div>
                       }
@@ -140,14 +149,14 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                   {step.type === "user-message" && (
                     <div className="flex justify-end">
                       <MessageBubble variant="user" position="single">
-                        <span className="text-[13px]">{step.text}</span>
+                        <span className="text-sm">{step.text}</span>
                       </MessageBubble>
                     </div>
                   )}
                   {step.type === "message" && (
                     <MessageCluster
                       avatar={
-                        <div className="size-[26px] rounded-lg overflow-hidden">
+                        <div className="size-6.5 rounded-lg overflow-hidden">
                           <AnimatedAvatar config={agent.config} size={26} isHovered={false} isWorking={state.isWorking} />
                         </div>
                       }
@@ -156,9 +165,9 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                     >
                       <MessageBubble variant="agent" position={groupPosition === "solo" ? "single" : groupPosition}>
                         {step.markdown ? (
-                          <div className="text-[13px] space-y-1" dangerouslySetInnerHTML={{ __html: step.markdown }} />
+                          <div className="text-sm space-y-1" dangerouslySetInnerHTML={{ __html: step.markdown }} />
                         ) : (
-                          <span className="text-[13px]">{step.text}</span>
+                          <span className="text-sm">{step.text}</span>
                         )}
                       </MessageBubble>
                     </MessageCluster>
@@ -169,15 +178,15 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
           </div>
         </div>
 
-        {/* Composer */}
-        <div className="px-3 py-2 border-t border-border/40">
+        {/* Composer — matches real product pill shape */}
+        <div className="px-3 py-3 border-t border-border/40">
           {state.isTyping && (
             <PresenceLine agentFirstName={agent.name} taskStatus="running" />
           )}
-          <div className="flex items-center gap-1.5 rounded-lg border border-border/50 bg-muted/20 px-2.5 py-1.5">
-            <span className="flex-1 text-[11px] text-muted-foreground/50">Message {agent.name}...</span>
-            <div className="size-4 rounded-full bg-primary/15 flex items-center justify-center">
-              <ArrowUp className="size-2.5 text-primary/50" />
+          <div className="flex items-center gap-2 rounded-3xl border border-border/60 bg-muted/20 px-4 py-2.5">
+            <span className="flex-1 text-sm text-muted-foreground/50">Message {agent.name}...</span>
+            <div className="size-6 rounded-full bg-primary flex items-center justify-center">
+              <ArrowUp className="size-3.5 text-primary-foreground" />
             </div>
           </div>
         </div>

@@ -79,8 +79,9 @@ const BRIEF_PLANNER_STEPS: DashboardStep[] = [
   { type: "message", text: "Collecting updates from the team..." },
   { type: "email-out", subject: "What shipped this week? Any blockers?", address: "coder@alook.ai" },
   { type: "email-in", subject: "Shipped calendar v2, 3 bug fixes. Blocker: OAuth refresh in staging.", address: "coder@alook.ai" },
+  { type: "email-out", subject: "Marketing status update?", address: "marketer@alook.ai" },
   { type: "email-in", subject: "Blog post live, 2 social campaigns running. Launch copy 80% done.", address: "marketer@alook.ai" },
-  { type: "message", markdown: `<strong>Weekly Briefing — May 19</strong><br/><table style="font-size:11px;width:100%;border-collapse:collapse"><tr><td style="padding:2px 6px;border-bottom:1px solid rgba(128,128,128,0.2)"><strong>Completed</strong></td><td style="padding:2px 6px;border-bottom:1px solid rgba(128,128,128,0.2)"><strong>Blockers</strong></td><td style="padding:2px 6px;border-bottom:1px solid rgba(128,128,128,0.2)"><strong>This Week</strong></td></tr><tr><td style="padding:2px 6px">12</td><td style="padding:2px 6px;color:#ca8a04">1</td><td style="padding:2px 6px">5</td></tr></table><br/>🔴 OAuth token refresh failing in staging` },
+  { type: "message", markdown: `<strong>Weekly Briefing — May 19</strong><br/><span style="display:inline-block;margin:4px 0"><span style="font-size:18px;font-weight:600">12</span> <span style="font-size:11px;opacity:0.6">Completed</span> · <span style="font-size:18px;font-weight:600;color:#ca8a04">1</span> <span style="font-size:11px;opacity:0.6">Blocker</span> · <span style="font-size:18px;font-weight:600">5</span> <span style="font-size:11px;opacity:0.6">This Week</span></span><br/>🔴 OAuth token refresh failing in staging` },
   { type: "email-out", subject: "Your Monday Briefing — May 19", address: "owner@company.com" },
 ];
 
@@ -90,26 +91,51 @@ const BRIEF_CODER_STEPS: DashboardStep[] = [
   { type: "email-out", subject: "Shipped calendar v2, 3 bug fixes. Blocker: OAuth refresh in staging.", address: "planner@alook.ai" },
 ];
 
+const BRIEF_MARKETER_STEPS: DashboardStep[] = [
+  { type: "email-in", subject: "Marketing status update?", address: "planner@alook.ai" },
+  { type: "message", text: "Blog post live, 2 social campaigns running. Launch copy 80% done." },
+  { type: "email-out", subject: "Blog post live, 2 social campaigns running. Launch copy 80% done.", address: "planner@alook.ai" },
+];
+
 export const weeklyBriefScript: UseCaseScript = {
   agents: [PLANNER, CODER, MARKETER],
   timeline: [
     { id: "trigger", duration: 2000 },
     { id: "planner-typing", duration: 1500 },
     { id: "planner-msg", duration: 1500 },
-    { id: "planner-email-out", duration: 1800 },
+    { id: "planner-email-out-coder", duration: 1800 },
+    // Switch to Coder
     { id: "switch-coder", duration: 1000 },
     { id: "coder-email-in", duration: 1500 },
     { id: "coder-typing", duration: 1200 },
     { id: "coder-msg", duration: 1500 },
     { id: "coder-email-out", duration: 1800 },
-    { id: "switch-planner", duration: 1000 },
-    { id: "planner-email-in-1", duration: 1200 },
-    { id: "planner-email-in-2", duration: 1200 },
+    // Switch back to Planner briefly
+    { id: "switch-planner-1", duration: 1000 },
+    { id: "planner-email-in-coder", duration: 1200 },
+    { id: "planner-email-out-marketer", duration: 1500 },
+    // Switch to Marketer
+    { id: "switch-marketer", duration: 1000 },
+    { id: "marketer-email-in", duration: 1500 },
+    { id: "marketer-typing", duration: 1200 },
+    { id: "marketer-msg", duration: 1500 },
+    { id: "marketer-email-out", duration: 1800 },
+    // Switch back to Planner for final
+    { id: "switch-planner-2", duration: 1000 },
+    { id: "planner-email-in-marketer", duration: 1200 },
     { id: "planner-msg-2", duration: 2500 },
-    { id: "planner-email-out-2", duration: 3000 },
+    { id: "planner-email-out-final", duration: 3000 },
   ],
   derive(isStepVisible) {
     const showCoder = isStepVisible(4) && !isStepVisible(9);
+    const showMarketer = isStepVisible(12) && !isStepVisible(17);
+    if (showMarketer) {
+      let vis = 0;
+      if (isStepVisible(13)) vis = 1;
+      if (isStepVisible(15)) vis = 2;
+      if (isStepVisible(16)) vis = 3;
+      return { activeAgent: "marketer", steps: BRIEF_MARKETER_STEPS, visibleCount: vis, isTyping: isStepVisible(14) && !isStepVisible(15), isWorking: isStepVisible(13) && !isStepVisible(16) };
+    }
     if (showCoder) {
       let vis = 0;
       if (isStepVisible(5)) vis = 1;
@@ -117,15 +143,17 @@ export const weeklyBriefScript: UseCaseScript = {
       if (isStepVisible(8)) vis = 3;
       return { activeAgent: "coder", steps: BRIEF_CODER_STEPS, visibleCount: vis, isTyping: isStepVisible(6) && !isStepVisible(7), isWorking: isStepVisible(5) && !isStepVisible(8) };
     }
+    // Planner view
     let vis = 0;
-    if (isStepVisible(0)) vis = 1;
-    if (isStepVisible(2)) vis = 2;
-    if (isStepVisible(3)) vis = 3;
-    if (isStepVisible(10)) vis = 4;
-    if (isStepVisible(11)) vis = 5;
-    if (isStepVisible(12)) vis = 6;
-    if (isStepVisible(13)) vis = 7;
-    return { activeAgent: "planner", steps: BRIEF_PLANNER_STEPS, visibleCount: vis, isTyping: isStepVisible(1) && !isStepVisible(2), isWorking: isStepVisible(0) && !isStepVisible(13) };
+    if (isStepVisible(0)) vis = 1;  // calendar trigger
+    if (isStepVisible(2)) vis = 2;  // msg "collecting..."
+    if (isStepVisible(3)) vis = 3;  // email-out to coder
+    if (isStepVisible(10)) vis = 4; // email-in from coder
+    if (isStepVisible(11)) vis = 5; // email-out to marketer
+    if (isStepVisible(18)) vis = 6; // email-in from marketer
+    if (isStepVisible(19)) vis = 7; // briefing summary
+    if (isStepVisible(20)) vis = 8; // email-out to owner
+    return { activeAgent: "planner", steps: BRIEF_PLANNER_STEPS, visibleCount: vis, isTyping: isStepVisible(1) && !isStepVisible(2), isWorking: isStepVisible(0) && !isStepVisible(20) };
   },
 };
 
