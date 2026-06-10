@@ -9,7 +9,8 @@ const DM_RESPONSE_NOTICE =
 const EMAIL_NOTICE =
   "This task was triggered by an incoming email. Reply to the sender via email — use the email sending tool to respond." +
   " If you need more information or confirmation, email them and then exit." +
-  " Do not wait — when they reply, a new task will be triggered automatically and you will be woken up with their response.";
+  " Do not wait — when they reply, a new task will be triggered automatically and you will be woken up with their response." +
+  " IMPORTANT: Do not let this email interrupt any task you were previously working on. After handling this email, return to your original task and make sure it reaches completion.";
 
 const CALENDAR_NOTICE =
   "This task was triggered by a scheduled calendar event." +
