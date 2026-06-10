@@ -8,7 +8,7 @@ const WS_DO_PORT_DEFAULT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || 8789
 const WS_RECONNECT_INIT = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_DELAY_MS) || 1000
 const WS_RECONNECT_MAX = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_MAX_DELAY_MS) || 30_000
 
-export function useUserWs(onMessage: (msg: WsMessage) => void, options?: { onReconnect?: () => void }) {
+export function useUserWs(onMessage: (msg: WsMessage) => void, options?: { onReconnect?: () => void }): { send: (msg: object) => void } {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectDelay = useRef(WS_RECONNECT_INIT)
   const onMessageRef = useRef(onMessage)
@@ -134,4 +134,13 @@ export function useUserWs(onMessage: (msg: WsMessage) => void, options?: { onRec
       ws?.close()
     }
   }, [connect])
+
+  const send = useCallback((msg: object) => {
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(msg))
+    }
+  }, [])
+
+  return { send }
 }

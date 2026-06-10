@@ -47,6 +47,7 @@ export function StudioOnboardingClient({
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
   const runtimesRef = useRef(runtimes);
   useEffect(() => { runtimesRef.current = runtimes; }, [runtimes]);
+  const wsSendRef = useRef<(msg: object) => void>(() => {});
   const [loadingRuntimes, setLoadingRuntimes] = useState(!!initialWorkspaceId);
   const [scenarioId, setScenarioId] = useState<ScenarioId | null>(
     initialTemplate ? initialTemplate.baseScenario : null,
@@ -205,6 +206,7 @@ export function StudioOnboardingClient({
           if (data.daemon_online) setDaemonOnline(true);
         }).catch(() => {});
       }
+      wsSendRef.current({ type: "check_daemon_status" });
     } else if (msg.type === "runtime.registered") {
       setMachineRegistered(true);
       const eventWsId = msg.workspaceId;
@@ -247,7 +249,8 @@ export function StudioOnboardingClient({
     }
   }, []);
 
-  useUserWs(handleWsMessage);
+  const { send: wsSend } = useUserWs(handleWsMessage);
+  useEffect(() => { wsSendRef.current = wsSend; }, [wsSend]);
 
   // Auto-assign first available runtime when runtimes load/change
   useEffect(() => {
