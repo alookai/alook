@@ -121,24 +121,15 @@ describe("loadCLIConfigForProfile", () => {
     });
   });
 
-  it("migrates legacy machine_token into watched_workspaces as registered item", () => {
+  it("assigns deleted status to entries without id and no status", () => {
     const cfg = {
       server_url: "http://example.com",
-      watched_workspaces: [{ id: "w1", name: "WS1", token: "t1" }],
-      machine_token: "al_legacy_token",
+      watched_workspaces: [{ id: null, name: null, token: "t1" }],
     };
     mockedReadFileSync.mockReturnValue(JSON.stringify(cfg));
 
     const result = loadCLIConfigForProfile();
-    expect(result.watched_workspaces).toHaveLength(2);
-    expect(result.watched_workspaces[0]).toMatchObject({ id: "w1", status: "active" });
-    expect(result.watched_workspaces[1]).toMatchObject({
-      id: null,
-      name: null,
-      token: "al_legacy_token",
-      status: "registered",
-      agent_ids: [],
-    });
+    expect(result.watched_workspaces[0]).toMatchObject({ status: "deleted" });
   });
 
   it("does not duplicate if machine_token already in watched_workspaces", () => {

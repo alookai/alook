@@ -119,7 +119,6 @@ export {
   DaemonRuntimeItemSchema,
   ActivateTokenRuntimeSchema,
   ActivateTokenRequestSchema,
-  BindWorkspaceRequestSchema,
   RegisterDaemonRequestSchema,
   DeregisterRequestSchema,
   CompleteTaskRequestSchema,

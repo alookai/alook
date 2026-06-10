@@ -26,13 +26,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   if (!workspaceId) {
-    broadcastToUser(ctx.userId, {
-      type: "runtime.status",
-      daemonId,
-      status: "online",
-      standby: true,
-    }).catch(() => {});
-    return writeJSON({ runtimes: [], standby: true });
+    return writeJSON({ error: "workspace_id is required" }, 400);
   }
 
   // When authenticated with a machine token, enforce workspace match

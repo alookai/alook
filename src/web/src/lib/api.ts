@@ -443,7 +443,7 @@ export const createMachineToken = (name?: string, workspaceId?: string) =>
   );
 
 export const getMachineTokenStatus = () =>
-  apiFetch<{ status: "pending" | "registered" | "active" | null; token?: string; workspace_id?: string; hostname?: string; daemon_online?: boolean; runtimes?: Array<{ id: string; type: string; version: string; status: string }> }>(
+  apiFetch<{ status: "pending" | "active" | null; token?: string; workspace_id?: string; hostname?: string; daemon_online?: boolean }>(
     "/api/machine-tokens/status",
   );
 

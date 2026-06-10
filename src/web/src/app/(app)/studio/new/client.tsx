@@ -1,17 +1,15 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Loader2, CheckCircle2, XCircle, LogOut, ArrowLeft, LayoutGrid } from "lucide-react";
+import { Loader2, CheckCircle2, LogOut, ArrowLeft, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
 import { signOut } from "@/lib/auth-client";
 import { clearAllCache } from "@/lib/chat-cache";
 import { trackWorkspaceCreated, trackOnboardingCompleted, trackAgentCreated } from "@/lib/analytics";
 
 import { PublicLayout } from "@/components/public-layout";
-import { ConnectMachineSteps } from "@/components/connect-machine-steps";
 import { ScenarioPicker } from "@/components/studio-onboarding/scenario-picker";
 import { TeamPreview, type TeamMember } from "@/components/studio-onboarding/team-preview";
 import {
@@ -23,46 +21,32 @@ import {
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import type { WsMessage } from "@alook/shared";
 import { isTauri, isDesktop, tauriInvoke } from "@alook/shared";
-import { listRuntimes, createMachineToken, getMachineTokenStatus } from "@/lib/api";
+import { listRuntimes, createMachineToken } from "@/lib/api";
 import { useUserWs } from "@/lib/use-user-ws";
+import { ConnectMachineSteps } from "@/components/connect-machine-steps";
 import type { TemplatePreset } from "@/lib/templates";
 
 export function StudioOnboardingClient({
-  workspaceId: initialWorkspaceId,
+  workspaceId,
   workspaceSlug,
   workspaceName,
   initialTemplate,
 }: {
-  workspaceId: string | null;
+  workspaceId: string;
   workspaceSlug: string;
   workspaceName: string;
   initialTemplate?: TemplatePreset;
 }) {
   const router = useRouter();
-  const isNewWorkspace = !initialWorkspaceId;
 
-  const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
-  const workspaceIdRef = useRef(workspaceId);
-  useEffect(() => { workspaceIdRef.current = workspaceId; }, [workspaceId]);
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
-  const runtimesRef = useRef(runtimes);
-  useEffect(() => { runtimesRef.current = runtimes; }, [runtimes]);
-  const wsSendRef = useRef<(msg: object) => void>(() => {});
-  const [loadingRuntimes, setLoadingRuntimes] = useState(!!initialWorkspaceId);
+  const [loadingRuntimes, setLoadingRuntimes] = useState(true);
   const [scenarioId, setScenarioId] = useState<ScenarioId | null>(
     initialTemplate ? initialTemplate.baseScenario : null,
   );
-  const [studioName, setStudioName] = useState(
-    isNewWorkspace ? "" : (workspaceName === "Personal" ? "" : workspaceName),
-  );
-  const [nameAvailable, setNameAvailable] = useState<boolean | null>(null);
-  const [nameLocked, setNameLocked] = useState(false);
-  const [checkingName, setCheckingName] = useState(false);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [creating, setCreating] = useState(false);
-  const creatingRef = useRef(false);
 
-  // Connect machine state
   const [generatedToken, setGeneratedToken] = useState("");
   const [generatingToken, setGeneratingToken] = useState(false);
   const [machineRegistered, setMachineRegistered] = useState(false);
@@ -70,203 +54,67 @@ export function StudioOnboardingClient({
 
   const isTauriDesktop = isTauri() && isDesktop();
   const onlineRuntimes = runtimes.filter((r) => r.status === "online");
-  // Desktop: runtimes are local, show all regardless of daemon status
-  const availableRuntimes = isTauriDesktop ? runtimes : onlineRuntimes;
   const hasOnlineRuntime = onlineRuntimes.length > 0;
-  const onlineMachineCount = new Set(onlineRuntimes.map((r) => r.daemon_id).filter(Boolean)).size;
 
-  // Fetch runtimes on mount (only if workspace exists)
   useEffect(() => {
-    if (!workspaceId) return;
     listRuntimes(workspaceId)
-      .then(setRuntimes)
+      .then((rts) => {
+        setRuntimes(rts);
+        if (rts.some((r) => r.status === "online")) {
+          setMachineRegistered(true);
+          setDaemonOnline(true);
+        }
+      })
       .catch(() => {})
       .finally(() => setLoadingRuntimes(false));
   }, [workspaceId]);
 
-  // Recover token state on mount (handles page refresh after register)
-  useEffect(() => {
-    const doDesktopRegister = async (token: string) => {
-      const result = await tauriInvoke<{ success: boolean; message: string }>("register_cli", { token });
-      if (!result.success) {
-        toast.error(result.message || "Auto-registration failed — please check CLI installation");
-        return;
-      }
-      setMachineRegistered(true);
-      const fresh = await getMachineTokenStatus();
-      if (fresh.runtimes?.length) {
-        setRuntimes(fresh.runtimes.map((rt) => ({
-          id: rt.id,
-          workspace_id: "",
-          daemon_id: fresh.hostname || null,
-          runtime_mode: "local",
-          provider: rt.type,
-          status: fresh.daemon_online ? "online" as const : "offline" as const,
-          device_info: fresh.hostname || "",
-          metadata: { version: rt.version },
-          last_seen_at: null,
-          created_at: "",
-          updated_at: "",
-        })));
-        if (fresh.daemon_online) setDaemonOnline(true);
-      }
-    };
-
-    getMachineTokenStatus()
-      .then(async (data) => {
-        if (isTauriDesktop) {
-          // Desktop token logic:
-          // - registered: already registered, use runtimesJson directly
-          // - pending: reuse token, auto-register
-          // - active (bound to workspace): create new token + auto-register
-          // - null: create new token + auto-register
-          if (data.status === "registered") {
-            setMachineRegistered(true);
-            if (data.daemon_online) setDaemonOnline(true);
-            if (data.runtimes?.length) {
-              setRuntimes(data.runtimes.map((rt) => ({
-                id: rt.id,
-                workspace_id: "",
-                daemon_id: data.hostname || null,
-                runtime_mode: "local",
-                provider: rt.type,
-                status: rt.status,
-                device_info: data.hostname || "",
-                metadata: { version: rt.version },
-                last_seen_at: null,
-                created_at: "",
-                updated_at: "",
-              })));
-            }
-          } else if (data.status === "pending" && data.token) {
-            try {
-              await doDesktopRegister(data.token);
-            } catch {
-              toast.error("Failed to auto-register CLI — please check that Claude or Codex is installed");
-            }
-          } else {
-            // active (bound to another workspace) or null — create new token + register
-            try {
-              const { token } = await createMachineToken("cli");
-              await doDesktopRegister(token);
-            } catch {
-              toast.error("Failed to auto-register CLI — please check that Claude or Codex is installed");
-            }
-          }
-        } else {
-          // Web (non-desktop) token recovery
-          if (data.status === "registered" || data.status === "active") {
-            if (isNewWorkspace && data.workspace_id) return;
-            setMachineRegistered(true);
-            if (data.daemon_online) setDaemonOnline(true);
-            if (data.runtimes?.length) {
-              setRuntimes(data.runtimes.map((rt) => ({
-                id: rt.id,
-                workspace_id: "",
-                daemon_id: data.hostname || null,
-                runtime_mode: "local",
-                provider: rt.type,
-                status: rt.status,
-                device_info: data.hostname || "",
-                metadata: { version: rt.version },
-                last_seen_at: null,
-                created_at: "",
-                updated_at: "",
-              })));
-            }
-          }
-        }
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // WebSocket for runtime registration events
   const handleWsMessage = useCallback((msg: WsMessage) => {
-    if (creatingRef.current) return;
-    const currentWsId = workspaceIdRef.current;
-    if (msg.type === "machine.registered") {
+    if (msg.type === "runtime.registered" && msg.workspaceId === workspaceId) {
       setMachineRegistered(true);
-      if (runtimesRef.current.length === 0) {
-        getMachineTokenStatus().then(data => {
-          if (data.runtimes?.length) {
-            setRuntimes(data.runtimes.map(rt => ({
-              id: rt.id,
-              workspace_id: "",
-              daemon_id: data.hostname || null,
-              runtime_mode: "local",
-              provider: rt.type,
-              status: data.daemon_online ? "online" as const : "offline" as const,
-              device_info: data.hostname || "",
-              metadata: { version: rt.version },
-              last_seen_at: null,
-              created_at: "",
-              updated_at: "",
-            })));
-          }
-          if (data.daemon_online) setDaemonOnline(true);
-        }).catch(() => {});
-      }
-      wsSendRef.current({ type: "check_daemon_status" });
-    } else if (msg.type === "runtime.registered") {
-      setMachineRegistered(true);
-      const eventWsId = msg.workspaceId;
-      if (eventWsId && !currentWsId && !isNewWorkspace) {
-        setWorkspaceId(eventWsId);
-        listRuntimes(eventWsId).then(setRuntimes).catch(() => {});
-      } else if (currentWsId) {
-        listRuntimes(currentWsId).then(setRuntimes).catch(() => {});
-      }
-    } else if (msg.type === "runtime.status" && msg.status === "online") {
       setDaemonOnline(true);
-      const wsId = workspaceIdRef.current;
-      if (runtimesRef.current.length === 0) {
-        if (wsId) {
-          listRuntimes(wsId).then(setRuntimes).catch(() => {});
-        } else {
-          getMachineTokenStatus().then(data => {
-            if (data.runtimes?.length) {
-              setRuntimes(data.runtimes.map(rt => ({
-                id: rt.id,
-                workspace_id: "",
-                daemon_id: data.hostname || null,
-                runtime_mode: "local",
-                provider: rt.type,
-                status: "online" as const,
-                device_info: data.hostname || "",
-                metadata: { version: rt.version },
-                last_seen_at: null,
-                created_at: "",
-                updated_at: "",
-              })));
-            }
-          }).catch(() => {});
-        }
-      } else if (wsId) {
-        listRuntimes(wsId).then(setRuntimes).catch(() => {});
-      } else {
-        setRuntimes(prev => prev.map(r => ({ ...r, status: "online" })));
-      }
-    } else if (msg.type === "runtime.status" && msg.status === "offline") {
-      setDaemonOnline(false);
-      setRuntimes(prev => prev.map(r => ({ ...r, status: "offline" })));
+      listRuntimes(workspaceId).then(setRuntimes).catch(() => {});
+    } else if (msg.type === "runtime.status" && msg.workspaceId === workspaceId) {
+      setMachineRegistered(true);
+      if (msg.status === "online") setDaemonOnline(true);
+      else setDaemonOnline(false);
     }
-  }, [isNewWorkspace]);
+  }, [workspaceId]);
 
-  const { send: wsSend } = useUserWs(handleWsMessage);
-  useEffect(() => { wsSendRef.current = wsSend; }, [wsSend]);
+  useUserWs(handleWsMessage);
 
-  // Auto-assign first available runtime when runtimes load/change
+  const handleGenerateToken = useCallback(async () => {
+    setGeneratingToken(true);
+    try {
+      const res = await createMachineToken("cli", workspaceId);
+      setGeneratedToken(res.token);
+      if (isTauriDesktop) {
+        const result = await tauriInvoke<{ success: boolean; message: string }>("register_cli", { token: res.token });
+        if (result.success) {
+          setMachineRegistered(true);
+          setDaemonOnline(true);
+          listRuntimes(workspaceId).then(setRuntimes).catch(() => {});
+        } else {
+          toast.error(result.message || "Auto-registration failed");
+        }
+      }
+    } catch {
+      toast.error("Failed to generate token");
+    } finally {
+      setGeneratingToken(false);
+    }
+  }, [workspaceId, isTauriDesktop]);
+
   useEffect(() => {
-    const firstAvailable = availableRuntimes[0]?.id;
-    if (!firstAvailable) return;
+    const firstOnline = onlineRuntimes[0]?.id;
+    if (!firstOnline) return;
     setMembers((prev) => {
       if (prev.length === 0) return prev;
       const needsUpdate = prev.some((m) => !m.runtimeId);
       if (!needsUpdate) return prev;
-      return prev.map((m) => m.runtimeId ? m : { ...m, runtimeId: firstAvailable });
+      return prev.map((m) => m.runtimeId ? m : { ...m, runtimeId: firstOnline });
     });
-  }, [availableRuntimes]);
+  }, [onlineRuntimes]);
 
   const resolveHandles = useCallback(async (memberNames: string[]) => {
     try {
@@ -282,12 +130,11 @@ export function StudioOnboardingClient({
     }
   }, []);
 
-  // Initialize from template when runtimes are loaded
   useEffect(() => {
     if (!initialTemplate || loadingRuntimes) return;
     if (members.length > 0) return;
     const generated = shuffleMembers(initialTemplate.members.length);
-    const defaultRuntimeId = availableRuntimes[0]?.id || "";
+    const defaultRuntimeId = onlineRuntimes[0]?.id || "";
     const newMembers = initialTemplate.members.map((m, i) => ({
       name: generated[i].name,
       role: m.role,
@@ -315,7 +162,7 @@ export function StudioOnboardingClient({
     setScenarioId(id);
     const preset = SCENARIO_PRESETS.find((s) => s.id === id)!;
     const generated = shuffleMembers(preset.members.length);
-    const defaultRuntimeId = availableRuntimes[0]?.id || "";
+    const defaultRuntimeId = onlineRuntimes[0]?.id || "";
     const newMembers = preset.members.map((m, i) => ({
       name: generated[i].name,
       role: m.role,
@@ -348,49 +195,6 @@ export function StudioOnboardingClient({
     }
   };
 
-  const handleCheckName = async () => {
-    if (!studioName.trim()) return;
-    setCheckingName(true);
-    setNameAvailable(null);
-    try {
-      const url = workspaceId
-        ? `/api/studios/check-name?name=${encodeURIComponent(studioName.trim())}&workspace_id=${workspaceId}`
-        : `/api/studios/check-name?name=${encodeURIComponent(studioName.trim())}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error(err.error || "Invalid company name");
-        setNameAvailable(false);
-        return;
-      }
-      const data = (await res.json()) as { available: boolean };
-      setNameAvailable(data.available);
-      if (data.available) setNameLocked(true);
-    } catch {
-      setNameAvailable(null);
-      toast.error("Failed to check name availability");
-    } finally {
-      setCheckingName(false);
-    }
-  };
-
-  const handleUnlockName = () => {
-    setNameLocked(false);
-    setNameAvailable(null);
-  };
-
-  const handleGenerateToken = useCallback(async () => {
-    setGeneratingToken(true);
-    try {
-      const res = await createMachineToken("cli", workspaceIdRef.current || undefined);
-      setGeneratedToken(res.token);
-    } catch {
-      toast.error("Failed to generate token");
-    } finally {
-      setGeneratingToken(false);
-    }
-  }, []);
-
   const handleAssignRuntime = (memberIndex: number, runtimeId: string) => {
     setMembers((prev) =>
       prev.map((m, i) => (i === memberIndex ? { ...m, runtimeId } : m)),
@@ -399,92 +203,17 @@ export function StudioOnboardingClient({
 
   const handleCreate = async () => {
     setCreating(true);
-    creatingRef.current = true;
     try {
-      let resolvedWorkspaceId = workspaceId;
-
-      if (!resolvedWorkspaceId) {
-        // Create workspace + bind machine token
-        const wsRes = await fetch("/api/workspaces", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: studioName.trim() || "Personal",
-            slug: (studioName.trim() || "personal").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
-          }),
-        });
-        if (!wsRes.ok) {
-          const err = (await wsRes.json().catch(() => ({}))) as { error?: string };
-          throw new Error(err.error || "Failed to create workspace");
-        }
-        const wsData = (await wsRes.json()) as { id: string; slug: string };
-        resolvedWorkspaceId = wsData.id;
-        setWorkspaceId(resolvedWorkspaceId);
-
-        // Bind workspace to machine token
-        const bindRes = await fetch("/api/machine-tokens/bind-workspace", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workspace_id: resolvedWorkspaceId }),
-        });
-        if (!bindRes.ok) {
-          // Cleanup orphaned workspace
-          await fetch(`/api/workspaces/${resolvedWorkspaceId}`, { method: "DELETE" }).catch(() => {});
-          setWorkspaceId(null);
-          const err = (await bindRes.json().catch(() => ({}))) as { error?: string };
-          throw new Error(err.error || "Failed to bind workspace");
-        }
-      }
-
-      if (!resolvedWorkspaceId) {
-        toast.error("Please connect a computer first");
-        creatingRef.current = false;
-        setCreating(false);
-        return;
-      }
-
-      // Wait for real runtimes and resolve temp IDs to actual runtime IDs.
-      // After bind-workspace, the daemon registers runtimes — poll until available.
-      let resolvedMembers = members;
-      const needsRuntimeResolution = members.some((m) => !m.runtimeId || m.runtimeId.startsWith("temp_"));
-      if (needsRuntimeResolution) {
-        let attempts = 0;
-        let freshRuntimes: Runtime[] = [];
-        while (attempts < 10) {
-          freshRuntimes = await listRuntimes(resolvedWorkspaceId);
-          if (freshRuntimes.some((r) => r.status === "online")) break;
-          await new Promise((r) => setTimeout(r, 1000));
-          attempts++;
-        }
-        const onlineFresh = freshRuntimes.filter((r) => r.status === "online");
-        if (onlineFresh.length > 0) {
-          resolvedMembers = members.map((m) => {
-            if (!m.runtimeId || m.runtimeId.startsWith("temp_")) {
-              const tempProvider = runtimes.find((r) => r.id === m.runtimeId)?.provider;
-              const match = onlineFresh.find((r) => r.provider === tempProvider) || onlineFresh[0];
-              return { ...m, runtimeId: match.id };
-            }
-            return m;
-          });
-        }
-        if (resolvedMembers.some((m) => !m.runtimeId || m.runtimeId.startsWith("temp_"))) {
-          toast.error("Waiting for runtime — please ensure the daemon is running");
-          creatingRef.current = false;
-          setCreating(false);
-          return;
-        }
-      }
-
       const res = await fetch("/api/studios", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Workspace-ID": resolvedWorkspaceId,
+          "X-Workspace-ID": workspaceId,
         },
         body: JSON.stringify({
-          name: studioName.trim() || undefined,
+          name: undefined,
           scenario: scenarioId,
-          members: resolvedMembers.map((m) => ({
+          members: members.map((m) => ({
             name: m.name,
             role: m.role,
             runtime_id: m.runtimeId,
@@ -503,41 +232,32 @@ export function StudioOnboardingClient({
       }
 
       const data = (await res.json()) as { workspace: { slug: string }; leader_agent_id: string };
-      if (!initialWorkspaceId) {
-        trackWorkspaceCreated("onboarding");
-      }
+      await fetch(`/api/workspaces/${workspaceId}/onboarded`, { method: "POST" }).catch(() => {});
+      trackWorkspaceCreated("onboarding");
       trackOnboardingCompleted({
         template_used: scenarioId ?? undefined,
-        agent_count: resolvedMembers.length,
+        agent_count: members.length,
       });
-      for (let i = 0; i < resolvedMembers.length; i++) {
+      for (let i = 0; i < members.length; i++) {
         trackAgentCreated({
           is_first_agent: i === 0,
-          has_email: !!resolvedMembers[i].emailHandle,
+          has_email: !!members[i].emailHandle,
         });
       }
       toast.success("Company created!");
       router.push(`/w/${data.workspace.slug}/agents/${data.leader_agent_id}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to create company");
-      creatingRef.current = false;
       setCreating(false);
     }
   };
 
-  const nameValid =
-    isNewWorkspace
-      ? studioName.trim() && nameAvailable === true
-      : nameAvailable !== false;
-
   const canCreate =
     scenarioId &&
     members.length > 0 &&
-    (isTauriDesktop || isNewWorkspace || members.every((m) => m.runtimeId)) &&
-    nameValid &&
-    (hasOnlineRuntime || (machineRegistered && daemonOnline && runtimes.length > 0) || (isTauriDesktop && runtimes.length > 0));
+    members.every((m) => m.runtimeId) &&
+    (hasOnlineRuntime || (machineRegistered && daemonOnline) || isTauriDesktop);
 
-  // Page 1: Scenario selection
   if (!scenarioId) {
     return (
       <PublicLayout
@@ -578,28 +298,25 @@ export function StudioOnboardingClient({
             </p>
           </div>
 
-          <ScenarioPicker selected={scenarioId} onSelect={handleScenarioSelect} onBrowseTemplates={() => router.push(workspaceId ? `/templates?workspace_id=${workspaceId}` : "/templates")} />
+          <ScenarioPicker selected={scenarioId} onSelect={handleScenarioSelect} onBrowseTemplates={() => router.push(`/templates?workspace_id=${workspaceId}`)} />
 
-          {workspaceId && (
-            <div className="flex justify-center pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  document.cookie = `skip_init=${workspaceId};path=/;max-age=86400`;
-                  router.push(`/w/${workspaceSlug}/home`);
-                }}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Skip for now
-              </button>
-            </div>
-          )}
+          <div className="flex justify-center pt-2">
+            <button
+              type="button"
+              onClick={async () => {
+                await fetch(`/api/workspaces/${workspaceId}/onboarded`, { method: "POST" }).catch(() => {});
+                router.push(`/w/${workspaceSlug}/home`);
+              }}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Skip for now
+            </button>
+          </div>
         </div>
       </PublicLayout>
     );
   }
 
-  // Page 2: Build your company
   return (
     <PublicLayout
       leftSlot={
@@ -638,7 +355,6 @@ export function StudioOnboardingClient({
       }
     >
       <div className="mx-auto w-full max-w-3xl space-y-10 px-6 py-14">
-        {/* Header */}
         <div className="text-center">
           <h1
             className="text-2xl font-semibold tracking-tight"
@@ -648,76 +364,16 @@ export function StudioOnboardingClient({
           </h1>
         </div>
 
-        {/* Loading */}
         {loadingRuntimes ? (
           <div className="flex justify-center py-8">
             <Loader2 className="size-5 animate-spin text-muted-foreground" />
           </div>
         ) : (
           <>
-            {/* Company Name */}
-            <div className="space-y-2">
-              <h2 className="text-base font-semibold tracking-tight">Company name</h2>
-              <div className="flex gap-2">
-                <Input
-                  value={studioName}
-                  onChange={(e) => {
-                    setStudioName(e.target.value);
-                    setNameAvailable(null);
-                  }}
-                  placeholder="e.g. Atlas Lab"
-                  className="text-sm"
-                  disabled={nameLocked}
-                />
-                {nameLocked ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleUnlockName}
-                    className="shrink-0"
-                  >
-                    Edit
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleCheckName}
-                    disabled={!studioName.trim() || checkingName}
-                    className="shrink-0"
-                  >
-                    {checkingName ? <Loader2 className="size-3 animate-spin" /> : "Check"}
-                  </Button>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  {nameAvailable === true && (
-                    <>
-                      <span className="text-emerald-600 flex items-center gap-0.5">
-                        <CheckCircle2 className="size-3" /> Available
-                      </span>
-                      <span>·</span>
-                    </>
-                  )}
-                  {!isNewWorkspace ? (
-                    <span>Optional — you can always rename later.</span>
-                  ) : (
-                    <span>Required — pick a name for your company.</span>
-                  )}
-                </span>
-                {nameAvailable === false && (
-                  <span className="text-red-500 flex items-center gap-1 ml-auto">
-                    <XCircle className="size-3" /> Name is taken, try another
-                  </span>
-                )}
-              </div>
-            </div>
-
             {/* Team Preview */}
             <TeamPreview
               members={members}
-              runtimes={availableRuntimes as Runtime[]}
+              runtimes={onlineRuntimes as Runtime[]}
               onShuffle={handleShuffle}
               onAssignRuntime={handleAssignRuntime}
             />
@@ -726,9 +382,9 @@ export function StudioOnboardingClient({
             {!isTauriDesktop && (
               <div className="space-y-3">
                 <h2 className="text-base font-semibold tracking-tight">Connect a computer</h2>
-                {(hasOnlineRuntime || (machineRegistered && daemonOnline && runtimes.length > 0)) ? (
+                {(hasOnlineRuntime || (machineRegistered && daemonOnline)) ? (
                   <p className="text-xs text-emerald-600 flex items-center gap-1">
-                    <CheckCircle2 className="size-3" /> {onlineMachineCount || 1} computer{(onlineMachineCount || 1) > 1 ? "s" : ""} connected
+                    <CheckCircle2 className="size-3" /> Computer connected
                   </p>
                 ) : (
                   <>
@@ -761,10 +417,6 @@ export function StudioOnboardingClient({
                   <Loader2 className="size-4 animate-spin mr-2" />
                   Launching...
                 </>
-              ) : isNewWorkspace && nameAvailable === false ? (
-                "Name unavailable"
-              ) : isNewWorkspace && nameAvailable !== true ? (
-                "Check company name first"
               ) : (
                 "Launch company"
               )}

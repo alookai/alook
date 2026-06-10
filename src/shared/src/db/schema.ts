@@ -77,6 +77,7 @@ export const workspace = sqliteTable("workspace", {
   id: text("id").primaryKey().$defaultFn(() => "sp_" + nanoid()),
   name: text("name").notNull(),
   slug: text("slug").unique().notNull(),
+  onboarded: integer("onboarded").notNull().default(0),
   createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });

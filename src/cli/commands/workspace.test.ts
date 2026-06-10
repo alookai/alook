@@ -343,7 +343,7 @@ describe("workspace init — self-resolve (no workspaceId)", () => {
     });
     mockedLoadConfig.mockReturnValue({
       server_url: "http://localhost:3000",
-      watched_workspaces: [{ id: null, name: null, token: "test-token", status: "registered" }],
+      watched_workspaces: [{ id: "sp_ws1", name: "Existing", token: "test-token", status: "active" }],
     });
   });
 
@@ -375,10 +375,9 @@ describe("workspace init — self-resolve (no workspaceId)", () => {
     getJSONMock
       .mockResolvedValueOnce([{ id: "sp_ws1", name: "Existing WS" }]) // GET /api/workspaces
       .mockResolvedValueOnce([]) // GET /api/agents?workspace_id=sp_ws1 (empty!)
-      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }]); // GET /api/runtimes (after bind-workspace polling)
+      .mockResolvedValueOnce([{ id: "rt1", machineLastSeenAt: new Date().toISOString() }]); // GET /api/runtimes
 
     postJSONMock
-      .mockResolvedValueOnce({}) // POST /api/machine-tokens/bind-workspace
       .mockResolvedValueOnce({ // POST /api/studios
         studio: { name: "My WS" },
         workspace: { id: "sp_ws1", name: "My WS", slug: "my-ws" },
@@ -388,7 +387,6 @@ describe("workspace init — self-resolve (no workspaceId)", () => {
     await runInit(["--json-file", jsonPath]);
 
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Workspace initialized"));
-    expect(postJSONMock).toHaveBeenCalledWith("/api/machine-tokens/bind-workspace", { workspace_id: "sp_ws1" });
   });
 
   it("creates new workspace when all existing ones have agents", async () => {
@@ -404,7 +402,6 @@ describe("workspace init — self-resolve (no workspaceId)", () => {
 
     postJSONMock
       .mockResolvedValueOnce({ id: "sp_new", name: "Fresh WS" }) // POST /api/workspaces
-      .mockResolvedValueOnce({}) // POST /api/machine-tokens/bind-workspace
       .mockResolvedValueOnce({ // POST /api/studios
         studio: { name: "Fresh WS" },
         workspace: { id: "sp_new", name: "Fresh WS", slug: "fresh-ws" },
@@ -428,7 +425,6 @@ describe("workspace init — self-resolve (no workspaceId)", () => {
 
     postJSONMock
       .mockResolvedValueOnce({ id: "sp_personal", name: "Personal" }) // POST /api/workspaces
-      .mockResolvedValueOnce({}) // POST /api/machine-tokens/bind-workspace
       .mockResolvedValueOnce({ // POST /api/studios
         studio: { name: "Personal" },
         workspace: { id: "sp_personal", name: "Personal", slug: "personal" },

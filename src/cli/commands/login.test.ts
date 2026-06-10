@@ -131,7 +131,7 @@ describe("alook login", () => {
     const cmd = loginCommand();
     await runWithTimers(cmd.parseAsync(["node", "login", "--server", "http://localhost:3000"]));
 
-    // syncWorkspacesToConfig is called first (stores session token + synced workspaces)
+    // syncWorkspacesToConfig stores session token + synced workspaces
     expect(mockSaveCLIConfigForProfile).toHaveBeenCalledWith(
       undefined,
       expect.objectContaining({
@@ -142,12 +142,12 @@ describe("alook login", () => {
         ]),
       }),
     );
-    // activateAndSave adds the machine token entry
+    // activateAndSave updates the workspace entry with the token
     expect(mockSaveCLIConfigForProfile).toHaveBeenCalledWith(
       undefined,
       expect.objectContaining({
         watched_workspaces: expect.arrayContaining([
-          expect.objectContaining({ token: "al_machine_tok", status: "registered" }),
+          expect.objectContaining({ id: "sp_ws1", token: "al_machine_tok", status: "active" }),
         ]),
       }),
     );
@@ -396,7 +396,12 @@ describe("alook login", () => {
           { id: "sp_ws2", name: "Personal" },
         ] },
         { url: "/api/machine-tokens", status: 201, body: { token: "al_mt" } },
-        { url: "/api/machine-tokens/activate", status: 200, body: { daemon_id: "h1", token_status: "registered" } },
+        { url: "/api/machine-tokens/activate", status: 200, body: { daemon_id: "h1", workspace_id: "sp_ws1", runtimes: [{ id: "r1", provider: "claude" }] } },
+        { url: "/api/workspaces", status: 200, body: [
+          { id: "sp_ws1", name: "Work" },
+          { id: "sp_ws2", name: "Personal" },
+        ] },
+        { url: "/api/agents", status: 200, body: [] },
       ]);
 
       const cmd = loginCommand();

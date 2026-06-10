@@ -20,28 +20,26 @@ export default async function StudioNewPage({
   const initialTemplate = templateId ? getTemplateById(templateId) : undefined;
 
   const workspaceId = params.workspace_id ?? null;
-  let workspaceName = "";
-  let workspaceSlug = "";
 
-  if (workspaceId) {
-    const membership = await queries.member.getMemberByUserAndWorkspace(
-      db,
-      session.user.id,
-      workspaceId,
-    );
-    if (!membership) redirect("/workspaces");
-
-    const workspace = await queries.workspace.getWorkspace(db, workspaceId, session.user.id);
-    if (!workspace) redirect("/workspaces");
-    workspaceName = workspace.name;
-    workspaceSlug = workspace.slug;
+  if (!workspaceId) {
+    redirect("/workspaces");
   }
+
+  const membership = await queries.member.getMemberByUserAndWorkspace(
+    db,
+    session.user.id,
+    workspaceId,
+  );
+  if (!membership) redirect("/workspaces");
+
+  const workspace = await queries.workspace.getWorkspace(db, workspaceId, session.user.id);
+  if (!workspace) redirect("/workspaces");
 
   return (
     <StudioOnboardingClient
       workspaceId={workspaceId}
-      workspaceSlug={workspaceSlug}
-      workspaceName={workspaceName}
+      workspaceSlug={workspace.slug}
+      workspaceName={workspace.name}
       initialTemplate={initialTemplate}
     />
   );

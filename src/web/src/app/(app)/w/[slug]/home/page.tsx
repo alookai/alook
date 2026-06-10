@@ -49,8 +49,10 @@ import {
   createAgentLink,
   updateAgentLink,
   deleteAgentLink,
+  createMachineToken,
 } from "@/lib/api";
 import { toast } from "sonner";
+import { cliCmd } from "@/lib/utils";
 import { ApiError } from "@/lib/errors";
 import { trackAgentLinkCreated, trackCanvasLayoutChanged } from "@/lib/analytics";
 import { AgentNode, type AgentNodeData } from "@/components/canvas/agent-node";
@@ -640,9 +642,54 @@ function MobileAgentList({ onAgentClick }: { onAgentClick?: (agent: Agent) => vo
   );
 }
 
+function ConnectComputerCard({ workspaceId }: { workspaceId: string }) {
+  const [token, setToken] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    createMachineToken("cli", workspaceId)
+      .then((res) => setToken(res.token))
+      .catch(() => toast.error("Failed to generate token"))
+      .finally(() => setLoading(false));
+  }, [workspaceId]);
+
+  const command = `${cliCmd()} register --token ${token}`;
+
+  const copy = () => {
+    navigator.clipboard.writeText(command);
+    toast.success("Copied to clipboard");
+  };
+
+  return (
+    <div className="rounded-xl bg-muted/40 p-5 space-y-3">
+      <h3 className="text-sm font-semibold">Connect a computer</h3>
+      <p className="text-xs text-muted-foreground">
+        Run this command in your terminal to link your machine.
+      </p>
+      {loading ? (
+        <div className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground animate-pulse">
+          Generating token...
+        </div>
+      ) : (
+        <>
+          <div
+            className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors break-all"
+            onClick={copy}
+          >
+            {command}
+          </div>
+          <Button size="sm" onClick={copy} className="w-full">
+            Copy Command
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function HomePage() {
   const router = useRouter();
-  const { agents, loading } = useAgentContext();
+  const { agents, runtimes, loading } = useAgentContext();
   const { workspaceId } = useWorkspace();
   const isMobile = useIsMobile();
   const { openAgentChat } = useAgentChatSheet();
@@ -659,18 +706,26 @@ export default function HomePage() {
     );
   }
 
+  const onlineRuntimes = runtimes.filter((r) => r.status === "online");
+  const hasComputer = onlineRuntimes.length > 0;
+
   if (agents.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <div className="text-center animate-[fade-up_400ms_ease-out_both]">
-          <p className="text-muted-foreground text-sm">Build your AI company</p>
-          <Button
-            size="sm"
-            className="mt-4 glow-border"
-            onClick={() => router.push(`/studio/new?workspace_id=${workspaceId}`)}
-          >
-            Get Started
-          </Button>
+        <div className="w-full max-w-sm space-y-6 animate-[fade-up_400ms_ease-out_both]">
+          {!hasComputer && (
+            <ConnectComputerCard workspaceId={workspaceId} />
+          )}
+          <div className="text-center">
+            <p className="text-muted-foreground text-sm">Build your AI company</p>
+            <Button
+              size="sm"
+              className="mt-4 glow-border"
+              onClick={() => router.push(`/studio/new?workspace_id=${workspaceId}`)}
+            >
+              Get Started
+            </Button>
+          </div>
         </div>
       </div>
     );

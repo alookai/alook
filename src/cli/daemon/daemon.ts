@@ -252,14 +252,12 @@ export async function startDaemon(
   const cliConfig = loadCLIConfigForProfile(profile);
 
   const allEntries = cliConfig.watched_workspaces || [];
-  const workspaces = allEntries.filter((ws): ws is typeof ws & { id: string; name: string } => ws.status !== "registered" && !!ws.id);
-  const registeredEntries = allEntries.filter((ws) => ws.status === "registered" && !ws.id);
-  const standbyToken = registeredEntries[0]?.token ?? null;
+  const workspaces = allEntries.filter((ws): ws is typeof ws & { id: string; name: string } => ws.status !== "deleted" && !!ws.id);
 
-  if (workspaces.length === 0 && standbyToken) {
-    log.info("No workspaces configured — daemon starting in standby mode with machine token. Awaiting workspace binding.");
-  } else if (workspaces.length === 0) {
-    log.info("No workspaces configured — daemon starting in standby mode. Register a workspace to begin.");
+  if (workspaces.length === 0) {
+    log.error("No workspaces configured. Register a workspace first.");
+    process.exit(1);
+    return;
   }
 
   // Validate: each active workspace must have its own token
@@ -302,7 +300,7 @@ export async function startDaemon(
 
   const workspaceStates: WorkspaceState[] = [];
   const runtimeIndex = new Map<string, RuntimeData>();
-  let hadWorkspaces = workspaces.length > 0;
+  const hadWorkspaces = true;
 
   for (const ws of workspaces) {
     const runtimes = providers.map((p) => ({
@@ -405,59 +403,6 @@ export async function startDaemon(
     }
 
     log.info(`Workspace ${workspaceId} deleted server-side — removed from config`);
-  }
-
-  async function handleWorkspaceAdded(workspaceId: string, workspaceName: string, token: string): Promise<void> {
-    if (workspaceStates.some((ws) => ws.workspaceId === workspaceId)) {
-      log.info(`Workspace ${workspaceId} already registered — ignoring workspace_added`);
-      return;
-    }
-
-    log.info(`Workspace ${workspaceId} bound — registering...`);
-    const runtimes = providers.map((p) => ({ type: p.type, version: p.version }));
-    try {
-      const resp = await client.register(token, {
-        workspace_id: workspaceId,
-        daemon_id: config.daemonId,
-        device_name: config.deviceName,
-        cli_version: config.cliVersion,
-        workspaces_root: config.workspacesRoot,
-        runtimes,
-      });
-      const runtimeIds = resp.runtimes.map((r: { id: string }) => r.id);
-      workspaceStates.push({ workspaceId, token, runtimeIds });
-      for (let i = 0; i < runtimeIds.length; i++) {
-        runtimeIndex.set(runtimeIds[i], {
-          id: runtimeIds[i],
-          workspaceId,
-          provider: providers[i].type,
-        });
-      }
-      hadWorkspaces = true;
-      health.setRuntimeCount(
-        workspaceStates.reduce((sum, w) => sum + w.runtimeIds.length, 0),
-      );
-
-      try {
-        const cfg = loadCLIConfigForProfile(profile);
-        const watched = cfg.watched_workspaces || [];
-        // Find the registered entry with this token and promote it to active
-        const registeredIdx = watched.findIndex((w) => w.token === token && w.status === "registered" && !w.id);
-        if (registeredIdx !== -1) {
-          watched[registeredIdx] = { id: workspaceId, name: workspaceName, token, status: "active", agent_ids: [] };
-        } else if (!watched.some((w) => w.id === workspaceId)) {
-          watched.push({ id: workspaceId, name: workspaceName, token, status: "active" });
-        }
-        cfg.watched_workspaces = watched;
-        saveCLIConfigForProfile(profile, cfg);
-      } catch {
-        // Best-effort config write
-      }
-
-      log.info(`Workspace ${workspaceId} added via WS push — ${runtimeIds.length} runtime(s)`);
-    } catch (e) {
-      log.error(`Failed to register workspace ${workspaceId} from WS push`, e);
-    }
   }
 
   // Staggered per-workspace polling
@@ -680,14 +625,10 @@ export async function startDaemon(
         break;
       }
 
-      case "daemon.workspace_added": {
-        handleWorkspaceAdded(msg.workspaceId, msg.workspaceName, msg.token);
-        break;
-      }
     }
   }
 
-  const wsToken = firstToken || standbyToken;
+  const wsToken = firstToken;
 
   let wsClient = wsToken
     ? new DaemonWsClient({
@@ -696,55 +637,17 @@ export async function startDaemon(
         machineToken: wsToken,
         onMessage: handleWsPush,
         onConnected: () => {
-          if (workspaceStates.length > 0) {
-            log.info("WS connected — switching to low-frequency poll");
-            updatePollInterval(config.wsPollInterval);
-          } else {
-            log.info("WS connected in standby mode — awaiting workspace binding");
-          }
+          log.info("WS connected — switching to low-frequency poll");
+          updatePollInterval(config.wsPollInterval);
         },
         onDisconnected: () => {
-          if (workspaceStates.length > 0) {
-            log.info("WS disconnected — reverting to high-frequency poll");
-            updatePollInterval(config.pollInterval);
-          }
+          log.info("WS disconnected — reverting to high-frequency poll");
+          updatePollInterval(config.pollInterval);
         },
       })
     : null;
 
   wsClient?.connect();
-
-  // --- Standby poll fallback: if WS push is lost, periodically check for workspace bindings ---
-  const STANDBY_POLL_MS = 30_000;
-  let standbyPollTimer: ReturnType<typeof setInterval> | null = null;
-
-  if (standbyToken && workspaceStates.length === 0) {
-    const standbyPollTick = async () => {
-      if (workspaceStates.length > 0) {
-        if (standbyPollTimer) { clearInterval(standbyPollTimer); standbyPollTimer = null; }
-        return;
-      }
-      try {
-        const runtimes = providers.map((p) => ({ type: p.type, version: p.version }));
-        const resp = await client.checkStandby(standbyToken, {
-          daemon_id: config.daemonId,
-          device_name: config.deviceName,
-          cli_version: config.cliVersion,
-          workspaces_root: config.workspacesRoot,
-          runtimes,
-        });
-        if (!resp.standby && resp.runtimes.length > 0 && resp.workspaceId) {
-          log.info(`Standby poll: workspace ${resp.workspaceId} discovered via fallback`);
-          await handleWorkspaceAdded(resp.workspaceId, "", standbyToken);
-          if (standbyPollTimer) { clearInterval(standbyPollTimer); standbyPollTimer = null; }
-        }
-      } catch (e) {
-        log.debug("standby poll failed", { err: e instanceof Error ? e.message : String(e) });
-      }
-    };
-    standbyPollTick();
-    standbyPollTimer = setInterval(standbyPollTick, STANDBY_POLL_MS);
-  }
 
   // --- Sweep timer: triggers server-side sweep + local reconciliation ---
   const sweepTick = async () => {
@@ -788,7 +691,6 @@ export async function startDaemon(
     clearInterval(pollTimer);
     clearInterval(heartbeatTimer);
     clearInterval(sweepTimer);
-    if (standbyPollTimer) clearInterval(standbyPollTimer);
     stopSkillScanner();
     wsClient?.close();
 
@@ -841,7 +743,7 @@ export async function startDaemon(
     try {
       const freshConfig = loadCLIConfigForProfile(profile);
       const freshWorkspaces = (freshConfig.watched_workspaces || [])
-        .filter((ws): ws is typeof ws & { id: string } => ws.status !== "registered" && !!ws.id);
+        .filter((ws): ws is typeof ws & { id: string } => ws.status !== "deleted" && !!ws.id);
       const existingIds = new Set(workspaceStates.map((ws) => ws.workspaceId));
 
       const newWorkspaces = freshWorkspaces.filter(
@@ -876,7 +778,6 @@ export async function startDaemon(
       }
 
       if (newWorkspaces.length > 0) {
-        hadWorkspaces = true;
         health.setRuntimeCount(
           workspaceStates.reduce((sum, w) => sum + w.runtimeIds.length, 0),
         );

@@ -165,7 +165,6 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     const db = createDb(this.env.DB)
     const mt = await queries.machineToken.getMachineTokenByToken(db, token)
     if (!mt) return null
-    if (mt.status === "registered") return { userId: mt.userId }
     if (mt.status !== "active" || !mt.workspaceId) return null
     const runtimes = await queries.runtime.getRuntimeIdsByDaemon(db, daemonId, mt.workspaceId)
     return runtimes.length > 0 ? { userId: mt.userId } : null

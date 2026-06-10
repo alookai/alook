@@ -284,28 +284,21 @@ describe("POST /api/daemon/register", () => {
     expect(mockGetMachineByDaemon).not.toHaveBeenCalled();
   });
 
-  it("returns standby when no workspace_id is provided or resolved", async () => {
+  it("returns 400 when no workspace_id is provided or resolved", async () => {
     const POST = await loadRoute(authCtx);
-    mockBroadcastToUser.mockResolvedValue(undefined);
 
-    const standbyBody = {
+    const body = {
       daemon_id: "d1",
       device_name: "MyMachine",
       cli_version: "0.0.2",
       runtimes: [{ type: "claude", version: "1.0", runtime_mode: "local" }],
     };
-    const res = await POST(makeReq(standbyBody));
-    const body = await res.json();
+    const res = await POST(makeReq(body));
+    const json = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(body.standby).toBe(true);
-    expect(body.runtimes).toEqual([]);
+    expect(res.status).toBe(400);
+    expect(json.error).toBe("workspace_id is required");
     expect(mockUpsertMachine).not.toHaveBeenCalled();
-    expect(mockBroadcastToUser).toHaveBeenCalledWith("u1", expect.objectContaining({
-      type: "runtime.status",
-      status: "online",
-      standby: true,
-    }));
   });
 
   it("uses auth context workspaceId when body workspace_id is missing", async () => {

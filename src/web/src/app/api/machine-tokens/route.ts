@@ -37,11 +37,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeJSON({ token: pending.token, ...machineTokenToResponse(pending) });
   }
 
-  const registered = await queries.machineToken.getRegisteredTokenForUser(db, ctx.userId);
-  if (registered) {
-    return writeJSON({ token: registered.token, ...machineTokenToResponse(registered) });
-  }
-
   let name = "default";
   try {
     const body = (await req.json()) as { name?: string };

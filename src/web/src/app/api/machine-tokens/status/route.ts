@@ -19,25 +19,11 @@ export const GET = withAuth(async (_req, ctx) => {
     ? Date.now() - new Date(token.lastUsedAt).getTime() < DAEMON_ONLINE_THRESHOLD_MS
     : false;
 
-  let runtimes: Array<{ id: string; type: string; version: string; status: string }> | undefined;
-  if (token.runtimesJson && !token.workspaceId) {
-    try {
-      const parsed = JSON.parse(token.runtimesJson) as Array<{ type: string; version?: string }>;
-      runtimes = parsed.map((rt, i) => ({
-        id: `temp_${rt.type}_${i}`,
-        type: rt.type,
-        version: rt.version || "",
-        status: daemonOnline ? "online" : "offline",
-      }));
-    } catch {}
-  }
-
   return writeJSON({
     status: token.status,
     token: token.status === "pending" ? token.token : undefined,
     workspace_id: token.workspaceId || undefined,
     hostname: token.hostname || undefined,
     daemon_online: daemonOnline,
-    runtimes,
   });
 });

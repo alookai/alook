@@ -31,6 +31,7 @@ vi.mock("child_process", () => ({
     if (cmd.includes("claude --version")) return "4.0.0";
     throw new Error("not found");
   }),
+  spawn: vi.fn(() => ({ unref: vi.fn() })),
 }));
 
 import { registerCommand } from "./register";
@@ -74,7 +75,13 @@ describe("alook register", () => {
     }));
   }
 
-  it("stores token as registered entry in watched_workspaces", async () => {
+  const activateResponse = {
+    daemon_id: "host1",
+    workspace_id: "ws_1",
+    runtimes: [{ id: "rt_1", provider: "claude" }],
+  };
+
+  it("activates token and saves workspace to config", async () => {
     mockLoadCLIConfigForProfile.mockReturnValue({
       server_url: "http://localhost:3000",
       watched_workspaces: [],
@@ -83,10 +90,9 @@ describe("alook register", () => {
 
     mockFetch({
       "/api/me": { status: 200, body: { id: "u1", email: "test@test.com" } },
-      "/api/machine-tokens/activate": {
-        status: 200,
-        body: { daemon_id: "host1", token_status: "registered" },
-      },
+      "/api/machine-tokens/activate": { status: 200, body: activateResponse },
+      "/api/workspaces": { status: 200, body: [{ id: "ws_1", name: "Personal" }] },
+      "/api/agents": { status: 200, body: [] },
     });
 
     const cmd = registerCommand();
@@ -97,27 +103,26 @@ describe("alook register", () => {
       expect.objectContaining({
         server_url: "http://localhost:3000",
         watched_workspaces: [
-          { id: null, name: null, token: "al_testtoken123", status: "registered", agent_ids: [] },
+          { id: "ws_1", name: "Personal", token: "al_testtoken123", status: "active", agent_ids: [] },
         ],
       }),
     );
   });
 
-  it("preserves existing watched_workspaces and appends registered entry", async () => {
+  it("preserves existing watched_workspaces and updates matching entry", async () => {
     mockLoadCLIConfigForProfile.mockReturnValue({
       server_url: "http://localhost:3000",
       watched_workspaces: [
-        { id: "sp_existing", name: "Existing", token: "al_old", status: "active", agent_ids: ["ag_1"] },
+        { id: "ws_1", name: "Existing", token: "al_old", status: "active", agent_ids: ["ag_1"] },
       ],
     });
     mockReadDaemonPid.mockReturnValue(null);
 
     mockFetch({
       "/api/me": { status: 200, body: { id: "u1", email: "test@test.com" } },
-      "/api/machine-tokens/activate": {
-        status: 200,
-        body: { daemon_id: "host1", token_status: "registered" },
-      },
+      "/api/machine-tokens/activate": { status: 200, body: activateResponse },
+      "/api/workspaces": { status: 200, body: [{ id: "ws_1", name: "Personal" }] },
+      "/api/agents": { status: 200, body: [{ id: "ag_1" }] },
     });
 
     const cmd = registerCommand();
@@ -127,8 +132,7 @@ describe("alook register", () => {
       undefined,
       expect.objectContaining({
         watched_workspaces: [
-          { id: "sp_existing", name: "Existing", token: "al_old", status: "active", agent_ids: ["ag_1"] },
-          { id: null, name: null, token: "al_newtoken", status: "registered", agent_ids: [] },
+          { id: "ws_1", name: "Personal", token: "al_newtoken", status: "active", agent_ids: ["ag_1"] },
         ],
       }),
     );
@@ -144,10 +148,9 @@ describe("alook register", () => {
 
     mockFetch({
       "/api/me": { status: 200, body: { id: "u1", email: "test@test.com" } },
-      "/api/machine-tokens/activate": {
-        status: 200,
-        body: { daemon_id: "host1", token_status: "registered" },
-      },
+      "/api/machine-tokens/activate": { status: 200, body: activateResponse },
+      "/api/workspaces": { status: 200, body: [{ id: "ws_1", name: "Personal" }] },
+      "/api/agents": { status: 200, body: [] },
     });
 
     const cmd = registerCommand();
@@ -157,7 +160,7 @@ describe("alook register", () => {
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Daemon (pid 12345) notified"));
   });
 
-  it("does not send SIGHUP when daemon is not running", async () => {
+  it("auto-starts daemon when not running", async () => {
     mockLoadCLIConfigForProfile.mockReturnValue({
       server_url: "http://localhost:3000",
       watched_workspaces: [],
@@ -166,16 +169,15 @@ describe("alook register", () => {
 
     mockFetch({
       "/api/me": { status: 200, body: { id: "u1", email: "test@test.com" } },
-      "/api/machine-tokens/activate": {
-        status: 200,
-        body: { daemon_id: "host1", token_status: "registered" },
-      },
+      "/api/machine-tokens/activate": { status: 200, body: activateResponse },
+      "/api/workspaces": { status: 200, body: [{ id: "ws_1", name: "Personal" }] },
+      "/api/agents": { status: 200, body: [] },
     });
 
     const cmd = registerCommand();
     await cmd.parseAsync(["node", "register", "--token", "al_test", "--server", "http://localhost:3000"]);
 
     expect(mockKill).not.toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("daemon start"));
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining("Starting daemon"));
   });
 });

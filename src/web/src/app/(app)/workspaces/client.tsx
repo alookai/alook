@@ -1,13 +1,15 @@
 "use client"
 
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
-import { Plus, ArrowRight, LogOut } from "lucide-react"
+import { Plus, ArrowRight, LogOut, Loader2 } from "lucide-react"
 import { signOut } from "@/lib/auth-client"
 import { clearAllCache } from "@/lib/chat-cache"
+import { toast } from "sonner"
 
 interface WorkspaceItem {
   id: string
@@ -17,12 +19,31 @@ interface WorkspaceItem {
 
 export function WorkspaceListClient({
   workspaces,
-  emptyWorkspaceId,
 }: {
   workspaces: WorkspaceItem[]
-  emptyWorkspaceId?: string | null
 }) {
   const router = useRouter()
+  const [creating, setCreating] = useState(false)
+
+  const handleNewWorkspace = async () => {
+    setCreating(true)
+    try {
+      const res = await fetch("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Personal", slug: "" }),
+      })
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string }
+        throw new Error(err.error || "Failed to create workspace")
+      }
+      const data = (await res.json()) as { id: string; slug: string }
+      router.push(`/studio/new?workspace_id=${data.id}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to create workspace")
+      setCreating(false)
+    }
+  }
 
   return (
     <div className="relative flex min-h-dvh flex-col items-center justify-center p-6">
@@ -71,10 +92,14 @@ export function WorkspaceListClient({
         <Button
           variant="outline"
           className="w-full"
-          onClick={() => router.push(emptyWorkspaceId ? `/studio/new?workspace_id=${emptyWorkspaceId}` : "/studio/new")}
+          onClick={handleNewWorkspace}
+          disabled={creating}
         >
-          <Plus className="size-4" />
-          New workspace
+          {creating ? (
+            <><Loader2 className="size-4 animate-spin" /> Creating...</>
+          ) : (
+            <><Plus className="size-4" /> New workspace</>
+          )}
         </Button>
       </div>
     </div>

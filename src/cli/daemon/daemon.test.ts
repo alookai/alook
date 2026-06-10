@@ -1118,7 +1118,7 @@ describe("daemon startup failures release pidfile", () => {
     for (const t of intervalTimers) realClearInterval(t);
   });
 
-  it("starts in standby mode when no workspaces are configured", async () => {
+  it("exits when no workspaces are configured", async () => {
     vi.mocked(loadCLIConfigForProfile).mockReturnValue({
       server_url: "",
       watched_workspaces: [],
@@ -1126,7 +1126,7 @@ describe("daemon startup failures release pidfile", () => {
 
     await startDaemon();
 
-    expect(mockProcessExit).not.toHaveBeenCalled();
+    expect(mockProcessExit).toHaveBeenCalledWith(1);
   });
 
   it("registers an exit handler that releases the pidfile", async () => {
@@ -2502,7 +2502,7 @@ describe("daemon SIGHUP reload", () => {
     for (const t of intervalTimers) realClearInterval(t);
   });
 
-  it("starts in standby mode when no workspaces configured (no exit)", async () => {
+  it("exits when no workspaces are configured", async () => {
     vi.mocked(loadCLIConfigForProfile).mockReturnValue({
       server_url: "",
       watched_workspaces: [],
@@ -2510,21 +2510,22 @@ describe("daemon SIGHUP reload", () => {
 
     await startDaemon();
 
-    expect(mockProcessExit).not.toHaveBeenCalled();
+    expect(mockProcessExit).toHaveBeenCalledWith(1);
   });
 
-  it("after SIGHUP, WS client is created when workspaceStates goes from 0 to 1+", async () => {
-    // Start with no workspaces
+  it("after SIGHUP, new workspace is registered", async () => {
     let configCallCount = 0;
     vi.mocked(loadCLIConfigForProfile).mockImplementation(() => {
       configCallCount++;
       if (configCallCount === 1) {
-        return { server_url: "", watched_workspaces: [] };
+        return { server_url: "", watched_workspaces: [{ id: "ws1", name: "WS1", token: "al_tok1" }] };
       }
-      // After SIGHUP, config has a workspace
       return {
         server_url: "",
-        watched_workspaces: [{ id: "ws1", name: "New WS", token: "al_new_token" }],
+        watched_workspaces: [
+          { id: "ws1", name: "WS1", token: "al_tok1" },
+          { id: "ws2", name: "WS2", token: "al_tok2" },
+        ],
       };
     });
 
@@ -2532,62 +2533,15 @@ describe("daemon SIGHUP reload", () => {
     mockClientInstance.poll.mockResolvedValue({ tasks: [], evicted: false });
 
     await startDaemon();
-
-    // Daemon started in standby — no WS client initially
-    expect(capturedWsOnMessage).toBeNull();
     expect(mockProcessExit).not.toHaveBeenCalled();
 
-    // Trigger SIGHUP
     const sighupHandler = signalHandlers.get("SIGHUP");
     expect(sighupHandler).toBeDefined();
     await sighupHandler!();
 
-    // After SIGHUP, the workspace should have been registered
     expect(mockClientInstance.register).toHaveBeenCalledWith(
-      "al_new_token",
-      expect.objectContaining({ workspace_id: "ws1" }),
+      "al_tok2",
+      expect.objectContaining({ workspace_id: "ws2" }),
     );
-
-    // WS client should now be initialized (capturedWsOnMessage set by MockDaemonWsClient constructor)
-    expect(capturedWsOnMessage).not.toBeNull();
-  });
-
-  it("hadWorkspaces flag prevents shutdown when all evicted if daemon started empty", async () => {
-    // Start with no workspaces — hadWorkspaces is initially false
-    let configCallCount = 0;
-    vi.mocked(loadCLIConfigForProfile).mockImplementation(() => {
-      configCallCount++;
-      if (configCallCount === 1) {
-        return { server_url: "", watched_workspaces: [] };
-      }
-      return {
-        server_url: "",
-        watched_workspaces: [{ id: "ws1", name: "New WS", token: "al_new_token" }],
-      };
-    });
-
-    mockClientInstance.register.mockResolvedValue({ runtimes: [{ id: "rt1" }] });
-
-    // First poll returns nothing, subsequent polls will evict ws1
-    let pollCall = 0;
-    mockClientInstance.poll.mockImplementation((async () => {
-      pollCall++;
-      if (pollCall <= 1) return { tasks: [], evicted: false };
-      return { tasks: [], evicted: true };
-    }) as any);
-
-    await startDaemon();
-    expect(mockProcessExit).not.toHaveBeenCalled();
-
-    // Trigger SIGHUP to add a workspace — this sets hadWorkspaces = true
-    const sighupHandler = signalHandlers.get("SIGHUP");
-    await sighupHandler!();
-
-    expect(mockClientInstance.register).toHaveBeenCalled();
-
-    // After SIGHUP added workspace, hadWorkspaces is true.
-    // If all workspaces get evicted now, daemon should shut down
-    // (because hadWorkspaces is true — it started empty but got workspaces via SIGHUP)
-    // This verifies the hadWorkspaces = true assignment in the SIGHUP handler
   });
 });

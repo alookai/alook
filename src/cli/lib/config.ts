@@ -6,7 +6,7 @@ interface WatchedWorkspace {
   id: string | null;
   name: string | null;
   token: string;
-  status?: "registered" | "active" | "deleted";
+  status?: "active" | "deleted";
   agent_ids?: string[];
 }
 
@@ -54,15 +54,9 @@ export function loadCLIConfigForProfile(profile?: string): ProfileConfig {
     watched_workspaces: cfg.watched_workspaces || [],
   };
 
-  // Migration: move legacy machine_token into watched_workspaces as a registered item
-  const legacy = (cfg as Record<string, unknown>).machine_token as string | undefined;
-  if (legacy && !result.watched_workspaces.some((w) => w.token === legacy)) {
-    result.watched_workspaces.push({ id: null, name: null, token: legacy, status: "registered", agent_ids: [] });
-  }
-
   // Default status for old entries without it
   for (const ws of result.watched_workspaces) {
-    if (!ws.status) ws.status = ws.id ? "active" : "registered";
+    if (!ws.status) ws.status = ws.id ? "active" : "deleted";
   }
 
   return result;
