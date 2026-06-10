@@ -318,6 +318,9 @@ static DAEMON_STARTED_BY_US: AtomicBool = AtomicBool::new(false);
 static UPDATE_AVAILABLE_VERSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 #[cfg(desktop)]
+static UPDATE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+#[cfg(desktop)]
 pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::{
         image::Image,
@@ -408,9 +411,19 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 async fn do_install_update(handle: &AppHandle) {
     use tauri_plugin_updater::UpdaterExt;
 
+    if UPDATE_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        let _ = handle.notification()
+            .builder()
+            .title("Alook")
+            .body("Update already in progress...")
+            .show();
+        return;
+    }
+
     let updater = match handle.updater() {
         Ok(u) => u,
         Err(e) => {
+            UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
             let _ = handle.notification()
                 .builder()
                 .title("Alook")
@@ -431,6 +444,7 @@ async fn do_install_update(handle: &AppHandle) {
             match update.download_and_install(|_, _| {}, || {}).await {
                 Ok(_) => handle.restart(),
                 Err(e) => {
+                    UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
                     let _ = handle.notification()
                         .builder()
                         .title("Alook")
@@ -440,6 +454,7 @@ async fn do_install_update(handle: &AppHandle) {
             }
         }
         Ok(None) => {
+            UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
             let _ = handle.notification()
                 .builder()
                 .title("Alook")
@@ -447,6 +462,7 @@ async fn do_install_update(handle: &AppHandle) {
                 .show();
         }
         Err(e) => {
+            UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
             let _ = handle.notification()
                 .builder()
                 .title("Alook")
@@ -474,7 +490,7 @@ pub fn auto_check_updates(handle: AppHandle) {
             });
 
             if let Some(version) = found {
-                let mut guard = UPDATE_AVAILABLE_VERSION.lock().unwrap();
+                let mut guard = UPDATE_AVAILABLE_VERSION.lock().unwrap_or_else(|e| e.into_inner());
                 let already_notified = guard.as_deref() == Some(&*version);
                 if !already_notified {
                     *guard = Some(version.clone());
