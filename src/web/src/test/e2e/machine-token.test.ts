@@ -83,11 +83,11 @@ describe("machine tokens", () => {
 })
 
 describe("machine token activation (decoupled — no workspace creation)", () => {
-  it("activation sets token to registered status and stores hostname/runtimes", async () => {
+  it("activation sets token to active status and creates machine/runtime rows", async () => {
     const tokenId = `mt_${randomUUID().replace(/-/g, "").slice(0, 21)}`
     const rawToken = `al_${randomUUID().replace(/-/g, "")}`
     const now = new Date().toISOString()
-    sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?)`, tokenId, seed.userId, rawToken, 'activate-test', 'pending', now)
+    sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, tokenId, seed.userId, seed.workspaceId, rawToken, 'activate-test', 'pending', now)
 
     const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
     const res = await fetchWithRetry(`${APP_URL}/api/machine-tokens/activate`, {
@@ -100,21 +100,18 @@ describe("machine token activation (decoupled — no workspace creation)", () =>
       }),
     })
     expect(res.status).toBe(200)
-    const data = await res.json() as { daemon_id: string; token_status: string }
+    const data = await res.json() as { daemon_id: string; workspace_id: string; runtimes: Array<{ id: string }> }
 
-    expect(data.token_status).toBe("registered")
     expect(data.daemon_id).toBe("e2e-activate-machine")
+    expect(data.workspace_id).toBe(seed.workspaceId)
+    expect(data.runtimes.length).toBeGreaterThan(0)
 
     // Verify DB state
-    const rows = sqlQuery<{ status: string; hostname: string; runtimes_json: string }>(
-      `SELECT status, hostname, runtimes_json FROM machine_token WHERE id = ?`, tokenId,
+    const rows = sqlQuery<{ status: string; hostname: string }>(
+      `SELECT status, hostname FROM machine_token WHERE id = ?`, tokenId,
     )
-    expect(rows[0]!.status).toBe("registered")
+    expect(rows[0]!.status).toBe("active")
     expect(rows[0]!.hostname).toBe("e2e-activate-machine")
-    expect(JSON.parse(rows[0]!.runtimes_json)).toEqual([{ type: "claude", version: "4.0" }])
-
-    // No workspace should be created
-    expect(data).not.toHaveProperty("workspace_id")
   })
 
   it("activation rejects already-used token with 409", async () => {
