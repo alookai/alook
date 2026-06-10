@@ -47,6 +47,7 @@ export function StudioOnboardingClient({
   const [runtimes, setRuntimes] = useState<Runtime[]>([]);
   const runtimesRef = useRef(runtimes);
   useEffect(() => { runtimesRef.current = runtimes; }, [runtimes]);
+  const wsSendRef = useRef<(msg: object) => void>(() => {});
   const [loadingRuntimes, setLoadingRuntimes] = useState(!!initialWorkspaceId);
   const [scenarioId, setScenarioId] = useState<ScenarioId | null>(
     initialTemplate ? initialTemplate.baseScenario : null,
@@ -59,6 +60,7 @@ export function StudioOnboardingClient({
   const [checkingName, setCheckingName] = useState(false);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
 
   // Connect machine state
   const [generatedToken, setGeneratedToken] = useState("");
@@ -136,10 +138,9 @@ export function StudioOnboardingClient({
                 updated_at: "",
               })));
             }
-          } else if (data.status === "pending") {
+          } else if (data.status === "pending" && data.token) {
             try {
-              const { token } = await createMachineToken("cli");
-              await doDesktopRegister(token);
+              await doDesktopRegister(data.token);
             } catch {
               toast.error("Failed to auto-register CLI — please check that Claude or Codex is installed");
             }
@@ -182,6 +183,7 @@ export function StudioOnboardingClient({
 
   // WebSocket for runtime registration events
   const handleWsMessage = useCallback((msg: WsMessage) => {
+    if (creatingRef.current) return;
     const currentWsId = workspaceIdRef.current;
     if (msg.type === "machine.registered") {
       setMachineRegistered(true);
@@ -205,10 +207,11 @@ export function StudioOnboardingClient({
           if (data.daemon_online) setDaemonOnline(true);
         }).catch(() => {});
       }
+      wsSendRef.current({ type: "check_daemon_status" });
     } else if (msg.type === "runtime.registered") {
       setMachineRegistered(true);
       const eventWsId = msg.workspaceId;
-      if (eventWsId && !currentWsId) {
+      if (eventWsId && !currentWsId && !isNewWorkspace) {
         setWorkspaceId(eventWsId);
         listRuntimes(eventWsId).then(setRuntimes).catch(() => {});
       } else if (currentWsId) {
@@ -216,38 +219,42 @@ export function StudioOnboardingClient({
       }
     } else if (msg.type === "runtime.status" && msg.status === "online") {
       setDaemonOnline(true);
+      const wsId = workspaceIdRef.current;
       if (runtimesRef.current.length === 0) {
-        getMachineTokenStatus().then(data => {
-          if (data.runtimes?.length) {
-            setRuntimes(data.runtimes.map(rt => ({
-              id: rt.id,
-              workspace_id: "",
-              daemon_id: data.hostname || null,
-              runtime_mode: "local",
-              provider: rt.type,
-              status: "online" as const,
-              device_info: data.hostname || "",
-              metadata: { version: rt.version },
-              last_seen_at: null,
-              created_at: "",
-              updated_at: "",
-            })));
-          }
-        }).catch(() => {});
+        if (wsId) {
+          listRuntimes(wsId).then(setRuntimes).catch(() => {});
+        } else {
+          getMachineTokenStatus().then(data => {
+            if (data.runtimes?.length) {
+              setRuntimes(data.runtimes.map(rt => ({
+                id: rt.id,
+                workspace_id: "",
+                daemon_id: data.hostname || null,
+                runtime_mode: "local",
+                provider: rt.type,
+                status: "online" as const,
+                device_info: data.hostname || "",
+                metadata: { version: rt.version },
+                last_seen_at: null,
+                created_at: "",
+                updated_at: "",
+              })));
+            }
+          }).catch(() => {});
+        }
+      } else if (wsId) {
+        listRuntimes(wsId).then(setRuntimes).catch(() => {});
       } else {
         setRuntimes(prev => prev.map(r => ({ ...r, status: "online" })));
-      }
-      const wsId = workspaceIdRef.current;
-      if (wsId) {
-        listRuntimes(wsId).then(setRuntimes).catch(() => {});
       }
     } else if (msg.type === "runtime.status" && msg.status === "offline") {
       setDaemonOnline(false);
       setRuntimes(prev => prev.map(r => ({ ...r, status: "offline" })));
     }
-  }, []);
+  }, [isNewWorkspace]);
 
-  useUserWs(handleWsMessage);
+  const { send: wsSend } = useUserWs(handleWsMessage);
+  useEffect(() => { wsSendRef.current = wsSend; }, [wsSend]);
 
   // Auto-assign first available runtime when runtimes load/change
   useEffect(() => {
@@ -392,6 +399,7 @@ export function StudioOnboardingClient({
 
   const handleCreate = async () => {
     setCreating(true);
+    creatingRef.current = true;
     try {
       let resolvedWorkspaceId = workspaceId;
 
@@ -430,6 +438,7 @@ export function StudioOnboardingClient({
 
       if (!resolvedWorkspaceId) {
         toast.error("Please connect a computer first");
+        creatingRef.current = false;
         setCreating(false);
         return;
       }
@@ -460,6 +469,7 @@ export function StudioOnboardingClient({
         }
         if (resolvedMembers.some((m) => !m.runtimeId || m.runtimeId.startsWith("temp_"))) {
           toast.error("Waiting for runtime — please ensure the daemon is running");
+          creatingRef.current = false;
           setCreating(false);
           return;
         }
@@ -510,6 +520,7 @@ export function StudioOnboardingClient({
       router.push(`/w/${data.workspace.slug}/agents/${data.leader_agent_id}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to create company");
+      creatingRef.current = false;
       setCreating(false);
     }
   };
@@ -524,7 +535,7 @@ export function StudioOnboardingClient({
     members.length > 0 &&
     (isTauriDesktop || isNewWorkspace || members.every((m) => m.runtimeId)) &&
     nameValid &&
-    (hasOnlineRuntime || (machineRegistered && daemonOnline && runtimes.length > 0) || isTauriDesktop);
+    (hasOnlineRuntime || (machineRegistered && daemonOnline && runtimes.length > 0) || (isTauriDesktop && runtimes.length > 0));
 
   // Page 1: Scenario selection
   if (!scenarioId) {

@@ -99,6 +99,7 @@ export async function getLatestTokenForUser(db: Database, userId: string) {
   const rows = await db
     .select({
       id: machineToken.id,
+      token: machineToken.token,
       status: machineToken.status,
       workspaceId: machineToken.workspaceId,
       hostname: machineToken.hostname,

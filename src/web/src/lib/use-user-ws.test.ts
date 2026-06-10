@@ -231,6 +231,34 @@ describe("useUserWs", () => {
     expect(mockFetch.mock.calls.length).toBe(callsAfterCleanup)
   })
 
+  it("send() delivers message when WS is open", async () => {
+    setupTokenFetch()
+
+    const onMsg = vi.fn()
+    const mod = await import("./use-user-ws")
+    const { send } = mod.useUserWs(onMsg)
+    await vi.runAllTimersAsync()
+
+    const ws = MockWebSocket.instances[0]
+    ws.simulateOpen()
+
+    send({ type: "check_daemon_status" })
+    expect(ws.sent).toContain(JSON.stringify({ type: "check_daemon_status" }))
+  })
+
+  it("send() is a no-op when WS is not connected", async () => {
+    mockFetch.mockRejectedValue(new Error("network error"))
+
+    const onMsg = vi.fn()
+    const mod = await import("./use-user-ws")
+    const { send } = mod.useUserWs(onMsg)
+    await vi.advanceTimersByTimeAsync(100)
+
+    // No WS created, send should not throw
+    expect(() => send({ type: "test" })).not.toThrow()
+    expect(MockWebSocket.instances.length).toBe(0)
+  })
+
   it("effect cleanup clears pending reconnect timer", async () => {
     setupTokenFetch()
 
