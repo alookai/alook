@@ -23,13 +23,9 @@ import { SiGithub, SiGoogle } from "@icons-pack/react-simple-icons"
 import Image from "next/image"
 import { GradientBackground } from "@/components/gradient-background"
 import { Logo } from "@/components/logo"
-import { resolveMode, DEV_PASSWORD } from "@alook/shared"
+import { DEV_PASSWORD } from "@alook/shared"
 
-const mode = resolveMode({
-  nodeEnv: process.env.NODE_ENV,
-  hostname: typeof window !== "undefined" ? window.location.hostname : undefined,
-})
-const isProd = mode !== "dev" && mode !== "app"
+const isProd = process.env.NODE_ENV === "production"
 
 const DEFAULT_POST_LOGIN = "/workspaces?auto"
 
