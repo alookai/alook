@@ -60,6 +60,7 @@ export function StudioOnboardingClient({
   const [checkingName, setCheckingName] = useState(false);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [creating, setCreating] = useState(false);
+  const creatingRef = useRef(false);
 
   // Connect machine state
   const [generatedToken, setGeneratedToken] = useState("");
@@ -183,6 +184,7 @@ export function StudioOnboardingClient({
 
   // WebSocket for runtime registration events
   const handleWsMessage = useCallback((msg: WsMessage) => {
+    if (creatingRef.current) return;
     const currentWsId = workspaceIdRef.current;
     if (msg.type === "machine.registered") {
       setMachineRegistered(true);
@@ -395,6 +397,7 @@ export function StudioOnboardingClient({
 
   const handleCreate = async () => {
     setCreating(true);
+    creatingRef.current = true;
     try {
       let resolvedWorkspaceId = workspaceId;
 
@@ -433,6 +436,7 @@ export function StudioOnboardingClient({
 
       if (!resolvedWorkspaceId) {
         toast.error("Please connect a computer first");
+        creatingRef.current = false;
         setCreating(false);
         return;
       }
@@ -463,6 +467,7 @@ export function StudioOnboardingClient({
         }
         if (resolvedMembers.some((m) => !m.runtimeId || m.runtimeId.startsWith("temp_"))) {
           toast.error("Waiting for runtime — please ensure the daemon is running");
+          creatingRef.current = false;
           setCreating(false);
           return;
         }
@@ -513,6 +518,7 @@ export function StudioOnboardingClient({
       router.push(`/w/${data.workspace.slug}/agents/${data.leader_agent_id}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to create company");
+      creatingRef.current = false;
       setCreating(false);
     }
   };
