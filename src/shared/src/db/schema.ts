@@ -313,6 +313,7 @@ export const conversation = sqliteTable(
       .on(t.workspaceId, t.agentId, t.userId, t.type, t.channel, t.createdAt),
     index("idx_conversation_ws_user").on(t.workspaceId, t.userId, t.createdAt),
     index("idx_conversation_thread").on(t.parentMessageId),
+    unique("uq_conversation_parent_message").on(t.parentMessageId, t.workspaceId),
     foreignKey({
       columns: [t.agentId, t.workspaceId],
       foreignColumns: [agent.id, agent.workspaceId],

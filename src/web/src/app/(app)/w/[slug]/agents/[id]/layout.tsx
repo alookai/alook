@@ -257,7 +257,7 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
                         }
                       >
                         <GitBranch className="size-3.5" />
-                        Threads
+                        Traces
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => setEditing(true)}>

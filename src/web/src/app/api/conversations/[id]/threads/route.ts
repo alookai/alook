@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { queries, TASK_TYPES, truncateTitle, CreateThreadRequestSchema } from "@alook/shared";
+import { queries, TASK_TYPES, truncateTitle, CreateThreadRequestSchema, isUniqueConstraintError } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { nanoid } from "nanoid";
 import { withAuth } from "@/lib/middleware/auth";
@@ -82,18 +82,28 @@ export const POST = withAuth(async (req, ctx) => {
     }
   }
 
-  // Create new thread conversation
+  // Create new thread conversation (catch unique-violation from concurrent requests)
   const threadTitle = truncateTitle(rootMessage.content).slice(0, 80);
-  const threadConv = await queries.conversation.createConversation(db, {
-    workspaceId: ws.workspaceId,
-    agentId: parentConv.agentId,
-    userId: ctx.userId,
-    title: "",
-    type: TASK_TYPES.USER_DM_MESSAGE,
-    channel: parentConv.channel ?? "default",
-    parentMessageId: body.parent_message_id,
-    threadTitle,
-  });
+  let threadConv;
+  try {
+    threadConv = await queries.conversation.createConversation(db, {
+      workspaceId: ws.workspaceId,
+      agentId: parentConv.agentId,
+      userId: ctx.userId,
+      title: "",
+      type: TASK_TYPES.USER_DM_MESSAGE,
+      channel: parentConv.channel ?? "default",
+      parentMessageId: body.parent_message_id,
+      threadTitle,
+    });
+  } catch (err) {
+    if (!isUniqueConstraintError(err)) throw err;
+    const raced = await queries.conversation.getThreadByParentMessage(
+      db, body.parent_message_id, ws.workspaceId
+    );
+    if (!raced) throw err;
+    threadConv = raced;
+  }
 
   broadcastToUser(ctx.userId, {
     type: "thread.created",
