@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
-import { seedTestData, cleanupTestData, type TestSeed, signUp, signIn, sessionRequest, tokenRequest, sqlRun } from "@alook/test-utils"
+import { seedTestData, cleanupTestData, type TestSeed, signUp, signIn, sessionRequest, tokenRequest, sqlRun, sqlQuery } from "@alook/test-utils"
 
 let seed: TestSeed
 
@@ -110,5 +110,31 @@ describe("workspace invite flow", () => {
       { method: "DELETE" },
     )
     expect(res.status).toBe(404)
+  })
+
+  it("invited member creating studio does NOT overwrite workspace slug", async () => {
+    const originalSlug = sqlQuery<{ slug: string }>(
+      `SELECT slug FROM workspace WHERE id = ?`,
+      seed.workspaceId,
+    )[0].slug
+
+    const res = await sessionRequest(`/api/studios`, inviteeCookie, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Workspace-ID": seed.workspaceId,
+      },
+      body: JSON.stringify({
+        name: "Hijacked Studio Name",
+        members: [{ name: "Rogue", role: "leader", runtime_id: seed.runtimeId }],
+      }),
+    })
+    expect(res.status).toBe(201)
+
+    const currentSlug = sqlQuery<{ slug: string }>(
+      `SELECT slug FROM workspace WHERE id = ?`,
+      seed.workspaceId,
+    )[0].slug
+    expect(currentSlug).toBe(originalSlug)
   })
 })

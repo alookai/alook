@@ -24,7 +24,7 @@ export default async function WorkspacesPage({
   // Auto-redirect to single workspace only on post-login flow
   const params = await searchParams
   if (workspaces.length === 1 && params.auto !== undefined) {
-    const agents = await queries.agent.listAgents(db, workspaces[0].id, session.user.id)
+    const agents = await queries.agent.listAgents(db, workspaces[0].id)
     if (agents.length === 0) {
       redirect(`/studio/new?workspace_id=${workspaces[0].id}`)
     }
@@ -34,7 +34,7 @@ export default async function WorkspacesPage({
   // Find most recent workspace with 0 agents to reuse for "New workspace"
   let emptyWorkspaceId: string | null = null
   for (const ws of workspaces) {
-    const agents = await queries.agent.listAgents(db, ws.id, session.user.id)
+    const agents = await queries.agent.listAgents(db, ws.id)
     if (agents.length === 0) {
       emptyWorkspaceId = ws.id
       break

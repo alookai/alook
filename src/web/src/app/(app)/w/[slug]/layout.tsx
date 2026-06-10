@@ -35,7 +35,7 @@ export default async function WorkspaceLayout({
   )
   if (!membership) redirect("/workspaces")
 
-  const agents = await queries.agent.listAgents(db, ws.id, session.user.id)
+  const agents = await queries.agent.listAgents(db, ws.id)
   if (agents.length === 0) {
     const hdrs = await headers()
     const cookieHeader = hdrs.get("cookie") || ""

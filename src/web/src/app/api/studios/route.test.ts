@@ -83,8 +83,9 @@ vi.mock("@/lib/middleware/auth", () => ({
   }),
 }));
 
+const mockWithWorkspaceMember = vi.fn(async () => ({ workspaceId: "w1", memberRole: "owner" }));
 vi.mock("@/lib/middleware/workspace", () => ({
-  withWorkspaceMember: vi.fn(async () => ({ workspaceId: "w1", memberRole: "owner" })),
+  withWorkspaceMember: (...args: unknown[]) => mockWithWorkspaceMember(...args),
 }));
 
 vi.mock("@/lib/api/responses", () => ({
@@ -331,6 +332,27 @@ describe("POST /api/studios", () => {
     expect(mockCreateAgent).toHaveBeenCalledTimes(1);
     const agentData = mockCreateAgent.mock.calls[0][1];
     expect(agentData.avatarUrl).toBe("custom-avatar");
+  });
+
+  it("non-owner member cannot update workspace slug", async () => {
+    mockWithWorkspaceMember.mockResolvedValueOnce({ workspaceId: "w1", memberRole: "member" });
+    mockListAgents
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { id: "agent-1", name: "Solo", emailHandle: "solo" },
+      ]);
+
+    const req = new NextRequest("http://localhost/api/studios", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Hijacked Name",
+        members: [{ name: "Solo", role: "leader", runtime_id: "rt1" }],
+      }),
+    });
+
+    const res = await POST(req, {});
+    expect(res.status).toBe(201);
+    expect(mockUpdateWorkspace).not.toHaveBeenCalled();
   });
 
   it("creates agents with auto-generated names when name is omitted", async () => {
