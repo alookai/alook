@@ -37,9 +37,9 @@ describe("GET /api/machine-tokens/status", () => {
     expect(body.status).toBeNull();
   });
 
-  it("returns pending status", async () => {
+  it("returns pending status with token", async () => {
     mockGetLatestTokenForUser.mockResolvedValue({
-      id: "mt_1", status: "pending", workspaceId: null, hostname: null,
+      id: "mt_1", token: "al_pending123", status: "pending", workspaceId: null, hostname: null,
     });
 
     const req = new NextRequest("http://localhost/api/machine-tokens/status");
@@ -48,8 +48,23 @@ describe("GET /api/machine-tokens/status", () => {
 
     expect(res.status).toBe(200);
     expect(body.status).toBe("pending");
+    expect(body.token).toBe("al_pending123");
     expect(body.workspace_id).toBeUndefined();
     expect(body.hostname).toBeUndefined();
+  });
+
+  it("does NOT return token when status is not pending", async () => {
+    mockGetLatestTokenForUser.mockResolvedValue({
+      id: "mt_1", token: "al_secret", status: "registered", workspaceId: null, hostname: "MacBook.local",
+    });
+
+    const req = new NextRequest("http://localhost/api/machine-tokens/status");
+    const res = await GET(req);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.status).toBe("registered");
+    expect(body.token).toBeUndefined();
   });
 
   it("returns registered status with hostname", async () => {

@@ -34,6 +34,7 @@ export const GET = withAuth(async (_req, ctx) => {
 
   return writeJSON({
     status: token.status,
+    token: token.status === "pending" ? token.token : undefined,
     workspace_id: token.workspaceId || undefined,
     hostname: token.hostname || undefined,
     daemon_online: daemonOnline,

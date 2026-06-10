@@ -138,10 +138,9 @@ export function StudioOnboardingClient({
                 updated_at: "",
               })));
             }
-          } else if (data.status === "pending") {
+          } else if (data.status === "pending" && data.token) {
             try {
-              const { token } = await createMachineToken("cli");
-              await doDesktopRegister(token);
+              await doDesktopRegister(data.token);
             } catch {
               toast.error("Failed to auto-register CLI — please check that Claude or Codex is installed");
             }
