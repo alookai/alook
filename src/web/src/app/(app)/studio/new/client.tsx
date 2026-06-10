@@ -211,7 +211,7 @@ export function StudioOnboardingClient({
     } else if (msg.type === "runtime.registered") {
       setMachineRegistered(true);
       const eventWsId = msg.workspaceId;
-      if (eventWsId && !currentWsId) {
+      if (eventWsId && !currentWsId && !isNewWorkspace) {
         setWorkspaceId(eventWsId);
         listRuntimes(eventWsId).then(setRuntimes).catch(() => {});
       } else if (currentWsId) {
@@ -219,36 +219,39 @@ export function StudioOnboardingClient({
       }
     } else if (msg.type === "runtime.status" && msg.status === "online") {
       setDaemonOnline(true);
+      const wsId = workspaceIdRef.current;
       if (runtimesRef.current.length === 0) {
-        getMachineTokenStatus().then(data => {
-          if (data.runtimes?.length) {
-            setRuntimes(data.runtimes.map(rt => ({
-              id: rt.id,
-              workspace_id: "",
-              daemon_id: data.hostname || null,
-              runtime_mode: "local",
-              provider: rt.type,
-              status: "online" as const,
-              device_info: data.hostname || "",
-              metadata: { version: rt.version },
-              last_seen_at: null,
-              created_at: "",
-              updated_at: "",
-            })));
-          }
-        }).catch(() => {});
+        if (wsId) {
+          listRuntimes(wsId).then(setRuntimes).catch(() => {});
+        } else {
+          getMachineTokenStatus().then(data => {
+            if (data.runtimes?.length) {
+              setRuntimes(data.runtimes.map(rt => ({
+                id: rt.id,
+                workspace_id: "",
+                daemon_id: data.hostname || null,
+                runtime_mode: "local",
+                provider: rt.type,
+                status: "online" as const,
+                device_info: data.hostname || "",
+                metadata: { version: rt.version },
+                last_seen_at: null,
+                created_at: "",
+                updated_at: "",
+              })));
+            }
+          }).catch(() => {});
+        }
+      } else if (wsId) {
+        listRuntimes(wsId).then(setRuntimes).catch(() => {});
       } else {
         setRuntimes(prev => prev.map(r => ({ ...r, status: "online" })));
-      }
-      const wsId = workspaceIdRef.current;
-      if (wsId) {
-        listRuntimes(wsId).then(setRuntimes).catch(() => {});
       }
     } else if (msg.type === "runtime.status" && msg.status === "offline") {
       setDaemonOnline(false);
       setRuntimes(prev => prev.map(r => ({ ...r, status: "offline" })));
     }
-  }, []);
+  }, [isNewWorkspace]);
 
   const { send: wsSend } = useUserWs(handleWsMessage);
   useEffect(() => { wsSendRef.current = wsSend; }, [wsSend]);
@@ -532,7 +535,7 @@ export function StudioOnboardingClient({
     members.length > 0 &&
     (isTauriDesktop || isNewWorkspace || members.every((m) => m.runtimeId)) &&
     nameValid &&
-    (hasOnlineRuntime || (machineRegistered && daemonOnline && runtimes.length > 0) || isTauriDesktop);
+    (hasOnlineRuntime || (machineRegistered && daemonOnline && runtimes.length > 0) || (isTauriDesktop && runtimes.length > 0));
 
   // Page 1: Scenario selection
   if (!scenarioId) {
