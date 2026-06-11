@@ -59,11 +59,18 @@ pub fn run() {
             commands::auto_start_daemon(app.handle().clone());
             commands::auto_check_updates(app.handle().clone());
 
-            // Auto-close splash after 5s safety timeout
-            let handle = app.handle().clone();
+            // Minimum splash display time (1s) to prevent flash
+            let h1 = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+                commands::mark_splash_min_elapsed(&h1);
+            });
+
+            // Safety timeout: force-close splash after 5s even if frontend never signals
+            let h2 = app.handle().clone();
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(5));
-                commands::do_close_splashscreen(&handle);
+                commands::do_close_splashscreen(&h2);
             });
 
             // macOS: inset the webview with rounded corners, window bg as frame

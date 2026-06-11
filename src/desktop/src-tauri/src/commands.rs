@@ -135,23 +135,70 @@ fn to_command_result(output: CliOutput) -> CommandResult {
 static SPLASH_CLOSED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(desktop)]
+static SPLASH_READY: AtomicBool = AtomicBool::new(false);
+
+#[cfg(desktop)]
+static SPLASH_MIN_ELAPSED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(desktop)]
 pub fn do_close_splashscreen(handle: &AppHandle) {
     if SPLASH_CLOSED.swap(true, Ordering::SeqCst) {
         return;
-    }
-    if let Some(splash) = handle.get_webview_window("splash") {
-        let _ = splash.close();
     }
     if let Some(main) = handle.get_webview_window("main") {
         let _ = main.show();
         let _ = main.set_focus();
     }
+    let h = handle.clone();
+    std::thread::spawn(move || {
+        fade_out_and_close_splash(&h);
+    });
+}
+
+#[cfg(desktop)]
+fn fade_out_and_close_splash(handle: &AppHandle) {
+    let Some(splash) = handle.get_webview_window("splash") else { return };
+
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::runtime::AnyObject;
+        use objc2::msg_send;
+        unsafe {
+            let ns_window = splash.ns_window().unwrap() as *mut AnyObject;
+            for i in (0..=5).rev() {
+                let alpha = i as f64 / 5.0;
+                let _: () = msg_send![ns_window, setAlphaValue: alpha];
+                std::thread::sleep(std::time::Duration::from_millis(40));
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
+    let _ = splash.close();
+}
+
+#[cfg(desktop)]
+fn try_close_splashscreen(handle: &AppHandle) {
+    if SPLASH_READY.load(Ordering::SeqCst) && SPLASH_MIN_ELAPSED.load(Ordering::SeqCst) {
+        do_close_splashscreen(handle);
+    }
+}
+
+#[cfg(desktop)]
+pub fn mark_splash_min_elapsed(handle: &AppHandle) {
+    SPLASH_MIN_ELAPSED.store(true, Ordering::SeqCst);
+    try_close_splashscreen(handle);
 }
 
 #[cfg(desktop)]
 #[tauri::command]
 pub fn close_splashscreen(app: AppHandle) {
-    do_close_splashscreen(&app);
+    SPLASH_READY.store(true, Ordering::SeqCst);
+    try_close_splashscreen(&app);
 }
 
 // --- CLI commands ---
@@ -499,11 +546,11 @@ async fn do_install_update(handle: &AppHandle) {
     use tauri::Emitter;
 
     if UPDATE_IN_PROGRESS.swap(true, Ordering::SeqCst) {
-        let _ = handle.notification()
-            .builder()
+        handle.dialog()
+            .message("An update is already in progress.")
             .title("Alook")
-            .body("Update already in progress...")
-            .show();
+            .buttons(MessageDialogButtons::OkCustom("OK".into()))
+            .show(|_| {});
         return;
     }
 
@@ -511,11 +558,11 @@ async fn do_install_update(handle: &AppHandle) {
         Ok(u) => u,
         Err(e) => {
             UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
-            let _ = handle.notification()
-                .builder()
-                .title("Alook")
-                .body(&format!("Update check failed: {}", e))
-                .show();
+            handle.dialog()
+                .message(&format!("Could not check for updates: {}", e))
+                .title("Update Check Failed")
+                .buttons(MessageDialogButtons::OkCustom("OK".into()))
+                .show(|_| {});
             return;
         }
     };
@@ -585,29 +632,29 @@ async fn do_install_update(handle: &AppHandle) {
                 }
                 Err(e) => {
                     UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
-                    let _ = handle.notification()
-                        .builder()
-                        .title("Alook")
-                        .body(&format!("Update failed: {}", e))
-                        .show();
+                    handle.dialog()
+                        .message(&format!("Download failed: {}", e))
+                        .title("Update Failed")
+                        .buttons(MessageDialogButtons::OkCustom("OK".into()))
+                        .show(|_| {});
                 }
             }
         }
         Ok(None) => {
             UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
-            let _ = handle.notification()
-                .builder()
-                .title("Alook")
-                .body("You're on the latest version.")
-                .show();
+            handle.dialog()
+                .message("You're on the latest version.")
+                .title("No Updates Available")
+                .buttons(MessageDialogButtons::OkCustom("OK".into()))
+                .show(|_| {});
         }
         Err(e) => {
             UPDATE_IN_PROGRESS.store(false, Ordering::SeqCst);
-            let _ = handle.notification()
-                .builder()
-                .title("Alook")
-                .body(&format!("Update check failed: {}", e))
-                .show();
+            handle.dialog()
+                .message(&format!("Could not check for updates: {}", e))
+                .title("Update Check Failed")
+                .buttons(MessageDialogButtons::OkCustom("OK".into()))
+                .show(|_| {});
         }
     }
 }
