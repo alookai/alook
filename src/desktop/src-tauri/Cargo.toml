@@ -15,7 +15,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
@@ -27,6 +27,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-dialog = "2"
+base64 = "0.22"
 
 [target."cfg(target_os = \"macos\")".dependencies]
 objc2 = "0.6"

@@ -141,6 +141,48 @@ static SPLASH_READY: AtomicBool = AtomicBool::new(false);
 static SPLASH_MIN_ELAPSED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(desktop)]
+pub fn splash_html() -> String {
+    use base64::Engine;
+    let icon_bytes = include_bytes!("../icons/icon.png");
+    let icon_b64 = base64::engine::general_purpose::STANDARD.encode(icon_bytes);
+    format!(
+        concat!(
+            "<html><head><meta charset=\"utf-8\"><style>",
+            "*{{margin:0;padding:0;box-sizing:border-box}}",
+            "html,body{{width:100%;height:100%;overflow:hidden;background:transparent;",
+            "display:flex;align-items:center;justify-content:center;",
+            "-webkit-user-select:none;user-select:none}}",
+            ".logo{{width:96px;height:96px;border-radius:22px;opacity:0;",
+            "animation:fi .4s ease-out .1s forwards;",
+            "box-shadow:0 8px 32px rgba(0,0,0,0.18)}}",
+            "@keyframes fi{{from{{opacity:0;transform:scale(.88)}}to{{opacity:1;transform:scale(1)}}}}",
+            "</style></head><body>",
+            "<img class=\"logo\" src=\"data:image/png;base64,{}\" draggable=\"false\">",
+            "</body></html>",
+        ),
+        icon_b64
+    )
+}
+
+#[cfg(desktop)]
+pub fn create_splash_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+    WebviewWindowBuilder::new(app, "splash", WebviewUrl::CustomProtocol("splash://index".parse()?))
+        .title("Alook")
+        .inner_size(200.0, 200.0)
+        .center()
+        .decorations(false)
+        .resizable(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .build()?;
+
+    Ok(())
+}
+
+#[cfg(desktop)]
 pub fn do_close_splashscreen(handle: &AppHandle) {
     if SPLASH_CLOSED.swap(true, Ordering::SeqCst) {
         return;

@@ -32,6 +32,18 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_notification::init());
 
+    // Register splash:// protocol to serve inline HTML for the splash window
+    #[cfg(desktop)]
+    {
+        builder = builder.register_uri_scheme_protocol("splash", |_ctx, _req| {
+            let html = commands::splash_html();
+            tauri::http::Response::builder()
+                .header("content-type", "text/html; charset=utf-8")
+                .body(html.into_bytes())
+                .unwrap()
+        });
+    }
+
     // Register IPC commands (desktop only)
     #[cfg(desktop)]
     {
@@ -58,6 +70,9 @@ pub fn run() {
             commands::setup_tray(app)?;
             commands::auto_start_daemon(app.handle().clone());
             commands::auto_check_updates(app.handle().clone());
+
+            // Create splash window with inline HTML (frontendDist is remote, so url won't work)
+            commands::create_splash_window(app)?;
 
             // Minimum splash display time (1s) to prevent flash
             let h1 = app.handle().clone();

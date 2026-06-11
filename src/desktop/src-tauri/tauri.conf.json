@@ -23,6 +23,7 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
@@ -39,18 +40,6 @@
           "x": 16,
           "y": 21
         }
-      },
-      {
-        "label": "splash",
-        "title": "Alook",
-        "url": "splash.html",
-        "width": 280,
-        "height": 280,
-        "center": true,
-        "decorations": false,
-        "resizable": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true
       }
     ],
     "security": {
