@@ -175,6 +175,7 @@ pub fn create_splash_window(app: &tauri::App) -> Result<(), Box<dyn std::error::
         .decorations(false)
         .resizable(false)
         .transparent(true)
+        .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .build()?;
