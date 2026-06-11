@@ -81,13 +81,6 @@ pub fn run() {
                 commands::mark_splash_min_elapsed(&h1);
             });
 
-            // Safety timeout: force-close splash after 5s even if frontend never signals
-            let h2 = app.handle().clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(5));
-                commands::do_close_splashscreen(&h2);
-            });
-
             // macOS: inset the webview with rounded corners, window bg as frame
             #[cfg(target_os = "macos")]
             {
@@ -115,10 +108,11 @@ pub fn run() {
 
     #[cfg(desktop)]
     {
-        let handle = app.handle().clone();
-        app.run(move |_app, event| {
-            if let tauri::RunEvent::Exit = event {
-                commands::stop_daemon_blocking(&handle);
+        app.run(|app_handle, event| {
+            // code == None means user-initiated (Cmd+Q), Some(_) means programmatic exit(0)
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = event {
+                api.prevent_exit();
+                commands::quit_with_daemon_prompt(app_handle);
             }
         });
     }

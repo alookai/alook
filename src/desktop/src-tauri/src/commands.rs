@@ -135,7 +135,10 @@ fn to_command_result(output: CliOutput) -> CommandResult {
 static SPLASH_CLOSED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(desktop)]
-static SPLASH_READY: AtomicBool = AtomicBool::new(false);
+static SPLASH_DAEMON_READY: AtomicBool = AtomicBool::new(false);
+
+#[cfg(desktop)]
+static SPLASH_FRONTEND_READY: AtomicBool = AtomicBool::new(false);
 
 #[cfg(desktop)]
 static SPLASH_MIN_ELAPSED: AtomicBool = AtomicBool::new(false);
@@ -184,7 +187,7 @@ pub fn create_splash_window(app: &tauri::App) -> Result<(), Box<dyn std::error::
 }
 
 #[cfg(desktop)]
-pub fn do_close_splashscreen(handle: &AppHandle) {
+fn do_close_splashscreen(handle: &AppHandle) {
     if SPLASH_CLOSED.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -226,7 +229,10 @@ fn fade_out_and_close_splash(handle: &AppHandle) {
 
 #[cfg(desktop)]
 fn try_close_splashscreen(handle: &AppHandle) {
-    if SPLASH_READY.load(Ordering::SeqCst) && SPLASH_MIN_ELAPSED.load(Ordering::SeqCst) {
+    let daemon = SPLASH_DAEMON_READY.load(Ordering::SeqCst);
+    let frontend = SPLASH_FRONTEND_READY.load(Ordering::SeqCst);
+    let min = SPLASH_MIN_ELAPSED.load(Ordering::SeqCst);
+    if daemon && frontend && min {
         do_close_splashscreen(handle);
     }
 }
@@ -238,9 +244,32 @@ pub fn mark_splash_min_elapsed(handle: &AppHandle) {
 }
 
 #[cfg(desktop)]
+pub fn mark_daemon_ready(handle: &AppHandle) {
+    SPLASH_DAEMON_READY.store(true, Ordering::SeqCst);
+    try_close_splashscreen(handle);
+}
+
+#[cfg(desktop)]
+pub fn fatal_exit(handle: &AppHandle, msg: &str) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+    // Close splash if still showing
+    if let Some(splash) = handle.get_webview_window("splash") {
+        let _ = splash.close();
+    }
+    let h = handle.clone();
+    handle.dialog()
+        .message(msg)
+        .title("Alook — Fatal Error")
+        .buttons(MessageDialogButtons::OkCustom("Quit".into()))
+        .show(move |_| {
+            h.exit(1);
+        });
+}
+
+#[cfg(desktop)]
 #[tauri::command]
 pub fn close_splashscreen(app: AppHandle) {
-    SPLASH_READY.store(true, Ordering::SeqCst);
+    SPLASH_FRONTEND_READY.store(true, Ordering::SeqCst);
     try_close_splashscreen(&app);
 }
 
@@ -456,8 +485,54 @@ pub fn is_daemon_online() -> bool {
 #[cfg(desktop)]
 pub static DAEMON_ONLINE: AtomicBool = AtomicBool::new(false);
 
+
 #[cfg(desktop)]
-static DAEMON_STARTED_BY_US: AtomicBool = AtomicBool::new(false);
+static QUIT_BEHAVIOR: std::sync::Mutex<Option<QuitBehavior>> = std::sync::Mutex::new(None);
+
+#[cfg(desktop)]
+#[derive(Clone, Copy, PartialEq)]
+enum QuitBehavior {
+    KeepRunning,
+    StopDaemon,
+}
+
+#[cfg(desktop)]
+fn load_quit_behavior(handle: &AppHandle) -> Option<QuitBehavior> {
+    let path = handle.path().app_config_dir().ok()?.join("quit-behavior.json");
+    let content = std::fs::read_to_string(path).ok()?;
+    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
+    match val["quit_behavior"].as_str()? {
+        "keep_running" => Some(QuitBehavior::KeepRunning),
+        "stop_daemon" => Some(QuitBehavior::StopDaemon),
+        _ => None,
+    }
+}
+
+#[cfg(desktop)]
+fn save_quit_behavior(handle: &AppHandle, behavior: QuitBehavior) {
+    if let Ok(dir) = handle.path().app_config_dir() {
+        let _ = std::fs::create_dir_all(&dir);
+        let val = match behavior {
+            QuitBehavior::KeepRunning => "keep_running",
+            QuitBehavior::StopDaemon => "stop_daemon",
+        };
+        let json = format!(r#"{{"quit_behavior":"{}"}}"#, val);
+        let _ = std::fs::write(dir.join("quit-behavior.json"), json);
+    }
+    *QUIT_BEHAVIOR.lock().unwrap_or_else(|e| e.into_inner()) = Some(behavior);
+}
+
+#[cfg(desktop)]
+fn get_quit_behavior(handle: &AppHandle) -> Option<QuitBehavior> {
+    let guard = QUIT_BEHAVIOR.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.is_some() {
+        return *guard;
+    }
+    drop(guard);
+    let loaded = load_quit_behavior(handle);
+    *QUIT_BEHAVIOR.lock().unwrap_or_else(|e| e.into_inner()) = loaded;
+    loaded
+}
 
 #[cfg(desktop)]
 static UPDATE_AVAILABLE_VERSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -475,9 +550,15 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         tray::TrayIconBuilder,
     };
 
+    use tauri::menu::CheckMenuItemBuilder;
+
     let show = MenuItemBuilder::with_id("show", "Show").build(app)?;
     let version = MenuItemBuilder::with_id("version", format!("Version {}", app.package_info().version)).enabled(false).build(app)?;
     let update_item = MenuItemBuilder::with_id("update", "Check for Updates").build(app)?;
+    let stop_on_quit_checked = get_quit_behavior(app.handle()) == Some(QuitBehavior::StopDaemon);
+    let stop_on_quit = CheckMenuItemBuilder::with_id("stop_on_quit", "Stop daemon on quit")
+        .checked(stop_on_quit_checked)
+        .build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
 
     let menu = MenuBuilder::new(app)
@@ -485,6 +566,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .separator()
         .item(&version)
         .item(&update_item)
+        .item(&stop_on_quit)
         .separator()
         .item(&quit)
         .build()?;
@@ -510,6 +592,11 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     do_install_update(&handle).await;
                 });
             }
+            "stop_on_quit" => {
+                let current = get_quit_behavior(app) == Some(QuitBehavior::StopDaemon);
+                let new_behavior = if current { QuitBehavior::KeepRunning } else { QuitBehavior::StopDaemon };
+                save_quit_behavior(app, new_behavior);
+            }
             "quit" => {
                 let handle = app.clone();
                 quit_with_daemon_prompt(&handle);
@@ -531,12 +618,57 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let handle = app.handle().clone();
     std::thread::spawn(move || {
+        let mut restart_attempts: u32 = 0;
         loop {
             std::thread::sleep(std::time::Duration::from_secs(15));
             let h = handle.clone();
             let online = tauri::async_runtime::block_on(check_daemon_online(&h));
             DAEMON_ONLINE.store(online, Ordering::Relaxed);
-            let icon_bytes: &[u8] = if online {
+
+            if !online {
+                // Try to restart daemon
+                let h2 = handle.clone();
+                let started = tauri::async_runtime::block_on(async {
+                    match run_cli(&h2, &["daemon", "start"]).await {
+                        Ok(output) if output.success => true,
+                        Ok(output) => {
+                            if restart_attempts == 0 {
+                                let msg = if output.stderr.trim().is_empty() {
+                                    "Daemon stopped unexpectedly. Failed to restart.".to_string()
+                                } else {
+                                    format!("Daemon stopped unexpectedly: {}", output.stderr.trim())
+                                };
+                                let _ = h2.notification()
+                                    .builder()
+                                    .title("Alook")
+                                    .body(&msg)
+                                    .show();
+                            }
+                            false
+                        }
+                        Err(e) => {
+                            if restart_attempts == 0 {
+                                let _ = h2.notification()
+                                    .builder()
+                                    .title("Alook")
+                                    .body(&format!("Could not restart daemon: {}", e))
+                                    .show();
+                            }
+                            false
+                        }
+                    }
+                });
+                if started {
+                    restart_attempts = 0;
+                    DAEMON_ONLINE.store(true, Ordering::Relaxed);
+                } else {
+                    restart_attempts += 1;
+                }
+            } else {
+                restart_attempts = 0;
+            }
+
+            let icon_bytes: &[u8] = if DAEMON_ONLINE.load(Ordering::Relaxed) {
                 include_bytes!("../icons/tray-online.png")
             } else {
                 include_bytes!("../icons/tray-offline.png")
@@ -554,25 +686,32 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 // --- Quit with daemon prompt ---
 
 #[cfg(desktop)]
-fn quit_with_daemon_prompt(handle: &AppHandle) {
+pub fn quit_with_daemon_prompt(handle: &AppHandle) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
-    if !DAEMON_STARTED_BY_US.load(Ordering::Relaxed) {
+    if !DAEMON_ONLINE.load(Ordering::Relaxed) {
         handle.exit(0);
         return;
     }
 
+    let will_stop = get_quit_behavior(handle) == Some(QuitBehavior::StopDaemon);
+    let msg = if will_stop {
+        "The daemon will be stopped after quitting.\n\nYou can change this in the tray menu → \"Stop daemon on quit\"."
+    } else {
+        "The daemon will keep running in the background.\n\nYou can change this in the tray menu → \"Stop daemon on quit\"."
+    };
+
     let h = handle.clone();
     handle.dialog()
-        .message("The Alook daemon is running in the background.\n\nWould you like to keep it running after quitting?")
+        .message(msg)
         .title("Quit Alook")
-        .buttons(MessageDialogButtons::OkCancelCustom("Keep Running".into(), "Stop & Quit".into()))
-        .show(move |keep_running| {
-            if !keep_running {
-                let h2 = h.clone();
+        .buttons(MessageDialogButtons::OkCancelCustom("Quit".into(), "Cancel".into()))
+        .show(move |confirmed| {
+            if !confirmed { return; }
+            if will_stop {
                 tauri::async_runtime::spawn(async move {
-                    let _ = run_cli(&h2, &["daemon", "stop"]).await;
-                    h2.exit(0);
+                    let _ = run_cli(&h, &["daemon", "stop"]).await;
+                    h.exit(0);
                 });
             } else {
                 h.exit(0);
@@ -751,44 +890,31 @@ async fn check_daemon_online(handle: &AppHandle) -> bool {
 pub fn auto_start_daemon(handle: AppHandle) {
     tauri::async_runtime::spawn(async move {
         if check_daemon_online(&handle).await {
+            DAEMON_ONLINE.store(true, Ordering::Relaxed);
+            mark_daemon_ready(&handle);
             return;
         }
 
         match run_cli(&handle, &["daemon", "start"]).await {
             Ok(output) if output.success => {
-                DAEMON_STARTED_BY_US.store(true, Ordering::Relaxed);
+                DAEMON_ONLINE.store(true, Ordering::Relaxed);
+                mark_daemon_ready(&handle);
             }
             Ok(output) => {
                 let msg = if output.stderr.trim().is_empty() {
-                    "Failed to start daemon. Please start it manually with: npx @alook/cli daemon start".to_string()
+                    "Failed to start daemon.".to_string()
                 } else {
                     format!("Failed to start daemon: {}", output.stderr.trim())
                 };
-                let _ = handle.notification()
-                    .builder()
-                    .title("Alook")
-                    .body(&msg)
-                    .show();
+                fatal_exit(&handle, &msg);
             }
             Err(e) => {
-                let _ = handle.notification()
-                    .builder()
-                    .title("Alook")
-                    .body(&format!("Could not find CLI to start daemon: {}", e))
-                    .show();
+                fatal_exit(&handle, &format!("Could not find CLI: {}", e));
             }
         }
     });
 }
 
-#[cfg(desktop)]
-pub fn stop_daemon_blocking(handle: &AppHandle) {
-    if DAEMON_STARTED_BY_US.load(Ordering::Relaxed) {
-        tauri::async_runtime::block_on(async {
-            let _ = run_cli(handle, &["daemon", "stop"]).await;
-        });
-    }
-}
 
 pub fn parse_daemon_status(stdout: &str) -> DaemonStatusResult {
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(stdout) {
