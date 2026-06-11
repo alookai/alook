@@ -16,6 +16,7 @@
     "autostart:allow-is-enabled",
     "core:tray:default",
     "core:window:allow-start-dragging",
-    "updater:default"
+    "updater:default",
+    "dialog:default"
   ]
 }

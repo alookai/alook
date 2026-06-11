@@ -17,7 +17,8 @@ pub fn run() {
                 None,
             ))
             .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-            .plugin(tauri_plugin_updater::Builder::new().build());
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_dialog::init());
     }
 
     // Mobile-only plugins
@@ -46,6 +47,7 @@ pub fn run() {
             commands::install_update,
             commands::set_window_theme,
             commands::is_daemon_online,
+            commands::close_splashscreen,
         ]);
     }
 
@@ -57,12 +59,18 @@ pub fn run() {
             commands::auto_start_daemon(app.handle().clone());
             commands::auto_check_updates(app.handle().clone());
 
+            // Auto-close splash after 5s safety timeout
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                commands::do_close_splashscreen(&handle);
+            });
+
             // macOS: inset the webview with rounded corners, window bg as frame
             #[cfg(target_os = "macos")]
             {
                 use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
-                    // Set default light background (Web will call set_window_theme to sync)
                     commands::set_window_theme(window.clone(), false);
                     macos_window::setup_inset_webview(&window);
                 }

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #ede8de;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    html, body { background: #23211e; }
+  }
+  .logo {
+    width: 64px;
+    height: 64px;
+    opacity: 0;
+    animation: fade-in 0.4s ease-out 0.1s forwards;
+  }
+  @keyframes fade-in {
+    from { opacity: 0; transform: scale(0.92); }
+    to { opacity: 1; transform: scale(1); }
+  }
+</style>
+</head>
+<body>
+  <img class="logo" src="icons/icon.png" alt="Alook" draggable="false">
+</body>
+</html>

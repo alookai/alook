@@ -32,12 +32,25 @@
         "minWidth": 800,
         "minHeight": 600,
         "center": true,
+        "visible": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": {
           "x": 16,
           "y": 21
         }
+      },
+      {
+        "label": "splash",
+        "title": "Alook",
+        "url": "splash.html",
+        "width": 280,
+        "height": 280,
+        "center": true,
+        "decorations": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true
       }
     ],
     "security": {
