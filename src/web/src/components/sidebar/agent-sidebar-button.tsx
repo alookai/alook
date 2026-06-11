@@ -62,7 +62,7 @@ export function AgentSidebarButton({
                   className={cn(
                     "relative flex shrink-0 items-center justify-center size-10 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer",
                     isActive
-                      ? "ring-2 ring-primary shadow-sm"
+                      ? "ring-2 ring-primary/50 shadow-sm"
                       : "ring-0 bg-secondary text-secondary-foreground hover:bg-accent"
                   )}
                 />

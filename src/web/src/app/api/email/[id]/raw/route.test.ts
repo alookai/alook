@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockGetEmailById = vi.fn();
+const mockGetAgent = vi.fn();
 const mockR2Get = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -23,6 +24,7 @@ vi.mock("@alook/shared", () => ({
     email: {
       getEmailById: (...args: unknown[]) => mockGetEmailById(...args),
     },
+    agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
   },
 }));
 
@@ -52,7 +54,8 @@ describe("GET /api/email/[id]/raw", () => {
 
   it("returns full raw MIME with content-type message/rfc822", async () => {
     const rawMime = "From: test@example.com\r\nSubject: Hello\r\n\r\nBody content";
-    mockGetEmailById.mockResolvedValue({ id: "e1", r2Key: "emails/e1/raw" });
+    mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1", r2Key: "emails/e1/raw" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockR2Get.mockResolvedValue({
       body: new ReadableStream({
         start(c) { c.enqueue(new TextEncoder().encode(rawMime)); c.close(); },
@@ -69,7 +72,8 @@ describe("GET /api/email/[id]/raw", () => {
   });
 
   it("returns 404 when R2 object missing", async () => {
-    mockGetEmailById.mockResolvedValue({ id: "e1", r2Key: "emails/e1/raw" });
+    mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1", r2Key: "emails/e1/raw" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockR2Get.mockResolvedValue(null);
 
     const req = new NextRequest("http://localhost/api/email/e1/raw");

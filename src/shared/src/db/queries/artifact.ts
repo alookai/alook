@@ -14,6 +14,7 @@ export async function createArtifact(
     contentType: string;
     size: number;
     r2Key: string;
+    thumbnailR2Key?: string;
     source?: string;
   }
 ) {
@@ -62,6 +63,7 @@ export function artifactToResponse(row: typeof artifact.$inferSelect): Artifact 
     content_type: row.contentType,
     size: row.size,
     source: row.source,
+    has_thumbnail: row.thumbnailR2Key != null,
     created_at: row.createdAt,
   };
 }

@@ -1,4 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
@@ -18,6 +19,16 @@ export const POST = withAuth(async (req, ctx) => {
   const id = ctx.params?.id;
   if (!id) {
     return writeError("task id is required", 400);
+  }
+
+  const task = await queries.task.getTask(db, id, ws.workspaceId);
+  if (!task) {
+    return writeError("not found", 404);
+  }
+
+  const agent = await queries.agent.getAgent(db, task.agentId, ws.workspaceId, ctx.userId);
+  if (!agent) {
+    return writeError("not found", 404);
   }
 
   const taskService = new TaskService(db);

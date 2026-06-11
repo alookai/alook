@@ -69,6 +69,30 @@ export async function deleteUnreadEntry(
   `);
 }
 
+export async function deleteUnreadByConversation(
+  db: Database,
+  conversationId: string,
+) {
+  await db.run(sql`
+    DELETE FROM inbox_unread
+    WHERE conversation_id = ${conversationId}
+  `);
+}
+
+export async function deleteUnreadByChannel(
+  db: Database,
+  workspaceId: string,
+  channelName: string,
+) {
+  await db.run(sql`
+    DELETE FROM inbox_unread
+    WHERE conversation_id IN (
+      SELECT id FROM conversation
+      WHERE workspace_id = ${workspaceId} AND channel = ${channelName}
+    )
+  `);
+}
+
 export async function deleteAllUnreadEntries(
   db: Database,
   userId: string,

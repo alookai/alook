@@ -31,8 +31,8 @@ export const GET = withAuth(async (req, ctx) => {
   const messageCountParam = url.searchParams.get("message_count");
 
   const conversation = await queries.conversation.getConversation(db, id, ws.workspaceId);
-  if (!conversation) {
-    return writeError("conversation not found", 404);
+  if (!conversation || conversation.userId !== ctx.userId) {
+    return writeError("not found", 404);
   }
 
   const [serverNewest, serverMessageCount] = await Promise.all([
@@ -70,12 +70,6 @@ export const GET = withAuth(async (req, ctx) => {
   let taskMessages: unknown[] = [];
   if (activeTask) {
     try {
-      // Errors-only: the chat no longer renders thinking/tool steps (replies
-      // arrive via `send-dm`). We preload only `type:"error"` rows for the active
-      // task so a live error survives a reload while the run is still active.
-      // (A run that ended in error is settled to status:"failed" by the daemon and
-      // re-surfaces via its persisted assistant error message, not through here.)
-      // Filters type==="error" + scopes by workspace in SQL.
       const tmsgs = await queries.taskMessage.listTaskErrorMessages(
         db,
         activeTask.id,
@@ -85,6 +79,15 @@ export const GET = withAuth(async (req, ctx) => {
     } catch {
       // non-critical
     }
+  }
+
+  // For thread conversations, fetch the root message from parent conversation
+  let rootMessage = null;
+  if (conversation.parentMessageId) {
+    try {
+      const rm = await queries.message.getMessage(db, conversation.parentMessageId);
+      if (rm) rootMessage = messageToResponse(rm);
+    } catch {}
   }
 
   return writeJSON({
@@ -99,5 +102,6 @@ export const GET = withAuth(async (req, ctx) => {
     task_messages: taskMessages,
     cache_valid: cacheValid,
     message_count: serverMessageCount,
+    ...(rootMessage ? { root_message: rootMessage } : {}),
   });
 });

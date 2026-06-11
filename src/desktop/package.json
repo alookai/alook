@@ -1,10 +1,10 @@
 {
   "name": "@alook/desktop",
-  "version": "0.0.122",
+  "version": "0.0.140",
   "private": true,
   "scripts": {
     "dev": "tauri dev",
-    "build": "tauri build",
+    "build": "sh scripts/build.sh",
     "tauri": "tauri",
     "ios": "tauri ios dev",
     "android": "tauri android dev"
@@ -13,6 +13,7 @@
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-autostart": "^2.2.0",
     "@tauri-apps/plugin-deep-link": "^2.2.0",
+    "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-global-shortcut": "^2.2.0",
     "@tauri-apps/plugin-notification": "^2.2.0",
     "@tauri-apps/plugin-shell": "^2.2.0"

@@ -14,13 +14,16 @@ export const GET = withAuth(async (req, ctx) => {
   const { env } = getCloudflareContext();
   const db = getDb((env as Env).DB);
 
-  const tasks = await queries.task.listActiveTasksByWorkspace(db, ws.workspaceId);
   const [allAgents, allAccess] = await Promise.all([
     cached(cacheKeys.allAgents(ws.workspaceId), 300, () => queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId)),
     cached(cacheKeys.allAgentAccess(ws.workspaceId), 300, () => queries.agentAccess.getAllAgentAccessForWorkspace(db, ws.workspaceId)),
   ]);
   const agents = filterVisibleAgents(allAgents, ctx.userId, allAccess);
+  const visibleAgentIds = agents.map((a) => a.id);
   const agentMap = new Map(agents.map((a) => [a.id, { name: a.name, avatarUrl: a.avatarUrl }]));
+
+  if (visibleAgentIds.length === 0) return writeJSON({ tasks: [] });
+  const tasks = await queries.task.listActiveTasksByWorkspace(db, ws.workspaceId, visibleAgentIds);
 
   return writeJSON({
     tasks: tasks.map((t) => ({

@@ -194,7 +194,7 @@ export default function TraceDetailPage() {
     <div className="flex flex-col h-full">
       <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2.5 border-b border-border/30">
         <Link
-          href={`/w/${slug}/threads`}
+          href={`/w/${slug}/traces`}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="size-3.5" />

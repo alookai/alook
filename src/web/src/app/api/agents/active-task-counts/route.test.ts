@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockListActiveTaskCountsByWorkspace = vi.fn();
+const mockGetAllAgentsForWorkspace = vi.fn();
+const mockGetAllAgentAccessForWorkspace = vi.fn();
 
 vi.mock("@/lib/middleware/helpers", () => ({
   writeJSON: (data: any, status = 200) =>
@@ -20,14 +22,26 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }));
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 vi.mock("@/lib/cache", () => ({
-  cached: vi.fn((_key: string, _ttl: number, fn: () => any) => fn()),
-  cacheKeys: { activeTaskCounts: (ws: string) => `atc:${ws}` },
+  cached: vi.fn((_key: any, _ttl: any, fn: any) => fn()),
+  cacheKeys: {
+    activeTaskCounts: (ws: string) => `atc:${ws}`,
+    allAgents: (ws: string) => `agents:${ws}`,
+    allAgentAccess: (ws: string) => `aa:${ws}`,
+  },
 }));
 vi.mock("@alook/shared", () => ({
   queries: {
     task: {
       listActiveTaskCountsByWorkspace: (...args: any[]) =>
         mockListActiveTaskCountsByWorkspace(...args),
+    },
+    agent: {
+      getAllAgentsForWorkspace: (...args: any[]) =>
+        mockGetAllAgentsForWorkspace(...args),
+    },
+    agentAccess: {
+      getAllAgentAccessForWorkspace: (...args: any[]) =>
+        mockGetAllAgentAccessForWorkspace(...args),
     },
   },
 }));
@@ -40,6 +54,9 @@ vi.mock("@/lib/middleware/auth", () => ({
 vi.mock("@/lib/middleware/workspace", () => ({
   withWorkspaceMember: vi.fn(async () => ({ workspaceId: "w1" })),
 }));
+vi.mock("@/lib/agent-visibility", () => ({
+  filterVisibleAgents: vi.fn(() => [{ id: "ag1" }]),
+}));
 
 import { GET } from "./route";
 
@@ -47,9 +64,10 @@ describe("GET /api/agents/active-task-counts", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("returns correct counts per agent", async () => {
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "ag1" }]);
+    mockGetAllAgentAccessForWorkspace.mockResolvedValue([]);
     mockListActiveTaskCountsByWorkspace.mockResolvedValue([
-      { agentId: "a1", count: 3 },
-      { agentId: "a2", count: 1 },
+      { agentId: "ag1", count: 3 },
     ]);
 
     const res = await GET(
@@ -59,11 +77,13 @@ describe("GET /api/agents/active-task-counts", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ counts: { a1: 3, a2: 1 } });
-    expect(mockListActiveTaskCountsByWorkspace).toHaveBeenCalledWith({}, "w1");
+    expect(body).toEqual({ counts: { ag1: 3 } });
+    expect(mockListActiveTaskCountsByWorkspace).toHaveBeenCalledWith({}, "w1", ["ag1"]);
   });
 
   it("returns empty counts when no active tasks", async () => {
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "ag1" }]);
+    mockGetAllAgentAccessForWorkspace.mockResolvedValue([]);
     mockListActiveTaskCountsByWorkspace.mockResolvedValue([]);
 
     const res = await GET(

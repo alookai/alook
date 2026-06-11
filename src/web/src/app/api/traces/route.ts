@@ -31,9 +31,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     cached(cacheKeys.allAgentAccess(ws.workspaceId), 300, () => queries.agentAccess.getAllAgentAccessForWorkspace(db, ws.workspaceId)),
   ]);
   const agents = filterVisibleAgents(allAgents, ctx.userId, allAccess);
+  const visibleIds = new Set(agents.map(a => a.id));
   const agentMap = new Map(agents.map(a => [a.id, { name: a.name, avatarUrl: a.avatarUrl }]));
 
-  const traces = result.traces.map(t => ({
+  const traces = result.traces.filter(t => visibleIds.has(t.rootAgentId)).map(t => ({
     trace_id: t.traceId,
     root_prompt: t.rootPrompt,
     root_agent_id: t.rootAgentId,

@@ -21,8 +21,8 @@ export const GET = withAuth(async (req, ctx) => {
 
   if (conversationId) {
     const conv = await queries.conversation.getConversation(db, conversationId, ws.workspaceId);
-    if (!conv) {
-      return writeError("conversation not found", 404);
+    if (!conv || conv.userId !== ctx.userId) {
+      return writeError("not found", 404);
     }
     convId = conv.id;
   } else if (agentId) {

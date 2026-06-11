@@ -35,11 +35,13 @@ export async function createIssue(
   return rows[0]!;
 }
 
-export async function getIssue(db: Database, id: string, workspaceId: string) {
+export async function getIssue(db: Database, id: string, workspaceId: string, userId?: string) {
+  const conditions = [eq(issue.id, id), eq(issue.workspaceId, workspaceId)];
+  if (userId) conditions.push(eq(issue.creatorUserId, userId));
   const rows = await db
     .select()
     .from(issue)
-    .where(and(eq(issue.id, id), eq(issue.workspaceId, workspaceId)));
+    .where(and(...conditions));
   return rows[0] ?? null;
 }
 
@@ -54,9 +56,9 @@ export async function getIssueByConversation(db: Database, conversationId: strin
 export async function listIssues(
   db: Database,
   workspaceId: string,
-  opts: { agentId?: string; status?: IssueStatusType; terminal?: boolean } = {}
+  opts: { userId: string; agentId?: string; status?: IssueStatusType; terminal?: boolean }
 ) {
-  const conditions = [eq(issue.workspaceId, workspaceId)];
+  const conditions = [eq(issue.workspaceId, workspaceId), eq(issue.creatorUserId, opts.userId)];
   if (opts.agentId) conditions.push(eq(issue.agentId, opts.agentId));
   if (opts.status) conditions.push(eq(issue.status, opts.status));
   if (opts.terminal !== undefined) {

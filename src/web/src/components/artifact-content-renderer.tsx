@@ -41,6 +41,11 @@ export function getArtifactUrl(id: string, workspaceId: string, download?: boole
   return `/api/artifacts/${id}/content?${params}`;
 }
 
+export function getArtifactThumbnailUrl(id: string, workspaceId: string): string {
+  const params = new URLSearchParams({ workspace_id: workspaceId });
+  return `/api/artifacts/${id}/thumbnail?${params}`;
+}
+
 export function computeArtifactVersions(artifacts: Artifact[]): { versionMap: Map<string, number>; duplicateFilenames: Set<string> } {
   const groups = new Map<string, Artifact[]>();
   for (const a of artifacts) {

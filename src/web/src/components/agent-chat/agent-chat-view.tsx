@@ -17,11 +17,15 @@ import {
   updateIssue,
   getAgentSkills,
   cancelActiveTask,
+  getThreadSummaries,
+  createThread,
+  conversationInit,
 } from "@/lib/api";
 import { useLatest } from "@/components/agent-chat/chat-message-utils";
 import type {
   Artifact,
   Issue,
+  Message,
   SkillEntry,
   WsMessage,
 } from "@alook/shared";
@@ -64,6 +68,7 @@ import {
   formatSize,
 } from "@/components/agent-chat/artifact-sheet";
 import { EmailEventSheet } from "@/components/agent-chat/email-event-sheet";
+import { ImageLightbox } from "@/components/agent-chat/image-lightbox";
 import { CalendarEventSheet } from "@/components/calendar/calendar-event-sheet";
 import { IssueSheet } from "@/components/issues/issue-sheet";
 import {
@@ -73,6 +78,7 @@ import {
 } from "@/components/artifact-content-renderer";
 import { ScrollToBottomButton } from "@/components/ui/scroll-to-bottom-button";
 import { MessageItem, AgentRow } from "@/components/agent-chat/message-list";
+import { useAgentChatSheet } from "@/contexts/agent-chat-sheet-context";
 import { PresenceLine } from "@/components/agent-chat/presence-line";
 import { MenuToggleIcon } from "@/components/agent-chat/menu-toggle-icon";
 import { parseAvatarUrl } from "@/components/avatar";
@@ -172,6 +178,7 @@ export function AgentChatView({
     issueConvId,
     issueTaskId,
   } = useChatSheets(workspaceId);
+  const [lightboxArtifact, setLightboxArtifact] = useState<Artifact | null>(null);
   const {
     pendingFiles,
     setPendingFiles,
@@ -205,6 +212,11 @@ export function AgentChatView({
   const [isMultiLine, setIsMultiLine] = useState(false);
   const { flaggedIds, setFlaggedIds, handleToggleFlag } =
     useMessageFlags(workspaceId);
+
+  // Thread state
+  const { openAgentChat } = useAgentChatSheet();
+  const [threadSummaries, setThreadSummaries] = useState<Map<string, { thread_id: string; reply_count: number; last_reply_at: string | null; thread_title: string }>>(new Map());
+  const [threadRootMessage, setThreadRootMessage] = useState<Message | null>(null);
 
   useEffect(() => {
     setChannelAgentId(agentId);
@@ -296,6 +308,47 @@ export function AgentChatView({
     [agentArtifacts],
   );
 
+  // Fetch root message for thread conversations
+  useEffect(() => {
+    if (!conversation?.parent_message_id || !workspaceId) {
+      setThreadRootMessage(null);
+      return;
+    }
+    conversationInit(conversation.id, workspaceId)
+      .then((data) => {
+        if (data.root_message) setThreadRootMessage(data.root_message);
+      })
+      .catch(() => {});
+  }, [conversation?.id, conversation?.parent_message_id, workspaceId]);
+
+  const fetchThreadSummaries = useCallback(() => {
+    if (!conversation?.id || !workspaceId) return;
+    getThreadSummaries(conversation.id, workspaceId)
+      .then((data) => {
+        const map = new Map<string, { thread_id: string; reply_count: number; last_reply_at: string | null; thread_title: string }>();
+        for (const s of data.thread_summaries) {
+          map.set(s.parent_message_id, {
+            thread_id: s.thread_id,
+            reply_count: s.reply_count,
+            last_reply_at: s.last_reply_at,
+            thread_title: s.thread_title,
+          });
+        }
+        setThreadSummaries(map);
+      })
+      .catch(() => {});
+  }, [conversation?.id, workspaceId]);
+
+  useEffect(() => { fetchThreadSummaries(); }, [fetchThreadSummaries]);
+
+  useEffect(() => {
+    return subscribeWs((msg: WsMessage) => {
+      if (msg.type === "thread.created" || msg.type === "thread.reply") {
+        fetchThreadSummaries();
+      }
+    });
+  }, [subscribeWs, fetchThreadSummaries]);
+
   const agentAvatarConfig = useMemo(
     () => parseAvatarUrl(agents.find((a) => a.id === agentId)?.avatar_url ?? null),
     [agents, agentId],
@@ -305,7 +358,9 @@ export function AgentChatView({
 
   const handleArtifactClick = useCallback(
     (artifact: Artifact) => {
-      if (isPreviewable(artifact)) {
+      if (artifact.content_type.startsWith("image/")) {
+        setLightboxArtifact(artifact);
+      } else if (isPreviewable(artifact)) {
         setSelectedArtifact(artifact);
         setArtifactSheetOpen(true);
       } else {
@@ -318,7 +373,9 @@ export function AgentChatView({
 
   const handleIssueArtifactClick = useCallback(
     (artifact: Artifact) => {
-      if (isPreviewable(artifact)) {
+      if (artifact.content_type.startsWith("image/")) {
+        setLightboxArtifact(artifact);
+      } else if (isPreviewable(artifact)) {
         setSelectedArtifact(artifact);
         setArtifactSheetOpen(true);
       } else {
@@ -600,7 +657,6 @@ export function AgentChatView({
             <div className="flex items-center gap-2">
               <Skeleton className="size-8 shrink-0 rounded-full" />
               <Skeleton className="h-10 flex-1 rounded-3xl" />
-              <Skeleton className="size-8 shrink-0 rounded-full" />
             </div>
           </div>
         </div>
@@ -649,6 +705,29 @@ export function AgentChatView({
           }}
         >
           <div className="mx-auto max-w-3xl pt-6 pb-15 min-w-0">
+            {/* Root message for thread conversations — rendered as a normal MessageItem with flagged emphasis + corner icon, no actions */}
+            {threadRootMessage && (
+              <div className="mb-2">
+                <MessageItem
+                  msg={threadRootMessage}
+                  agents={agents}
+                  artifacts={[]}
+                  activeTask={null}
+                  taskMessages={[]}
+                  connectionLost={false}
+                  pendingFilesByMessage={new Map()}
+                  onArtifactClick={() => {}}
+                  onEmailClick={() => {}}
+                  onIssueClick={() => {}}
+                  onCalendarEventClick={() => {}}
+                  mentionComponents={MENTION_COMPONENTS}
+                  groupPosition="solo"
+                  agentName={agentName}
+                  agentAvatarConfig={agentAvatarConfig}
+                  isThreadRoot
+                />
+              </div>
+            )}
             {conversation && canLoadMore && !loadingMore && (
               <div className="flex justify-center py-2">
                 <button
@@ -740,6 +819,7 @@ export function AgentChatView({
                         version={versionMap.get(item.data.id) ?? 1}
                         hasDuplicates={duplicateFilenames.has(item.data.filename)}
                         onClick={handleArtifactClick}
+                        workspaceId={workspaceId}
                       />
                     </AgentRow>
                   </div>
@@ -782,6 +862,20 @@ export function AgentChatView({
                     isSendFailed={failedSends.has(msg.id)}
                     onRetrySend={handleRetrySend}
                     onQuote={handleQuoteMessage}
+                    onReplyInThread={conversation?.parent_message_id ? undefined : async (msgId) => {
+                      const summary = threadSummaries.get(msgId);
+                      if (summary?.thread_id) {
+                        openAgentChat(agentId, { conversationId: summary.thread_id });
+                      } else if (conversation) {
+                        try {
+                          const result = await createThread(conversation.id, msgId, "", workspaceId);
+                          openAgentChat(agentId, { conversationId: result.conversation.id });
+                          fetchThreadSummaries();
+                        } catch {}
+                      }
+                    }}
+                    threadSummary={conversation?.parent_message_id ? null : threadSummaries.get(msg.id) ?? null}
+                    onAgentChatOpen={(agId, convId) => openAgentChat(agId, { conversationId: convId })}
                   />
                 </div>
               );
@@ -976,7 +1070,7 @@ export function AgentChatView({
                 <div className="flex items-center gap-2 px-3.5 pt-2.5 pb-1 border-b border-border/50">
                   <div className="flex-1 min-w-0 flex items-start gap-2">
                     <MessageSquareQuote className="size-3.5 shrink-0 mt-0.5 text-muted-foreground" />
-                    <p className="text-xs text-muted-foreground truncate">
+                    <p className="text-xs text-muted-foreground truncate max-w-50">
                       {quotedMessage.excerpt}
                     </p>
                   </div>
@@ -1120,15 +1214,16 @@ export function AgentChatView({
                 </Tooltip>
               </div>
             </div>
-            {/* Symmetric spacer: balances the leading overflow button so the
-                pill stays horizontally centered under the messages column.
-                Hidden on mobile where the pill fills full width. */}
-            {!targetConvId && (
-              <div className="hidden md:block shrink-0 self-end mb-2.5 size-8" aria-hidden="true" />
-            )}
           </div>
         </div>
       </div>
+
+      <ImageLightbox
+        open={lightboxArtifact != null}
+        onClose={() => setLightboxArtifact(null)}
+        artifact={lightboxArtifact}
+        workspaceId={workspaceId}
+      />
 
       <ArtifactSheet
         open={artifactSheetOpen}

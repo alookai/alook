@@ -69,8 +69,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("workspace not found", 404);
   }
 
-  if (body.name) {
-    const existingAgents = await queries.agent.listAgents(db, ws.workspaceId, ctx.userId);
+  if (body.name && ws.memberRole === "owner") {
+    const existingAgents = await queries.agent.listAgents(db, ws.workspaceId);
     const newSlug = slugify(body.name);
     if (existingAgents.length === 0 && newSlug) {
       let finalSlug = newSlug;

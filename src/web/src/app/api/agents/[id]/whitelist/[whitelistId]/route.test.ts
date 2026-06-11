@@ -5,6 +5,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }));
 
 const mockRemoveWhitelist = vi.fn();
+const mockGetAgent = vi.fn();
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
@@ -14,6 +15,7 @@ vi.mock("@alook/shared", () => ({
     whitelist: {
       removeWhitelist: (...args: unknown[]) => mockRemoveWhitelist(...args),
     },
+    agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
   },
 }));
 
@@ -30,7 +32,10 @@ vi.mock("@/lib/middleware/workspace", () => ({
 
 import { DELETE } from "./route";
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGetAgent.mockResolvedValue({ id: "a1", visibility: "public", ownerId: "u1" });
+});
 
 describe("DELETE /api/agents/[id]/whitelist/[whitelistId]", () => {
   it("removes entry and returns 204", async () => {

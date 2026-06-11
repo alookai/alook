@@ -10,11 +10,15 @@ vi.mock("@opennextjs/cloudflare", () => ({
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
 const mockGetScoped = vi.fn();
+const mockGetAgent = vi.fn();
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   return {
     ...actual,
-    queries: { emailAccount: { getEmailAccountScoped: (...a: unknown[]) => mockGetScoped(...a) } },
+    queries: {
+      emailAccount: { getEmailAccountScoped: (...a: unknown[]) => mockGetScoped(...a) },
+      agent: { getAgent: (...a: unknown[]) => mockGetAgent(...a) },
+    },
   };
 });
 
@@ -30,7 +34,10 @@ vi.mock("@/lib/middleware/workspace", () => ({
 
 import { POST } from "./route";
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGetAgent.mockResolvedValue({ id: "a1", visibility: "public", ownerId: "u1" });
+});
 
 function post(params: Record<string, string>) {
   return POST(

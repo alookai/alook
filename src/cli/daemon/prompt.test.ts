@@ -95,9 +95,9 @@ describe("buildPrompt", () => {
   it("adds EMAIL_NOTICE for email_notification tasks without context", () => {
     const task = makeTask("New email from a@b.com: Hi", "email_notification");
     const parsed = JSON.parse(buildPrompt(task));
-    expect(parsed.notice).toContain("no human in this session");
+    expect(parsed.notice).toContain("triggered by an incoming email");
     expect(parsed.notice).toContain("email sending tool");
-    expect(parsed.notice).toContain("send them an email asking for it and then exit");
+    expect(parsed.notice).toContain("email them and then exit");
     expect(parsed.notice).toContain("new task will be triggered automatically");
   });
 
@@ -107,7 +107,7 @@ describe("buildPrompt", () => {
       context: { conversationType: "email_notification" },
     };
     const parsed = JSON.parse(buildPrompt(task));
-    expect(parsed.notice).toContain("no human in this session");
+    expect(parsed.notice).toContain("Reply to the sender via email");
   });
 
   it("adds DM_NOTICE when conversationType is user_dm_message with dmUser", () => {
@@ -119,7 +119,7 @@ describe("buildPrompt", () => {
     expect(parsed.notice).toContain("Alice");
     expect(parsed.notice).toContain("alice@example.com");
     expect(parsed.notice).toContain("reply to them directly");
-    expect(parsed.notice).not.toContain("no human in this session");
+    expect(parsed.notice).not.toContain("Reply to the sender via email");
   });
 
   it("falls back to EMAIL_NOTICE when conversationType is user_dm_message but dmUser is missing", () => {
@@ -128,7 +128,7 @@ describe("buildPrompt", () => {
       context: { conversationType: "user_dm_message" },
     };
     const parsed = JSON.parse(buildPrompt(task));
-    expect(parsed.notice).toContain("no human in this session");
+    expect(parsed.notice).toContain("Reply to the sender via email");
   });
 
   it("falls back to EMAIL_NOTICE when conversationType is undefined in context", () => {
@@ -137,7 +137,7 @@ describe("buildPrompt", () => {
       context: { someOtherField: "value" },
     };
     const parsed = JSON.parse(buildPrompt(task));
-    expect(parsed.notice).toContain("no human in this session");
+    expect(parsed.notice).toContain("Reply to the sender via email");
   });
 
   it("adds DM_RESPONSE_NOTICE for user_dm_message tasks", () => {
@@ -152,7 +152,7 @@ describe("buildPrompt", () => {
     const task = makeTask("Do the standup", "calendar_event");
     const parsed = JSON.parse(buildPrompt(task));
     expect(parsed.notice).toContain("scheduled calendar event");
-    expect(parsed.notice).toContain("no human in this session");
+    expect(parsed.notice).toContain("send an email");
     expect(parsed.notice).toContain("email sending tool");
     expect(parsed.description).toBeUndefined();
     expect(parsed.scheduled_by).toBeUndefined();

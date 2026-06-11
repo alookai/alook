@@ -110,7 +110,10 @@ describe("POST /api/workspaces", () => {
     expect(body.details).toContainEqual(expect.stringContaining("name"));
   });
 
-  it("returns 400 for missing slug", async () => {
+  it("auto-generates slug when not provided", async () => {
+    mockCreateWorkspace.mockResolvedValue({ id: "sp_1", name: "Test", slug: "auto-slug", onboarded: 0, createdAt: "2025-01-01T00:00:00Z", updatedAt: "2025-01-01T00:00:00Z" });
+    mockCreateMember.mockResolvedValue({});
+
     const req = new NextRequest("http://localhost/api/workspaces", {
       method: "POST",
       body: JSON.stringify({ name: "Test" }),
@@ -118,10 +121,7 @@ describe("POST /api/workspaces", () => {
     });
     const res = await POST(req, {} as any);
 
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe("validation error");
-    expect(body.details).toContainEqual(expect.stringContaining("slug"));
+    expect(res.status).toBe(201);
   });
 
   it("retries with suffixed slug on duplicate and returns 201", async () => {

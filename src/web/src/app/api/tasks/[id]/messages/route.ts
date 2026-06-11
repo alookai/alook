@@ -20,7 +20,12 @@ export const GET = withAuth(async (req, ctx) => {
 
   const task = await queries.task.getTask(db, id, ws.workspaceId);
   if (!task) {
-    return writeError("task not found", 404);
+    return writeError("not found", 404);
+  }
+
+  const agent = await queries.agent.getAgent(db, task.agentId, ws.workspaceId, ctx.userId);
+  if (!agent) {
+    return writeError("not found", 404);
   }
 
   const sinceParam = req.nextUrl.searchParams.get("since");

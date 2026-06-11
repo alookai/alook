@@ -264,6 +264,7 @@ describe("listCalendarEvents — completed one-off exclusion", () => {
     chain.from = vi.fn(() => chain);
     chain.where = vi.fn(() => chain);
     chain.orderBy = vi.fn(() => Promise.resolve(rows));
+    chain.innerJoin = vi.fn(() => chain);
     return chain;
   }
 
@@ -287,6 +288,53 @@ describe("listCalendarEvents — completed one-off exclusion", () => {
     const db = createMockDb([]);
     await calendarQueries.listCalendarEvents(db, "ws_1", { agentId: "ag_1" });
     expect(db.where).toHaveBeenCalledOnce();
+  });
+
+  it("uses innerJoin when userId is provided", async () => {
+    const ce = { id: "ce_1", agentId: "ag_1", workspaceId: "ws_1", title: "T", description: null, scheduledAt: "2026-01-01T09:00:00.000Z", repeatInterval: null, repeatStopAt: null, lastTriggeredAt: null, exceptions: [], createdAt: "2026-01-01", updatedAt: "2026-01-01" };
+    const db = createMockDb([{ calendarEvent: ce }]);
+    const result = await calendarQueries.listCalendarEvents(db, "ws_1", { userId: "u1" });
+    expect(db.innerJoin).toHaveBeenCalledOnce();
+    expect(result).toEqual([ce]);
+  });
+
+  it("does not use innerJoin when userId is not provided", async () => {
+    const db = createMockDb([]);
+    await calendarQueries.listCalendarEvents(db, "ws_1");
+    expect(db.innerJoin).not.toHaveBeenCalled();
+  });
+});
+
+describe("getCalendarEvent — user isolation", () => {
+  function createMockDb(rows: any[]) {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => Promise.resolve(rows));
+    chain.innerJoin = vi.fn(() => chain);
+    return chain;
+  }
+
+  it("returns event without userId (backwards compat)", async () => {
+    const ce = { id: "ce_1" };
+    const db = createMockDb([ce]);
+    const result = await calendarQueries.getCalendarEvent(db, "ce_1", "ws_1");
+    expect(result).toEqual(ce);
+    expect(db.innerJoin).not.toHaveBeenCalled();
+  });
+
+  it("uses innerJoin when userId is provided", async () => {
+    const ce = { id: "ce_1" };
+    const db = createMockDb([{ calendarEvent: ce }]);
+    const result = await calendarQueries.getCalendarEvent(db, "ce_1", "ws_1", "u1");
+    expect(db.innerJoin).toHaveBeenCalledOnce();
+    expect(result).toEqual(ce);
+  });
+
+  it("returns null when userId does not match (empty rows from join)", async () => {
+    const db = createMockDb([]);
+    const result = await calendarQueries.getCalendarEvent(db, "ce_1", "ws_1", "wrong_user");
+    expect(result).toBeNull();
   });
 });
 

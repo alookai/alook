@@ -79,6 +79,3 @@ pub fn setup_inset_webview(window: &WebviewWindow) {
     }
 }
 
-/// No-op — Auto Layout constraints handle resizing synchronously.
-/// Kept as a stub so the on_window_event handler compiles without changes.
-pub fn update_webview_frame(_window: &tauri::Window) {}

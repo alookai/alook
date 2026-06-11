@@ -12,6 +12,7 @@ import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { agentLinkToResponse } from "@/lib/api/responses";
 import { cached, invalidate, cacheKeys } from "@/lib/cache";
+import { filterVisibleAgents } from "@/lib/agent-visibility";
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -24,16 +25,18 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const limit = Math.min(Number(url.searchParams.get("limit")) || 200, 500);
   const offset = Number(url.searchParams.get("offset")) || 0;
 
-  if (offset === 0 && !url.searchParams.has("limit")) {
-    const data = await cached(cacheKeys.agentLinks(ws.workspaceId), 120, async () => {
-      const rows = await queries.agentLink.listByWorkspace(db, ws.workspaceId, { limit, offset });
-      return rows.map(agentLinkToResponse);
-    });
-    return writeJSON(data);
-  }
+  const [allAgents, allAccess] = await Promise.all([
+    cached(cacheKeys.allAgents(ws.workspaceId), 300, () => queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId)),
+    cached(cacheKeys.allAgentAccess(ws.workspaceId), 300, () => queries.agentAccess.getAllAgentAccessForWorkspace(db, ws.workspaceId)),
+  ]);
+  const visibleIds = new Set(filterVisibleAgents(allAgents, ctx.userId, allAccess).map((a) => a.id));
 
   const rows = await queries.agentLink.listByWorkspace(db, ws.workspaceId, { limit, offset });
-  return writeJSON(rows.map(agentLinkToResponse));
+  const filtered = rows
+    .filter((r) => visibleIds.has(r.sourceAgentId) || visibleIds.has(r.targetAgentId))
+    .map(agentLinkToResponse);
+
+  return writeJSON(filtered);
 });
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {

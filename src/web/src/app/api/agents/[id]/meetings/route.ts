@@ -20,6 +20,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const agentId = ctx.params?.id
   if (!agentId) return writeError("agent id is required", 400)
 
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId)
+  if (!agent) return writeError("not found", 404)
+
   const meetings = await queries.meetingSession.listMeetingSessions(
     db,
     agentId,
@@ -40,8 +43,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const agentId = ctx.params?.id
   if (!agentId) return writeError("agent id is required", 400)
 
-  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId)
-  if (!agent) return writeError("agent not found", 404)
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId)
+  if (!agent) return writeError("not found", 404)
 
   let body: {
     meetingUrl?: string

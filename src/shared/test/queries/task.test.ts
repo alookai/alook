@@ -42,8 +42,8 @@ describe("task query module exports", () => {
 });
 
 describe("task query function signatures", () => {
-  it("listActiveTaskCountsByWorkspace accepts (db, workspaceId)", () => {
-    expect(taskQueries.listActiveTaskCountsByWorkspace.length).toBe(2);
+  it("listActiveTaskCountsByWorkspace accepts (db, workspaceId, agentIds?)", () => {
+    expect(taskQueries.listActiveTaskCountsByWorkspace.length).toBe(3);
   });
 
   it("listActiveTasksByAgent accepts (db, agentId, workspaceId)", () => {

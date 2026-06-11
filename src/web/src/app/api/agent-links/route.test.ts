@@ -8,6 +8,9 @@ const mockUpsertByPair = vi.fn();
 const mockGetByPair = vi.fn();
 const mockUpdate = vi.fn();
 const mockInvalidate = vi.fn();
+const mockGetAllAgentsForWorkspace = vi.fn();
+const mockGetAllAgentAccessForWorkspace = vi.fn();
+const mockFilterVisibleAgents = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -20,7 +23,13 @@ vi.mock("@alook/shared", async () => {
   return {
     ...actual,
     queries: {
-      agent: { getAgent: (...a: unknown[]) => mockGetAgent(...a) },
+      agent: {
+        getAgent: (...a: unknown[]) => mockGetAgent(...a),
+        getAllAgentsForWorkspace: (...a: unknown[]) => mockGetAllAgentsForWorkspace(...a),
+      },
+      agentAccess: {
+        getAllAgentAccessForWorkspace: (...a: unknown[]) => mockGetAllAgentAccessForWorkspace(...a),
+      },
       agentLink: {
         listByWorkspace: (...a: unknown[]) => mockListByWorkspace(...a),
         create: (...a: unknown[]) => mockCreate(...a),
@@ -38,7 +47,13 @@ vi.mock("@/lib/cache", () => ({
   cacheKeys: {
     agentLinks: (ws: string) => `agentLinks:${ws}`,
     allColleagues: (ws: string) => `allColleagues:${ws}`,
+    allAgents: (ws: string) => `allAgents:${ws}`,
+    allAgentAccess: (ws: string) => `allAgentAccess:${ws}`,
   },
+}));
+
+vi.mock("@/lib/agent-visibility", () => ({
+  filterVisibleAgents: (...a: unknown[]) => mockFilterVisibleAgents(...a),
 }));
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -70,6 +85,9 @@ describe("GET /api/agent-links", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("lists links scoped to workspace", async () => {
+    mockGetAllAgentsForWorkspace.mockResolvedValue([{ id: "ag_a" }, { id: "ag_b" }]);
+    mockGetAllAgentAccessForWorkspace.mockResolvedValue([]);
+    mockFilterVisibleAgents.mockReturnValue([{ id: "ag_a" }, { id: "ag_b" }]);
     mockListByWorkspace.mockResolvedValue([
       {
         id: "al_1",

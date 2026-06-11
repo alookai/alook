@@ -50,9 +50,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const [body, valErr] = await parseBody(req, RecruitAgentRequestSchema);
   if (valErr) return valErr;
 
-  const callingAgent = await queries.agent.getAgent(db, agentId, ws.workspaceId);
+  const callingAgent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId);
   if (!callingAgent) {
-    return writeError("calling agent not found in workspace", 404);
+    return writeError("not found", 404);
   }
 
   const runtime = callingAgent.runtimeId

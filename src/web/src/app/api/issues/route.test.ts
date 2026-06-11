@@ -79,7 +79,7 @@ describe("GET /api/issues", () => {
     const res = await GET(new NextRequest("http://localhost/api/issues?agentId=ag_1&terminal=false"), {} as any);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([{ id: "iss_1", agent_id: "ag_1", title: "Fix", status: "todo", thread_agent_ids: [] }]);
-    expect(mockListIssues).toHaveBeenCalledWith({}, "w1", { agentId: "ag_1", status: undefined, terminal: false });
+    expect(mockListIssues).toHaveBeenCalledWith({}, "w1", { userId: "u1", agentId: "ag_1", status: undefined, terminal: false });
   });
 
   it("rejects invalid status", async () => {

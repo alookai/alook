@@ -8,6 +8,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
 const mockGet = vi.fn();
 const mockDelete = vi.fn();
+const mockGetAgent = vi.fn();
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   return {
@@ -17,6 +18,7 @@ vi.mock("@alook/shared", async () => {
         getMeetingSession: (...a: unknown[]) => mockGet(...a),
         deleteMeetingSession: (...a: unknown[]) => mockDelete(...a),
       },
+      agent: { getAgent: (...a: unknown[]) => mockGetAgent(...a) },
     },
   };
 });
@@ -33,7 +35,10 @@ vi.mock("@/lib/api/responses", () => ({ meetingToResponse: (m: any) => ({ id: m.
 
 import { GET, DELETE } from "./route";
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGetAgent.mockResolvedValue({ id: "a1", visibility: "public", ownerId: "u1" });
+});
 
 describe("GET /api/agents/[id]/meetings/[meetingId]", () => {
   it("returns a meeting scoped to workspace", async () => {

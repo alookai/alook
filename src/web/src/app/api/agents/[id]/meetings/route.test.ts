@@ -48,6 +48,7 @@ const VALID_URL = "https://meet.google.com/abc-defg-hij";
 
 describe("GET /api/agents/[id]/meetings", () => {
   it("lists meetings scoped to agent + workspace", async () => {
+    mockGetAgent.mockResolvedValue({ id: "a1", visibility: "public", ownerId: "u1" });
     mockList.mockResolvedValue([{ id: "m1", status: "completed" }]);
     const req = new NextRequest("http://localhost/api/agents/a1/meetings");
     const res = await GET(req, { params: { id: "a1" } });

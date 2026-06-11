@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockGetArtifact = vi.fn();
+const mockGetAgent = vi.fn();
 const mockBucketGet = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -21,6 +22,7 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       artifact: { getArtifact: (...a: unknown[]) => mockGetArtifact(...a) },
+      agent: { getAgent: (...a: unknown[]) => mockGetAgent(...a) },
     },
   };
 });
@@ -44,11 +46,13 @@ describe("GET /api/artifacts/[id]/content", () => {
   it("downloads artifact content for machine-token workspace access", async () => {
     mockGetArtifact.mockResolvedValue({
       id: "art_1",
+      agentId: "ag1",
       r2Key: "artifacts/w1/ag1/c1/art_1/brief.md",
       filename: "brief.md",
       contentType: "text/markdown",
       size: 5,
     });
+    mockGetAgent.mockResolvedValue({ id: "ag1" });
     mockBucketGet.mockResolvedValue({ body: new Blob(["hello"]).stream() });
 
     const res = await GET(new NextRequest("http://localhost/api/artifacts/art_1/content?workspace_id=w1"), { params: { id: "art_1" } } as any);
@@ -62,11 +66,13 @@ describe("GET /api/artifacts/[id]/content", () => {
   it("serves non-ASCII filenames with RFC 5987 content disposition", async () => {
     mockGetArtifact.mockResolvedValue({
       id: "art_1",
+      agentId: "ag1",
       r2Key: "artifacts/w1/ag1/c1/art_1/report.pdf",
       filename: "深圳市小汽车增量指标证明文件.pdf",
       contentType: "application/pdf",
       size: 5,
     });
+    mockGetAgent.mockResolvedValue({ id: "ag1" });
     mockBucketGet.mockResolvedValue({ body: new Blob(["hello"]).stream() });
 
     const res = await GET(new NextRequest("http://localhost/api/artifacts/art_1/content?workspace_id=w1&download"), { params: { id: "art_1" } } as any);

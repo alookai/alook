@@ -16,6 +16,7 @@ vi.mock("@alook/shared", async () => {
     ...real,
     queries: {
       agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
+      runtime: { getAgentRuntime: vi.fn() },
       workspaceFileRequest: { createRequest: (...args: unknown[]) => mockCreateRequest(...args) },
     },
   };
@@ -28,15 +29,27 @@ vi.mock("@/lib/middleware/auth", () => ({
   }),
 }));
 
+vi.mock("@/lib/middleware/workspace", () => ({
+  withWorkspaceMember: vi.fn(async () => ({ workspaceId: "w1" })),
+}));
+
 vi.mock("@/lib/middleware/helpers", async () =>
   await vi.importActual<typeof import("@/lib/middleware/helpers")>("@/lib/middleware/helpers")
 );
 
+vi.mock("@/lib/cache", () => ({
+  cacheKeys: { hasPendingFileRequest: (ws: string) => `pfr:${ws}` },
+}));
+
+vi.mock("@/lib/broadcast", () => ({
+  broadcastToDaemon: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { POST } from "./route";
 
-function postReq(agentId: string, body: unknown, workspaceId = "w1") {
+function postReq(agentId: string, body: unknown) {
   return new NextRequest(
-    `http://localhost/api/agents/${agentId}/workspace/browse?workspace_id=${workspaceId}`,
+    `http://localhost/api/agents/${agentId}/workspace/browse`,
     {
       method: "POST",
       body: JSON.stringify(body),
@@ -48,16 +61,6 @@ function postReq(agentId: string, body: unknown, workspaceId = "w1") {
 describe("POST /api/agents/[id]/workspace/browse", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("returns 400 when workspace_id is missing", async () => {
-    const req = new NextRequest("http://localhost/api/agents/a1/workspace/browse", {
-      method: "POST",
-      body: JSON.stringify({ request_type: "tree", path: "." }),
-      headers: { "Content-Type": "application/json" },
-    });
-    const res = await POST(req, { params: Promise.resolve({ id: "a1" }) });
-    expect(res.status).toBe(400);
-  });
-
   it("returns 404 when agent not found", async () => {
     mockGetAgent.mockResolvedValue(null);
 
@@ -65,6 +68,7 @@ describe("POST /api/agents/[id]/workspace/browse", () => {
       params: Promise.resolve({ id: "a1" }),
     });
     expect(res.status).toBe(404);
+    expect(mockGetAgent).toHaveBeenCalledWith({}, "a1", "w1", "u1");
   });
 
   it("creates a file request and returns request_id for tree", async () => {

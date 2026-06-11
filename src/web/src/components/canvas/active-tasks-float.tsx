@@ -147,7 +147,7 @@ export function ActiveTasksFloat() {
         ))}
         {taskCount > 8 && (
           <Link
-            href={`/w/${slug}/threads?status=active`}
+            href={`/w/${slug}/traces?status=active`}
             className="block text-xs text-muted-foreground hover:text-foreground text-center py-1.5 transition-colors"
           >
             View all {taskCount} tasks

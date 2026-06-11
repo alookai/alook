@@ -77,12 +77,6 @@ export const POST = withAuth(async (req, ctx) => {
   let taskMessages: unknown[] = [];
   if (activeTask) {
     try {
-      // Errors-only: the chat no longer renders thinking/tool steps (replies
-      // arrive via `send-dm`). We preload only `type:"error"` rows for the active
-      // task so a live error survives a reload while the run is still active.
-      // (A run that ended in error is settled to status:"failed" by the daemon and
-      // re-surfaces via its persisted assistant error message, not through here.)
-      // Filters type==="error" + scopes by workspace in SQL.
       const tmsgs = await queries.taskMessage.listTaskErrorMessages(
         db,
         activeTask.id,

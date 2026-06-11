@@ -26,7 +26,8 @@ export const GET = withAuth(async (req, ctx) => {
   const event = await queries.calendarEvent.getCalendarEvent(
     db,
     id,
-    ws.workspaceId
+    ws.workspaceId,
+    ctx.userId
   );
   if (!event) return writeError("calendar event not found", 404);
   return writeJSON(calendarEventToResponse(event));
@@ -48,7 +49,8 @@ export const PATCH = withAuth(async (req, ctx) => {
   const source = await queries.calendarEvent.getCalendarEvent(
     db,
     id,
-    ws.workspaceId
+    ws.workspaceId,
+    ctx.userId
   );
   if (!source) return writeError("calendar event not found", 404);
 
@@ -193,7 +195,8 @@ export const DELETE = withAuth(async (req, ctx) => {
   const source = await queries.calendarEvent.getCalendarEvent(
     db,
     id,
-    ws.workspaceId
+    ws.workspaceId,
+    ctx.userId
   );
   if (!source) return writeError("calendar event not found", 404);
 

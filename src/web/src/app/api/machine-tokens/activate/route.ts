@@ -3,6 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, ActivateTokenRequestSchema, createLogger } from "@alook/shared";
 import { getDb } from "@/lib/db"
 import { writeJSON } from "@/lib/middleware/helpers";
+import { runtimeToResponse } from "@/lib/api/responses";
 import { broadcastToUser } from "@/lib/broadcast";
 import { invalidate, cacheKeys } from "@/lib/cache";
 
@@ -34,28 +35,57 @@ export async function POST(req: NextRequest) {
     return writeJSON({ error: "token already used" }, 409);
   }
 
-  await queries.machineToken.registerMachineToken(
-    db,
-    mt.id,
-    hostname,
-    JSON.stringify(runtimes),
-  );
+  const workspaceId = mt.workspaceId;
+  if (!workspaceId) {
+    return writeJSON({ error: "token has no workspace_id — create workspace first" }, 422);
+  }
 
-  await invalidate(cacheKeys.machineToken(token));
+  const daemonId = hostname;
+
+  await queries.machine.upsertMachine(db, {
+    daemonId,
+    workspaceId,
+    deviceInfo: hostname,
+    lastSeenAt: null,
+  });
+
+  const results = [];
+  for (const rt of runtimes) {
+    const result = await queries.runtime.upsertAgentRuntime(db, {
+      workspaceId,
+      daemonId,
+      runtimeMode: "local",
+      provider: rt.type,
+      deviceInfo: hostname,
+      metadata: { version: rt.version || "" },
+    });
+    results.push({ ...result, machineLastSeenAt: null });
+  }
+
+  await queries.machineToken.activateMachineToken(db, mt.id, hostname);
+
+  await Promise.all([
+    invalidate(cacheKeys.machineToken(token)),
+    invalidate(cacheKeys.runtimeIds(workspaceId, daemonId)),
+    invalidate(cacheKeys.allRuntimes(workspaceId)),
+  ]);
 
   broadcastToUser(mt.userId, {
-    type: "machine.registered",
-    daemonId: hostname,
+    type: "runtime.registered",
+    daemonId,
     hostname,
+    workspaceId,
   }).catch((err) => {
-    log.warn("broadcast after registration failed", {
+    log.warn("broadcast after activation failed", {
       userId: mt.userId,
+      daemonId,
       err: err instanceof Error ? err.message : String(err),
     });
   });
 
   return writeJSON({
-    daemon_id: hostname,
-    token_status: "registered",
+    daemon_id: daemonId,
+    workspace_id: workspaceId,
+    runtimes: results.map(runtimeToResponse),
   });
 }

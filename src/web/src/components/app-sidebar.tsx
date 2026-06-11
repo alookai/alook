@@ -530,7 +530,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                       >
                         <div className={cn(
                           "transition-all duration-150",
-                          isSelected && "ring-2 ring-primary rounded-xl"
+                          isSelected && "ring-2 ring-primary/50 rounded-xl"
                         )}>
                           {renderAgentButton(agent, pinned.length + i)}
                         </div>

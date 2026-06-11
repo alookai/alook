@@ -19,9 +19,14 @@ async function broadcastEmailSentEvent(
   subject: string,
   emailId: string,
   from: string,
+  targetConversationId?: string,
+  targetAgentId?: string,
 ) {
   const eventContent = `Email sent to ${to}: ${subject}`;
-  const metadataObj = { emailId, subject, from, to, direction: "outbound" as const };
+  const metadataObj = {
+    emailId, subject, from, to, direction: "outbound" as const,
+    ...(targetConversationId ? { targetConversationId, targetAgentId } : {}),
+  };
   const metadata = JSON.stringify(metadataObj);
   const eventMsg = await queries.message.createMessage(db, {
     conversationId,
@@ -136,6 +141,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
       const isWhitelisted = await queries.whitelist.isWhitelisted(db, recipientAgent.id, recipientAgent.workspaceId, fromAddress);
 
+      const isSelfSend = body.agentId === recipientAgent.id;
       const notifyPayload = JSON.stringify({
         agentId: recipientAgent.id,
         workspaceId: recipientAgent.workspaceId,
@@ -151,6 +157,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         isInternal: true,
         ...(body.traceId ? { traceId: body.traceId } : {}),
         ...(body.sourceTaskId ? { sourceTaskId: body.sourceTaskId } : {}),
+        ...(!isSelfSend && validatedConversationId ? { senderConversationId: validatedConversationId, senderAgentId: body.agentId } : {}),
       });
       const notifyInit = { method: "POST", headers: { "Content-Type": "application/json" }, body: notifyPayload };
       let notifyRes: Response;
@@ -163,6 +170,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         const errBody = await notifyRes.text();
         return writeError(`local delivery failed: ${errBody}`, notifyRes.status);
       }
+
+      const notifyData = await notifyRes.json() as { ok: boolean; conversationId?: string };
 
       const email = await queries.email.createEmail(db, {
         agentId: body.agentId,
@@ -194,7 +203,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
           });
         }
         if (agent.ownerId) {
-          await broadcastEmailSentEvent(db, validatedConversationId, agent.ownerId, body.agentId, body.to, body.subject, email.id, fromAddress);
+          const outboundTargetConvId = !isSelfSend ? notifyData.conversationId : undefined;
+          const outboundTargetAgentId = !isSelfSend && outboundTargetConvId ? recipientAgent.id : undefined;
+          await broadcastEmailSentEvent(db, validatedConversationId, agent.ownerId, body.agentId, body.to, body.subject, email.id, fromAddress, outboundTargetConvId, outboundTargetAgentId);
         }
       }
 

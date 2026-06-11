@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockGetTask = vi.fn();
+const mockGetAgent = vi.fn();
 const mockTaskToResponse = vi.fn((t: any) => ({
   id: t.id,
   agent_id: t.agentId,
@@ -33,6 +34,9 @@ vi.mock("@alook/shared", () => ({
     task: {
       getTask: (...args: any[]) => mockGetTask(...args),
     },
+    agent: {
+      getAgent: (...args: any[]) => mockGetAgent(...args),
+    },
   },
 }));
 vi.mock("@/lib/middleware/auth", () => ({
@@ -62,6 +66,7 @@ describe("GET /api/tasks/[id]", () => {
       prompt: "hello",
     };
     mockGetTask.mockResolvedValue(task);
+    mockGetAgent.mockResolvedValue({ id: "a1" });
 
     const res = await GET(
       new NextRequest("http://localhost/api/tasks/t1"),
@@ -90,6 +95,6 @@ describe("GET /api/tasks/[id]", () => {
     const body = await res.json();
 
     expect(res.status).toBe(404);
-    expect(body.error).toBe("task not found");
+    expect(body.error).toBe("not found");
   });
 });

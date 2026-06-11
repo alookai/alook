@@ -19,8 +19,8 @@ export const GET = withAuth(async (req, ctx) => {
   }
 
   const conversation = await queries.conversation.getConversation(db, id, ws.workspaceId);
-  if (!conversation) {
-    return writeError("conversation not found", 404);
+  if (!conversation || conversation.userId !== ctx.userId) {
+    return writeError("not found", 404);
   }
 
   return writeJSON(conversationToResponse(conversation));
@@ -39,13 +39,13 @@ export const DELETE = withAuth(async (req, ctx) => {
   }
 
   const conversation = await queries.conversation.getConversation(db, id, ws.workspaceId);
-  if (!conversation) {
-    return writeError("conversation not found", 404);
+  if (!conversation || conversation.userId !== ctx.userId) {
+    return writeError("not found", 404);
   }
 
   // Delete tasks first (no cascade on FK)
   await queries.task.deleteTasksByConversation(db, id, ws.workspaceId);
-  // Messages cascade automatically via schema
+  await queries.inbox.deleteUnreadByConversation(db, id);
   await queries.conversation.deleteConversation(db, id, ws.workspaceId);
 
   return new Response(null, { status: 204 });

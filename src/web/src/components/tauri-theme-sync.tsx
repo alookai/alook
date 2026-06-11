@@ -11,9 +11,9 @@ export function TauriThemeSync() {
     if (!isTauri() || !isDesktop()) return;
     if (!resolvedTheme) return;
 
-    tauriInvoke("set_window_theme", { dark: resolvedTheme === "dark" }).catch(
-      () => {},
-    );
+    tauriInvoke("set_window_theme", { dark: resolvedTheme === "dark" })
+      .then(() => tauriInvoke("close_splashscreen"))
+      .catch(() => {});
   }, [resolvedTheme]);
 
   return null;

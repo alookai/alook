@@ -91,7 +91,7 @@ function TraceRow({ trace, slug }: { trace: TraceListItem; slug: string }) {
 
   return (
     <Link
-      href={`/w/${slug}/threads/${trace.trace_id}`}
+      href={`/w/${slug}/traces/${trace.trace_id}`}
       className="block px-4 py-3 border-b border-border/30 hover:bg-accent/30 transition-colors duration-150 cursor-pointer"
     >
       <div className="flex items-center gap-2">
@@ -263,7 +263,7 @@ export default function TracesPage() {
       } else {
         newParams.delete(key);
       }
-      const pathname = `/w/${slug}/threads`;
+      const pathname = `/w/${slug}/traces`;
       const qs = newParams.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     },
@@ -274,7 +274,7 @@ export default function TracesPage() {
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5 gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <h1 className="text-sm font-medium">Threads</h1>
+          <h1 className="text-sm font-medium">Traces</h1>
           <p className="text-xs text-muted-foreground hidden md:block">
             Execution traces across your agents.
           </p>
@@ -358,7 +358,7 @@ export default function TracesPage() {
         ) : traces.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full animate-[fade-up_400ms_ease-out_both]">
             <GitBranch className="size-8 text-muted-foreground mb-3" />
-            <p className="text-sm text-muted-foreground">No threads yet</p>
+            <p className="text-sm text-muted-foreground">No traces yet</p>
             <p className="text-xs text-muted-foreground/60 mt-1">
               Only tasks involving multiple agents appear here.
             </p>

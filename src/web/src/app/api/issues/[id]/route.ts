@@ -26,7 +26,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const id = ctx.params?.id;
   if (!id) return writeError("issue id is required", 400);
 
-  const issue = await queries.issue.getIssue(db, id, ws.workspaceId);
+  const issue = await queries.issue.getIssue(db, id, ws.workspaceId, ctx.userId);
   if (!issue) return writeError("issue not found", 404);
   const agentId = req.nextUrl.searchParams.get("agentId");
   if (agentId && issue.agentId !== agentId) return writeError("issue does not belong to agent", 403);
@@ -59,7 +59,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const id = ctx.params?.id;
   if (!id) return writeError("issue id is required", 400);
 
-  const existing = await queries.issue.getIssue(db, id, ws.workspaceId);
+  const existing = await queries.issue.getIssue(db, id, ws.workspaceId, ctx.userId);
   if (!existing) return writeError("issue not found", 404);
   const agentId = req.nextUrl.searchParams.get("agentId");
   if (agentId && existing.agentId !== agentId) return writeError("issue does not belong to agent", 403);
@@ -171,7 +171,7 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   const id = ctx.params?.id;
   if (!id) return writeError("issue id is required", 400);
 
-  const issue = await queries.issue.getIssue(db, id, ws.workspaceId);
+  const issue = await queries.issue.getIssue(db, id, ws.workspaceId, ctx.userId);
   if (!issue) return writeError("issue not found", 404);
 
   if (issue.conversationId) {
@@ -205,7 +205,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const id = ctx.params?.id;
   if (!id) return writeError("issue id is required", 400);
 
-  const issue = await queries.issue.getIssue(db, id, ws.workspaceId);
+  const issue = await queries.issue.getIssue(db, id, ws.workspaceId, ctx.userId);
   if (!issue) return writeError("issue not found", 404);
   const agentId = req.nextUrl.searchParams.get("agentId");
   if (agentId && issue.agentId !== agentId) return writeError("issue does not belong to agent", 403);

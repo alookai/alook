@@ -1,6 +1,6 @@
 {
   "name": "@alook/shared",
-  "version": "0.0.122",
+  "version": "0.0.140",
   "private": true,
   "exports": {
     ".": "./src/index.ts",
@@ -18,11 +18,11 @@
     "zod": "^4.4"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260524.1",
-    "@types/node": "^25.9.1",
-    "knip": "^6.14.2",
+    "@cloudflare/workers-types": "^4.20260607.1",
+    "@types/node": "^25.9.2",
+    "knip": "^6.16.1",
     "playwright-core": "^1.60.0",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.8"
   }
 }

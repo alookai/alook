@@ -2,14 +2,39 @@ import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { SELF_HOSTED_DIR } from "./constants.js";
 
+function deduplicateDevSection(content: string): string {
+  const devIdx = content.indexOf("[dev]");
+  if (devIdx === -1) return content;
+
+  const nextSection = content.indexOf("\n[", devIdx + 1);
+  const devEnd = nextSection === -1 ? content.length : nextSection;
+  const before = content.slice(0, devIdx);
+  const devBlock = content.slice(devIdx, devEnd);
+  const after = content.slice(devEnd);
+
+  const lines = devBlock.split("\n");
+  const seen = new Map<string, number>();
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(/^(\w+)\s*=/);
+    if (match) {
+      if (seen.has(match[1])) {
+        lines[seen.get(match[1])!] = "";
+      }
+      seen.set(match[1], i);
+    }
+  }
+  const cleaned = lines.filter((l) => l !== "").join("\n");
+  return before + cleaned + after;
+}
+
 function setDevPort(tomlPath: string, port: number): void {
-  let content = readFileSync(tomlPath, "utf-8");
+  let content = deduplicateDevSection(readFileSync(tomlPath, "utf-8"));
   if (content.includes("[dev]")) {
-    const patched = content.replace(/(\[dev\][^\[]*?)(?<!inspector_)port\s*=\s*\d+/, `$1port = ${port}`);
-    if (patched === content) {
-      content = content.replace(/(\[dev\][^\[]*)/, `$1port = ${port}\n`);
+    const hasPort = /\[dev\][^\[]*?(?<!inspector_)port\s*=/.test(content);
+    if (hasPort) {
+      content = content.replace(/(\[dev\][^\[]*?)(?<!inspector_)port\s*=\s*\d+/, `$1port = ${port}`);
     } else {
-      content = patched;
+      content = content.replace(/(\[dev\][^\[]*)/, `$1port = ${port}\n`);
     }
   } else {
     content += `\n[dev]\nport = ${port}\n`;
@@ -18,7 +43,7 @@ function setDevPort(tomlPath: string, port: number): void {
 }
 
 function setInspectorPort(tomlPath: string, inspectorPort: number): void {
-  let content = readFileSync(tomlPath, "utf-8");
+  let content = deduplicateDevSection(readFileSync(tomlPath, "utf-8"));
   if (content.includes("inspector_port")) {
     content = content.replace(/inspector_port\s*=\s*\d+/, `inspector_port = ${inspectorPort}`);
   } else if (content.includes("[dev]")) {
@@ -42,16 +67,16 @@ function setVar(content: string, key: string, value: string): string {
 
 export function patchWranglerConfigs(ports: { web: number; emailWorker: number; wsDo: number }): void {
   const webToml = join(SELF_HOSTED_DIR, "web", "wrangler.toml");
-  let webContent = readFileSync(webToml, "utf-8");
+  let webContent = deduplicateDevSection(readFileSync(webToml, "utf-8"));
 
   if (!webContent.includes("[dev]")) {
     webContent += `\n[dev]\nport = ${ports.web}\n`;
   } else {
-    const patched = webContent.replace(/(\[dev\][^\[]*?)(?<!inspector_)port\s*=\s*\d+/, `$1port = ${ports.web}`);
-    if (patched === webContent) {
-      webContent = webContent.replace(/(\[dev\][^\[]*)/, `$1port = ${ports.web}\n`);
+    const hasPort = /\[dev\][^\[]*?(?<!inspector_)port\s*=/.test(webContent);
+    if (hasPort) {
+      webContent = webContent.replace(/(\[dev\][^\[]*?)(?<!inspector_)port\s*=\s*\d+/, `$1port = ${ports.web}`);
     } else {
-      webContent = patched;
+      webContent = webContent.replace(/(\[dev\][^\[]*)/, `$1port = ${ports.web}\n`);
     }
   }
 

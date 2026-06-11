@@ -19,6 +19,7 @@ const mockArtifactToResponse = vi.fn((r: any) => ({
   content_type: r.contentType,
   size: r.size,
   source: r.source,
+  has_thumbnail: r.thumbnailR2Key != null,
   created_at: r.createdAt,
 }));
 

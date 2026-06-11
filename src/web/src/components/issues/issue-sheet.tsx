@@ -610,7 +610,7 @@ export function IssueSheet({
         {mode === "detail" && detail?.traceId && (
           <PropertyRow icon={<GitBranch className="size-3.5" />}>
             <Link
-              href={`/w/${slug}/threads/${detail.traceId}`}
+              href={`/w/${slug}/traces/${detail.traceId}`}
               className={cn(GHOST_CONTROL, "inline-flex items-center rounded-md")}
             >
               Thread

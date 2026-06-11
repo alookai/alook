@@ -223,17 +223,13 @@ export function createTimelineEntry(
   };
 }
 
-const RESUME_MAX_AGE_MS = 72 * 60 * 60 * 1000; // 72 hours
-
 export function findResumableSessionByContextKey(
   timelineDir: string,
   contextKey: string,
   provider: string,
 ): string | null {
-  const now = new Date();
-  const cutoff = new Date(now.getTime() - RESUME_MAX_AGE_MS);
   const entries: ContextTimelineEntry[] = [];
-  for (const filename of recentFilenames(7)) {
+  for (const filename of recentFilenames(90)) {
     entries.push(...readJsonl(join(timelineDir, filename)));
   }
   entries.sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime());
@@ -242,8 +238,7 @@ export function findResumableSessionByContextKey(
       entry.status !== "running" &&
       entry.context_key === contextKey &&
       entry.provider === provider &&
-      entry.session_id &&
-      new Date(entry.datetime) >= cutoff
+      entry.session_id
     ) {
       return entry.session_id;
     }

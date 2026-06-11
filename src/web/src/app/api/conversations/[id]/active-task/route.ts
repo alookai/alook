@@ -22,8 +22,8 @@ export const GET = withAuth(async (req, ctx) => {
   }
 
   const conversation = await queries.conversation.getConversation(db, id, ws.workspaceId);
-  if (!conversation) {
-    return writeError("conversation not found", 404);
+  if (!conversation || conversation.userId !== ctx.userId) {
+    return writeError("not found", 404);
   }
 
   const task = await queries.task.getActiveTaskByConversation(db, id, ws.workspaceId);
@@ -47,8 +47,8 @@ export const DELETE = withAuth(async (req, ctx) => {
   }
 
   const conversation = await queries.conversation.getConversation(db, id, ws.workspaceId);
-  if (!conversation) {
-    return writeError("conversation not found", 404);
+  if (!conversation || conversation.userId !== ctx.userId) {
+    return writeError("not found", 404);
   }
 
   const taskService = new TaskService(db);

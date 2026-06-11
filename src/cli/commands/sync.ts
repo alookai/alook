@@ -32,12 +32,34 @@ export function syncCommand(): Command {
       const filename = basename(opts.file);
       const contentType = guessContentType(filename);
 
+      let thumbnailBytes: Buffer | null = null;
+      const isRasterImage = contentType.startsWith("image/") && contentType !== "image/svg+xml";
+      if (isRasterImage) {
+        try {
+          const sharpMod = await import("sharp");
+          const sharp = sharpMod.default;
+          thumbnailBytes = await sharp(bytes)
+            .resize(200, 200, { fit: "inside" })
+            .jpeg({ quality: 70 })
+            .toBuffer();
+        } catch (err) {
+          console.error(`Warning: thumbnail generation skipped: ${(err as Error).message}`);
+        }
+      }
+
       const form = new FormData();
       form.append(
         "file",
         new Blob([new Uint8Array(bytes)], { type: contentType }),
         filename
       );
+      if (thumbnailBytes) {
+        form.append(
+          "thumbnail",
+          new Blob([new Uint8Array(thumbnailBytes)], { type: "image/jpeg" }),
+          `thumb_${filename}.jpg`
+        );
+      }
       form.append("agent_id", agentId);
       form.append("conversation_id", opts.conversation_id);
 

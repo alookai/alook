@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const mockGetEmailById = vi.fn();
 const mockDeleteEmail = vi.fn();
 const mockUpdateEmailStatus = vi.fn();
+const mockGetAgent = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({
@@ -24,6 +25,7 @@ vi.mock("@alook/shared", async () => {
         deleteEmail: (...args: unknown[]) => mockDeleteEmail(...args),
         updateEmailStatus: (...args: unknown[]) => mockUpdateEmailStatus(...args),
       },
+      agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
     },
   };
 });
@@ -60,6 +62,7 @@ describe("GET /api/email/[id]", () => {
 
   it("returns email scoped by workspaceId", async () => {
     mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
 
     const req = new NextRequest("http://localhost/api/email/e1");
     const res = await GET(req, { params: Promise.resolve({ id: "e1" }) } as any);
@@ -83,6 +86,7 @@ describe("DELETE /api/email/[id]", () => {
 
   it("deletes an email scoped by workspaceId and returns 204", async () => {
     mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockDeleteEmail.mockResolvedValue(undefined);
 
     const req = new NextRequest("http://localhost/api/email/e1", { method: "DELETE" });
@@ -106,6 +110,8 @@ describe("PATCH /api/email/[id]", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("updates status for valid email in workspace", async () => {
+    mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockUpdateEmailStatus.mockResolvedValue({ id: "e1", status: "read" });
 
     const req = new NextRequest("http://localhost/api/email/e1", {
@@ -121,6 +127,8 @@ describe("PATCH /api/email/[id]", () => {
   });
 
   it("updates status to archived", async () => {
+    mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockUpdateEmailStatus.mockResolvedValue({ id: "e1", status: "archived" });
 
     const req = new NextRequest("http://localhost/api/email/e1", {
@@ -134,6 +142,8 @@ describe("PATCH /api/email/[id]", () => {
   });
 
   it("returns 404 when email not in workspace", async () => {
+    mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockUpdateEmailStatus.mockResolvedValue(null);
 
     const req = new NextRequest("http://localhost/api/email/e1", {
@@ -146,6 +156,8 @@ describe("PATCH /api/email/[id]", () => {
   });
 
   it("returns 400 for invalid status value", async () => {
+    mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     const req = new NextRequest("http://localhost/api/email/e1", {
       method: "PATCH",
       body: JSON.stringify({ status: "deleted" }),
@@ -159,6 +171,8 @@ describe("PATCH /api/email/[id]", () => {
   });
 
   it("returns 400 for missing status", async () => {
+    mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     const req = new NextRequest("http://localhost/api/email/e1", {
       method: "PATCH",
       body: JSON.stringify({}),
@@ -169,6 +183,8 @@ describe("PATCH /api/email/[id]", () => {
   });
 
   it("returns 400 for invalid JSON body", async () => {
+    mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     const req = new NextRequest("http://localhost/api/email/e1", {
       method: "PATCH",
       body: "not json",

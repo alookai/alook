@@ -71,8 +71,10 @@ describe("deleteChannel", () => {
     chain.select = vi.fn(() => chain); chain.from = vi.fn(() => chain);
     chain.where = vi.fn(() => Promise.resolve([ch]));
     chain.delete = vi.fn(() => chain);
+    chain.run = vi.fn(() => Promise.resolve());
     chain.batch = vi.fn(() => Promise.resolve());
     const result = await channelQueries.deleteChannel(chain, "ch_1", "ws_1");
+    expect(chain.run).toHaveBeenCalled();
     expect(chain.batch).toHaveBeenCalled();
     expect(result).toEqual(ch);
   });

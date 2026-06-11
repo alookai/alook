@@ -14,6 +14,12 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext()
   const db = getDb((env as Env).DB)
 
+  const agentId = ctx.params?.id
+  if (!agentId) return writeError("agent id is required", 400)
+
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId)
+  if (!agent) return writeError("not found", 404)
+
   const meetingId = ctx.params?.meetingId
   if (!meetingId) return writeError("meeting id is required", 400)
 
@@ -22,7 +28,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     meetingId,
     ws.workspaceId
   )
-  if (!meeting) return writeError("meeting not found", 404)
+  if (!meeting) return writeError("not found", 404)
 
   return writeJSON(meetingToResponse(meeting))
 })
@@ -33,6 +39,12 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
 
   const { env } = getCloudflareContext()
   const db = getDb((env as Env).DB)
+
+  const agentId = ctx.params?.id
+  if (!agentId) return writeError("agent id is required", 400)
+
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId)
+  if (!agent) return writeError("not found", 404)
 
   const meetingId = ctx.params?.meetingId
   if (!meetingId) return writeError("meeting id is required", 400)

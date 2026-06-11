@@ -89,7 +89,7 @@ describe("GET /api/conversations/[id]/init", () => {
   });
 
   it("returns the init payload with messages when no cache hint", async () => {
-    m.getConversation.mockResolvedValue({ id: "c1", agentId: "a1", channel: null });
+    m.getConversation.mockResolvedValue({ id: "c1", agentId: "a1", channel: null, userId: "u1" });
     m.listMessages.mockResolvedValue({ messages: [{ id: "m1", role: "user" }], has_more: true });
 
     const req = new NextRequest("http://localhost/api/conversations/c1/init");
@@ -104,7 +104,7 @@ describe("GET /api/conversations/[id]/init", () => {
   });
 
   it("preloads error task messages (workspace-scoped) for a running active task", async () => {
-    m.getConversation.mockResolvedValue({ id: "c1", agentId: "a1", channel: null });
+    m.getConversation.mockResolvedValue({ id: "c1", agentId: "a1", channel: null, userId: "u1" });
     m.getActiveTaskByConversation.mockResolvedValue({ id: "t1", status: "running" });
     // The query filters to type:"error" in SQL, so the route maps whatever it returns.
     m.listTaskErrorMessages.mockResolvedValue([
@@ -124,7 +124,7 @@ describe("GET /api/conversations/[id]/init", () => {
   it("does not query task errors when there is no active task", async () => {
     // A run that ended in error is settled to status:"failed" and re-surfaces via
     // its persisted assistant error message (not through this preload).
-    m.getConversation.mockResolvedValue({ id: "c1", agentId: "a1", channel: null });
+    m.getConversation.mockResolvedValue({ id: "c1", agentId: "a1", channel: null, userId: "u1" });
     m.getActiveTaskByConversation.mockResolvedValue(null);
 
     const req = new NextRequest("http://localhost/api/conversations/c1/init");
@@ -137,7 +137,7 @@ describe("GET /api/conversations/[id]/init", () => {
   });
 
   it("returns cache_valid=true and null messages when client cache matches", async () => {
-    m.getConversation.mockResolvedValue({ id: "c1", agentId: "a1", channel: null });
+    m.getConversation.mockResolvedValue({ id: "c1", agentId: "a1", channel: null, userId: "u1" });
     m.getNewestMessageId.mockResolvedValue("m9");
     m.getActiveMessageCount.mockResolvedValue(5);
     m.listMessages.mockResolvedValue({ messages: [{ id: "m9", role: "user" }], has_more: false });

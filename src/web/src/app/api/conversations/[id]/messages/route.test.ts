@@ -73,7 +73,7 @@ describe("GET /api/conversations/[id]/messages", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("lists messages", async () => {
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     const msgs = [
       { id: "m1", content: "Hello" },
       { id: "m2", content: "World" },
@@ -103,7 +103,7 @@ describe("GET /api/conversations/[id]/messages", () => {
   });
 
   it("passes limit and before params when provided", async () => {
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     mockGetConversation.mockResolvedValue(conv);
     mockListMessages.mockResolvedValue({ messages: [], has_more: false });
 
@@ -123,7 +123,7 @@ describe("GET /api/conversations/[id]/messages", () => {
   });
 
   it("passes before_id param for compound cursor", async () => {
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     mockGetConversation.mockResolvedValue(conv);
     mockListMessages.mockResolvedValue({ messages: [], has_more: false });
 
@@ -143,7 +143,7 @@ describe("GET /api/conversations/[id]/messages", () => {
   });
 
   it("clamps limit to max 100", async () => {
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     mockGetConversation.mockResolvedValue(conv);
     mockListMessages.mockResolvedValue({ messages: [], has_more: false });
 
@@ -162,7 +162,7 @@ describe("GET /api/conversations/[id]/messages", () => {
   });
 
   it("returns has_more true when more messages exist", async () => {
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     const msgs = [{ id: "m1", content: "Hello" }];
     mockGetConversation.mockResolvedValue(conv);
     mockListMessages.mockResolvedValue({ messages: msgs, has_more: true });
@@ -182,7 +182,7 @@ describe("POST /api/conversations/[id]/messages", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("sends message and enqueues task, returns 201", async () => {
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     const msg = { id: "m1", content: "Hi there" };
     const task = { id: "t1", status: "pending" };
     mockGetConversation.mockResolvedValue(conv);
@@ -208,7 +208,7 @@ describe("POST /api/conversations/[id]/messages", () => {
 
   it("auto-titles conversation with truncated first message", async () => {
     const longContent = "A ".repeat(40).trim();
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     mockGetConversation.mockResolvedValue(conv);
     mockCreateMessage.mockResolvedValue({ id: "m1", content: longContent });
     mockUpdateConversationTitle.mockResolvedValue(undefined);
@@ -229,7 +229,7 @@ describe("POST /api/conversations/[id]/messages", () => {
   });
 
   it("short messages are not truncated", async () => {
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     mockGetConversation.mockResolvedValue(conv);
     mockCreateMessage.mockResolvedValue({ id: "m1", content: "short" });
     mockUpdateConversationTitle.mockResolvedValue(undefined);
@@ -250,7 +250,7 @@ describe("POST /api/conversations/[id]/messages", () => {
   });
 
   it("returns 400 for missing content", async () => {
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     mockGetConversation.mockResolvedValue(conv);
 
     const res = await POST(
@@ -282,11 +282,11 @@ describe("POST /api/conversations/[id]/messages", () => {
     const body = await res.json();
 
     expect(res.status).toBe(404);
-    expect(body.error).toBe("conversation not found");
+    expect(body.error).toBe("not found");
   });
 
   it("passes workspaceId to getConversation", async () => {
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     mockGetConversation.mockResolvedValue(conv);
     mockCreateMessage.mockResolvedValue({ id: "m1", content: "hello" });
     mockUpdateConversationTitle.mockResolvedValue(undefined);
@@ -305,7 +305,7 @@ describe("POST /api/conversations/[id]/messages", () => {
   });
 
   it("TC2: passes metadata.quote to createMessage and adds quoted_message to task context", async () => {
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     const msg = { id: "m1", content: "Can you fix this?" };
     const task = { id: "t1", status: "pending" };
     mockGetConversation.mockResolvedValue(conv);
@@ -345,7 +345,7 @@ describe("POST /api/conversations/[id]/messages", () => {
   });
 
   it("TC3: message without metadata has no quote in metadata or task context", async () => {
-    const conv = { id: "c1", workspaceId: "w1", agentId: "a1" };
+    const conv = { id: "c1", workspaceId: "w1", agentId: "a1", userId: "u1" };
     const msg = { id: "m1", content: "Hello" };
     const task = { id: "t1", status: "pending" };
     mockGetConversation.mockResolvedValue(conv);

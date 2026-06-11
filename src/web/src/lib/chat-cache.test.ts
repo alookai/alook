@@ -33,6 +33,7 @@ function makeArtifact(overrides: Partial<Artifact> = {}): Artifact {
     content_type: "application/pdf",
     size: 1024,
     source: "agent",
+    has_thumbnail: false,
     created_at: new Date().toISOString(),
     ...overrides,
   };

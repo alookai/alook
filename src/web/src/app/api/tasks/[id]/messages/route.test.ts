@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockGetTask = vi.fn();
+const mockGetAgent = vi.fn();
 const mockListTaskMessages = vi.fn();
 const mockListTaskMessagesSince = vi.fn();
 const mockTaskMessageToResponse = vi.fn((m: any) => ({
@@ -35,6 +36,9 @@ vi.mock("@alook/shared", () => ({
     task: {
       getTask: (...args: any[]) => mockGetTask(...args),
     },
+    agent: {
+      getAgent: (...args: any[]) => mockGetAgent(...args),
+    },
     taskMessage: {
       listTaskMessages: (...args: any[]) => mockListTaskMessages(...args),
       listTaskMessagesSince: (...args: any[]) => mockListTaskMessagesSince(...args),
@@ -60,8 +64,9 @@ describe("GET /api/tasks/[id]/messages", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("passes workspaceId to getTask", async () => {
-    const task = { id: "t1", workspaceId: "w1" };
+    const task = { id: "t1", agentId: "a1", workspaceId: "w1" };
     mockGetTask.mockResolvedValue(task);
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockListTaskMessages.mockResolvedValue([]);
     await GET(
       new NextRequest("http://localhost/api/tasks/t1/messages"),
@@ -71,12 +76,13 @@ describe("GET /api/tasks/[id]/messages", () => {
   });
 
   it("lists all messages", async () => {
-    const task = { id: "t1", workspaceId: "w1" };
+    const task = { id: "t1", agentId: "a1", workspaceId: "w1" };
     const messages = [
       { id: "m1", taskId: "t1", seq: 1, type: "text", content: "hello" },
       { id: "m2", taskId: "t1", seq: 2, type: "text", content: "world" },
     ];
     mockGetTask.mockResolvedValue(task);
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockListTaskMessages.mockResolvedValue(messages);
 
     const res = await GET(
@@ -94,11 +100,12 @@ describe("GET /api/tasks/[id]/messages", () => {
   });
 
   it("filters by since parameter", async () => {
-    const task = { id: "t1", workspaceId: "w1" };
+    const task = { id: "t1", agentId: "a1", workspaceId: "w1" };
     const messages = [
       { id: "m3", taskId: "t1", seq: 6, type: "text", content: "new msg" },
     ];
     mockGetTask.mockResolvedValue(task);
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockListTaskMessagesSince.mockResolvedValue(messages);
 
     const res = await GET(
@@ -116,8 +123,9 @@ describe("GET /api/tasks/[id]/messages", () => {
   });
 
   it("returns 400 for invalid since parameter", async () => {
-    const task = { id: "t1", workspaceId: "w1" };
+    const task = { id: "t1", agentId: "a1", workspaceId: "w1" };
     mockGetTask.mockResolvedValue(task);
+    mockGetAgent.mockResolvedValue({ id: "a1" });
 
     const res = await GET(
       new NextRequest("http://localhost/api/tasks/t1/messages?since=abc"),
@@ -139,15 +147,16 @@ describe("GET /api/tasks/[id]/messages", () => {
     const body = await res.json();
 
     expect(res.status).toBe(404);
-    expect(body.error).toBe("task not found");
+    expect(body.error).toBe("not found");
   });
 
   it("only returns text and error messages (tool-result, tool-use, thinking filtered at query level)", async () => {
-    const task = { id: "t1", workspaceId: "w1" };
+    const task = { id: "t1", agentId: "a1", workspaceId: "w1" };
     const messages = [
       { id: "m1", taskId: "t1", seq: 1, type: "text", content: "hello" },
     ];
     mockGetTask.mockResolvedValue(task);
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockListTaskMessages.mockResolvedValue(messages);
 
     const res = await GET(
@@ -162,11 +171,12 @@ describe("GET /api/tasks/[id]/messages", () => {
   });
 
   it("only returns text and error messages with since parameter (filtered at query level)", async () => {
-    const task = { id: "t1", workspaceId: "w1" };
+    const task = { id: "t1", agentId: "a1", workspaceId: "w1" };
     const messages = [
       { id: "m4", taskId: "t1", seq: 7, type: "text", content: "new update" },
     ];
     mockGetTask.mockResolvedValue(task);
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockListTaskMessagesSince.mockResolvedValue(messages);
 
     const res = await GET(

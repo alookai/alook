@@ -20,9 +20,13 @@ All workspace packages share one version. Use `pnpm bump` to release:
 pnpm bump 0.0.11      # explicit version (v prefix optional)
 pnpm bump patch        # auto-increment patch/minor/major
 pnpm bump patch --min-cli  # also update MIN_CLI_VERSION in src/web/wrangler.toml
+pnpm bump patch --desktop  # trigger desktop build
+pnpm bump patch --mobile   # trigger mobile build
 ```
 This updates every `src/*/package.json` and commits `release: vX.Y.Z`.
 Add `--min-cli` when the release contains breaking changes that require users to update their CLI.
+Add `--desktop` when the release includes desktop app changes that need a new build.
+Add `--mobile` when the release includes mobile app changes.
 
 After reviewing the commit:
 ```bash

@@ -74,7 +74,7 @@ describe("GET /api/calendar/[id]", () => {
     const res = await GET(r, { params: { id: "ce_1" } } as any);
     expect(res.status).toBe(200);
     expect((await res.json()).id).toBe("ce_1");
-    expect(mockGet).toHaveBeenCalledWith({}, "ce_1", "ws1");
+    expect(mockGet).toHaveBeenCalledWith({}, "ce_1", "ws1", "u1");
   });
 
   it("returns 404 when the event is not in the caller's workspace", async () => {

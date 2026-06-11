@@ -10,6 +10,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }));
 
 const mockGetEmailById = vi.fn();
+const mockGetAgent = vi.fn();
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
@@ -17,6 +18,7 @@ vi.mock("@alook/shared", () => ({
   createDb: vi.fn(() => ({})),
   queries: {
     email: { getEmailById: (...args: unknown[]) => mockGetEmailById(...args) },
+    agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
   },
 }));
 
@@ -51,6 +53,7 @@ describe("GET /api/email/[id]/body", () => {
 
   it("parses plain text email and returns text body", async () => {
     mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1", r2Key: "emails/abc/raw" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockR2Get.mockResolvedValue(
       makeR2Object("From: a@b.com\r\nTo: c@d.com\r\nSubject: Test\r\nContent-Type: text/plain\r\n\r\nHello world")
     );
@@ -66,6 +69,7 @@ describe("GET /api/email/[id]/body", () => {
 
   it("parses HTML email and returns HTML body", async () => {
     mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1", r2Key: "emails/abc/raw" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockR2Get.mockResolvedValue(
       makeR2Object("From: a@b.com\r\nTo: c@d.com\r\nSubject: Test\r\nContent-Type: text/html\r\n\r\n<p>Hello</p>")
     );
@@ -98,6 +102,7 @@ describe("GET /api/email/[id]/body", () => {
     ].join("\r\n");
 
     mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1", r2Key: "emails/abc/raw" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockR2Get.mockResolvedValue(makeR2Object(mime));
 
     const req = new NextRequest("http://localhost/api/email/e1/body");
@@ -111,6 +116,7 @@ describe("GET /api/email/[id]/body", () => {
 
   it("returns 404 when R2 object not found", async () => {
     mockGetEmailById.mockResolvedValue({ id: "e1", agentId: "a1", r2Key: "emails/abc/raw" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockR2Get.mockResolvedValue(null);
 
     const req = new NextRequest("http://localhost/api/email/e1/body");

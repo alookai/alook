@@ -4,19 +4,20 @@ import { localISOString } from "./execenv/timeline.js";
 const DM_RESPONSE_NOTICE =
   "Reply with `alook sync send-dm` — that's the only thing the user sees; your task output and reasoning are not shown." +
   " Talk to them at milestones like a colleague would, and don't end your turn without sending what they need." +
-  " If this task will take more than 30 seconds, send a quick ack first so the user knows you're on it.";
+  " If this task will take more than 30 seconds, send a quick ack first so the user knows you're on it." +
+  " IMPORTANT: If you were working on a previous task before this message arrived, do NOT silently drop it. After handling this message, return to any prior unfinished work and report the result to the user.";
 
 const EMAIL_NOTICE =
-  "This task was triggered automatically by an incoming email. There is no human in this session." +
-  " If you need to communicate with a human, you MUST send an email using the email sending tool." +
-  " If you need more information or confirmation from the human, send them an email asking for it and then exit." +
-  " Do not wait — when the human replies, a new task will be triggered automatically and you will be woken up with their response.";
+  "This task was triggered by an incoming email. Reply to the sender via email — use the email sending tool to respond." +
+  " If you need more information or confirmation, email them and then exit." +
+  " Do not wait — when they reply, a new task will be triggered automatically and you will be woken up with their response." +
+  " IMPORTANT: Do not let this email interrupt any task you were previously working on. After handling this email, return to your original task and make sure it reaches completion.";
 
 const CALENDAR_NOTICE =
-  "This task was triggered by a scheduled calendar event. There is no human in this session." +
-  " If you need to communicate with a human, you MUST send an email using the email sending tool." +
-  " If you need more information or confirmation, send an email asking for it and then exit." +
-  " Do not wait — when the human replies, a new task will be triggered automatically and you will be woken up with their response.";
+  "This task was triggered by a scheduled calendar event." +
+  " If you need to communicate with someone, send an email using the email sending tool." +
+  " If you need more information or confirmation, email them and then exit." +
+  " Do not wait — when they reply, a new task will be triggered automatically and you will be woken up with their response.";
 
 const ISSUE_NOTICE =
   "This task was triggered by an assigned issue. The issue_id is provided in this message." +
@@ -30,11 +31,12 @@ const ISSUE_NOTICE =
   " 4. NEVER set 'review' unless there is concrete completed work for the owner to review. Sending a plan to a colleague is NOT completed work." +
   " NEVER exit without doing at least one of: updating the status, or leaving a comment explaining what you did and what you're waiting for.";
 
-function buildDmNotice(name: string, email: string): string {
+function buildEmailDmNotice(name: string, email: string): string {
   return (
     `This task was triggered by an incoming email on a conversation with ${name} (${email}).` +
     ` ${name} is present in this session — reply to them directly.` +
-    ` If you need to communicate with anyone else, use the email sending tool.`
+    ` If you need to communicate with anyone else, use the email sending tool.` +
+    ` IMPORTANT: Do not let this email interrupt any task you were previously working on. After handling this email, return to your original task and make sure it reaches completion — report the result to the user.`
   );
 }
 
@@ -57,12 +59,19 @@ export function buildTaskObject(task: Task, attachments?: Attachment[]): Record<
     if (ctx?.quoted_message) {
       obj.quoted_message = ctx.quoted_message;
     }
+    if (ctx?.conversation_history || ctx?.root_message) {
+      obj.thread_context = {
+        note: "The user started this thread by replying to the root_message below. The history is the conversation leading up to it.",
+        ...(ctx.root_message ? { root_message: ctx.root_message } : {}),
+        ...(ctx.conversation_history ? { history: ctx.conversation_history } : {}),
+      };
+    }
   }
   if (task.type === "email_notification") {
     const ctx = task.context as Record<string, unknown> | undefined;
     const dmUser = ctx?.dmUser as { name: string; email: string } | undefined;
     if (ctx?.conversationType === "user_dm_message" && dmUser) {
-      obj.notice = buildDmNotice(dmUser.name, dmUser.email);
+      obj.notice = buildEmailDmNotice(dmUser.name, dmUser.email);
     } else {
       obj.notice = EMAIL_NOTICE;
     }

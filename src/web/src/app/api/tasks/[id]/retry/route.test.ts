@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
+const mockGetTask = vi.fn();
+const mockGetAgent = vi.fn();
 const mockRetryTask = vi.fn();
 const mockTaskToResponse = vi.fn((t: any) => ({
   id: t.id,
@@ -26,6 +28,17 @@ vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }));
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+vi.mock("@alook/shared", () => ({
+  createDb: vi.fn(() => ({})),
+  queries: {
+    task: {
+      getTask: (...args: any[]) => mockGetTask(...args),
+    },
+    agent: {
+      getAgent: (...args: any[]) => mockGetAgent(...args),
+    },
+  },
+}));
 vi.mock("@/lib/services/task", () => {
   const MockTaskService = function (this: any) {
     this.retryTask = (...a: any[]) => mockRetryTask(...a);
@@ -47,6 +60,10 @@ vi.mock("@/lib/api/responses", () => ({
 vi.mock("@/lib/broadcast", () => ({
   broadcastToUser: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("@/lib/cache", () => ({
+  invalidate: vi.fn().mockReturnValue(Promise.resolve()),
+  cacheKeys: { overviewTaskStats: (...args: any[]) => `stats:${args.join(":")}` },
+}));
 
 import { POST } from "./route";
 
@@ -54,8 +71,11 @@ describe("POST /api/tasks/[id]/retry", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("returns new task on success", async () => {
+    const task = { id: "t1", agentId: "a1", workspaceId: "w1", status: "failed", prompt: "hello" };
     const oldTask = { id: "t1", agentId: "a1", workspaceId: "w1", status: "superseded", prompt: "hello" };
     const newTask = { id: "t2", agentId: "a1", workspaceId: "w1", status: "queued", prompt: "hello" };
+    mockGetTask.mockResolvedValue(task);
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockRetryTask.mockResolvedValue({ oldTask, newTask });
 
     const res = await POST(
@@ -71,6 +91,9 @@ describe("POST /api/tasks/[id]/retry", () => {
   });
 
   it("returns 400 when task is not failed", async () => {
+    const task = { id: "t1", agentId: "a1", workspaceId: "w1", status: "completed", prompt: "hello" };
+    mockGetTask.mockResolvedValue(task);
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockRetryTask.mockRejectedValue(new Error("only failed tasks can be retried"));
 
     const res = await POST(
@@ -83,8 +106,8 @@ describe("POST /api/tasks/[id]/retry", () => {
     expect(body.error).toBe("only failed tasks can be retried");
   });
 
-  it("returns 400 when task not found", async () => {
-    mockRetryTask.mockRejectedValue(new Error("task not found"));
+  it("returns 404 when task not found", async () => {
+    mockGetTask.mockResolvedValue(null);
 
     const res = await POST(
       new NextRequest("http://localhost/api/tasks/t1/retry", { method: "POST" }),
@@ -92,7 +115,7 @@ describe("POST /api/tasks/[id]/retry", () => {
     );
     const body = await res.json();
 
-    expect(res.status).toBe(400);
-    expect(body.error).toBe("task not found");
+    expect(res.status).toBe(404);
+    expect(body.error).toBe("not found");
   });
 });

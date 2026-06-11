@@ -23,7 +23,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const id = ctx.params?.id;
   if (!id) return writeError("issue id is required", 400);
 
-  const issue = await queries.issue.getIssue(db, id, ws.workspaceId);
+  const issue = await queries.issue.getIssue(db, id, ws.workspaceId, ctx.userId);
   if (!issue) return writeError("issue not found", 404);
 
   const comments = await queries.issueComment.listComments(db, id, ws.workspaceId);
@@ -39,7 +39,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const id = ctx.params?.id;
   if (!id) return writeError("issue id is required", 400);
 
-  const issue = await queries.issue.getIssue(db, id, ws.workspaceId);
+  const issue = await queries.issue.getIssue(db, id, ws.workspaceId, ctx.userId);
   if (!issue) return writeError("issue not found", 404);
 
   const agentId = req.nextUrl.searchParams.get("agentId");

@@ -20,7 +20,10 @@ export const GET = withAuth(async (req, ctx) => {
   if (Number.isNaN(index) || index < 0) return writeError("invalid attachment index", 400);
 
   const email = await queries.email.getEmailById(db, id, ws.workspaceId);
-  if (!email) return writeError("email not found", 404);
+  if (!email) return writeError("not found", 404);
+
+  const agent = await queries.agent.getAgent(db, email.agentId, ws.workspaceId, ctx.userId);
+  if (!agent) return writeError("not found", 404);
 
   const object = await (env as Env).EMAIL_BUCKET.get(email.r2Key);
   if (!object) return writeError("email content not available", 404);

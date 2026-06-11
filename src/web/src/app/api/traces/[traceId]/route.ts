@@ -35,9 +35,14 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     cached(cacheKeys.allAgentAccess(ws.workspaceId), 300, () => queries.agentAccess.getAllAgentAccessForWorkspace(db, ws.workspaceId)),
   ]);
   const agents = filterVisibleAgents(allAgents, ctx.userId, allAccess);
+  const visibleIds = new Set(agents.map(a => a.id));
   const agentMap = new Map(agents.map(a => [a.id, { name: a.name, email_handle: a.emailHandle, avatarUrl: a.avatarUrl }]));
 
-  const traceTasks = tasks.map(t => ({
+  if (rootTask && !visibleIds.has(rootTask.agentId)) {
+    return writeError("not found", 404);
+  }
+
+  const traceTasks = tasks.filter(t => visibleIds.has(t.agentId)).map(t => ({
     id: t.id,
     agent_id: t.agentId,
     agent: agentMap.get(t.agentId) ?? null,

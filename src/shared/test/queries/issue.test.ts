@@ -42,6 +42,13 @@ describe("createIssue", () => {
 describe("getIssue", () => {
   it("returns null when not found", async () => { expect(await issueQueries.getIssue(createSelectMock([]), "x", "w")).toBeNull(); });
   it("returns issue", async () => { const i = { id: "iss_1" }; expect(await issueQueries.getIssue(createSelectMock([i]), "iss_1", "w")).toEqual(i); });
+  it("returns null when userId does not match (where adds creatorUserId condition)", async () => {
+    expect(await issueQueries.getIssue(createSelectMock([]), "iss_1", "w", "other_user")).toBeNull();
+  });
+  it("returns issue without userId (backwards compat for daemon)", async () => {
+    const i = { id: "iss_1" };
+    expect(await issueQueries.getIssue(createSelectMock([i]), "iss_1", "w")).toEqual(i);
+  });
 });
 
 describe("getIssueByConversation", () => {
@@ -56,15 +63,15 @@ describe("listIssues", () => {
     chain.where = vi.fn(() => chain); chain.orderBy = vi.fn(() => Promise.resolve([]));
     return chain;
   }
-  it("lists with default options", async () => {
+  it("lists with userId filter", async () => {
     const mockDb = createListMock();
-    await issueQueries.listIssues(mockDb, "w");
+    await issueQueries.listIssues(mockDb, "w", { userId: "u1" });
     expect(mockDb.orderBy).toHaveBeenCalled();
   });
-  it("filters by agentId", async () => { await issueQueries.listIssues(createListMock(), "w", { agentId: "a" }); });
-  it("filters by status", async () => { await issueQueries.listIssues(createListMock(), "w", { status: "todo" }); });
-  it("filters terminal=true", async () => { await issueQueries.listIssues(createListMock(), "w", { terminal: true }); });
-  it("filters terminal=false", async () => { await issueQueries.listIssues(createListMock(), "w", { terminal: false }); });
+  it("filters by agentId", async () => { await issueQueries.listIssues(createListMock(), "w", { userId: "u1", agentId: "a" }); });
+  it("filters by status", async () => { await issueQueries.listIssues(createListMock(), "w", { userId: "u1", status: "todo" }); });
+  it("filters terminal=true", async () => { await issueQueries.listIssues(createListMock(), "w", { userId: "u1", terminal: true }); });
+  it("filters terminal=false", async () => { await issueQueries.listIssues(createListMock(), "w", { userId: "u1", terminal: false }); });
 });
 
 describe("updateIssue", () => {

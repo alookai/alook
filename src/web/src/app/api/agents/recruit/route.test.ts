@@ -94,7 +94,7 @@ describe("POST /api/agents/recruit", () => {
     mockGetAgent.mockResolvedValue(null);
     const res = await post(VALID);
     expect(res.status).toBe(404);
-    expect(mockGetAgent).toHaveBeenCalledWith({}, "caller", "w1");
+    expect(mockGetAgent).toHaveBeenCalledWith({}, "caller", "w1", "u1");
   });
 
   it("400 when calling agent has no runtime", async () => {

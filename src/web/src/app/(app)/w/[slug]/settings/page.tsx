@@ -34,21 +34,28 @@ export default function SettingsPage() {
       </div>
 
       <div className="flex flex-1 min-h-0">
-        <nav className="w-48 shrink-0 border-r border-border/50 py-3 px-2 hidden md:block">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
-                activeTab === tab.id
-                  ? "bg-accent text-foreground font-medium"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              )}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <nav className="w-48 shrink-0 border-r border-border/50 py-3 px-2 hidden md:flex md:flex-col">
+          <div className="flex-1">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
+                  activeTab === tab.id
+                    ? "bg-accent text-foreground font-medium"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {process.env.NEXT_PUBLIC_APP_VERSION && (
+            <div className="px-2.5 pt-3 border-t border-border/50 text-[11px] text-muted-foreground/60">
+              v{process.env.NEXT_PUBLIC_APP_VERSION}
+            </div>
+          )}
         </nav>
 
         <div className="flex-1 min-w-0 flex flex-col">
@@ -81,6 +88,11 @@ export default function SettingsPage() {
               </div>
             )}
           </div>
+          {process.env.NEXT_PUBLIC_APP_VERSION && (
+            <div className="px-4 py-2 text-[11px] text-muted-foreground/60 md:hidden">
+              v{process.env.NEXT_PUBLIC_APP_VERSION}
+            </div>
+          )}
         </div>
       </div>
     </>

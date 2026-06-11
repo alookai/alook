@@ -7,6 +7,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
 const mockList = vi.fn();
+const mockGetConversation = vi.fn();
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   return {
@@ -16,6 +17,7 @@ vi.mock("@alook/shared", async () => {
         listArtifactsByConversation: (...a: unknown[]) => mockList(...a),
         artifactToResponse: (a: any) => ({ id: a.id }),
       },
+      conversation: { getConversation: (...a: unknown[]) => mockGetConversation(...a) },
     },
   };
 });
@@ -35,6 +37,7 @@ beforeEach(() => vi.clearAllMocks());
 
 describe("GET /api/artifacts", () => {
   it("lists artifacts for a conversation scoped to workspace", async () => {
+    mockGetConversation.mockResolvedValue({ id: "c1", userId: "u1" });
     mockList.mockResolvedValue([{ id: "art_1" }, { id: "art_2" }]);
     const req = new NextRequest("http://localhost/api/artifacts?conversation_id=c1");
     const res = await GET(req, {});

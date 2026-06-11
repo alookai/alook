@@ -399,7 +399,7 @@ describe("timeline", () => {
       expect(findResumableSessionByContextKey(dir, "conv_1", "claude")).toBeNull();
     });
 
-    it("uses unified 72h max age for all context keys", () => {
+    it("resumes sessions regardless of age", () => {
       const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
       writeEntry(_todayFilename(), makeEntry({
         task_id: "t_4h",
@@ -409,24 +409,23 @@ describe("timeline", () => {
         datetime: fourHoursAgo.toISOString(),
       }));
 
-      // 4 hours ago is within 72h — should match
       expect(findResumableSessionByContextKey(dir, "conv_1", "claude")).toBe("sess_4h");
     });
 
-    it("expires after 72h", () => {
-      const seventyFourHoursAgo = new Date(Date.now() - 74 * 60 * 60 * 1000);
-      writeEntry(_filenameForDate(seventyFourHoursAgo), makeEntry({
+    it("resumes old sessions within the scan window", () => {
+      const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      writeEntry(_filenameForDate(threeDaysAgo), makeEntry({
         task_id: "t_old",
         status: "completed",
         session_id: "sess_old",
         context_key: "conv_1",
-        datetime: seventyFourHoursAgo.toISOString(),
+        datetime: threeDaysAgo.toISOString(),
       }));
 
-      expect(findResumableSessionByContextKey(dir, "conv_1", "claude")).toBeNull();
+      expect(findResumableSessionByContextKey(dir, "conv_1", "claude")).toBe("sess_old");
     });
 
-    it("does not use different max age for different context key types", () => {
+    it("resumes sessions for all context key types equally", () => {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
       writeEntry(_todayFilename(), makeEntry({
@@ -444,7 +443,6 @@ describe("timeline", () => {
         datetime: twentyFourHoursAgo.toISOString(),
       }));
 
-      // Both 24h old — both within unified 72h window
       expect(findResumableSessionByContextKey(dir, "conv_dm", "claude")).toBe("sess_dm");
       expect(findResumableSessionByContextKey(dir, "conv_email", "claude")).toBe("sess_email");
     });

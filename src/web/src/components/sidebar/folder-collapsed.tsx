@@ -34,7 +34,7 @@ export function FolderCollapsed({
         "relative flex shrink-0 items-center justify-center size-10 rounded-xl transition-all duration-200 cursor-pointer",
         "bg-secondary/50 border border-border/30",
         isActive
-          ? "ring-2 ring-primary shadow-sm"
+          ? "ring-2 ring-primary/50 shadow-sm"
           : "hover:bg-accent"
       )}
     >

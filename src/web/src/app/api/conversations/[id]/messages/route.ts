@@ -32,8 +32,8 @@ export const GET = withAuth(async (req, ctx) => {
   }
 
   const conversation = await queries.conversation.getConversation(db, id, ws.workspaceId);
-  if (!conversation) {
-    return writeError("conversation not found", 404);
+  if (!conversation || conversation.userId !== ctx.userId) {
+    return writeError("not found", 404);
   }
 
   const url = new URL(req.url);
@@ -112,8 +112,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   const conversation = await queries.conversation.getConversation(db, id, ws.workspaceId);
-  if (!conversation) {
-    return writeError("conversation not found", 404);
+  if (!conversation || conversation.userId !== ctx.userId) {
+    return writeError("not found", 404);
   }
 
   // Upload files to R2 and create artifact rows
@@ -156,6 +156,19 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     conversationId: id,
     message: messageToResponse(message),
   }).catch(() => {});
+
+  // If this is a thread conversation, broadcast thread.reply with actual count
+  if (conversation.parentMessageId) {
+    queries.message.getActiveMessageCount(db, id).then((count) => {
+      broadcastToUser(ctx.userId, {
+        type: "thread.reply",
+        conversationId: id,
+        threadConversationId: id,
+        parentMessageId: conversation.parentMessageId!,
+        replyCount: count,
+      }).catch(() => {});
+    }).catch(() => {});
+  }
 
   // Auto-title: conditional WHERE title = '' ensures only the first message sets it
   queries.conversation.updateConversationTitle(db, id, truncateTitle(content)).catch(() => {});

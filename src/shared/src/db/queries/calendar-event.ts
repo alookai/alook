@@ -1,5 +1,5 @@
 import { eq, and, asc, gte, lte, or, isNull, isNotNull, lt } from "drizzle-orm";
-import { calendarEvent } from "../schema";
+import { agent, calendarEvent } from "../schema";
 import type { Database } from "../index";
 
 export async function createCalendarEvent(
@@ -61,24 +61,34 @@ export async function updateCalendarEvent(
 export async function getCalendarEvent(
   db: Database,
   id: string,
-  workspaceId: string
+  workspaceId: string,
+  userId?: string
 ) {
+  const conditions = [eq(calendarEvent.id, id), eq(calendarEvent.workspaceId, workspaceId)];
+  if (userId) {
+    conditions.push(eq(agent.ownerId, userId));
+    const rows = await db
+      .select({ calendarEvent })
+      .from(calendarEvent)
+      .innerJoin(agent, eq(calendarEvent.agentId, agent.id))
+      .where(and(...conditions));
+    return rows[0]?.calendarEvent ?? null;
+  }
   const rows = await db
     .select()
     .from(calendarEvent)
-    .where(
-      and(eq(calendarEvent.id, id), eq(calendarEvent.workspaceId, workspaceId))
-    );
+    .where(and(...conditions));
   return rows[0] ?? null;
 }
 
 export async function listCalendarEvents(
   db: Database,
   workspaceId: string,
-  opts: { agentId?: string; from?: string; to?: string } = {}
+  opts: { userId?: string; agentId?: string; from?: string; to?: string } = {}
 ) {
   const conditions = [eq(calendarEvent.workspaceId, workspaceId)];
   if (opts.agentId) conditions.push(eq(calendarEvent.agentId, opts.agentId));
+  if (opts.userId) conditions.push(eq(agent.ownerId, opts.userId));
 
   // Exclude completed one-off events: non-recurring events where
   // lastTriggeredAt is set and >= scheduledAt are "done".
@@ -116,6 +126,16 @@ export async function listCalendarEvents(
   } else {
     if (opts.from) conditions.push(gte(calendarEvent.scheduledAt, opts.from));
     if (opts.to) conditions.push(lte(calendarEvent.scheduledAt, opts.to));
+  }
+
+  if (opts.userId) {
+    const rows = await db
+      .select({ calendarEvent })
+      .from(calendarEvent)
+      .innerJoin(agent, eq(calendarEvent.agentId, agent.id))
+      .where(and(...conditions))
+      .orderBy(asc(calendarEvent.scheduledAt));
+    return rows.map(r => r.calendarEvent);
   }
   return db
     .select()

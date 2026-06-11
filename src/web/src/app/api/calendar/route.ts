@@ -26,15 +26,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const from = req.nextUrl.searchParams.get("from") ?? undefined;
   const to = req.nextUrl.searchParams.get("to") ?? undefined;
 
-  if (agentId) {
-    const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId);
-    if (!agent) return writeError("agent not found in workspace", 404);
-  }
-
   const rows = await queries.calendarEvent.listCalendarEvents(
     db,
     ws.workspaceId,
-    { agentId, from, to }
+    { userId: ctx.userId, agentId, from, to }
   );
 
   // Expand recurring rows into per-occurrence virtual rows within [from, to].
@@ -99,10 +94,13 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
-  // Also include meetings with scheduled_at in range
+  // Also include meetings with scheduled_at in range, filtered to user's agents
+  const userAgents = await queries.agent.listAgents(db, ws.workspaceId, ctx.userId);
+  const userAgentIds = new Set(userAgents.map(a => a.id));
   const meetingRows = await queries.meetingSession.listMeetingsWithSchedule(db, ws.workspaceId);
   for (const m of meetingRows) {
     if (!m.scheduledAt) continue;
+    if (!userAgentIds.has(m.agentId)) continue;
     if (from && m.scheduledAt < from) continue;
     if (to && m.scheduledAt > to) continue;
     if (agentId && m.agentId !== agentId) continue;

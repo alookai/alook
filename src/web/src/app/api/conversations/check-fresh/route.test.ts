@@ -44,7 +44,7 @@ beforeEach(() => vi.clearAllMocks());
 
 describe("GET /api/conversations/check-fresh", () => {
   it("returns freshness for an existing conversation_id (scoped to workspace)", async () => {
-    mockGetConversation.mockResolvedValue({ id: "c1" });
+    mockGetConversation.mockResolvedValue({ id: "c1", userId: "u1" });
     mockGetNewestMessageId.mockResolvedValue("m9");
     mockGetActiveMessageCount.mockResolvedValue(3);
 
@@ -62,7 +62,7 @@ describe("GET /api/conversations/check-fresh", () => {
     const req = new NextRequest("http://localhost/api/conversations/check-fresh?conversation_id=cX");
     const res = await GET(req, {});
     expect(res.status).toBe(404);
-    expect((await res.json()).error).toBe("conversation not found");
+    expect((await res.json()).error).toBe("not found");
   });
 
   it("resolves via agent_id when no conversation_id given", async () => {

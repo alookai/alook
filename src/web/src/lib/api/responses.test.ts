@@ -310,10 +310,10 @@ describe("UserResponse shape", () => {
 });
 
 describe("WorkspaceResponse shape", () => {
-  it("has expected keys: id, name, slug, created_at, updated_at", () => {
+  it("has expected keys: id, name, slug, onboarded, created_at, updated_at", () => {
     const res = workspaceToResponse({ id: "w1", name: "WS", slug: "ws", ...baseFields() });
     expect(Object.keys(res).sort()).toEqual(
-      ["created_at", "id", "name", "slug", "updated_at"]
+      ["created_at", "id", "name", "onboarded", "slug", "updated_at"]
     );
   });
 });
@@ -408,9 +408,9 @@ describe("MessageResponse shape", () => {
 });
 
 describe("MachineTokenResponse shape", () => {
-  it("has expected keys: id, name, last_used_at, created_at", () => {
-    const res = machineTokenToResponse({ id: "mt1", name: "Token", lastUsedAt: ts, createdAt: ts });
-    expect(Object.keys(res).sort()).toEqual(["created_at", "id", "last_used_at", "name"]);
+  it("has expected keys: id, name, status, last_used_at, created_at", () => {
+    const res = machineTokenToResponse({ id: "mt1", name: "Token", status: "active", lastUsedAt: ts, createdAt: ts });
+    expect(Object.keys(res).sort()).toEqual(["created_at", "id", "last_used_at", "name", "status"]);
   });
 });
 

@@ -119,7 +119,6 @@ export {
   DaemonRuntimeItemSchema,
   ActivateTokenRuntimeSchema,
   ActivateTokenRequestSchema,
-  BindWorkspaceRequestSchema,
   RegisterDaemonRequestSchema,
   DeregisterRequestSchema,
   CompleteTaskRequestSchema,
@@ -167,6 +166,7 @@ export {
   SkillSyncRequestSchema,
   CreateStudioRequestSchema,
   RecruitAgentRequestSchema,
+  CreateThreadRequestSchema,
   DaemonPushMessageSchema,
 } from "./schemas";
 
@@ -217,6 +217,7 @@ export type {
   SkillSyncRequest,
   CreateStudioRequest,
   RecruitAgentRequest,
+  CreateThreadRequest,
   DaemonPushMessageType,
 } from "./schemas";
 

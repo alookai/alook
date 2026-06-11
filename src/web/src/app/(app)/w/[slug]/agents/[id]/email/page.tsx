@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { useAgentContext } from "@/contexts/agent-context";
-import { listEmails, getEmailBody, getEmailThread, deleteEmail, sendEmail, listEmailAccounts, updateEmailStatus } from "@/lib/api";
+import { listEmails, getEmailBody, getEmailThread, deleteEmail, sendEmail, listEmailAccounts, updateEmailStatus, trustEmail } from "@/lib/api";
 import { toAlookAddress } from "@alook/shared";
 import type { Email, EmailAttachment, AgentEmailAccount } from "@alook/shared";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldAlert, ChevronDown } from "lucide-react";
+import { ArrowLeft, Loader2, Mail, Inbox, Send, Plus, Trash2, Forward, Reply, Paperclip, File as FileIcon, Copy, Check, ShieldAlert, ShieldCheck, ChevronDown } from "lucide-react";
 import { trackEmailComposed, trackEmailReceived } from "@/lib/analytics";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -65,6 +65,7 @@ export default function AgentEmailPage() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [trusting, setTrusting] = useState(false);
 
   const [emailAccounts, setEmailAccounts] = useState<AgentEmailAccount[]>([]);
   const [mailboxOpen, setMailboxOpen] = useState(false);
@@ -250,6 +251,20 @@ export default function AgentEmailPage() {
       ...buildThreadingContext(email),
     });
     setComposing(true);
+  };
+
+  const handleTrust = async (email: Email) => {
+    setTrusting(true);
+    try {
+      await trustEmail(email.id, workspaceId);
+      toast.success("Email trusted and sent to agent");
+      setEmails((prev) => prev.filter((e) => e.id !== email.id));
+      setSelectedId(null);
+    } catch {
+      toast.error("Failed to trust email");
+    } finally {
+      setTrusting(false);
+    }
   };
 
   const [copied, setCopied] = useState(false);
@@ -496,6 +511,20 @@ export default function AgentEmailPage() {
         <div className="flex flex-col h-full md:min-w-100 max-w-3xl mx-auto w-full">
           {/* Detail toolbar */}
           <div className="flex items-center gap-0.5 border-b border-border/40 px-4 py-1.5">
+            {folder === "untrust" && (
+              <Tooltip>
+                <TooltipTrigger render={<Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground/60 hover:text-foreground"
+                  disabled={trusting}
+                  onClick={() => handleTrust(selected)}
+                />}>
+                  {trusting ? <Loader2 className="size-3.5 animate-spin" /> : <ShieldCheck className="size-3.5" />}
+                </TooltipTrigger>
+                <TooltipContent>Trust this email</TooltipContent>
+              </Tooltip>
+            )}
             {folder !== "sent" && (
               <Tooltip>
                 <TooltipTrigger render={<Button

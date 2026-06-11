@@ -8,6 +8,8 @@ on:
 
 jobs:
   build:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +53,7 @@ jobs:
 
       - name: Read version
         id: version
+        shell: bash
         run: echo "version=$(tr -d '\n' < src/desktop/.deploy-version)" >> "$GITHUB_OUTPUT"
 
       - name: Build Tauri app
@@ -59,18 +62,51 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: src/desktop
           tagName: v${{ steps.version.outputs.version }}
-          releaseName: "Alook Desktop v${{ steps.version.outputs.version }}"
-          releaseBody: "See the assets below for download links."
-          releaseDraft: true
+          releaseName: "Alook v${{ steps.version.outputs.version }}"
+          releaseBody: ""
+          releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
           args: --target ${{ matrix.target }}
+
+  update-release-notes:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Read version
+        id: version
+        run: echo "version=$(tr -d '\n' < src/desktop/.deploy-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Append download links to release body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          TAG="v${VERSION}"
+          BASE="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+
+          EXISTING=$(gh release view "$TAG" --json body --jq '.body' 2>/dev/null || echo "")
+
+          DOWNLOADS="
+
+          ---
+
+          ## Download
+
+          ### macOS
+          [Apple Silicon](${BASE}/Alook_${VERSION}_aarch64.dmg) | [Intel](${BASE}/Alook_${VERSION}_x64.dmg)
+
+          ### Windows
+          [.exe Installer](${BASE}/Alook_${VERSION}_x64-setup.exe) | [.msi](${BASE}/Alook_${VERSION}_x64_en-US.msi)
+
+          ### Linux
+          [.deb](${BASE}/Alook_${VERSION}_amd64.deb) | [.rpm](${BASE}/Alook-${VERSION}-1.x86_64.rpm) | [.AppImage](${BASE}/Alook_${VERSION}_amd64.AppImage)"
+
+          gh release edit "$TAG" --notes "${EXISTING}${DOWNLOADS}"

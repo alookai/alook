@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const GITHUB_REPO = "alookai/alook";
-const TAG_PREFIX = "desktop-v";
+const TAG_PREFIX = "v";
 const CACHE_TTL = 300;
 
 const PLATFORM_MAP: Record<string, string> = {
@@ -54,8 +54,17 @@ export async function GET(
   }
 
   const releases = (await res.json()) as GitHubRelease[];
+  const suffix = PLATFORM_MAP[platformKey];
+  if (!suffix) {
+    return new NextResponse(null, { status: 204 });
+  }
+
   const desktopRelease = releases.find(
-    (r) => !r.draft && !r.prerelease && r.tag_name?.startsWith(TAG_PREFIX),
+    (r) =>
+      !r.draft &&
+      !r.prerelease &&
+      r.tag_name?.startsWith(TAG_PREFIX) &&
+      r.assets.some((a) => a.name.endsWith(suffix) && !a.name.endsWith(".sig")),
   );
 
   if (!desktopRelease) {
@@ -64,11 +73,6 @@ export async function GET(
 
   const latestVersion = desktopRelease.tag_name.replace(TAG_PREFIX, "");
   if (compareVersions(latestVersion, current_version) <= 0) {
-    return new NextResponse(null, { status: 204 });
-  }
-
-  const suffix = PLATFORM_MAP[platformKey];
-  if (!suffix) {
     return new NextResponse(null, { status: 204 });
   }
 

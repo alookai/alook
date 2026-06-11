@@ -48,7 +48,7 @@ function formReq(fields: Record<string, string | File>) {
 
 describe("POST /api/artifacts/upload", () => {
   it("uploads a file to R2 and creates an artifact record", async () => {
-    mockGetConversation.mockResolvedValue({ id: "c1", agentId: "a1" });
+    mockGetConversation.mockResolvedValue({ id: "c1", agentId: "a1", userId: "u1" });
     mockCreateArtifact.mockResolvedValue({ id: "art_xyz" });
     mockGetAgent.mockResolvedValue({ ownerId: "owner1" });
 
@@ -95,5 +95,37 @@ describe("POST /api/artifacts/upload", () => {
     });
     const res = await POST(req, {});
     expect(res.status).toBe(400);
+  });
+
+  it("uploads thumbnail to R2 when provided", async () => {
+    mockGetConversation.mockResolvedValue({ id: "c1", agentId: "a1", userId: "u1" });
+    mockCreateArtifact.mockResolvedValue({ id: "art_xyz" });
+    mockGetAgent.mockResolvedValue({ ownerId: "owner1" });
+
+    const file = new File(["img-data"], "photo.png", { type: "image/png" });
+    const thumb = new File(["thumb-data"], "thumb_photo.png.jpg", { type: "image/jpeg" });
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("thumbnail", thumb);
+    fd.append("conversation_id", "c1");
+
+    const res = await POST(new NextRequest("http://localhost/api/artifacts/upload", { method: "POST", body: fd }), {});
+    expect(res.status).toBe(200);
+    expect(mockPut).toHaveBeenCalledTimes(2);
+    const thumbCall = mockPut.mock.calls[1];
+    expect(thumbCall[0]).toContain("thumbnail.jpg");
+    expect(mockCreateArtifact.mock.calls[0]![1]).toHaveProperty("thumbnailR2Key");
+  });
+
+  it("skips thumbnail when not provided (backward compat)", async () => {
+    mockGetConversation.mockResolvedValue({ id: "c1", agentId: "a1", userId: "u1" });
+    mockCreateArtifact.mockResolvedValue({ id: "art_xyz" });
+    mockGetAgent.mockResolvedValue({ ownerId: "owner1" });
+
+    const file = new File(["hello"], "doc.txt", { type: "text/plain" });
+    const res = await POST(formReq({ file, conversation_id: "c1" }), {});
+    expect(res.status).toBe(200);
+    expect(mockPut).toHaveBeenCalledTimes(1);
+    expect(mockCreateArtifact.mock.calls[0]![1].thumbnailR2Key).toBeUndefined();
   });
 });

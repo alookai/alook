@@ -13,6 +13,7 @@ vi.mock("@alook/shared/crypto", () => ({ encrypt: vi.fn((v: string) => `enc(${v}
 const mockGetScoped = vi.fn();
 const mockUpdate = vi.fn();
 const mockDelete = vi.fn();
+const mockGetAgent = vi.fn();
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
@@ -24,6 +25,7 @@ vi.mock("@alook/shared", async () => {
         updateEmailAccount: (...a: unknown[]) => mockUpdate(...a),
         deleteEmailAccount: (...a: unknown[]) => mockDelete(...a),
       },
+      agent: { getAgent: (...a: unknown[]) => mockGetAgent(...a) },
     },
   };
 });
@@ -54,7 +56,10 @@ const ROW = {
   createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
 };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGetAgent.mockResolvedValue({ id: "a1", visibility: "public", ownerId: "u1" });
+});
 
 const params = { id: "a1", accountId: "acc1" };
 

@@ -12,12 +12,16 @@ vi.mock("postal-mime", () => ({ default: { parse: (...a: unknown[]) => mockParse
 
 const mockGetById = vi.fn();
 const mockFilter = vi.fn();
+const mockGetAgent = vi.fn();
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   return {
     ...actual,
     filterDownloadableAttachments: (...a: unknown[]) => mockFilter(...a),
-    queries: { email: { getEmailById: (...a: unknown[]) => mockGetById(...a) } },
+    queries: {
+      email: { getEmailById: (...a: unknown[]) => mockGetById(...a) },
+      agent: { getAgent: (...a: unknown[]) => mockGetAgent(...a) },
+    },
   };
 });
 vi.mock("@/lib/middleware/auth", () => ({
@@ -56,7 +60,8 @@ describe("GET /api/email/[id]/attachment/[index]", () => {
   });
 
   it("404 when R2 object is missing", async () => {
-    mockGetById.mockResolvedValue({ id: "e1", r2Key: "k" });
+    mockGetById.mockResolvedValue({ id: "e1", agentId: "a1", r2Key: "k" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockBucketGet.mockResolvedValue(null);
     const res = await get({ id: "e1", index: "0" });
     expect(res.status).toBe(404);
@@ -64,7 +69,8 @@ describe("GET /api/email/[id]/attachment/[index]", () => {
   });
 
   it("404 when the index is out of range", async () => {
-    mockGetById.mockResolvedValue({ id: "e1", r2Key: "k" });
+    mockGetById.mockResolvedValue({ id: "e1", agentId: "a1", r2Key: "k" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockBucketGet.mockResolvedValue({ arrayBuffer: async () => new ArrayBuffer(4) });
     mockParse.mockResolvedValue({ attachments: [] });
     mockFilter.mockReturnValue([]);
@@ -74,7 +80,8 @@ describe("GET /api/email/[id]/attachment/[index]", () => {
   });
 
   it("streams the attachment with content headers", async () => {
-    mockGetById.mockResolvedValue({ id: "e1", r2Key: "k" });
+    mockGetById.mockResolvedValue({ id: "e1", agentId: "a1", r2Key: "k" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockBucketGet.mockResolvedValue({ arrayBuffer: async () => new ArrayBuffer(4) });
     mockParse.mockResolvedValue({ attachments: [{}] });
     mockFilter.mockReturnValue([

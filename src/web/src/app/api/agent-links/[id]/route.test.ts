@@ -3,6 +3,8 @@ import { NextRequest } from "next/server";
 
 const mockUpdate = vi.fn();
 const mockRemove = vi.fn();
+const mockGetById = vi.fn();
+const mockGetAgent = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -15,7 +17,11 @@ vi.mock("@alook/shared", async () => {
   return {
     ...actual,
     queries: {
+      agent: {
+        getAgent: (...a: unknown[]) => mockGetAgent(...a),
+      },
       agentLink: {
+        getById: (...a: unknown[]) => mockGetById(...a),
         update: (...a: unknown[]) => mockUpdate(...a),
         remove: (...a: unknown[]) => mockRemove(...a),
       },
@@ -32,6 +38,14 @@ vi.mock("@/lib/middleware/auth", () => ({
 
 vi.mock("@/lib/middleware/workspace", () => ({
   withWorkspaceMember: vi.fn(async () => ({ workspaceId: "ws1" })),
+}));
+
+vi.mock("@/lib/cache", () => ({
+  invalidate: vi.fn(),
+  cacheKeys: {
+    allColleagues: (ws: string) => `allColleagues:${ws}`,
+    agentLinks: (ws: string) => `agentLinks:${ws}`,
+  },
 }));
 
 vi.mock("@/lib/api/responses", () => ({
@@ -52,6 +66,16 @@ describe("PATCH /api/agent-links/[id]", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("updates instruction", async () => {
+    mockGetById.mockResolvedValue({
+      id: "al_1",
+      workspaceId: "ws1",
+      sourceAgentId: "ag_a",
+      targetAgentId: "ag_b",
+      instruction: "old instruction",
+      createdAt: "2026-04-01T00:00:00.000Z",
+      updatedAt: "2026-04-01T00:00:00.000Z",
+    });
+    mockGetAgent.mockResolvedValue({ id: "ag_a" });
     mockUpdate.mockResolvedValue({
       id: "al_1",
       workspaceId: "ws1",
@@ -73,7 +97,7 @@ describe("PATCH /api/agent-links/[id]", () => {
   });
 
   it("returns 404 when link not found", async () => {
-    mockUpdate.mockResolvedValue(null);
+    mockGetById.mockResolvedValue(null);
     const req = new NextRequest("http://localhost/api/agent-links/al_nope", {
       method: "PATCH",
       body: JSON.stringify({ instruction: "test" }),
@@ -88,6 +112,16 @@ describe("DELETE /api/agent-links/[id]", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("deletes a link", async () => {
+    mockGetById.mockResolvedValue({
+      id: "al_1",
+      workspaceId: "ws1",
+      sourceAgentId: "ag_a",
+      targetAgentId: "ag_b",
+      instruction: "",
+      createdAt: "2026-04-01T00:00:00.000Z",
+      updatedAt: "2026-04-01T00:00:00.000Z",
+    });
+    mockGetAgent.mockResolvedValue({ id: "ag_a" });
     mockRemove.mockResolvedValue({
       id: "al_1",
       workspaceId: "ws1",
@@ -105,7 +139,7 @@ describe("DELETE /api/agent-links/[id]", () => {
   });
 
   it("returns 404 for unknown link", async () => {
-    mockRemove.mockResolvedValue(null);
+    mockGetById.mockResolvedValue(null);
     const req = new NextRequest("http://localhost/api/agent-links/al_nope", {
       method: "DELETE",
     });

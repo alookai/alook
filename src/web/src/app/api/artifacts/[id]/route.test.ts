@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockGetArtifact = vi.fn();
+const mockGetAgent = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -18,6 +19,7 @@ vi.mock("@alook/shared", async () => {
         getArtifact: (...a: unknown[]) => mockGetArtifact(...a),
         artifactToResponse: (row: any) => ({ id: row.id, filename: row.filename }),
       },
+      agent: { getAgent: (...a: unknown[]) => mockGetAgent(...a) },
     },
   };
 });
@@ -39,7 +41,8 @@ beforeEach(() => vi.clearAllMocks());
 
 describe("GET /api/artifacts/[id]", () => {
   it("returns artifact metadata for machine-token workspace access", async () => {
-    mockGetArtifact.mockResolvedValue({ id: "art_1", filename: "brief.md" });
+    mockGetArtifact.mockResolvedValue({ id: "art_1", agentId: "ag1", filename: "brief.md" });
+    mockGetAgent.mockResolvedValue({ id: "ag1" });
     const res = await GET(new NextRequest("http://localhost/api/artifacts/art_1?workspace_id=w1"), { params: { id: "art_1" } } as any);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ id: "art_1", filename: "brief.md" });

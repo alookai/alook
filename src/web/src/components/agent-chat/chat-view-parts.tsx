@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import type { Artifact } from "@alook/shared";
 import { useAgentContext } from "@/contexts/agent-context";
 import { AgentPreviewCard } from "@/components/agent-preview-card";
@@ -10,6 +10,7 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { FileCard } from "@/components/agent-chat/event-cards/file-card";
+import { getArtifactThumbnailUrl } from "@/components/artifact-content-renderer";
 
 function MentionHighlight(
   props: Record<string, unknown> & { children?: React.ReactNode },
@@ -82,12 +83,37 @@ export function ArtifactCard({
   version,
   hasDuplicates,
   onClick,
+  workspaceId,
 }: {
   artifact: Artifact;
   version: number;
   hasDuplicates: boolean;
   onClick: (a: Artifact) => void;
+  workspaceId: string;
 }) {
+  const [thumbError, setThumbError] = useState(false);
+  const thumbnailUrl = artifact.has_thumbnail
+    ? getArtifactThumbnailUrl(artifact.id, workspaceId)
+    : undefined;
+
+  if (thumbnailUrl && !thumbError) {
+    return (
+      <button
+        type="button"
+        onClick={() => onClick(artifact)}
+        className="max-w-64 overflow-hidden rounded-(--radius) border border-(--border) cursor-pointer [transition:translate_.2s_cubic-bezier(.2,.8,.2,1),box-shadow_.2s_ease] hover:-translate-y-0.5 [box-shadow:var(--e1)] hover:[box-shadow:var(--e2)]"
+      >
+        <img
+          src={thumbnailUrl}
+          alt={artifact.filename}
+          loading="lazy"
+          onError={() => setThumbError(true)}
+          className="block w-full h-auto"
+        />
+      </button>
+    );
+  }
+
   return (
     <FileCard
       filename={artifact.filename}

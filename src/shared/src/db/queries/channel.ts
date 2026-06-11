@@ -1,6 +1,7 @@
 import { eq, and, asc, sql } from "drizzle-orm";
 import { channel, conversation } from "../schema";
 import type { Database } from "../index";
+import { deleteUnreadByChannel } from "./inbox";
 
 export async function createChannel(
   db: Database,
@@ -64,6 +65,7 @@ export async function deleteChannel(
   const row = await getChannelById(db, id, workspaceId);
   if (!row) return null;
 
+  await deleteUnreadByChannel(db, workspaceId, row.name);
   await db.batch([
     db
       .delete(conversation)

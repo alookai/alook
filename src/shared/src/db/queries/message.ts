@@ -1,4 +1,4 @@
-import { eq, asc, desc, and, lt, gte, or, count } from "drizzle-orm";
+import { eq, asc, desc, and, lt, gte, or, count, sql } from "drizzle-orm";
 import { message } from "../schema";
 import type { Database } from "../index";
 
@@ -112,6 +112,31 @@ export async function getMessage(db: Database, id: string) {
 
 export async function updateMessageTaskId(db: Database, messageId: string, taskId: string) {
   await db.update(message).set({ taskId }).where(eq(message.id, messageId));
+}
+
+export async function listMessagesUpTo(
+  db: Database,
+  conversationId: string,
+  targetMessageId: string
+) {
+  const target = await db
+    .select({ createdAt: message.createdAt })
+    .from(message)
+    .where(eq(message.id, targetMessageId));
+  if (target.length === 0) return [];
+  const pivotTime = target[0]!.createdAt;
+  const rows = await db
+    .select()
+    .from(message)
+    .where(
+      and(
+        eq(message.conversationId, conversationId),
+        eq(message.status, "active"),
+        sql`(${message.createdAt} < ${pivotTime} OR ${message.id} = ${targetMessageId})`
+      )
+    )
+    .orderBy(asc(message.createdAt));
+  return rows;
 }
 
 export async function listMessagesAroundTask(

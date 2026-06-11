@@ -84,6 +84,11 @@ export async function updateEmailStatus(db: Database, id: string, workspaceId: s
   return rows[0] ?? null;
 }
 
+export async function updateEmailWhitelisted(db: Database, id: string, workspaceId: string, isWhitelisted: boolean) {
+  const rows = await db.update(emails).set({ isWhitelisted }).where(and(eq(emails.id, id), eq(emails.workspaceId, workspaceId))).returning();
+  return rows[0] ?? null;
+}
+
 export async function deleteEmail(db: Database, id: string, workspaceId: string) {
   return db.delete(emails).where(and(eq(emails.id, id), eq(emails.workspaceId, workspaceId)));
 }

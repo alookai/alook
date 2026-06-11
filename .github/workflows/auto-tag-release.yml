@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-tags: true
+          fetch-depth: 0
 
       - name: Extract version from commit message
         id: version
@@ -49,19 +49,45 @@ jobs:
           git tag "${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
 
+      - name: Generate changelog with git-cliff
+        if: steps.check.outputs.exists == 'false'
+        id: changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          args: --latest --strip header
+        env:
+          OUTPUT: CHANGELOG.md
+
+      - name: Get previous tag
+        if: steps.check.outputs.exists == 'false'
+        id: prev_tag
+        run: |
+          PREV=$(git tag --sort=-version:refname | grep -v "^${{ steps.version.outputs.tag }}$" | head -1)
+          echo "tag=${PREV:-}" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         if: steps.check.outputs.exists == 'false'
         id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANGELOG: ${{ steps.changelog.outputs.content }}
+          PREV_TAG: ${{ steps.prev_tag.outputs.tag }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" --generate-notes --title "${{ steps.version.outputs.tag }}"
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}"
-          BODY=$(gh release view "${{ steps.version.outputs.tag }}" --json body -q .body)
+          FULL_CHANGELOG=""
+          if [ -n "$PREV_TAG" ]; then
+            FULL_CHANGELOG="
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${TAG}"
+          fi
+          NOTES="${CHANGELOG}${FULL_CHANGELOG}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "$NOTES"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/$TAG"
           {
             echo "url=$RELEASE_URL"
             echo "body<<EOF"
-            echo "$BODY"
+            echo "$NOTES"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 

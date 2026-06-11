@@ -42,12 +42,8 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     parsedStatus = parsed.data;
   }
 
-  if (agentId) {
-    const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId);
-    if (!agent) return writeError("agent not found in workspace", 404);
-  }
-
   const rows = await queries.issue.listIssues(db, ws.workspaceId, {
+    userId: ctx.userId,
     agentId,
     status: parsedStatus,
     terminal: terminalParam === null ? undefined : terminalParam === "true",

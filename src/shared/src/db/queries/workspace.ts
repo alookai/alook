@@ -8,6 +8,7 @@ export async function getWorkspace(db: Database, id: string, userId: string) {
       id: workspace.id,
       name: workspace.name,
       slug: workspace.slug,
+      onboarded: workspace.onboarded,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
     })
@@ -28,6 +29,7 @@ export async function listWorkspaces(db: Database, userId: string) {
       id: workspace.id,
       name: workspace.name,
       slug: workspace.slug,
+      onboarded: workspace.onboarded,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
     })
@@ -55,6 +57,13 @@ export async function updateWorkspace(db: Database, id: string, data: { name?: s
     .where(eq(workspace.id, id))
     .returning();
   return rows[0] ?? null;
+}
+
+export async function markOnboarded(db: Database, id: string) {
+  await db
+    .update(workspace)
+    .set({ onboarded: 1, updatedAt: new Date().toISOString() })
+    .where(eq(workspace.id, id));
 }
 
 export async function deleteWorkspace(db: Database, id: string) {

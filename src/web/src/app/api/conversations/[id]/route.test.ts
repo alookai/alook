@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const mockGetConversation = vi.fn();
 const mockDeleteConversation = vi.fn();
 const mockDeleteTasksByConversation = vi.fn();
+const mockDeleteUnreadByConversation = vi.fn();
 const mockConversationToResponse = vi.fn((c: any) => ({ id: c.id, title: c.title }));
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -20,6 +21,9 @@ vi.mock("@alook/shared", () => ({
     },
     task: {
       deleteTasksByConversation: (...args: any[]) => mockDeleteTasksByConversation(...args),
+    },
+    inbox: {
+      deleteUnreadByConversation: (...args: any[]) => mockDeleteUnreadByConversation(...args),
     },
   },
 }));
@@ -44,7 +48,7 @@ describe("GET /api/conversations/[id]", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("returns conversation scoped by workspaceId", async () => {
-    const conv = { id: "c1", title: "Test", workspaceId: "w1" };
+    const conv = { id: "c1", title: "Test", workspaceId: "w1", userId: "u1" };
     mockGetConversation.mockResolvedValue(conv);
 
     const res = await GET(
@@ -68,7 +72,7 @@ describe("GET /api/conversations/[id]", () => {
     const body = await res.json();
 
     expect(res.status).toBe(404);
-    expect(body.error).toBe("conversation not found");
+    expect(body.error).toBe("not found");
   });
 });
 
@@ -76,7 +80,7 @@ describe("DELETE /api/conversations/[id]", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("returns 204 and removes conversation + tasks with workspace scoping", async () => {
-    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1" });
+    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1", userId: "u1" });
     mockDeleteTasksByConversation.mockResolvedValue(undefined);
     mockDeleteConversation.mockResolvedValue(undefined);
 
@@ -92,9 +96,12 @@ describe("DELETE /api/conversations/[id]", () => {
 
   it("deletes tasks before conversation", async () => {
     const callOrder: string[] = [];
-    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1" });
+    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1", userId: "u1" });
     mockDeleteTasksByConversation.mockImplementation(async () => {
       callOrder.push("tasks");
+    });
+    mockDeleteUnreadByConversation.mockImplementation(async () => {
+      callOrder.push("unread");
     });
     mockDeleteConversation.mockImplementation(async () => {
       callOrder.push("conversation");
@@ -105,7 +112,7 @@ describe("DELETE /api/conversations/[id]", () => {
       withParams("c1")
     );
 
-    expect(callOrder).toEqual(["tasks", "conversation"]);
+    expect(callOrder).toEqual(["tasks", "unread", "conversation"]);
   });
 
   it("returns 404 when conversation not found", async () => {
@@ -118,6 +125,6 @@ describe("DELETE /api/conversations/[id]", () => {
     const body = await res.json();
 
     expect(res.status).toBe(404);
-    expect(body.error).toBe("conversation not found");
+    expect(body.error).toBe("not found");
   });
 });

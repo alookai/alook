@@ -103,6 +103,14 @@ export async function upsertByPair(
   return { row: created, created: true };
 }
 
+export async function getById(db: Database, id: string, workspaceId: string) {
+  const rows = await db
+    .select()
+    .from(agentLink)
+    .where(and(eq(agentLink.id, id), eq(agentLink.workspaceId, workspaceId)));
+  return rows[0] ?? null;
+}
+
 export async function update(
   db: Database,
   id: string,

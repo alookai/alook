@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, isNull } from "drizzle-orm";
+import { eq, and, desc, isNull } from "drizzle-orm";
 import { machineToken, user } from "../schema";
 import type { Database } from "../index";
 
@@ -66,44 +66,26 @@ export async function getPendingMachineToken(
   return rows[0] ?? null;
 }
 
-export async function registerMachineToken(
+export async function activateMachineToken(
   db: Database,
   id: string,
   hostname: string,
-  runtimesJson: string,
 ) {
   await db
     .update(machineToken)
-    .set({ status: "registered", hostname, runtimesJson })
+    .set({ status: "active", hostname })
     .where(eq(machineToken.id, id));
-}
-
-export async function activateMachineToken(db: Database, id: string, workspaceId?: string) {
-  await db
-    .update(machineToken)
-    .set({ status: "active", ...(workspaceId ? { workspaceId } : {}) })
-    .where(eq(machineToken.id, id));
-}
-
-export async function getRegisteredTokenForUser(db: Database, userId: string) {
-  const rows = await db
-    .select()
-    .from(machineToken)
-    .where(and(eq(machineToken.userId, userId), eq(machineToken.status, "registered")))
-    .orderBy(asc(machineToken.createdAt))
-    .limit(1);
-  return rows[0] ?? null;
 }
 
 export async function getLatestTokenForUser(db: Database, userId: string) {
   const rows = await db
     .select({
       id: machineToken.id,
+      token: machineToken.token,
       status: machineToken.status,
       workspaceId: machineToken.workspaceId,
       hostname: machineToken.hostname,
       lastUsedAt: machineToken.lastUsedAt,
-      runtimesJson: machineToken.runtimesJson,
     })
     .from(machineToken)
     .where(eq(machineToken.userId, userId))

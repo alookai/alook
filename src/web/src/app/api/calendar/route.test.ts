@@ -17,7 +17,10 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     createDb: vi.fn(() => ({})),
     queries: {
-      agent: { getAgent: (...a: unknown[]) => mockGetAgent(...a) },
+      agent: {
+        getAgent: (...a: unknown[]) => mockGetAgent(...a),
+        listAgents: vi.fn().mockResolvedValue([]),
+      },
       calendarEvent: {
         listCalendarEvents: (...a: unknown[]) => mockList(...a),
         createCalendarEvent: (...a: unknown[]) => mockCreate(...a),
@@ -75,17 +78,19 @@ describe("GET /api/calendar", () => {
     expect(body).toHaveLength(1);
     expect(body[0].id).toBe("ce_1");
     expect(mockList).toHaveBeenCalledWith({}, "ws1", {
+      userId: "u1",
       agentId: "ag_1",
       from: "2026-04-01T00:00:00.000Z",
       to: "2026-04-30T23:59:59.999Z",
     });
   });
 
-  it("returns 404 when filter agent is not in the workspace", async () => {
-    mockGetAgent.mockResolvedValue(null);
+  it("returns empty when filter agent has no events", async () => {
+    mockList.mockResolvedValue([]);
     const req = new NextRequest("http://localhost/api/calendar?agentId=ag_nope");
     const res = await GET(req, {} as any);
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
   });
 
   it("expands daily recurring events into one row per occurrence", async () => {

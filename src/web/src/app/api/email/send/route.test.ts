@@ -13,6 +13,7 @@ const mockEmailBucketPut = vi.fn();
 const mockWorkerSelfRefFetch = vi.fn();
 const mockCreateMapping = vi.fn();
 const mockGetConversation = vi.fn();
+const mockCreateMessage = vi.fn();
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({
@@ -66,6 +67,9 @@ vi.mock("@alook/shared", async () => {
       conversationMap: {
         createMapping: (...args: unknown[]) => mockCreateMapping(...args),
       },
+      message: {
+        createMessage: (...args: unknown[]) => mockCreateMessage(...args),
+      },
     },
   };
 });
@@ -93,6 +97,10 @@ vi.mock("@/lib/middleware/helpers", async () => {
 
 vi.mock("@/lib/api/responses", () => ({
   emailToResponse: (e: any) => e,
+}));
+
+vi.mock("@/lib/broadcast", () => ({
+  broadcastToUser: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { POST } from "./route";
@@ -701,6 +709,130 @@ describe("POST /api/email/send", () => {
 
       const res = await POST(req, {} as any);
       expect(res.status).toBe(200);
+      expect(mockCreateMapping).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("cross-link metadata (targetConversationId)", () => {
+    it("passes senderConversationId in notify payload for internal non-self delivery (TC1)", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1", ownerId: "u1" });
+      mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });
+      mockIsWhitelisted.mockResolvedValue(true);
+      mockWorkerSelfRefFetch.mockResolvedValue(Response.json({ ok: true, conversationId: "conv_b" }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+      mockGetConversation.mockResolvedValue({ id: "conv_a" });
+      mockCreateMessage.mockResolvedValue({ id: "m1", conversationId: "conv_a", role: "event", content: "", taskId: null, createdAt: "2026-01-01" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "agent-b@alook.ai",
+        subject: "Cross link",
+        htmlBody: "<p>Hi</p>",
+        conversationId: "conv_a",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      const payload = JSON.parse(mockWorkerSelfRefFetch.mock.calls[0][1].body);
+      expect(payload.senderConversationId).toBe("conv_a");
+      expect(payload.senderAgentId).toBe("a1");
+    });
+
+    it("stamps targetConversationId in outbound event metadata (TC1)", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1", ownerId: "u1" });
+      mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });
+      mockIsWhitelisted.mockResolvedValue(true);
+      mockWorkerSelfRefFetch.mockResolvedValue(Response.json({ ok: true, conversationId: "conv_b" }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+      mockGetConversation.mockResolvedValue({ id: "conv_a" });
+      mockCreateMessage.mockResolvedValue({ id: "m1", conversationId: "conv_a", role: "event", content: "", taskId: null, createdAt: "2026-01-01" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "agent-b@alook.ai",
+        subject: "Cross link",
+        htmlBody: "<p>Hi</p>",
+        conversationId: "conv_a",
+      });
+
+      await POST(req, {} as any);
+
+      const metadataArg = mockCreateMessage.mock.calls[0]![1] as { metadata: string };
+      const parsed = JSON.parse(metadataArg.metadata);
+      expect(parsed.targetConversationId).toBe("conv_b");
+      expect(parsed.targetAgentId).toBe("a2");
+      expect(parsed.direction).toBe("outbound");
+    });
+
+    it("does NOT include cross-link metadata for external emails (TC3)", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "test-agent", ownerId: "u1" });
+      mockEmailWorkerFetch.mockResolvedValue(
+        Response.json({ ok: true, r2Key: "emails/abc/raw", messageId: "<msg1@ext.com>" }),
+      );
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+      mockGetConversation.mockResolvedValue({ id: "conv_a" });
+      mockCreateMessage.mockResolvedValue({ id: "m1", conversationId: "conv_a", role: "event", content: "", taskId: null, createdAt: "2026-01-01" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "user@gmail.com",
+        subject: "External",
+        htmlBody: "<p>Hi</p>",
+        conversationId: "conv_a",
+      });
+
+      await POST(req, {} as any);
+
+      const metadataArg = mockCreateMessage.mock.calls[0]![1] as { metadata: string };
+      const parsed = JSON.parse(metadataArg.metadata);
+      expect(parsed.targetConversationId).toBeUndefined();
+      expect(parsed.targetAgentId).toBeUndefined();
+    });
+
+    it("does NOT pass senderConversationId for self-send (TC16)", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1", ownerId: "u1" });
+      mockGetAgentByHandle.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockIsWhitelisted.mockResolvedValue(false);
+      mockWorkerSelfRefFetch.mockResolvedValue(Response.json({ ok: true }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+      mockGetConversation.mockResolvedValue({ id: "conv_a" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "sender-agent@alook.ai",
+        subject: "Self send",
+        htmlBody: "<p>Self</p>",
+        conversationId: "conv_a",
+      });
+
+      await POST(req, {} as any);
+
+      const payload = JSON.parse(mockWorkerSelfRefFetch.mock.calls[0][1].body);
+      expect(payload.senderConversationId).toBeUndefined();
+      expect(payload.senderAgentId).toBeUndefined();
+    });
+
+    it("notify failure does NOT create orphaned mapping (TC17)", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });
+      mockIsWhitelisted.mockResolvedValue(false);
+      mockEmailBucketPut.mockResolvedValue(undefined);
+      mockWorkerSelfRefFetch.mockResolvedValue(
+        new Response("notify failed", { status: 500 }),
+      );
+      mockGetConversation.mockResolvedValue({ id: "conv_a" });
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "agent-b@alook.ai",
+        subject: "Fail notify map",
+        htmlBody: "<p>Fail</p>",
+        conversationId: "conv_a",
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(500);
       expect(mockCreateMapping).not.toHaveBeenCalled();
     });
   });

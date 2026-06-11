@@ -175,7 +175,6 @@ export const DaemonPushMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("daemon.update"), version: z.string() }),
   z.object({ type: z.literal("daemon.rescan") }),
   z.object({ type: z.literal("daemon.kill"), workspaceId: z.string(), agentId: z.string().min(1), taskId: z.string(), targetTaskId: z.string() }),
-  z.object({ type: z.literal("daemon.workspace_added"), workspaceId: z.string(), workspaceName: z.string(), token: z.string() }),
 ]);
 export type DaemonPushMessageType = z.infer<typeof DaemonPushMessageSchema>;
 
@@ -225,10 +224,6 @@ export const RegisterDaemonRequestSchema = z.object({
 });
 export type RegisterDaemonRequest = z.infer<typeof RegisterDaemonRequestSchema>;
 
-export const BindWorkspaceRequestSchema = z.object({
-  workspace_id: z.string().min(1),
-});
-export type BindWorkspaceRequest = z.infer<typeof BindWorkspaceRequestSchema>;
 
 export const DeregisterRequestSchema = z.object({
   daemon_id: z.string().min(1),
@@ -617,6 +612,8 @@ export const EmailNotifyRequestSchema = z.object({
   traceId: z.string().optional(),
   sourceTaskId: z.string().optional(),
   isInternal: z.boolean().optional().default(false),
+  senderConversationId: z.string().optional(),
+  senderAgentId: z.string().optional(),
 });
 export type EmailNotifyRequest = z.infer<typeof EmailNotifyRequestSchema>;
 
@@ -687,7 +684,7 @@ export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequestSchema>;
 
 export const CreateWorkspaceRequestSchema = z.object({
   name: z.string().min(1, "name is required"),
-  slug: z.string().min(1, "slug is required"),
+  slug: z.string().optional().default(""),
 });
 export type CreateWorkspaceRequest = z.infer<
   typeof CreateWorkspaceRequestSchema
@@ -802,3 +799,10 @@ export const RecruitAgentRequestSchema = z.object({
   context_key: z.string().optional(),
 });
 export type RecruitAgentRequest = z.infer<typeof RecruitAgentRequestSchema>;
+
+export const CreateThreadRequestSchema = z.object({
+  parent_message_id: z.string().min(1),
+  content: z.string().optional().default(""),
+  attachment_ids: z.array(z.string()).optional(),
+});
+export type CreateThreadRequest = z.infer<typeof CreateThreadRequestSchema>;

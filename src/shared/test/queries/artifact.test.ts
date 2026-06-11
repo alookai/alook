@@ -43,6 +43,7 @@ describe("artifactToResponse", () => {
       contentType: "application/pdf",
       size: 2048,
       r2Key: "uploads/report.pdf",
+      thumbnailR2Key: null,
       source: "upload",
       createdAt: "2026-01-15T10:00:00.000Z",
     };
@@ -57,8 +58,28 @@ describe("artifactToResponse", () => {
       content_type: "application/pdf",
       size: 2048,
       source: "upload",
+      has_thumbnail: false,
       created_at: "2026-01-15T10:00:00.000Z",
     });
+  });
+
+  it("returns has_thumbnail true when thumbnailR2Key is set", () => {
+    const row = {
+      id: "art_123",
+      conversationId: "conv_456",
+      agentId: "ag_789",
+      workspaceId: "ws_001",
+      filename: "photo.png",
+      contentType: "image/png",
+      size: 50000,
+      r2Key: "uploads/photo.png",
+      thumbnailR2Key: "uploads/photo_thumb.jpg",
+      source: "agent",
+      createdAt: "2026-01-15T10:00:00.000Z",
+    };
+
+    const result = artifactQueries.artifactToResponse(row as any);
+    expect(result.has_thumbnail).toBe(true);
   });
 
   it("excludes internal fields like r2Key and workspaceId", () => {
@@ -71,6 +92,7 @@ describe("artifactToResponse", () => {
       contentType: "text/plain",
       size: 100,
       r2Key: "secret/key",
+      thumbnailR2Key: null,
       source: null,
       createdAt: "2026-01-01T00:00:00.000Z",
     };
@@ -80,6 +102,7 @@ describe("artifactToResponse", () => {
     expect(result).not.toHaveProperty("r2Key");
     expect(result).not.toHaveProperty("workspace_id");
     expect(result).not.toHaveProperty("workspaceId");
+    expect(result).not.toHaveProperty("thumbnailR2Key");
   });
 
   it("handles null source", () => {
@@ -92,6 +115,7 @@ describe("artifactToResponse", () => {
       contentType: "text/plain",
       size: 0,
       r2Key: "key",
+      thumbnailR2Key: null,
       source: null,
       createdAt: "2026-01-01T00:00:00.000Z",
     };

@@ -2,12 +2,16 @@ import { NextRequest } from "next/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, WorkspaceFileBrowseRequestSchema } from "@alook/shared";
 import { withAuth } from "@/lib/middleware/auth";
+import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { parseBody, writeJSON, writeError } from "@/lib/middleware/helpers";
 import { getDb } from "@/lib/db";
 import { cacheKeys } from "@/lib/cache";
 import { broadcastToDaemon } from "@/lib/broadcast";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
+  const ws = await withWorkspaceMember(req, ctx);
+  if (ws instanceof Response) return ws;
+
   const { env } = getCloudflareContext();
   const db = getDb((env as Env).DB);
 
@@ -17,14 +21,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const [body, err] = await parseBody(req, WorkspaceFileBrowseRequestSchema);
   if (err) return err;
 
-  const workspaceId = new URL(req.url).searchParams.get("workspace_id");
-  if (!workspaceId) return writeError("workspace_id required", 400);
-
-  const agent = await queries.agent.getAgent(db, agentId, workspaceId);
-  if (!agent) return writeError("agent not found", 404);
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId);
+  if (!agent) return writeError("not found", 404);
 
   const row = await queries.workspaceFileRequest.createRequest(db, {
-    workspaceId,
+    workspaceId: ws.workspaceId,
     agentId,
     requestType: body.request_type,
     path: body.path,
@@ -32,7 +33,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const kv = (env as Env).CACHE_KV ?? null;
   if (kv) {
-    kv.put(cacheKeys.hasPendingFileRequest(workspaceId), "1", { expirationTtl: 60 }).catch(() => {});
+    kv.put(cacheKeys.hasPendingFileRequest(ws.workspaceId), "1", { expirationTtl: 60 }).catch(() => {});
   }
 
   // Push file request to daemon (best-effort)
@@ -41,7 +42,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     if (runtime) {
       broadcastToDaemon(runtime.daemonId, {
         type: "daemon.file_requests",
-        workspaceId,
+        workspaceId: ws.workspaceId,
         requests: [{ id: row.id, agent_id: agentId, request_type: body.request_type, path: body.path }],
       }).catch(() => {});
     }

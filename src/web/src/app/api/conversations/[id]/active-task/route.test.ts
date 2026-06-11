@@ -75,7 +75,7 @@ describe("GET /api/conversations/[id]/active-task", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("returns active task when one exists", async () => {
-    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1" });
+    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1", userId: "u1" });
     mockGetActiveTaskByConversation.mockResolvedValue({ id: "t1", status: "running" });
 
     const res = await GET(
@@ -90,7 +90,7 @@ describe("GET /api/conversations/[id]/active-task", () => {
   });
 
   it("returns 204 when no active task", async () => {
-    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1" });
+    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1", userId: "u1" });
     mockGetActiveTaskByConversation.mockResolvedValue(null);
 
     const res = await GET(
@@ -111,7 +111,7 @@ describe("GET /api/conversations/[id]/active-task", () => {
     const body = await res.json();
 
     expect(res.status).toBe(404);
-    expect(body.error).toBe("conversation not found");
+    expect(body.error).toBe("not found");
   });
 });
 
@@ -119,7 +119,7 @@ describe("DELETE /api/conversations/[id]/active-task", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("returns cancelled task", async () => {
-    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1" });
+    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1", userId: "u1" });
     mockCancelActiveTask.mockResolvedValue({ id: "t1", status: "cancelled" });
 
     const res = await DELETE(
@@ -133,7 +133,7 @@ describe("DELETE /api/conversations/[id]/active-task", () => {
   });
 
   it("returns 404 when no active task", async () => {
-    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1" });
+    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1", userId: "u1" });
     mockCancelActiveTask.mockResolvedValue(null);
 
     const res = await DELETE(
@@ -147,7 +147,7 @@ describe("DELETE /api/conversations/[id]/active-task", () => {
   });
 
   it("broadcasts task.updated on cancel", async () => {
-    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1" });
+    mockGetConversation.mockResolvedValue({ id: "c1", workspaceId: "w1", userId: "u1" });
     mockCancelActiveTask.mockResolvedValue({ id: "t1", status: "cancelled" });
 
     await DELETE(
@@ -172,6 +172,6 @@ describe("DELETE /api/conversations/[id]/active-task", () => {
     const body = await res.json();
 
     expect(res.status).toBe(404);
-    expect(body.error).toBe("conversation not found");
+    expect(body.error).toBe("not found");
   });
 });

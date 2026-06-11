@@ -8,6 +8,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 
 const mockGetById = vi.fn();
 const mockGetByMessageId = vi.fn();
+const mockGetAgent = vi.fn();
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual("@alook/shared");
   return {
@@ -17,6 +18,7 @@ vi.mock("@alook/shared", async () => {
         getEmailById: (...a: unknown[]) => mockGetById(...a),
         getEmailByMessageId: (...a: unknown[]) => mockGetByMessageId(...a),
       },
+      agent: { getAgent: (...a: unknown[]) => mockGetAgent(...a) },
     },
   };
 });
@@ -51,14 +53,16 @@ describe("GET /api/email/[id]/thread", () => {
   });
 
   it("returns [] when the email has no parent", async () => {
-    mockGetById.mockResolvedValue({ id: "e1", inReplyTo: null });
+    mockGetById.mockResolvedValue({ id: "e1", agentId: "a1", inReplyTo: null });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     const res = await get({ id: "e1" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
   });
 
   it("walks the reply chain oldest-first", async () => {
-    mockGetById.mockResolvedValue({ id: "e3", inReplyTo: "msg2" });
+    mockGetById.mockResolvedValue({ id: "e3", agentId: "a1", inReplyTo: "msg2" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     mockGetByMessageId
       .mockResolvedValueOnce({ id: "e2", inReplyTo: "msg1" })
       .mockResolvedValueOnce({ id: "e1", inReplyTo: null });
@@ -67,7 +71,8 @@ describe("GET /api/email/[id]/thread", () => {
   });
 
   it("stops at a cycle without infinite looping", async () => {
-    mockGetById.mockResolvedValue({ id: "e2", inReplyTo: "msgSelf" });
+    mockGetById.mockResolvedValue({ id: "e2", agentId: "a1", inReplyTo: "msgSelf" });
+    mockGetAgent.mockResolvedValue({ id: "a1" });
     // parent points back to a message id already seen → loop guard breaks
     mockGetByMessageId.mockResolvedValue({ id: "e1", inReplyTo: "msgSelf" });
     const res = await get({ id: "e2" });

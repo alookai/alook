@@ -317,10 +317,10 @@ describe("WebSocketDurableObject", () => {
   })
 
   describe("webSocketMessage — daemon auth flow", () => {
-    it("authenticates daemon with registered token (standby mode)", async () => {
+    it("rejects daemon with pending token (not yet activated)", async () => {
       const { durable } = createDO()
       mockGetMachineTokenByToken.mockResolvedValue({
-        id: "mt_1", userId: "u1", status: "registered", workspaceId: null,
+        id: "mt_1", userId: "u1", status: "pending", workspaceId: null,
       })
 
       const ws = createMockWebSocket()
@@ -328,11 +328,10 @@ describe("WebSocketDurableObject", () => {
 
       await durable.webSocketMessage(
         ws as any,
-        JSON.stringify({ type: "auth", machineToken: "al_standby123", daemonId: "my-daemon" }),
+        JSON.stringify({ type: "auth", machineToken: "al_pending123", daemonId: "my-daemon" }),
       )
 
-      expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "auth.ok" }))
-      expect(ws.deserializeAttachment()).toEqual({ type: "daemon", daemonId: "my-daemon", userId: "u1", authenticated: true })
+      expect(ws.close).toHaveBeenCalledWith(1008, "Unauthorized")
       expect(mockGetRuntimeIdsByDaemon).not.toHaveBeenCalled()
     })
 

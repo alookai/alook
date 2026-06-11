@@ -179,14 +179,15 @@ export default function RuntimesPage() {
     }
   };
 
-  // Derive effective optimistic sets: filter out entries whose server-side flag has cleared
+  // Derive effective optimistic sets: clear once server-side flag is gone AND runtime refreshed
   const effectiveUpdatingDaemons = useMemo(() => {
     if (updatingDaemons.size === 0) return updatingDaemons;
     const still = new Set<string>();
-    for (const rt of runtimes) {
-      const key = rt.daemon_id || rt.id;
-      if (updatingDaemons.has(key) && rt.pending_update_version) {
-        still.add(key);
+    for (const id of updatingDaemons) {
+      const rt = runtimes.find((r) => (r.daemon_id || r.id) === id);
+      // Keep optimistic state until runtime data confirms update is done (flag cleared)
+      if (!rt || rt.pending_update_version) {
+        still.add(id);
       }
     }
     return still;
@@ -356,7 +357,7 @@ export default function RuntimesPage() {
                         <div className="flex items-center gap-1">
                           {(() => {
                             const isUpdating = !!machine.pendingUpdateVersion || effectiveUpdatingDaemons.has(daemonId);
-                            const needsUpdate = latestCliVersion && (!machine.cliVersion || !semverGte(machine.cliVersion, latestCliVersion));
+                            const needsUpdate = machine.status === "online" && latestCliVersion && (!machine.cliVersion || !semverGte(machine.cliVersion, latestCliVersion));
                             if (isUpdating) {
                               return (
                                 <Button variant="ghost" size="sm" disabled className="text-xs h-6 px-2">

@@ -116,7 +116,7 @@ export function MobileTopBar() {
                 aria-label={agent.name}
                 className={cn(
                   "shrink-0 relative rounded-full transition-all",
-                  isActive && "ring-2 ring-primary"
+                  isActive && "ring-2 ring-primary/50"
                 )}
               >
                 <div className="size-7">

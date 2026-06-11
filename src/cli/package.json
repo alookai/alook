@@ -1,6 +1,6 @@
 {
   "name": "@alook/cli",
-  "version": "0.0.122",
+  "version": "0.0.140",
   "description": "Alook CLI — Enable Your Person Colleague",
   "license": "Apache-2.0",
   "homepage": "https://github.com/alookai/alook#readme",
@@ -38,7 +38,7 @@
   },
   "scripts": {
     "dev": "bun run src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target node --format esm --external citty --external commander --external postal-mime --external playwright-core && bun build daemon/session-runner.ts --outdir dist --target node --format esm --external citty --external commander --external postal-mime && bun build daemon/meeting-runner.ts --outdir dist --target node --format esm --external playwright-core && node scripts/prepare-dist.mjs",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external citty --external commander --external postal-mime --external playwright-core --external sharp && bun build daemon/session-runner.ts --outdir dist --target node --format esm --external citty --external commander --external postal-mime && bun build daemon/meeting-runner.ts --outdir dist --target node --format esm --external playwright-core && node scripts/prepare-dist.mjs",
     "prepack": "pnpm run build",
     "knip": "knip",
     "test": "vitest run",
@@ -50,15 +50,16 @@
     "citty": "^0.2.2",
     "commander": "^14.0.3",
     "playwright-core": "^1.60.0",
-    "postal-mime": "^2.7.4"
+    "postal-mime": "^2.7.4",
+    "sharp": "^0.33.0"
   },
   "devDependencies": {
     "@alook/shared": "workspace:*",
     "@types/bun": "^1.3.14",
     "eslint": "^10.3.0",
-    "knip": "^6.14.2",
+    "knip": "^6.16.1",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.4",
-    "vitest": "^4.1.7"
+    "typescript-eslint": "^8.60.1",
+    "vitest": "^4.1.8"
   }
 }

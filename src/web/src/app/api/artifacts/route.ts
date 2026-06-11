@@ -18,6 +18,11 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const { env } = getCloudflareContext();
   const db = getDb((env as Env).DB);
 
+  const conv = await queries.conversation.getConversation(db, conversationId, ws.workspaceId);
+  if (!conv || conv.userId !== ctx.userId) {
+    return writeError("not found", 404);
+  }
+
   const rows = await queries.artifact.listArtifactsByConversation(
     db,
     conversationId,

@@ -152,6 +152,7 @@ Detailed usage for each capability follows below.
   if (alookAddr) emailLines.push(`- '${alookAddr}' (default, Alook platform address)`);
   for (const a of customAddrs) emailLines.push(`- '${a}' (custom IMAP/SMTP mailbox)`);
   content += `\nYour email addresses:\n${emailLines.join("\n")}\n
+These are YOUR OWN agent email addresses — not the user's. You can only send and receive emails through your own addresses. You do NOT have access to the user's personal email inbox.
 
 ### Email command quick reference
 | Action | Command |

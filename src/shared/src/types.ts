@@ -15,6 +15,7 @@ export interface Workspace {
   id: string;
   name: string;
   slug: string;
+  onboarded: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -67,6 +68,8 @@ export interface Conversation {
   title: string;
   type: string;
   channel: string;
+  parent_message_id?: string | null;
+  thread_title?: string;
   created_at: string;
   message_count?: number;
 }
@@ -227,6 +230,7 @@ export interface Artifact {
   content_type: string;
   size: number;
   source: string;
+  has_thumbnail: boolean;
   created_at: string;
 }
 
@@ -279,9 +283,8 @@ export interface MeetingSession {
 
 /** WebSocket event types — single source of truth for the WS protocol. */
 export type WsMessage =
-  | { type: "machine.registered"; daemonId: string; hostname: string }
   | { type: "runtime.registered"; daemonId: string; hostname: string; workspaceId: string }
-  | { type: "runtime.status"; daemonId: string; workspaceId?: string; status: string; standby?: boolean }
+  | { type: "runtime.status"; daemonId: string; workspaceId?: string; status: string }
   | { type: "runtime.deleted"; daemonId: string }
   | { type: "task.created"; conversationId: string; task: TaskApi }
   | { type: "task.updated"; taskId: string; agentId: string; status: string }
@@ -293,6 +296,8 @@ export type WsMessage =
   | { type: "agent.created"; agentId: string; workspaceId: string; parentAgentId: string }
   | { type: "issue.comment"; issueId: string; comment: IssueComment }
   | { type: "workspace.files"; agentId: string; requestId: string; requestType: "tree" | "read"; result: WorkspaceFileResult }
+  | { type: "thread.created"; conversationId: string; threadConversationId: string; parentMessageId: string; threadTitle: string }
+  | { type: "thread.reply"; conversationId: string; threadConversationId: string; parentMessageId: string; replyCount: number }
 
 export interface WorkspaceFileResult {
   entries?: WorkspaceFileEntry[];
@@ -311,4 +316,3 @@ export type DaemonPushMessage =
   | { type: "daemon.update"; version: string }
   | { type: "daemon.rescan" }
   | { type: "daemon.kill"; workspaceId: string; agentId: string; taskId: string; targetTaskId: string }
-  | { type: "daemon.workspace_added"; workspaceId: string; workspaceName: string; token: string }

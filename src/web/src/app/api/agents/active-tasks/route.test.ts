@@ -33,6 +33,7 @@ vi.mock("@/lib/cache", () => ({
   cacheKeys: { allAgents: (w: string) => `ag:${w}`, allAgentAccess: (w: string) => `aa:${w}` },
 }));
 vi.mock("@/lib/agent-visibility", () => ({ filterVisibleAgents: vi.fn((a: any[]) => a) }));
+import { filterVisibleAgents } from "@/lib/agent-visibility";
 
 import { GET } from "./route";
 
@@ -51,17 +52,33 @@ describe("GET /api/agents/active-tasks", () => {
     expect(body.tasks[0]).toMatchObject({
       id: "t1", agent_id: "a1", agent: { name: "Agent 1", avatarUrl: "u" }, channel: "default",
     });
-    expect(mockListActive).toHaveBeenCalledWith({}, "w1");
+    expect(mockListActive).toHaveBeenCalledWith({}, "w1", ["a1"]);
   });
 
-  it("yields null agent when the task's agent isn't visible", async () => {
-    mockListActive.mockResolvedValue([
-      { id: "t1", agentId: "hidden", prompt: "x", status: "running", type: "dm", conversationId: "c1", channel: "ops", createdAt: "d" },
+  it("passes visible agent IDs to the query for filtering", async () => {
+    mockGetAllAgents.mockResolvedValue([
+      { id: "a1", name: "Visible", avatarUrl: "u", visibility: "public", ownerId: "u1" },
+      { id: "a2", name: "Hidden", avatarUrl: "h", visibility: "private", ownerId: "u2" },
     ]);
-    mockGetAllAgents.mockResolvedValue([]);
+    vi.mocked(filterVisibleAgents).mockReturnValue([
+      { id: "a1", name: "Visible", avatarUrl: "u", visibility: "public", ownerId: "u1" },
+    ]);
+    mockListActive.mockResolvedValue([
+      { id: "t1", agentId: "a1", prompt: "x", status: "running", type: "dm", conversationId: "c1", channel: "ops", createdAt: "d" },
+    ]);
     const res = await GET(new NextRequest("http://localhost/x"), {});
     const body = await res.json();
-    expect(body.tasks[0].agent).toBeNull();
-    expect(body.tasks[0].channel).toBe("ops");
+    expect(mockListActive).toHaveBeenCalledWith({}, "w1", ["a1"]);
+    expect(body.tasks).toHaveLength(1);
+    expect(body.tasks[0].agent_id).toBe("a1");
+  });
+
+  it("returns empty tasks when user has no visible agents", async () => {
+    mockGetAllAgents.mockResolvedValue([]);
+    vi.mocked(filterVisibleAgents).mockReturnValue([]);
+    const res = await GET(new NextRequest("http://localhost/x"), {});
+    const body = await res.json();
+    expect(body.tasks).toEqual([]);
+    expect(mockListActive).not.toHaveBeenCalled();
   });
 });

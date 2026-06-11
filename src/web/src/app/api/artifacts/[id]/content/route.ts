@@ -27,7 +27,12 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const row = await queries.artifact.getArtifact(db, id, ws.workspaceId);
   if (!row) {
-    return writeError("artifact not found", 404);
+    return writeError("not found", 404);
+  }
+
+  const agent = await queries.agent.getAgent(db, row.agentId, ws.workspaceId, ctx.userId);
+  if (!agent) {
+    return writeError("not found", 404);
   }
 
   const object = await bucket.get(row.r2Key);

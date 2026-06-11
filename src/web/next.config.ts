@@ -1,8 +1,14 @@
 import type { NextConfig } from "next";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import createMDX from "@next/mdx";
 
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8"));
+
 const nextConfig: NextConfig = {
+	env: {
+		NEXT_PUBLIC_APP_VERSION: pkg.version,
+	},
 	// Prevent the bundler from creating duplicate copies of @better-auth/core,
 	// which breaks AsyncLocalStorage-based request state (dual module hazard).
 	// See: https://www.better-auth.com/docs/reference/faq#troubleshooting

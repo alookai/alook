@@ -1,6 +1,6 @@
 {
   "productName": "Alook",
-  "version": "0.0.122",
+  "version": "0.0.140",
   "identifier": "ai.alook.desktop",
   "build": {
     "devUrl": "http://localhost:3000/workspaces?auto",
@@ -23,6 +23,7 @@
   },
   "app": {
     "withGlobalTauri": true,
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
@@ -32,6 +33,7 @@
         "minWidth": 800,
         "minHeight": 600,
         "center": true,
+        "visible": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": {
@@ -49,7 +51,7 @@
       "endpoints": [
         "https://alook.ai/api/desktop/update/{{target}}/{{arch}}/{{current_version}}"
       ],
-      "pubkey": "RWQPlpaQzeEs/+9cMasjAS1iJ21kfounWfvXsXXqTrNI/nF+fz4OCyjJ"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg4QUQ2RTkxNENEOTZGRDEKUldUUmI5bE1rVzZ0aUY5SGgxVmRjZkUxeTNUKzlpZC8rQXQ3R0xDTFBsUFV4Kzc0U3pXc3hRV1MK"
     },
     "deep-link": {
       "desktop": {

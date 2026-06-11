@@ -2,14 +2,14 @@ import { describe, it, expect } from "vitest";
 import { generateWorkspaceSlug } from "../../src/utils/slug";
 
 describe("generateWorkspaceSlug", () => {
-  it("starts with 'studio-' prefix", () => {
+  it("starts with 'company-' prefix", () => {
     const slug = generateWorkspaceSlug();
-    expect(slug.startsWith("studio-")).toBe(true);
+    expect(slug.startsWith("company-")).toBe(true);
   });
 
-  it("has correct total length (studio- prefix + 8 char nanoid)", () => {
+  it("has correct total length (company- prefix + 8 char nanoid)", () => {
     const slug = generateWorkspaceSlug();
-    expect(slug.length).toBe("studio-".length + 8);
+    expect(slug.length).toBe("company-".length + 8);
   });
 
   it("generates unique slugs", () => {

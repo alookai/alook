@@ -51,6 +51,9 @@ export const PATCH = withAuth(async (req, ctx) => {
   const accountId = ctx.params?.accountId
   if (!agentId || !accountId) return writeError("missing params", 400)
 
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId)
+  if (!agent) return writeError("not found", 404)
+
   const existing = await queries.emailAccount.getEmailAccountScoped(db, accountId, agentId, ws.workspaceId)
   if (!existing) return writeError("not found", 404)
 
@@ -101,6 +104,9 @@ export const DELETE = withAuth(async (req, ctx) => {
   const agentId = ctx.params?.id
   const accountId = ctx.params?.accountId
   if (!agentId || !accountId) return writeError("missing params", 400)
+
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId)
+  if (!agent) return writeError("not found", 404)
 
   const existing = await queries.emailAccount.getEmailAccountScoped(db, accountId, agentId, ws.workspaceId)
   if (!existing) return writeError("not found", 404)

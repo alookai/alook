@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
 
 export function generateWorkspaceSlug(): string {
-  return `studio-${nanoid(8)}`;
+  return `company-${nanoid(8)}`;
 }

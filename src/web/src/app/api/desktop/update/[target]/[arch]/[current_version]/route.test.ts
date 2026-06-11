@@ -18,7 +18,7 @@ function makeRelease(version: string, assets: { name: string; browser_download_u
   return {
     draft: false,
     prerelease: false,
-    tag_name: `desktop-v${version}`,
+    tag_name: `v${version}`,
     body: "Release notes",
     published_at: "2026-06-01T00:00:00Z",
     assets,

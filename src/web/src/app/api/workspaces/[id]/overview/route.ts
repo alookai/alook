@@ -49,6 +49,7 @@ export const GET = withAuth(async (req, ctx) => {
     cached(cacheKeys.allMembers(ws.workspaceId), 600, () => queries.member.listMembers(db, ws.workspaceId)),
     queries.workspaceInvite.listActiveInvites(db, ws.workspaceId),
     queries.calendarEvent.listCalendarEvents(db, ws.workspaceId, {
+      userId: ctx.userId,
       from: todayISO,
       to: weekEndISO,
     }),

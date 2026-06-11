@@ -74,7 +74,7 @@ function syncWorkspacesToConfig(
   }
 
   for (const w of watched) {
-    if (w.id && !serverIds.has(w.id) && w.status !== "registered") {
+    if (w.id && !serverIds.has(w.id)) {
       w.status = "deleted";
     }
   }
@@ -163,15 +163,24 @@ async function pollAndActivate(opts: {
   }
   syncWorkspacesToConfig(serverWorkspaces, profile, sessionToken);
 
-  const existingWorkspaceId = serverWorkspaces.length > 0 ? serverWorkspaces[0].id : "";
+  let workspaceId = serverWorkspaces.length > 0 ? serverWorkspaces[0].id : "";
 
-  const mtUrl = existingWorkspaceId
-    ? `/api/machine-tokens?workspace_id=${existingWorkspaceId}`
-    : "/api/machine-tokens";
+  if (!workspaceId) {
+    try {
+      const newWs = await client.postJSON<{ id: string; name: string }>("/api/workspaces", {
+        name: "Personal",
+        slug: email.split("@")[0]?.toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 48) || "personal",
+      });
+      workspaceId = newWs.id;
+    } catch (err) {
+      console.error(`Error: failed to create workspace: ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+  }
 
   let machineToken: string;
   try {
-    const mtResp = await client.postJSON<{ token: string }>(mtUrl);
+    const mtResp = await client.postJSON<{ token: string }>(`/api/machine-tokens?workspace_id=${workspaceId}`);
     machineToken = mtResp.token;
   } catch {
     process.exit(1);
@@ -182,8 +191,8 @@ async function pollAndActivate(opts: {
   if (email) {
     console.log(`\nLogged in as ${email}`);
   }
-  console.log(`Machine: ${result.daemonId} (status: ${result.tokenStatus})`);
-  console.log(`Workspace binding will happen when you launch a company.`);
+  console.log(`Workspace: ${result.workspaceName} (${result.workspaceId})`);
+  console.log(`Runtimes: ${result.runtimeProviders.join(", ")}`);
 }
 
 // Background polling entry point — invoked as a detached child process in non-TTY mode

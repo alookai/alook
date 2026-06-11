@@ -201,7 +201,7 @@ describe("GET /api/traces/[traceId]", () => {
     expect(body.channel).toBe("default");
   });
 
-  it("returns null agent for unknown agentId", async () => {
+  it("returns 404 when root agent is not visible", async () => {
     mockGetTraceTree.mockResolvedValue([
       {
         id: "task_1",
@@ -225,7 +225,7 @@ describe("GET /api/traces/[traceId]", () => {
     );
     const body = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(body.tasks[0].agent).toBeNull();
+    expect(res.status).toBe(404);
+    expect(body.error).toBe("not found");
   });
 });

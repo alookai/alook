@@ -105,23 +105,11 @@ export function workspaceCommand(): Command {
       }
 
       // Self-resolve workspace if not available from config/env
+      const parentOpts = getRootOpts(command) as { profile?: string };
       let targetWorkspaceId = resolvedWorkspaceId;
       if (!targetWorkspaceId) {
         const resolved = await resolveWorkspaceId(client, opts.name || config.name);
         targetWorkspaceId = resolved.workspaceId;
-
-        // If machine token is in "registered" status, bind it to this workspace
-        const parentOpts = getRootOpts(command) as { profile?: string };
-        const cfg = loadCLIConfigForProfile(parentOpts.profile);
-        const registeredWs = cfg.watched_workspaces?.find((w) => w.status === "registered" && !w.id);
-        if (registeredWs) {
-          try {
-            await client.postJSON("/api/machine-tokens/bind-workspace", { workspace_id: targetWorkspaceId });
-            console.log("Machine token bound to workspace. Waiting for runtime registration...");
-          } catch (err) {
-            console.warn(`Warning: bind-workspace failed: ${err instanceof Error ? err.message : err}`);
-          }
-        }
 
         // Poll for runtime to appear
         let runtimes: RuntimeResponse[] = [];

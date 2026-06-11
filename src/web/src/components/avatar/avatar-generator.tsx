@@ -327,7 +327,7 @@ export function AvatarGenerator({ config, onChange, layout = "vertical", mobile 
                           "rounded-full transition-shadow",
                           mobile ? "size-8" : "size-7",
                           config.bg === i
-                            ? "ring-2 ring-primary ring-offset-2"
+                            ? "ring-2 ring-primary/50 ring-offset-2"
                             : "ring-1 ring-border"
                         )}
                         style={{ background: `linear-gradient(135deg, ${c.gradient[0]}, ${c.gradient[1]}, ${c.gradient[2]})` }}

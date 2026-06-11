@@ -16,6 +16,9 @@ export const DELETE = withAuth(async (req, ctx) => {
   const whitelistId = ctx.params?.whitelistId;
   if (!agentId || !whitelistId) return writeError("missing required params", 400);
 
+  const agent = await queries.agent.getAgent(db, agentId, ws.workspaceId, ctx.userId);
+  if (!agent) return writeError("not found", 404);
+
   const removed = await queries.whitelist.removeWhitelist(db, whitelistId, agentId, ws.workspaceId);
   if (!removed) return writeError("whitelist entry not found", 404);
 

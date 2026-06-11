@@ -22,6 +22,7 @@ export function workspaceToResponse(w: any) {
     id: w.id,
     name: w.name,
     slug: w.slug,
+    onboarded: !!w.onboarded,
     created_at: formatTimestamp(w.createdAt),
     updated_at: formatTimestamp(w.updatedAt),
   };
@@ -124,6 +125,10 @@ export function conversationToResponse(c: any) {
     channel: c.channel ?? "default",
     created_at: formatTimestamp(c.createdAt),
   };
+  if (c.parentMessageId) {
+    resp.parent_message_id = c.parentMessageId;
+    resp.thread_title = c.threadTitle ?? "";
+  }
   if (c.messageCount !== undefined) {
     resp.message_count = c.messageCount;
   }
@@ -195,6 +200,7 @@ export function machineTokenToResponse(mt: any) {
   return {
     id: mt.id,
     name: mt.name,
+    status: mt.status,
     last_used_at: formatTimestampNullable(mt.lastUsedAt),
     created_at: formatTimestamp(mt.createdAt),
   };

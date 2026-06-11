@@ -102,7 +102,7 @@ describe("GET /api/traces", () => {
     expect(body.has_more).toBe(false);
   });
 
-  it("handles unknown agent (returns null for root_agent)", async () => {
+  it("filters out traces whose root agent is not visible", async () => {
     mockListTraces.mockResolvedValue({
       traces: [
         {
@@ -126,7 +126,7 @@ describe("GET /api/traces", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.traces[0].root_agent).toBeNull();
+    expect(body.traces).toHaveLength(0);
   });
 
   it("respects status filter", async () => {
