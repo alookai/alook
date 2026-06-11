@@ -91,7 +91,8 @@ export function StudioOnboardingClient({
         if (result.success) {
           setMachineRegistered(true);
           setDaemonOnline(true);
-          listRuntimes(workspaceId).then(setRuntimes).catch(() => {});
+          const rts = await listRuntimes(workspaceId).catch(() => [] as Runtime[]);
+          setRuntimes(rts);
         } else {
           toast.error(result.message || "Auto-registration failed");
         }
@@ -102,6 +103,13 @@ export function StudioOnboardingClient({
       setGeneratingToken(false);
     }
   }, [workspaceId, isTauriDesktop]);
+
+  // In Tauri desktop mode, auto-register the CLI when no runtime is online
+  useEffect(() => {
+    if (!isTauriDesktop || loadingRuntimes || hasOnlineRuntime || machineRegistered) return;
+    handleGenerateToken();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTauriDesktop, loadingRuntimes]);
 
   useEffect(() => {
     const firstOnline = onlineRuntimes[0]?.id;
