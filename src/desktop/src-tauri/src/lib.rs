@@ -45,6 +45,7 @@ pub fn run() {
             commands::check_for_updates,
             commands::install_update,
             commands::set_window_theme,
+            commands::is_daemon_online,
         ]);
     }
 
@@ -71,16 +72,9 @@ pub fn run() {
         });
 
         builder = builder.on_window_event(|window, event| {
-            match event {
-                tauri::WindowEvent::CloseRequested { api, .. } => {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
-                #[cfg(target_os = "macos")]
-                tauri::WindowEvent::Resized(_) => {
-                    macos_window::update_webview_frame(window);
-                }
-                _ => {}
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
             }
         });
     }

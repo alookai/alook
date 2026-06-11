@@ -86,6 +86,50 @@ fn cli_config() -> CliConfig {
 }
 
 #[cfg(desktop)]
+struct CliOutput {
+    success: bool,
+    stdout: String,
+    stderr: String,
+}
+
+#[cfg(desktop)]
+async fn run_cli(app: &AppHandle, extra_args: &[&str]) -> Result<CliOutput, String> {
+    let cfg = cli_config();
+    let mut args: Vec<&str> = cfg.base_args.to_vec();
+    args.extend_from_slice(extra_args);
+
+    let mut cmd = app.shell().command(cfg.command);
+    cmd = cmd.env("PATH", resolve_path());
+    for (key, val) in &cfg.env {
+        cmd = cmd.env(key, val);
+    }
+    if let Some(cwd) = &cfg.cwd {
+        cmd = cmd.current_dir(cwd.clone());
+    }
+    let output = cmd.args(&args).output().await.map_err(|e| e.to_string())?;
+
+    Ok(CliOutput {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    })
+}
+
+#[cfg(desktop)]
+fn to_command_result(output: CliOutput) -> CommandResult {
+    CommandResult {
+        success: output.success,
+        message: if output.success {
+            output.stdout
+        } else if output.stderr.trim().is_empty() {
+            output.stdout
+        } else {
+            output.stderr
+        },
+    }
+}
+
+#[cfg(desktop)]
 #[tauri::command]
 pub fn get_cli_info() -> CliInfo {
     let cfg = cli_config();
@@ -118,90 +162,33 @@ pub async fn register_cli(app: AppHandle, token: String) -> Result<CommandResult
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(CommandResult {
+    let cli_output = CliOutput {
         success: output.status.success(),
-        message: String::from_utf8_lossy(&output.stdout).to_string(),
-    })
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    };
+    Ok(to_command_result(cli_output))
 }
 
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn daemon_start(app: AppHandle) -> Result<CommandResult, String> {
-    let cfg = cli_config();
-    let mut args: Vec<&str> = cfg.base_args.to_vec();
-    args.extend_from_slice(&["daemon", "start"]);
-
-    let mut cmd = app.shell().command(cfg.command);
-    cmd = cmd.env("PATH", resolve_path());
-    for (key, val) in &cfg.env {
-        cmd = cmd.env(key, val);
-    }
-    if let Some(cwd) = &cfg.cwd {
-        cmd = cmd.current_dir(cwd.clone());
-    }
-    let output = cmd
-        .args(&args)
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(CommandResult {
-        success: output.status.success(),
-        message: String::from_utf8_lossy(&output.stdout).to_string(),
-    })
+    let output = run_cli(&app, &["daemon", "start"]).await?;
+    Ok(to_command_result(output))
 }
 
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn daemon_stop(app: AppHandle) -> Result<CommandResult, String> {
-    let cfg = cli_config();
-    let mut args: Vec<&str> = cfg.base_args.to_vec();
-    args.extend_from_slice(&["daemon", "stop"]);
-
-    let mut cmd = app.shell().command(cfg.command);
-    cmd = cmd.env("PATH", resolve_path());
-    for (key, val) in &cfg.env {
-        cmd = cmd.env(key, val);
-    }
-    if let Some(cwd) = &cfg.cwd {
-        cmd = cmd.current_dir(cwd.clone());
-    }
-    let output = cmd
-        .args(&args)
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(CommandResult {
-        success: output.status.success(),
-        message: String::from_utf8_lossy(&output.stdout).to_string(),
-    })
+    let output = run_cli(&app, &["daemon", "stop"]).await?;
+    Ok(to_command_result(output))
 }
 
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn daemon_status(app: AppHandle) -> Result<DaemonStatusResult, String> {
-    let cfg = cli_config();
-    let mut args: Vec<&str> = cfg.base_args.to_vec();
-    args.extend_from_slice(&["daemon", "status"]);
-
-    let mut cmd = app.shell().command(cfg.command);
-    cmd = cmd.env("PATH", resolve_path());
-    for (key, val) in &cfg.env {
-        cmd = cmd.env(key, val);
-    }
-    if let Some(cwd) = &cfg.cwd {
-        cmd = cmd.current_dir(cwd.clone());
-    }
-    let output = cmd
-        .args(&args)
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-
-    Ok(parse_daemon_status(&stdout))
+    let output = run_cli(&app, &["daemon", "status"]).await?;
+    Ok(parse_daemon_status(&output.stdout))
 }
 
 #[cfg(desktop)]
@@ -214,16 +201,16 @@ pub async fn cli_update(app: AppHandle) -> Result<CommandResult, String> {
         });
     }
 
-    let _ = app
-        .shell()
-        .command("npx")
+    let mut stop_cmd = app.shell().command("npx");
+    stop_cmd = stop_cmd.env("PATH", resolve_path());
+    let _ = stop_cmd
         .args(["--yes", "@alook/cli", "daemon", "stop"])
         .output()
         .await;
 
-    let start_output = app
-        .shell()
-        .command("npx")
+    let mut start_cmd = app.shell().command("npx");
+    start_cmd = start_cmd.env("PATH", resolve_path());
+    let start_output = start_cmd
         .args(["--yes", "@alook/cli@latest", "daemon", "start"])
         .output()
         .await
@@ -242,27 +229,10 @@ pub async fn cli_update(app: AppHandle) -> Result<CommandResult, String> {
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn cli_check(app: AppHandle) -> Result<CommandResult, String> {
-    let cfg = cli_config();
-    let mut args: Vec<&str> = cfg.base_args.to_vec();
-    args.push("--version");
-
-    let mut cmd = app.shell().command(cfg.command);
-    cmd = cmd.env("PATH", resolve_path());
-    for (key, val) in &cfg.env {
-        cmd = cmd.env(key, val);
-    }
-    if let Some(cwd) = &cfg.cwd {
-        cmd = cmd.current_dir(cwd.clone());
-    }
-    let output = cmd
-        .args(&args)
-        .output()
-        .await
-        .map_err(|e| e.to_string())?;
-
+    let output = run_cli(&app, &["--version"]).await?;
     Ok(CommandResult {
-        success: output.status.success(),
-        message: String::from_utf8_lossy(&output.stdout).trim().to_string(),
+        success: output.success,
+        message: output.stdout.trim().to_string(),
     })
 }
 
@@ -330,6 +300,12 @@ pub fn set_window_theme(window: tauri::WebviewWindow, dark: bool) {
             let _: () = msg_send![ns_window, setBackgroundColor: color];
         }
     }
+}
+
+#[cfg(desktop)]
+#[tauri::command]
+pub fn is_daemon_online() -> bool {
+    DAEMON_ONLINE.load(Ordering::Relaxed)
 }
 
 #[cfg(desktop)]
@@ -412,9 +388,9 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     std::thread::spawn(move || {
         loop {
-            std::thread::sleep(std::time::Duration::from_secs(5));
+            std::thread::sleep(std::time::Duration::from_secs(15));
             let h = handle.clone();
-            let online = tauri::async_runtime::block_on(check_daemon_status(&h));
+            let online = tauri::async_runtime::block_on(check_daemon_online(&h));
             DAEMON_ONLINE.store(online, Ordering::Relaxed);
             let icon_bytes: &[u8] = if online {
                 include_bytes!("../icons/tray-online.png")
@@ -533,42 +509,58 @@ pub fn auto_check_updates(handle: AppHandle) {
 }
 
 #[cfg(desktop)]
-async fn exec_daemon_cmd(handle: &AppHandle, subcommand: &[&str]) {
-    let shell = handle.shell();
-    let cfg = cli_config();
-    let mut args: Vec<&str> = cfg.base_args.to_vec();
-    args.extend_from_slice(subcommand);
-    let mut cmd = shell.command(cfg.command);
-    cmd = cmd.env("PATH", resolve_path());
-    for (key, val) in &cfg.env {
-        cmd = cmd.env(key, val);
+async fn check_daemon_online(handle: &AppHandle) -> bool {
+    match run_cli(handle, &["daemon", "status"]).await {
+        Ok(output) => parse_daemon_status(&output.stdout).running,
+        Err(_) => false,
     }
-    if let Some(cwd) = &cfg.cwd {
-        cmd = cmd.current_dir(cwd.clone());
-    }
-    let _ = cmd.args(&args).output().await;
 }
 
 #[cfg(desktop)]
-async fn check_daemon_status(handle: &AppHandle) -> bool {
-    let shell = handle.shell();
-    let cfg = cli_config();
-    let mut args: Vec<&str> = cfg.base_args.to_vec();
-    args.extend_from_slice(&["daemon", "status"]);
-    let mut cmd = shell.command(cfg.command);
-    cmd = cmd.env("PATH", resolve_path());
-    for (key, val) in &cfg.env {
-        cmd = cmd.env(key, val);
-    }
-    if let Some(cwd) = &cfg.cwd {
-        cmd = cmd.current_dir(cwd.clone());
-    }
-    match cmd.args(&args).output().await {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            parse_daemon_status(&stdout).running
+async fn stop_daemon_async(handle: &AppHandle) {
+    let _ = run_cli(handle, &["daemon", "stop"]).await;
+}
+
+#[cfg(desktop)]
+pub fn auto_start_daemon(handle: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        if check_daemon_online(&handle).await {
+            return;
         }
-        Err(_) => false,
+
+        match run_cli(&handle, &["daemon", "start"]).await {
+            Ok(output) if output.success => {
+                DAEMON_STARTED_BY_US.store(true, Ordering::Relaxed);
+            }
+            Ok(output) => {
+                let msg = if output.stderr.trim().is_empty() {
+                    "Failed to start daemon. Please start it manually with: npx @alook/cli daemon start".to_string()
+                } else {
+                    format!("Failed to start daemon: {}", output.stderr.trim())
+                };
+                let _ = handle.notification()
+                    .builder()
+                    .title("Alook")
+                    .body(&msg)
+                    .show();
+            }
+            Err(e) => {
+                let _ = handle.notification()
+                    .builder()
+                    .title("Alook")
+                    .body(&format!("Could not find CLI to start daemon: {}", e))
+                    .show();
+            }
+        }
+    });
+}
+
+#[cfg(desktop)]
+pub fn stop_daemon_blocking(handle: &AppHandle) {
+    if DAEMON_STARTED_BY_US.load(Ordering::Relaxed) {
+        tauri::async_runtime::block_on(async {
+            let _ = run_cli(handle, &["daemon", "stop"]).await;
+        });
     }
 }
 
@@ -595,65 +587,6 @@ pub fn parse_daemon_status(stdout: &str) -> DaemonStatusResult {
         running,
         pid,
         version: None,
-    }
-}
-
-#[cfg(desktop)]
-async fn stop_daemon_async(handle: &AppHandle) {
-    exec_daemon_cmd(handle, &["daemon", "stop"]).await;
-}
-
-#[cfg(desktop)]
-pub fn auto_start_daemon(handle: AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        if check_daemon_status(&handle).await {
-            return;
-        }
-
-        let shell = handle.shell();
-        let cfg = cli_config();
-        let mut args: Vec<&str> = cfg.base_args.to_vec();
-        args.extend_from_slice(&["daemon", "start"]);
-        let mut cmd = shell.command(cfg.command);
-        cmd = cmd.env("PATH", resolve_path());
-        for (key, val) in &cfg.env {
-            cmd = cmd.env(key, val);
-        }
-        if let Some(cwd) = &cfg.cwd {
-            cmd = cmd.current_dir(cwd.clone());
-        }
-        match cmd.args(&args).output().await {
-            Ok(output) if output.status.success() => {
-                DAEMON_STARTED_BY_US.store(true, Ordering::Relaxed);
-            }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let msg = if stderr.trim().is_empty() {
-                    "Failed to start daemon. Please start it manually with: npx @alook/cli daemon start".to_string()
-                } else {
-                    format!("Failed to start daemon: {}", stderr.trim())
-                };
-                let _ = handle.notification()
-                    .builder()
-                    .title("Alook")
-                    .body(&msg)
-                    .show();
-            }
-            Err(e) => {
-                let _ = handle.notification()
-                    .builder()
-                    .title("Alook")
-                    .body(&format!("Could not find CLI to start daemon: {}", e))
-                    .show();
-            }
-        }
-    });
-}
-
-#[cfg(desktop)]
-pub fn stop_daemon_blocking(handle: &AppHandle) {
-    if DAEMON_STARTED_BY_US.load(Ordering::Relaxed) {
-        tauri::async_runtime::block_on(exec_daemon_cmd(handle, &["daemon", "stop"]));
     }
 }
 
