@@ -1,43 +1,109 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400" viewBox="0 0 800 400">
-  <!-- Background shapes -->
-  <rect x="80" y="60" width="140" height="90" rx="4" fill="none" stroke="#8B7E74" stroke-width="2" stroke-dasharray="4 3"/>
-  <rect x="580" y="60" width="140" height="90" rx="4" fill="none" stroke="#8B7E74" stroke-width="2" stroke-dasharray="4 3"/>
-  <rect x="620" y="250" width="140" height="90" rx="4" fill="none" stroke="#8B7E74" stroke-width="2" stroke-dasharray="4 3"/>
-  <rect x="40" y="250" width="140" height="90" rx="4" fill="none" stroke="#8B7E74" stroke-width="2" stroke-dasharray="4 3"/>
-  <rect x="300" y="300" width="140" height="90" rx="4" fill="none" stroke="#8B7E74" stroke-width="2" stroke-dasharray="4 3"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400">
+  <rect width="800" height="400" fill="#141210"/>
+  <defs>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="rough" x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="turbulence" baseFrequency="0.025" numOctaves="4" seed="7" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.5" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
 
-  <!-- Screen labels -->
-  <text x="150" y="110" font-family="monospace" font-size="11" fill="#8B7E74" text-anchor="middle">session_01</text>
-  <text x="650" y="110" font-family="monospace" font-size="11" fill="#8B7E74" text-anchor="middle">session_02</text>
-  <text x="690" y="300" font-family="monospace" font-size="11" fill="#8B7E74" text-anchor="middle">session_03</text>
-  <text x="110" y="300" font-family="monospace" font-size="11" fill="#8B7E74" text-anchor="middle">session_04</text>
-  <text x="370" y="350" font-family="monospace" font-size="11" fill="#8B7E74" text-anchor="middle">session_05</text>
+  <!-- Window 1: top-left -->
+  <g filter="url(#glow)">
+    <path d="M120,60 Q118,58 195,58 Q270,58 268,60 L268,62 L120,62 Z" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.85" filter="url(#rough)"/>
+    <path d="M120,62 Q118,62 118,65 L118,155 Q118,158 120,158 L268,158 Q270,158 270,155 L270,65 Q270,62 268,62" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.85" filter="url(#rough)"/>
+    <!-- terminal lines inside -->
+    <path d="M132,78 L180,78" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.4" filter="url(#rough)"/>
+    <path d="M132,90 L210,90" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+    <path d="M132,102 L195,102" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.3" filter="url(#rough)"/>
+    <path d="M132,114 L220,114" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.25" filter="url(#rough)"/>
+  </g>
 
-  <!-- Central person -->
-  <circle cx="400" cy="180" r="18" fill="#E8E2DC" stroke="#3D3530" stroke-width="2"/>
-  <line x1="400" y1="198" x2="400" y2="240" stroke="#3D3530" stroke-width="2"/>
-  <line x1="380" y1="215" x2="420" y2="215" stroke="#3D3530" stroke-width="2"/>
+  <!-- Window 2: top-right -->
+  <g filter="url(#glow)">
+    <path d="M530,50 Q528,48 620,48 Q710,48 708,50 L708,52 L530,52 Z" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" filter="url(#rough)"/>
+    <path d="M530,52 Q528,52 528,55 L528,160 Q528,163 530,163 L708,163 Q710,163 710,160 L710,55 Q710,52 708,52" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" filter="url(#rough)"/>
+    <path d="M542,68 L620,68" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.4" filter="url(#rough)"/>
+    <path d="M542,80 L660,80" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+    <path d="M542,92 L640,92" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.3" filter="url(#rough)"/>
+  </g>
 
-  <!-- Chaotic connection lines from person to screens -->
-  <path d="M385 170 Q300 140 220 105" fill="none" stroke="#3D3530" stroke-width="2" stroke-dasharray="6 4"/>
-  <path d="M415 170 Q500 130 580 105" fill="none" stroke="#3D3530" stroke-width="2" stroke-dasharray="6 4"/>
-  <path d="M418 190 Q550 230 620 295" fill="none" stroke="#3D3530" stroke-width="2" stroke-dasharray="6 4"/>
-  <path d="M382 190 Q250 240 180 295" fill="none" stroke="#3D3530" stroke-width="2" stroke-dasharray="6 4"/>
-  <path d="M400 240 Q390 270 370 300" fill="none" stroke="#3D3530" stroke-width="2" stroke-dasharray="6 4"/>
+  <!-- Window 3: bottom-left -->
+  <g filter="url(#glow)">
+    <path d="M80,230 Q78,228 170,228 Q260,228 258,230 L258,232 L80,232 Z" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.75" filter="url(#rough)"/>
+    <path d="M80,232 Q78,232 78,235 L78,338 Q78,341 80,341 L258,341 Q260,341 260,338 L260,235 Q260,232 258,232" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.75" filter="url(#rough)"/>
+    <path d="M92,248 L170,248" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+    <path d="M92,260 L200,260" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.3" filter="url(#rough)"/>
+    <path d="M92,272 L185,272" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.25" filter="url(#rough)"/>
+  </g>
 
-  <!-- Arrow heads -->
-  <polygon points="215,102 225,100 220,110" fill="#3D3530"/>
-  <polygon points="580,102 575,112 585,108" fill="#3D3530"/>
-  <polygon points="620,292 625,302 615,298" fill="#3D3530"/>
-  <polygon points="180,292 175,302 185,298" fill="#3D3530"/>
-  <polygon points="368,298 372,308 363,305" fill="#3D3530"/>
+  <!-- Window 4: bottom-right -->
+  <g filter="url(#glow)">
+    <path d="M560,225 Q558,223 650,223 Q740,223 738,225 L738,227 L560,227 Z" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.7" filter="url(#rough)"/>
+    <path d="M560,227 Q558,227 558,230 L558,335 Q558,338 560,338 L738,338 Q740,338 740,335 L740,230 Q740,227 738,227" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.7" filter="url(#rough)"/>
+    <path d="M572,243 L650,243" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+    <path d="M572,255 L690,255" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.3" filter="url(#rough)"/>
+  </g>
 
-  <!-- Stress marks around person -->
-  <line x1="430" y1="160" x2="438" y2="155" stroke="#8B7E74" stroke-width="1.5"/>
-  <line x1="435" y1="170" x2="443" y2="168" stroke="#8B7E74" stroke-width="1.5"/>
-  <line x1="370" y1="160" x2="362" y2="155" stroke="#8B7E74" stroke-width="1.5"/>
-  <line x1="365" y1="170" x2="357" y2="168" stroke="#8B7E74" stroke-width="1.5"/>
+  <!-- Window 5: top-center (smaller, floating higher) -->
+  <g filter="url(#glow)">
+    <path d="M330,28 Q328,26 390,26 Q450,26 448,28 L448,30 L330,30 Z" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" filter="url(#rough)"/>
+    <path d="M330,30 Q328,30 328,33 L328,105 Q328,108 330,108 L448,108 Q450,108 450,105 L450,33 Q450,30 448,30" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" filter="url(#rough)"/>
+    <path d="M340,45 L405,45" fill="none" stroke="#C9A33A" stroke-width="0.9" stroke-linecap="round" opacity="0.3" filter="url(#rough)"/>
+    <path d="M340,55 L420,55" fill="none" stroke="#C9A33A" stroke-width="0.9" stroke-linecap="round" opacity="0.25" filter="url(#rough)"/>
+  </g>
 
-  <!-- Caption -->
-  <text x="400" y="30" font-family="monospace" font-size="13" fill="#3D3530" text-anchor="middle">you are the message bus</text>
+  <!-- Routing lines: every window through center person -->
+  <g filter="url(#glow-soft)">
+    <!-- W1 to person -->
+    <path d="M268,110 C320,120 360,170 398,192" fill="none" stroke="#C9A33A" stroke-width="1.2" stroke-linecap="round" opacity="0.55" filter="url(#rough)"/>
+    <!-- W2 to person -->
+    <path d="M528,106 C480,130 440,165 402,192" fill="none" stroke="#C9A33A" stroke-width="1.2" stroke-linecap="round" opacity="0.5" filter="url(#rough)"/>
+    <!-- W3 to person -->
+    <path d="M258,285 C310,270 360,230 398,210" fill="none" stroke="#C9A33A" stroke-width="1.2" stroke-linecap="round" opacity="0.5" filter="url(#rough)"/>
+    <!-- W4 to person -->
+    <path d="M558,280 C510,265 450,230 402,210" fill="none" stroke="#C9A33A" stroke-width="1.2" stroke-linecap="round" opacity="0.45" filter="url(#rough)"/>
+    <!-- W5 to person -->
+    <path d="M389,108 C393,140 397,165 400,190" fill="none" stroke="#C9A33A" stroke-width="1.2" stroke-linecap="round" opacity="0.5" filter="url(#rough)"/>
+
+    <!-- Cross-connections through person: W1 to W4 -->
+    <path d="M268,110 C330,150 400,200 470,250 Q520,270 558,280" fill="none" stroke="#C9A33A" stroke-width="0.8" stroke-linecap="round" opacity="0.25" filter="url(#rough)" stroke-dasharray="4,6"/>
+    <!-- W2 to W3 -->
+    <path d="M528,106 C470,150 400,200 330,250 Q290,270 258,285" fill="none" stroke="#C9A33A" stroke-width="0.8" stroke-linecap="round" opacity="0.25" filter="url(#rough)" stroke-dasharray="4,6"/>
+    <!-- W1 to W2 -->
+    <path d="M268,80 C320,100 400,195 480,100 Q510,75 528,80" fill="none" stroke="#C9A33A" stroke-width="0.8" stroke-linecap="round" opacity="0.2" filter="url(#rough)" stroke-dasharray="4,6"/>
+    <!-- W3 to W4 -->
+    <path d="M258,300 C320,290 400,210 490,290 Q530,305 558,300" fill="none" stroke="#C9A33A" stroke-width="0.8" stroke-linecap="round" opacity="0.2" filter="url(#rough)" stroke-dasharray="4,6"/>
+  </g>
+
+  <!-- Tiny person in center — stressed, arms up -->
+  <g filter="url(#glow)">
+    <!-- head -->
+    <path d="M400,185 Q396,181 400,177 Q404,181 400,185 Z" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="1" filter="url(#rough)"/>
+    <!-- body -->
+    <path d="M400,186 L400,202" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" opacity="1" filter="url(#rough)"/>
+    <!-- left arm raised up (stressed) -->
+    <path d="M400,191 C396,188 390,180 387,174" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" opacity="1" filter="url(#rough)"/>
+    <!-- right arm raised up (stressed) -->
+    <path d="M400,191 C404,188 410,180 413,174" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" opacity="1" filter="url(#rough)"/>
+    <!-- left leg -->
+    <path d="M400,202 C397,208 394,214 392,218" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" opacity="1" filter="url(#rough)"/>
+    <!-- right leg -->
+    <path d="M400,202 C403,208 406,214 408,218" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" opacity="1" filter="url(#rough)"/>
+  </g>
+
+  <!-- Small arrow heads on routing lines near person -->
+  <g filter="url(#glow)" opacity="0.6">
+    <path d="M394,190 L398,194 L390,192" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" filter="url(#rough)"/>
+    <path d="M406,190 L402,194 L410,192" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" filter="url(#rough)"/>
+    <path d="M396,208 L398,204 L392,206" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" filter="url(#rough)"/>
+    <path d="M404,208 L402,204 L408,206" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" filter="url(#rough)"/>
+  </g>
 </svg>

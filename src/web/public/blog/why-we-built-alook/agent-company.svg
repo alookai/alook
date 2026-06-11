@@ -1,109 +1,184 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400" viewBox="0 0 800 400">
-  <!-- Top: The User/Founder -->
-  <circle cx="400" cy="70" r="26" fill="#E8E2DC" stroke="#3D3530" stroke-width="2"/>
-  <text x="400" y="75" font-family="monospace" font-size="11" fill="#3D3530" text-anchor="middle">you</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400">
+  <rect width="800" height="400" fill="#141210"/>
+  <defs>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow-soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="rough" x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="turbulence" baseFrequency="0.025" numOctaves="4" seed="7" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="3.5" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="glow-bright" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
 
-  <!-- Hierarchical lines from user to agents -->
-  <line x1="380" y1="94" x2="200" y2="170" stroke="#3D3530" stroke-width="2"/>
-  <line x1="392" y1="96" x2="330" y2="170" stroke="#3D3530" stroke-width="2"/>
-  <line x1="408" y1="96" x2="470" y2="170" stroke="#3D3530" stroke-width="2"/>
-  <line x1="420" y1="94" x2="600" y2="170" stroke="#3D3530" stroke-width="2"/>
+  <!-- Tiny person at bottom center, looking up -->
+  <g filter="url(#glow)">
+    <!-- head -->
+    <path d="M400,345 Q396,340 400,335 Q404,340 400,345 Z" fill="none" stroke="#C9A33A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="1" filter="url(#rough)"/>
+    <!-- body -->
+    <path d="M400,346 L400,365" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" opacity="1" filter="url(#rough)"/>
+    <!-- arms slightly out, relaxed -->
+    <path d="M400,353 C396,357 392,360 388,362" fill="none" stroke="#C9A33A" stroke-width="1.3" stroke-linecap="round" opacity="1" filter="url(#rough)"/>
+    <path d="M400,353 C404,357 408,360 412,362" fill="none" stroke="#C9A33A" stroke-width="1.3" stroke-linecap="round" opacity="1" filter="url(#rough)"/>
+    <!-- legs -->
+    <path d="M400,365 C397,372 395,377 393,382" fill="none" stroke="#C9A33A" stroke-width="1.3" stroke-linecap="round" opacity="1" filter="url(#rough)"/>
+    <path d="M400,365 C403,372 405,377 407,382" fill="none" stroke="#C9A33A" stroke-width="1.3" stroke-linecap="round" opacity="1" filter="url(#rough)"/>
+  </g>
 
-  <!-- Agent 1: Plan -->
-  <circle cx="200" cy="190" r="20" fill="#C4B8AB" stroke="#3D3530" stroke-width="2"/>
-  <text x="200" y="195" font-family="monospace" font-size="10" fill="#3D3530" text-anchor="middle">plan</text>
+  <!-- TIER 1: Nearest agents (large, bright) — connected to person -->
+  <!-- Agent circle A1 (center-left) -->
+  <g filter="url(#glow-bright)">
+    <path d="M340,275 Q332,268 340,260 Q348,268 340,275 Z" fill="none" stroke="#C9A33A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.95" filter="url(#rough)"/>
+  </g>
+  <!-- Agent circle A2 (center-right) -->
+  <g filter="url(#glow-bright)">
+    <path d="M460,275 Q452,268 460,260 Q468,268 460,275 Z" fill="none" stroke="#C9A33A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.95" filter="url(#rough)"/>
+  </g>
+  <!-- Agent circle A3 (center) -->
+  <g filter="url(#glow-bright)">
+    <path d="M400,260 Q392,253 400,245 Q408,253 400,260 Z" fill="none" stroke="#C9A33A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.95" filter="url(#rough)"/>
+  </g>
 
-  <!-- Agent 2: Code -->
-  <circle cx="330" cy="190" r="20" fill="#C4B8AB" stroke="#3D3530" stroke-width="2"/>
-  <text x="330" y="195" font-family="monospace" font-size="10" fill="#3D3530" text-anchor="middle">code</text>
+  <!-- Lines: person to tier 1 -->
+  <g filter="url(#glow-soft)">
+    <path d="M398,335 C390,310 370,290 342,275" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" opacity="0.6" filter="url(#rough)"/>
+    <path d="M402,335 C410,310 430,290 458,275" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" opacity="0.6" filter="url(#rough)"/>
+    <path d="M400,335 L400,260" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" opacity="0.6" filter="url(#rough)"/>
+  </g>
 
-  <!-- Agent 3: Ship -->
-  <circle cx="470" cy="190" r="20" fill="#C4B8AB" stroke="#3D3530" stroke-width="2"/>
-  <text x="470" y="195" font-family="monospace" font-size="10" fill="#3D3530" text-anchor="middle">ship</text>
+  <!-- TIER 2: Medium agents (medium, less bright) -->
+  <!-- B1 -->
+  <g filter="url(#glow)">
+    <path d="M260,220 Q254,215 260,210 Q266,215 260,220 Z" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" filter="url(#rough)"/>
+  </g>
+  <!-- B2 -->
+  <g filter="url(#glow)">
+    <path d="M330,200 Q324,195 330,190 Q336,195 330,200 Z" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" filter="url(#rough)"/>
+  </g>
+  <!-- B3 -->
+  <g filter="url(#glow)">
+    <path d="M470,200 Q464,195 470,190 Q476,195 470,200 Z" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" filter="url(#rough)"/>
+  </g>
+  <!-- B4 -->
+  <g filter="url(#glow)">
+    <path d="M540,220 Q534,215 540,210 Q546,215 540,220 Z" fill="none" stroke="#C9A33A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="0.8" filter="url(#rough)"/>
+  </g>
+  <!-- B5 -->
+  <g filter="url(#glow)">
+    <path d="M400,195 Q395,190 400,185 Q405,190 400,195 Z" fill="none" stroke="#C9A33A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.75" filter="url(#rough)"/>
+  </g>
 
-  <!-- Agent 4: Market -->
-  <circle cx="600" cy="190" r="20" fill="#C4B8AB" stroke="#3D3530" stroke-width="2"/>
-  <text x="600" y="195" font-family="monospace" font-size="10" fill="#3D3530" text-anchor="middle">mkt</text>
+  <!-- Lines: tier 1 to tier 2 -->
+  <g filter="url(#glow-soft)">
+    <path d="M335,262 C310,245 285,230 263,220" fill="none" stroke="#C9A33A" stroke-width="1.1" stroke-linecap="round" opacity="0.45" filter="url(#rough)"/>
+    <path d="M340,260 C336,240 332,220 330,200" fill="none" stroke="#C9A33A" stroke-width="1.1" stroke-linecap="round" opacity="0.45" filter="url(#rough)"/>
+    <path d="M400,245 L400,195" fill="none" stroke="#C9A33A" stroke-width="1.1" stroke-linecap="round" opacity="0.45" filter="url(#rough)"/>
+    <path d="M460,260 C464,240 468,220 470,200" fill="none" stroke="#C9A33A" stroke-width="1.1" stroke-linecap="round" opacity="0.45" filter="url(#rough)"/>
+    <path d="M465,262 C490,245 515,230 537,220" fill="none" stroke="#C9A33A" stroke-width="1.1" stroke-linecap="round" opacity="0.45" filter="url(#rough)"/>
+  </g>
 
-  <!-- Lines from agents to sub-nodes -->
-  <!-- Plan sub-nodes -->
-  <line x1="188" y1="208" x2="150" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
-  <line x1="200" y1="210" x2="200" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
-  <line x1="212" y1="208" x2="250" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
+  <!-- TIER 3: Smaller agents (smaller, dimmer) -->
+  <!-- C1 -->
+  <g filter="url(#glow)">
+    <path d="M190,170 Q186,167 190,163 Q194,167 190,170 Z" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" filter="url(#rough)"/>
+  </g>
+  <!-- C2 -->
+  <g filter="url(#glow)">
+    <path d="M250,155 Q246,152 250,148 Q254,152 250,155 Z" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" filter="url(#rough)"/>
+  </g>
+  <!-- C3 -->
+  <g filter="url(#glow)">
+    <path d="M310,145 Q306,142 310,138 Q314,142 310,145 Z" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" filter="url(#rough)"/>
+  </g>
+  <!-- C4 -->
+  <g filter="url(#glow)">
+    <path d="M370,140 Q366,137 370,133 Q374,137 370,140 Z" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" filter="url(#rough)"/>
+  </g>
+  <!-- C5 -->
+  <g filter="url(#glow)">
+    <path d="M430,140 Q426,137 430,133 Q434,137 430,140 Z" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" filter="url(#rough)"/>
+  </g>
+  <!-- C6 -->
+  <g filter="url(#glow)">
+    <path d="M490,145 Q486,142 490,138 Q494,142 490,145 Z" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" filter="url(#rough)"/>
+  </g>
+  <!-- C7 -->
+  <g filter="url(#glow)">
+    <path d="M550,155 Q546,152 550,148 Q554,152 550,155 Z" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" filter="url(#rough)"/>
+  </g>
+  <!-- C8 -->
+  <g filter="url(#glow)">
+    <path d="M610,170 Q606,167 610,163 Q614,167 610,170 Z" fill="none" stroke="#C9A33A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.6" filter="url(#rough)"/>
+  </g>
 
-  <!-- Code sub-nodes -->
-  <line x1="318" y1="208" x2="290" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
-  <line x1="330" y1="210" x2="330" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
-  <line x1="342" y1="208" x2="370" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
+  <!-- Lines: tier 2 to tier 3 -->
+  <g filter="url(#glow-soft)">
+    <path d="M258,210 C240,195 215,180 192,170" fill="none" stroke="#C9A33A" stroke-width="0.9" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+    <path d="M260,210 C256,190 252,170 250,155" fill="none" stroke="#C9A33A" stroke-width="0.9" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+    <path d="M330,190 C322,175 315,160 310,145" fill="none" stroke="#C9A33A" stroke-width="0.9" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+    <path d="M330,190 C345,170 358,155 370,140" fill="none" stroke="#C9A33A" stroke-width="0.9" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+    <path d="M400,185 C405,168 418,152 430,140" fill="none" stroke="#C9A33A" stroke-width="0.9" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+    <path d="M470,190 C475,175 483,160 490,145" fill="none" stroke="#C9A33A" stroke-width="0.9" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+    <path d="M540,210 C544,190 548,170 550,155" fill="none" stroke="#C9A33A" stroke-width="0.9" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+    <path d="M540,210 C560,195 585,180 608,170" fill="none" stroke="#C9A33A" stroke-width="0.9" stroke-linecap="round" opacity="0.35" filter="url(#rough)"/>
+  </g>
 
-  <!-- Ship sub-nodes -->
-  <line x1="458" y1="208" x2="430" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
-  <line x1="470" y1="210" x2="470" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
-  <line x1="482" y1="208" x2="510" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
+  <!-- TIER 4: Tiny distant dots (galaxy feel) -->
+  <g filter="url(#glow-soft)">
+    <!-- top row — very small, very dim -->
+    <path d="M150,120 Q148,118 150,116 Q152,118 150,120 Z" fill="#C9A33A" stroke="none" opacity="0.3" filter="url(#rough)"/>
+    <path d="M210,100 Q208,98 210,96 Q212,98 210,100 Z" fill="#C9A33A" stroke="none" opacity="0.28" filter="url(#rough)"/>
+    <path d="M270,88 Q268,86 270,84 Q272,86 270,88 Z" fill="#C9A33A" stroke="none" opacity="0.25" filter="url(#rough)"/>
+    <path d="M330,78 Q328,76 330,74 Q332,76 330,78 Z" fill="#C9A33A" stroke="none" opacity="0.25" filter="url(#rough)"/>
+    <path d="M390,72 Q388,70 390,68 Q392,70 390,72 Z" fill="#C9A33A" stroke="none" opacity="0.25" filter="url(#rough)"/>
+    <path d="M410,72 Q408,70 410,68 Q412,70 410,72 Z" fill="#C9A33A" stroke="none" opacity="0.25" filter="url(#rough)"/>
+    <path d="M470,78 Q468,76 470,74 Q472,76 470,78 Z" fill="#C9A33A" stroke="none" opacity="0.25" filter="url(#rough)"/>
+    <path d="M530,88 Q528,86 530,84 Q532,86 530,88 Z" fill="#C9A33A" stroke="none" opacity="0.25" filter="url(#rough)"/>
+    <path d="M590,100 Q588,98 590,96 Q592,98 590,100 Z" fill="#C9A33A" stroke="none" opacity="0.28" filter="url(#rough)"/>
+    <path d="M650,120 Q648,118 650,116 Q652,118 650,120 Z" fill="#C9A33A" stroke="none" opacity="0.3" filter="url(#rough)"/>
 
-  <!-- Market sub-nodes -->
-  <line x1="588" y1="208" x2="560" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
-  <line x1="600" y1="210" x2="600" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
-  <line x1="612" y1="208" x2="640" y2="270" stroke="#8B7E74" stroke-width="1.5"/>
+    <!-- very top — near-invisible dust -->
+    <path d="M180,85 Q179,84 180,83 Q181,84 180,85 Z" fill="#C9A33A" stroke="none" opacity="0.18" filter="url(#rough)"/>
+    <path d="M300,55 Q299,54 300,53 Q301,54 300,55 Z" fill="#C9A33A" stroke="none" opacity="0.15" filter="url(#rough)"/>
+    <path d="M360,48 Q359,47 360,46 Q361,47 360,48 Z" fill="#C9A33A" stroke="none" opacity="0.13" filter="url(#rough)"/>
+    <path d="M400,42 Q399,41 400,40 Q401,41 400,42 Z" fill="#C9A33A" stroke="none" opacity="0.13" filter="url(#rough)"/>
+    <path d="M440,48 Q439,47 440,46 Q441,47 440,48 Z" fill="#C9A33A" stroke="none" opacity="0.13" filter="url(#rough)"/>
+    <path d="M500,55 Q499,54 500,53 Q501,54 500,55 Z" fill="#C9A33A" stroke="none" opacity="0.15" filter="url(#rough)"/>
+    <path d="M620,85 Q619,84 620,83 Q621,84 620,85 Z" fill="#C9A33A" stroke="none" opacity="0.18" filter="url(#rough)"/>
+  </g>
 
-  <!-- Sub-agent dots (tier 2) -->
-  <circle cx="150" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
-  <circle cx="200" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
-  <circle cx="250" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
+  <!-- Faint lines from tier 3 to tier 4 dots -->
+  <g filter="url(#glow-soft)">
+    <path d="M190,163 C175,148 160,135 150,120" fill="none" stroke="#C9A33A" stroke-width="0.6" stroke-linecap="round" opacity="0.2" filter="url(#rough)"/>
+    <path d="M250,148 C238,130 222,112 210,100" fill="none" stroke="#C9A33A" stroke-width="0.6" stroke-linecap="round" opacity="0.18" filter="url(#rough)"/>
+    <path d="M310,138 C295,118 280,100 270,88" fill="none" stroke="#C9A33A" stroke-width="0.6" stroke-linecap="round" opacity="0.18" filter="url(#rough)"/>
+    <path d="M370,133 C355,112 340,95 330,78" fill="none" stroke="#C9A33A" stroke-width="0.6" stroke-linecap="round" opacity="0.18" filter="url(#rough)"/>
+    <path d="M400,133 C398,110 395,90 390,72" fill="none" stroke="#C9A33A" stroke-width="0.6" stroke-linecap="round" opacity="0.18" filter="url(#rough)"/>
+    <path d="M430,133 C440,112 455,95 470,78" fill="none" stroke="#C9A33A" stroke-width="0.6" stroke-linecap="round" opacity="0.18" filter="url(#rough)"/>
+    <path d="M490,138 C505,118 520,100 530,88" fill="none" stroke="#C9A33A" stroke-width="0.6" stroke-linecap="round" opacity="0.18" filter="url(#rough)"/>
+    <path d="M550,148 C562,130 578,112 590,100" fill="none" stroke="#C9A33A" stroke-width="0.6" stroke-linecap="round" opacity="0.18" filter="url(#rough)"/>
+    <path d="M610,163 C625,148 640,135 650,120" fill="none" stroke="#C9A33A" stroke-width="0.6" stroke-linecap="round" opacity="0.2" filter="url(#rough)"/>
+  </g>
 
-  <circle cx="290" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
-  <circle cx="330" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
-  <circle cx="370" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
+  <!-- Wide edge agents for breadth -->
+  <g filter="url(#glow-soft)">
+    <path d="M130,195 Q127,192 130,189 Q133,192 130,195 Z" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.4" filter="url(#rough)"/>
+    <path d="M670,195 Q667,192 670,189 Q673,192 670,195 Z" fill="none" stroke="#C9A33A" stroke-width="1" stroke-linecap="round" opacity="0.4" filter="url(#rough)"/>
+    <path d="M100,155 Q98,153 100,151 Q102,153 100,155 Z" fill="#C9A33A" stroke="none" opacity="0.22" filter="url(#rough)"/>
+    <path d="M700,155 Q698,153 700,151 Q702,153 700,155 Z" fill="#C9A33A" stroke="none" opacity="0.22" filter="url(#rough)"/>
+  </g>
 
-  <circle cx="430" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
-  <circle cx="470" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
-  <circle cx="510" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
-
-  <circle cx="560" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
-  <circle cx="600" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
-  <circle cx="640" cy="280" r="8" fill="#E8E2DC" stroke="#8B7E74" stroke-width="1.5"/>
-
-  <!-- Even smaller dots suggesting more scale (tier 3) -->
-  <circle cx="130" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="150" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="170" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="190" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="210" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="230" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="250" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="270" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="290" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="310" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="330" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="350" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="370" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="390" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="410" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="430" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="450" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="470" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="490" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="510" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="530" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="550" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="570" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="590" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="610" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="630" cy="335" r="3" fill="#C4B8AB"/>
-  <circle cx="650" cy="330" r="3" fill="#C4B8AB"/>
-  <circle cx="670" cy="335" r="3" fill="#C4B8AB"/>
-
-  <!-- Fade dots at bottom -->
-  <circle cx="200" cy="360" r="2" fill="#E8E2DC"/>
-  <circle cx="250" cy="365" r="2" fill="#E8E2DC"/>
-  <circle cx="300" cy="360" r="2" fill="#E8E2DC"/>
-  <circle cx="350" cy="365" r="2" fill="#E8E2DC"/>
-  <circle cx="400" cy="360" r="2" fill="#E8E2DC"/>
-  <circle cx="450" cy="365" r="2" fill="#E8E2DC"/>
-  <circle cx="500" cy="360" r="2" fill="#E8E2DC"/>
-  <circle cx="550" cy="365" r="2" fill="#E8E2DC"/>
-  <circle cx="600" cy="360" r="2" fill="#E8E2DC"/>
-
-  <!-- Scale label -->
-  <text x="400" y="390" font-family="monospace" font-size="11" fill="#8B7E74" text-anchor="middle">one person, a thousand agents</text>
+  <!-- Lines to edge agents -->
+  <g filter="url(#glow-soft)">
+    <path d="M190,170 C168,180 148,188 132,193" fill="none" stroke="#C9A33A" stroke-width="0.6" stroke-linecap="round" opacity="0.2" filter="url(#rough)"/>
+    <path d="M610,170 C632,180 652,188 668,193" fill="none" stroke="#C9A33A" stroke-width="0.6" stroke-linecap="round" opacity="0.2" filter="url(#rough)"/>
+  </g>
 </svg>
