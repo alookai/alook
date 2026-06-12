@@ -119,22 +119,12 @@ export async function findLatestAssistantMessageId(
   return rows[0]?.id ?? null;
 }
 
-export async function cleanupOrphanedUnread(db: Database, userId: string, workspaceId: string) {
-  await db.run(sql`
-    DELETE FROM inbox_unread
-    WHERE user_id = ${userId}
-      AND workspace_id = ${workspaceId}
-      AND conversation_id NOT IN (SELECT id FROM conversation)
-  `);
-}
-
 export async function listUnreadConversations(
   db: Database,
   userId: string,
   workspaceId: string,
   opts?: { limit?: number; before?: string; types?: string[] }
 ) {
-  await cleanupOrphanedUnread(db, userId, workspaceId);
   const limit = opts?.limit ?? 30;
   const beforeClause = opts?.before
     ? sql`AND u.completed_at < ${opts.before}`

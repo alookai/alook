@@ -23,7 +23,6 @@ describe("inbox exports", () => {
   it("exports deleteAllUnreadEntries", () => { expect(typeof inboxQueries.deleteAllUnreadEntries).toBe("function"); });
   it("exports findLatestAssistantMessageId", () => { expect(typeof inboxQueries.findLatestAssistantMessageId).toBe("function"); });
   it("exports isUnreadEligible", () => { expect(typeof inboxQueries.isUnreadEligible).toBe("function"); });
-  it("exports cleanupOrphanedUnread", () => { expect(typeof inboxQueries.cleanupOrphanedUnread).toBe("function"); });
 });
 
 // ---------------------------------------------------------------------------
@@ -157,18 +156,6 @@ describe("deleteAllUnreadEntries", () => {
   it("calls db.run for DELETE", async () => {
     const mockDb = createMockDb([]);
     await inboxQueries.deleteAllUnreadEntries(mockDb, "u1", "w1");
-    expect(mockDb.run).toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// cleanupOrphanedUnread
-// ---------------------------------------------------------------------------
-
-describe("cleanupOrphanedUnread", () => {
-  it("calls db.run for DELETE", async () => {
-    const mockDb = createMockDb([]);
-    await inboxQueries.cleanupOrphanedUnread(mockDb, "u1", "w1");
     expect(mockDb.run).toHaveBeenCalled();
   });
 });
