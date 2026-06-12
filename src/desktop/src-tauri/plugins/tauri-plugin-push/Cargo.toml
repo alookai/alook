@@ -3,6 +3,7 @@ name = "tauri-plugin-push"
 version = "0.1.0"
 edition = "2021"
 description = "Tauri plugin for push notifications via FCM (Android) and APNs (iOS)"
+links = "tauri-plugin-push"
 
 [dependencies]
 tauri = "2"
