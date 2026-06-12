@@ -1,5 +1,12 @@
 /target
 /gen/*
+!/gen/apple/
+/gen/apple/build/
+/gen/apple/Externals/
+/gen/apple/Pods/
+/gen/apple/*.xcworkspace/
+/gen/apple/alook-desktop.xcodeproj/
+/gen/apple/exported_binaries/
 !/gen/android/
 /gen/android/.gradle/
 /gen/android/.tauri/
