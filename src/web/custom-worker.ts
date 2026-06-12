@@ -6,6 +6,12 @@ import openNextHandler from "./.open-next/worker.js"
 // @ts-ignore — generated at build time, may not exist yet
 export { DOQueueHandler } from "./.open-next/worker.js"
 
+const PRIVATE_PREFIXES = ["/w/", "/workspaces", "/dashboard", "/invite/", "/api/", "/_next/"]
+
+function isPublicRoute(pathname: string): boolean {
+  return !PRIVATE_PREFIXES.some((p) => pathname.startsWith(p))
+}
+
 const handler: ExportedHandler<CloudflareEnv> = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
@@ -21,7 +27,16 @@ const handler: ExportedHandler<CloudflareEnv> = {
       return env.WS_DO_WORKER.fetch(request)
     }
 
-    return (openNextHandler as ExportedHandler<CloudflareEnv>).fetch!(request, env, ctx)
+    const response = await (openNextHandler as ExportedHandler<CloudflareEnv>).fetch!(request, env, ctx)
+
+    if (isPublicRoute(url.pathname) && response.status === 200) {
+      const res = new Response(response.body, response)
+      res.headers.set("Cache-Control", "public, max-age=0, must-revalidate")
+      res.headers.set("CDN-Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400")
+      return res
+    }
+
+    return response
   },
 }
 
