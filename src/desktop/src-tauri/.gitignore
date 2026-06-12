@@ -1,2 +1,8 @@
 /target
-/gen
+/gen/*
+!/gen/android/
+/gen/android/*
+!/gen/android/app/
+/gen/android/app/*
+!/gen/android/app/build.gradle.kts
+!/gen/android/app/proguard-rules.pro
