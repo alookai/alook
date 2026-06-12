@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1200" height="400" viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dev Team Pipeline Diagram -->
+  <defs>
+    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#CD9200;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#B08000;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="2" dy="2" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.2"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="400" fill="#FEFDFB"/>
+
+  <!-- Title -->
+  <text x="600" y="40" font-family="Arial, sans-serif" font-size="24" font-weight="bold" text-anchor="middle" fill="#0F0A07">Dev Team Pipeline</text>
+  <text x="600" y="65" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#666">Each agent owns their domain completely</text>
+
+  <!-- Agent Boxes -->
+  <!-- Architecture Agent -->
+  <rect x="50" y="150" width="180" height="100" rx="10" fill="url(#goldGradient)" filter="url(#shadow)"/>
+  <text x="140" y="195" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Architecture</text>
+  <text x="140" y="215" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Agent</text>
+
+  <!-- Arrow 1 -->
+  <path d="M 230 200 L 270 200" stroke="#CD9200" stroke-width="3" fill="none"/>
+  <polygon points="270,195 280,200 270,205" fill="#CD9200"/>
+
+  <!-- Frontend Agent -->
+  <rect x="280" y="150" width="180" height="100" rx="10" fill="url(#goldGradient)" filter="url(#shadow)"/>
+  <text x="370" y="195" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Frontend</text>
+  <text x="370" y="215" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Agent</text>
+
+  <!-- Arrow 2 -->
+  <path d="M 460 200 L 500 200" stroke="#CD9200" stroke-width="3" fill="none"/>
+  <polygon points="500,195 510,200 500,205" fill="#CD9200"/>
+
+  <!-- Backend Agent -->
+  <rect x="510" y="150" width="180" height="100" rx="10" fill="url(#goldGradient)" filter="url(#shadow)"/>
+  <text x="600" y="195" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Backend</text>
+  <text x="600" y="215" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Agent</text>
+
+  <!-- Arrow 3 -->
+  <path d="M 690 200 L 730 200" stroke="#CD9200" stroke-width="3" fill="none"/>
+  <polygon points="730,195 740,200 730,205" fill="#CD9200"/>
+
+  <!-- Test Agent -->
+  <rect x="740" y="150" width="180" height="100" rx="10" fill="url(#goldGradient)" filter="url(#shadow)"/>
+  <text x="830" y="195" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Test</text>
+  <text x="830" y="215" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Agent</text>
+
+  <!-- Arrow 4 -->
+  <path d="M 920 200 L 960 200" stroke="#CD9200" stroke-width="3" fill="none"/>
+  <polygon points="960,195 970,200 960,205" fill="#CD9200"/>
+
+  <!-- DevOps Agent -->
+  <rect x="970" y="150" width="180" height="100" rx="10" fill="url(#goldGradient)" filter="url(#shadow)"/>
+  <text x="1060" y="195" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">DevOps</text>
+  <text x="1060" y="215" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Agent</text>
+
+  <!-- Process labels -->
+  <text x="140" y="280" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666">Design</text>
+  <text x="370" y="280" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666">UI/UX</text>
+  <text x="600" y="280" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666">API & Logic</text>
+  <text x="830" y="280" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666">Quality</text>
+  <text x="1060" y="280" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#666">Deploy</text>
+
+  <!-- Flow line -->
+  <path d="M 50 320 L 1150 320" stroke="#EDE7DD" stroke-width="2" stroke-dasharray="5,5" fill="none"/>
+  <text x="600" y="350" font-family="Arial, sans-serif" font-size="12" font-style="italic" text-anchor="middle" fill="#999">Sequential handoffs ensure quality at each stage</text>
+</svg>
