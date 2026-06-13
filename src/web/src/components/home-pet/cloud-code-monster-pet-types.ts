@@ -122,6 +122,7 @@ export type CloudCodeMonsterPetPreset = {
   accent: string;
   accessory: string;
   eye: string;
+  eyeOffsetMax?: PetPoint;
   highlight: string;
   facePatch?: string;
   cheek?: string;

@@ -127,6 +127,11 @@ export function usePetDrag({
       return;
     }
 
+    if (activityState?.activityId === "waking") {
+      // pointer-down already started the wake; let the animation play out
+      return;
+    }
+
     if (activityState?.activityId) {
       wakeMonsterToDefault();
     }
@@ -170,9 +175,8 @@ export function usePetDrag({
       const now = performance.now();
 
       if (isSleepyActivity(activityState?.activityId ?? null)) {
-        stopTemporaryMotion();
+        // wake it up but keep the grab: the pet startles awake mid-drag
         wakeMonsterToDefault();
-        return;
       }
 
       dragOffsetRef.current = {

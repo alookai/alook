@@ -6,6 +6,7 @@ export const CLOUD_CODE_MONSTER_ACTIVITIES: CloudCodeMonsterActivity[] = [
   { id: "carrying", label: "Carrying", caption: "Moving a fresh workspace bundle" },
   { id: "coding", label: "Coding", caption: "Tapping through a small patch" },
   { id: "dozing", label: "Dozing", caption: "Getting ready to sleep" },
+  { id: "sleeping", label: "Sleeping", caption: "Resting quietly on the desk" },
   { id: "error", label: "Error", caption: "A task needs attention" },
   { id: "juggling", label: "Juggling", caption: "Keeping multiple agent tasks in motion" },
   { id: "notification", label: "Notification", caption: "Ringing for a new unread message" },

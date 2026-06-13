@@ -13,6 +13,8 @@ export const CLOUD_CODE_MONSTER_ATTENTION_MS = 4_000;
 export const CLOUD_CODE_MONSTER_ERROR_MS = 5_000;
 export const CLOUD_CODE_MONSTER_DOZE_MS = 20_000;
 export const CLOUD_CODE_MONSTER_NO_WORK_SLEEP_MS = 60_000;
+/** Snore phase length before sleep settles into the motionless deep pose. */
+export const CLOUD_CODE_MONSTER_DEEP_SLEEP_MS = 10_000;
 export const CLOUD_CODE_MONSTER_WAKE_MS = 1_500;
 export const CLOUD_CODE_MONSTER_VIOLENT_DRAG_MIN_DISTANCE = 24;
 export const CLOUD_CODE_MONSTER_VIOLENT_DRAG_STRONG_DISTANCE = 56;

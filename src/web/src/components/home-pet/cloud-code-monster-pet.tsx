@@ -37,6 +37,7 @@ import { CLOUD_CODE_MONSTER_ACTIVITIES } from "./cloud-code-monster-pet-activity
 import {
   CLOUD_CODE_MONSTER_AUTO_WALK_STEP_MS,
   CLOUD_CODE_MONSTER_ATTENTION_MS,
+  CLOUD_CODE_MONSTER_DEEP_SLEEP_MS,
   CLOUD_CODE_MONSTER_DOZE_MS,
   CLOUD_CODE_MONSTER_ERROR_MS,
   CLOUD_CODE_MONSTER_FAINT_MS,
@@ -52,7 +53,7 @@ import {
 } from "./cloud-code-monster-pet-constants";
 import { usePetDrag } from "./cloud-code-monster-pet-drag";
 import { useWalkToTarget } from "./cloud-code-monster-pet-walk-target";
-import { MonsterSvg } from "./cloud-code-monster-pet-pixel-parts";
+import { MonsterSprite } from "./cloud-code-monster-pet-pixel-parts";
 import {
   CLOUD_CODE_MONSTER_PET_PRESETS,
   getCloudCodeMonsterPreset,
@@ -107,7 +108,21 @@ export {
   CLOUD_CODE_MONSTER_PRESET_STORAGE_KEY,
   CLOUD_CODE_MONSTER_WAKE_MS,
 } from "./cloud-code-monster-pet-constants";
-export { CloudCodeMonsterPresetPreview } from "./cloud-code-monster-pet-pixel-parts";
+export {
+  clampMonsterSpriteEyeOffset,
+  CloudCodeMonsterPresetPreview,
+  MonsterSprite,
+  resolveCloudCodeMonsterPreviewEyeOffset,
+  resolvePetSpriteRowId,
+} from "./cloud-code-monster-pet-pixel-parts";
+export {
+  PET_SPRITE_COLS,
+  PET_SPRITE_ROW_BY_ID,
+  PET_SPRITE_ROWS,
+  petSpriteBodyUrl,
+  petSpriteEyesUrl,
+} from "./cloud-code-monster-pet-sprite-manifest";
+export type { PetSpriteRowId } from "./cloud-code-monster-pet-sprite-manifest";
 export {
   CLOUD_CODE_MONSTER_PET_PRESETS,
   getCloudCodeMonsterPreset,
@@ -133,18 +148,6 @@ export type CloudCodeMonsterPetProps = {
 };
 
 const EMPTY_PEEK_TARGETS: CloudCodeMonsterPeekTarget[] = [];
-const EMPTY_EYE_OFFSET: PetPoint = { x: 0, y: 0 };
-const EMPTY_CURSOR_POSE = {
-  bodyX: 0,
-  bodyY: 0,
-  leanDeg: 0,
-  shadowScaleX: 1,
-  shadowX: 0,
-  skewDeg: 0,
-  stretchX: 1,
-  stretchY: 1,
-};
-type CloudCodeMonsterCursorPose = typeof EMPTY_CURSOR_POSE;
 type PetTimerKey =
   | "reaction"
   | "shake"
@@ -211,10 +214,6 @@ function usePetTimers() {
   return { clearAllPetTimers, clearPetTimer, setPetTimer };
 }
 
-function clampNumber(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
-
 function roundToQuarter(value: number) {
   return Math.round(value * 4) / 4;
 }
@@ -257,11 +256,33 @@ function isTextEntryElement(target: EventTarget | null) {
   ].includes(inputType);
 }
 
+export type CloudCodeMonsterCursorPose = {
+  eye: PetPoint;
+  leanDeg: number;
+  stretchX: number;
+  stretchY: number;
+  shadowShift: number;
+};
+
+export const EMPTY_CLOUD_CODE_MONSTER_CURSOR_POSE: CloudCodeMonsterCursorPose =
+  {
+    eye: { x: 0, y: 0 },
+    leanDeg: 0,
+    stretchX: 1,
+    stretchY: 1,
+    shadowShift: 0,
+  };
+
+/**
+ * Cursor-following pose: the eyes track the cursor and the body gently leans
+ * and stretches toward it. While walking/dragging/sleeping the sprite row
+ * animations own the transform, so the stretch never applies mid-drag.
+ */
 export function resolveCloudCodeMonsterCursorPose(
   cursor: PetPoint,
   position: PetPoint,
   size = CLOUD_CODE_MONSTER_SIZE
-): CloudCodeMonsterCursorPose & { eyeX: number; eyeY: number } {
+): CloudCodeMonsterCursorPose {
   const faceCenter = {
     x: position.x + size.width * 0.5,
     y: position.y + size.height * 0.45,
@@ -271,28 +292,26 @@ export function resolveCloudCodeMonsterCursorPose(
   const distance = Math.hypot(relX, relY);
 
   if (distance <= 1) {
-    return { ...EMPTY_CURSOR_POSE, eyeX: 0, eyeY: 0 };
+    return EMPTY_CLOUD_CODE_MONSTER_CURSOR_POSE;
   }
 
-  const directionX = relX / distance;
-  const directionY = relY / distance;
   const pull = Math.min(1, distance / 240);
+  const dirX = relX / distance;
+  const dirY = relY / distance;
   const eyeMaxX = 5.5;
   const eyeMaxY = 4;
-  const bodyMaxX = 2;
-  const bodyMaxY = 1.25;
+  // cursor above -> stand a little taller; below -> settle a little flatter
+  const verticalReach = -dirY * pull;
 
   return {
-    eyeX: roundToQuarter(directionX * eyeMaxX * pull),
-    eyeY: roundToQuarter(directionY * eyeMaxY * pull),
-    bodyX: roundToQuarter(directionX * bodyMaxX * pull),
-    bodyY: roundToQuarter(directionY * bodyMaxY * pull),
-    leanDeg: Number((directionX * 2.8 * pull).toFixed(2)),
-    shadowScaleX: Number((1 + Math.abs(directionX) * 0.08 * pull).toFixed(3)),
-    shadowX: roundToQuarter(directionX * 0.8 * pull),
-    skewDeg: Number((directionX * 1.6 * pull).toFixed(2)),
-    stretchX: Number((1 + Math.abs(directionX) * 0.025 * pull).toFixed(3)),
-    stretchY: Number((1 - Math.abs(directionX) * 0.018 * pull).toFixed(3)),
+    eye: {
+      x: roundToQuarter(dirX * eyeMaxX * pull),
+      y: roundToQuarter(dirY * eyeMaxY * pull),
+    },
+    leanDeg: roundToQuarter(dirX * 3.5 * pull),
+    stretchX: Math.round((1 - verticalReach * 0.025) * 1000) / 1000,
+    stretchY: Math.round((1 + verticalReach * 0.045) * 1000) / 1000,
+    shadowShift: roundToQuarter(dirX * 3 * pull),
   };
 }
 
@@ -301,37 +320,7 @@ export function resolveCloudCodeMonsterEyeOffset(
   position: PetPoint,
   size = CLOUD_CODE_MONSTER_SIZE
 ): PetPoint {
-  const pose = resolveCloudCodeMonsterCursorPose(cursor, position, size);
-  return {
-    x: pose.eyeX,
-    y: pose.eyeY,
-  };
-}
-
-export function resolveCloudCodeMonsterMotionPose(
-  isWalking: boolean,
-  direction: "left" | "right",
-  intensity: number
-) {
-  if (!isWalking) {
-    return {
-      leanDeg: 0,
-      skewDeg: 0,
-      stretchX: 1,
-      stretchY: 1,
-    };
-  }
-
-  const normalized = clampNumber(intensity, 0.75, 2.4);
-  const directionSign = direction === "right" ? 1 : -1;
-  const motion = (normalized - 0.75) / 1.65;
-
-  return {
-    leanDeg: Number((directionSign * (2.5 + motion * 5)).toFixed(2)),
-    skewDeg: Number((directionSign * (1.5 + motion * 4)).toFixed(2)),
-    stretchX: Number((1 + motion * 0.07).toFixed(3)),
-    stretchY: Number((1 - motion * 0.055).toFixed(3)),
-  };
+  return resolveCloudCodeMonsterCursorPose(cursor, position, size).eye;
 }
 
 export function CloudCodeMonsterPet({
@@ -357,9 +346,10 @@ export function CloudCodeMonsterPet({
   );
   const [walkIntensity, setWalkIntensity] = useState(1);
   const [walkDirection, setWalkDirection] = useState<"left" | "right">("right");
-  const [eyeOffset, setEyeOffset] = useState<PetPoint>(EMPTY_EYE_OFFSET);
-  const [cursorPose, setCursorPose] =
-    useState<CloudCodeMonsterCursorPose>(EMPTY_CURSOR_POSE);
+  const [cursorPose, setCursorPose] = useState<CloudCodeMonsterCursorPose>(
+    EMPTY_CLOUD_CODE_MONSTER_CURSOR_POSE
+  );
+  const [deepSleeping, setDeepSleeping] = useState(false);
   const [footprints, setFootprints] = useState<Footprint[]>([]);
   const lastNotificationTokenRef = useRef(0);
   const lastFootstepAtRef = useRef(0);
@@ -1195,8 +1185,7 @@ export function CloudCodeMonsterPet({
 
   useEffect(() => {
     if (!position) {
-      setEyeOffset(EMPTY_EYE_OFFSET);
-      setCursorPose(EMPTY_CURSOR_POSE);
+      setCursorPose(EMPTY_CLOUD_CODE_MONSTER_CURSOR_POSE);
       return;
     }
 
@@ -1207,21 +1196,13 @@ export function CloudCodeMonsterPet({
         y: event.clientY - (boundaryRect?.top ?? 0),
       };
       const nextPose = resolveCloudCodeMonsterCursorPose(cursor, position);
-      const nextOffset = { x: nextPose.eyeX, y: nextPose.eyeY };
-      setEyeOffset((current) =>
-        current.x === nextOffset.x && current.y === nextOffset.y
-          ? current
-          : nextOffset
-      );
       setCursorPose((current) =>
-        current.bodyX === nextPose.bodyX &&
-        current.bodyY === nextPose.bodyY &&
+        current.eye.x === nextPose.eye.x &&
+        current.eye.y === nextPose.eye.y &&
         current.leanDeg === nextPose.leanDeg &&
-        current.shadowScaleX === nextPose.shadowScaleX &&
-        current.shadowX === nextPose.shadowX &&
-        current.skewDeg === nextPose.skewDeg &&
         current.stretchX === nextPose.stretchX &&
-        current.stretchY === nextPose.stretchY
+        current.stretchY === nextPose.stretchY &&
+        current.shadowShift === nextPose.shadowShift
           ? current
           : nextPose
       );
@@ -1234,20 +1215,47 @@ export function CloudCodeMonsterPet({
     };
   }, [boundaryRef, position]);
 
+  // sleeping starts with a ~10s snore phase, then settles into deep sleep.
+  // Derived from the stored activity timestamp so remounts/reloads mid-sleep
+  // still reach the deep phase on schedule.
+  const sleepingSince =
+    activityState?.activityId === "sleeping" ? activityState.updatedAt : null;
+  useEffect(() => {
+    if (sleepingSince === null) {
+      setDeepSleeping(false);
+      return;
+    }
+
+    const remainingMs =
+      CLOUD_CODE_MONSTER_DEEP_SLEEP_MS - (Date.now() - sleepingSince);
+    if (remainingMs <= 0) {
+      setDeepSleeping(true);
+      return;
+    }
+
+    setDeepSleeping(false);
+    const timerId = window.setTimeout(() => {
+      setDeepSleeping(true);
+    }, remainingMs);
+
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [sleepingSince]);
+
   if (!position || !activityState) {
     return null;
   }
 
   const displayedActivity = isPeeking || fainted ? null : activity;
-  const motionPose = resolveCloudCodeMonsterMotionPose(
-    isWalking,
-    effectiveWalkDirection,
-    walkIntensity
-  );
+  // Sprite rows key off the stored activity id — not the display lookup, which
+  // used to drop "sleeping" and left the pet stuck on idle during sleep.
+  const spriteActivityId =
+    fainted || isPeeking ? null : activityState.activityId;
   const mirrorSign = effectiveWalkDirection === "left" ? -1 : 1;
   const visualEyeOffset = {
-    x: eyeOffset.x * mirrorSign,
-    y: eyeOffset.y,
+    x: cursorPose.eye.x * mirrorSign,
+    y: cursorPose.eye.y,
   };
 
   return (
@@ -1284,7 +1292,7 @@ export function CloudCodeMonsterPet({
               : displayedActivity?.label ?? "idle"
         }`}
         className={styles.pet}
-        data-activity={displayedActivity?.id ?? "idle"}
+        data-activity={spriteActivityId ?? "idle"}
         data-dragging={isDragging}
         data-walking={isWalking}
         data-direction={effectiveWalkDirection}
@@ -1304,43 +1312,15 @@ export function CloudCodeMonsterPet({
             "--monster-walk-lift": `-${Math.round(
               2 * Math.max(0.75, walkIntensity)
             )}px`,
-            "--monster-walk-intensity": String(walkIntensity),
-            "--monster-motion-lean": `${motionPose.leanDeg * mirrorSign}deg`,
-            "--monster-motion-skew": `${motionPose.skewDeg * mirrorSign}deg`,
-            "--monster-motion-stretch-x": String(motionPose.stretchX),
-            "--monster-motion-stretch-y": String(motionPose.stretchY),
-            "--monster-cursor-body-x": `${cursorPose.bodyX * mirrorSign}px`,
-            "--monster-cursor-body-y": `${cursorPose.bodyY}px`,
             "--monster-cursor-lean": `${cursorPose.leanDeg * mirrorSign}deg`,
-            "--monster-cursor-skew": `${cursorPose.skewDeg * mirrorSign}deg`,
             "--monster-cursor-stretch-x": String(cursorPose.stretchX),
             "--monster-cursor-stretch-y": String(cursorPose.stretchY),
-            "--monster-cursor-shadow-x": `${cursorPose.shadowX * mirrorSign}px`,
-            "--monster-cursor-shadow-scale-x": String(cursorPose.shadowScaleX),
+            "--monster-cursor-shadow-x": `${
+              cursorPose.shadowShift * mirrorSign
+            }px`,
           } as CSSProperties
         }
       >
-        {notificationActive ? (
-          <span className={styles.notificationBell} aria-hidden="true">
-            <svg
-              viewBox="0 0 24 24"
-              className={`${styles.notificationBellPixel} size-6`}
-              role="img"
-              shapeRendering="crispEdges"
-            >
-              <rect x="10" y="2" width="4" height="3" fill="#2b2112" />
-              <rect x="8" y="5" width="8" height="3" fill="#2b2112" />
-              <rect x="6" y="8" width="12" height="8" fill="#2b2112" />
-              <rect x="4" y="16" width="16" height="4" fill="#2b2112" />
-              <rect x="9" y="20" width="6" height="2" fill="#2b2112" />
-              <rect x="10" y="5" width="4" height="2" fill="#ffe37a" />
-              <rect x="8" y="8" width="8" height="8" fill="#f4c84f" />
-              <rect x="6" y="16" width="12" height="2" fill="#f4c84f" />
-              <rect x="9" y="9" width="3" height="7" fill="#ffe37a" />
-              <rect x="13" y="18" width="3" height="2" fill="#c8922f" />
-            </svg>
-          </span>
-        ) : null}
         <button
           type="button"
           className={styles.button}
@@ -1362,12 +1342,14 @@ export function CloudCodeMonsterPet({
             displayedActivity || fainted || isPeeking ? "interrupt it" : "notice it"
           }, drag to make it walk.`}
         >
-          <MonsterSvg
-            activityId={displayedActivity?.id ?? null}
+          <MonsterSprite
+            activityId={spriteActivityId}
             preset={preset}
             reacting={reacting}
             shaken={shaken}
             fainted={fainted}
+            walking={isWalking}
+            deepSleeping={deepSleeping}
             eyeOffset={visualEyeOffset}
           />
         </button>
