@@ -161,6 +161,10 @@ describe("workspace init flow", () => {
       const now = new Date().toISOString()
       const rtId = `rt_e2e_${Date.now()}`
       sqlRun(
+        `INSERT INTO machine (daemon_id, workspace_id, device_info, last_seen_at, created_at, updated_at, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        seed.daemonId, extraWorkspaceId, "test-device", now, now, now, seed.userId,
+      )
+      sqlRun(
         `INSERT INTO agent_runtime (id, workspace_id, daemon_id, runtime_mode, provider, status, device_info, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         rtId, extraWorkspaceId, seed.daemonId, "local", "claude", "online", "test-device", now, now,
       )

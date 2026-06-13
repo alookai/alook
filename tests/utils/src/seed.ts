@@ -41,7 +41,7 @@ export function seedTestData(): TestSeed {
   sqlRun(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)`, userId, 'Test User', `${userId}@test.local`, now, now)
   sqlRun(`INSERT INTO workspace (id, name, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, workspaceId, 'Test Workspace', slug, now, now)
   sqlRun(`INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)`, memberId, workspaceId, userId, 'owner', now)
-  sqlRun(`INSERT INTO machine (daemon_id, workspace_id, device_info, last_seen_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, daemonId, workspaceId, 'test-device', now, now, now)
+  sqlRun(`INSERT INTO machine (daemon_id, workspace_id, device_info, last_seen_at, created_at, updated_at, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?)`, daemonId, workspaceId, 'test-device', now, now, now, userId)
   sqlRun(`INSERT INTO agent_runtime (id, workspace_id, daemon_id, runtime_mode, provider, status, device_info, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, runtimeId, workspaceId, daemonId, 'local', 'claude', 'online', 'test-device', now, now)
   sqlRun(`INSERT INTO agent (id, workspace_id, name, runtime_id, email_handle, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, agentId, workspaceId, 'Test Agent', runtimeId, emailHandle, userId, now, now)
   sqlRun(`INSERT INTO machine_token (id, user_id, workspace_id, token, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, machineTokenId, userId, workspaceId, rawToken, 'test-token', 'active', now)
