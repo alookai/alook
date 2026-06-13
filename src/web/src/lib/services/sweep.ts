@@ -47,7 +47,6 @@ export async function sweepStaleState(db: Database, workspaceId: string) {
     // Invalidate caches that sweep modified
     const dateStr = new Date().toISOString().slice(0, 10);
     await Promise.all([
-      invalidate(cacheKeys.allAgents(workspaceId)),
       invalidate(cacheKeys.overviewTaskStats(workspaceId, dateStr)),
       invalidate(cacheKeys.activeTaskCounts(workspaceId)),
     ]).catch(() => {});

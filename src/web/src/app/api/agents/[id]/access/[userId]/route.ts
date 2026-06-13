@@ -24,10 +24,6 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   if (removeWhitelist && member?.userEmail) {
     await queries.whitelist.removeWhitelistByEmail(db, agentId, ws.workspaceId, member.userEmail);
   }
-  await Promise.all([
-    invalidate(cacheKeys.allAgents(ws.workspaceId)),
-    invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
-    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
-  ]);
+  await invalidate(cacheKeys.allAgentAccess(ws.workspaceId));
   return new Response(null, { status: 204 });
 });

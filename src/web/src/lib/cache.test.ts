@@ -224,8 +224,6 @@ describe("cache", () => {
       expect(cacheKeys.member("ws1", "usr1")).toBe("mem:ws1:usr1");
       expect(cacheKeys.user("usr1")).toBe("usr:usr1");
       expect(cacheKeys.allEmailAccounts("ws1")).toBe("ea:ws1");
-      expect(cacheKeys.allColleagues("ws1")).toBe("col:ws1");
-      expect(cacheKeys.allAgents("ws1")).toBe("agents:ws1");
       expect(cacheKeys.allHandles("ws1")).toBe("handles:ws1");
       expect(cacheKeys.heartbeat("ws1", "d1")).toBe("hb:ws1:d1");
       expect(cacheKeys.machineToken("al_1234567890abcdefghij_rest")).toBe("mt:al_1234567890abcdefg");
@@ -256,12 +254,10 @@ describe("cache", () => {
         cacheKeys.allAgentAccess(ws),
         cacheKeys.allRuntimes(ws),
         cacheKeys.allMembers(ws),
-        cacheKeys.allAgents(ws),
         cacheKeys.allEmailAccounts(ws),
-        cacheKeys.allColleagues(ws),
         cacheKeys.allHandles(ws),
       ]);
-      expect(keys.size).toBe(9);
+      expect(keys.size).toBe(7);
     });
 
     it("overviewTaskStats includes date for cross-midnight isolation", () => {

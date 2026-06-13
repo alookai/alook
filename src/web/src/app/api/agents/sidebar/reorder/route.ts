@@ -5,7 +5,7 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
 import { writeError } from "@/lib/middleware/helpers";
-import { cached, cacheKeys, invalidate } from "@/lib/cache";
+import { cacheKeys, invalidate } from "@/lib/cache";
 
 export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
@@ -27,7 +27,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb((env as Env).DB);
 
   const [agents, existingPins] = await Promise.all([
-    cached(cacheKeys.allAgents(ws.workspaceId), 300, () => queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId)),
+    queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId),
     queries.agentPin.listPins(db, ws.workspaceId, ctx.userId),
   ]);
   const agentIds = new Set(agents.map((a) => a.id));

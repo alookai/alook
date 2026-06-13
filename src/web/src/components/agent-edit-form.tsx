@@ -14,7 +14,8 @@ import { Label } from "@/components/ui/label";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { RuntimeSelect } from "@/components/runtime-select";
 import { useWorkspace } from "@/contexts/workspace-context";
-import { updateAgent as updateAgentApi } from "@/lib/api";
+import { useAgentContext } from "@/contexts/agent-context";
+import { getAgent as getAgentApi, updateAgent as updateAgentApi } from "@/lib/api";
 import { toast } from "sonner";
 import {
   GeneralFields,
@@ -140,6 +141,7 @@ export function AgentEditForm({
   saving,
 }: AgentEditFormProps) {
   const { workspaceId } = useWorkspace();
+  const { patchAgent } = useAgentContext();
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [name, setName] = useState(agent.name ?? "");
   const [description, setDescription] = useState(agent.description ?? "");
@@ -166,6 +168,18 @@ export function AgentEditForm({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingInstructionsRef = useRef(false);
 
+  useEffect(() => {
+    let cancelled = false;
+    getAgentApi(agent.id, workspaceId).then((fresh) => {
+      if (cancelled) return;
+      if (fresh.instructions !== instructionsRef.current && !savingInstructionsRef.current) {
+        setInstructions(fresh.instructions);
+        setSavedInstructions(fresh.instructions);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [agent.id, workspaceId]);
+
   const scheduleInstructionSaveRef = useRef<() => void>(() => {});
 
   const flushInstructions = useCallback(async () => {
@@ -176,6 +190,7 @@ export function AgentEditForm({
     try {
       await updateAgentApi(agent.id, { instructions: current }, workspaceId);
       setSavedInstructions(current);
+      patchAgent(agent.id, { instructions: current });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save instructions");
     } finally {
@@ -184,7 +199,7 @@ export function AgentEditForm({
         scheduleInstructionSaveRef.current();
       }
     }
-  }, [agent.id, workspaceId]);
+  }, [agent.id, workspaceId, patchAgent]);
 
   const scheduleInstructionSave = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);

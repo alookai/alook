@@ -166,6 +166,9 @@ export const createAgent = (req: CreateAgentRequest, workspaceId: string) =>
     body: JSON.stringify(req),
   });
 
+export const getAgent = (id: string, workspaceId: string) =>
+  apiFetch<Agent>(`/api/agents/${id}${wsQuery(workspaceId)}`);
+
 export const updateAgent = (id: string, req: UpdateAgentRequest, workspaceId: string) =>
   apiFetch<Agent>(`/api/agents/${id}${wsQuery(workspaceId)}`, {
     method: "PATCH",

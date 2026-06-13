@@ -26,7 +26,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const offset = Number(url.searchParams.get("offset")) || 0;
 
   const [allAgents, allAccess] = await Promise.all([
-    cached(cacheKeys.allAgents(ws.workspaceId), 300, () => queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId)),
+    queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId),
     cached(cacheKeys.allAgentAccess(ws.workspaceId), 300, () => queries.agentAccess.getAllAgentAccessForWorkspace(db, ws.workspaceId)),
   ]);
   const visibleIds = new Set(filterVisibleAgents(allAgents, ctx.userId, allAccess).map((a) => a.id));
@@ -67,10 +67,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       targetAgentId: body.target_agent_id,
       instruction: body.instruction,
     });
-    await Promise.all([
-      invalidate(cacheKeys.allColleagues(ws.workspaceId)),
-      invalidate(cacheKeys.agentLinks(ws.workspaceId)),
-    ]);
+    await invalidate(cacheKeys.agentLinks(ws.workspaceId));
     return writeJSON(agentLinkToResponse(created), 201);
   } catch (e) {
     if (isUniqueConstraintError(e)) {
@@ -133,10 +130,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     created = false;
   }
 
-  await Promise.all([
-    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
-    invalidate(cacheKeys.agentLinks(ws.workspaceId)),
-  ]);
+  await invalidate(cacheKeys.agentLinks(ws.workspaceId));
 
   return writeJSON({ ...agentLinkToResponse(row), created }, created ? 201 : 200);
 });

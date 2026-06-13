@@ -240,7 +240,6 @@ describe("PUT /api/agent-links (upsert)", () => {
     const body = await res.json();
     expect(body.created).toBe(true);
     expect(body.instruction).toBe("delegate");
-    expect(mockInvalidate).toHaveBeenCalledWith("allColleagues:ws1");
     expect(mockInvalidate).toHaveBeenCalledWith("agentLinks:ws1");
   });
 

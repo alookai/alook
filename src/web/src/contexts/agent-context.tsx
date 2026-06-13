@@ -66,6 +66,7 @@ interface AgentContextValue {
   getFirstOnlineRuntimeId: () => string;
   handleGenerateToken: () => Promise<string | null>;
   handleDeleteMachine: (daemonId: string) => Promise<boolean>;
+  patchAgent: (id: string, fields: Partial<Agent>) => void;
 }
 
 const AgentContext = createContext<AgentContextValue | null>(null);
@@ -395,6 +396,10 @@ export function AgentProvider({
     [reload, workspaceId]
   );
 
+  const patchAgent = useCallback((id: string, fields: Partial<Agent>) => {
+    setAgents((prev) => prev.map((a) => (a.id === id ? { ...a, ...fields } : a)));
+  }, []);
+
   return (
     <AgentContext.Provider
       value={{
@@ -422,6 +427,7 @@ export function AgentProvider({
         getFirstOnlineRuntimeId,
         handleGenerateToken,
         handleDeleteMachine,
+        patchAgent,
       }}
     >
       {children}

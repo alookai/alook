@@ -182,9 +182,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const dateStr = new Date().toISOString().slice(0, 10);
   await Promise.all([
-    invalidate(cacheKeys.allAgents(ws.workspaceId)),
     invalidate(cacheKeys.allHandles(ws.workspaceId)),
-    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
     invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
     invalidate(cacheKeys.allMembers(ws.workspaceId)),
     invalidate(cacheKeys.overviewTaskStats(ws.workspaceId, dateStr)),

@@ -25,7 +25,7 @@ export const GET = withAuth(async (req, ctx) => {
   const dateStr = todayStart.toISOString().slice(0, 10);
 
   const [allAgents, allAccess] = await Promise.all([
-    cached(cacheKeys.allAgents(ws.workspaceId), 300, () => queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId)),
+    queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId),
     cached(cacheKeys.allAgentAccess(ws.workspaceId), 300, () => queries.agentAccess.getAllAgentAccessForWorkspace(db, ws.workspaceId)),
   ]);
   const visibleAgents = filterVisibleAgents(allAgents, ctx.userId, allAccess);

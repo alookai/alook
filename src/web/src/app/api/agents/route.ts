@@ -18,7 +18,7 @@ export const GET = withAuth(async (req, ctx) => {
   const db = getDb((env as Env).DB)
 
   const [allAgents, allAccess] = await Promise.all([
-    cached(cacheKeys.allAgents(ws.workspaceId), 300, () => queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId)),
+    queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId),
     cached(cacheKeys.allAgentAccess(ws.workspaceId), 300, () => queries.agentAccess.getAllAgentAccessForWorkspace(db, ws.workspaceId)),
   ]);
   const agents = filterVisibleAgents(allAgents, ctx.userId, allAccess);
@@ -87,7 +87,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   await Promise.all([
-    invalidate(cacheKeys.allAgents(ws.workspaceId)),
     invalidate(cacheKeys.allHandles(ws.workspaceId)),
     invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
   ]);

@@ -12,9 +12,9 @@ export class TaskPayloadBuilder {
 
     const [allAgents, allEmailAccounts, allColleagues] = agentIds.length > 0
       ? await Promise.all([
-          cached(cacheKeys.allAgents(workspaceId), 300, () => queries.agent.getAllAgentsForWorkspace(this.db, workspaceId)),
+          queries.agent.getAllAgentsForWorkspace(this.db, workspaceId),
           cached(cacheKeys.allEmailAccounts(workspaceId), 600, () => queries.emailAccount.getAllEmailAccountsForWorkspace(this.db, workspaceId)),
-          cached(cacheKeys.allColleagues(workspaceId), 600, () => queries.agentLink.getAllColleaguesForWorkspace(this.db, workspaceId)).catch(() => [] as Awaited<ReturnType<typeof queries.agentLink.getAllColleaguesForWorkspace>>),
+          queries.agentLink.getAllColleaguesForWorkspace(this.db, workspaceId).catch(() => [] as Awaited<ReturnType<typeof queries.agentLink.getAllColleaguesForWorkspace>>),
         ]).then(([agents, emails, colleagues]) => {
           const agentIdSet = new Set(agentIds);
           return [

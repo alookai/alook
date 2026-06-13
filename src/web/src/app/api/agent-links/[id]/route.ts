@@ -34,10 +34,7 @@ export const PATCH = withAuth(async (req, ctx) => {
   });
   if (!updated) return writeError("not found", 404);
 
-  await Promise.all([
-    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
-    invalidate(cacheKeys.agentLinks(ws.workspaceId)),
-  ]);
+  await invalidate(cacheKeys.agentLinks(ws.workspaceId));
 
   return writeJSON(agentLinkToResponse(updated));
 });
@@ -64,10 +61,7 @@ export const DELETE = withAuth(async (req, ctx) => {
   const deleted = await queries.agentLink.remove(db, id, ws.workspaceId);
   if (!deleted) return writeError("not found", 404);
 
-  await Promise.all([
-    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
-    invalidate(cacheKeys.agentLinks(ws.workspaceId)),
-  ]);
+  await invalidate(cacheKeys.agentLinks(ws.workspaceId));
 
   return writeJSON(agentLinkToResponse(deleted));
 });

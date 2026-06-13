@@ -44,10 +44,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (member?.userEmail) {
     await queries.whitelist.addWhitelist(db, id, ws.workspaceId, member.userEmail);
   }
-  await Promise.all([
-    invalidate(cacheKeys.allAgents(ws.workspaceId)),
-    invalidate(cacheKeys.allAgentAccess(ws.workspaceId)),
-    invalidate(cacheKeys.allColleagues(ws.workspaceId)),
-  ]);
+  await invalidate(cacheKeys.allAgentAccess(ws.workspaceId));
   return writeJSON({ id: access.id, user_id: access.userId }, 201);
 });
