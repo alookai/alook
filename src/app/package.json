@@ -42,7 +42,7 @@
     "commander": "^14.0.3",
     "playwright-core": "^1.60.0",
     "postal-mime": "^2.7.4",
-    "wrangler": "^4.98.0"
+    "wrangler": "^4.100.0"
   },
   "devDependencies": {
     "@alook/shared": "workspace:*",
@@ -50,7 +50,7 @@
     "eslint": "^9.39.4",
     "knip": "^6.16.1",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.60.1",
+    "typescript-eslint": "^8.61.0",
     "vitest": "^4.1.8"
   }
 }

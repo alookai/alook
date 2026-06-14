@@ -51,7 +51,7 @@
     "commander": "^14.0.3",
     "playwright-core": "^1.60.0",
     "postal-mime": "^2.7.4",
-    "sharp": "^0.33.0"
+    "sharp": "^0.35.1"
   },
   "devDependencies": {
     "@alook/shared": "workspace:*",
@@ -59,7 +59,7 @@
     "eslint": "^10.3.0",
     "knip": "^6.16.1",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.60.1",
+    "typescript-eslint": "^8.61.0",
     "vitest": "^4.1.8"
   }
 }

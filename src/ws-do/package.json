@@ -12,11 +12,11 @@
     "@alook/shared": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260607.1",
-    "@types/node": "^25.9.2",
+    "@cloudflare/workers-types": "^4.20260613.1",
+    "@types/node": "^25.9.3",
     "knip": "^6.16.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8",
-    "wrangler": "^4.98.0"
+    "wrangler": "^4.100.0"
   }
 }

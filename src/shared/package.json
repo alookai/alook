@@ -18,8 +18,8 @@
     "zod": "^4.4"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260607.1",
-    "@types/node": "^25.9.2",
+    "@cloudflare/workers-types": "^4.20260613.1",
+    "@types/node": "^25.9.3",
     "knip": "^6.16.1",
     "playwright-core": "^1.60.0",
     "typescript": "^6.0.3",
