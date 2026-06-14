@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { nanoid } from "nanoid";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
@@ -11,8 +10,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const bucket = (env as Env).EMAIL_BUCKET;
+  const bucket = ctx.env.EMAIL_BUCKET;
 
   let formData: FormData;
   try {

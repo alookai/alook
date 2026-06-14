@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server"
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { nanoid } from "nanoid"
 import { queries, MeetingStatus, DEV_WEB_URL, buildMimeMessage, toAlookAddress } from "@alook/shared"
 import { withAuth } from "@/lib/middleware/auth"
@@ -8,8 +7,7 @@ import { getDb } from "@/lib/db"
 import { log } from "@/lib/logger"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const { env } = getCloudflareContext()
-  const cfEnv = env as Env
+  const cfEnv = ctx.env
   const db = getDb(cfEnv.DB)
 
   if (!ctx.workspaceId) {

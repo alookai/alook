@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, isValidHandle } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { uniqueNamesGenerator, names } from "unique-names-generator";
@@ -7,7 +6,7 @@ import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
 
-export const POST = withAuth(async (req: NextRequest) => {
+export const POST = withAuth(async (req: NextRequest, ctx) => {
   let body: { names: string[] };
   try {
     body = await req.json() as { names: string[] };
@@ -19,8 +18,7 @@ export const POST = withAuth(async (req: NextRequest) => {
     return writeError("names must be an array of 1-4 strings", 400);
   }
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   // Generate all candidate handles upfront
   const candidatesPerName: { name: string; candidates: string[] }[] = [];

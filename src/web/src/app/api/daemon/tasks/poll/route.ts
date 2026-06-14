@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, PollRequestSchema, semverGte, type FileRequestItem, type PollMeetingItem } from "@alook/shared";
 import { getDb, withD1Retry } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
@@ -10,8 +9,7 @@ import { broadcastToUser } from "@/lib/broadcast";
 import { log } from "@/lib/logger";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
   const { cached, cacheKeys, throttled } = await import("@/lib/cache");
 
   const [body, err] = await parseBody(req, PollRequestSchema);
@@ -143,7 +141,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     await throttled(`expire_fr:${ctx.workspaceId}`, 5, async () => {
       await queries.workspaceFileRequest.expireStale(db, ctx.workspaceId!);
     });
-    const kv = (env as Env).CACHE_KV ?? null;
+    const kv = ctx.env.CACHE_KV ?? null;
     const frFlag = kv ? await kv.get(cacheKeys.hasPendingFileRequest(ctx.workspaceId!)) : null;
     if (frFlag !== "0") {
       const pending = await queries.workspaceFileRequest.getPendingByWorkspace(db, ctx.workspaceId);

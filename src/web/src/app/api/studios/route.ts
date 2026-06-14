@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, CreateStudioRequestSchema, isValidHandle, isOnline, TASK_TYPES, toAlookAddress } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { uniqueNamesGenerator, names } from "unique-names-generator";
@@ -48,8 +47,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const [body, valErr] = await parseBody(req, CreateStudioRequestSchema);
   if (valErr) return valErr;

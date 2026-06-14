@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
@@ -15,8 +14,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     return writeError("conversation_id is required", 400);
   }
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const conv = await queries.conversation.getConversation(db, conversationId, ws.workspaceId);
   if (!conv || conv.userId !== ctx.userId) {

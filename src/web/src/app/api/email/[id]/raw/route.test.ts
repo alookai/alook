@@ -31,7 +31,7 @@ vi.mock("@alook/shared", () => ({
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params;
-    return handler(req, { userId: "u1", email: "u@t.com", params });
+    return handler(req, { env: { DB: {}, EMAIL_BUCKET: { get: (...args: unknown[]) => mockR2Get(...args) } }, userId: "u1", email: "u@t.com", params });
   }),
 }));
 

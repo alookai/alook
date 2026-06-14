@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import {
   queries,
   CreateCalendarEventRequestSchema,
@@ -19,8 +18,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const agentId = req.nextUrl.searchParams.get("agentId") ?? undefined;
   const from = req.nextUrl.searchParams.get("from") ?? undefined;
@@ -132,8 +130,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const [body, err] = await parseBody(req, CreateCalendarEventRequestSchema);
   if (err) return err;

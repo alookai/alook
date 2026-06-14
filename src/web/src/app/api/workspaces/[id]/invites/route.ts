@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
@@ -11,8 +10,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const owner = await withWorkspaceOwner(req, ctx);
   if (owner instanceof Response) return owner;
 
-  const { env } = await getCloudflareContext({ async: true });
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const invites = await queries.workspaceInvite.listActiveInvites(db, owner.workspaceId);
   return writeJSON(invites.map(inviteToResponse));
@@ -22,8 +20,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const owner = await withWorkspaceOwner(req, ctx);
   if (owner instanceof Response) return owner;
 
-  const { env } = await getCloudflareContext({ async: true });
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const invite = await queries.workspaceInvite.createInvite(db, {

@@ -23,7 +23,7 @@ vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params =
       ctx?.params instanceof Promise ? await ctx.params : ctx?.params;
-    return handler(req, { userId: "u1", email: "u@t.com", workspaceId: "w1", params });
+    return handler(req, { env: {}, userId: "u1", email: "u@t.com", workspaceId: "w1", params });
   }),
 }));
 vi.mock("@/lib/middleware/helpers", async () => {

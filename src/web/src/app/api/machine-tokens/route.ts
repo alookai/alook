@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { generateMachineToken } from "@/lib/token";
@@ -12,16 +11,14 @@ export const GET = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext()
-  const db = getDb((env as Env).DB)
+  const db = getDb(ctx.env.DB)
 
   const tokens = await queries.machineToken.listMachineTokens(db, ctx.userId, ws.workspaceId);
   return writeJSON(tokens.map(machineTokenToResponse));
 });
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const { env } = getCloudflareContext()
-  const db = getDb((env as Env).DB)
+  const db = getDb(ctx.env.DB)
 
   const wsParam = req.nextUrl.searchParams.get("workspace_id");
   let workspaceId: string | null = null;

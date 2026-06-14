@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
@@ -10,8 +9,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   await queries.inbox.markAllConversationsRead(db, ctx.userId, ws.workspaceId);
   invalidateInboxCounts(ctx.userId, ws.workspaceId).catch(() => {});

@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db"
 import { nanoid } from "nanoid";
@@ -18,9 +17,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const bucket = (env as Env).EMAIL_BUCKET;
-  const db = getDb((env as Env).DB);
+  const bucket = ctx.env.EMAIL_BUCKET;
+  const db = getDb(ctx.env.DB);
 
   let formData: FormData;
   try {

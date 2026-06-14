@@ -7,7 +7,7 @@ import { NextRequest } from "next/server";
 // invalid payloads are rejected before hitting any DB logic.
 // ---------------------------------------------------------------------------
 
-const daemonAuth = { userId: "u1", email: "u@t.com", workspaceId: "w1" };
+const daemonAuth = { env: {}, userId: "u1", email: "u@t.com", workspaceId: "w1" };
 
 function baseMocks() {
   return {

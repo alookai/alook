@@ -5,7 +5,7 @@ const mockFailTask = vi.fn();
 const mockTaskToResponse = vi.fn();
 const mockGetConversation = vi.fn();
 
-let mockAuthCtx: Record<string, unknown> = { userId: "u1", email: "u@t.com", workspaceId: "w1" };
+let mockAuthCtx: Record<string, unknown> = { env: {}, userId: "u1", email: "u@t.com", workspaceId: "w1" };
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: { withSession: () => ({}) } } })),
@@ -67,7 +67,7 @@ const makeReq = (taskId: string, body: Record<string, unknown> = {}) =>
 describe("POST /api/daemon/tasks/[taskId]/fail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockAuthCtx = { userId: "u1", email: "u@t.com", workspaceId: "w1" };
+    mockAuthCtx = { env: {}, userId: "u1", email: "u@t.com", workspaceId: "w1" };
   });
 
   it("returns failed task and broadcasts to conversation owner", async () => {
@@ -89,7 +89,7 @@ describe("POST /api/daemon/tasks/[taskId]/fail", () => {
   });
 
   it("returns 403 when workspaceId is missing (session auth)", async () => {
-    mockAuthCtx = { userId: "u1", email: "u@t.com" };
+    mockAuthCtx = { env: {}, userId: "u1", email: "u@t.com" };
 
     const res = await POST(makeReq("t1", { error: "boom" }), withParams("t1"));
     const body = await res.json();

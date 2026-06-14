@@ -18,7 +18,7 @@ vi.mock("@/lib/middleware/helpers", async () =>
   await vi.importActual<typeof import("@/lib/middleware/helpers")>("@/lib/middleware/helpers")
 );
 vi.mock("@/lib/middleware/auth", () => ({
-  withAuth: (handler: any) => (req: any) => handler(req, { userId: "u1", email: "test@test.com" }),
+  withAuth: (handler: any) => (req: any) => handler(req, { env: {}, userId: "u1", email: "test@test.com" }),
 }));
 
 import { GET } from "./route";

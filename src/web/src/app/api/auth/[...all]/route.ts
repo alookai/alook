@@ -1,13 +1,12 @@
+import { NextRequest } from "next/server"
 import { toNextJsHandler } from "better-auth/next-js"
 import { createAuth } from "@/lib/auth"
-import { getCloudflareContext } from "@opennextjs/cloudflare"
+import { withEnv } from "@/lib/middleware/env"
 
-export async function GET(request: Request) {
-  const { env } = getCloudflareContext()
-  return toNextJsHandler(createAuth(env as Env)).GET(request)
-}
+export const GET = withEnv(async (req: NextRequest, ctx) => {
+  return toNextJsHandler(createAuth(ctx.env)).GET(req)
+});
 
-export async function POST(request: Request) {
-  const { env } = getCloudflareContext()
-  return toNextJsHandler(createAuth(env as Env)).POST(request)
-}
+export const POST = withEnv(async (req: NextRequest, ctx) => {
+  return toNextJsHandler(createAuth(ctx.env)).POST(req)
+});

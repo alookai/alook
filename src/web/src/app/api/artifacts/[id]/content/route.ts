@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
@@ -21,9 +20,8 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   if (ws instanceof Response) return ws;
 
   const id = ctx.params?.id as string;
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
-  const bucket = (env as Env).EMAIL_BUCKET;
+  const db = getDb(ctx.env.DB);
+  const bucket = ctx.env.EMAIL_BUCKET;
 
   const row = await queries.artifact.getArtifact(db, id, ws.workspaceId);
   if (!row) {

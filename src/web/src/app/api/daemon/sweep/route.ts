@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { SweepRequestSchema } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
@@ -9,7 +8,6 @@ import { promoteDueCalendarEventsForWorkspace } from "@/lib/services/calendar";
 import { log } from "@/lib/logger";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const { env } = getCloudflareContext();
   const { throttled } = await import("@/lib/cache");
 
   const [, err] = await parseBody(req, SweepRequestSchema);
@@ -19,7 +17,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("Forbidden: machine token required", 403);
   }
 
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   try {
     await sweepStaleState(db, ctx.workspaceId);

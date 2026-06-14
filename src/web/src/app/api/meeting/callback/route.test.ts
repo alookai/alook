@@ -42,7 +42,7 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params;
-    return handler(req, { userId: "u1", email: "u@t.com", workspaceId: "w1", params });
+    return handler(req, { env: { DB: {}, EMAIL_BUCKET: { put: (...args: unknown[]) => mockBucketPut(...args) }, WORKER_SELF_REFERENCE: { fetch: (...args: unknown[]) => mockSelfRefFetch(...args) } }, userId: "u1", email: "u@t.com", workspaceId: "w1", params });
   }),
 }));
 

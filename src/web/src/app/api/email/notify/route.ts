@@ -1,15 +1,14 @@
 import { NextRequest } from "next/server"
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, MeetingStatus, EmailNotifyRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
+import { withEnv } from "@/lib/middleware/env"
 import { writeJSON, parseBody } from "@/lib/middleware/helpers"
 import { broadcastToUser } from "@/lib/broadcast"
 import { invalidate, cacheKeys } from "@/lib/cache"
 import { dispatchEmailToAgent } from "@/lib/services/email-dispatch"
 
-export async function POST(req: NextRequest) {
-  const { env } = getCloudflareContext()
-  const db = getDb((env as Env).DB)
+export const POST = withEnv(async (req: NextRequest, ctx) => {
+  const db = getDb(ctx.env.DB)
 
   const [body, valErr] = await parseBody(req, EmailNotifyRequestSchema);
   if (valErr) return valErr;
@@ -71,4 +70,4 @@ export async function POST(req: NextRequest) {
   }
 
   return writeJSON({ ok: true, ...(conversationId ? { conversationId } : {}) })
-}
+});

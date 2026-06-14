@@ -69,8 +69,8 @@ describe("POST /api/daemon/deregister", () => {
     return POST;
   }
 
-  const daemonAuth = { userId: "u1", email: "u@t.com", workspaceId: "w1" };
-  const jwtAuth = { userId: "u1", email: "u@t.com" };
+  const daemonAuth = { env: {}, userId: "u1", email: "u@t.com", workspaceId: "w1" };
+  const jwtAuth = { env: {}, userId: "u1", email: "u@t.com" };
 
   it("sets machine last_seen_at to null", async () => {
     const POST = await loadRoute(daemonAuth);

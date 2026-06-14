@@ -6,7 +6,7 @@ const mockCreateTaskMessage = vi.fn();
 const mockGetTask = vi.fn();
 const mockTaskMessageToResponse = vi.fn((m: any) => m);
 
-let mockAuthCtx: Record<string, unknown> = { userId: "u1", email: "u@t.com", workspaceId: "w1" };
+let mockAuthCtx: Record<string, unknown> = { env: {}, userId: "u1", email: "u@t.com", workspaceId: "w1" };
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: { withSession: () => ({}) } } })),
@@ -67,7 +67,7 @@ const withParams = (taskId: string) => ({
 describe("GET /api/daemon/tasks/[taskId]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockAuthCtx = { userId: "u1", email: "u@t.com", workspaceId: "w1" };
+    mockAuthCtx = { env: {}, userId: "u1", email: "u@t.com", workspaceId: "w1" };
   });
 
   it("returns messages for workspace-scoped task", async () => {
@@ -86,7 +86,7 @@ describe("GET /api/daemon/tasks/[taskId]/messages", () => {
   });
 
   it("returns 403 when workspaceId is missing (session auth)", async () => {
-    mockAuthCtx = { userId: "u1", email: "u@t.com" };
+    mockAuthCtx = { env: {}, userId: "u1", email: "u@t.com" };
 
     const res = await GET(
       new NextRequest("http://localhost/api/daemon/tasks/t1/messages"),
@@ -103,7 +103,7 @@ describe("GET /api/daemon/tasks/[taskId]/messages", () => {
 describe("POST /api/daemon/tasks/[taskId]/messages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockAuthCtx = { userId: "u1", email: "u@t.com", workspaceId: "w1" };
+    mockAuthCtx = { env: {}, userId: "u1", email: "u@t.com", workspaceId: "w1" };
   });
 
   it("creates messages for workspace-scoped task", async () => {
@@ -129,7 +129,7 @@ describe("POST /api/daemon/tasks/[taskId]/messages", () => {
   });
 
   it("returns 403 when workspaceId is missing (session auth)", async () => {
-    mockAuthCtx = { userId: "u1", email: "u@t.com" };
+    mockAuthCtx = { env: {}, userId: "u1", email: "u@t.com" };
 
     const res = await POST(
       new NextRequest("http://localhost/api/daemon/tasks/t1/messages", {

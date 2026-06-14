@@ -1,12 +1,10 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { semverGte } from "@alook/shared";
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON } from "@/lib/middleware/helpers";
 import { fetchLatestCliVersion } from "@/lib/npm";
 
-export const GET = withAuth(async () => {
-  const { env } = getCloudflareContext()
-  const raw = (env as Env).MIN_CLI_VERSION;
+export const GET = withAuth(async (_req, ctx) => {
+  const raw = ctx.env.MIN_CLI_VERSION;
   if (!raw) return writeJSON({ min_cli_version: null });
 
   const result = await fetchLatestCliVersion();

@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, WorkspaceFileReportSchema } from "@alook/shared";
 import { withAuth } from "@/lib/middleware/auth";
 import { parseBody, writeJSON, writeError } from "@/lib/middleware/helpers";
@@ -11,8 +10,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("Forbidden: machine token required", 403);
   }
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const [body, err] = await parseBody(req, WorkspaceFileReportSchema);
   if (err) return err;

@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
 import { getDb, withD1Retry } from "@/lib/db";
 import type { TaskMessageResponse } from "@alook/shared"
@@ -15,8 +14,7 @@ export const GET = withAuth(async (_req, ctx) => {
     return writeError("Forbidden: machine token required", 403);
   }
 
-  const { env } = getCloudflareContext()
-  const db = getDb((env as Env).DB)
+  const db = getDb(ctx.env.DB)
 
   const taskId = ctx.params?.taskId;
   if (!taskId) {
@@ -32,8 +30,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("Forbidden: machine token required", 403);
   }
 
-  const { env } = getCloudflareContext()
-  const db = getDb((env as Env).DB)
+  const db = getDb(ctx.env.DB)
 
   const taskId = ctx.params?.taskId;
   if (!taskId) {

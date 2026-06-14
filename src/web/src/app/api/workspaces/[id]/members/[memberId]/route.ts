@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
@@ -13,8 +12,7 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
 
   const { memberId } = ctx.params!;
 
-  const { env } = await getCloudflareContext({ async: true });
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const target = await queries.member.getMember(db, memberId, owner.workspaceId);
   if (!target) return writeError("member not found", 404);

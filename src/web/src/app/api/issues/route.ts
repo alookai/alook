@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { CreateIssueRequestSchema, IssueStatusSchema, queries, TASK_TYPES } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { getDb } from "@/lib/db";
@@ -28,8 +27,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const agentId = req.nextUrl.searchParams.get("agentId") ?? undefined;
   const status = req.nextUrl.searchParams.get("status") ?? undefined;
@@ -64,9 +62,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
-  const bucket = (env as Env).EMAIL_BUCKET;
+  const db = getDb(ctx.env.DB);
+  const bucket = ctx.env.EMAIL_BUCKET;
 
   const contentType = req.headers.get("content-type") ?? "";
   const isMultipart = contentType.includes("multipart/form-data");

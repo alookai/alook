@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, RecruitAgentRequestSchema, isValidHandle, isOnline, buildMimeMessage, extractThreadId, buildEmailMapKey, DEV_WEB_URL, toAlookAddress } from "@alook/shared";
 import { nanoid } from "nanoid";
 import { uniqueNamesGenerator, names } from "unique-names-generator";
@@ -39,8 +38,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const agentId = req.nextUrl.searchParams.get("agentId");
   if (!agentId) {
@@ -117,7 +115,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   if (isOnline(runtime.machineLastSeenAt) && callingAgent.emailHandle) {
     try {
-      const cfEnv = env as Env;
+      const cfEnv = ctx.env;
       const fromAddress = toAlookAddress(callingAgent.emailHandle);
       const toAddress = toAlookAddress(handle);
       const subject = "Welcome aboard";

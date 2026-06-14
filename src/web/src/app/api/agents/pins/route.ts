@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
@@ -10,8 +9,7 @@ import { cached, cacheKeys } from "@/lib/cache";
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
-  const { env } = await getCloudflareContext({ async: true });
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
   const data = await cached(cacheKeys.pins(ws.workspaceId, ctx.userId), 30, async () => {
     const [pins, sidebarOrder] = await Promise.all([
       queries.agentPin.listPins(db, ws.workspaceId, ctx.userId),

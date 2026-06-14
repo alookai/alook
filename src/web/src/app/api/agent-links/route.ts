@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import {
   queries,
   CreateAgentLinkRequestSchema,
@@ -18,8 +17,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const url = new URL(req.url);
   const limit = Math.min(Number(url.searchParams.get("limit")) || 200, 500);
@@ -43,8 +41,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const [body, err] = await parseBody(req, CreateAgentLinkRequestSchema);
   if (err) return err;
@@ -84,8 +81,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const agentId = new URL(req.url).searchParams.get("agentId");
   if (!agentId) {

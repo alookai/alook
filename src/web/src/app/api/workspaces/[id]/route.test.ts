@@ -33,7 +33,7 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params;
-    return handler(req, { ...mockAuthCtx, params });
+    return handler(req, { env: { DB: {} }, ...mockAuthCtx, params });
   }),
 }));
 

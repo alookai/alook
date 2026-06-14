@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, WorkspaceFileBrowseRequestSchema } from "@alook/shared";
 import { withAuth } from "@/lib/middleware/auth";
 import { withWorkspaceMember } from "@/lib/middleware/workspace";
@@ -12,8 +11,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const agentId = ctx.params?.id;
   if (!agentId) return writeError("agent id required", 400);
@@ -31,7 +29,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     path: body.path,
   });
 
-  const kv = (env as Env).CACHE_KV ?? null;
+  const kv = ctx.env.CACHE_KV ?? null;
   if (kv) {
     kv.put(cacheKeys.hasPendingFileRequest(ws.workspaceId), "1", { expirationTtl: 60 }).catch(() => {});
   }

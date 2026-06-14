@@ -294,7 +294,7 @@ describe("machineTokenToResponse", () => {
 
 describe("UserResponse shape", () => {
   it("has expected keys: id, name, email, avatar_url, created_at, updated_at", () => {
-    const res = userToResponse({ id: "u1", name: "A", email: "a@b.com", avatarUrl: "https://img.png", ...baseFields() });
+    const res = userToResponse({ id: "u1", name: "A", email: "a@b.com", image: "https://img.png", ...baseFields() });
     expect(Object.keys(res).sort()).toEqual(
       ["avatar_url", "created_at", "email", "id", "name", "updated_at"]
     );
@@ -431,7 +431,7 @@ describe("AgentRuntimeResponse shape", () => {
 
 describe("all response mappers strip milliseconds from timestamps", () => {
   it("userToResponse strips milliseconds", () => {
-    const res = userToResponse({ id: "u1", name: "A", email: "a@b.com", avatarUrl: null, ...baseFields() });
+    const res = userToResponse({ id: "u1", name: "A", email: "a@b.com", image: null, ...baseFields() });
     expect(res.created_at).toBe(tsFormatted);
     expect(res.updated_at).toBe(tsFormatted);
   });

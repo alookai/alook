@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, CreateConversationRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
@@ -11,8 +10,7 @@ export const GET = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext()
-  const db = getDb((env as Env).DB)
+  const db = getDb(ctx.env.DB)
 
   const channel = new URL(req.url).searchParams.get("channel") || undefined;
 
@@ -29,8 +27,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext()
-  const db = getDb((env as Env).DB)
+  const db = getDb(ctx.env.DB)
 
   const [body, valErr] = await parseBody(req, CreateConversationRequestSchema);
   if (valErr) return valErr;

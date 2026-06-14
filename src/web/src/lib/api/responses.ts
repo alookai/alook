@@ -2,22 +2,36 @@ import {
   formatTimestamp,
   formatTimestampNullable,
 } from "@/lib/middleware/helpers";
-import { TaskApiBaseSchema, isOnline, TASK_TYPES } from "@alook/shared";
+import { TaskApiBaseSchema, isOnline, TASK_TYPES, schema, type Message } from "@alook/shared";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+type UserRow = typeof schema.user.$inferSelect;
+type WorkspaceRow = typeof schema.workspace.$inferSelect;
+type AgentRow = typeof schema.agent.$inferSelect;
+type EmailRow = typeof schema.emails.$inferSelect;
+type ConversationRow = typeof schema.conversation.$inferSelect;
+type ChannelRow = typeof schema.channel.$inferSelect;
+type MessageRow = typeof schema.message.$inferSelect;
+type TaskMessageRow = typeof schema.taskMessage.$inferSelect;
+type AgentRuntimeRow = typeof schema.agentRuntime.$inferSelect;
+type MachineTokenRow = typeof schema.machineToken.$inferSelect;
+type MeetingSessionRow = typeof schema.meetingSession.$inferSelect;
+type AgentLinkRow = typeof schema.agentLink.$inferSelect;
+type CalendarEventRow = typeof schema.calendarEvent.$inferSelect;
+type IssueRow = typeof schema.issue.$inferSelect;
+type AgentTaskQueueRow = typeof schema.agentTaskQueue.$inferSelect;
 
-export function userToResponse(u: any) {
+export function userToResponse(u: UserRow) {
   return {
     id: u.id,
     name: u.name,
     email: u.email,
-    avatar_url: u.avatarUrl ?? null,
+    avatar_url: u.image ?? null,
     created_at: formatTimestamp(u.createdAt),
     updated_at: formatTimestamp(u.updatedAt),
   };
 }
 
-export function workspaceToResponse(w: any) {
+export function workspaceToResponse(w: WorkspaceRow) {
   return {
     id: w.id,
     name: w.name,
@@ -28,7 +42,7 @@ export function workspaceToResponse(w: any) {
   };
 }
 
-export function agentToResponse(a: any) {
+export function agentToResponse(a: AgentRow) {
   let rc = a.runtimeConfig;
   if (!rc) rc = {};
   return {
@@ -51,7 +65,7 @@ export function agentToResponse(a: any) {
   };
 }
 
-export function emailToResponse(e: any) {
+export function emailToResponse(e: EmailRow) {
   return {
     id: e.id,
     agent_id: e.agentId,
@@ -116,8 +130,8 @@ export function taskToResponse(t: {
   });
 }
 
-export function conversationToResponse(c: any) {
-  const resp: any = {
+export function conversationToResponse(c: Partial<ConversationRow> & Pick<ConversationRow, "id" | "agentId" | "title" | "createdAt"> & { messageCount?: number }) {
+  const resp: Record<string, unknown> = {
     id: c.id,
     agent_id: c.agentId,
     title: c.title,
@@ -135,7 +149,7 @@ export function conversationToResponse(c: any) {
   return resp;
 }
 
-export function channelToResponse(c: any) {
+export function channelToResponse(c: ChannelRow) {
   return {
     id: c.id,
     workspace_id: c.workspaceId,
@@ -145,24 +159,24 @@ export function channelToResponse(c: any) {
   };
 }
 
-export function messageToResponse(m: any) {
-  const resp: any = {
+export function messageToResponse(m: MessageRow): Message {
+  const resp: Message = {
     id: m.id,
     conversation_id: m.conversationId,
-    role: m.role,
+    role: m.role as Message["role"],
     content: m.content,
     task_id: m.taskId || null,
     attachment_ids: m.attachmentIds ? JSON.parse(m.attachmentIds) : null,
     metadata: m.metadata ? JSON.parse(m.metadata) : null,
     created_at: formatTimestamp(m.createdAt),
   };
-  if (m.status && m.status !== "active") {
-    resp.status = m.status;
+  if (m.status === "active") {
+    resp.status = "active";
   }
   return resp;
 }
 
-export function taskMessageToResponse(m: any) {
+export function taskMessageToResponse(m: Pick<TaskMessageRow, "id" | "seq" | "type" | "content" | "output">) {
   return {
     id: m.id,
     seq: m.seq,
@@ -172,7 +186,7 @@ export function taskMessageToResponse(m: any) {
   };
 }
 
-export function runtimeToResponse(rt: any) {
+export function runtimeToResponse(rt: AgentRuntimeRow & { machineLastSeenAt?: Date | string | null; pendingUpdateVersion?: string | null; pendingRescan?: boolean | number | null }) {
   let metadata = rt.metadata;
   if (!metadata) metadata = {};
   const machineLastSeenAt = rt.machineLastSeenAt ?? null;
@@ -196,7 +210,7 @@ export function runtimeToResponse(rt: any) {
   };
 }
 
-export function machineTokenToResponse(mt: any) {
+export function machineTokenToResponse(mt: Pick<MachineTokenRow, "id" | "name" | "status" | "lastUsedAt" | "createdAt">) {
   return {
     id: mt.id,
     name: mt.name,
@@ -206,7 +220,7 @@ export function machineTokenToResponse(mt: any) {
   };
 }
 
-export function meetingToResponse(m: any) {
+export function meetingToResponse(m: MeetingSessionRow) {
   return {
     id: m.id,
     agent_id: m.agentId,
@@ -229,7 +243,7 @@ export function meetingToResponse(m: any) {
   };
 }
 
-export function agentLinkToResponse(row: any) {
+export function agentLinkToResponse(row: AgentLinkRow) {
   return {
     id: row.id,
     workspace_id: row.workspaceId,
@@ -241,7 +255,7 @@ export function agentLinkToResponse(row: any) {
   };
 }
 
-export function calendarEventToResponse(e: any) {
+export function calendarEventToResponse(e: CalendarEventRow & { occurrenceAt?: string | null; collapsedCount?: number | null }) {
   const scheduled = formatTimestamp(e.scheduledAt);
   const occurrence = e.occurrenceAt ? formatTimestamp(e.occurrenceAt) : scheduled;
   return {
@@ -261,7 +275,7 @@ export function calendarEventToResponse(e: any) {
   };
 }
 
-export function issueToResponse(row: any) {
+export function issueToResponse(row: IssueRow) {
   return {
     id: row.id,
     workspace_id: row.workspaceId,

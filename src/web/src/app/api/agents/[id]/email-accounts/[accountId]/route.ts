@@ -1,4 +1,3 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, UpdateEmailAccountSchema, DEV_EMAIL_WORKER_URL } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { encrypt } from "@alook/shared/crypto"
@@ -43,8 +42,7 @@ export const PATCH = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx)
   if (ws instanceof Response) return ws
 
-  const { env } = getCloudflareContext()
-  const cfEnv = env as Env
+  const cfEnv = ctx.env
   const db = getDb(cfEnv.DB)
 
   const agentId = ctx.params?.id
@@ -97,8 +95,7 @@ export const DELETE = withAuth(async (req, ctx) => {
   const ws = await withWorkspaceMember(req, ctx)
   if (ws instanceof Response) return ws
 
-  const { env } = getCloudflareContext()
-  const cfEnv = env as Env
+  const cfEnv = ctx.env
   const db = getDb(cfEnv.DB)
 
   const agentId = ctx.params?.id

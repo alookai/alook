@@ -1,13 +1,11 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries } from "@alook/shared";
 import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
 import { getDb } from "@/lib/db";
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const agentId = ctx.params?.id;
   if (!agentId) return writeError("agent id required", 400);

@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, HeartbeatRequestSchema, OFFLINE_THRESHOLD_MS } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
@@ -8,7 +7,6 @@ import { broadcastToUser } from "@/lib/broadcast";
 import { log } from "@/lib/logger";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const { env } = getCloudflareContext();
 
   const [body, err] = await parseBody(req, HeartbeatRequestSchema);
   if (err) return err;
@@ -17,7 +15,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("Forbidden: machine token required", 403);
   }
 
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
   let wasOffline = false;
   try {
     const existing = await queries.machine.getMachineByDaemon(db, body.daemon_id, ctx.workspaceId!);

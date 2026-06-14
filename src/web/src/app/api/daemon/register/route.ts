@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, semverGte } from "@alook/shared"
 import { getDb, withD1Retry } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
@@ -11,8 +10,7 @@ import { invalidate, cacheKeys } from "@/lib/cache";
 import { log } from "@/lib/logger";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const { env } = getCloudflareContext()
-  const db = getDb((env as Env).DB)
+  const db = getDb(ctx.env.DB)
 
   const [body, err] = await parseBody(req, RegisterDaemonRequestSchema);
   if (err) return err;

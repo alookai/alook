@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries, ActivateTokenRequestSchema, createLogger } from "@alook/shared";
 import { getDb } from "@/lib/db"
+import { withEnv } from "@/lib/middleware/env";
 import { writeJSON } from "@/lib/middleware/helpers";
 import { runtimeToResponse } from "@/lib/api/responses";
 import { broadcastToUser } from "@/lib/broadcast";
@@ -9,7 +9,7 @@ import { invalidate, cacheKeys } from "@/lib/cache";
 
 const log = createLogger({ service: "machine-tokens/activate" });
 
-export async function POST(req: NextRequest) {
+export const POST = withEnv(async (req: NextRequest, ctx) => {
   let raw: unknown;
   try {
     raw = await req.json();
@@ -24,8 +24,7 @@ export async function POST(req: NextRequest) {
 
   const { token, hostname, runtimes } = parsed.data;
 
-  const { env } = await getCloudflareContext({ async: true });
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const mt = await queries.machineToken.getMachineTokenByToken(db, token);
   if (!mt) {
@@ -89,4 +88,4 @@ export async function POST(req: NextRequest) {
     workspace_id: workspaceId,
     runtimes: results.map(runtimeToResponse),
   });
-}
+});

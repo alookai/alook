@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
@@ -10,8 +9,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const ws = await withWorkspaceMember(req, ctx);
   if (ws instanceof Response) return ws;
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const idsOnly = req.nextUrl.searchParams.get("ids_only") === "true";
   const conversationId = req.nextUrl.searchParams.get("conversation_id");
@@ -46,8 +44,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return NextResponse.json({ error: "messageId is required" }, { status: 400 });
   }
 
-  const { env } = getCloudflareContext();
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const msgWorkspaceId = await queries.messageFlag.getMessageWorkspaceId(db, body.messageId);
 

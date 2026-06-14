@@ -50,7 +50,7 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: Function) =>
     (req: NextRequest) =>
-      handler(req, { userId: "u1", email: "u1@test.com", params: { id: req.url.split("/email/")[1]?.split("/")[0] } }),
+      handler(req, { env: {}, userId: "u1", email: "u1@test.com", params: { id: req.url.split("/email/")[1]?.split("/")[0] } }),
 }));
 
 vi.mock("@/lib/middleware/workspace", () => ({

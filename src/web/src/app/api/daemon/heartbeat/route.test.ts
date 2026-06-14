@@ -30,7 +30,7 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any) => {
-    return handler(req, { userId: "u1", email: "u@t.com", workspaceId: "w1" });
+    return handler(req, { env: {}, userId: "u1", email: "u@t.com", workspaceId: "w1" });
   }),
 }));
 
@@ -145,7 +145,7 @@ describe("POST /api/daemon/heartbeat", () => {
     });
     vi.doMock("@/lib/middleware/auth", () => ({
       withAuth: vi.fn((handler: any) => async (req: any) => {
-        return handler(req, { userId: "u1", email: "u@t.com" });
+        return handler(req, { env: {}, userId: "u1", email: "u@t.com" });
       }),
     }));
     vi.doMock("@/lib/middleware/helpers", async () =>

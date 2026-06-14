@@ -105,7 +105,7 @@ describe("POST /api/daemon/register", () => {
     ],
   };
 
-  const authCtx = { userId: "u1", email: "u@t.com" };
+  const authCtx = { env: {}, userId: "u1", email: "u@t.com" };
 
   it("upserts machine + runtimes and returns 200", async () => {
     const POST = await loadRoute(authCtx);

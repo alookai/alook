@@ -40,6 +40,7 @@ vi.mock("@/lib/middleware/auth", () => ({
     const auth = (req.headers?.get?.("Authorization") as string) || "";
     const isMachine = auth.startsWith("Bearer al_");
     return handler(req, {
+      env: { DB: {} },
       userId: "u1",
       email: "u@t.com",
       workspaceId: isMachine ? "w1" : undefined,

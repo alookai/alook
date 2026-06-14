@@ -6,6 +6,7 @@ import { createAuth } from "@/lib/auth"
 import { cached, cacheKeys, bindCacheKV, throttled } from "@/lib/cache"
 
 export interface AuthContext {
+  env: Env
   userId: string
   email: string
   workspaceId?: string
@@ -51,6 +52,7 @@ export function withAuth(handler: AuthenticatedHandler) {
             () => queries.machineToken.updateMachineTokenLastUsed(db, mt.id),
           ).catch(() => {});
           const authCtx: AuthContext = {
+            env: cloudflareEnv,
             userId: mt.userId,
             email: mt.userEmail,
             workspaceId: mt.workspaceId ?? undefined,
@@ -88,6 +90,7 @@ export function withAuth(handler: AuthenticatedHandler) {
     }
 
     const authCtx: AuthContext = {
+      env: cloudflareEnv,
       userId: sessionResult.response.user.id,
       email: sessionResult.response.user.email,
     }

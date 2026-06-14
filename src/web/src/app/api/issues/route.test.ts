@@ -45,7 +45,7 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: (handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params;
-    return handler(req, { userId: "u1", email: "u@t.com", params });
+    return handler(req, { env: { DB: {}, EMAIL_BUCKET: { put: (...a: unknown[]) => mockR2Put(...a) } }, userId: "u1", email: "u@t.com", params });
   },
 }));
 

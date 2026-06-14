@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries, UpdateWorkspaceRequestSchema, DeleteWorkspaceRequestSchema, isUniqueConstraintError } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth";
@@ -8,8 +7,7 @@ import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers";
 import { workspaceToResponse } from "@/lib/api/responses";
 
 export const GET = withAuth(async (_req, ctx) => {
-  const { env } = getCloudflareContext()
-  const db = getDb((env as Env).DB)
+  const db = getDb(ctx.env.DB)
 
   const id = ctx.params?.id;
   if (!id) {
@@ -33,8 +31,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
 
   if (!body.name && !body.slug) return writeError("at least one of name or slug is required", 400);
 
-  const { env } = await getCloudflareContext({ async: true });
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   try {
     const updated = await queries.workspace.updateWorkspace(db, owner.workspaceId, body);
@@ -53,8 +50,7 @@ export const DELETE = withAuth(async (req: NextRequest, ctx) => {
   const [body, err] = await parseBody(req, DeleteWorkspaceRequestSchema);
   if (err) return err;
 
-  const { env } = await getCloudflareContext({ async: true });
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const ws = await queries.workspace.getWorkspace(db, owner.workspaceId, ctx.userId);
   if (!ws) return writeError("workspace not found", 404);

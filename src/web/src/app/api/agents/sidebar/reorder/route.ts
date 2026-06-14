@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queries } from "@alook/shared";
 import { getDb } from "@/lib/db";
 import { withAuth } from "@/lib/middleware/auth";
@@ -23,8 +22,7 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     return writeError("ordered_agent_ids must be a non-empty array of strings", 400);
   }
 
-  const { env } = await getCloudflareContext({ async: true });
-  const db = getDb((env as Env).DB);
+  const db = getDb(ctx.env.DB);
 
   const [agents, existingPins] = await Promise.all([
     queries.agent.getAllAgentsForWorkspace(db, ws.workspaceId),
