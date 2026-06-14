@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 
-export interface EnvContext {
+interface EnvContext {
   env: Env
   params?: Record<string, string | string[]>
 }
