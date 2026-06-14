@@ -116,7 +116,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
           const obj = await cfEnv.EMAIL_BUCKET.get(att.key);
           if (!obj) return null;
           const raw = await obj.arrayBuffer();
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(raw)));
+          const bytes = new Uint8Array(raw);
+          let binary = '';
+          for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]!);
+          const base64 = btoa(binary);
           return { filename: att.filename, contentType: att.contentType, base64 };
         })
       )).filter((a): a is { filename: string; contentType: string; base64: string } => a !== null);

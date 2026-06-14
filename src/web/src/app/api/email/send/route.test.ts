@@ -440,6 +440,41 @@ describe("POST /api/email/send", () => {
       expect(putBody).toContain('filename="c.txt"');
     });
 
+    it("handles large attachments (>64KB) without RangeError", async () => {
+      mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
+      mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });
+      mockIsWhitelisted.mockResolvedValue(false);
+      mockWorkerSelfRefFetch.mockResolvedValue(Response.json({ ok: true }));
+      mockCreateEmail.mockResolvedValue({ id: "e1" });
+
+      // Create a 100KB buffer — larger than the ~65,536 arg limit that caused the stack overflow
+      const largeBuffer = new Uint8Array(100 * 1024);
+      for (let i = 0; i < largeBuffer.length; i++) largeBuffer[i] = i % 256;
+      mockEmailBucketGet.mockResolvedValue({
+        arrayBuffer: () => Promise.resolve(largeBuffer.buffer),
+      });
+      mockEmailBucketPut.mockResolvedValue(undefined);
+
+      const attachments = [
+        { key: "emails/drafts/x/large.bin", filename: "large.bin", size: 100 * 1024, contentType: "application/octet-stream" },
+      ];
+
+      const req = makeReq({
+        agentId: "a1",
+        to: "agent-b@alook.ai",
+        subject: "Large attachment",
+        htmlBody: "<p>Big file</p>",
+        attachments,
+      });
+
+      const res = await POST(req, {} as any);
+      expect(res.status).toBe(200);
+
+      expect(mockEmailBucketGet).toHaveBeenCalledWith("emails/drafts/x/large.bin");
+      const putBody = mockEmailBucketPut.mock.calls[0][1] as string;
+      expect(putBody).toContain('filename="large.bin"');
+    });
+
     it("skips attachments that return null from R2 in parallel fetch", async () => {
       mockGetAgent.mockResolvedValue({ id: "a1", emailHandle: "sender-agent", workspaceId: "ws1" });
       mockGetAgentByHandle.mockResolvedValue({ id: "a2", emailHandle: "agent-b", workspaceId: "ws1" });
