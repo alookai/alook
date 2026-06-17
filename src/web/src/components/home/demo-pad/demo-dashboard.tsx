@@ -127,7 +127,9 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                       name={agent.name}
                       position="solo"
                     >
-                      <EmailCard subject={step.subject!} address={step.address!} direction="inbound" />
+                      <div className="text-neutral-100">
+                        <EmailCard subject={step.subject!} address={step.address!} direction="inbound" />
+                      </div>
                     </MessageCluster>
                   )}
                   {step.type === "email-out" && (
@@ -140,7 +142,9 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                       name={agent.name}
                       position="solo"
                     >
-                      <EmailCard subject={step.subject!} address={step.address!} direction="outbound" />
+                      <div className="text-neutral-100">
+                        <EmailCard subject={step.subject!} address={step.address!} direction="outbound" />
+                      </div>
                     </MessageCluster>
                   )}
                   {step.type === "user-message" && (
