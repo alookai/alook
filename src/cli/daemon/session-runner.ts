@@ -204,13 +204,17 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
   const BATCH_SIZE = Number(process.env.ALOOK_MESSAGE_BATCH_SIZE) || 20;
   const FLUSH_INTERVAL_MS = Number(process.env.ALOOK_MESSAGE_FLUSH_INTERVAL_MS) || 100;
 
+  let isFlushing = false;
   const flushMessages = async () => {
-    if (pendingMessages.length === 0) return;
-    const batch = pendingMessages.splice(0);
+    if (isFlushing || pendingMessages.length === 0) return;
+    isFlushing = true;
     try {
+      const batch = pendingMessages.splice(0);
       await client.reportMessages(token, task.id, batch);
     } catch (e) {
       log.debug("message report failed", e);
+    } finally {
+      isFlushing = false;
     }
   };
 

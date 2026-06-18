@@ -204,6 +204,7 @@ export class ClaudeBackend implements AgentBackend {
 
       proc.on("close", (code: number | null) => {
         if (timeoutTimer) clearTimeout(timeoutTimer);
+        rl.close();
 
         if (timedOut) {
           resultStatus = "timeout";
