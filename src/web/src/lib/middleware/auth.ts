@@ -46,6 +46,9 @@ export function withAuth(handler: AuthenticatedHandler) {
           if (!mt) {
             return NextResponse.json({ error: "invalid token" }, { status: 401 })
           }
+          if (mt.status !== "active") {
+            return NextResponse.json({ error: "invalid token" }, { status: 401 })
+          }
           throttled(
             cacheKeys.machineTokenLastUsed(raw),
             900,

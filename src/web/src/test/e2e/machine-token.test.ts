@@ -37,7 +37,20 @@ describe("machine tokens", () => {
     expect((data.token as string).startsWith("al_")).toBe(true)
     expect(data.name).toBe("e2e-created")
 
-    // Verify the new token works for auth
+    // Newly created tokens are pending until activated.
+    // Activate first, then verify the activated token works for auth.
+    const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
+    const activateRes = await fetchWithRetry(`${APP_URL}/api/machine-tokens/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: data.token,
+        hostname: "e2e-created-machine",
+        runtimes: [{ type: "claude", version: "4.0" }],
+      }),
+    })
+    expect(activateRes.status).toBe(200)
+
     const meRes = await tokenRequest(
       `/api/machine-tokens?workspace_id=${seed.workspaceId}`,
       data.token as string,
