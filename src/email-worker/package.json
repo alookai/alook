@@ -11,16 +11,16 @@
   },
   "dependencies": {
     "@alook/shared": "workspace:*",
-    "nanoid": "^5.1.11",
+    "nanoid": "^5.1.15",
     "postal-mime": "^2.7.4",
     "worker-mailer": "^1.2.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260613.1",
-    "@types/node": "^25.9.3",
-    "knip": "^6.16.1",
+    "@cloudflare/workers-types": "^4.20260621.1",
+    "@types/node": "^25.9.4",
+    "knip": "^6.17.1",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8",
-    "wrangler": "^4.100.0"
+    "vitest": "^4.1.9",
+    "wrangler": "^4.103.0"
   }
 }
