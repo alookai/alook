@@ -44,12 +44,6 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           "-=0.1"
         )
         .fromTo(
-          ".hero-specs",
-          { y: 15, opacity: 0 },
-          { y: 0, opacity: 1, duration: 0.5, ease: "power2.out" },
-          "-=0.1"
-        )
-        .fromTo(
           ".hero-providers",
           { y: 10, opacity: 0 },
           { y: 0, opacity: 1, duration: 0.4, ease: "power2.out" },
