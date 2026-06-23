@@ -21,6 +21,7 @@ export interface AgentSession {
   sessionId: Promise<string>;
   result: Promise<AgentResult>;
   send?(text: string, mode: StdinMode): { ok: boolean; reason?: string };
+  closeStdin?(): void;
   descriptor?: RuntimeSessionDescriptor;
 }
 

@@ -115,7 +115,7 @@ export function loadDaemonConfig(profile?: string): DaemonConfig {
     maxConcurrentTasks: parseInt(
       process.env.ALOOK_DAEMON_MAX_CONCURRENT_TASKS || "20",
     ),
-    enableSteering: process.env.ALOOK_ENABLE_STEERING !== "0",
+    enableSteering: process.env.ALOOK_ENABLE_STEERING === "1",
     daemonId,
     deviceName: process.env.ALOOK_DAEMON_DEVICE_NAME || h,
     workspacesRoot,

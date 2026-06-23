@@ -876,6 +876,12 @@ export class CodexBackend implements AgentBackend {
       supportsStdinNotification: this.supportsStdinNotification,
     };
 
-    return { pid: proc.pid, messages, parsedEvents, sessionId: sessionIdPromise, result: resultPromise, send, descriptor };
+    const closeStdin = () => {
+      try {
+        if (proc.stdin && !proc.stdin.destroyed) proc.stdin.end();
+      } catch { /* already closed */ }
+    };
+
+    return { pid: proc.pid, messages, parsedEvents, sessionId: sessionIdPromise, result: resultPromise, send, closeStdin, descriptor };
   }
 }

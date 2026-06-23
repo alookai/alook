@@ -342,6 +342,13 @@ export class ClaudeBackend implements AgentBackend {
               resultStatus = "failed";
               lastError = result || "unknown error";
             }
+
+            // In steering mode (--input-format stream-json), Claude keeps the
+            // process alive waiting for more stdin. Close stdin on result so the
+            // process exits and session.result resolves.
+            if (useStdinPrompt) {
+              try { proc.stdin?.end(); } catch { /* already closed */ }
+            }
             break;
           }
 
@@ -498,7 +505,13 @@ export class ClaudeBackend implements AgentBackend {
       supportsStdinNotification: this.supportsStdinNotification,
     };
 
-    return { pid: proc.pid, messages, parsedEvents, sessionId: sessionIdPromise, result: resultPromise, send, descriptor };
+    const closeStdin = () => {
+      try {
+        if (proc.stdin && !proc.stdin.destroyed) proc.stdin.end();
+      } catch { /* already closed */ }
+    };
+
+    return { pid: proc.pid, messages, parsedEvents, sessionId: sessionIdPromise, result: resultPromise, send, closeStdin, descriptor };
   }
 }
 
