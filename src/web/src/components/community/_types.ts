@@ -1,0 +1,198 @@
+/**
+ * Shared view models for the community UI.
+ *
+ * These are render-ready shapes — denormalized and formatted for display, not raw DB
+ * rows. The query layer produces them by joining the underlying tables (e.g. an author
+ * id → name/avatar, reactions aggregated per message). Field names align with the
+ * schema columns so the same components work for both mock and live data.
+ *
+ * Per-component `*Props` interfaces do NOT live here — they stay in each component
+ * file. Only types shared across two or more components belong in this file.
+ */
+
+import type React from "react"
+
+// ── Presence / enums ───────────────────────────────────────────────────────
+export type Presence = "online" | "offline"
+
+export type RightPanel = "members" | "pinned" | "search" | "threads" | null
+export type Breakpoint = "desktop" | "tablet" | "mobile"
+export type MobileZone = "rail" | "channels" | "messages"
+export type View = "server" | "dm" | "settings"
+export type SettingsSection =
+  | "overview"
+  | "members"
+  | "invites"
+  | "notifications"
+  | "audit"
+
+// ── Servers / rail ───────────────────────────────────────────────────────────
+export type Server = {
+  id: string // nanoid
+  name: string
+  initial: string
+  active: boolean
+  unread: boolean
+  mentions: number
+}
+
+export type FolderServer = {
+  id: string
+  initial: string
+  name: string
+}
+
+// ── Channels / categories ────────────────────────────────────────────────────
+export type Channel = {
+  id: string // nanoid
+  name: string
+  active: boolean
+  unread: boolean
+  muted?: boolean
+  type?: "text" | "forum"
+}
+
+export type Category = {
+  id: string
+  name: string
+  channels: Channel[]
+}
+
+// ── Messages ───────────────────────────────────────────────────────────────
+export type Attachment =
+  | { kind: "image"; name: string; url?: string }
+  | { kind: "file"; name: string; size: string }
+
+export type Embed = {
+  provider?: string
+  url?: string
+  title: string
+  desc?: string
+  color?: string
+  image?: { url: string; width?: number; height?: number }
+  thumbnail?: { url: string }
+  fields?: { name: string; value: string; inline?: boolean }[]
+  footer?: { text: string; iconUrl?: string }
+  author?: { name: string; url?: string; iconUrl?: string }
+}
+
+export type Reaction = { emoji: string; count: number; me: boolean }
+
+export type Msg = {
+  id: string // nanoid
+  type?: "system"
+  systemKind?: "join" | "thread"
+  authorName?: string
+  color?: string
+  createdAt?: string // ISO 8601 timestamp — the UI formats for display
+  authorAvatar?: string
+  failed?: boolean
+  content?: string
+  embeds?: Embed[]
+  attachments?: Attachment[]
+  reactions?: Reaction[]
+  replyTo?: { id: string; authorName: string; text: string; deleted?: boolean }
+  thread?: { id: string; name: string; messageCount: number }
+  grouped?: boolean
+}
+
+// ── Threads / forum ──────────────────────────────────────────────────────────
+export type Thread = {
+  id: string // nanoid
+  name: string
+  messageCount: number
+  lastMessageAt: string
+  parent: { authorName: string; text: string }
+  messages: Msg[]
+}
+
+export type ForumPost = Thread & {
+  authorAvatar: string
+  tags: string[]
+  preview: string
+}
+
+// ── Members / friends / DMs ──────────────────────────────────────────────────
+export type Role = "Owner" | "Admin" | "Member"
+
+export type Member = {
+  id: string
+  name: string
+  avatar: string
+  status: Presence
+  sub: string
+  role: Role
+}
+
+export type Friend = {
+  id: string
+  name: string
+  avatar: string
+  status: Presence
+  sub: string
+}
+
+export type PendingRequest = {
+  id: string
+  name: string
+  avatar: string
+  kind: "incoming" | "outgoing"
+}
+
+export type BlockedUser = { id: string; name: string; avatar: string }
+
+export type DM = {
+  id: string // nanoid
+  name: string
+  avatar: string
+  status: Presence
+  preview: string
+  unread?: boolean
+  messages: Msg[]
+}
+
+// ── Profile ──────────────────────────────────────────────────────────────────
+export type Profile = {
+  name: string
+  avatar: string
+  role: string
+  about: string
+  mutual: number
+  tags: string[]
+}
+
+// ── Settings rows ──────────────────────────────────────────────────────────
+export type InviteRow = {
+  code: string
+  uses: number
+  maxUses: number | null // null = unlimited
+  expiresAt: string | null // ISO timestamp or null = never
+  by: string
+}
+
+
+export type AuditEntry = {
+  actor: string
+  action: string
+  target: string
+  createdAt: string // ISO timestamp
+}
+
+// ── Mentions / inbox ─────────────────────────────────────────────────────────
+export type Mention = {
+  id: string
+  server: string
+  channel: string
+  m: Msg
+}
+
+export type InboxRow = {
+  id: string
+  server: string
+  initial: string
+  lastActivityAt: string // ISO timestamp
+  unread: boolean
+}
+
+// Shared callback signature for opening a user's profile card at a click point.
+export type OpenProfile = (name: string, e: React.MouseEvent) => void

@@ -1,0 +1,92 @@
+"use client"
+
+import { useState } from "react"
+import { MessagesSquare, Shield } from "lucide-react"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { Avatar } from "./avatar"
+import type { Profile, Breakpoint } from "./_types"
+
+// Profile card — popover anchored at the click point on desktop/tablet, bottom sheet on mobile.
+export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf }: {
+  data: Profile
+  x: number
+  y: number
+  bp: Breakpoint
+  onClose: () => void
+  onMessage?: (name: string, text: string) => void
+  isSelf?: boolean
+}) {
+  const [msg, setMsg] = useState("")
+  const send = () => {
+    const text = msg.trim()
+    if (!text) return
+    onMessage?.(data.name, text)
+    setMsg("")
+    onClose()
+  }
+  const mobile = bp === "mobile"
+  const card = (
+    <>
+      {/* banner */}
+      <div className="-m-2 mb-0 h-16 rounded-t-lg bg-primary/30" />
+      <div className="px-2 pb-1">
+        <div className="-mt-8 mb-2 flex items-end justify-between">
+          <div className="rounded-full ring-4 ring-popover">
+            <Avatar label={data.avatar} size={64} />
+          </div>
+          <Badge variant="secondary" className="mb-1 h-6 gap-1"><Shield className="size-3.5" /> {data.role}</Badge>
+        </div>
+        <div className="rounded-lg bg-card p-3">
+          <div className="text-lg font-semibold">{data.name}</div>
+          <Separator className="my-2" />
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">About Me</div>
+          <p className="mt-1 text-sm">{data.about}</p>
+          <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mutual Servers</div>
+          <p className="mt-1 text-sm text-muted-foreground">{data.mutual} servers in common</p>
+          {!isSelf && (
+            <div className="mt-3 flex h-9 items-center gap-2 rounded-md bg-secondary px-2">
+              <input
+                value={msg}
+                onChange={(e) => setMsg(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") send() }}
+                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                placeholder={`Message @${data.name}`}
+              />
+              <button onClick={send} className="shrink-0 text-muted-foreground hover:text-foreground" aria-label="Send message">
+                <MessagesSquare className="size-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+
+  // mobile: bottom sheet (intentional mobile UX, kept manual)
+  if (mobile)
+    return (
+      <div className="fixed inset-0 z-30 flex flex-col justify-end" onClick={onClose}>
+        <div className="absolute inset-0 bg-foreground/30" />
+        <div className="relative p-3" onClick={(e) => e.stopPropagation()}>
+          <div className="overflow-hidden rounded-xl border border-border bg-popover p-2 shadow-(--e2)">{card}</div>
+        </div>
+      </div>
+    )
+
+  // desktop/tablet: shadcn Popover anchored to an invisible trigger at the click point
+  return (
+    <Popover open onOpenChange={(o) => { if (!o) onClose() }}>
+      <PopoverTrigger
+        aria-hidden
+        tabIndex={-1}
+        className="pointer-events-none fixed size-0"
+        style={{ left: x, top: y }}
+      />
+      <PopoverContent side="right" align="start" sideOffset={8} className="w-75 overflow-hidden p-2">
+        {card}
+      </PopoverContent>
+    </Popover>
+  )
+}

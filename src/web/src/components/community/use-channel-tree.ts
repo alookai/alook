@@ -1,0 +1,162 @@
+"use client"
+
+import { useState } from "react"
+import { arrayMove } from "@dnd-kit/sortable"
+import type { DragEndEvent } from "@dnd-kit/core"
+import type { Category, Channel } from "./_types"
+
+// dnd ids: category ids are used directly (they already have a "cat_" prefix);
+// channel ids are bare. We distinguish by checking the "cat_" prefix.
+export const isCat = (id: string) => id.startsWith("cat_")
+export const catId = (id: string) => id
+
+export type ChannelOrder = Record<string, Channel[]>
+
+/** Which category currently holds a channel id (or the category itself if `id` is a cat id). */
+export function catOf(id: string, order: ChannelOrder): string | undefined {
+  if (isCat(id)) return id
+  return Object.keys(order).find((cat) => order[cat].some((c) => c.id === id))
+}
+
+/**
+ * Live cross-category move while dragging a channel (channels can jump
+ * categories). Returns a new order, or the input unchanged when the move doesn't
+ * apply (same category, missing channel, etc.). Pure — exported for tests.
+ */
+export function moveChannelAcrossCategories(order: ChannelOrder, activeId: string, overId: string): ChannelOrder {
+  const fromCat = catOf(activeId, order)
+  const toCat = catOf(overId, order)
+  if (!fromCat || !toCat || fromCat === toCat) return order
+  const moving = order[fromCat].find((c) => c.id === activeId)
+  if (!moving) return order
+  const overIdx = order[toCat].findIndex((c) => c.id === overId)
+  const insertAt = overIdx === -1 ? order[toCat].length : overIdx
+  const nextTo = [...order[toCat]]
+  nextTo.splice(insertAt, 0, moving)
+  return {
+    ...order,
+    [fromCat]: order[fromCat].filter((c) => c.id !== activeId),
+    [toCat]: nextTo,
+  }
+}
+
+/** Settle channel order within the destination category on drop. Pure. */
+export function reorderChannelsWithin(order: ChannelOrder, activeId: string, overId: string): ChannelOrder {
+  const cat = catOf(activeId, order)
+  if (!cat || !order[cat].some((c) => c.id === overId)) return order
+  const from = order[cat].findIndex((c) => c.id === activeId)
+  const to = order[cat].findIndex((c) => c.id === overId)
+  if (from === -1 || to === -1) return order
+  return { ...order, [cat]: arrayMove(order[cat], from, to) }
+}
+
+/** Append a channel to a category. Pure. */
+export function addChannelTo(order: ChannelOrder, categoryId: string, channel: Channel): ChannelOrder {
+  return { ...order, [categoryId]: [...(order[categoryId] ?? []), channel] }
+}
+
+/** Remove a channel by id from whichever category holds it. Pure. */
+export function removeChannelFrom(order: ChannelOrder, id: string): ChannelOrder {
+  const cat = catOf(id, order)
+  if (!cat) return order
+  return { ...order, [cat]: order[cat].filter((c) => c.id !== id) }
+}
+
+/** Reorder the category list itself. `activeCatId`/`overCatId` are category IDs. Pure. */
+export function reorderCategories(catOrder: string[], activeCatId: string, overCatId: string): string[] {
+  const from = catOrder.indexOf(activeCatId)
+  const to = catOrder.indexOf(overCatId)
+  if (from === -1 || to === -1) return catOrder
+  return arrayMove(catOrder, from, to)
+}
+
+let localCatSeq = 0
+
+/**
+ * Channel-sidebar dnd state: category order + per-category channel order, with
+ * cross-category drag and collapse toggles. One DndContext drives both: categories
+ * sort among themselves, channels sort across categories.
+ */
+export function useChannelTree(categories: Category[]) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [catOrder, setCatOrder] = useState<string[]>(() => categories.map((c) => c.id))
+  const [order, setOrder] = useState<ChannelOrder>(() =>
+    Object.fromEntries(categories.map((c) => [c.id, c.channels])),
+  )
+  // id → name lookup for display
+  const [catNames, setCatNames] = useState<Record<string, string>>(() =>
+    Object.fromEntries(categories.map((c) => [c.id, c.name])),
+  )
+  // per-category privacy — default public; private restricts channel creation to admins
+  const [catPrivate, setCatPrivate] = useState<Record<string, boolean>>({})
+
+  const toggleCat = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const addChannel = (categoryId: string, channel: Channel) =>
+    setOrder((prev) => addChannelTo(prev, categoryId, channel))
+  const removeChannel = (id: string) =>
+    setOrder((prev) => removeChannelFrom(prev, id))
+  const renameChannel = (id: string, name: string) =>
+    setOrder((prev) => {
+      const cat = catOf(id, prev)
+      if (!cat) return prev
+      return { ...prev, [cat]: prev[cat].map((c) => c.id === id ? { ...c, name } : c) }
+    })
+  const markRead = (id: string) =>
+    setOrder((prev) => {
+      const cat = catOf(id, prev)
+      if (!cat) return prev
+      return { ...prev, [cat]: prev[cat].map((c) => c.id === id ? { ...c, unread: false } : c) }
+    })
+  // create an empty category; can be private (only admins can add channels later).
+  const addCategory = (name: string, opts?: { private?: boolean }) => {
+    const id = `cat_local_${++localCatSeq}`
+    setCatOrder((prev) => [...prev, id])
+    setOrder((prev) => ({ ...prev, [id]: [] }))
+    setCatNames((prev) => ({ ...prev, [id]: name }))
+    if (opts?.private) setCatPrivate((prev) => ({ ...prev, [id]: true }))
+  }
+  const removeCategory = (id: string) => {
+    // Find the "none" category (empty name) to move orphaned channels to
+    const noneCatId = Object.keys(catNames).find((k) => catNames[k] === "") ?? catOrder[0]
+    setCatOrder((prev) => prev.filter((cid) => cid !== id))
+    setOrder((prev) => {
+      const { [id]: channels, ...rest } = prev
+      if (channels?.length && noneCatId) rest[noneCatId] = [...(rest[noneCatId] ?? []), ...channels]
+      return rest
+    })
+    setCatNames((prev) => { const { [id]: _, ...rest } = prev; return rest })
+    setCatPrivate((prev) => { const { [id]: _, ...rest } = prev; return rest })
+  }
+  const setCategoryPrivate = (id: string, isPrivate: boolean) =>
+    setCatPrivate((prev) => ({ ...prev, [id]: isPrivate }))
+
+  const onDragOver = (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over || isCat(String(active.id))) return // category drags handled on drop
+    setOrder((prev) => moveChannelAcrossCategories(prev, String(active.id), String(over.id)))
+  }
+
+  const onDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    // category drag → reorder categories (channels ride along since they live in `order`)
+    if (isCat(String(active.id)) && isCat(String(over.id))) {
+      setCatOrder((prev) => reorderCategories(prev, String(active.id), String(over.id)))
+      return
+    }
+    if (isCat(String(active.id))) return
+    // channel drag → settle order within the destination category
+    setOrder((prev) => reorderChannelsWithin(prev, String(active.id), String(over.id)))
+  }
+
+  return { collapsed, catOrder, order, catNames, catPrivate, toggleCat, addChannel, removeChannel, renameChannel, markRead, addCategory, removeCategory, setCategoryPrivate, onDragOver, onDragEnd }
+}
+
+export type ChannelTree = ReturnType<typeof useChannelTree>

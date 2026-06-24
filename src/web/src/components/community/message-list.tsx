@@ -1,0 +1,92 @@
+"use client"
+
+import { useState } from "react"
+import { Hash } from "lucide-react"
+import { DateDivider, NewDivider } from "./dividers"
+import { Message } from "./message"
+import { TypingIndicator } from "./typing-indicator"
+import { dateKey, formatDateLabel } from "./format-time"
+import type { Msg, OpenProfile } from "./_types"
+
+// Channel message list — welcome hero, date dividers, messages (with the NEW divider),
+// and typing indicator. Data via props.
+export function MessageList({
+  channel, messages, pinnedIds, newDividerBefore, typingUsers, onOpenThread, onOpenProfile,
+  onToggleReaction, onReact,
+  onReply, onPin, onCreateThread, onCopy, onRetry, onPreviewImage, onDownloadFile,
+}: {
+  channel: string
+  messages: Msg[]
+  pinnedIds?: Set<string>
+  newDividerBefore?: string
+  typingUsers?: string[]
+  onOpenThread: (id: string) => void
+  onOpenProfile?: OpenProfile
+  onToggleReaction?: (id: string, emoji: string) => void
+  onReact?: (id: string, emoji: string) => void
+  onReply?: (id: string) => void
+  onPin?: (id: string) => void
+  onCreateThread?: (id: string) => void
+  onCopy?: (id: string) => void
+  onRetry?: (id: string) => void
+  onPreviewImage?: (name: string) => void
+  onDownloadFile?: (name: string) => void
+}) {
+  const [jumped, setJumped] = useState<string | null>(null)
+
+  const jumpTo = (id: string) => {
+    setJumped(id)
+    document.getElementById(`dpv-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
+    window.setTimeout(() => setJumped((v) => (v === id ? null : v)), 1600)
+  }
+
+  return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="flex-1 overflow-y-auto thin-scrollbar">
+        <div className="flex min-h-full flex-col justify-end gap-4 px-4 py-5">
+          <div className="mb-2">
+            <div className="mb-3 grid size-17 place-items-center rounded-full bg-muted">
+              <Hash className="size-9 text-muted-foreground" />
+            </div>
+            <h2 className="text-2xl font-semibold leading-tight">Welcome to #{channel}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">This is the start of the channel.</p>
+          </div>
+
+          {messages.map((m, i) => {
+            const prev = i > 0 ? messages[i - 1] : null
+            const prevDate = prev ? dateKey(prev.createdAt) : ""
+            const curDate = dateKey(m.createdAt)
+            const showDateDivider = curDate && curDate !== prevDate
+            const grouped = !!(prev && !m.type && !m.replyTo && prev.authorName === m.authorName
+              && prev.createdAt && m.createdAt && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < 420_000)
+            return (
+            <div key={m.id}>
+              {showDateDivider && <DateDivider label={formatDateLabel(m.createdAt!)} />}
+              {m.id === newDividerBefore && <NewDivider />}
+              <Message
+                m={{ ...m, grouped }}
+                pinned={pinnedIds?.has(m.id)}
+                onOpenThread={onOpenThread}
+                onOpenProfile={onOpenProfile}
+                onJumpReply={() => m.replyTo && jumpTo(m.replyTo.id)}
+                onToggleReaction={(emoji) => onToggleReaction?.(m.id, emoji)}
+                onReact={(emoji) => onReact?.(m.id, emoji)}
+                onReply={() => onReply?.(m.id)}
+                onPin={() => onPin?.(m.id)}
+                onCreateThread={() => onCreateThread?.(m.id)}
+                onCopy={() => onCopy?.(m.id)}
+                onRetry={() => onRetry?.(m.id)}
+                onPreviewImage={onPreviewImage}
+                onDownloadFile={onDownloadFile}
+                highlighted={jumped === m.id}
+              />
+            </div>
+            )
+          })}
+
+          {typingUsers && typingUsers.length > 0 && <TypingIndicator names={typingUsers} />}
+        </div>
+      </div>
+    </div>
+  )
+}
