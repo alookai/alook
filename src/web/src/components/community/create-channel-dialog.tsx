@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/input"
 
 type ChannelType = "text" | "forum"
 
-// Create / edit Channel dialog. v0.1 supports Text + Forum only (no voice/announcement/
-// stage — see discord-v0.1.md). No private toggle. Submits { name, type }.
+// Create / edit Channel dialog. v0.1 supports Text + Forum only. No private toggle.
+// Submits { name, type }.
 // Pass `initial` to edit an existing channel (prefills + relabels to "Edit Channel").
 export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
   category: string
@@ -40,7 +40,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
           <DialogTitle>{editing ? "Edit Channel" : "Create Channel"}</DialogTitle>
           <p className="text-sm text-muted-foreground">{category ? `in ${category}` : "top level"}</p>
         </DialogHeader>
-        <div className="space-y-4 p-5">
+        <div className="space-y-4 px-5 pb-5">
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channel Type</div>
             <div className="space-y-2">

@@ -68,6 +68,7 @@ export type CurrentUser = {
   name: string
   email: string
   avatar: string
+  aboutMe?: string
 }
 
 export type ServerDetail = {
@@ -150,9 +151,9 @@ export type CommunityContextValue = {
   channelNotif: Record<string, string>
 
   // Mutations
-  sendMessage: (content: string, opts?: { replyToId?: string }) => Promise<void>
-  sendDmMessage: (dmId: string, content: string) => Promise<void>
-  sendThreadMessage: (threadId: string, content: string) => Promise<void>
+  sendMessage: (content: string, opts?: { replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
+  sendDmMessage: (dmId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
+  sendThreadMessage: (threadId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
   toggleReaction: (messageId: string, emoji: string) => void
   pinMessage: (messageId: string) => void
   unpinMessage: (messageId: string) => void
@@ -179,6 +180,17 @@ export type CommunityContextValue = {
   openInboxItem: (id: string) => void
   sendTyping: (target: { channelId?: string; dmConversationId?: string; threadId?: string }) => void
   createForumPost: (channelId: string, post: { name: string; content: string; tags: string[] }) => Promise<void>
+  createChannel: (serverId: string, categoryId: string, name: string, type: "text" | "forum") => Promise<string | null>
+  createCategory: (serverId: string, name: string, opts?: { private?: boolean }) => Promise<string | null>
+  deleteChannel: (channelId: string) => Promise<void>
+  deleteCategory: (serverId: string, categoryId: string) => Promise<void>
+  deleteServer: (serverId: string) => Promise<void>
+  uploadFile: (target: { channelId?: string; dmId?: string; threadId?: string }, file: File) => Promise<{ url: string; filename: string; contentType: string; size: number } | null>
+  uploadServerIcon: (serverId: string, file: File) => Promise<string | null>
+  setServerNotifLevel: (serverId: string, level: string) => Promise<void>
+  createOrGetDm: (userId: string) => Promise<string | null>
+  createServerFolder: (serverId: string) => Promise<void>
+  deleteServerFolder: () => Promise<void>
 
   // Navigation
   setCurrentServerId: (id: string | null) => void
@@ -187,6 +199,16 @@ export type CommunityContextValue = {
   refreshFriends: () => void
   refreshDms: () => void
   refreshMessages: () => void
+
+  // UI actions (layout registers handlers, pages call them)
+  openSidebar: () => void
+  previewImage: (url: string) => void
+  openProfile: (name: string, e: React.MouseEvent) => void
+  registerUiHandlers: (handlers: {
+    openSidebar: () => void
+    previewImage: (url: string) => void
+    openProfile: (name: string, e: React.MouseEvent) => void
+  }) => void
 }
 
 // ── Context ─────────────────────────────────────────────────────────────────────
@@ -202,12 +224,15 @@ export function useCommunity() {
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function CommunityProvider({
-  currentUser,
+  currentUser: initialUser,
   children,
 }: {
   currentUser: CurrentUser
   children: ReactNode
 }) {
+  // ── Current user (with aboutMe from profile fetch) ──────────────────────
+  const [currentUser, setCurrentUser] = useState<CurrentUser>(initialUser)
+
   // ── Server list ──────────────────────────────────────────────────────────
   const [servers, setServers] = useState<Server[]>([])
   const [serversLoading, setServersLoading] = useState(true)
@@ -262,9 +287,13 @@ export function CommunityProvider({
   // ── Typing ───────────────────────────────────────────────────────────────
   const [typingUsers, setTypingUsers] = useState<string[]>([])
   const typingTimers = useRef<Map<string, NodeJS.Timeout>>(new Map())
+  useEffect(() => {
+    return () => { typingTimers.current.forEach((t) => clearTimeout(t)) }
+  }, [])
 
   // ── Folders ──────────────────────────────────────────────────────────────
-  const [folderServers] = useState<FolderServer[]>([])
+  const [folderServers, setFolderServers] = useState<FolderServer[]>([])
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
 
   // Keep stable refs for WS callbacks
   const currentUserRef = useRef(currentUser)
@@ -281,15 +310,17 @@ export function CommunityProvider({
   const fetchServers = useCallback(async () => {
     setServersLoading(true)
     try {
-      const data = await apiFetch<{ servers: Array<{ id: string; name: string; icon: string | null; unread?: boolean; mentions?: number }> }>("/api/community/servers")
+      const data = await apiFetch<{ servers: Array<{ id: string; name: string; icon: string | null; role?: string; unread?: boolean; mentions?: number }> }>("/api/community/servers")
       setServers(
         data.servers.map((s) => ({
           id: s.id,
           name: s.name,
           initial: s.name.charAt(0).toUpperCase(),
-          active: s.id === currentServerIdRef.current,
+          active: false,
           unread: s.unread ?? false,
           mentions: s.mentions ?? 0,
+          isOwner: s.role === "owner",
+          icon: s.icon ?? null,
         }))
       )
     } catch {
@@ -352,6 +383,23 @@ export function CommunityProvider({
       // leave current state
     } finally {
       setDmsLoading(false)
+    }
+  }, [])
+
+  const fetchFolders = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ folders: Array<{ id: string; name: string; servers: Array<{ id: string; name: string }> }> }>("/api/community/server-folders")
+      // For now, we only support one folder, so take the first one
+      if (data.folders.length > 0) {
+        const folder = data.folders[0]
+        setCurrentFolderId(folder.id)
+        setFolderServers(folder.servers.map((s) => ({ id: s.id, name: s.name, initial: s.name.charAt(0).toUpperCase() })))
+      } else {
+        setCurrentFolderId(null)
+        setFolderServers([])
+      }
+    } catch {
+      // leave current state
     }
   }, [])
 
@@ -437,17 +485,21 @@ export function CommunityProvider({
   const ws = useCommunityWs({
     onMessage: useCallback((event: CommunityMessageCreate) => {
       const msg = event.message
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: msg.id,
-          authorName: msg.authorName,
-          authorAvatar: msg.authorAvatar,
-          content: msg.content,
-          createdAt: msg.createdAt,
-          type: msg.type === "system" ? "system" : undefined,
-        },
-      ])
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === msg.id)) return prev
+        return [
+          ...prev,
+          {
+            id: msg.id,
+            authorId: msg.authorId,
+            authorName: msg.authorName,
+            authorAvatar: msg.authorAvatar,
+            content: msg.content,
+            createdAt: msg.createdAt,
+            type: msg.type === "system" ? "system" : undefined,
+          },
+        ]
+      })
     }, []),
     onReaction: useCallback((event: CommunityReactionAdd | CommunityReactionRemove) => {
       setMessages((prev) =>
@@ -531,10 +583,10 @@ export function CommunityProvider({
       if (event.type === "community:member.join") {
         setMembers((prev) => [
           ...prev,
-          { id: event.member.id, name: event.member.name, avatar: event.member.avatar ?? event.member.name.charAt(0).toUpperCase(), status: "online", sub: "", role: event.member.role as Role },
+          { id: event.member.id, userId: event.member.userId, name: event.member.name, avatar: event.member.avatar ?? event.member.name.charAt(0).toUpperCase(), status: "online", sub: "", role: event.member.role as Role },
         ])
       } else if (event.type === "community:member.leave") {
-        setMembers((prev) => prev.filter((m) => m.id !== event.userId))
+        setMembers((prev) => prev.filter((m) => m.userId !== event.userId))
       } else if (event.type === "community:member.update") {
         setMembers((prev) => prev.map((m) => {
           if (m.id !== event.memberId) return m
@@ -570,24 +622,52 @@ export function CommunityProvider({
     }, [fetchServerDetail]),
   })
 
+  // ── UI dispatch (layout registers handlers, pages call these) ────────────
+  const uiHandlersRef = useRef<{
+    openSidebar?: () => void
+    previewImage?: (url: string) => void
+    openProfile?: (name: string, e: React.MouseEvent) => void
+  }>({})
+  const registerUiHandlers = useCallback((handlers: { openSidebar: () => void; previewImage: (url: string) => void; openProfile: (name: string, e: React.MouseEvent) => void }) => {
+    uiHandlersRef.current = handlers
+  }, [])
+  const openSidebar = useCallback(() => { uiHandlersRef.current.openSidebar?.() }, [])
+  const previewImage = useCallback((url: string) => { uiHandlersRef.current.previewImage?.(url) }, [])
+  const openProfileFn = useCallback((name: string, e: React.MouseEvent) => { uiHandlersRef.current.openProfile?.(name, e) }, [])
+
   // ── Effects: fetch on mount / server or channel change ───────────────────
 
   useEffect(() => {
     fetchServers()
     fetchFriends()
     fetchDms()
-  }, [fetchServers, fetchFriends, fetchDms])
+    fetchFolders()
+    apiFetch<{ aboutMe: string }>("/api/community/users/me/profile")
+      .then((data) => setCurrentUser((u) => ({ ...u, aboutMe: data.aboutMe })))
+      .catch(() => {})
+  }, [fetchServers, fetchFriends, fetchDms, fetchFolders])
 
   useEffect(() => {
-    if (currentServerId && currentServerId !== "@me") {
-      fetchServerDetail(currentServerId)
-      fetchMembers()
+    if (!currentServerId || currentServerId === "@me") {
+      setInvites([])
+      setAuditLog([])
+      return
     }
-  }, [currentServerId, fetchServerDetail, fetchMembers])
+    fetchServerDetail(currentServerId)
+    fetchMembers()
+    // Fetch invites and audit log for settings
+    apiFetch<{ invites: Array<{ id: string; token: string; maxUses: number | null; uses: number; expiresAt: string | null; createdAt: string; creatorName: string | null }> }>(`/api/community/servers/${currentServerId}/invites`)
+      .then((data) => setInvites(data.invites.map((i) => ({ code: i.token, uses: i.uses, maxUses: i.maxUses, expiresAt: i.expiresAt, by: i.creatorName ?? "Unknown" }))))
+      .catch(() => setInvites([]))
+    apiFetch<{ entries: Array<{ log: { action: string; targetType: string; targetId: string; createdAt: string }; actor: { name: string | null } | null }> }>(`/api/community/servers/${currentServerId}/audit-log`)
+      .then((data) => setAuditLog(data.entries.map((e) => ({ actor: e.actor?.name ?? "System", action: e.log.action.replace(/_/g, " "), target: e.log.targetType, createdAt: e.log.createdAt }))))
+      .catch(() => setAuditLog([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentServerId])
 
   useEffect(() => {
     if (!currentChannelId) {
-      setMessages([])
+      setMessages((prev) => prev.length ? [] : prev)
       return
     }
     if (currentServerId === "@me") {
@@ -595,21 +675,35 @@ export function CommunityProvider({
       fetchDmMessages(currentChannelId)
     } else {
       ws.subscribe({ channelId: currentChannelId })
-      fetchMessages(currentChannelId)
+      // Detect forum channels and fetch posts instead of messages
+      const allChannels = currentServerRef.current?.categories.flatMap((c) => c.channels) ?? []
+      const channel = allChannels.find((ch) => ch.id === currentChannelId)
+      if (channel?.type === "forum") {
+        fetchForumPosts(currentChannelId)
+      } else {
+        fetchMessages(currentChannelId)
+      }
       fetchPinned(currentChannelId)
       fetchThreads(currentChannelId)
     }
     setTypingUsers([])
     return () => { ws.unsubscribe() }
-  }, [currentChannelId, currentServerId, ws, fetchMessages, fetchDmMessages, fetchPinned, fetchThreads])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChannelId, currentServerId])
 
   // ── Mutation functions ───────────────────────────────────────────────────
 
-  const sendMessage = useCallback(async (content: string, opts?: { replyToId?: string }) => {
+  const sendMessage = useCallback(async (content: string, opts?: { replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
     const cid = currentChannelIdRef.current
     const sid = currentServerIdRef.current
     if (!cid || sid === "@me") return
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
+    const optimisticAttachments = opts?.attachments?.map((a) => {
+      const isImage = a.contentType.startsWith("image/")
+      return isImage
+        ? { kind: "image" as const, name: a.filename, url: a.url }
+        : { kind: "file" as const, name: a.filename, url: a.url, size: `${Math.round(a.size / 1024)} KB` }
+    })
     setMessages((prev) => [
       ...prev,
       {
@@ -619,12 +713,13 @@ export function CommunityProvider({
         content,
         createdAt: new Date().toISOString(),
         ...(opts?.replyToId ? { replyTo: { id: opts.replyToId, authorName: "", text: "" } } : {}),
+        ...(optimisticAttachments?.length ? { attachments: optimisticAttachments } : {}),
       },
     ])
     try {
       const result = await apiFetch<{ message: { id: string } }>(`/api/community/channels/${cid}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content, replyToId: opts?.replyToId }),
+        body: JSON.stringify({ content, replyToId: opts?.replyToId, attachments: opts?.attachments }),
       })
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: result.message.id } : m)))
     } catch {
@@ -633,7 +728,7 @@ export function CommunityProvider({
     }
   }, [])
 
-  const sendDmMessage = useCallback(async (dmId: string, content: string) => {
+  const sendDmMessage = useCallback(async (dmId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
     setMessages((prev) => [
       ...prev,
@@ -643,7 +738,7 @@ export function CommunityProvider({
     try {
       const result = await apiFetch<{ message: { id: string } }>(`/api/community/dm/${dmId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, attachments: opts?.attachments }),
       })
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: result.message.id } : m)))
     } catch {
@@ -652,11 +747,11 @@ export function CommunityProvider({
     }
   }, [])
 
-  const sendThreadMessage = useCallback(async (threadId: string, content: string) => {
+  const sendThreadMessage = useCallback(async (threadId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
     try {
       await apiFetch(`/api/community/threads/${threadId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, attachments: opts?.attachments }),
       })
     } catch {
       toast("Failed to send message")
@@ -733,13 +828,13 @@ export function CommunityProvider({
     }
   }, [])
 
-  const sendFriendRequest = useCallback(async (username: string) => {
+  const sendFriendRequest = useCallback(async (userId: string) => {
     try {
       await apiFetch("/api/community/friends/request", {
         method: "POST",
-        body: JSON.stringify({ username }),
+        body: JSON.stringify({ userId }),
       })
-      toast(`Friend request sent to ${username}`)
+      toast("Friend request sent")
       fetchFriends()
     } catch {
       toast("Failed to send friend request")
@@ -947,6 +1042,156 @@ export function CommunityProvider({
     }
   }, [])
 
+  const createChannel = useCallback(async (serverId: string, categoryId: string, name: string, type: "text" | "forum"): Promise<string | null> => {
+    try {
+      const data = await apiFetch<{ channel: { id: string } }>(`/api/community/servers/${serverId}/channels`, {
+        method: "POST",
+        body: JSON.stringify({ categoryId, name, type }),
+      })
+      await fetchServerDetail(serverId)
+      return data.channel.id
+    } catch {
+      toast("Failed to create channel")
+      return null
+    }
+  }, [fetchServerDetail])
+
+  const createCategory = useCallback(async (serverId: string, name: string, opts?: { private?: boolean }): Promise<string | null> => {
+    try {
+      const data = await apiFetch<{ category: { id: string } }>(`/api/community/servers/${serverId}/categories`, {
+        method: "POST",
+        body: JSON.stringify({ name, private: opts?.private }),
+      })
+      await fetchServerDetail(serverId)
+      return data.category.id
+    } catch {
+      toast("Failed to create category")
+      return null
+    }
+  }, [fetchServerDetail])
+
+  const deleteChannel = useCallback(async (channelId: string) => {
+    try {
+      await apiFetch(`/api/community/channels/${channelId}`, { method: "DELETE" })
+      const sid = currentServerIdRef.current
+      if (sid && sid !== "@me") await fetchServerDetail(sid)
+    } catch {
+      toast("Failed to delete channel")
+    }
+  }, [fetchServerDetail])
+
+  const deleteCategory = useCallback(async (serverId: string, categoryId: string) => {
+    try {
+      await apiFetch(`/api/community/servers/${serverId}/categories/${categoryId}`, { method: "DELETE" })
+      await fetchServerDetail(serverId)
+    } catch {
+      toast("Failed to delete category")
+    }
+  }, [fetchServerDetail])
+
+  const deleteServer = useCallback(async (serverId: string) => {
+    try {
+      await apiFetch(`/api/community/servers/${serverId}`, { method: "DELETE" })
+      toast("Server deleted")
+      setCurrentServerId(null)
+      setCurrentServer(null)
+      fetchServers()
+    } catch {
+      toast("Failed to delete server")
+    }
+  }, [fetchServers])
+
+  const uploadFile = useCallback(async (target: { channelId?: string; dmId?: string; threadId?: string }, file: File): Promise<{ url: string; filename: string; contentType: string; size: number } | null> => {
+    const formData = new FormData()
+    formData.append("file", file)
+    let path: string
+    if (target.threadId) {
+      path = `/api/community/threads/${target.threadId}/upload`
+    } else if (target.dmId) {
+      path = `/api/community/dm/${target.dmId}/upload`
+    } else if (target.channelId) {
+      path = `/api/community/channels/${target.channelId}/upload`
+    } else {
+      return null
+    }
+    try {
+      const res = await fetch(path, { method: "POST", body: formData, credentials: "include" })
+      if (!res.ok) throw new Error("Upload failed")
+      const data = await res.json() as { url: string; filename: string; contentType: string; size: number }
+      return data
+    } catch {
+      toast("Failed to upload file")
+      return null
+    }
+  }, [])
+
+  const uploadServerIcon = useCallback(async (serverId: string, file: File): Promise<string | null> => {
+    const formData = new FormData()
+    formData.append("file", file)
+    try {
+      const res = await fetch(`/api/community/servers/${serverId}/icon`, { method: "POST", body: formData, credentials: "include" })
+      if (!res.ok) throw new Error("Upload failed")
+      const data = await res.json() as { url: string }
+      setCurrentServer((prev) => prev ? { ...prev, icon: data.url } : prev)
+      setServers((prev) => prev.map((s) => s.id === serverId ? { ...s, icon: data.url } : s))
+      toast("Server icon updated")
+      return data.url
+    } catch {
+      toast("Failed to upload icon")
+      return null
+    }
+  }, [])
+
+  const setServerNotifLevel = useCallback(async (serverId: string, level: string) => {
+    setNotifLevel(level)
+    try {
+      await apiFetch(`/api/community/users/me/notifications/server/${serverId}`, {
+        method: "PUT",
+        body: JSON.stringify({ level }),
+      })
+    } catch {
+      toast("Failed to update notification level")
+    }
+  }, [])
+
+  const createOrGetDm = useCallback(async (userId: string): Promise<string | null> => {
+    try {
+      const data = await apiFetch<{ conversation: { id: string } }>("/api/community/dm", {
+        method: "POST",
+        body: JSON.stringify({ userId }),
+      })
+      await fetchDms()
+      return data.conversation.id
+    } catch {
+      toast("Failed to open DM")
+      return null
+    }
+  }, [fetchDms])
+
+  const createServerFolder = useCallback(async (serverId: string) => {
+    try {
+      await apiFetch("/api/community/server-folders", {
+        method: "POST",
+        body: JSON.stringify({ name: "Group", serverIds: [serverId] }),
+      })
+      toast("Group created")
+      await fetchFolders()
+    } catch {
+      toast("Failed to create group")
+    }
+  }, [fetchFolders])
+
+  const deleteServerFolder = useCallback(async () => {
+    if (!currentFolderId) return
+    try {
+      await apiFetch(`/api/community/server-folders/${currentFolderId}`, { method: "DELETE" })
+      toast("Group removed")
+      await fetchFolders()
+    } catch {
+      toast("Failed to remove group")
+    }
+  }, [currentFolderId, fetchFolders])
+
   // ── Context value ────────────────────────────────────────────────────────
 
   const value = useMemo<CommunityContextValue>(
@@ -1015,6 +1260,17 @@ export function CommunityProvider({
       openInboxItem,
       sendTyping: ws.sendTyping,
       createForumPost,
+      createChannel,
+      createCategory,
+      deleteChannel,
+      deleteCategory,
+      deleteServer,
+      uploadFile,
+      uploadServerIcon,
+      setServerNotifLevel,
+      createOrGetDm,
+      createServerFolder,
+      deleteServerFolder,
       setCurrentServerId,
       refreshServers: fetchServers,
       refreshMembers: fetchMembers,
@@ -1027,6 +1283,10 @@ export function CommunityProvider({
         if (sid === "@me") fetchDmMessages(cid)
         else fetchMessages(cid)
       },
+      openSidebar,
+      previewImage,
+      openProfile: openProfileFn,
+      registerUiHandlers,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
@@ -1041,6 +1301,9 @@ export function CommunityProvider({
       createServer, joinServer, leaveServer, setMemberRole, kickMember,
       createInvite, revokeInvite, updateServer, setChannelNotif, markChannelRead,
       markDmRead, markAllInboxRead, openInboxItem, ws.sendTyping, createForumPost,
+      createChannel, createCategory, deleteChannel, deleteCategory, deleteServer,
+      uploadFile, uploadServerIcon, setServerNotifLevel, createOrGetDm,
+      createServerFolder, deleteServerFolder,
       fetchServers, fetchMembers, fetchFriends, fetchDms, fetchMessages, fetchDmMessages,
     ]
   )

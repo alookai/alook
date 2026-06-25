@@ -18,7 +18,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   if (!member) return writeError("forbidden", 403)
 
   const pins = await queries.communityPin.listPins(db, channelId)
-  return writeJSON(pins)
+  return writeJSON({ pins })
 })
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {

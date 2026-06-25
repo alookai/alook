@@ -6,5 +6,5 @@ import { writeJSON } from "@/lib/middleware/helpers"
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const pending = await queries.communityFriendship.listPending(db, ctx.userId)
-  return writeJSON(pending)
+  return writeJSON({ pending })
 })

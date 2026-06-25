@@ -1,8 +1,9 @@
 "use client"
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
+import { apiFetch } from "@/lib/api/client"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -17,17 +18,20 @@ import { ChannelSidebar } from "@/components/community/channel-sidebar"
 import { DmSidebar } from "@/components/community/dm-sidebar"
 import { UserBar } from "@/components/community/user-bar"
 import { UserSettings } from "@/components/community/edit-profile-dialog"
+import { ServerSettings } from "@/components/community/server-settings"
 import { InboxPopover } from "@/components/community/community-inbox-popover"
 import { Overlay } from "@/components/community/overlay"
 import { ProfileCard } from "@/components/community/profile-card"
 import { ImageLightbox } from "@/components/community/image-lightbox"
-import type { MobileZone, View, Profile } from "@/components/community/_types"
+import type { MobileZone, View, Profile, SettingsSection } from "@/components/community/_types"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ serverId: string }>()
-  const serverId = params.serverId
+  const searchParams = useSearchParams()
+  const serverId = decodeURIComponent(params.serverId)
   const isAtMe = serverId === "@me"
 
+  const router = useRouter()
   const bp = useBreakpoint()
   const ctx = useCommunity()
 
@@ -41,6 +45,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [mobileZone, setMobileZone] = useState<MobileZone>("messages")
   const [editingProfile, setEditingProfile] = useState(false)
+  const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview")
   const [profile, setProfile] = useState<{ data: Profile; x: number; y: number } | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
@@ -49,6 +55,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     setView(isAtMe ? "dm" : "server")
   }, [isAtMe])
+
+  useEffect(() => {
+    if (searchParams.get("settings") === "1") {
+      setServerSettingsOpen(true)
+      router.replace(`/community/channels/${serverId}`)
+    }
+  }, [searchParams, serverId, router])
+
 
   // Build channel tree from server categories
   const categories = ctx.currentServer?.categories ?? []
@@ -60,19 +74,36 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     [ctx.servers, serverId]
   )
 
-  const goHome = () => { setView("dm"); setMobileZone("channels") }
+  const goHome = () => { setView("dm"); setMobileZone("channels"); router.push("/community/channels/@me") }
   const goServer = () => { setView("server"); setMobileZone("channels") }
 
   const railProps = {
     servers: railServers,
     folderServers: ctx.folderServers,
+    serversLoading: ctx.serversLoading,
     setMobileZone,
     view,
     onHome: goHome,
     onServer: goServer,
-    onCreateServer: (name: string) => { ctx.createServer(name) },
+    onServerNavigate: (id: string) => { router.push(`/community/channels/${id}`) },
+    onCreateServer: async (name: string, icon?: File) => {
+      const newId = await ctx.createServer(name)
+      if (newId) {
+        if (icon) ctx.uploadServerIcon(newId, icon)
+        router.push(`/community/channels/${newId}`)
+      }
+    },
     onJoinServer: (invite: string) => { ctx.joinServer(invite) },
     onLeaveServer: (id: string) => { ctx.leaveServer(id) },
+    onOpenSettings: (id?: string) => {
+      if (id && id !== serverId) {
+        router.push(`/community/channels/${id}?settings=1`)
+      } else {
+        setServerSettingsOpen(true)
+      }
+    },
+    onCreateFolder: (serverId: string) => { ctx.createServerFolder(serverId) },
+    onUngroupFolder: () => { ctx.deleteServerFolder() },
   }
 
   // ── Channel sidebar props ─────────────────────────────────────────────────
@@ -87,11 +118,23 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       if (bp === "tablet") setSidebarOpen(false)
       if (bp === "mobile") setMobileZone("messages")
     },
-    onOpenSettings: () => { /* navigated via link */ },
+    onOpenSettings: () => { setServerSettingsOpen(true) },
     onBlockedCreate: () => toast("Only admins can create channels in a private category"),
     mutedChannels: Object.fromEntries(
       Object.entries(ctx.channelNotif).map(([k, v]) => [k, v === "Nothing"])
     ),
+    onCreateChannel: (categoryId: string, name: string, type: "text" | "forum") => {
+      ctx.createChannel(serverId, categoryId, name, type)
+    },
+    onCreateCategory: (name: string, opts?: { private?: boolean }) => {
+      ctx.createCategory(serverId, name, opts)
+    },
+    onDeleteChannel: (channelId: string) => {
+      ctx.deleteChannel(channelId)
+    },
+    onDeleteCategory: (categoryId: string) => {
+      ctx.deleteCategory(serverId, categoryId)
+    },
   }
 
   // ── DM sidebar props ──────────────────────────────────────────────────────
@@ -104,30 +147,62 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   // ── Profile card ──────────────────────────────────────────────────────────
   const openProfile = (name: string, e: React.MouseEvent) => {
-    const member = ctx.members.find((m) => m.name === name)
-      ?? ctx.friends.find((f) => f.name === name)
+    const isSelf = name === ctx.currentUser.name
+    if (isSelf) {
+      const data: Profile = {
+        name: ctx.currentUser.name,
+        avatar: ctx.currentUser.avatar || ctx.currentUser.name.charAt(0).toUpperCase(),
+        role: "You",
+        about: "",
+        mutual: 0,
+        tags: [],
+      }
+      setProfile({ data, x: e.clientX, y: e.clientY })
+      return
+    }
+    const member = (ctx.members ?? []).find((m) => m.name === name)
+      ?? (ctx.friends ?? []).find((f) => f.name === name)
     const role: string = member && "role" in member ? (member as { role: string }).role : "Member"
-    const about: string = member && "sub" in member && (member as { sub: string }).sub ? (member as { sub: string }).sub : "No bio yet."
+    const about: string = member && "sub" in member && (member as { sub: string }).sub ? (member as { sub: string }).sub : ""
     const data: Profile = {
       name,
       avatar: member?.avatar ?? name.charAt(0).toUpperCase(),
       role,
       about,
-      mutual: 1,
-      tags: [role],
+      mutual: 0,
+      tags: role !== "Member" ? [role] : [],
     }
     setProfile({ data, x: e.clientX, y: e.clientY })
   }
 
-  const profileMessage = (name: string, _text: string) => {
+  // Register UI handlers so pages can trigger layout actions via context
+  useEffect(() => {
+    ctx.registerUiHandlers({
+      openSidebar: () => setSidebarOpen(true),
+      previewImage: (url) => setPreview(url),
+      openProfile,
+    })
+  })
+
+  const profileMessage = async (name: string, _text: string) => {
     setProfile(null)
-    // In the real app, this would create/navigate to a DM
-    toast(`Opening DM with ${name}`)
+    // Find the member/friend to get their user ID
+    const member = ctx.members.find((m) => m.name === name) ?? ctx.friends.find((f) => f.name === name)
+    if (!member) {
+      toast(`Could not find user ${name}`)
+      return
+    }
+    const dmId = await ctx.createOrGetDm(member.id)
+    if (dmId) {
+      router.push(`/community/channels/@me/${dmId}`)
+    }
   }
 
   // ── Shell chrome ──────────────────────────────────────────────────────────
   const shellProps = {
-    appName: "Alook",
+    appName: isAtMe ? "Friends" : (ctx.currentServer?.name ?? "Alook"),
+    appIcon: isAtMe ? "friends" as const : undefined,
+    serverIcon: isAtMe ? undefined : (ctx.currentServer?.icon ?? null),
     inbox: (
       <InboxPopover
         feed={ctx.inboxFeed}
@@ -143,7 +218,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const sidebar = (opts: { bordered?: boolean; noHeader?: boolean } = {}) =>
     isAtMe || view === "dm" ? (
       <DmSidebar
-        dms={ctx.dms}
+        dms={ctx.dms ?? []}
         activeDm={ctx.currentChannelId}
         onPickDm={enterDm}
         onShowFriends={() => ctx.setCurrentChannelId(null)}
@@ -154,11 +229,54 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     )
 
   // ── Dialogs ───────────────────────────────────────────────────────────────
+  const closeSettings = () => { setServerSettingsOpen(false); setSettingsSection("overview") }
   const dialogs = (
     <>
       <Dialog open={editingProfile} onOpenChange={(o) => { if (!o) setEditingProfile(false) }}>
         <DialogContent className="flex h-[calc(100vh-4rem)] w-[calc(100vw-4rem)] sm:max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0" showCloseButton={false}>
-          <UserSettings onClose={() => setEditingProfile(false)} aboutMe="" onSave={() => {}} onLogout={() => toast("Logged out")} />
+          <UserSettings
+            onClose={() => setEditingProfile(false)}
+            aboutMe={ctx.currentUser.aboutMe ?? ""}
+            onSave={async (aboutMe) => {
+              try {
+                await apiFetch("/api/community/users/me/profile", {
+                  method: "PATCH",
+                  body: JSON.stringify({ aboutMe }),
+                })
+              } catch { toast("Failed to save profile") }
+            }}
+            onLogout={() => { window.location.href = "/sign-in" }}
+          />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={serverSettingsOpen} onOpenChange={(o) => { if (!o) closeSettings() }}>
+        <DialogContent className="flex h-[calc(100vh-4rem)] w-[calc(100vw-4rem)] sm:max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0" showCloseButton={false}>
+          <ServerSettings
+            section={settingsSection}
+            setSection={setSettingsSection}
+            onClose={closeSettings}
+            serverName={ctx.currentServer?.name ?? ""}
+            serverDescription={ctx.currentServer?.description ?? ""}
+            serverIcon={ctx.currentServer?.icon ?? null}
+            members={ctx.members}
+            invites={ctx.invites}
+            auditLog={ctx.auditLog}
+            onKickMember={(name) => { const m = ctx.members.find((x) => x.name === name); if (m) ctx.kickMember(m.id) }}
+            onSetRole={(name, role) => { const m = ctx.members.find((x) => x.name === name); if (m) ctx.setMemberRole(m.id, role) }}
+            onRevokeInvite={(code) => ctx.revokeInvite(code)}
+            onCreateInvite={() => ctx.createInvite()}
+            onCopyInvite={(code) => { navigator.clipboard?.writeText(`${window.location.origin}/community/invite/${code}`); toast("Invite copied") }}
+            onDeleteServer={async () => { closeSettings(); await ctx.deleteServer(serverId); router.push("/community/channels/@me") }}
+            onUploadIcon={() => {
+              const input = document.createElement("input"); input.type = "file"; input.accept = "image/*"
+              input.onchange = async () => { const f = input.files?.[0]; if (f) await ctx.uploadServerIcon(serverId, f) }
+              input.click()
+            }}
+            onUpdateServer={(name, desc) => ctx.updateServer(name, desc)}
+            notifLevel={ctx.notifLevel}
+            onSetNotifLevel={(level) => ctx.setServerNotifLevel(serverId, level)}
+            onOpenProfile={openProfile}
+          />
         </DialogContent>
       </Dialog>
     </>
@@ -217,7 +335,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   return (
     <Shell {...shellProps}>
       {mobileZone === "rail" && (
-        <MobileRail servers={railServers} folderServers={ctx.folderServers} onPick={() => setMobileZone("channels")} onHome={goHome} onServer={goServer} onAddServer={railProps.onCreateServer} onJoinServer={() => { /* Join is handled by the dialog inside MobileRail */ }} view={view} />
+        <MobileRail servers={railServers} folderServers={ctx.folderServers} onPick={() => setMobileZone("channels")} onHome={goHome} onServer={goServer} onServerNavigate={railProps.onServerNavigate} onAddServer={railProps.onCreateServer} onJoinServer={() => { /* Join is handled by the dialog inside MobileRail */ }} view={view} />
       )}
       {mobileZone === "channels" && (
         <div className="flex min-h-0 flex-1 flex-col" style={{ background: "var(--d-rail)" }}>

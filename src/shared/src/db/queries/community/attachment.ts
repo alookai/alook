@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { communityAttachment } from "../../community-schema";
 import type { Database } from "../../index";
 
@@ -37,4 +37,15 @@ export async function listMessageAttachments(
     .select()
     .from(communityAttachment)
     .where(eq(communityAttachment.messageId, messageId));
+}
+
+export async function listByMessageIds(
+  db: Database,
+  messageIds: string[]
+) {
+  if (messageIds.length === 0) return [];
+  return db
+    .select()
+    .from(communityAttachment)
+    .where(inArray(communityAttachment.messageId, messageIds));
 }

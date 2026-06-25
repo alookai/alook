@@ -4,7 +4,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 
 export const GET = withAuth(async (_req, ctx) => {
-  const id = ctx.params?.id
+  const id = ctx.params?.userId
   if (!id) return writeError("missing user id", 400)
 
   const db = getDb(ctx.env.DB)

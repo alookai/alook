@@ -201,6 +201,44 @@ export async function isBlocked(
   return rows.length > 0;
 }
 
+export async function listBlocked(db: Database, userId: string) {
+  const asRequester = await db
+    .select({
+      id: communityFriendship.id,
+      blockedUserId: user.id,
+      blockedName: user.name,
+      blockedImage: user.image,
+    })
+    .from(communityFriendship)
+    .innerJoin(user, eq(user.id, communityFriendship.addresseeId))
+    .where(
+      and(
+        eq(communityFriendship.requesterId, userId),
+        eq(communityFriendship.status, "blocked"),
+        eq(communityFriendship.blockerId, userId)
+      )
+    );
+
+  const asAddressee = await db
+    .select({
+      id: communityFriendship.id,
+      blockedUserId: user.id,
+      blockedName: user.name,
+      blockedImage: user.image,
+    })
+    .from(communityFriendship)
+    .innerJoin(user, eq(user.id, communityFriendship.requesterId))
+    .where(
+      and(
+        eq(communityFriendship.addresseeId, userId),
+        eq(communityFriendship.status, "blocked"),
+        eq(communityFriendship.blockerId, userId)
+      )
+    );
+
+  return [...asRequester, ...asAddressee];
+}
+
 export async function listPending(db: Database, userId: string) {
   return db
     .select({

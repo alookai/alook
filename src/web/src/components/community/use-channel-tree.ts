@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { arrayMove } from "@dnd-kit/sortable"
 import type { DragEndEvent } from "@dnd-kit/core"
 import type { Category, Channel } from "./_types"
@@ -89,6 +89,21 @@ export function useChannelTree(categories: Category[]) {
   )
   // per-category privacy — default public; private restricts channel creation to admins
   const [catPrivate, setCatPrivate] = useState<Record<string, boolean>>({})
+
+  // Sync state when categories change from API (initial load or server switch)
+  const prevCatsRef = useRef(categories)
+  useEffect(() => {
+    const prev = prevCatsRef.current
+    prevCatsRef.current = categories
+    if (categories.length === 0 || categories === prev) return
+    // Compare both category IDs and channel IDs to detect any change
+    const prevKey = prev.map((c) => `${c.id}:${c.channels.map((ch) => ch.id).join(",")}`).join("|")
+    const nextKey = categories.map((c) => `${c.id}:${c.channels.map((ch) => ch.id).join(",")}`).join("|")
+    if (prevKey === nextKey) return
+    setCatOrder(categories.map((c) => c.id))
+    setOrder(Object.fromEntries(categories.map((c) => [c.id, c.channels])))
+    setCatNames(Object.fromEntries(categories.map((c) => [c.id, c.name])))
+  }, [categories])
 
   const toggleCat = (id: string) =>
     setCollapsed((prev) => {

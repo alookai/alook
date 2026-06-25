@@ -1,16 +1,20 @@
+"use client"
+
+import { useState } from "react"
 import { Shield, UserMinus, Check } from "lucide-react"
 import {
   ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 } from "@/components/ui/context-menu"
 import { Avatar } from "./avatar"
+import { ConfirmDialog } from "./confirm-dialog"
 import type { Member, Role, OpenProfile } from "./_types"
 
 // Settable roles via the menu — Owner is excluded (only the server creator is Owner,
 // and it can't be reassigned through the UI).
 const SETTABLE_ROLES: Role[] = ["Admin", "Member"]
 
-// Discord-style grouping: hoisted role groups first (Owner, Admin), then the remaining
-// members split by presence (Online / Offline). Empty groups are dropped.
+// Hoisted role groups first (Owner, Admin), then remaining members split by presence
+// (Online / Offline). Empty groups are dropped.
 function groupMembers(members: Member[]): { label: string; list: Member[] }[] {
   const owner = members.filter((m) => m.role === "Owner")
   const admin = members.filter((m) => m.role === "Admin")
@@ -32,7 +36,18 @@ export function MemberList({ members, onOpenProfile, onSetRole, onKick }: {
   onSetRole?: (name: string, role: Role) => void
   onKick?: (name: string) => void
 }) {
+  const [kickTarget, setKickTarget] = useState<string | null>(null)
   return (
+    <>
+    <ConfirmDialog
+      open={!!kickTarget}
+      title={`Kick ${kickTarget}?`}
+      description="They will be removed from this server but can rejoin with an invite."
+      confirmLabel="Kick"
+      destructive
+      onConfirm={() => { if (kickTarget) onKick?.(kickTarget); setKickTarget(null) }}
+      onCancel={() => setKickTarget(null)}
+    />
     <aside className="flex h-full flex-col overflow-y-auto thin-scrollbar bg-background">
       <div className="px-3 py-4">
         {groupMembers(members).map((group) => (
@@ -75,7 +90,7 @@ export function MemberList({ members, onOpenProfile, onSetRole, onKick }: {
                   {mem.role !== "Owner" && (
                     <>
                       <ContextMenuSeparator />
-                      <ContextMenuItem onClick={() => onKick?.(mem.name)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
+                      <ContextMenuItem onClick={() => setKickTarget(mem.name)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
                         <UserMinus className="size-4" /> Kick {mem.name}
                       </ContextMenuItem>
                     </>
@@ -87,5 +102,6 @@ export function MemberList({ members, onOpenProfile, onSetRole, onKick }: {
         ))}
       </div>
     </aside>
+    </>
   )
 }

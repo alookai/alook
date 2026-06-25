@@ -5,6 +5,9 @@ import { writeJSON } from "@/lib/middleware/helpers"
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const friends = await queries.communityFriendship.listFriends(db, ctx.userId)
-  return writeJSON(friends)
+  const [friends, blocked] = await Promise.all([
+    queries.communityFriendship.listFriends(db, ctx.userId),
+    queries.communityFriendship.listBlocked(db, ctx.userId),
+  ])
+  return writeJSON({ friends, blocked })
 })

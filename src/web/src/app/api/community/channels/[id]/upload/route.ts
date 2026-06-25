@@ -23,14 +23,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const fileId = crypto.randomUUID()
   const key = `channel/${channelId}/${fileId}/${file.name}`
 
-  await (ctx.env as unknown as { COMMUNITY_MEDIA: R2Bucket }).COMMUNITY_MEDIA.put(
+  await ctx.env.COMMUNITY_MEDIA.put(
     key,
     await file.arrayBuffer(),
     { httpMetadata: { contentType: file.type } }
   )
 
   return writeJSON({
-    url: key,
+    url: `/api/community/media/${key}`,
     filename: file.name,
     contentType: file.type,
     size: file.size,

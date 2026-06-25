@@ -54,5 +54,5 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     targetId: category.id,
   })
 
-  return writeJSON(category, 201)
+  return writeJSON({ category }, 201)
 })

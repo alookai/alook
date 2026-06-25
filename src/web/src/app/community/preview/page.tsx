@@ -1,9 +1,9 @@
 "use client"
 
 /**
- * Discord-clone STYLE PREVIEW — mock data only, fixed URL /d-preview.
- * Not wired to any API. Built to validate the visual direction from
- * plans/discord-v0.1.md: Discord layout + Alook design tokens.
+ * Community STYLE PREVIEW — mock data only, fixed URL /d-preview.
+ * Not wired to any API. Built to validate the visual direction:
+ * community layout + Alook design tokens.
  *
  * Everything resolves through Alook semantic tokens (globals.css) so it
  * adapts to light/dark. The one token Alook lacks — a surface deeper than
@@ -30,7 +30,7 @@ import {
   THREADS, FORUM_POSTS, FORUM_TAGS, MEMBERS, FRIENDS, PENDING, BLOCKED, DMS,
   PROFILES, INVITES, AUDIT_LOG, MENTIONS, INBOX_FEED, FOLDER_SERVERS,
 } from "./_mock"
-import type { RightPanel, MobileZone, View, SettingsSection, Msg, PendingRequest, BlockedUser, ForumPost, Profile, Thread, Role, DM, Friend } from "@/components/community/_types"
+import type { RightPanel, MobileZone, View, SettingsSection, Msg, PendingRequest, BlockedUser, ForumPost, Profile, Thread, Role, DM } from "@/components/community/_types"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
 import { useChannelTree } from "@/components/community/use-channel-tree"
 import { ProfileCard } from "@/components/community/profile-card"
@@ -58,7 +58,7 @@ import { Shell } from "@/components/community/shell"
 import { Overlay } from "@/components/community/overlay"
 
 // ── Page ────────────────────────────────────────────────────────────────
-export default function DiscordPreview() {
+export default function CommunityPreview() {
   const bp = useBreakpoint()
   // channel tree state lives here (single source of truth) so the page can tell whether the
   // active channel is a forum — including channels created at runtime via the sidebar.
@@ -68,7 +68,7 @@ export default function DiscordPreview() {
   const [activeDm, setActiveDm] = useState<string | null>(null)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview")
   const [rightPanel, setRightPanel] = useState<RightPanel>("members")
-  // An open thread takes over the message area like a channel (Discord behavior).
+  // An open thread takes over the message area like a channel.
   const [openThreadId, setOpenThreadId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false) // tablet left overlay
   const [mobileZone, setMobileZone] = useState<MobileZone>("messages")
@@ -147,7 +147,7 @@ export default function DiscordPreview() {
   const profileMessage = (name: string, text: string) => {
     let target = dmList.find((d) => d.name === name)
     if (!target) {
-      target = { id: `dm_${name.toLowerCase()}`, name, avatar: name.charAt(0).toUpperCase(), status: "online" as const, preview: text.slice(0, 40), messages: [] }
+      target = { id: `dm_${name.toLowerCase()}`, userId: `u_${name.toLowerCase()}`, name, avatar: name.charAt(0).toUpperCase(), status: "online" as const, preview: text.slice(0, 40), messages: [] }
       setDmList((prev) => [target!, ...prev])
     }
     setDmList((prev) => prev.map((d) => d.id !== target!.id ? d : {
@@ -155,7 +155,7 @@ export default function DiscordPreview() {
       messages: [...d.messages, { id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: text }],
     }))
     setView("dm")
-    setActiveDm(target.id)
+    setActiveDm(target!.id)
     setProfile(null)
     if (bp === "mobile") setMobileZone("messages")
   }
@@ -190,7 +190,7 @@ export default function DiscordPreview() {
   }
 
   // create a thread (local) and open it.
-  //  - `anchor` (from a message) becomes the thread's first message — Discord behavior.
+  //  - `anchor` (from a message) becomes the thread's first message.
   //  - otherwise `firstMessage` (from the New Thread panel) seeds an optional opener.
   let threadSeq = 0
   const createThread = (name: string, opts?: { firstMessage?: string; anchor?: Msg }) => {
@@ -410,7 +410,7 @@ export default function DiscordPreview() {
           <ThreadHeader thread={openThread} channelName={activeChannel} forum={isForum} onClose={() => setOpenThreadId(null)} onBack={compact ? () => setMobileZone("channels") : undefined} onRename={(name) => { setThreads((p) => p.map((t) => t.id === openThreadId ? { ...t, name } : t)); setForumPosts((p) => { const next = { ...p }; for (const [ch, posts] of Object.entries(next)) next[ch] = posts.map((fp) => fp.id === openThreadId ? { ...fp, name } : fp); return next }) }} />
           <main className="flex min-h-0 flex-1 flex-col">
             <ThreadMessages thread={openThread} {...profileProps} />
-            <Composer channel={openThread.name} thread members={friendList} onSend={sendThreadMessage} onUploadFile={() => toast("Upload a file")} />
+            <Composer channel={openThread.name} thread members={friendList} onSend={sendThreadMessage} />
           </main>
         </>
       )
@@ -421,7 +421,7 @@ export default function DiscordPreview() {
           <DmHeader dm={dm} onBack={compact ? () => setMobileZone("channels") : undefined} onOpenPins={() => setRightPanel("pinned")} onAddFriend={() => { if (!friendList.some((f) => f.name === dm.name)) setFriendList((p) => [...p, { id: `fr_${dm.id}`, name: dm.name, avatar: dm.avatar, status: dm.status, sub: "" }]); toast(`Added ${dm.name} as a friend`) }} />
           <main className="flex min-h-0 flex-1 flex-col">
             <DmMessages dm={dm} {...profileProps} />
-            <Composer channel={dm.name} thread members={friendList} onSend={sendDmMessage} onUploadFile={() => toast("Upload a file")} />
+            <Composer channel={dm.name} thread members={friendList} onSend={sendDmMessage} />
           </main>
         </>
       ) : (
@@ -459,7 +459,7 @@ export default function DiscordPreview() {
         <div className="flex min-h-0 flex-1">
           <main className="flex min-w-0 flex-1 flex-col">
             <MessageList channel={activeChannel} messages={messages} pinnedIds={pinnedIds} newDividerBefore={NEW_DIVIDER_BEFORE} typingUsers={["Lindsay"]} onOpenThread={enterThread} {...messageActions} {...profileProps} />
-            <Composer channel={activeChannel} members={friendList} onSend={sendMessage} onUploadFile={() => toast("Upload a file")} onCreateThread={() => setCreatingThread(true)} replyingTo={replyTo?.authorName} onCancelReply={() => setReplyTo(null)} />
+            <Composer channel={activeChannel} members={friendList} onSend={sendMessage} onCreateThread={() => setCreatingThread(true)} replyingTo={replyTo?.authorName} onCancelReply={() => setReplyTo(null)} />
           </main>
           {/* desktop renders the panel inline; tablet/mobile use overlays below */}
           {bp === "desktop" && rightPanel && (

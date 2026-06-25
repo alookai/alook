@@ -1,4 +1,4 @@
-import { sql, eq, inArray } from "drizzle-orm";
+import { sql, eq, and, inArray } from "drizzle-orm";
 import { communityMessage, communityChannel } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -26,8 +26,17 @@ export async function searchMessages(
 
   const ids = ftsResults.map((r) => r.id);
 
+  // If serverId filter, use the server-scoped function
+  if (opts.serverId) {
+    return searchMessagesInServer(db, {
+      query: opts.query,
+      serverId: opts.serverId,
+      ids,
+    });
+  }
+
   // Fetch full messages with author info using ORM
-  let query = db
+  const results = await db
     .select({
       message: communityMessage,
       author: user,
@@ -35,8 +44,6 @@ export async function searchMessages(
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
     .where(inArray(communityMessage.id, ids));
-
-  const results = await query;
 
   // Apply additional filters in application layer
   return results.filter((r) => {
@@ -46,10 +53,6 @@ export async function searchMessages(
       r.message.dmConversationId !== opts.dmConversationId
     )
       return false;
-    if (opts.serverId) {
-      // serverId filtering requires channel lookup — handled below
-      return true;
-    }
     return true;
   });
 }
@@ -59,21 +62,21 @@ export async function searchMessagesInServer(
   opts: {
     query: string;
     serverId: string;
+    ids?: string[];
     limit?: number;
   }
 ) {
   const limit = opts.limit ?? DEFAULT_LIMIT;
 
-  // FTS5 requires raw SQL — no Drizzle ORM equivalent exists
-  const ftsResults = await db.all<{ id: string }>(
-    sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${opts.query} LIMIT ${limit}`
-  );
+  let ids = opts.ids;
+  if (!ids) {
+    const ftsResults = await db.all<{ id: string }>(
+      sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${opts.query} LIMIT ${limit}`
+    );
+    if (ftsResults.length === 0) return [];
+    ids = ftsResults.map((r) => r.id);
+  }
 
-  if (ftsResults.length === 0) return [];
-
-  const ids = ftsResults.map((r) => r.id);
-
-  // Fetch messages joined with channel to filter by serverId
   return db
     .select({
       message: communityMessage,
@@ -86,6 +89,9 @@ export async function searchMessagesInServer(
       eq(communityMessage.channelId, communityChannel.id)
     )
     .where(
-      inArray(communityMessage.id, ids)
+      and(
+        inArray(communityMessage.id, ids),
+        eq(communityChannel.serverId, opts.serverId)
+      )
     );
 }

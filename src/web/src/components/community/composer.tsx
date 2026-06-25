@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { PlusCircle, Smile, Upload, MessagesSquare, X } from "lucide-react"
+import { useRef, useState } from "react"
+import { PlusCircle, Smile, Upload, MessagesSquare, X, FileIcon, ImageIcon } from "lucide-react"
 import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
@@ -16,19 +16,28 @@ import type { Friend } from "./_types"
 // (useEditor + StarterKit + Placeholder + @tiptap/markdown). Markdown shortcuts
 // (**bold**, `code`, > quote…) work as you type. A lightweight @mention dropdown
 // reads the editor's trailing token; `members` is the autocomplete source. The "+"
-// opens an attach/thread menu (Discord parity — Upload a File / Create Thread only).
-export function Composer({ channel, thread, members, onSend, onUploadFile, onCreateThread, replyingTo, onCancelReply }: {
+// opens an attach/thread menu (Upload a File / Create Thread only).
+export function Composer({ channel, thread, members, onSend, onCreateThread, onTyping, replyingTo, onCancelReply }: {
   channel: string
   thread?: boolean
   members: Friend[]
-  onSend?: (markdown: string) => void
-  onUploadFile?: () => void
+  onSend?: (markdown: string, attachments?: File[]) => void
   onCreateThread?: () => void
+  onTyping?: () => void
   // when set, shows a "Replying to X" bar above the input
   replyingTo?: string
   onCancelReply?: () => void
 }) {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const typingTimer = useRef<NodeJS.Timeout | null>(null)
+
+  const fireTyping = () => {
+    if (!onTyping || typingTimer.current) return
+    onTyping()
+    typingTimer.current = setTimeout(() => { typingTimer.current = null }, 3_000)
+  }
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -55,6 +64,7 @@ export function Composer({ channel, thread, members, onSend, onUploadFile, onCre
       const text = editor.state.doc.textBetween(0, editor.state.selection.from, "\n", "\n")
       const m = text.match(/@(\w*)$/)
       setMentionQuery(m ? m[1].toLowerCase() : null)
+      fireTyping()
     },
   })
 
@@ -63,9 +73,11 @@ export function Composer({ channel, thread, members, onSend, onUploadFile, onCre
     : []
 
   const send = () => {
-    if (!editor || editor.isEmpty) return
-    onSend?.(decodeChatEntities(editor.getMarkdown() || "").trim())
+    if (!editor || (editor.isEmpty && pendingFiles.length === 0)) return
+    const markdown = editor.isEmpty ? "" : decodeChatEntities(editor.getMarkdown() || "").trim()
+    onSend?.(markdown, pendingFiles.length > 0 ? pendingFiles : undefined)
     editor.commands.clearContent()
+    setPendingFiles([])
     setMentionQuery(null)
   }
 
@@ -77,6 +89,18 @@ export function Composer({ channel, thread, members, onSend, onUploadFile, onCre
     const tokenLen = (text.match(/@\w*$/)?.[0].length) ?? 0
     editor.chain().focus().deleteRange({ from: from - tokenLen, to: from }).insertContent(`@${name} `).run()
     setMentionQuery(null)
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length > 0) {
+      setPendingFiles((prev) => [...prev, ...files])
+    }
+    e.target.value = "" // Reset input to allow same file selection again
+  }
+
+  const removeFile = (index: number) => {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
   return (
@@ -104,7 +128,37 @@ export function Composer({ channel, thread, members, onSend, onUploadFile, onCre
         </div>
       )}
 
-      <div className={`flex min-h-14 items-center gap-3 bg-secondary px-4 py-3 ${replyingTo ? "rounded-b-lg" : "rounded-lg"}`}>
+      {/* pending attachments preview */}
+      {pendingFiles.length > 0 && (
+        <div className={`flex flex-wrap gap-2 border-b border-border bg-secondary/40 px-4 py-2 ${replyingTo ? "" : "rounded-t-lg"}`}>
+          {pendingFiles.map((file, i) => {
+            const isImage = file.type.startsWith("image/")
+            return (
+              <div key={i} className="group relative flex items-center gap-2 rounded border border-border bg-background px-3 py-1.5 text-xs">
+                {isImage ? <ImageIcon className="size-3.5 text-muted-foreground" /> : <FileIcon className="size-3.5 text-muted-foreground" />}
+                <span className="max-w-[120px] truncate text-foreground">{file.name}</span>
+                <button
+                  onClick={() => removeFile(i)}
+                  className="grid size-4 shrink-0 place-items-center rounded-full hover:bg-destructive/10 hover:text-destructive"
+                  aria-label="Remove file"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className={`flex min-h-14 items-center gap-3 bg-secondary px-4 py-3 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-lg" : "rounded-lg"}`}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,video/*,audio/*,.pdf,.txt,.zip"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
         <DropdownMenu>
           <DropdownMenuTrigger
             render={<button className="shrink-0 text-muted-foreground hover:text-foreground aria-expanded:text-foreground" aria-label="Add" />}
@@ -112,7 +166,7 @@ export function Composer({ channel, thread, members, onSend, onUploadFile, onCre
             <PlusCircle className="size-5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-44">
-            <DropdownMenuItem onClick={onUploadFile}><Upload className="size-4" /> Upload a File</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => fileInputRef.current?.click()}><Upload className="size-4" /> Upload a File</DropdownMenuItem>
             {!thread && <DropdownMenuItem onClick={onCreateThread}><MessagesSquare className="size-4" /> Create Thread</DropdownMenuItem>}
           </DropdownMenuContent>
         </DropdownMenu>

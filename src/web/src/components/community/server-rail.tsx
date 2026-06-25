@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Plus } from "lucide-react"
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
@@ -17,37 +17,42 @@ import type { Server, FolderServer, MobileZone, View } from "./_types"
 // The 72px server rail (desktop/tablet). Reorder lives in useRailOrder; this owns the
 // active-server selection and the create-server dialog.
 export function ServerRail({
-  servers, folderServers, setMobileZone, view, onHome, onServer, onCreateServer, onJoinServer, onLeaveServer,
+  servers, folderServers, serversLoading, setMobileZone, view, onHome, onServer, onServerNavigate, onCreateServer, onJoinServer, onLeaveServer, onOpenSettings, onCreateFolder, onUngroupFolder,
 }: {
   servers: Server[]
   folderServers: FolderServer[]
+  serversLoading?: boolean
   setMobileZone?: (z: MobileZone) => void
   view: View
   onHome: () => void
   onServer: () => void
-  onCreateServer?: (name: string) => void
+  onServerNavigate?: (id: string) => void
+  onCreateServer?: (name: string, icon?: File) => void
   onJoinServer?: (invite: string) => void
   onLeaveServer?: (id: string) => void
+  onOpenSettings?: (serverId: string) => void
+  onCreateFolder?: (serverId: string) => void
+  onUngroupFolder?: () => void
 }) {
   const { order, folderOpen, setFolderOpen, onDragStart, onDragEnd, appendServer } = useRailOrder(servers.map((s) => s.id))
-  const [serverList, setServerList] = useState<Server[]>(servers)
-  const [activeId, setActiveId] = useState(servers.find((s) => s.active)?.id ?? servers[0].id)
+  const activeFromProps = servers.find((s) => s.active)?.id ?? ""
+  const [activeId, setActiveId] = useState(activeFromProps)
+  useEffect(() => {
+    if (activeFromProps && activeFromProps !== activeId) setActiveId(activeFromProps)
+  }, [activeFromProps]) // eslint-disable-line react-hooks/exhaustive-deps
   const [createOpen, setCreateOpen] = useState(false)
+  const [didAutoOpen, setDidAutoOpen] = useState(false)
+  useEffect(() => {
+    // Auto-open create dialog only once, after servers have loaded and list is empty
+    if (!didAutoOpen && servers.length === 0 && serversLoading === false) {
+      setDidAutoOpen(true)
+      setCreateOpen(true)
+    }
+  }, [servers.length, serversLoading, didAutoOpen])
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const pickServer = (id: string) => { setActiveId(id); onServer(); onServerNavigate?.(id); setMobileZone?.("channels") }
+  const byId = (id: string) => servers.find((s) => s.id === id)
 
-  // selecting a server: mark it active locally + switch into server view
-  const pickServer = (id: string) => { setActiveId(id); onServer(); setMobileZone?.("channels") }
-  const byId = (id: string) => serverList.find((s) => s.id === id)
-
-  // add a server to the rail and select it (live app: POST then navigate)
-  let railSeq = serverList.length
-  const addServer = (name: string) => {
-    const id = `sv_local_${++railSeq}`
-    const initial = (name.trim()[0] ?? "S").toUpperCase()
-    setServerList((prev) => [...prev, { id, name: name.trim() || "New Server", initial, active: false, unread: false, mentions: 0 }])
-    appendServer(id)
-    setActiveId(id)
-  }
   return (
     <nav className="flex w-18 shrink-0 flex-col items-center gap-2 overflow-y-auto overflow-x-clip thin-scrollbar">
       {/* @me / Direct Messages home */}
@@ -57,8 +62,8 @@ export function ServerRail({
         tooltip="Direct Messages"
         label={
           <>
-            <img src="/alook.svg" alt="Alook" className="size-6 dark:hidden" />
-            <img src="/alook-dark.svg" alt="Alook" className="hidden size-6 dark:block" />
+            <img src="/alook.svg" alt="Alook" className="size-full p-1.5 dark:hidden" />
+            <img src="/alook-dark.svg" alt="Alook" className="hidden size-full p-1.5 dark:block" />
           </>
         }
         round
@@ -68,7 +73,8 @@ export function ServerRail({
         <SortableContext items={order} strategy={verticalListSortingStrategy}>
           <div className="flex w-full flex-col items-center gap-2">
             {order.map((id) => {
-              if (id === FOLDER_ID)
+              if (id === FOLDER_ID) {
+                if (!folderServers.length) return null
                 return (
                   <RailFolder
                     key={id}
@@ -78,16 +84,21 @@ export function ServerRail({
                     onSelect={pickServer}
                     setMobileZone={setMobileZone}
                     folderServers={folderServers}
+                    onUngroup={() => onUngroupFolder?.()}
                   />
                 )
-              const s = byId(id)!
+              }
+              const s = byId(id)
+              if (!s) return null
               return (
                 <SortableServer
                   key={id}
                   server={s}
-                  active={view !== "dm" && activeId === id}
+                  active={view !== "dm" && s.active}
                   onClick={() => pickServer(id)}
                   onLeave={() => onLeaveServer?.(id)}
+                  onOpenSettings={() => onOpenSettings?.(id)}
+                  onCreateFolder={() => onCreateFolder?.(id)}
                 />
               )
             })}
@@ -99,8 +110,8 @@ export function ServerRail({
       {createOpen && (
         <CreateServerDialog
           onClose={() => setCreateOpen(false)}
-          onCreateServer={(name) => { addServer(name); onCreateServer?.(name) }}
-          onJoinServer={(invite) => { addServer("New Server"); onJoinServer?.(invite) }}
+          onCreateServer={(name, icon) => { onCreateServer?.(name, icon) }}
+          onJoinServer={(invite) => { onJoinServer?.(invite) }}
         />
       )}
     </nav>

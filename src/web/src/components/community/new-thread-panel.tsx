@@ -33,7 +33,7 @@ export function NewThreadDialog({ channel, open, onClose, onCreate }: {
             New Thread
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 p-5">
+        <div className="space-y-4 px-5 pb-5">
           <label className="block">
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Thread Name</div>
             <Input
@@ -64,7 +64,7 @@ export function NewThreadDialog({ channel, open, onClose, onCreate }: {
         </div>
         <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-5 py-3">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={submit}>Create Thread</Button>
+          <Button size="sm" onClick={submit} disabled={!name.trim()}>Create Thread</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

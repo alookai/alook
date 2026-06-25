@@ -2,8 +2,8 @@
  * Mock data for the /d-preview scaffolding page.
  *
  * This file is DISPOSABLE — it exists only to feed the reusable
- * `@/components/community/*` components in the preview. When `discord-v0.1.md`
- * ships the real `/community` app, the query layer returns these same view-model
+ * `@/components/community/*` components in the preview. Once the real
+ * `/community` app ships, the query layer returns these same view-model
  * shapes from `community_*` rows and this file (plus the preview page) is deleted.
  *
  * Field names match `@/components/community/_types` (schema-aligned), e.g.
@@ -121,7 +121,7 @@ export const MESSAGES: Msg[] = [
     content: "here's the preset config + a screenshot of the result",
     attachments: [
       { kind: "image", name: "research-preset.png", url: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&q=80" },
-      { kind: "file", name: "research-team.json", size: "4.2 KB" },
+      { kind: "file", name: "research-team.json", url: "#", size: "4.2 KB" },
     ],
   },
   {
@@ -227,18 +227,18 @@ export const FORUM_POSTS: Record<string, ForumPost[]> = {
 
 export const FORUM_TAGS = ["All", "question", "bug", "showcase", "email", "billing"]
 
-// Flat member list with a single role. The member list / settings derive Discord-style
+// Flat member list with a single role. The member list / settings derive
 // display groups (hoisted role groups, then Online/Offline) from this. Gener is the
 // Owner (server creator) — there is exactly one, and it can't be reassigned via the UI.
 export const MEMBERS: Member[] = [
-  { id: "u_gener", name: "Gener", avatar: "G", status: "online", sub: "", role: "Owner" },
-  { id: "u_gus", name: "Gus", avatar: "Gu", status: "online", sub: "", role: "Admin" },
-  { id: "u_lindsay", name: "Lindsay", avatar: "L", status: "online", sub: "", role: "Admin" },
-  { id: "u_tomy", name: "lucky tomy", avatar: "t", status: "online", sub: "AI engineer", role: "Member" },
-  { id: "u_jgtech", name: "jgtech", avatar: "j", status: "online", sub: "", role: "Member" },
-  { id: "u_azzo", name: "Azzo", avatar: "A", status: "offline", sub: "", role: "Member" },
-  { id: "u_distagon", name: "distagon", avatar: "d", status: "offline", sub: "", role: "Member" },
-  { id: "u_reece", name: "Reece", avatar: "R", status: "offline", sub: "", role: "Member" },
+  { id: "m_gener", userId: "u_gener", name: "Gener", avatar: "G", status: "online", sub: "", role: "Owner" },
+  { id: "m_gus", userId: "u_gus", name: "Gus", avatar: "Gu", status: "online", sub: "", role: "Admin" },
+  { id: "m_lindsay", userId: "u_lindsay", name: "Lindsay", avatar: "L", status: "online", sub: "", role: "Admin" },
+  { id: "m_tomy", userId: "u_tomy", name: "lucky tomy", avatar: "t", status: "online", sub: "AI engineer", role: "Member" },
+  { id: "m_jgtech", userId: "u_jgtech", name: "jgtech", avatar: "j", status: "online", sub: "", role: "Member" },
+  { id: "m_azzo", userId: "u_azzo", name: "Azzo", avatar: "A", status: "offline", sub: "", role: "Member" },
+  { id: "m_distagon", userId: "u_distagon", name: "distagon", avatar: "d", status: "offline", sub: "", role: "Member" },
+  { id: "m_reece", userId: "u_reece", name: "Reece", avatar: "R", status: "offline", sub: "", role: "Member" },
 ]
 
 export const FRIENDS: Friend[] = [
@@ -260,7 +260,7 @@ export const BLOCKED: BlockedUser[] = [
 
 export const DMS: DM[] = [
   {
-    id: "dm_lindsay", name: "Lindsay", avatar: "L", status: "online",
+    id: "dm_lindsay", userId: "u_lindsay", name: "Lindsay", avatar: "L", status: "online",
     preview: "shipping that preset 🚀", unread: true,
     messages: [
       { id: "d1", authorName: "Lindsay", createdAt: "2026-06-24T21:50:00Z", authorAvatar: "L", content: "hey! saw your research preset — looks great" },
@@ -269,7 +269,7 @@ export const DMS: DM[] = [
     ],
   },
   {
-    id: "dm_gus", name: "Gus", avatar: "Gu", status: "online",
+    id: "dm_gus", userId: "u_gus", name: "Gus", avatar: "Gu", status: "online",
     preview: "the email-per-agent thing is wild",
     messages: [
       { id: "g1", authorName: "Gus", createdAt: "2026-06-24T20:30:00Z", authorAvatar: "Gu", content: "can I forward an email straight to an agent?" },
@@ -277,7 +277,7 @@ export const DMS: DM[] = [
     ],
   },
   {
-    id: "dm_tomy", name: "lucky tomy", avatar: "t", status: "offline",
+    id: "dm_tomy", userId: "u_tomy", name: "lucky tomy", avatar: "t", status: "offline",
     preview: "wrangler deploy and you're set",
     messages: [
       { id: "y1", authorName: "lucky tomy", createdAt: "2026-06-23T14:00:00Z", authorAvatar: "t", content: "self-hosting was easier than I expected" },

@@ -31,6 +31,9 @@ export function DmSidebar({
         <div className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Direct Messages
         </div>
+        {dms.length === 0 && (
+          <p className="px-2 py-4 text-center text-xs text-muted-foreground">Your direct messages will appear here.</p>
+        )}
         {dms.map((d) => {
           const active = d.id === activeDm
           return (

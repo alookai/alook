@@ -33,7 +33,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   )
 
   return writeJSON({
-    url: key,
+    url: `/api/community/media/${key}`,
     filename: file.name,
     contentType: file.type,
     size: file.size,

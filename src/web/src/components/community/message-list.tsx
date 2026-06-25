@@ -52,37 +52,51 @@ export function MessageList({
             <p className="mt-1 text-sm text-muted-foreground">This is the start of the channel.</p>
           </div>
 
-          {messages.map((m, i) => {
-            const prev = i > 0 ? messages[i - 1] : null
-            const prevDate = prev ? dateKey(prev.createdAt) : ""
-            const curDate = dateKey(m.createdAt)
-            const showDateDivider = curDate && curDate !== prevDate
-            const grouped = !!(prev && !m.type && !m.replyTo && prev.authorName === m.authorName
-              && prev.createdAt && m.createdAt && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < 420_000)
-            return (
-            <div key={m.id}>
-              {showDateDivider && <DateDivider label={formatDateLabel(m.createdAt!)} />}
-              {m.id === newDividerBefore && <NewDivider />}
-              <Message
-                m={{ ...m, grouped }}
-                pinned={pinnedIds?.has(m.id)}
-                onOpenThread={onOpenThread}
-                onOpenProfile={onOpenProfile}
-                onJumpReply={() => m.replyTo && jumpTo(m.replyTo.id)}
-                onToggleReaction={(emoji) => onToggleReaction?.(m.id, emoji)}
-                onReact={(emoji) => onReact?.(m.id, emoji)}
-                onReply={() => onReply?.(m.id)}
-                onPin={() => onPin?.(m.id)}
-                onCreateThread={() => onCreateThread?.(m.id)}
-                onCopy={() => onCopy?.(m.id)}
-                onRetry={() => onRetry?.(m.id)}
-                onPreviewImage={onPreviewImage}
-                onDownloadFile={onDownloadFile}
-                highlighted={jumped === m.id}
-              />
-            </div>
-            )
-          })}
+          {(() => {
+            // Group consecutive messages from same author into clusters
+            const clusters: { messages: { m: Msg; grouped: boolean; showDateDivider: boolean; showNewDivider: boolean }[] }[] = []
+            messages.forEach((m, i) => {
+              const prev = i > 0 ? messages[i - 1] : null
+              const prevDate = prev ? dateKey(prev.createdAt) : ""
+              const curDate = dateKey(m.createdAt)
+              const showDateDivider = !!(curDate && curDate !== prevDate)
+              const grouped = !!(prev && !m.type && !m.replyTo && !showDateDivider && prev.authorName === m.authorName
+                && prev.createdAt && m.createdAt && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < 420_000)
+              const entry = { m, grouped, showDateDivider, showNewDivider: m.id === newDividerBefore }
+              if (grouped && clusters.length > 0) {
+                clusters[clusters.length - 1].messages.push(entry)
+              } else {
+                clusters.push({ messages: [entry] })
+              }
+            })
+            return clusters.map((cluster, ci) => (
+              <div key={cluster.messages[0].m.id ?? ci}>
+                {cluster.messages.map(({ m, grouped, showDateDivider, showNewDivider }) => (
+                  <div key={m.id}>
+                    {showDateDivider && <DateDivider label={formatDateLabel(m.createdAt!)} />}
+                    {showNewDivider && <NewDivider />}
+                    <Message
+                      m={{ ...m, grouped }}
+                      pinned={pinnedIds?.has(m.id)}
+                      onOpenThread={onOpenThread}
+                      onOpenProfile={onOpenProfile}
+                      onJumpReply={() => m.replyTo && jumpTo(m.replyTo.id)}
+                      onToggleReaction={(emoji) => onToggleReaction?.(m.id, emoji)}
+                      onReact={(emoji) => onReact?.(m.id, emoji)}
+                      onReply={() => onReply?.(m.id)}
+                      onPin={() => onPin?.(m.id)}
+                      onCreateThread={() => onCreateThread?.(m.id)}
+                      onCopy={() => onCopy?.(m.id)}
+                      onRetry={() => onRetry?.(m.id)}
+                      onPreviewImage={onPreviewImage}
+                      onDownloadFile={onDownloadFile}
+                      highlighted={jumped === m.id}
+                    />
+                  </div>
+                ))}
+              </div>
+            ))
+          })()}
 
           {typingUsers && typingUsers.length > 0 && <TypingIndicator names={typingUsers} />}
         </div>

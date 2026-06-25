@@ -34,6 +34,8 @@ export type Server = {
   active: boolean
   unread: boolean
   mentions: number
+  isOwner?: boolean
+  icon?: string | null
 }
 
 export type FolderServer = {
@@ -50,6 +52,7 @@ export type Channel = {
   unread: boolean
   muted?: boolean
   type?: "text" | "forum"
+  forumTags?: string | null
 }
 
 export type Category = {
@@ -60,8 +63,8 @@ export type Category = {
 
 // ── Messages ───────────────────────────────────────────────────────────────
 export type Attachment =
-  | { kind: "image"; name: string; url?: string }
-  | { kind: "file"; name: string; size: string }
+  | { kind: "image"; name: string; url: string }
+  | { kind: "file"; name: string; url: string; size: string }
 
 export type Embed = {
   provider?: string
@@ -117,6 +120,7 @@ export type Role = "Owner" | "Admin" | "Member"
 
 export type Member = {
   id: string
+  userId: string
   name: string
   avatar: string
   status: Presence
@@ -143,6 +147,7 @@ export type BlockedUser = { id: string; name: string; avatar: string }
 
 export type DM = {
   id: string // nanoid
+  userId: string
   name: string
   avatar: string
   status: Presence

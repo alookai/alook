@@ -39,7 +39,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     })
   }
 
-  return writeJSON(threads)
+  return writeJSON({ posts: threads })
 })
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -115,5 +115,5 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     },
   }).catch(() => {})
 
-  return writeJSON({ thread, message }, 201)
+  return writeJSON({ post: { ...thread, firstMessage: message } }, 201)
 })

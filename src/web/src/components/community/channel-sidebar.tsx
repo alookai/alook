@@ -31,6 +31,7 @@ type Dialog =
 export function ChannelSidebar({
   tree, serverName, activeChannel, setActiveChannel, bordered, noHeader, onOpenSettings,
   isAdmin = true, onBlockedCreate, mutedChannels,
+  onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
 }: {
   tree: ChannelTree
   serverName: string
@@ -42,14 +43,18 @@ export function ChannelSidebar({
   isAdmin?: boolean
   onBlockedCreate?: () => void
   mutedChannels?: Record<string, boolean>
+  onCreateChannel?: (categoryId: string, name: string, type: "text" | "forum") => void
+  onCreateCategory?: (name: string, opts?: { private?: boolean }) => void
+  onDeleteChannel?: (channelId: string) => void
+  onDeleteCategory?: (categoryId: string) => void
 }) {
   const { collapsed, catOrder, order, catNames, catPrivate, toggleCat, addChannel, removeChannel, renameChannel, addCategory, removeCategory, setCategoryPrivate, onDragOver, onDragEnd } = tree
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const [dialog, setDialog] = useState<Dialog>(null)
   const withMute = (ch: Channel): Channel => mutedChannels && ch.id in mutedChannels ? { ...ch, muted: mutedChannels[ch.id] } : ch
 
-  // Find the "none" category ID (empty name)
-  const noneCatId = Object.keys(catNames).find((id) => catNames[id] === "") ?? catOrder[0]
+  // Find the "none" category ID (empty name) — only if one explicitly exists
+  const noneCatId = Object.keys(catNames).find((id) => catNames[id] === "") ?? ""
 
   // open the create-channel dialog, unless the category is private and the user isn't admin
   const requestCreateChannel = (categoryId: string) => {
@@ -61,16 +66,19 @@ export function ChannelSidebar({
     const ch: Channel = { id: `ch_local_${++channelSeq}`, name, active: false, unread: false, type }
     addChannel(categoryId, ch)
     setActiveChannel(ch.id)
+    onCreateChannel?.(categoryId, name, type)
   }
 
   return (
     <aside className={`flex min-w-0 flex-1 flex-col ${bordered ? "rounded-tl-xl border-l border-t border-border" : ""}`}>
       {!noHeader && (
         <header className="flex h-12 items-center justify-between gap-2 border-b border-border px-4">
-          <span className="truncate text-base font-semibold">{serverName}</span>
-          <button onClick={onOpenSettings} className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Server settings">
-            <Settings className="size-4" />
-          </button>
+          <span className="truncate text-base font-semibold">{serverName || "\u00a0"}</span>
+          {serverName && (
+            <button onClick={onOpenSettings} className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Server settings">
+              <Settings className="size-4" />
+            </button>
+          )}
         </header>
       )}
       {/* right-click anywhere in the list (incl. empty space) → create channel / category */}
@@ -91,7 +99,7 @@ export function ChannelSidebar({
                       active={ch.id === activeChannel}
                       onClick={() => setActiveChannel(ch.id)}
                       onEdit={() => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" })}
-                      onDelete={() => removeChannel(ch.id)}
+                      onDelete={() => { removeChannel(ch.id); onDeleteChannel?.(ch.id) }}
                     />
                   ))}
                 </div>
@@ -107,7 +115,7 @@ export function ChannelSidebar({
                   onToggle={() => toggleCat(id)}
                   onAddChannel={() => requestCreateChannel(id)}
                   onSettings={() => setDialog({ kind: "category-settings", categoryId: id })}
-                  onDelete={() => removeCategory(id)}
+                  onDelete={() => { removeCategory(id); onDeleteCategory?.(id) }}
                   isPrivate={catPrivate[id]}
                 >
                   <SortableContext items={(order[id] ?? []).map((c) => c.id)} strategy={verticalListSortingStrategy}>
@@ -119,7 +127,7 @@ export function ChannelSidebar({
                           active={ch.id === activeChannel}
                           onClick={() => setActiveChannel(ch.id)}
                           onEdit={() => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" })}
-                          onDelete={() => removeChannel(ch.id)}
+                          onDelete={() => { removeChannel(ch.id); onDeleteChannel?.(ch.id) }}
                         />
                       ))}
                     </div>
@@ -153,7 +161,7 @@ export function ChannelSidebar({
       {dialog?.kind === "create-category" && (
         <CreateCategoryDialog
           onClose={() => setDialog(null)}
-          onCreate={(name, opts) => addCategory(name, opts)}
+          onCreate={(name, opts) => { addCategory(name, opts); onCreateCategory?.(name, opts) }}
         />
       )}
       {dialog?.kind === "category-settings" && (

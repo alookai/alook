@@ -7,6 +7,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable"
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import { CSS } from "@dnd-kit/utilities"
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"
 import { RailIndicator } from "./rail-indicator"
 import { RailTooltip } from "./rail-tooltip"
 import { FOLDER_ID } from "./use-rail-order"
@@ -15,7 +16,7 @@ import type { FolderServer, MobileZone } from "./_types"
 // Server folder — collapsed shows a 2×2 mini-icon grid; clicking expands the group
 // to reveal its member servers stacked below.
 export function RailFolder({
-  open, onToggle, activeId, onSelect, setMobileZone, folderServers,
+  open, onToggle, activeId, onSelect, setMobileZone, folderServers, onUngroup,
 }: {
   open: boolean
   onToggle: () => void
@@ -23,6 +24,7 @@ export function RailFolder({
   onSelect: (id: string) => void
   setMobileZone?: (z: MobileZone) => void
   folderServers: FolderServer[]
+  onUngroup?: () => void
 }) {
   const [items, setItems] = useState(folderServers)
   // the folder icon is sortable within the rail's outer SortableContext
@@ -45,25 +47,32 @@ export function RailFolder({
   const pick = (id: string) => { onSelect(id); setMobileZone?.("channels") }
   return (
     <div ref={setNodeRef} style={style} className="flex w-full flex-col items-center gap-2">
-      <div className="group relative flex w-full justify-center">
-        {showLine && <div className={`pointer-events-none absolute inset-x-3 z-10 h-0.5 rounded-full bg-primary ${lineSide === "top" ? "-top-1" : "-bottom-1"}`} />}
-        {/* folder indicator is active when (collapsed and) one of its servers is selected */}
-        <RailIndicator active={!open && items.some((s) => s.id === activeId)} />
-        <button
-          onClick={onToggle}
-          {...attributes}
-          {...listeners}
-          className={[
-            "grid size-10 cursor-pointer touch-none grid-cols-2 gap-0.5 p-1.5 transition-all duration-150 active:cursor-grabbing",
-            open ? "rounded-xl bg-primary/15" : "rounded-[18px] bg-accent hover:rounded-xl hover:bg-primary/20",
-          ].join(" ")}
+      <ContextMenu>
+        <ContextMenuTrigger
+          render={<div className="group relative flex w-full justify-center" />}
         >
-          {items.map((s) => (
-            <span key={s.id} className="grid place-items-center rounded-lg bg-card text-[7px] font-semibold text-muted-foreground">{s.initial}</span>
-          ))}
-        </button>
-        <RailTooltip label="Workspaces" />
-      </div>
+          {showLine && <div className={`pointer-events-none absolute inset-x-3 z-10 h-0.5 rounded-full bg-primary ${lineSide === "top" ? "-top-1" : "-bottom-1"}`} />}
+          {/* folder indicator is active when (collapsed and) one of its servers is selected */}
+          <RailIndicator active={!open && items.some((s) => s.id === activeId)} />
+          <button
+            onClick={onToggle}
+            {...attributes}
+            {...listeners}
+            className={[
+              "grid size-10 cursor-pointer touch-none grid-cols-2 gap-0.5 p-1.5 transition-all duration-150 active:cursor-grabbing",
+              open ? "rounded-xl bg-primary/15" : "rounded-[18px] bg-accent hover:rounded-xl hover:bg-primary/20",
+            ].join(" ")}
+          >
+            {items.map((s) => (
+              <span key={s.id} className="grid place-items-center rounded-lg bg-card text-[7px] font-semibold text-muted-foreground">{s.initial}</span>
+            ))}
+          </button>
+          <RailTooltip label="Workspaces" />
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-52">
+          <ContextMenuItem onClick={onUngroup}>Ungroup</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
       {/* expanded: member servers full-width (so their left bars align with the rail
           edge like other servers); the tinted pill background sits behind, centered */}
       {open && (

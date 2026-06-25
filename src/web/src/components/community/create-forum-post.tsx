@@ -8,7 +8,7 @@ import { EmojiPickerPopover } from "./emoji-picker"
 
 export type NewForumPost = { name: string; content: string; tags: string[] }
 
-// Inline forum-post composer — Title + body + tag chips + Post (Discord forum layout).
+// Inline forum-post composer — Title + body + tag chips + Post.
 // Lives at the top of the forum feed while composing. `tags` are the channel's
 // available tags (without the "All" filter sentinel).
 export function CreateForumPost({ tags, onCancel, onPost, onAttach }: {
@@ -76,7 +76,7 @@ export function CreateForumPost({ tags, onCancel, onPost, onAttach }: {
             <Smile className="size-5" />
           </button>
         </EmojiPickerPopover>
-        <Button size="sm" onClick={submit} disabled={!title.trim()}>Post</Button>
+        <Button size="sm" onClick={submit} disabled={!title.trim() || !body.trim()}>Post</Button>
       </div>
     </div>
   )

@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { useParams } from "next/navigation"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { apiFetch } from "@/lib/api/client"
 import { useCommunity } from "@/contexts/community/context"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channel-header"
@@ -28,10 +29,18 @@ import type { RightPanel, Msg, Thread, OpenProfile } from "@/components/communit
  */
 export default function ChannelPage() {
   const params = useParams<{ serverId: string; channelId: string }>()
+  const router = useRouter()
   const isAtMe = params.serverId === "@me"
   const channelId = params.channelId
   const bp = useBreakpoint()
   const ctx = useCommunity()
+
+  const openSidebar = useCallback(() => {
+    ctx.openSidebar()
+  }, [ctx])
+  const goBack = useCallback(() => {
+    router.push(`/community/channels/${params.serverId}`)
+  }, [router, params.serverId])
 
   // Set the current channel from URL params
   useEffect(() => {
@@ -45,6 +54,24 @@ export default function ChannelPage() {
   const [creatingThread, setCreatingThread] = useState(false)
   const [replyTo, setReplyTo] = useState<{ id: string; authorName: string; text: string } | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<Msg[]>([])
+
+  const doSearch = useCallback(async (q: string) => {
+    setSearchQuery(q)
+    if (!q.trim()) { setSearchResults([]); return }
+    try {
+      const params = new URLSearchParams({ q })
+      if (!isAtMe && params) params.set("channelId", channelId)
+      const data = await apiFetch<{ results: Array<{ message: { id: string; content: string; authorId: string; createdAt: string }; author: { name: string; image: string | null } }> }>(`/api/community/search?${params}`)
+      setSearchResults(data.results.map((r) => ({
+        id: r.message.id,
+        authorName: r.author.name,
+        authorAvatar: r.author.image ?? r.author.name.charAt(0).toUpperCase(),
+        content: r.message.content,
+        createdAt: r.message.createdAt,
+      })))
+    } catch { setSearchResults([]) }
+  }, [isAtMe, channelId])
 
   // Determine if current channel is a forum
   const isForum = useMemo(() => {
@@ -86,8 +113,8 @@ export default function ChannelPage() {
   }
 
   // ── Profile card ────────────────────────────────────────────────────────
-  const openProfile: OpenProfile = (_name, _e) => {
-    // Profile card is handled in the layout level
+  const openProfile: OpenProfile = (name, e) => {
+    ctx.openProfile(name, e)
   }
 
   // ── Message actions ─────────────────────────────────────────────────────
@@ -112,28 +139,75 @@ export default function ChannelPage() {
       const m = ctx.messages.find((x) => x.id === id)
       if (m?.content) { navigator.clipboard?.writeText(m.content); toast("Copied to clipboard") }
     },
-    onRetry: (_id: string) => {
-      // Could re-send failed messages; for now just clear the flag
+    onRetry: (id: string) => {
+      const m = ctx.messages.find((x) => x.id === id)
+      if (m?.content) ctx.sendMessage(m.content)
     },
-    onPreviewImage: (_name: string) => {},
-    onDownloadFile: (name: string) => toast(`Downloading ${name}`),
+    onPreviewImage: (url: string) => {
+      ctx.previewImage(url)
+    },
+    onDownloadFile: (url: string) => {
+      const a = document.createElement("a")
+      a.href = url
+      a.download = url.split("/").pop() ?? "file"
+      a.click()
+    },
   }
 
   // ── Send messages ───────────────────────────────────────────────────────
-  const sendMessage = (markdown: string) => {
-    if (!markdown) return
-    ctx.sendMessage(markdown, replyTo ? { replyToId: replyTo.id } : undefined)
+  const sendMessage = async (markdown: string, attachments?: File[]) => {
+    if (!markdown && !attachments?.length) return
+
+    // Upload files first if any
+    let uploadedAttachments: { url: string; filename: string; contentType: string; size: number }[] = []
+    if (attachments?.length) {
+      const results = await Promise.all(
+        attachments.map((f) => ctx.uploadFile({ channelId }, f))
+      )
+      uploadedAttachments = results.filter(Boolean) as typeof uploadedAttachments
+    }
+
+    ctx.sendMessage(markdown || "", {
+      replyToId: replyTo?.id,
+      attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+    })
     setReplyTo(null)
   }
 
-  const sendDmMsg = (markdown: string) => {
-    if (!markdown || !channelId) return
-    ctx.sendDmMessage(channelId, markdown)
+  const sendDmMsg = async (markdown: string, attachments?: File[]) => {
+    if (!markdown && !attachments?.length) return
+    if (!channelId) return
+
+    // Upload files first if any
+    let uploadedAttachments: { url: string; filename: string; contentType: string; size: number }[] = []
+    if (attachments?.length) {
+      const results = await Promise.all(
+        attachments.map((f) => ctx.uploadFile({ dmId: channelId }, f))
+      )
+      uploadedAttachments = results.filter(Boolean) as typeof uploadedAttachments
+    }
+
+    ctx.sendDmMessage(channelId, markdown || "", {
+      attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+    })
   }
 
-  const sendThreadMsg = (markdown: string) => {
-    if (!markdown || !openThreadId) return
-    ctx.sendThreadMessage(openThreadId, markdown)
+  const sendThreadMsg = async (markdown: string, attachments?: File[]) => {
+    if (!markdown && !attachments?.length) return
+    if (!openThreadId) return
+
+    // Upload files first if any
+    let uploadedAttachments: { url: string; filename: string; contentType: string; size: number }[] = []
+    if (attachments?.length) {
+      const results = await Promise.all(
+        attachments.map((f) => ctx.uploadFile({ threadId: openThreadId }, f))
+      )
+      uploadedAttachments = results.filter(Boolean) as typeof uploadedAttachments
+    }
+
+    ctx.sendThreadMessage(openThreadId, markdown || "", {
+      attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+    })
   }
 
   // ── Send typing ─────────────────────────────────────────────────────────
@@ -149,9 +223,17 @@ export default function ChannelPage() {
 
   // ── Create thread from dialog ───────────────────────────────────────────
   const createThreadFromDialog = (name: string, firstMessage?: string) => {
-    // For "New Thread" button: create a placeholder thread (the API will handle it)
     setCreatingThread(false)
-    toast(`Thread "${name}" created`)
+    if (firstMessage) {
+      // Send a message first, then create a thread from it
+      ctx.sendMessage(firstMessage).then(() => {
+        // The newest message just got added; create thread from it
+        const lastMsg = ctx.messages[ctx.messages.length - 1]
+        if (lastMsg) ctx.createThread(lastMsg.id, name)
+      })
+    } else {
+      toast("Create a thread by clicking 'Create Thread' on any message")
+    }
   }
 
   // ── Forum posts ─────────────────────────────────────────────────────────
@@ -164,7 +246,7 @@ export default function ChannelPage() {
     onOpenThread: enterThread,
     members: ctx.members,
     pinned: ctx.pinned,
-    searchResults: [] as Msg[],
+    searchResults,
     threads: ctx.threads,
     searchQuery,
   }
@@ -179,7 +261,14 @@ export default function ChannelPage() {
           forum={isForum}
           onClose={() => setOpenThreadId(null)}
           onBack={bp === "mobile" ? () => setOpenThreadId(null) : undefined}
-          onRename={(name) => { /* Would call API to rename thread */ }}
+          onRename={async (name) => {
+            try {
+              await apiFetch(`/api/community/threads/${openThread.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ name }),
+              })
+            } catch { toast("Failed to rename thread") }
+          }}
         />
         <main className="flex min-h-0 flex-1 flex-col">
           <ThreadMessages thread={openThread} onOpenProfile={openProfile} />
@@ -188,7 +277,7 @@ export default function ChannelPage() {
             thread
             members={ctx.friends}
             onSend={sendThreadMsg}
-            onUploadFile={() => toast("Upload a file")}
+            onTyping={handleTyping}
           />
         </main>
       </>
@@ -196,14 +285,21 @@ export default function ChannelPage() {
   }
 
   // ── DM view ─────────────────────────────────────────────────────────────
+  if (isAtMe && !dm) {
+    return (
+      <div className="flex flex-1 items-center justify-center text-muted-foreground">
+        <span className="text-sm">Conversation not found</span>
+      </div>
+    )
+  }
   if (isAtMe && dm) {
     return (
       <>
         <DmHeader
           dm={dm}
-          onBack={bp === "mobile" ? () => {} : undefined}
+          onBack={bp === "mobile" ? goBack : undefined}
           onOpenPins={() => setRightPanel("pinned")}
-          onAddFriend={() => toast(`Added ${dm.name} as a friend`)}
+          onAddFriend={() => { ctx.sendFriendRequest(dm.userId); toast("Friend request sent") }}
         />
         <main className="flex min-h-0 flex-1 flex-col">
           <DmMessages dm={dm} onOpenProfile={openProfile} />
@@ -212,7 +308,7 @@ export default function ChannelPage() {
             thread
             members={ctx.friends}
             onSend={sendDmMsg}
-            onUploadFile={() => toast("Upload a file")}
+            onTyping={handleTyping}
           />
         </main>
       </>
@@ -221,19 +317,20 @@ export default function ChannelPage() {
 
   // ── Forum view ──────────────────────────────────────────────────────────
   if (isForum) {
-    // Get forum tags from server channel data
     const allChannels = ctx.currentServer?.categories.flatMap((c) => c.channels) ?? []
     const forumChannel = allChannels.find((ch) => ch.id === channelId)
+    let forumTags: string[] = []
+    try { forumTags = forumChannel?.forumTags ? JSON.parse(forumChannel.forumTags) : [] } catch { /* malformed JSON */ }
     return (
       <ForumView
         channel={channelName}
         posts={ctx.forumPosts}
-        tags={[]}
+        tags={forumTags}
         onOpenPost={enterThread}
         onCreatePost={createForumPost}
-        onAttach={() => toast("Attach an image")}
-        onHamburger={bp === "tablet" ? () => {} : undefined}
-        onBack={bp === "mobile" ? () => {} : undefined}
+        onAttach={() => toast("Attach files when creating a post")}
+        onHamburger={bp === "tablet" ? openSidebar : undefined}
+        onBack={bp === "mobile" ? goBack : undefined}
       />
     )
   }
@@ -245,12 +342,12 @@ export default function ChannelPage() {
         channel={channelName}
         rightPanel={rightPanel}
         onToggle={togglePanel}
-        onSearch={(q) => { setSearchQuery(q); setRightPanel("search") }}
+        onSearch={(q) => { doSearch(q); setRightPanel("search") }}
         notifLevel={(ctx.channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
         onSetNotifLevel={(l) => ctx.setChannelNotif(channelId, l)}
         searchBox={bp !== "mobile"}
-        onHamburger={bp === "tablet" ? () => {} : undefined}
-        onBack={bp === "mobile" ? () => {} : undefined}
+        onHamburger={bp === "tablet" ? openSidebar : undefined}
+        onBack={bp === "mobile" ? goBack : undefined}
       />
       <div className="flex min-h-0 flex-1">
         <main className="flex min-w-0 flex-1 flex-col">
@@ -267,8 +364,8 @@ export default function ChannelPage() {
             channel={channelName}
             members={ctx.friends}
             onSend={sendMessage}
-            onUploadFile={() => toast("Upload a file")}
             onCreateThread={() => setCreatingThread(true)}
+            onTyping={handleTyping}
             replyingTo={replyTo?.authorName}
             onCancelReply={() => setReplyTo(null)}
           />

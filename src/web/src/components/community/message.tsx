@@ -64,7 +64,7 @@ export function Message({
       id={`dpv-${m.id}`}
       className={[
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
-        m.grouped ? "py-0.5" : "py-1",
+        m.grouped ? "pt-0 pb-0" : "py-1",
         highlighted ? "bg-primary/15" : "hover:bg-accent/40",
       ].join(" ")}
     >
@@ -143,22 +143,15 @@ export function Message({
                 a.kind === "image" ? (
                   <button
                     key={i}
-                    onClick={() => onPreviewImage?.(a.url ?? a.name)}
-                    className="w-full max-w-[320px] overflow-hidden rounded-md border border-border transition-colors hover:border-primary/40"
+                    onClick={() => onPreviewImage?.(a.url)}
+                    className="block w-fit max-w-[320px] overflow-hidden rounded-md border border-border transition-colors hover:border-primary/40"
                   >
-                    {a.url ? (
-                      <img src={a.url} alt={a.name} className="aspect-16/10 w-full object-cover" />
-                    ) : (
-                      <div className="flex aspect-16/10 w-full flex-col items-center justify-center gap-1 bg-muted text-muted-foreground">
-                        <ImageIcon className="size-7" />
-                        <span className="text-xs">{a.name}</span>
-                      </div>
-                    )}
+                    <img src={a.url} alt={a.name} className="max-h-[200px] max-w-[320px] rounded-md object-contain" />
                   </button>
                 ) : (
                   <button
                     key={i}
-                    onClick={() => onDownloadFile?.(a.name)}
+                    onClick={() => onDownloadFile?.(a.url)}
                     className="flex w-full max-w-[320px] items-center gap-3 rounded-md border border-border bg-card p-2.5 text-left transition-colors hover:bg-accent"
                   >
                     <FileText className="size-7 shrink-0 text-muted-foreground" />

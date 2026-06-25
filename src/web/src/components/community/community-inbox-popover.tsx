@@ -8,9 +8,13 @@ import type { InboxRow, Mention } from "./_types"
 // Inbox popover content (rendered inside a shadcn Popover from the top bar).
 // Named community-inbox-popover to stay distinct from the main app's inbox-popover.
 function InboxFeedRows({ feed, unreadOnly, onOpenItem }: { feed: InboxRow[]; unreadOnly?: boolean; onOpenItem?: (id: string) => void }) {
+  const filtered = feed.filter((f) => !unreadOnly || f.unread)
   return (
     <div className="max-h-90 overflow-y-auto thin-scrollbar p-1.5">
-      {feed.filter((f) => !unreadOnly || f.unread).map((f) => (
+      {filtered.length === 0 && (
+        <EmptyState icon={Inbox} label={unreadOnly ? "All caught up." : "No activity yet."} />
+      )}
+      {filtered.map((f) => (
         <button key={f.id} onClick={() => onOpenItem?.(f.id)} className="group flex w-full items-center gap-3 rounded-md p-2 text-left hover:bg-accent">
           <div className="relative grid size-9 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
             {f.initial}

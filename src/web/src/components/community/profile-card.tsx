@@ -8,6 +8,17 @@ import { Separator } from "@/components/ui/separator"
 import { Avatar } from "./avatar"
 import type { Profile, Breakpoint } from "./_types"
 
+// Generate a deterministic gradient from a name string (hash to pick hue values)
+function generateGradient(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  const hue1 = Math.abs(hash % 360)
+  const hue2 = Math.abs((hash * 2) % 360)
+  return `linear-gradient(135deg, oklch(0.7 0.15 ${hue1}), oklch(0.6 0.12 ${hue2}))`
+}
+
 // Profile card — popover anchored at the click point on desktop/tablet, bottom sheet on mobile.
 export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf }: {
   data: Profile
@@ -27,10 +38,11 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf }: {
     onClose()
   }
   const mobile = bp === "mobile"
+  const gradient = generateGradient(data.name)
   const card = (
     <>
       {/* banner */}
-      <div className="-m-2 mb-0 h-16 rounded-t-lg bg-primary/30" />
+      <div className="-m-2 mb-0 h-16 rounded-t-lg" style={{ background: gradient }} />
       <div className="px-2 pb-1">
         <div className="-mt-8 mb-2 flex items-end justify-between">
           <div className="rounded-full ring-4 ring-popover">
@@ -42,9 +54,13 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf }: {
           <div className="text-lg font-semibold">{data.name}</div>
           <Separator className="my-2" />
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">About Me</div>
-          <p className="mt-1 text-sm">{data.about}</p>
-          <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mutual Servers</div>
-          <p className="mt-1 text-sm text-muted-foreground">{data.mutual} servers in common</p>
+          <p className="mt-1 text-sm text-muted-foreground">{data.about || "No bio yet."}</p>
+          {data.mutual > 0 && (
+            <>
+              <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mutual Servers</div>
+              <p className="mt-1 text-sm text-muted-foreground">{data.mutual} servers in common</p>
+            </>
+          )}
           {!isSelf && (
             <div className="mt-3 flex h-9 items-center gap-2 rounded-md bg-secondary px-2">
               <input

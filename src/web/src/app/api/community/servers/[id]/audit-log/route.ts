@@ -28,5 +28,5 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     limit,
   })
 
-  return writeJSON(logs)
+  return writeJSON({ entries: logs })
 })

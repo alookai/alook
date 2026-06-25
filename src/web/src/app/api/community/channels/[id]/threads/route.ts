@@ -21,5 +21,5 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const threads = await queries.communityThread.listChannelThreads(db, channelId, { archived })
 
-  return writeJSON(threads)
+  return writeJSON({ threads })
 })

@@ -4,6 +4,14 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 
+export const GET = withAuth(async (_req: NextRequest, ctx) => {
+  const db = getDb(ctx.env.DB)
+
+  const folders = await queries.communityServerFolder.listFolders(db, ctx.userId)
+
+  return writeJSON({ folders })
+})
+
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 

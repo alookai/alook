@@ -10,7 +10,7 @@ import { nanoid } from "nanoid";
 import { user } from "./schema";
 
 // ---------------------------------------------------------------------------
-// Community tables — Discord-style servers, channels, messages, DMs
+// Community tables — servers, channels, messages, DMs
 // ---------------------------------------------------------------------------
 
 // 1. community_server

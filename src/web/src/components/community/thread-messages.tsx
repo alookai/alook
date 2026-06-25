@@ -21,13 +21,16 @@ export function ThreadMessages({ thread, onOpenProfile }: { thread: Thread; onOp
         </div>
 
         {thread.messages.map((m, i) => {
-          const prevDate = i > 0 ? dateKey(thread.messages[i - 1].createdAt) : ""
+          const prev = i > 0 ? thread.messages[i - 1] : null
+          const prevDate = prev ? dateKey(prev.createdAt) : ""
           const curDate = dateKey(m.createdAt)
           const showDateDivider = curDate && curDate !== prevDate
+          const grouped = !!(prev && !m.type && !m.replyTo && prev.authorName === m.authorName
+            && prev.createdAt && m.createdAt && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < 420_000)
           return (
             <div key={m.id}>
               {showDateDivider && <DateDivider label={formatDateLabel(m.createdAt!)} />}
-              <Message m={m} onOpenThread={() => {}} onOpenProfile={onOpenProfile} />
+              <Message m={{ ...m, grouped }} onOpenThread={() => {}} onOpenProfile={onOpenProfile} />
             </div>
           )
         })}

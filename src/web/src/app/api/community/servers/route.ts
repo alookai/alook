@@ -8,7 +8,7 @@ import { fanOutToServerMembers } from "@/lib/community/fanout"
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const servers = await queries.communityServer.listUserServers(db, ctx.userId)
-  return writeJSON(servers)
+  return writeJSON({ servers })
 })
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -36,20 +36,23 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     ownerId: ctx.userId,
   })
 
-  // Fetch the owner membership to include in the fanout event
-  const member = await queries.communityMember.getMember(db, server.id, ctx.userId)
+  // Fetch the owner membership (with user info) to include in the fanout event
+  const members = await queries.communityMember.listMembers(db, server.id)
+  const ownerMember = members.find((m) => m.userId === ctx.userId)
 
-  fanOutToServerMembers(server.id, {
-    type: "community:member.join",
-    serverId: server.id,
-    member: {
-      id: member!.id,
-      userId: ctx.userId,
-      name: ctx.email,
-      role: "owner",
-      joinedAt: member!.joinedAt,
-    },
-  }).catch(() => {})
+  if (ownerMember) {
+    fanOutToServerMembers(server.id, {
+      type: "community:member.join",
+      serverId: server.id,
+      member: {
+        id: ownerMember.id,
+        userId: ctx.userId,
+        name: ownerMember.userName ?? ctx.email,
+        role: "owner",
+        joinedAt: ownerMember.joinedAt,
+      },
+    }).catch(() => {})
+  }
 
-  return writeJSON(server, 201)
+  return writeJSON({ server }, 201)
 })

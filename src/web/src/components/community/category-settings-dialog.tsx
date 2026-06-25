@@ -22,7 +22,7 @@ export function CategorySettingsDialog({ name, isPrivate, onClose, onSave }: {
           <DialogTitle>Category Settings</DialogTitle>
           <p className="text-sm text-muted-foreground">{name}</p>
         </DialogHeader>
-        <div className="p-5">
+        <div className="px-5 pb-5">
           <label className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5">
             <Lock className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">

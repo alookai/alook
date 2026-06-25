@@ -23,14 +23,14 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("invalid request body", 400)
   }
 
-  if (!body.name || typeof body.name !== "string") {
+  if (!body.name || typeof body.name !== "string" || !body.name.trim()) {
     return writeError("name is required", 400)
   }
 
   const row = await queries.communityChannel.createChannel(db, {
     serverId,
     categoryId: body.categoryId,
-    name: body.name,
+    name: body.name.trim(),
     type: body.type,
     topic: body.topic,
   })
@@ -59,5 +59,5 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     targetId: channel.id,
   })
 
-  return writeJSON(channel, 201)
+  return writeJSON({ channel }, 201)
 })

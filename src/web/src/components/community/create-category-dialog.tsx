@@ -28,7 +28,7 @@ export function CreateCategoryDialog({ onClose, onCreate }: {
         <DialogHeader className="border-b border-border px-5 py-4">
           <DialogTitle>Create Category</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 p-5">
+        <div className="space-y-4 px-5 pb-5">
           <Field label="Category name">
             <Input
               value={name}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { arrayMove } from "@dnd-kit/sortable"
 import type { DragEndEvent, DragStartEvent } from "@dnd-kit/core"
 
@@ -27,6 +27,25 @@ export function useRailOrder(serverIds: string[]) {
   const [order, setOrder] = useState<string[]>([...serverIds, FOLDER_ID])
   const [folderOpen, setFolderOpen] = useState(false)
   const [reopenAfterDrag, setReopenAfterDrag] = useState(false)
+
+  // Sync order when server list changes (initial load, create, join, leave)
+  const prevIdsRef = useRef(serverIds)
+  useEffect(() => {
+    const prev = prevIdsRef.current
+    prevIdsRef.current = serverIds
+    if (prev === serverIds) return
+    const prevKey = prev.join(",")
+    const nextKey = serverIds.join(",")
+    if (prevKey === nextKey) return
+    // Preserve existing order for known servers, append new ones before folder
+    setOrder((current) => {
+      const existing = current.filter((id) => id === FOLDER_ID || serverIds.includes(id))
+      const newIds = serverIds.filter((id) => !current.includes(id))
+      const folderAt = existing.indexOf(FOLDER_ID)
+      if (folderAt === -1) return [...existing, ...newIds, FOLDER_ID]
+      return [...existing.slice(0, folderAt), ...newIds, ...existing.slice(folderAt)]
+    })
+  }, [serverIds])
 
   const onDragStart = (e: DragStartEvent) => {
     if (e.active.id === FOLDER_ID && folderOpen) {

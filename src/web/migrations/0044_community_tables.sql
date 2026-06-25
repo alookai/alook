@@ -260,3 +260,19 @@ CREATE VIRTUAL TABLE community_message_fts USING fts5(
   content,
   tokenize='unicode61'
 );
+
+-- FTS5 sync triggers
+CREATE TRIGGER community_message_fts_insert AFTER INSERT ON community_message BEGIN
+  INSERT INTO community_message_fts(id, channel_id, dm_conversation_id, thread_id, content)
+  VALUES (new.id, new.channel_id, new.dm_conversation_id, new.thread_id, new.content);
+END;
+
+CREATE TRIGGER community_message_fts_update AFTER UPDATE OF content ON community_message BEGIN
+  DELETE FROM community_message_fts WHERE id = old.id;
+  INSERT INTO community_message_fts(id, channel_id, dm_conversation_id, thread_id, content)
+  VALUES (new.id, new.channel_id, new.dm_conversation_id, new.thread_id, new.content);
+END;
+
+CREATE TRIGGER community_message_fts_delete AFTER DELETE ON community_message BEGIN
+  DELETE FROM community_message_fts WHERE id = old.id;
+END;

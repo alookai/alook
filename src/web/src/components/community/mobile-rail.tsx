@@ -7,13 +7,14 @@ import type { Server, FolderServer, View } from "./_types"
 
 // Mobile rail zone — full-width server list with names.
 export function MobileRail({
-  servers, folderServers, onPick, onHome, onServer, onAddServer, onJoinServer, view,
+  servers, folderServers, onPick, onHome, onServer, onServerNavigate, onAddServer, onJoinServer, view,
 }: {
   servers: Server[]
   folderServers: FolderServer[]
   onPick: () => void
   onHome: () => void
   onServer: () => void
+  onServerNavigate?: (id: string) => void
   onAddServer?: (name: string) => void
   onJoinServer?: () => void
   view: View
@@ -31,7 +32,7 @@ export function MobileRail({
       </button>
       <div className="my-2 h-px w-full bg-border" />
       {servers.map((s) => (
-        <button key={s.id} onClick={() => { onServer(); onPick() }} className="flex items-center gap-3 rounded-lg p-2 hover:bg-accent">
+        <button key={s.id} onClick={() => { onServer(); onServerNavigate?.(s.id); onPick() }} className="flex items-center gap-3 rounded-lg p-2 hover:bg-accent">
           <span className={[
             "grid size-10 shrink-0 place-items-center rounded-[18px] text-sm font-semibold",
             view !== "dm" && s.active ? "bg-primary text-primary-foreground" : "bg-card",
@@ -54,7 +55,7 @@ export function MobileRail({
       {folderOpen && (
         <div className="ml-3 flex flex-col gap-1 border-l border-border pl-3">
           {folderServers.map((s) => (
-            <button key={s.id} onClick={() => { onServer(); onPick() }} className="flex items-center gap-3 rounded-lg p-2 hover:bg-accent">
+            <button key={s.id} onClick={() => { onServer(); onServerNavigate?.(s.id); onPick() }} className="flex items-center gap-3 rounded-lg p-2 hover:bg-accent">
               <span className="grid size-10 shrink-0 place-items-center rounded-[18px] bg-card text-sm font-semibold">{s.initial}</span>
               <span className="flex-1 text-left text-[15px] font-medium">{s.name}</span>
             </button>

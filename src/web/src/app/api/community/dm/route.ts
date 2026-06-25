@@ -6,8 +6,17 @@ import { queries } from "@alook/shared"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
-  const dms = await queries.communityDm.listDMs(db, ctx.userId)
-  return writeJSON(dms)
+  const rows = await queries.communityDm.listDMs(db, ctx.userId)
+  const conversations = rows.map((r) => ({
+    id: r.id,
+    userId: r.otherUserId,
+    name: r.otherUserName ?? r.otherUserEmail ?? "Unknown",
+    avatar: r.otherUserImage ?? (r.otherUserName ?? "?").charAt(0).toUpperCase(),
+    status: "offline" as const,
+    preview: "",
+    messages: [],
+  }))
+  return writeJSON({ conversations })
 })
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -32,5 +41,5 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     userId2: body.userId,
   })
 
-  return writeJSON(dm)
+  return writeJSON({ conversation: dm })
 })

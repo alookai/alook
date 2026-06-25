@@ -35,6 +35,14 @@ export async function getInvite(db: Database, inviteId: string) {
   return rows[0] ?? null;
 }
 
+export async function getInviteByToken(db: Database, token: string) {
+  const rows = await db
+    .select()
+    .from(communityServerInvite)
+    .where(eq(communityServerInvite.token, token));
+  return rows[0] ?? null;
+}
+
 export async function revokeInvite(db: Database, inviteId: string) {
   const rows = await db
     .delete(communityServerInvite)

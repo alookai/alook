@@ -19,7 +19,7 @@ export const GET = withAuth(async (req, ctx) => {
   }
 
   const invites = await queries.communityInvite.listServerInvites(db, serverId)
-  return writeJSON(invites)
+  return writeJSON({ invites })
 })
 
 export const POST = withAuth(async (req, ctx) => {
@@ -72,5 +72,5 @@ export const POST = withAuth(async (req, ctx) => {
 
   fanOutToServerMembers(serverId, event, { excludeUserId: ctx.userId }).catch(() => {})
 
-  return writeJSON(invite, 201)
+  return writeJSON({ invite }, 201)
 })

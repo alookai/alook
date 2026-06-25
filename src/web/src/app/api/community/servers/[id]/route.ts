@@ -26,7 +26,31 @@ export const GET = withAuth(async (_req, ctx) => {
 
   if (!server) return writeError("server not found", 404)
 
-  return writeJSON({ server, categories, channels })
+  // Merge into a flat ServerDetail shape with categories embedding their channels
+  const categoriesWithChannels = categories.map((c) => ({
+    ...c,
+    channels: channels.filter((ch) => ch.categoryId === c.id),
+  }))
+  // Include uncategorized channels as a virtual category
+  const uncategorized = channels.filter((ch) => !ch.categoryId)
+  if (uncategorized.length > 0) {
+    categoriesWithChannels.push({
+      id: "__uncategorized__",
+      serverId: server.id,
+      name: "Channels",
+      position: -1,
+      private: 0,
+      channels: uncategorized,
+    } as (typeof categoriesWithChannels)[number])
+  }
+  return writeJSON({
+    id: server.id,
+    name: server.name,
+    description: server.description ?? "",
+    icon: server.icon,
+    ownerId: server.ownerId,
+    categories: categoriesWithChannels,
+  })
 })
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {

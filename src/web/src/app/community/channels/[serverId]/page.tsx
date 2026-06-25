@@ -15,7 +15,8 @@ export default function ServerDefaultPage() {
   const params = useParams<{ serverId: string }>()
   const router = useRouter()
   const ctx = useCommunity()
-  const isAtMe = params.serverId === "@me"
+  const serverId = decodeURIComponent(params.serverId)
+  const isAtMe = serverId === "@me"
 
   // Redirect to first channel when we have server data
   useEffect(() => {
@@ -24,7 +25,7 @@ export default function ServerDefaultPage() {
     const allChannels = ctx.currentServer.categories.flatMap((cat) => cat.channels)
     const first = allChannels[0]
     if (first) {
-      router.replace(`/community/channels/${params.serverId}/${first.id}`)
+      router.replace(`/community/channels/${serverId}/${first.id}`)
     }
   }, [isAtMe, ctx.currentServer, params.serverId, router])
 
@@ -32,9 +33,9 @@ export default function ServerDefaultPage() {
   if (isAtMe) {
     return (
       <FriendsPage
-        friends={ctx.friends}
-        pending={ctx.pending}
-        blocked={ctx.blocked}
+        friends={ctx.friends ?? []}
+        pending={ctx.pending ?? []}
+        blocked={ctx.blocked ?? []}
         onAccept={ctx.acceptFriendRequest}
         onReject={ctx.rejectFriendRequest}
         onCancelRequest={ctx.rejectFriendRequest}
@@ -46,10 +47,20 @@ export default function ServerDefaultPage() {
     )
   }
 
-  // Server view: show loading while we determine the first channel
+  // Server view: no channels yet or loading
+  const allChannels = ctx.currentServer?.categories.flatMap((cat) => cat.channels) ?? []
+  if (ctx.currentServer && allChannels.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
+        <span className="text-sm">No channels yet</span>
+        <span className="text-xs">Create a channel from the sidebar to get started.</span>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-1 items-center justify-center text-muted-foreground">
-      <span className="text-sm">Loading channels...</span>
+      <span className="text-sm">Loading...</span>
     </div>
   )
 }

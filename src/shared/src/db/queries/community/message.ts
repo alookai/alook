@@ -3,6 +3,7 @@ import {
   communityMessage,
   communityChannel,
   communityThread,
+  communityDmConversation,
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -48,6 +49,13 @@ export async function createMessage(
       .update(communityChannel)
       .set({ lastMessageAt: now })
       .where(eq(communityChannel.id, data.channelId));
+  }
+
+  if (data.dmConversationId) {
+    await db
+      .update(communityDmConversation)
+      .set({ lastMessageAt: now })
+      .where(eq(communityDmConversation.id, data.dmConversationId));
   }
 
   if (data.threadId) {
