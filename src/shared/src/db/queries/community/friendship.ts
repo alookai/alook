@@ -167,6 +167,40 @@ export async function listFriends(db: Database, userId: string) {
   return [...asRequester, ...asAddressee];
 }
 
+export async function getFriendship(db: Database, friendshipId: string) {
+  const rows = await db
+    .select()
+    .from(communityFriendship)
+    .where(eq(communityFriendship.id, friendshipId));
+  return rows[0] ?? null;
+}
+
+export async function isBlocked(
+  db: Database,
+  userId1: string,
+  userId2: string
+) {
+  const rows = await db
+    .select()
+    .from(communityFriendship)
+    .where(
+      and(
+        eq(communityFriendship.status, "blocked"),
+        or(
+          and(
+            eq(communityFriendship.requesterId, userId1),
+            eq(communityFriendship.addresseeId, userId2)
+          ),
+          and(
+            eq(communityFriendship.requesterId, userId2),
+            eq(communityFriendship.addresseeId, userId1)
+          )
+        )
+      )
+    );
+  return rows.length > 0;
+}
+
 export async function listPending(db: Database, userId: string) {
   return db
     .select({

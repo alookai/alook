@@ -226,6 +226,7 @@ export { createDb } from "./db/index";
 export type { Database } from "./db/index";
 export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";
+export { communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem } from "./db/community-schema";
 
 // Logger
 export { Logger, createLogger } from "./logger"

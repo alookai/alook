@@ -293,6 +293,21 @@ export type CommunityDmTyping = {
   userId: string
 }
 
+// ── Invite events ────────────────────────────────────────────────────────────
+
+export type CommunityInviteCreate = {
+  type: "community:invite.create"
+  serverId: string
+  invite: {
+    id: string
+    token: string
+    maxUses?: number | null
+    uses?: number | null
+    expiresAt?: string | null
+    createdAt: string
+  }
+}
+
 // ── Presence events ───────────────────────────────────────────────────────────
 
 export type CommunityPresenceUpdate = {
@@ -322,6 +337,7 @@ export type CommunityWsEvent =
   | CommunityCategoryUpdate
   | CommunityCategoryDelete
   | CommunityCategoryReorder
+  | CommunityInviteCreate
   | CommunityMemberJoin
   | CommunityMemberLeave
   | CommunityMemberUpdate

@@ -53,6 +53,31 @@ export async function listMembers(db: Database, serverId: string) {
     .where(eq(communityServerMember.serverId, serverId));
 }
 
+export async function updateRailOrder(
+  db: Database,
+  serverId: string,
+  userId: string,
+  railOrder: number
+) {
+  await db
+    .update(communityServerMember)
+    .set({ railOrder })
+    .where(
+      and(
+        eq(communityServerMember.serverId, serverId),
+        eq(communityServerMember.userId, userId)
+      )
+    );
+}
+
+export async function listMemberServerIds(db: Database, userId: string) {
+  const rows = await db
+    .select({ serverId: communityServerMember.serverId })
+    .from(communityServerMember)
+    .where(eq(communityServerMember.userId, userId));
+  return rows.map((r) => r.serverId);
+}
+
 export async function getMember(db: Database, serverId: string, userId: string) {
   const rows = await db
     .select()
