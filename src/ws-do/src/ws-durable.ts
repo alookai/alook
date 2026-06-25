@@ -8,6 +8,15 @@ type ConnectionState =
   | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }
 
 export class WebSocketDurableObject extends DurableObject<Env> {
+  /**
+   * Ephemeral typing dedup: channelId/dmConversationId/threadId -> userId -> last timestamp.
+   * Lost on DO eviction — acceptable, gracefully degraded (typing just re-fires).
+   */
+  private typingDedup = new Map<string, Map<string, number>>()
+
+  /** Typing dedup window: 8 seconds */
+  private static readonly TYPING_DEDUP_MS = 8_000
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
@@ -111,6 +120,48 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       }
       return
     }
+
+    // ── Community: typing.start — dedup and fan-out ─────────────────────────
+    if (msg.type === "community:typing.start" && state.type === "user") {
+      const typingMsg = parsed as {
+        type: string
+        channelId?: string
+        dmConversationId?: string
+        threadId?: string
+      }
+      const scopeKey = typingMsg.channelId || typingMsg.dmConversationId || typingMsg.threadId
+      if (!scopeKey) return
+
+      // Per-user dedup: drop if last event from same user < 8s ago
+      const now = Date.now()
+      let scopeMap = this.typingDedup.get(scopeKey)
+      if (!scopeMap) {
+        scopeMap = new Map()
+        this.typingDedup.set(scopeKey, scopeMap)
+      }
+      const lastTs = scopeMap.get(state.userId) || 0
+      if (now - lastTs < WebSocketDurableObject.TYPING_DEDUP_MS) return
+      scopeMap.set(state.userId, now)
+
+      // Fan out: resolve recipients and POST to their user DOs.
+      // The typing event is forwarded to the recipients' DOs which deliver it
+      // via their existing broadcast path. The DO here only handles dedup.
+      // Actual fan-out is performed by the web API layer that calls fanOutToChannel/DM.
+      // However, for typing events sent directly over WS (not via REST), we fan out here.
+      const event = JSON.stringify({
+        type: "community:typing.start",
+        channelId: typingMsg.channelId || undefined,
+        dmConversationId: typingMsg.dmConversationId || undefined,
+        threadId: typingMsg.threadId || undefined,
+        userId: state.userId,
+      })
+
+      // Resolve recipients and broadcast
+      this.fanOutTyping(state.userId, typingMsg.channelId, typingMsg.dmConversationId, typingMsg.threadId, event).catch((err) => {
+        log.warn("community:typing.start fan-out failed", { err: String(err) })
+      })
+      return
+    }
   }
 
   async webSocketClose(ws: WebSocket): Promise<void> {
@@ -168,5 +219,61 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     if (mt.status !== "active" || !mt.workspaceId) return null
     const runtimes = await queries.runtime.getRuntimeIdsByDaemon(db, daemonId, mt.workspaceId)
     return runtimes.length > 0 ? { userId: mt.userId } : null
+  }
+
+  /**
+   * Fan out a typing event to the appropriate recipients.
+   * For channel/thread: resolve channel -> server -> members.
+   * For DM: resolve the 2 participants.
+   * Excludes the sender.
+   */
+  private async fanOutTyping(
+    senderUserId: string,
+    channelId?: string,
+    dmConversationId?: string,
+    threadId?: string,
+    event?: string
+  ): Promise<void> {
+    if (!event) return
+    const db = createDb(this.env.DB)
+    let recipientUserIds: string[] = []
+
+    if (dmConversationId) {
+      const dm = await queries.communityDm.getDM(db, dmConversationId)
+      if (dm) {
+        recipientUserIds = [dm.user1Id, dm.user2Id].filter(Boolean) as string[]
+      }
+    } else if (threadId) {
+      const thread = await queries.communityThread.getThread(db, threadId)
+      if (thread) {
+        const channel = await queries.communityChannel.getChannel(db, thread.channelId)
+        if (channel) {
+          const members = await queries.communityMember.listMembers(db, channel.serverId)
+          recipientUserIds = members.map((m) => m.userId)
+        }
+      }
+    } else if (channelId) {
+      const channel = await queries.communityChannel.getChannel(db, channelId)
+      if (channel) {
+        const members = await queries.communityMember.listMembers(db, channel.serverId)
+        recipientUserIds = members.map((m) => m.userId)
+      }
+    }
+
+    // Exclude the sender
+    recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
+    if (recipientUserIds.length === 0) return
+
+    // POST to each user's DO broadcast endpoint
+    await Promise.all(
+      recipientUserIds.map((userId) => {
+        const doId = this.env.WS_DO.idFromName("user:" + userId)
+        const stub = this.env.WS_DO.get(doId)
+        return stub.fetch(new Request("http://internal/broadcast", {
+          method: "POST",
+          body: event,
+        })).catch(() => {})
+      })
+    )
   }
 }
