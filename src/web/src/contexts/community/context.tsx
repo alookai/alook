@@ -16,6 +16,7 @@ import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import type {
   Server,
   FolderServer,
+  CommunityFolder,
   Category,
   Msg,
   Thread,
@@ -144,7 +145,7 @@ export type CommunityContextValue = {
   typingUsers: string[]
 
   // Folders
-  folderServers: FolderServer[]
+  folders: CommunityFolder[]
 
   // Notification level
   notifLevel: string
@@ -165,7 +166,7 @@ export type CommunityContextValue = {
   blockUser: (userId: string) => Promise<void>
   unblockUser: (userId: string) => Promise<void>
   createServer: (name: string) => Promise<string | null>
-  joinServer: (inviteCode: string) => Promise<void>
+  joinServer: (inviteCode: string) => Promise<string | null>
   leaveServer: (serverId: string) => Promise<void>
   setMemberRole: (memberId: string, role: Role) => Promise<void>
   kickMember: (memberId: string) => Promise<void>
@@ -184,13 +185,19 @@ export type CommunityContextValue = {
   createCategory: (serverId: string, name: string, opts?: { private?: boolean }) => Promise<string | null>
   deleteChannel: (channelId: string) => Promise<void>
   deleteCategory: (serverId: string, categoryId: string) => Promise<void>
+  updateCategory: (serverId: string, categoryId: string, opts: { name?: string; isPrivate?: boolean }) => Promise<void>
+  reorderServers: (serverIds: string[]) => Promise<void>
+  reorderCategories: (serverId: string, categoryIds: string[]) => Promise<void>
+  reorderChannels: (serverId: string, channelIds: string[]) => Promise<void>
   deleteServer: (serverId: string) => Promise<void>
   uploadFile: (target: { channelId?: string; dmId?: string; threadId?: string }, file: File) => Promise<{ url: string; filename: string; contentType: string; size: number } | null>
   uploadServerIcon: (serverId: string, file: File) => Promise<string | null>
   setServerNotifLevel: (serverId: string, level: string) => Promise<void>
   createOrGetDm: (userId: string) => Promise<string | null>
-  createServerFolder: (serverId: string) => Promise<void>
-  deleteServerFolder: () => Promise<void>
+  createServerFolderWith: (serverIdA: string, serverIdB: string) => Promise<void>
+  updateFolderItems: (folderId: string, serverIds: string[]) => Promise<void>
+  deleteServerFolder: (folderId: string) => Promise<void>
+  reorderFolders: (folderIds: string[]) => Promise<void>
 
   // Navigation
   setCurrentServerId: (id: string | null) => void
@@ -292,8 +299,7 @@ export function CommunityProvider({
   }, [])
 
   // ── Folders ──────────────────────────────────────────────────────────────
-  const [folderServers, setFolderServers] = useState<FolderServer[]>([])
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
+  const [folders, setFolders] = useState<CommunityFolder[]>([])
 
   // Keep stable refs for WS callbacks
   const currentUserRef = useRef(currentUser)
@@ -311,18 +317,27 @@ export function CommunityProvider({
     setServersLoading(true)
     try {
       const data = await apiFetch<{ servers: Array<{ id: string; name: string; icon: string | null; role?: string; unread?: boolean; mentions?: number }> }>("/api/community/servers")
-      setServers(
-        data.servers.map((s) => ({
-          id: s.id,
-          name: s.name,
-          initial: s.name.charAt(0).toUpperCase(),
-          active: false,
-          unread: s.unread ?? false,
-          mentions: s.mentions ?? 0,
-          isOwner: s.role === "owner",
-          icon: s.icon ?? null,
-        }))
-      )
+      const fresh = data.servers.map((s) => ({
+        id: s.id,
+        name: s.name,
+        initial: s.name.charAt(0).toUpperCase(),
+        active: false,
+        unread: s.unread ?? false,
+        mentions: s.mentions ?? 0,
+        isOwner: s.role === "owner",
+        icon: s.icon ?? null,
+      }))
+      setServers((current) => {
+        if (current.length === 0) return fresh
+        // Preserve existing order, update fields, append new servers
+        const freshMap = new Map(fresh.map((s) => [s.id, s]))
+        const merged = current
+          .filter((s) => freshMap.has(s.id))
+          .map((s) => ({ ...s, ...freshMap.get(s.id)! }))
+        const existingIds = new Set(current.map((s) => s.id))
+        const added = fresh.filter((s) => !existingIds.has(s.id))
+        return [...merged, ...added]
+      })
     } catch {
       // Silently fail - servers list will be empty
     } finally {
@@ -388,16 +403,13 @@ export function CommunityProvider({
 
   const fetchFolders = useCallback(async () => {
     try {
-      const data = await apiFetch<{ folders: Array<{ id: string; name: string; servers: Array<{ id: string; name: string }> }> }>("/api/community/server-folders")
-      // For now, we only support one folder, so take the first one
-      if (data.folders.length > 0) {
-        const folder = data.folders[0]
-        setCurrentFolderId(folder.id)
-        setFolderServers(folder.servers.map((s) => ({ id: s.id, name: s.name, initial: s.name.charAt(0).toUpperCase() })))
-      } else {
-        setCurrentFolderId(null)
-        setFolderServers([])
-      }
+      const data = await apiFetch<{ folders: Array<{ id: string; name: string; position: number; servers: Array<{ id: string; name: string; icon?: string | null }> }> }>("/api/community/server-folders")
+      setFolders(data.folders.map((f) => ({
+        id: f.id,
+        name: f.name,
+        position: f.position ?? 0,
+        servers: f.servers.map((s) => ({ id: s.id, name: s.name, initial: s.name.charAt(0).toUpperCase(), icon: s.icon ?? null })),
+      })))
     } catch {
       // leave current state
     }
@@ -481,6 +493,24 @@ export function CommunityProvider({
     }
   }, [])
 
+  const fetchInbox = useCallback(async () => {
+    try {
+      const data = await apiFetch<InboxRow[] | { items: InboxRow[] }>("/api/community/inbox")
+      setInboxFeed(Array.isArray(data) ? data : data.items ?? [])
+    } catch {
+      // silent
+    }
+  }, [])
+
+  const fetchMentions = useCallback(async () => {
+    try {
+      const data = await apiFetch<Mention[] | { mentions: Mention[] }>("/api/community/mentions")
+      setMentions(Array.isArray(data) ? data : data.mentions ?? [])
+    } catch {
+      // silent
+    }
+  }, [])
+
   // ── WebSocket ────────────────────────────────────────────────────────────
   const ws = useCommunityWs({
     onMessage: useCallback((event: CommunityMessageCreate) => {
@@ -493,10 +523,11 @@ export function CommunityProvider({
             id: msg.id,
             authorId: msg.authorId,
             authorName: msg.authorName,
-            authorAvatar: msg.authorAvatar,
+            authorAvatar: msg.authorAvatar || (msg.authorName ?? "?").charAt(0).toUpperCase(),
             content: msg.content,
             createdAt: msg.createdAt,
             type: msg.type === "system" ? "system" : undefined,
+            replyTo: msg.replyTo,
           },
         ]
       })
@@ -642,10 +673,12 @@ export function CommunityProvider({
     fetchFriends()
     fetchDms()
     fetchFolders()
+    fetchInbox()
+    fetchMentions()
     apiFetch<{ aboutMe: string }>("/api/community/users/me/profile")
       .then((data) => setCurrentUser((u) => ({ ...u, aboutMe: data.aboutMe })))
       .catch(() => {})
-  }, [fetchServers, fetchFriends, fetchDms, fetchFolders])
+  }, [fetchServers, fetchFriends, fetchDms, fetchFolders, fetchInbox, fetchMentions])
 
   useEffect(() => {
     if (!currentServerId || currentServerId === "@me") {
@@ -655,6 +688,9 @@ export function CommunityProvider({
     }
     fetchServerDetail(currentServerId)
     fetchMembers()
+    apiFetch<{ online: string[] }>(`/api/community/servers/${currentServerId}/presence`)
+      .then((data) => setOnlineUserIds(new Set(data.online)))
+      .catch(() => {})
     // Fetch invites and audit log for settings
     apiFetch<{ invites: Array<{ id: string; token: string; maxUses: number | null; uses: number; expiresAt: string | null; createdAt: string; creatorName: string | null }> }>(`/api/community/servers/${currentServerId}/invites`)
       .then((data) => setInvites(data.invites.map((i) => ({ code: i.token, uses: i.uses, maxUses: i.maxUses, expiresAt: i.expiresAt, by: i.creatorName ?? "Unknown" }))))
@@ -704,18 +740,25 @@ export function CommunityProvider({
         ? { kind: "image" as const, name: a.filename, url: a.url }
         : { kind: "file" as const, name: a.filename, url: a.url, size: `${Math.round(a.size / 1024)} KB` }
     })
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: tempId,
-        authorName: currentUserRef.current.name,
-        authorAvatar: currentUserRef.current.avatar,
-        content,
-        createdAt: new Date().toISOString(),
-        ...(opts?.replyToId ? { replyTo: { id: opts.replyToId, authorName: "", text: "" } } : {}),
-        ...(optimisticAttachments?.length ? { attachments: optimisticAttachments } : {}),
-      },
-    ])
+    setMessages((prev) => {
+      let replyTo: { id: string; authorName: string; text: string } | undefined
+      if (opts?.replyToId) {
+        const original = prev.find((m) => m.id === opts.replyToId)
+        replyTo = { id: opts.replyToId, authorName: original?.authorName ?? "Unknown", text: (original?.content ?? "").slice(0, 100) }
+      }
+      return [
+        ...prev,
+        {
+          id: tempId,
+          authorName: currentUserRef.current.name,
+          authorAvatar: currentUserRef.current.avatar,
+          content,
+          createdAt: new Date().toISOString(),
+          ...(replyTo ? { replyTo } : {}),
+          ...(optimisticAttachments?.length ? { attachments: optimisticAttachments } : {}),
+        },
+      ]
+    })
     try {
       const result = await apiFetch<{ message: { id: string } }>(`/api/community/channels/${cid}/messages`, {
         method: "POST",
@@ -905,13 +948,27 @@ export function CommunityProvider({
     }
   }, [fetchServers])
 
-  const joinServer = useCallback(async (inviteCode: string) => {
+  const joinServer = useCallback(async (inviteCode: string): Promise<string | null> => {
+    // Extract token from full URL or raw token
+    let token = inviteCode.trim()
     try {
-      await apiFetch(`/api/community/invites/${inviteCode}/join`, { method: "POST" })
+      const url = new URL(token)
+      const segments = url.pathname.split("/").filter(Boolean)
+      const inviteIdx = segments.indexOf("invite")
+      if (inviteIdx !== -1 && segments[inviteIdx + 1]) {
+        token = segments[inviteIdx + 1]
+      }
+    } catch {
+      // Not a URL — treat as raw token
+    }
+    try {
+      const data = await apiFetch<{ serverId: string }>(`/api/community/invites/${token}/join`, { method: "POST" })
       toast("Joined server")
-      fetchServers()
+      await fetchServers()
+      return data.serverId
     } catch {
       toast("Failed to join server")
+      return null
     }
   }, [fetchServers])
 
@@ -958,13 +1015,19 @@ export function CommunityProvider({
     const sid = currentServerIdRef.current
     if (!sid) return
     try {
-      const data = await apiFetch<{ invite: InviteRow }>(`/api/community/servers/${sid}/invites`, { method: "POST" })
-      setInvites((prev) => [data.invite, ...prev])
+      const data = await apiFetch<{ invite: { token: string; uses: number; maxUses: number | null; expiresAt: string | null } }>(`/api/community/servers/${sid}/invites`, { method: "POST" })
+      setInvites((prev) => [{
+        code: data.invite.token,
+        uses: data.invite.uses,
+        maxUses: data.invite.maxUses,
+        expiresAt: data.invite.expiresAt,
+        by: currentUser.name,
+      }, ...prev])
       toast("Invite created")
     } catch {
       toast("Failed to create invite")
     }
-  }, [])
+  }, [currentUser.name])
 
   const revokeInvite = useCallback(async (code: string) => {
     try {
@@ -1011,6 +1074,8 @@ export function CommunityProvider({
 
   const markAllInboxRead = useCallback(() => {
     setInboxFeed((prev) => prev.map((f) => ({ ...f, unread: false })))
+    setMentions((prev) => prev.map((m) => ({ ...m, read: true })))
+    apiFetch("/api/community/mentions/read", { method: "PUT" }).catch(() => {})
   }, [])
 
   const openInboxItem = useCallback((id: string) => {
@@ -1089,6 +1154,61 @@ export function CommunityProvider({
     }
   }, [fetchServerDetail])
 
+  const updateCategory = useCallback(async (serverId: string, categoryId: string, opts: { name?: string; isPrivate?: boolean }) => {
+    try {
+      await apiFetch(`/api/community/servers/${serverId}/categories/${categoryId}`, {
+        method: "PATCH",
+        body: JSON.stringify(opts),
+      })
+    } catch {
+      toast("Failed to update category")
+    }
+  }, [])
+
+  const serversRef = useRef(servers)
+  serversRef.current = servers
+  const foldersRef = useRef(folders)
+  foldersRef.current = folders
+
+  const reorderServers = useCallback(async (serverIds: string[]) => {
+    const prev = [...serversRef.current]
+    setServers((current) => {
+      const map = new Map(current.map((s) => [s.id, s]))
+      return serverIds.map((id) => map.get(id)).filter(Boolean) as Server[]
+    })
+    try {
+      await apiFetch("/api/community/servers/reorder", {
+        method: "PATCH",
+        body: JSON.stringify({ serverIds }),
+      })
+    } catch {
+      setServers(prev)
+      toast("Failed to save server order")
+    }
+  }, [])
+
+  const reorderCategories = useCallback(async (serverId: string, categoryIds: string[]) => {
+    try {
+      await apiFetch(`/api/community/servers/${serverId}/categories/reorder`, {
+        method: "PATCH",
+        body: JSON.stringify({ categoryIds }),
+      })
+    } catch {
+      toast("Failed to save category order")
+    }
+  }, [])
+
+  const reorderChannels = useCallback(async (serverId: string, channelIds: string[]) => {
+    try {
+      await apiFetch(`/api/community/servers/${serverId}/channels/reorder`, {
+        method: "PATCH",
+        body: JSON.stringify({ channelIds }),
+      })
+    } catch {
+      toast("Failed to save channel order")
+    }
+  }, [])
+
   const deleteServer = useCallback(async (serverId: string) => {
     try {
       await apiFetch(`/api/community/servers/${serverId}`, { method: "DELETE" })
@@ -1132,10 +1252,11 @@ export function CommunityProvider({
       const res = await fetch(`/api/community/servers/${serverId}/icon`, { method: "POST", body: formData, credentials: "include" })
       if (!res.ok) throw new Error("Upload failed")
       const data = await res.json() as { url: string }
-      setCurrentServer((prev) => prev ? { ...prev, icon: data.url } : prev)
-      setServers((prev) => prev.map((s) => s.id === serverId ? { ...s, icon: data.url } : s))
+      const bustUrl = `${data.url}?t=${Date.now()}`
+      setCurrentServer((prev) => prev ? { ...prev, icon: bustUrl } : prev)
+      setServers((prev) => prev.map((s) => s.id === serverId ? { ...s, icon: bustUrl } : s))
       toast("Server icon updated")
-      return data.url
+      return bustUrl
     } catch {
       toast("Failed to upload icon")
       return null
@@ -1168,29 +1289,103 @@ export function CommunityProvider({
     }
   }, [fetchDms])
 
-  const createServerFolder = useCallback(async (serverId: string) => {
+  const createServerFolderWith = useCallback(async (serverIdA: string, serverIdB: string) => {
+    const prevFolders = [...foldersRef.current]
+
+    // Optimistic: create a temp folder
+    const tempId = `temp_${Date.now()}`
+    const sA = serversRef.current.find((s) => s.id === serverIdA)
+    const sB = serversRef.current.find((s) => s.id === serverIdB)
+    const tempFolder: CommunityFolder = {
+      id: tempId,
+      name: "Group",
+      position: foldersRef.current.length,
+      servers: [sA, sB].filter(Boolean).map((s) => ({ id: s!.id, name: s!.name, initial: s!.initial, icon: s!.icon ?? null })),
+    }
+    setFolders((cur) => [...cur, tempFolder])
+
     try {
-      await apiFetch("/api/community/server-folders", {
+      const data = await apiFetch<{ id: string }>("/api/community/server-folders", {
         method: "POST",
-        body: JSON.stringify({ name: "Group", serverIds: [serverId] }),
+        body: JSON.stringify({ name: "Group", serverIds: [serverIdA, serverIdB] }),
       })
-      toast("Group created")
-      await fetchFolders()
+      // Replace temp folder with real id
+      setFolders((cur) => cur.map((f) => f.id === tempId ? { ...f, id: data.id } : f))
     } catch {
+      setFolders(prevFolders)
       toast("Failed to create group")
     }
-  }, [fetchFolders])
+  }, [])
 
-  const deleteServerFolder = useCallback(async () => {
-    if (!currentFolderId) return
+  const updateFolderItems = useCallback(async (targetFolderId: string, serverIds: string[]) => {
+    const prevFolders = [...foldersRef.current]
+
+    // Optimistic: update folder's servers
+    setFolders((cur) => {
+      if (serverIds.length === 0) {
+        // Empty folder → delete it
+        return cur.filter((f) => f.id !== targetFolderId)
+      }
+      return cur.map((f) => {
+        if (f.id !== targetFolderId) return f
+        const newServers = serverIds.map((id) => {
+          const existing = f.servers.find((s) => s.id === id)
+          if (existing) return existing
+          const fromRail = serversRef.current.find((s) => s.id === id)
+          return fromRail ? { id: fromRail.id, name: fromRail.name, initial: fromRail.initial, icon: fromRail.icon ?? null } : { id, name: "", initial: "?", icon: null }
+        })
+        return { ...f, servers: newServers }
+      })
+    })
+
     try {
-      await apiFetch(`/api/community/server-folders/${currentFolderId}`, { method: "DELETE" })
-      toast("Group removed")
-      await fetchFolders()
+      if (serverIds.length === 0) {
+        await apiFetch(`/api/community/server-folders/${targetFolderId}`, { method: "DELETE" })
+      } else {
+        await apiFetch(`/api/community/server-folders/${targetFolderId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ serverIds }),
+        })
+      }
     } catch {
+      setFolders(prevFolders)
+      toast("Failed to update group")
+    }
+  }, [])
+
+  const deleteServerFolder = useCallback(async (targetFolderId: string) => {
+    const prevFolders = [...foldersRef.current]
+    setFolders((cur) => cur.filter((f) => f.id !== targetFolderId))
+
+    try {
+      await apiFetch(`/api/community/server-folders/${targetFolderId}`, { method: "DELETE" })
+      toast("Group removed")
+    } catch {
+      setFolders(prevFolders)
       toast("Failed to remove group")
     }
-  }, [currentFolderId, fetchFolders])
+  }, [])
+
+  const reorderFoldersApi = useCallback(async (folderIds: string[]) => {
+    const prevFolders = [...foldersRef.current]
+    setFolders((cur) => {
+      const map = new Map(cur.map((f) => [f.id, f]))
+      return folderIds.map((id, i) => {
+        const f = map.get(id)
+        return f ? { ...f, position: i } : null
+      }).filter(Boolean) as CommunityFolder[]
+    })
+
+    try {
+      await apiFetch("/api/community/server-folders/reorder", {
+        method: "PATCH",
+        body: JSON.stringify({ folderIds }),
+      })
+    } catch {
+      setFolders(prevFolders)
+      toast("Failed to reorder groups")
+    }
+  }, [])
 
   // ── Context value ────────────────────────────────────────────────────────
 
@@ -1204,9 +1399,9 @@ export function CommunityProvider({
       currentServerLoading,
       currentChannelId,
       setCurrentChannelId,
-      members,
+      members: members.map((m) => ({ ...m, status: m.userId === currentUser.id || onlineUserIds.has(m.userId) ? "online" as const : "offline" as const })),
       membersLoading,
-      friends,
+      friends: friends.map((f) => ({ ...f, status: onlineUserIds.has(f.id) ? "online" as const : "offline" as const })),
       pending,
       blocked,
       friendsLoading,
@@ -1228,7 +1423,7 @@ export function CommunityProvider({
       mentions,
       onlineUserIds,
       typingUsers,
-      folderServers,
+      folders,
       notifLevel,
       channelNotif,
       sendMessage,
@@ -1264,13 +1459,19 @@ export function CommunityProvider({
       createCategory,
       deleteChannel,
       deleteCategory,
+      updateCategory,
+      reorderServers,
+      reorderCategories,
+      reorderChannels,
       deleteServer,
       uploadFile,
       uploadServerIcon,
       setServerNotifLevel,
       createOrGetDm,
-      createServerFolder,
+      createServerFolderWith,
+      updateFolderItems,
       deleteServerFolder,
+      reorderFolders: reorderFoldersApi,
       setCurrentServerId,
       refreshServers: fetchServers,
       refreshMembers: fetchMembers,
@@ -1294,16 +1495,17 @@ export function CommunityProvider({
       currentChannelId, members, membersLoading, friends, pending, blocked, friendsLoading,
       dms, dmsLoading, messages, messagesLoading, hasMoreMessages, loadMoreMessages,
       threads, threadsLoading, forumPosts, forumPostsLoading, pinned, pinnedLoading,
-      invites, auditLog, inboxFeed, mentions, onlineUserIds, typingUsers, folderServers,
+      invites, auditLog, inboxFeed, mentions, onlineUserIds, typingUsers, folders,
       notifLevel, channelNotif, sendMessage, sendDmMessage, sendThreadMessage,
       toggleReaction, pinMessage, unpinMessage, createThread, sendFriendRequest,
       acceptFriendRequest, rejectFriendRequest, removeFriend, blockUser, unblockUser,
       createServer, joinServer, leaveServer, setMemberRole, kickMember,
       createInvite, revokeInvite, updateServer, setChannelNotif, markChannelRead,
       markDmRead, markAllInboxRead, openInboxItem, ws.sendTyping, createForumPost,
-      createChannel, createCategory, deleteChannel, deleteCategory, deleteServer,
+      createChannel, createCategory, deleteChannel, deleteCategory, updateCategory,
+      reorderServers, reorderCategories, reorderChannels, deleteServer,
       uploadFile, uploadServerIcon, setServerNotifLevel, createOrGetDm,
-      createServerFolder, deleteServerFolder,
+      createServerFolderWith, updateFolderItems, deleteServerFolder, reorderFoldersApi,
       fetchServers, fetchMembers, fetchFriends, fetchDms, fetchMessages, fetchDmMessages,
     ]
   )

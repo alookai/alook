@@ -32,6 +32,7 @@ export function ChannelSidebar({
   tree, serverName, activeChannel, setActiveChannel, bordered, noHeader, onOpenSettings,
   isAdmin = true, onBlockedCreate, mutedChannels,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
+  onUpdateCategory, onReorderCategories, onReorderChannels,
 }: {
   tree: ChannelTree
   serverName: string
@@ -47,8 +48,33 @@ export function ChannelSidebar({
   onCreateCategory?: (name: string, opts?: { private?: boolean }) => void
   onDeleteChannel?: (channelId: string) => void
   onDeleteCategory?: (categoryId: string) => void
+  onUpdateCategory?: (categoryId: string, opts: { name?: string; isPrivate?: boolean }) => void
+  onReorderCategories?: (categoryIds: string[]) => void
+  onReorderChannels?: (channelIds: string[]) => void
 }) {
-  const { collapsed, catOrder, order, catNames, catPrivate, toggleCat, addChannel, removeChannel, renameChannel, addCategory, removeCategory, setCategoryPrivate, onDragOver, onDragEnd } = tree
+  const { collapsed, catOrder, order, catNames, catPrivate, toggleCat, addChannel, removeChannel, renameChannel, addCategory, removeCategory, setCategoryPrivate, onDragOver, onDragEnd: treeDragEnd } = tree
+  const onDragEnd = (e: Parameters<typeof treeDragEnd>[0]) => {
+    treeDragEnd(e)
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const activeStr = String(active.id)
+    const overStr = String(over.id)
+    if (activeStr.startsWith("cat_") && overStr.startsWith("cat_")) {
+      const reordered = catOrder.indexOf(activeStr) !== -1 ? (() => {
+        const from = catOrder.indexOf(activeStr)
+        const to = catOrder.indexOf(overStr)
+        if (from === -1 || to === -1) return null
+        const next = [...catOrder]
+        const [item] = next.splice(from, 1)
+        next.splice(to, 0, item)
+        return next
+      })() : null
+      if (reordered) onReorderCategories?.(reordered)
+    } else if (!activeStr.startsWith("cat_")) {
+      const allChannelIds = catOrder.flatMap((cat) => (order[cat] ?? []).map((c) => c.id))
+      onReorderChannels?.(allChannelIds)
+    }
+  }
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const [dialog, setDialog] = useState<Dialog>(null)
   const withMute = (ch: Channel): Channel => mutedChannels && ch.id in mutedChannels ? { ...ch, muted: mutedChannels[ch.id] } : ch
@@ -169,7 +195,7 @@ export function ChannelSidebar({
           name={catNames[dialog.categoryId] ?? ""}
           isPrivate={!!catPrivate[dialog.categoryId]}
           onClose={() => setDialog(null)}
-          onSave={(priv) => setCategoryPrivate(dialog.categoryId, priv)}
+          onSave={(priv) => { setCategoryPrivate(dialog.categoryId, priv); onUpdateCategory?.(dialog.categoryId, { isPrivate: priv }) }}
         />
       )}
     </aside>

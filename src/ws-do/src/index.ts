@@ -36,6 +36,14 @@ export default {
       return stub.fetch(new Request("http://internal/broadcast", { method: "POST", body: request.body, duplex: "half" } as RequestInit))
     }
 
+    const presenceCheck = url.pathname.match(/^\/presence\/user\/(.+)$/)
+    if (presenceCheck && request.method === "GET") {
+      const uid = presenceCheck[1]
+      const doId = env.WS_DO.idFromName("user:" + uid)
+      const stub = env.WS_DO.get(doId)
+      return stub.fetch(new Request("http://internal/check-user-online"))
+    }
+
     const daemonId = url.searchParams.get("daemonId")
     if (daemonId) {
       const reqLog = log.child({ traceId, daemonId })

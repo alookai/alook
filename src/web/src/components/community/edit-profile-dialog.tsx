@@ -3,38 +3,45 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { User, LogOut, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Field } from "./field"
 
-// Full-screen User Settings dialog — same style as Server Settings (left nav + right content).
-export function UserSettings({ onClose, aboutMe, onSave, onLogout }: {
+export function UserSettings({ onClose, userName, aboutMe, onSave, onLogout }: {
   onClose: () => void
+  userName: string
   aboutMe: string
-  onSave: (aboutMe: string) => void
+  onSave: (data: { name?: string; aboutMe?: string }) => void
   onLogout?: () => void
 }) {
+  const [name, setName] = useState(userName)
   const [value, setValue] = useState(aboutMe)
   const [saving, setSaving] = useState(false)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const onSaveRef = useRef(onSave)
   onSaveRef.current = onSave
 
-  const debouncedSave = useCallback((text: string) => {
+  const debouncedSave = useCallback((data: { name?: string; aboutMe?: string }) => {
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => {
       setSaving(true)
-      onSaveRef.current(text.trim())
+      onSaveRef.current(data)
       setTimeout(() => setSaving(false), 600)
     }, 800)
   }, [])
 
   useEffect(() => { return () => { if (timerRef.current) clearTimeout(timerRef.current) } }, [])
 
-  const handleChange = (text: string) => {
+  const handleAboutMeChange = (text: string) => {
     setValue(text)
-    debouncedSave(text)
+    debouncedSave({ aboutMe: text.trim() })
+  }
+
+  const handleNameChange = (text: string) => {
+    setName(text)
+    debouncedSave({ name: text.trim() })
   }
 
   return (
@@ -66,8 +73,11 @@ export function UserSettings({ onClose, aboutMe, onSave, onLogout }: {
         <div className="flex-1 overflow-y-auto thin-scrollbar p-5">
           <TabsContent value="profile">
             <div className="max-w-xl space-y-5">
-              <Field label={<span>About Me {saving && <span className="ml-2 text-xs text-muted-foreground">Saving...</span>}</span>}>
-                <Textarea className="h-24 resize-none" value={value} onChange={(e) => handleChange(e.target.value)} />
+              <Field label={<span>Display Name {saving && <span className="ml-2 text-xs text-muted-foreground">Saving...</span>}</span>}>
+                <Input value={name} onChange={(e) => handleNameChange(e.target.value)} />
+              </Field>
+              <Field label="About Me">
+                <Textarea className="h-24 resize-none" value={value} onChange={(e) => handleAboutMeChange(e.target.value)} />
               </Field>
             </div>
           </TabsContent>

@@ -69,9 +69,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const channelTree = useChannelTree(categories)
 
   // ── Rail props ────────────────────────────────────────────────────────────
+  const folderServerIds = useMemo(() => {
+    const s = new Set<string>()
+    for (const f of ctx.folders) for (const srv of f.servers) s.add(srv.id)
+    return s
+  }, [ctx.folders])
   const railServers = useMemo(() =>
-    ctx.servers.map((s) => ({ ...s, active: s.id === serverId })),
-    [ctx.servers, serverId]
+    ctx.servers.filter((s) => !folderServerIds.has(s.id)).map((s) => ({ ...s, active: s.id === serverId })),
+    [ctx.servers, serverId, folderServerIds]
   )
 
   const goHome = () => { setView("dm"); setMobileZone("channels"); router.push("/community/channels/@me") }
@@ -79,7 +84,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   const railProps = {
     servers: railServers,
-    folderServers: ctx.folderServers,
+    folders: ctx.folders,
+    activeServerId: isAtMe ? undefined : serverId,
     serversLoading: ctx.serversLoading,
     setMobileZone,
     view,
@@ -93,7 +99,10 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         router.push(`/community/channels/${newId}`)
       }
     },
-    onJoinServer: (invite: string) => { ctx.joinServer(invite) },
+    onJoinServer: async (invite: string) => {
+      const newId = await ctx.joinServer(invite)
+      if (newId) router.push(`/community/channels/${newId}`)
+    },
     onLeaveServer: (id: string) => { ctx.leaveServer(id) },
     onOpenSettings: (id?: string) => {
       if (id && id !== serverId) {
@@ -102,8 +111,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         setServerSettingsOpen(true)
       }
     },
-    onCreateFolder: (serverId: string) => { ctx.createServerFolder(serverId) },
-    onUngroupFolder: () => { ctx.deleteServerFolder() },
+    onUngroupFolder: (fId: string) => { ctx.deleteServerFolder(fId) },
+    onReorderRail: (ids: string[]) => { ctx.reorderServers(ids) },
+    onReorderFolders: (ids: string[]) => { ctx.reorderFolders(ids) },
+    onFolderItemsChange: (fId: string, ids: string[]) => { ctx.updateFolderItems(fId, ids) },
+    onDragCreateFolder: (a: string, b: string) => { ctx.createServerFolderWith(a, b) },
   }
 
   // ── Channel sidebar props ─────────────────────────────────────────────────
@@ -135,6 +147,15 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     onDeleteCategory: (categoryId: string) => {
       ctx.deleteCategory(serverId, categoryId)
     },
+    onUpdateCategory: (categoryId: string, opts: { name?: string; isPrivate?: boolean }) => {
+      ctx.updateCategory(serverId, categoryId, opts)
+    },
+    onReorderCategories: (categoryIds: string[]) => {
+      ctx.reorderCategories(serverId, categoryIds)
+    },
+    onReorderChannels: (channelIds: string[]) => {
+      ctx.reorderChannels(serverId, channelIds)
+    },
   }
 
   // ── DM sidebar props ──────────────────────────────────────────────────────
@@ -153,7 +174,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         name: ctx.currentUser.name,
         avatar: ctx.currentUser.avatar || ctx.currentUser.name.charAt(0).toUpperCase(),
         role: "You",
-        about: "",
+        about: ctx.currentUser.aboutMe ?? "",
         mutual: 0,
         tags: [],
       }
@@ -173,6 +194,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       tags: role !== "Member" ? [role] : [],
     }
     setProfile({ data, x: e.clientX, y: e.clientY })
+    const userId = member && "userId" in member ? (member as { userId: string }).userId : member?.id
+    if (userId) {
+      apiFetch<{ aboutMe?: string; mutualServers?: number }>(`/api/community/users/${userId}/profile`)
+        .then((p) => {
+          setProfile((prev) => prev ? { ...prev, data: { ...prev.data, about: p.aboutMe ?? prev.data.about, mutual: p.mutualServers ?? 0 } } : prev)
+        })
+        .catch(() => {})
+    }
   }
 
   // Register UI handlers so pages can trigger layout actions via context
@@ -211,7 +240,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         onMarkAllRead={ctx.markAllInboxRead}
       />
     ),
-    hasUnread: ctx.inboxFeed.some((f) => f.unread),
+    hasUnread: ctx.inboxFeed?.some((f) => f.unread) ?? false,
   }
 
   // ── Left sidebar rendering ────────────────────────────────────────────────
@@ -236,12 +265,13 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         <DialogContent className="flex h-[calc(100vh-4rem)] w-[calc(100vw-4rem)] sm:max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0" showCloseButton={false}>
           <UserSettings
             onClose={() => setEditingProfile(false)}
+            userName={ctx.currentUser.name}
             aboutMe={ctx.currentUser.aboutMe ?? ""}
-            onSave={async (aboutMe) => {
+            onSave={async (data) => {
               try {
                 await apiFetch("/api/community/users/me/profile", {
                   method: "PATCH",
-                  body: JSON.stringify({ aboutMe }),
+                  body: JSON.stringify(data),
                 })
               } catch { toast("Failed to save profile") }
             }}
@@ -335,7 +365,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   return (
     <Shell {...shellProps}>
       {mobileZone === "rail" && (
-        <MobileRail servers={railServers} folderServers={ctx.folderServers} onPick={() => setMobileZone("channels")} onHome={goHome} onServer={goServer} onServerNavigate={railProps.onServerNavigate} onAddServer={railProps.onCreateServer} onJoinServer={() => { /* Join is handled by the dialog inside MobileRail */ }} view={view} />
+        <MobileRail servers={railServers} folders={ctx.folders} onPick={() => setMobileZone("channels")} onHome={goHome} onServer={goServer} onServerNavigate={railProps.onServerNavigate} onAddServer={railProps.onCreateServer} onJoinServer={() => { /* Join is handled by the dialog inside MobileRail */ }} view={view} />
       )}
       {mobileZone === "channels" && (
         <div className="flex min-h-0 flex-1 flex-col" style={{ background: "var(--d-rail)" }}>

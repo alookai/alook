@@ -16,9 +16,7 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   if (!channel) return writeError("channel not found", 404)
 
   const member = await queries.communityMember.getMember(db, channel.serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
-    return writeError("forbidden", 403)
-  }
+  if (!member) return writeError("forbidden", 403)
 
   await queries.communityPin.unpinMessage(db, { channelId, messageId })
 

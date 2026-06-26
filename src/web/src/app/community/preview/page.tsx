@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button"
 import {
   SERVERS, CATEGORIES, MESSAGES, NEW_DIVIDER_BEFORE, PINNED, SEARCH_RESULTS,
   THREADS, FORUM_POSTS, FORUM_TAGS, MEMBERS, FRIENDS, PENDING, BLOCKED, DMS,
-  PROFILES, INVITES, AUDIT_LOG, MENTIONS, INBOX_FEED, FOLDER_SERVERS,
+  PROFILES, INVITES, AUDIT_LOG, MENTIONS, INBOX_FEED, FOLDER_SERVERS, MOCK_FOLDERS,
 } from "./_mock"
 import type { RightPanel, MobileZone, View, SettingsSection, Msg, PendingRequest, BlockedUser, ForumPost, Profile, Thread, Role, DM } from "@/components/community/_types"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
@@ -371,7 +371,7 @@ export default function CommunityPreview() {
   }
 
   const railProps = {
-    servers: SERVERS, folderServers: FOLDER_SERVERS, setMobileZone, view, onHome: goHome, onServer: goServer,
+    servers: SERVERS, folders: MOCK_FOLDERS, setMobileZone, view, onHome: goHome, onServer: goServer,
     onCreateServer: (name: string) => toast(name ? `Server "${name}" created` : "Server created"),
     onJoinServer: () => toast("Joined server"),
     onLeaveServer: () => { toast("Left server"); goHome() },
@@ -478,7 +478,7 @@ export default function CommunityPreview() {
       <NewThreadDialog channel={activeChannel} open={creatingThread} onClose={() => setCreatingThread(false)} onCreate={(name, firstMessage) => createThread(name, { firstMessage })} />
       <Dialog open={editingProfile} onOpenChange={(o) => { if (!o) setEditingProfile(false) }}>
         <DialogContent className="flex h-[calc(100vh-4rem)] w-[calc(100vw-4rem)] sm:max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0" showCloseButton={false}>
-          <UserSettings onClose={() => setEditingProfile(false)} aboutMe={myAboutMe} onSave={setMyAboutMe} onLogout={() => toast("Logged out")} />
+          <UserSettings onClose={() => setEditingProfile(false)} userName="Preview User" aboutMe={myAboutMe} onSave={(data) => { if (data.aboutMe !== undefined) setMyAboutMe(data.aboutMe) }} onLogout={() => toast("Logged out")} />
         </DialogContent>
       </Dialog>
       <Dialog open={view === "settings"} onOpenChange={(o) => { if (!o) goServer() }}>
@@ -558,7 +558,7 @@ export default function CommunityPreview() {
   return (
     <Shell {...shellProps}>
       {mobileZone === "rail" && (
-        <MobileRail servers={SERVERS} folderServers={FOLDER_SERVERS} onPick={() => setMobileZone("channels")} onHome={goHome} onServer={goServer} onAddServer={railProps.onCreateServer} onJoinServer={railProps.onJoinServer} view={view} />
+        <MobileRail servers={SERVERS} folders={MOCK_FOLDERS} onPick={() => setMobileZone("channels")} onHome={goHome} onServer={goServer} onAddServer={railProps.onCreateServer} onJoinServer={railProps.onJoinServer} view={view} />
       )}
 
       {mobileZone === "channels" && (

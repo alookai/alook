@@ -47,7 +47,6 @@ export const DELETE = withAuth(async (_req, ctx) => {
   const folder = await queries.communityServerFolder.getFolder(db, folderId, ctx.userId)
   if (!folder) return writeError("folder not found", 404)
 
-  // Delete folder (CASCADE removes items)
   await queries.communityServerFolder.deleteFolder(db, folderId)
 
   return new Response(null, { status: 204 })

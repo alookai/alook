@@ -42,6 +42,14 @@ export type FolderServer = {
   id: string
   initial: string
   name: string
+  icon?: string | null
+}
+
+export type CommunityFolder = {
+  id: string
+  name: string
+  position: number
+  servers: FolderServer[]
 }
 
 // ── Channels / categories ────────────────────────────────────────────────────

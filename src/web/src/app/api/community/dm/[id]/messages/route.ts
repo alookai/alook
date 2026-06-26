@@ -139,7 +139,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     id: row!.id,
     authorId: row!.authorId,
     authorName: row!.authorName ?? "Unknown",
-    authorAvatar: row!.authorImage ?? undefined,
+    authorAvatar: row!.authorImage ?? (row!.authorName ?? "?").charAt(0).toUpperCase(),
     content: row!.content,
     type: row!.type as "default" | "system" | "thread_created" | undefined,
     mentionType: row!.mentionType as "everyone" | "here" | null | undefined,

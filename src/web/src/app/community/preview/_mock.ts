@@ -14,6 +14,7 @@
 import type {
   Server,
   FolderServer,
+  CommunityFolder,
   Category,
   Msg,
   Thread,
@@ -332,4 +333,25 @@ export const FOLDER_SERVERS: FolderServer[] = [
   { id: "fld_ml", initial: "ML", name: "memobase" },
   { id: "fld_js", initial: "JS", name: "Second Me" },
   { id: "fld_go", initial: "GO", name: "Midjourney" },
+]
+
+export const MOCK_FOLDERS: CommunityFolder[] = [
+  {
+    id: "folder_1",
+    name: "AI Projects",
+    position: 0,
+    servers: [
+      { id: "fld_ai", initial: "AI", name: "Acontext" },
+      { id: "fld_ml", initial: "ML", name: "memobase" },
+    ],
+  },
+  {
+    id: "folder_2",
+    name: "Dev",
+    position: 1,
+    servers: [
+      { id: "fld_js", initial: "JS", name: "Second Me" },
+      { id: "fld_go", initial: "GO", name: "Midjourney" },
+    ],
+  },
 ]

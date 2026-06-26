@@ -17,7 +17,14 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const member = await queries.communityMember.getMember(db, channel.serverId, ctx.userId)
   if (!member) return writeError("forbidden", 403)
 
-  const pins = await queries.communityPin.listPins(db, channelId)
+  const rows = await queries.communityPin.listPins(db, channelId)
+  const pins = rows.map((r) => ({
+    id: r.message.id,
+    authorName: r.author.name ?? r.author.email ?? "Unknown",
+    authorAvatar: r.author.image ?? (r.author.name ?? "?").charAt(0).toUpperCase(),
+    content: r.message.content,
+    createdAt: r.message.createdAt,
+  }))
   return writeJSON({ pins })
 })
 
@@ -31,9 +38,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!channel) return writeError("channel not found", 404)
 
   const member = await queries.communityMember.getMember(db, channel.serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
-    return writeError("forbidden", 403)
-  }
+  if (!member) return writeError("forbidden", 403)
 
   let body: { messageId: string }
   try {

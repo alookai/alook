@@ -9,10 +9,10 @@ import { RailTooltip } from "./rail-tooltip"
 import { ConfirmDialog } from "./confirm-dialog"
 import type { Server } from "./_types"
 
-export function SortableServer({ server, active, onClick, onLeave, onOpenSettings, onCreateFolder }: { server: Server; active?: boolean; onClick: () => void; onLeave?: () => void; onOpenSettings?: () => void; onCreateFolder?: () => void }) {
+export function SortableServer({ server, active, onClick, onLeave, onOpenSettings, onCreateFolder, groupTarget, inFolder, dragging: isDragActive }: { server: Server; active?: boolean; onClick: () => void; onLeave?: () => void; onOpenSettings?: () => void; onCreateFolder?: () => void; groupTarget?: boolean; inFolder?: boolean; dragging?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: server.id })
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
-  const showLine = isOver && !isDragging
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragActive ? 0.3 : 1, zIndex: isDragging ? 10 : undefined }
+  const showLine = isOver && !isDragging && !isDragActive
   const lineSide: "top" | "bottom" = activeIndex !== -1 && activeIndex < index ? "bottom" : "top"
   const [confirmLeave, setConfirmLeave] = useState(false)
 
@@ -24,7 +24,7 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
         >
           {showLine && <div className={`pointer-events-none absolute inset-x-3 z-10 h-0.5 rounded-full bg-primary ${lineSide === "top" ? "-top-1" : "-bottom-1"}`} />}
           <RailIndicator active={active} />
-          <div className="relative size-10">
+          <div className={["relative size-10 transition-all duration-150", groupTarget ? "scale-110 rounded-xl ring-2 ring-primary" : "", isDragging ? "rounded-xl border-2 border-dashed border-muted-foreground/40" : ""].join(" ")}>
             <button
               onClick={active ? undefined : onClick}
               {...attributes}
@@ -53,9 +53,9 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
         </ContextMenuTrigger>
         <ContextMenuContent className="w-52">
           <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">{server.name}</div>
-          <ContextMenuItem onClick={onCreateFolder}>Create Group</ContextMenuItem>
+          {!inFolder && onCreateFolder && <ContextMenuItem onClick={onCreateFolder}>Create Group</ContextMenuItem>}
           <ContextMenuItem onClick={onOpenSettings}>Server Settings</ContextMenuItem>
-          {!server.isOwner && (
+          {!server.isOwner && !inFolder && (
             <>
               <ContextMenuSeparator />
               <ContextMenuItem onClick={() => setConfirmLeave(true)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">Leave Server</ContextMenuItem>

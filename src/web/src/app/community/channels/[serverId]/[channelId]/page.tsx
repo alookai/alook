@@ -110,6 +110,7 @@ export default function ChannelPage() {
   const enterThread = (id: string) => {
     setOpenThreadId(id)
     setRightPanel(null)
+    apiFetch(`/api/community/threads/${id}/read`, { method: "PUT" }).catch(() => {})
   }
 
   // ── Profile card ────────────────────────────────────────────────────────
@@ -355,7 +356,7 @@ export default function ChannelPage() {
             channel={channelName}
             messages={ctx.messages}
             pinnedIds={pinnedIds}
-            typingUsers={ctx.typingUsers}
+            typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
             onOpenThread={enterThread}
             {...messageActions}
             onOpenProfile={openProfile}

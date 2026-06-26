@@ -63,19 +63,29 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     return acc
   }, {} as Record<string, Array<{ kind: "image"; name: string; url: string } | { kind: "file"; name: string; url: string; size: string }>>)
 
-  const messages = items.map((r) => ({
-    id: r.id,
-    authorId: r.authorId,
-    authorName: r.authorName ?? r.authorEmail ?? "Unknown",
-    authorAvatar: r.authorImage ?? (r.authorName ?? "?").charAt(0).toUpperCase(),
-    content: r.content,
-    type: r.type === "system" ? "system" as const : undefined,
-    mentionType: r.mentionType,
-    replyToId: r.replyToId,
-    createdAt: r.createdAt,
-    embeds: r.embeds ? JSON.parse(r.embeds) : undefined,
-    attachments: attachmentsByMessage[r.id]?.length ? attachmentsByMessage[r.id] : undefined,
-  }))
+  // Resolve replyTo references
+  const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
+  const replyMessages = replyToIds.length > 0
+    ? await Promise.all(replyToIds.map((id) => queries.communityMessage.getMessage(db, id)))
+    : []
+  const replyMap = new Map(replyMessages.filter(Boolean).map((m) => [m!.id, m!]))
+
+  const messages = items.map((r) => {
+    const reply = r.replyToId ? replyMap.get(r.replyToId) : null
+    return {
+      id: r.id,
+      authorId: r.authorId,
+      authorName: r.authorName ?? r.authorEmail ?? "Unknown",
+      authorAvatar: r.authorImage ?? (r.authorName ?? "?").charAt(0).toUpperCase(),
+      content: r.content,
+      type: r.type === "system" ? "system" as const : undefined,
+      mentionType: r.mentionType,
+      replyTo: reply ? { id: reply.id, authorName: reply.authorName ?? "Unknown", text: (reply.content ?? "").slice(0, 100) } : r.replyToId ? { id: r.replyToId, authorName: "Unknown", text: "", deleted: true } : undefined,
+      createdAt: r.createdAt,
+      embeds: r.embeds ? JSON.parse(r.embeds) : undefined,
+      attachments: attachmentsByMessage[r.id]?.length ? attachmentsByMessage[r.id] : undefined,
+    }
+  })
 
   return writeJSON({ messages: messages.reverse(), hasMore, cursor: nextCursor })
 })
@@ -128,6 +138,19 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const message = await queries.communityMessage.getMessage(db, created.id)
 
+  // Resolve reply reference for WS event + create mention for replied-to user
+  let replyTo: { id: string; authorName: string; text: string } | undefined
+  if (message!.replyToId) {
+    const replyMsg = await queries.communityMessage.getMessage(db, message!.replyToId)
+    if (replyMsg) {
+      replyTo = { id: replyMsg.id, authorName: replyMsg.authorName ?? "Unknown", text: (replyMsg.content ?? "").slice(0, 100) }
+      // Create mention for the replied-to user (unless replying to self)
+      if (replyMsg.authorId && replyMsg.authorId !== ctx.userId) {
+        queries.communityMention.createMentions(db, { messageId: created.id, userIds: [replyMsg.authorId] }).catch(() => {})
+      }
+    }
+  }
+
   fanOutToChannel(channelId, {
     type: "community:message.create",
     channelId,
@@ -135,11 +158,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       id: message!.id,
       authorId: message!.authorId,
       authorName: message!.authorName ?? "",
-      authorAvatar: message!.authorImage ?? undefined,
+      authorAvatar: message!.authorImage ?? (message!.authorName ?? "?").charAt(0).toUpperCase(),
       content: message!.content,
       type: (message!.type as "default" | "system" | "thread_created") ?? "default",
       mentionType: message!.mentionType as "everyone" | "here" | null,
-      replyToId: message!.replyToId,
+      replyTo,
       createdAt: message!.createdAt,
     },
   }, { excludeUserId: ctx.userId }).catch(() => {})

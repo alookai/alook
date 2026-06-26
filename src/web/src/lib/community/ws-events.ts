@@ -22,6 +22,7 @@ export type CommunityMessageCreate = {
     type?: "default" | "system" | "thread_created"
     mentionType?: "everyone" | "here" | null
     replyToId?: string | null
+    replyTo?: { id: string; authorName: string; text: string }
     embeds?: unknown[]
     attachments?: {
       id: string

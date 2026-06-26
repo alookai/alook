@@ -38,6 +38,16 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       })
     }
 
+    if (url.pathname === "/check-user-online") {
+      const hasAuthUser = this.ctx.getWebSockets().some(ws => {
+        const s = ws.deserializeAttachment() as ConnectionState
+        return s?.type === "user" && s.authenticated
+      })
+      return new Response(JSON.stringify({ online: hasAuthUser }), {
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 })
     }
@@ -92,9 +102,15 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         ws.close(1008, "Unauthorized")
         return
       }
+      const wasOnline = this.countAuthenticatedUserConnections(userId) > 0
       ws.serializeAttachment({ type: "user", userId, authenticated: true } as ConnectionState)
       log.info("websocket authenticated", { userId })
       ws.send(JSON.stringify({ type: "auth.ok" }))
+      if (!wasOnline) {
+        this.broadcastPresence(userId, true).catch(() => {})
+      }
+      // Send presence snapshot of online co-members
+      this.sendPresenceSnapshot(ws, userId).catch(() => {})
       return
     }
 
@@ -169,6 +185,12 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     if (state?.type === "daemon" && state.authenticated) {
       log.info("daemon websocket closed", { daemonId: state.daemonId })
       this.notifyUserDO(state.userId, { type: "runtime.status", status: "offline", daemonId: state.daemonId }).catch(() => {})
+    }
+    if (state?.type === "user" && state.authenticated) {
+      const remaining = this.countAuthenticatedUserConnections(state.userId) - 1
+      if (remaining <= 0) {
+        this.broadcastPresence(state.userId, false).catch(() => {})
+      }
     }
   }
 
@@ -275,5 +297,63 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         })).catch(() => {})
       })
     )
+  }
+
+  private countAuthenticatedUserConnections(userId: string): number {
+    let count = 0
+    for (const ws of this.ctx.getWebSockets()) {
+      const state = ws.deserializeAttachment() as ConnectionState
+      if (state?.type === "user" && state.authenticated && state.userId === userId) {
+        count++
+      }
+    }
+    return count
+  }
+
+  private async broadcastPresence(userId: string, online: boolean): Promise<void> {
+    const coMembers = await this.getCoMembers(userId)
+    if (coMembers.length === 0) return
+    const payload = JSON.stringify({ type: "community:presence.update", userId, online })
+    await Promise.allSettled(
+      coMembers.map((memberId) => {
+        const doId = this.env.WS_DO.idFromName("user:" + memberId)
+        const stub = this.env.WS_DO.get(doId)
+        return stub.fetch(new Request("http://internal/broadcast", {
+          method: "POST",
+          body: payload,
+        }))
+      })
+    )
+  }
+
+  private async getCoMembers(userId: string): Promise<string[]> {
+    const result = await this.env.DB.prepare(
+      `SELECT DISTINCT sm2.user_id FROM community_server_member sm1
+       JOIN community_server_member sm2 ON sm1.server_id = sm2.server_id
+       WHERE sm1.user_id = ? AND sm2.user_id != ?`
+    ).bind(userId, userId).all<{ user_id: string }>()
+    return result.results.map((r) => r.user_id)
+  }
+
+  private async sendPresenceSnapshot(ws: WebSocket, userId: string): Promise<void> {
+    const coMembers = await this.getCoMembers(userId)
+    if (coMembers.length === 0) return
+    const checks = await Promise.allSettled(
+      coMembers.map(async (memberId) => {
+        const doId = this.env.WS_DO.idFromName("user:" + memberId)
+        const stub = this.env.WS_DO.get(doId)
+        const resp = await stub.fetch(new Request("http://internal/check-user-online"))
+        const { online } = await resp.json() as { online: boolean }
+        return online ? memberId : null
+      })
+    )
+    const onlineIds = checks
+      .map((r) => r.status === "fulfilled" ? r.value : null)
+      .filter(Boolean) as string[]
+    if (onlineIds.length > 0) {
+      for (const id of onlineIds) {
+        ws.send(JSON.stringify({ type: "community:presence.update", userId: id, online: true }))
+      }
+    }
   }
 }

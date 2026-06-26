@@ -1,4 +1,4 @@
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, sql } from "drizzle-orm";
 import {
   communityServerFolder,
   communityServerFolderItem,
@@ -10,11 +10,17 @@ export async function createFolder(
   db: Database,
   data: { userId: string; name: string; serverIds?: string[] }
 ) {
+  const maxPos = await db
+    .select({ m: sql<number>`coalesce(max(${communityServerFolder.position}), -1)` })
+    .from(communityServerFolder)
+    .where(eq(communityServerFolder.userId, data.userId));
+
   const [folder] = await db
     .insert(communityServerFolder)
     .values({
       userId: data.userId,
       name: data.name,
+      position: (maxPos[0]?.m ?? -1) + 1,
     })
     .returning();
 
@@ -87,11 +93,36 @@ export async function deleteFolder(db: Database, folderId: string) {
     .where(eq(communityServerFolder.id, folderId));
 }
 
+export async function deleteAllFolders(db: Database, userId: string) {
+  await db
+    .delete(communityServerFolder)
+    .where(eq(communityServerFolder.userId, userId));
+}
+
+export async function reorderFolders(
+  db: Database,
+  userId: string,
+  folderIds: string[]
+) {
+  for (let i = 0; i < folderIds.length; i++) {
+    await db
+      .update(communityServerFolder)
+      .set({ position: i })
+      .where(
+        and(
+          eq(communityServerFolder.id, folderIds[i]!),
+          eq(communityServerFolder.userId, userId)
+        )
+      );
+  }
+}
+
 export async function listFolders(db: Database, userId: string) {
   const folderRows = await db
     .select()
     .from(communityServerFolder)
-    .where(eq(communityServerFolder.userId, userId));
+    .where(eq(communityServerFolder.userId, userId))
+    .orderBy(asc(communityServerFolder.position));
 
   const folders = await Promise.all(
     folderRows.map(async (folder) => {
@@ -100,6 +131,7 @@ export async function listFolders(db: Database, userId: string) {
           serverId: communityServerFolderItem.serverId,
           position: communityServerFolderItem.position,
           serverName: communityServer.name,
+          serverIcon: communityServer.icon,
         })
         .from(communityServerFolderItem)
         .leftJoin(communityServer, eq(communityServerFolderItem.serverId, communityServer.id))
@@ -109,9 +141,11 @@ export async function listFolders(db: Database, userId: string) {
       return {
         id: folder.id,
         name: folder.name,
+        position: folder.position ?? 0,
         servers: items.map((item) => ({
           id: item.serverId,
           name: item.serverName ?? "Unknown",
+          icon: item.serverIcon ?? null,
         })),
       };
     })
