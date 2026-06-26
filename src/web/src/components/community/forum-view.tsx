@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Plus, ChevronLeft, Menu, MessagesSquare, Tags, X, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "./format-time"
@@ -15,33 +15,38 @@ import type { ForumPost } from "./_types"
 // available tag chips ("All" + tag names); tags can be added/removed in manage mode.
 // Clicking New Post opens an inline composer.
 export function ForumView({
-  channel, posts, tags, onOpenPost, onCreatePost, onAttach, onHamburger, onBack,
+  channel, posts, tags, onOpenPost, onCreatePost, onTagsChanged, canManageTags, onHamburger, onBack,
 }: {
   channel: string
   posts: ForumPost[]
   tags: string[]
   onOpenPost: (id: string) => void
   onCreatePost?: (post: NewForumPost) => void
-  onAttach?: () => void
+  onTagsChanged?: (tags: string[]) => void
+  canManageTags?: boolean
   onHamburger?: () => void
   onBack?: () => void
 }) {
   const [tag, setTag] = useState("All")
   const [composing, setComposing] = useState(false)
-  // tags are stateful so they can be created/deleted; seeded from the prop (sans "All")
   const [tagList, setTagList] = useState<string[]>(() => tags.filter((t) => t !== "All"))
+  useEffect(() => { setTagList(tags.filter((t) => t !== "All")) }, [tags])
   const [managing, setManaging] = useState(false)
   const [newTag, setNewTag] = useState("")
 
   const addTag = () => {
     const t = newTag.trim().toLowerCase()
     if (!t || tagList.includes(t)) { setNewTag(""); return }
-    setTagList((prev) => [...prev, t])
+    const next = [...tagList, t]
+    setTagList(next)
     setNewTag("")
+    onTagsChanged?.(next)
   }
   const removeTag = (t: string) => {
-    setTagList((prev) => prev.filter((x) => x !== t))
+    const next = tagList.filter((x) => x !== t)
+    setTagList(next)
     if (tag === t) setTag("All")
+    onTagsChanged?.(next)
   }
 
   const filtered = tag === "All" ? posts : posts.filter((p) => p.tags.includes(tag))
@@ -56,16 +61,18 @@ export function ForumView({
         )}
         <MessagesSquare className="ml-1 size-6 text-muted-foreground" />
         <h1 className="truncate text-base font-medium">{channel}</h1>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={`ml-auto text-muted-foreground hover:text-foreground ${managing ? "bg-accent text-foreground" : ""}`}
-          aria-label="Manage tags"
-          onClick={() => setManaging((v) => !v)}
-        >
-          <Tags className="size-5" />
-        </Button>
-        <Button size="sm" onClick={() => setComposing(true)}><Plus className="size-4" /> New Post</Button>
+        <div className="ml-auto flex items-center gap-1">
+          {canManageTags && <Button
+            variant="ghost"
+            size="icon-sm"
+            className={`text-muted-foreground hover:text-foreground ${managing ? "bg-accent text-foreground" : ""}`}
+            aria-label="Manage tags"
+            onClick={() => setManaging((v) => !v)}
+          >
+            <Tags className="size-5" />
+          </Button>}
+          <Button size="sm" onClick={() => setComposing(true)}><Plus className="size-4" /> New Post</Button>
+        </div>
       </header>
 
       {composing && (
@@ -73,7 +80,6 @@ export function ForumView({
           tags={tagList}
           onCancel={() => setComposing(false)}
           onPost={(post) => { onCreatePost?.(post); setComposing(false) }}
-          onAttach={onAttach}
         />
       )}
 

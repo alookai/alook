@@ -88,7 +88,13 @@ export function useChannelTree(categories: Category[]) {
     Object.fromEntries(categories.map((c) => [c.id, c.name])),
   )
   // per-category privacy — default public; private restricts channel creation to admins
-  const [catPrivate, setCatPrivate] = useState<Record<string, boolean>>({})
+  const [catPrivate, setCatPrivate] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(categories.map((c) => [c.id, !!c.private])),
+  )
+  // per-category creator ID
+  const [catCreators, setCatCreators] = useState<Record<string, string | null>>(() =>
+    Object.fromEntries(categories.map((c) => [c.id, c.creatorId ?? null])),
+  )
 
   // Sync state when categories change from API (initial load or server switch)
   const prevCatsRef = useRef(categories)
@@ -103,6 +109,8 @@ export function useChannelTree(categories: Category[]) {
     setCatOrder(categories.map((c) => c.id))
     setOrder(Object.fromEntries(categories.map((c) => [c.id, c.channels])))
     setCatNames(Object.fromEntries(categories.map((c) => [c.id, c.name])))
+    setCatPrivate(Object.fromEntries(categories.map((c) => [c.id, !!c.private])))
+    setCatCreators(Object.fromEntries(categories.map((c) => [c.id, c.creatorId ?? null])))
   }, [categories])
 
   const toggleCat = (id: string) =>
@@ -171,7 +179,7 @@ export function useChannelTree(categories: Category[]) {
     setOrder((prev) => reorderChannelsWithin(prev, String(active.id), String(over.id)))
   }
 
-  return { collapsed, catOrder, order, catNames, catPrivate, toggleCat, addChannel, removeChannel, renameChannel, markRead, addCategory, removeCategory, setCategoryPrivate, onDragOver, onDragEnd }
+  return { collapsed, catOrder, order, catNames, catPrivate, catCreators, toggleCat, addChannel, removeChannel, renameChannel, markRead, addCategory, removeCategory, setCategoryPrivate, onDragOver, onDragEnd }
 }
 
 export type ChannelTree = ReturnType<typeof useChannelTree>

@@ -19,7 +19,37 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const archivedParam = req.nextUrl.searchParams.get("archived")
   const archived = archivedParam === "true" ? true : archivedParam === "false" ? false : undefined
 
-  const threads = await queries.communityThread.listChannelThreads(db, channelId, { archived })
+  const childChannels = await queries.communityChannel.listChildChannels(db, channelId, {
+    archived,
+    type: "thread",
+  })
+
+  // Resolve parent message or creator for each thread
+  const threads = await Promise.all(
+    childChannels.map(async (t) => {
+      let parent = { authorName: "", text: "" }
+      if (t.parentMessageId) {
+        const msg = await queries.communityMessage.getMessage(db, t.parentMessageId)
+        if (msg) {
+          parent = { authorName: msg.authorName ?? msg.authorEmail ?? "Unknown", text: (msg.content ?? "").slice(0, 100) }
+        }
+      } else if (t.creatorId) {
+        const creator = await queries.user.getUser(db, t.creatorId)
+        if (creator) parent = { authorName: creator.name ?? "Unknown", text: "" }
+        const msgs = await queries.communityMessage.listMessages(db, { channelId: t.id, limit: 1 })
+        if (msgs.length > 0) parent = { ...parent, text: (msgs[0].content ?? "").slice(0, 100) }
+      }
+      return {
+        id: t.id,
+        name: t.name,
+        kind: t.type,
+        messageCount: t.messageCount ?? 0,
+        lastMessageAt: t.lastMessageAt ?? t.createdAt,
+        parent,
+        messages: [],
+      }
+    })
+  )
 
   return writeJSON({ threads })
 })

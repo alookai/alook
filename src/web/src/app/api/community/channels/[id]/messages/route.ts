@@ -63,6 +63,25 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     return acc
   }, {} as Record<string, Array<{ kind: "image"; name: string; url: string } | { kind: "file"; name: string; url: string; size: string }>>)
 
+  // Fetch reactions for all messages
+  const allReactions = messageIds.length > 0
+    ? await queries.communityReaction.listReactionsByMessageIds(db, messageIds, ctx.userId)
+    : []
+
+  // Group reactions by messageId, aggregated as { emoji, count, me }[]
+  const reactionsByMessage = allReactions.reduce((acc, r) => {
+    if (!acc[r.messageId]) acc[r.messageId] = new Map<string, { emoji: string; count: number; me: boolean }>()
+    const map = acc[r.messageId]
+    const existing = map.get(r.emoji)
+    if (existing) {
+      existing.count += 1
+      if (r.userId === ctx.userId) existing.me = true
+    } else {
+      map.set(r.emoji, { emoji: r.emoji, count: 1, me: r.userId === ctx.userId })
+    }
+    return acc
+  }, {} as Record<string, Map<string, { emoji: string; count: number; me: boolean }>>)
+
   // Resolve replyTo references
   const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
   const replyMessages = replyToIds.length > 0
@@ -70,8 +89,15 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     : []
   const replyMap = new Map(replyMessages.filter(Boolean).map((m) => [m!.id, m!]))
 
+  // Resolve threads (child channels with parentMessageId matching these messages)
+  const childChannels = await queries.communityChannel.listChildChannels(db, channelId)
+  const threadByMessageId = new Map(
+    childChannels.filter((c) => c.parentMessageId).map((c) => [c.parentMessageId!, c])
+  )
+
   const messages = items.map((r) => {
     const reply = r.replyToId ? replyMap.get(r.replyToId) : null
+    const threadChannel = threadByMessageId.get(r.id)
     return {
       id: r.id,
       authorId: r.authorId,
@@ -84,6 +110,8 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       createdAt: r.createdAt,
       embeds: r.embeds ? JSON.parse(r.embeds) : undefined,
       attachments: attachmentsByMessage[r.id]?.length ? attachmentsByMessage[r.id] : undefined,
+      reactions: reactionsByMessage[r.id] ? [...reactionsByMessage[r.id].values()] : undefined,
+      thread: threadChannel ? { id: threadChannel.id, name: threadChannel.name, messageCount: threadChannel.messageCount ?? 0 } : undefined,
     }
   })
 

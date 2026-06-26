@@ -13,11 +13,11 @@ import { Composer } from "@/components/community/composer"
 import { DmMessages } from "@/components/community/dm-messages"
 import { ForumView } from "@/components/community/forum-view"
 import { ThreadHeader } from "@/components/community/thread-header"
-import { ThreadMessages } from "@/components/community/thread-messages"
 import { RightPanelContent } from "@/components/community/right-panel"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
 import { Overlay } from "@/components/community/overlay"
-import type { RightPanel, Msg, Thread, OpenProfile } from "@/components/community/_types"
+import type { RightPanel, Msg, Thread, OpenProfile, Role } from "@/components/community/_types"
+import { canManageServer } from "@/components/community/_types"
 
 /**
  * /community/channels/:serverId/:channelId
@@ -50,9 +50,9 @@ export default function ChannelPage() {
 
   // ── Local UI state ──────────────────────────────────────────────────────
   const [rightPanel, setRightPanel] = useState<RightPanel>("members")
-  const [openThreadId, setOpenThreadId] = useState<string | null>(null)
   const [creatingThread, setCreatingThread] = useState(false)
   const [replyTo, setReplyTo] = useState<{ id: string; authorName: string; text: string } | null>(null)
+  const [localName, setLocalName] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<Msg[]>([])
 
@@ -73,32 +73,35 @@ export default function ChannelPage() {
     } catch { setSearchResults([]) }
   }, [isAtMe, channelId])
 
-  // Determine if current channel is a forum
-  const isForum = useMemo(() => {
-    if (isAtMe) return false
-    const allChannels = ctx.currentServer?.categories.flatMap((c) => c.channels) ?? []
-    return allChannels.find((ch) => ch.id === channelId)?.type === "forum"
+  // Determine channel type from server categories
+  const channelInServer = useMemo(() => {
+    if (isAtMe) return null
+    const allChannels = ctx.currentServer?.categories?.flatMap((c) => c.channels) ?? []
+    return allChannels.find((ch) => ch.id === channelId) ?? null
   }, [isAtMe, ctx.currentServer, channelId])
+
+  const isForum = channelInServer?.type === "forum"
+  // If channelId is not in server categories and not @me, it's a child channel (post/thread opened via URL)
+  const isChildChannel = !isAtMe && !channelInServer && !!ctx.currentServer?.categories
 
   // Find the channel name
   const channelName = useMemo(() => {
+    if (localName) return localName
     if (isAtMe) {
       return ctx.dms.find((d) => d.id === channelId)?.name ?? "DM"
     }
-    const allChannels = ctx.currentServer?.categories.flatMap((c) => c.channels) ?? []
-    return allChannels.find((ch) => ch.id === channelId)?.name ?? "channel"
-  }, [isAtMe, ctx.currentServer, ctx.dms, channelId])
+    if (channelInServer) return channelInServer.name
+    // Child channel — use meta from context
+    if (ctx.currentChannelMeta?.name) return ctx.currentChannelMeta.name
+    const post = ctx.forumPosts.find((p) => p.id === channelId)
+    if (post) return post.name
+    const thread = ctx.threads.find((t) => t.id === channelId)
+    if (thread) return thread.name
+    return "channel"
+  }, [localName, isAtMe, channelInServer, ctx.dms, ctx.forumPosts, ctx.threads, ctx.currentChannelMeta, channelId])
 
   // DM object
   const dm = isAtMe ? ctx.dms.find((d) => d.id === channelId) ?? null : null
-
-  // Open thread object
-  const openThread: Thread | null = useMemo(() => {
-    if (!openThreadId) return null
-    return ctx.threads.find((t) => t.id === openThreadId)
-      ?? ctx.forumPosts.find((p) => p.id === openThreadId)
-      ?? null
-  }, [openThreadId, ctx.threads, ctx.forumPosts])
 
   // Pinned message ids
   const pinnedIds = useMemo(() => new Set(ctx.pinned.map((p) => p.id)), [ctx.pinned])
@@ -108,8 +111,7 @@ export default function ChannelPage() {
     setRightPanel((p) => (p === k ? null : k))
 
   const enterThread = (id: string) => {
-    setOpenThreadId(id)
-    setRightPanel(null)
+    router.push(`/community/channels/${params.serverId}/${id}`)
     apiFetch(`/api/community/threads/${id}/read`, { method: "PUT" }).catch(() => {})
   }
 
@@ -129,12 +131,13 @@ export default function ChannelPage() {
     onPin: (id: string) => {
       const isPinned = pinnedIds.has(id)
       if (isPinned) ctx.unpinMessage(id)
-      else ctx.pinMessage(id)
+      else { ctx.pinMessage(id); setRightPanel("pinned") }
     },
-    onCreateThread: (id: string) => {
+    onCreateThread: async (id: string) => {
       const m = ctx.messages.find((x) => x.id === id)
       const name = (m?.content ?? channelName).split(/\s+/).slice(0, 6).join(" ").slice(0, 60) || channelName
-      ctx.createThread(id, name)
+      const threadId = await ctx.createThread(id, name)
+      if (threadId) router.push(`/community/channels/${params.serverId}/${threadId}`)
     },
     onCopy: (id: string) => {
       const m = ctx.messages.find((x) => x.id === id)
@@ -193,30 +196,10 @@ export default function ChannelPage() {
     })
   }
 
-  const sendThreadMsg = async (markdown: string, attachments?: File[]) => {
-    if (!markdown && !attachments?.length) return
-    if (!openThreadId) return
-
-    // Upload files first if any
-    let uploadedAttachments: { url: string; filename: string; contentType: string; size: number }[] = []
-    if (attachments?.length) {
-      const results = await Promise.all(
-        attachments.map((f) => ctx.uploadFile({ threadId: openThreadId }, f))
-      )
-      uploadedAttachments = results.filter(Boolean) as typeof uploadedAttachments
-    }
-
-    ctx.sendThreadMessage(openThreadId, markdown || "", {
-      attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
-    })
-  }
-
   // ── Send typing ─────────────────────────────────────────────────────────
   const handleTyping = () => {
     if (isAtMe) {
       ctx.sendTyping({ dmConversationId: channelId })
-    } else if (openThreadId) {
-      ctx.sendTyping({ threadId: openThreadId })
     } else {
       ctx.sendTyping({ channelId })
     }
@@ -243,6 +226,7 @@ export default function ChannelPage() {
   }
 
   // ── Panel props ─────────────────────────────────────────────────────────
+  const myRole = ctx.members.find((m) => m.userId === ctx.currentUser.id)?.role
   const panelProps = {
     onOpenThread: enterThread,
     members: ctx.members,
@@ -250,39 +234,15 @@ export default function ChannelPage() {
     searchResults,
     threads: ctx.threads,
     searchQuery,
-  }
-
-  // ── Thread takeover ─────────────────────────────────────────────────────
-  if (openThread) {
-    return (
-      <>
-        <ThreadHeader
-          thread={openThread}
-          channelName={channelName}
-          forum={isForum}
-          onClose={() => setOpenThreadId(null)}
-          onBack={bp === "mobile" ? () => setOpenThreadId(null) : undefined}
-          onRename={async (name) => {
-            try {
-              await apiFetch(`/api/community/threads/${openThread.id}`, {
-                method: "PATCH",
-                body: JSON.stringify({ name }),
-              })
-            } catch { toast("Failed to rename thread") }
-          }}
-        />
-        <main className="flex min-h-0 flex-1 flex-col">
-          <ThreadMessages thread={openThread} onOpenProfile={openProfile} />
-          <Composer
-            channel={openThread.name}
-            thread
-            members={ctx.friends}
-            onSend={sendThreadMsg}
-            onTyping={handleTyping}
-          />
-        </main>
-      </>
-    )
+    myRole,
+    onSetRole: (name: string, role: Role) => {
+      const m = ctx.members.find((x) => x.name === name)
+      if (m) ctx.setMemberRole(m.id, role)
+    },
+    onKickMember: (name: string) => {
+      const m = ctx.members.find((x) => x.name === name)
+      if (m) ctx.kickMember(m.id)
+    },
   }
 
   // ── DM view ─────────────────────────────────────────────────────────────
@@ -316,6 +276,55 @@ export default function ChannelPage() {
     )
   }
 
+  // ── Child channel view (forum post / thread opened via URL) ─────────────
+  if (isChildChannel) {
+    const parentId = ctx.currentChannelMeta?.parentChannelId
+    const allChannels = ctx.currentServer?.categories?.flatMap((c) => c.channels) ?? []
+    const parentChannel = parentId ? allChannels.find((ch) => ch.id === parentId) : null
+    const parentName = parentChannel?.name ?? "channel"
+    return (
+      <>
+        <ThreadHeader
+          thread={{ id: channelId, name: channelName, messageCount: 0, lastMessageAt: "", parent: { authorName: "", text: "" }, messages: [] }}
+          channelName={parentName}
+          forum={parentChannel?.type === "forum"}
+          onClose={() => { if (parentId) router.push(`/community/channels/${params.serverId}/${parentId}`); else router.back() }}
+          onBack={bp === "mobile" ? () => router.back() : undefined}
+          onRename={canManageServer(myRole) ? async (name) => {
+            try {
+              await apiFetch(`/api/community/channels/${channelId}`, {
+                method: "PATCH",
+                body: JSON.stringify({ name }),
+              })
+              setLocalName(name)
+            } catch { toast("Failed to rename") }
+          } : undefined}
+        />
+        <div className="flex min-h-0 flex-1">
+          <main className="flex min-w-0 flex-1 flex-col">
+            <MessageList
+              channel={channelName}
+              messages={ctx.messages}
+              pinnedIds={new Set()}
+              typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
+              onOpenThread={() => {}}
+              {...messageActions}
+              onOpenProfile={openProfile}
+            />
+            <Composer
+              channel={channelName}
+              members={ctx.friends}
+              onSend={sendMessage}
+              onTyping={handleTyping}
+              replyingTo={replyTo?.authorName}
+              onCancelReply={() => setReplyTo(null)}
+            />
+          </main>
+        </div>
+      </>
+    )
+  }
+
   // ── Forum view ──────────────────────────────────────────────────────────
   if (isForum) {
     const allChannels = ctx.currentServer?.categories.flatMap((c) => c.channels) ?? []
@@ -329,7 +338,13 @@ export default function ChannelPage() {
         tags={forumTags}
         onOpenPost={enterThread}
         onCreatePost={createForumPost}
-        onAttach={() => toast("Attach files when creating a post")}
+        canManageTags={canManageServer(myRole)}
+        onTagsChanged={canManageServer(myRole) ? (tags) => {
+          apiFetch(`/api/community/channels/${channelId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ forumTags: JSON.stringify(tags) }),
+          }).catch(() => toast("Failed to save tags"))
+        } : undefined}
         onHamburger={bp === "tablet" ? openSidebar : undefined}
         onBack={bp === "mobile" ? goBack : undefined}
       />

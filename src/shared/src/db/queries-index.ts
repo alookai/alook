@@ -35,7 +35,6 @@ export * as communityChannel from "./queries/community/channel";
 export * as communityCategory from "./queries/community/category";
 export * as communityMember from "./queries/community/member";
 export * as communityMessage from "./queries/community/message";
-export * as communityThread from "./queries/community/thread";
 export * as communityFriendship from "./queries/community/friendship";
 export * as communityDm from "./queries/community/dm";
 export * as communityInvite from "./queries/community/invite";

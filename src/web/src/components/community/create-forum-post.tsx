@@ -1,21 +1,17 @@
 "use client"
 
 import { useState } from "react"
-import { X, ImagePlus, Smile } from "lucide-react"
+import { X, Smile } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { EmojiPickerPopover } from "./emoji-picker"
 
 export type NewForumPost = { name: string; content: string; tags: string[] }
 
-// Inline forum-post composer — Title + body + tag chips + Post.
-// Lives at the top of the forum feed while composing. `tags` are the channel's
-// available tags (without the "All" filter sentinel).
-export function CreateForumPost({ tags, onCancel, onPost, onAttach }: {
+export function CreateForumPost({ tags, onCancel, onPost }: {
   tags: string[]
   onCancel: () => void
   onPost: (post: NewForumPost) => void
-  onAttach?: () => void
 }) {
   const [title, setTitle] = useState("")
   const [body, setBody] = useState("")
@@ -51,24 +47,23 @@ export function CreateForumPost({ tags, onCancel, onPost, onAttach }: {
             className="mt-1 w-full resize-none bg-transparent text-[15px] leading-[1.4] outline-none placeholder:text-muted-foreground"
           />
         </div>
-        <button onClick={onAttach} className="grid size-12 shrink-0 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add image">
-          <ImagePlus className="size-5" />
-        </button>
       </div>
 
-      {/* tag chips — toggle which tags this post carries */}
-      <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
-        {tags.map((t) => (
-          <Badge
-            key={t}
-            variant={selected.includes(t) ? "default" : "secondary"}
-            className="cursor-pointer"
-            render={<button onClick={() => toggleTag(t)} />}
-          >
-            #{t}
-          </Badge>
-        ))}
-      </div>
+      {/* tag chips */}
+      {tags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
+          {tags.map((t) => (
+            <Badge
+              key={t}
+              variant={selected.includes(t) ? "default" : "secondary"}
+              className="cursor-pointer"
+              render={<button onClick={() => toggleTag(t)} />}
+            >
+              #{t}
+            </Badge>
+          ))}
+        </div>
+      )}
 
       <div className="flex items-center justify-between border-t border-border px-3 py-2">
         <EmojiPickerPopover side="top" align="start" onPick={(e) => setBody((b) => b + e)}>

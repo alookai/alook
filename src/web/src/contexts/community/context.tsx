@@ -60,6 +60,8 @@ import type {
   CommunityCategoryUpdate,
   CommunityCategoryDelete,
   CommunityCategoryReorder,
+  CommunityChildChannelCreate,
+  CommunityChildChannelUpdate,
 } from "@/lib/community/ws-events"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -84,6 +86,7 @@ export type ServerDetail = {
 export type CommunityContextValue = {
   // Current user (from session)
   currentUser: CurrentUser
+  setCurrentUser: (fn: (u: CurrentUser) => CurrentUser) => void
 
   // Servers
   servers: Server[]
@@ -94,6 +97,7 @@ export type CommunityContextValue = {
 
   // Channels
   currentChannelId: string | null
+  currentChannelMeta: { name: string; parentChannelId: string | null } | null
   setCurrentChannelId: (id: string | null) => void
 
   // Members
@@ -155,10 +159,11 @@ export type CommunityContextValue = {
   sendMessage: (content: string, opts?: { replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
   sendDmMessage: (dmId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
   sendThreadMessage: (threadId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
+  fetchThreadMessages: (threadId: string) => Promise<void>
   toggleReaction: (messageId: string, emoji: string) => void
   pinMessage: (messageId: string) => void
   unpinMessage: (messageId: string) => void
-  createThread: (messageId: string, name: string) => Promise<void>
+  createThread: (messageId: string, name: string) => Promise<string | null>
   sendFriendRequest: (username: string) => Promise<void>
   acceptFriendRequest: (id: string) => Promise<void>
   rejectFriendRequest: (id: string) => Promise<void>
@@ -247,6 +252,7 @@ export function CommunityProvider({
   const [currentServer, setCurrentServer] = useState<ServerDetail | null>(null)
   const [currentServerLoading, setCurrentServerLoading] = useState(false)
   const [currentChannelId, setCurrentChannelId] = useState<string | null>(null)
+  const [currentChannelMeta, setCurrentChannelMeta] = useState<{ name: string; parentChannelId: string | null } | null>(null)
 
   // ── Members ──────────────────────────────────────────────────────────────
   const [members, setMembers] = useState<Member[]>([])
@@ -531,7 +537,12 @@ export function CommunityProvider({
           },
         ]
       })
-    }, []),
+      // If this message is a reply to the current user, refresh mentions/inbox
+      if (msg.replyTo && msg.authorId !== currentUserRef.current.id) {
+        fetchMentions()
+        fetchInbox()
+      }
+    }, [fetchMentions, fetchInbox]),
     onReaction: useCallback((event: CommunityReactionAdd | CommunityReactionRemove) => {
       setMessages((prev) =>
         prev.map((m) => {
@@ -651,6 +662,16 @@ export function CommunityProvider({
       const sid = currentServerIdRef.current
       if (sid && sid !== "@me") fetchServerDetail(sid)
     }, [fetchServerDetail]),
+    onChildChannel: useCallback((event: CommunityChildChannelCreate | CommunityChildChannelUpdate) => {
+      if (event.type === "community:channel.child_create") {
+        const cid = currentChannelIdRef.current
+        if (event.channel.type === "forum_post") {
+          if (cid && event.parentChannelId === cid) fetchForumPosts(cid)
+        } else {
+          if (cid && event.parentChannelId === cid) fetchThreads(cid)
+        }
+      }
+    }, [fetchForumPosts, fetchThreads]),
   })
 
   // ── UI dispatch (layout registers handlers, pages call these) ────────────
@@ -677,6 +698,9 @@ export function CommunityProvider({
     fetchMentions()
     apiFetch<{ aboutMe: string }>("/api/community/users/me/profile")
       .then((data) => setCurrentUser((u) => ({ ...u, aboutMe: data.aboutMe })))
+      .catch(() => {})
+    apiFetch<{ level?: string }>("/api/community/users/me/notifications")
+      .then((data) => { if (data.level) setNotifLevel(data.level) })
       .catch(() => {})
   }, [fetchServers, fetchFriends, fetchDms, fetchFolders, fetchInbox, fetchMentions])
 
@@ -710,22 +734,36 @@ export function CommunityProvider({
       ws.subscribe({ dmConversationId: currentChannelId })
       fetchDmMessages(currentChannelId)
     } else {
+      // Wait for server detail to load before fetching — needed for forum detection
+      if (!currentServer?.categories) return
       ws.subscribe({ channelId: currentChannelId })
-      // Detect forum channels and fetch posts instead of messages
-      const allChannels = currentServerRef.current?.categories.flatMap((c) => c.channels) ?? []
+      // Detect channel type from server categories
+      const allChannels = currentServer.categories.flatMap((c) => c.channels)
       const channel = allChannels.find((ch) => ch.id === currentChannelId)
       if (channel?.type === "forum") {
+        // Forum channel: show post listing
+        setCurrentChannelMeta(null)
         fetchForumPosts(currentChannelId)
-      } else {
+        fetchPinned(currentChannelId)
+        fetchThreads(currentChannelId)
+      } else if (channel) {
+        // Top-level text channel
+        setCurrentChannelMeta(null)
         fetchMessages(currentChannelId)
+        fetchPinned(currentChannelId)
+        fetchThreads(currentChannelId)
+      } else {
+        // Child channel (forum post / thread) — fetch its metadata + messages
+        fetchMessages(currentChannelId)
+        apiFetch<{ id: string; name: string; parentChannelId: string | null }>(`/api/community/threads/${currentChannelId}`)
+          .then((data) => setCurrentChannelMeta({ name: data.name, parentChannelId: data.parentChannelId }))
+          .catch(() => setCurrentChannelMeta(null))
       }
-      fetchPinned(currentChannelId)
-      fetchThreads(currentChannelId)
     }
     setTypingUsers([])
     return () => { ws.unsubscribe() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentChannelId, currentServerId])
+  }, [currentChannelId, currentServerId, currentServer])
 
   // ── Mutation functions ───────────────────────────────────────────────────
 
@@ -791,13 +829,51 @@ export function CommunityProvider({
   }, [])
 
   const sendThreadMessage = useCallback(async (threadId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
+    // Optimistic update
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
+    const optimisticMsg: Msg = {
+      id: tempId,
+      authorName: currentUserRef.current.name,
+      authorAvatar: currentUserRef.current.avatar,
+      content,
+      createdAt: new Date().toISOString(),
+    }
+    const updateMessages = (setter: typeof setThreads | typeof setForumPosts) => {
+      setter((prev: any[]) => prev.map((t: any) => t.id !== threadId ? t : { ...t, messages: [...t.messages, optimisticMsg] }))
+    }
+    updateMessages(setThreads)
+    updateMessages(setForumPosts)
     try {
-      await apiFetch(`/api/community/threads/${threadId}/messages`, {
+      const result = await apiFetch<{ id: string }>(`/api/community/threads/${threadId}/messages`, {
         method: "POST",
         body: JSON.stringify({ content, attachments: opts?.attachments }),
       })
+      // Replace temp id with real id
+      const replaceId = (setter: typeof setThreads | typeof setForumPosts) => {
+        setter((prev: any[]) => prev.map((t: any) => t.id !== threadId ? t : { ...t, messages: t.messages.map((m: any) => m.id === tempId ? { ...m, id: result.id ?? m.id } : m) }))
+      }
+      replaceId(setThreads)
+      replaceId(setForumPosts)
     } catch {
+      // Remove optimistic message on failure
+      const removeTemp = (setter: typeof setThreads | typeof setForumPosts) => {
+        setter((prev: any[]) => prev.map((t: any) => t.id !== threadId ? t : { ...t, messages: t.messages.filter((m: any) => m.id !== tempId) }))
+      }
+      removeTemp(setThreads)
+      removeTemp(setForumPosts)
       toast("Failed to send message")
+    }
+  }, [])
+
+  const fetchThreadMessages = useCallback(async (threadId: string) => {
+    try {
+      const data = await apiFetch<{ messages: Msg[] }>(`/api/community/threads/${threadId}/messages`)
+      const msgs = data.messages
+      // Update messages in both threads and forumPosts
+      setThreads((prev) => prev.map((t) => t.id !== threadId ? t : { ...t, messages: msgs }))
+      setForumPosts((prev) => prev.map((p) => p.id !== threadId ? p : { ...p, messages: msgs }))
+    } catch {
+      // silent
     }
   }, [])
 
@@ -860,16 +936,22 @@ export function CommunityProvider({
       .catch(() => toast("Failed to unpin message"))
   }, [])
 
-  const createThread = useCallback(async (messageId: string, name: string) => {
+  const createThread = useCallback(async (messageId: string, name: string): Promise<string | null> => {
     try {
-      await apiFetch(`/api/community/messages/${messageId}/threads`, {
+      const data = await apiFetch<{ id: string }>(`/api/community/messages/${messageId}/threads`, {
         method: "POST",
         body: JSON.stringify({ name }),
       })
+      const cid = currentChannelIdRef.current
+      if (cid) fetchThreads(cid)
+      // Mark the message as having a thread
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, thread: { id: data.id, name, messageCount: 0 } } : m))
+      return data.id
     } catch {
       toast("Failed to create thread")
+      return null
     }
-  }, [])
+  }, [fetchThreads])
 
   const sendFriendRequest = useCallback(async (userId: string) => {
     try {
@@ -990,7 +1072,7 @@ export function CommunityProvider({
     try {
       await apiFetch(`/api/community/servers/${sid}/members/${memberId}`, {
         method: "PATCH",
-        body: JSON.stringify({ role }),
+        body: JSON.stringify({ role: role.toLowerCase() }),
       })
       setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role } : m)))
       toast(`Role updated to ${role}`)
@@ -1101,7 +1183,6 @@ export function CommunityProvider({
         body: JSON.stringify(post),
       })
       setForumPosts((prev) => [data.post, ...prev])
-      toast(`Posted "${post.name}"`)
     } catch {
       toast("Failed to create post")
     }
@@ -1158,7 +1239,7 @@ export function CommunityProvider({
     try {
       await apiFetch(`/api/community/servers/${serverId}/categories/${categoryId}`, {
         method: "PATCH",
-        body: JSON.stringify(opts),
+        body: JSON.stringify({ name: opts.name, private: opts.isPrivate }),
       })
     } catch {
       toast("Failed to update category")
@@ -1392,12 +1473,14 @@ export function CommunityProvider({
   const value = useMemo<CommunityContextValue>(
     () => ({
       currentUser,
+      setCurrentUser,
       servers,
       serversLoading,
       currentServerId,
       currentServer,
       currentServerLoading,
       currentChannelId,
+      currentChannelMeta,
       setCurrentChannelId,
       members: members.map((m) => ({ ...m, status: m.userId === currentUser.id || onlineUserIds.has(m.userId) ? "online" as const : "offline" as const })),
       membersLoading,
@@ -1429,6 +1512,7 @@ export function CommunityProvider({
       sendMessage,
       sendDmMessage,
       sendThreadMessage,
+      fetchThreadMessages,
       toggleReaction,
       pinMessage,
       unpinMessage,

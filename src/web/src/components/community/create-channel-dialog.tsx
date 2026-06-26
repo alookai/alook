@@ -41,6 +41,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
           <p className="text-sm text-muted-foreground">{category ? `in ${category}` : "top level"}</p>
         </DialogHeader>
         <div className="space-y-4 px-5 pb-5">
+          {!editing && (
           <div>
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channel Type</div>
             <div className="space-y-2">
@@ -65,6 +66,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
               ))}
             </div>
           </div>
+          )}
           <label className="block">
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channel Name</div>
             <div className="relative">

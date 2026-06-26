@@ -8,9 +8,10 @@ import { Switch } from "@/components/ui/switch"
 
 // Category settings dialog — toggle privacy. A private category restricts channel
 // creation to admins (default public).
-export function CategorySettingsDialog({ name, isPrivate, onClose, onSave }: {
+export function CategorySettingsDialog({ name, isPrivate, canTogglePrivate = true, onClose, onSave }: {
   name: string
   isPrivate: boolean
+  canTogglePrivate?: boolean
   onClose: () => void
   onSave: (isPrivate: boolean) => void
 }) {
@@ -23,6 +24,7 @@ export function CategorySettingsDialog({ name, isPrivate, onClose, onSave }: {
           <p className="text-sm text-muted-foreground">{name}</p>
         </DialogHeader>
         <div className="px-5 pb-5">
+          {canTogglePrivate && (
           <label className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5">
             <Lock className="size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
@@ -31,10 +33,14 @@ export function CategorySettingsDialog({ name, isPrivate, onClose, onSave }: {
             </div>
             <Switch checked={priv} onCheckedChange={setPriv} />
           </label>
+          )}
+          {!canTogglePrivate && (
+            <p className="text-sm text-muted-foreground">No settings available to change.</p>
+          )}
         </div>
         <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-5 py-3">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={() => { onSave(priv); onClose() }}>Save</Button>
+          {canTogglePrivate && <Button size="sm" onClick={() => { onSave(priv); onClose() }}>Save</Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>

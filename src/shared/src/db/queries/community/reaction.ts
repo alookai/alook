@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { communityReaction } from "../../community-schema";
 import type { Database } from "../../index";
 
@@ -39,4 +39,16 @@ export async function getMessageReactions(db: Database, messageId: string) {
     .select()
     .from(communityReaction)
     .where(eq(communityReaction.messageId, messageId));
+}
+
+export async function listReactionsByMessageIds(
+  db: Database,
+  messageIds: string[],
+  currentUserId: string
+) {
+  if (messageIds.length === 0) return [];
+  return db
+    .select()
+    .from(communityReaction)
+    .where(inArray(communityReaction.messageId, messageIds));
 }

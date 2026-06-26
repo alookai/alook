@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
-import { fanOutToChannel, fanOutToDM, fanOutToThread } from "@/lib/community/fanout"
+import { fanOutToChannel, fanOutToDM } from "@/lib/community/fanout"
 
 export const PUT = withAuth(async (_req: NextRequest, ctx) => {
   const messageId = ctx.params?.id
@@ -53,12 +53,9 @@ export const PUT = withAuth(async (_req: NextRequest, ctx) => {
     emoji,
     ...(message.channelId && { channelId: message.channelId }),
     ...(message.dmConversationId && { dmConversationId: message.dmConversationId }),
-    ...(message.threadId && { threadId: message.threadId }),
   }
 
-  if (message.threadId) {
-    fanOutToThread(message.threadId, event, { excludeUserId: ctx.userId }).catch(() => {})
-  } else if (message.channelId) {
+  if (message.channelId) {
     fanOutToChannel(message.channelId, event, { excludeUserId: ctx.userId }).catch(() => {})
   } else if (message.dmConversationId) {
     fanOutToDM(message.dmConversationId, event, { excludeUserId: ctx.userId }).catch(() => {})
@@ -106,12 +103,9 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     emoji,
     ...(message.channelId && { channelId: message.channelId }),
     ...(message.dmConversationId && { dmConversationId: message.dmConversationId }),
-    ...(message.threadId && { threadId: message.threadId }),
   }
 
-  if (message.threadId) {
-    fanOutToThread(message.threadId, event, { excludeUserId: ctx.userId }).catch(() => {})
-  } else if (message.channelId) {
+  if (message.channelId) {
     fanOutToChannel(message.channelId, event, { excludeUserId: ctx.userId }).catch(() => {})
   } else if (message.dmConversationId) {
     fanOutToDM(message.dmConversationId, event, { excludeUserId: ctx.userId }).catch(() => {})

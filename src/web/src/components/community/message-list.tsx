@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Hash } from "lucide-react"
 import { DateDivider, NewDivider } from "./dividers"
 import { Message } from "./message"
@@ -33,6 +33,21 @@ export function MessageList({
   onDownloadFile?: (name: string) => void
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const prevMsgCountRef = useRef(messages.length)
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    // Scroll to bottom on initial load or when new messages arrive
+    const isNewMessage = messages.length > prevMsgCountRef.current
+    prevMsgCountRef.current = messages.length
+    // Only auto-scroll if user is near the bottom (within 150px) or it's initial/new message
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150
+    if (nearBottom || isNewMessage) {
+      el.scrollTop = el.scrollHeight
+    }
+  }, [messages])
 
   const jumpTo = (id: string) => {
     setJumped(id)
@@ -42,7 +57,7 @@ export function MessageList({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div className="flex-1 overflow-y-auto thin-scrollbar">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto thin-scrollbar">
         <div className="flex min-h-full flex-col justify-end gap-4 px-4 py-5">
           <div className="mb-2">
             <div className="mb-3 grid size-17 place-items-center rounded-full bg-muted">

@@ -64,6 +64,24 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     return acc
   }, {} as Record<string, Array<{ kind: "image"; name: string; url: string } | { kind: "file"; name: string; url: string; size: string }>>)
 
+  // Fetch reactions for all messages
+  const allReactions = messageIds.length > 0
+    ? await queries.communityReaction.listReactionsByMessageIds(db, messageIds, ctx.userId)
+    : []
+
+  const reactionsByMessage = allReactions.reduce((acc, r) => {
+    if (!acc[r.messageId]) acc[r.messageId] = new Map<string, { emoji: string; count: number; me: boolean }>()
+    const map = acc[r.messageId]
+    const existing = map.get(r.emoji)
+    if (existing) {
+      existing.count += 1
+      if (r.userId === ctx.userId) existing.me = true
+    } else {
+      map.set(r.emoji, { emoji: r.emoji, count: 1, me: r.userId === ctx.userId })
+    }
+    return acc
+  }, {} as Record<string, Map<string, { emoji: string; count: number; me: boolean }>>)
+
   const messages = items.map((r) => ({
     id: r.id,
     authorId: r.authorId,
@@ -76,6 +94,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     createdAt: r.createdAt,
     embeds: r.embeds ? JSON.parse(r.embeds) : undefined,
     attachments: attachmentsByMessage[r.id]?.length ? attachmentsByMessage[r.id] : undefined,
+    reactions: reactionsByMessage[r.id] ? [...reactionsByMessage[r.id].values()] : undefined,
   }))
 
   return writeJSON({ messages: messages.reverse(), hasMore, cursor: nextCursor })

@@ -13,7 +13,14 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
+  if (!member) return writeError("forbidden", 403)
+
+  const category = await queries.communityCategory.getCategory(db, categoryId)
+  if (!category) return writeError("category not found", 404)
+
+  // Admin/owner can edit any; others can only edit their own
+  const isAdmin = member.role === "owner" || member.role === "admin"
+  if (!isAdmin && category.creatorId !== ctx.userId) {
     return writeError("forbidden", 403)
   }
 
@@ -22,6 +29,11 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     body = await req.json()
   } catch {
     return writeError("invalid request body", 400)
+  }
+
+  // Only admin/owner can toggle private
+  if (body.private !== undefined && !isAdmin) {
+    return writeError("only admins can change private setting", 403)
   }
 
   const changes: { name?: string; private?: boolean } = {}
@@ -58,7 +70,14 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
+  if (!member) return writeError("forbidden", 403)
+
+  const category = await queries.communityCategory.getCategory(db, categoryId)
+  if (!category) return writeError("category not found", 404)
+
+  // Admin/owner can delete any; others can only delete their own
+  const isAdmin = member.role === "owner" || member.role === "admin"
+  if (!isAdmin && category.creatorId !== ctx.userId) {
     return writeError("forbidden", 403)
   }
 

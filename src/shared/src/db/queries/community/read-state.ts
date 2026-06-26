@@ -6,7 +6,6 @@ function buildTargetFilter(data: {
   userId: string;
   channelId?: string;
   dmConversationId?: string;
-  threadId?: string;
 }) {
   const conditions = [eq(communityReadState.userId, data.userId)];
 
@@ -18,9 +17,6 @@ function buildTargetFilter(data: {
       eq(communityReadState.dmConversationId, data.dmConversationId)
     );
   }
-  if (data.threadId) {
-    conditions.push(eq(communityReadState.threadId, data.threadId));
-  }
 
   return and(...conditions)!;
 }
@@ -31,7 +27,6 @@ export async function markRead(
     userId: string;
     channelId?: string;
     dmConversationId?: string;
-    threadId?: string;
     lastReadAt: string;
     lastReadMessageId?: string;
   }
@@ -59,7 +54,6 @@ export async function markRead(
       userId: data.userId,
       channelId: data.channelId ?? null,
       dmConversationId: data.dmConversationId ?? null,
-      threadId: data.threadId ?? null,
       lastReadAt: data.lastReadAt,
       lastReadMessageId: data.lastReadMessageId ?? null,
     })
@@ -73,7 +67,6 @@ export async function getReadState(
     userId: string;
     channelId?: string;
     dmConversationId?: string;
-    threadId?: string;
   }
 ) {
   const rows = await db

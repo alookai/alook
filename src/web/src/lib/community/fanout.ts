@@ -71,25 +71,6 @@ export async function fanOutToDM(
   await broadcastToRecipients(userIds, event, opts?.excludeUserId)
 }
 
-/**
- * Fan out an event to all members of the server that owns a thread's channel.
- * (Threads share the same recipient set as their parent channel.)
- */
-export async function fanOutToThread(
-  threadId: string,
-  event: BroadcastableEvent,
-  opts?: { excludeUserId?: string }
-): Promise<void> {
-  const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
-  const thread = await queries.communityThread.getThread(db, threadId)
-  if (!thread) {
-    log.warn("fanOutToThread: thread not found", { threadId })
-    return
-  }
-  const userIds = await getChannelRecipientUserIds(db, thread.channelId)
-  await broadcastToRecipients(userIds, event, opts?.excludeUserId)
-}
 
 /**
  * Fan out an event to all members of a server.

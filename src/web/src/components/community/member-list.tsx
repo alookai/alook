@@ -1,13 +1,14 @@
 "use client"
 
 import { useState } from "react"
-import { Shield, UserMinus, Check } from "lucide-react"
+import { Shield, ChevronRight, UserMinus, Check } from "lucide-react"
 import {
   ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 } from "@/components/ui/context-menu"
 import { Avatar } from "./avatar"
 import { ConfirmDialog } from "./confirm-dialog"
 import type { Member, Role, OpenProfile } from "./_types"
+import { canManageServer } from "./_types"
 
 // Settable roles via the menu — Owner is excluded (only the server creator is Owner,
 // and it can't be reassigned through the UI).
@@ -29,14 +30,16 @@ function groupMembers(members: Member[]): { label: string; list: Member[] }[] {
   ].filter((g) => g.list.length > 0)
 }
 
-// Member list. Right-click a member to change their role (single-select) or kick them.
-export function MemberList({ members, onOpenProfile, onSetRole, onKick }: {
+export function MemberList({ members, myRole, onOpenProfile, onSetRole, onKick }: {
   members: Member[]
+  myRole?: Role
   onOpenProfile?: OpenProfile
   onSetRole?: (name: string, role: Role) => void
   onKick?: (name: string) => void
 }) {
   const [kickTarget, setKickTarget] = useState<string | null>(null)
+  const [roleTarget, setRoleTarget] = useState<string | null>(null)
+  const canManage = canManageServer(myRole)
   return (
     <>
     <ConfirmDialog
@@ -76,19 +79,23 @@ export function MemberList({ members, onOpenProfile, onSetRole, onKick }: {
                 </ContextMenuTrigger>
                 <ContextMenuContent className="w-48">
                   <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">{mem.name}</div>
-                  <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground"><Shield className="size-3.5" /> Role</div>
-                  {mem.role === "Owner" ? (
-                    <ContextMenuItem disabled>Owner</ContextMenuItem>
-                  ) : (
-                    SETTABLE_ROLES.map((r) => (
-                      <ContextMenuItem key={r} onClick={() => onSetRole?.(mem.name, r)}>
-                        <span className="flex-1">{r}</span>
-                        {mem.role === r && <Check className="size-4" />}
-                      </ContextMenuItem>
-                    ))
-                  )}
-                  {mem.role !== "Owner" && (
+                  {canManage && mem.role !== "Owner" && (
                     <>
+                      <ContextMenuItem onClick={() => setRoleTarget(roleTarget === mem.name ? null : mem.name)}>
+                        <Shield className="size-4" />
+                        <span className="flex-1">Role</span>
+                        <ChevronRight className={`size-3.5 transition-transform ${roleTarget === mem.name ? "rotate-90" : ""}`} />
+                      </ContextMenuItem>
+                      {roleTarget === mem.name && (
+                        <div className="pl-3">
+                          {SETTABLE_ROLES.map((r) => (
+                            <ContextMenuItem key={r} onClick={() => { onSetRole?.(mem.name, r); setRoleTarget(null) }}>
+                              <span className="flex-1">{r}</span>
+                              {mem.role === r && <Check className="size-4" />}
+                            </ContextMenuItem>
+                          ))}
+                        </div>
+                      )}
                       <ContextMenuSeparator />
                       <ContextMenuItem onClick={() => setKickTarget(mem.name)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
                         <UserMinus className="size-4" /> Kick {mem.name}

@@ -5,16 +5,13 @@ import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
-  const threadId = ctx.params?.id
-  if (!threadId) return writeError("missing thread id", 400)
+  const channelId = ctx.params?.id
+  if (!channelId) return writeError("missing id", 400)
 
   const db = getDb(ctx.env.DB)
 
-  const thread = await queries.communityThread.getThread(db, threadId)
-  if (!thread) return writeError("thread not found", 404)
-
-  const channel = await queries.communityChannel.getChannel(db, thread.channelId)
-  if (!channel) return writeError("channel not found", 404)
+  const channel = await queries.communityChannel.getChannel(db, channelId)
+  if (!channel) return writeError("not found", 404)
 
   const member = await queries.communityMember.getMember(db, channel.serverId, ctx.userId)
   if (!member) return writeError("forbidden", 403)
@@ -24,7 +21,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!file) return writeError("no file provided", 400)
 
   const fileId = crypto.randomUUID()
-  const key = `thread/${threadId}/${fileId}/${file.name}`
+  const key = `channel/${channelId}/${fileId}/${file.name}`
 
   await ctx.env.COMMUNITY_MEDIA.put(
     key,

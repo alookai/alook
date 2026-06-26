@@ -30,9 +30,9 @@ type Dialog =
 // lets admins create channels — non-admins are blocked via onBlockedCreate.
 export function ChannelSidebar({
   tree, serverName, activeChannel, setActiveChannel, bordered, noHeader, onOpenSettings,
-  isAdmin = true, onBlockedCreate, mutedChannels,
+  isAdmin = true, currentUserId, onBlockedCreate, mutedChannels,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
-  onUpdateCategory, onReorderCategories, onReorderChannels,
+  onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
 }: {
   tree: ChannelTree
   serverName: string
@@ -42,6 +42,7 @@ export function ChannelSidebar({
   noHeader?: boolean
   onOpenSettings?: () => void
   isAdmin?: boolean
+  currentUserId?: string
   onBlockedCreate?: () => void
   mutedChannels?: Record<string, boolean>
   onCreateChannel?: (categoryId: string, name: string, type: "text" | "forum") => void
@@ -49,10 +50,11 @@ export function ChannelSidebar({
   onDeleteChannel?: (channelId: string) => void
   onDeleteCategory?: (categoryId: string) => void
   onUpdateCategory?: (categoryId: string, opts: { name?: string; isPrivate?: boolean }) => void
+  onRenameChannel?: (channelId: string, name: string) => void
   onReorderCategories?: (categoryIds: string[]) => void
   onReorderChannels?: (channelIds: string[]) => void
 }) {
-  const { collapsed, catOrder, order, catNames, catPrivate, toggleCat, addChannel, removeChannel, renameChannel, addCategory, removeCategory, setCategoryPrivate, onDragOver, onDragEnd: treeDragEnd } = tree
+  const { collapsed, catOrder, order, catNames, catPrivate, catCreators, toggleCat, addChannel, removeChannel, renameChannel, addCategory, removeCategory, setCategoryPrivate, onDragOver, onDragEnd: treeDragEnd } = tree
   const onDragEnd = (e: Parameters<typeof treeDragEnd>[0]) => {
     treeDragEnd(e)
     const { active, over } = e
@@ -82,7 +84,6 @@ export function ChannelSidebar({
   // Find the "none" category ID (empty name) — only if one explicitly exists
   const noneCatId = Object.keys(catNames).find((id) => catNames[id] === "") ?? ""
 
-  // open the create-channel dialog, unless the category is private and the user isn't admin
   const requestCreateChannel = (categoryId: string) => {
     if (catPrivate[categoryId] && !isAdmin) { onBlockedCreate?.(); return }
     setDialog({ kind: "create-channel", categoryId })
@@ -100,7 +101,7 @@ export function ChannelSidebar({
       {!noHeader && (
         <header className="flex h-12 items-center justify-between gap-2 border-b border-border px-4">
           <span className="truncate text-base font-semibold">{serverName || "\u00a0"}</span>
-          {serverName && (
+          {serverName && onOpenSettings && (
             <button onClick={onOpenSettings} className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Server settings">
               <Settings className="size-4" />
             </button>
@@ -124,8 +125,8 @@ export function ChannelSidebar({
                       ch={withMute(ch)}
                       active={ch.id === activeChannel}
                       onClick={() => setActiveChannel(ch.id)}
-                      onEdit={() => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" })}
-                      onDelete={() => { removeChannel(ch.id); onDeleteChannel?.(ch.id) }}
+                      onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" }) : undefined}
+                      onDelete={isAdmin ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
                     />
                   ))}
                 </div>
@@ -139,9 +140,9 @@ export function ChannelSidebar({
                   name={catNames[id] ?? id}
                   open={!collapsed.has(id)}
                   onToggle={() => toggleCat(id)}
-                  onAddChannel={() => requestCreateChannel(id)}
-                  onSettings={() => setDialog({ kind: "category-settings", categoryId: id })}
-                  onDelete={() => { removeCategory(id); onDeleteCategory?.(id) }}
+                  onAddChannel={(!catPrivate[id] || isAdmin) ? () => requestCreateChannel(id) : undefined}
+                  onSettings={isAdmin ? () => setDialog({ kind: "category-settings", categoryId: id }) : undefined}
+                  onDelete={(isAdmin || catCreators[id] === currentUserId) ? () => { removeCategory(id); onDeleteCategory?.(id) } : undefined}
                   isPrivate={catPrivate[id]}
                 >
                   <SortableContext items={(order[id] ?? []).map((c) => c.id)} strategy={verticalListSortingStrategy}>
@@ -152,8 +153,8 @@ export function ChannelSidebar({
                           ch={withMute(ch)}
                           active={ch.id === activeChannel}
                           onClick={() => setActiveChannel(ch.id)}
-                          onEdit={() => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" })}
-                          onDelete={() => { removeChannel(ch.id); onDeleteChannel?.(ch.id) }}
+                          onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" }) : undefined}
+                          onDelete={isAdmin ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
                         />
                       ))}
                     </div>
@@ -181,7 +182,7 @@ export function ChannelSidebar({
           category={catNames[dialog.categoryId] ?? ""}
           initial={{ name: dialog.name, type: dialog.type }}
           onClose={() => setDialog(null)}
-          onCreate={({ name }) => renameChannel(dialog.id, name)}
+          onCreate={({ name }) => { renameChannel(dialog.id, name); onRenameChannel?.(dialog.id, name) }}
         />
       )}
       {dialog?.kind === "create-category" && (
@@ -194,6 +195,7 @@ export function ChannelSidebar({
         <CategorySettingsDialog
           name={catNames[dialog.categoryId] ?? ""}
           isPrivate={!!catPrivate[dialog.categoryId]}
+          canTogglePrivate={isAdmin}
           onClose={() => setDialog(null)}
           onSave={(priv) => { setCategoryPrivate(dialog.categoryId, priv); onUpdateCategory?.(dialog.categoryId, { isPrivate: priv }) }}
         />

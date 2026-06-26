@@ -67,6 +67,8 @@ export type Category = {
   id: string
   name: string
   channels: Channel[]
+  private?: number | boolean
+  creatorId?: string | null
 }
 
 // ── Messages ───────────────────────────────────────────────────────────────
@@ -125,6 +127,10 @@ export type ForumPost = Thread & {
 
 // ── Members / friends / DMs ──────────────────────────────────────────────────
 export type Role = "Owner" | "Admin" | "Member"
+
+export function canManageServer(role?: Role): boolean {
+  return role === "Owner" || role === "Admin"
+}
 
 export type Member = {
   id: string
@@ -195,7 +201,9 @@ export type AuditEntry = {
 export type Mention = {
   id: string
   server: string
+  serverId?: string
   channel: string
+  channelId?: string
   m: Msg
 }
 

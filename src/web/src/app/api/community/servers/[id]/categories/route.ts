@@ -12,9 +12,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
-    return writeError("forbidden", 403)
-  }
+  if (!member) return writeError("forbidden", 403)
 
   let body: { name?: string; private?: boolean }
   try {
@@ -27,10 +25,15 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("name is required", 400)
   }
 
+  if (body.private && member.role !== "owner" && member.role !== "admin") {
+    return writeError("only admins can create private categories", 403)
+  }
+
   const row = await queries.communityCategory.createCategory(db, {
     serverId,
     name: body.name,
     private: body.private,
+    creatorId: ctx.userId,
   })
 
   const category = {

@@ -4,7 +4,7 @@ import type { Database } from "../../index";
 
 export async function createCategory(
   db: Database,
-  data: { serverId: string; name: string; private?: boolean }
+  data: { serverId: string; name: string; private?: boolean; creatorId?: string }
 ) {
   const rows = await db
     .insert(communityCategory)
@@ -12,9 +12,18 @@ export async function createCategory(
       serverId: data.serverId,
       name: data.name,
       private: data.private ? 1 : 0,
+      creatorId: data.creatorId ?? null,
     })
     .returning();
   return rows[0]!;
+}
+
+export async function getCategory(db: Database, categoryId: string) {
+  const rows = await db
+    .select()
+    .from(communityCategory)
+    .where(eq(communityCategory.id, categoryId));
+  return rows[0] ?? null;
 }
 
 export async function updateCategory(

@@ -58,9 +58,13 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
       <ContextMenuTrigger render={row} />
       <ContextMenuContent className="w-48">
         <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">#{ch.name}</div>
-        <ContextMenuItem onClick={onEdit}><Pencil className="size-4" /> Edit Channel</ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={onDelete} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"><Trash2 className="size-4" /> Delete Channel</ContextMenuItem>
+        {onEdit && <ContextMenuItem onClick={onEdit}><Pencil className="size-4" /> Edit Channel</ContextMenuItem>}
+        {onDelete && (
+          <>
+            {onEdit && <ContextMenuSeparator />}
+            <ContextMenuItem onClick={onDelete} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"><Trash2 className="size-4" /> Delete Channel</ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   )

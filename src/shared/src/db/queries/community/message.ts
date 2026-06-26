@@ -2,7 +2,6 @@ import { eq, and, desc, lt, or, sql } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
-  communityThread,
   communityDmConversation,
 } from "../../community-schema";
 import { user } from "../../schema";
@@ -17,7 +16,6 @@ export async function createMessage(
     content: string;
     channelId?: string;
     dmConversationId?: string;
-    threadId?: string;
     type?: string;
     mentionType?: string;
     replyToId?: string;
@@ -33,7 +31,6 @@ export async function createMessage(
       content: data.content,
       channelId: data.channelId ?? null,
       dmConversationId: data.dmConversationId ?? null,
-      threadId: data.threadId ?? null,
       type: data.type ?? "default",
       mentionType: data.mentionType ?? null,
       replyToId: data.replyToId ?? null,
@@ -43,11 +40,13 @@ export async function createMessage(
 
   const msg = rows[0]!;
 
-  // Update parent lastMessageAt
   if (data.channelId) {
     await db
       .update(communityChannel)
-      .set({ lastMessageAt: now })
+      .set({
+        lastMessageAt: now,
+        messageCount: sql`${communityChannel.messageCount} + 1`,
+      })
       .where(eq(communityChannel.id, data.channelId));
   }
 
@@ -58,16 +57,6 @@ export async function createMessage(
       .where(eq(communityDmConversation.id, data.dmConversationId));
   }
 
-  if (data.threadId) {
-    await db
-      .update(communityThread)
-      .set({
-        lastMessageAt: now,
-        messageCount: sql`${communityThread.messageCount} + 1`,
-      })
-      .where(eq(communityThread.id, data.threadId));
-  }
-
   return msg;
 }
 
@@ -76,7 +65,6 @@ export async function listMessages(
   opts: {
     channelId?: string;
     dmConversationId?: string;
-    threadId?: string;
     cursor?: { createdAt: string; id: string };
     limit?: number;
   }
@@ -90,9 +78,6 @@ export async function listMessages(
   }
   if (opts.dmConversationId) {
     conditions.push(eq(communityMessage.dmConversationId, opts.dmConversationId));
-  }
-  if (opts.threadId) {
-    conditions.push(eq(communityMessage.threadId, opts.threadId));
   }
 
   if (opts.cursor) {
@@ -115,7 +100,6 @@ export async function listMessages(
       type: communityMessage.type,
       mentionType: communityMessage.mentionType,
       replyToId: communityMessage.replyToId,
-      threadId: communityMessage.threadId,
       embeds: communityMessage.embeds,
       flags: communityMessage.flags,
       createdAt: communityMessage.createdAt,
@@ -143,7 +127,6 @@ export async function getMessage(db: Database, messageId: string) {
       type: communityMessage.type,
       mentionType: communityMessage.mentionType,
       replyToId: communityMessage.replyToId,
-      threadId: communityMessage.threadId,
       embeds: communityMessage.embeds,
       flags: communityMessage.flags,
       createdAt: communityMessage.createdAt,

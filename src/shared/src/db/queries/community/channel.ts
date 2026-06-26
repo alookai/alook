@@ -1,4 +1,4 @@
-import { eq, asc } from "drizzle-orm";
+import { eq, and, asc, desc, isNull } from "drizzle-orm";
 import { communityChannel } from "../../community-schema";
 import type { Database } from "../../index";
 
@@ -10,6 +10,9 @@ export async function createChannel(
     name: string;
     type?: string;
     topic?: string;
+    parentChannelId?: string | null;
+    creatorId?: string | null;
+    parentMessageId?: string | null;
   }
 ) {
   const rows = await db
@@ -20,6 +23,9 @@ export async function createChannel(
       name: data.name,
       type: data.type ?? "text",
       topic: data.topic ?? "",
+      parentChannelId: data.parentChannelId ?? null,
+      creatorId: data.creatorId ?? null,
+      parentMessageId: data.parentMessageId ?? null,
     })
     .returning();
   return rows[0]!;
@@ -41,6 +47,9 @@ export async function updateChannel(
     topic?: string;
     categoryId?: string | null;
     forumTags?: string | null;
+    archived?: number;
+    lastMessageAt?: string;
+    messageCount?: number;
   }
 ) {
   const rows = await db
@@ -63,8 +72,27 @@ export async function listServerChannels(db: Database, serverId: string) {
   return db
     .select()
     .from(communityChannel)
-    .where(eq(communityChannel.serverId, serverId))
+    .where(and(eq(communityChannel.serverId, serverId), isNull(communityChannel.parentChannelId)))
     .orderBy(asc(communityChannel.position));
+}
+
+export async function listChildChannels(
+  db: Database,
+  parentChannelId: string,
+  opts?: { archived?: boolean; type?: string }
+) {
+  const conditions = [eq(communityChannel.parentChannelId, parentChannelId)];
+  if (opts?.archived !== undefined) {
+    conditions.push(eq(communityChannel.archived, opts.archived ? 1 : 0));
+  }
+  if (opts?.type) {
+    conditions.push(eq(communityChannel.type, opts.type));
+  }
+  return db
+    .select()
+    .from(communityChannel)
+    .where(and(...conditions))
+    .orderBy(desc(communityChannel.lastMessageAt));
 }
 
 export async function reorderChannels(

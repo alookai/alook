@@ -5,6 +5,7 @@ import {
   index,
   unique,
   primaryKey,
+  type SQLiteTableWithColumns,
 } from "drizzle-orm/sqlite-core";
 import { nanoid } from "nanoid";
 import { user } from "./schema";
@@ -36,12 +37,13 @@ export const communityCategory = sqliteTable(
     name: text("name").notNull(),
     position: integer("position").default(0),
     private: integer("private").default(0),
+    creatorId: text("creator_id").references(() => user.id, { onDelete: "set null" }),
   },
   (t) => [unique("uq_category_server_name").on(t.serverId, t.name)]
 );
 
 // 3. community_channel
-export const communityChannel = sqliteTable(
+export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
   "community_channel",
   {
     id: text("id").primaryKey().$defaultFn(() => nanoid()),
@@ -56,12 +58,20 @@ export const communityChannel = sqliteTable(
     topic: text("topic").default(""),
     position: integer("position").default(0),
     forumTags: text("forum_tags"), // JSON
+    parentChannelId: text("parent_channel_id").references(() => communityChannel.id, {
+      onDelete: "cascade",
+    }),
+    creatorId: text("creator_id").references(() => user.id, { onDelete: "set null" }),
+    messageCount: integer("message_count").default(0),
+    archived: integer("archived").default(0),
+    parentMessageId: text("parent_message_id"),
     lastMessageAt: text("last_message_at"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [
     index("idx_channel_server_position").on(t.serverId, t.position),
     index("idx_channel_server_last_message").on(t.serverId, t.lastMessageAt),
+    index("idx_channel_parent").on(t.parentChannelId),
   ]
 );
 
@@ -82,36 +92,8 @@ export const communityDmConversation = sqliteTable(
   ]
 );
 
-// 5. community_thread
-export const communityThread = sqliteTable(
-  "community_thread",
-  {
-    id: text("id").primaryKey().$defaultFn(() => nanoid()),
-    channelId: text("channel_id")
-      .notNull()
-      .references(() => communityChannel.id, { onDelete: "cascade" }),
-    parentMessageId: text("parent_message_id"), // NO FK to avoid circular dependency
-    name: text("name").notNull(),
-    kind: text("kind").notNull().default("thread"),
-    tags: text("tags"),
-    creatorId: text("creator_id").references(() => user.id, { onDelete: "set null" }),
-    archived: integer("archived").default(0),
-    lastMessageAt: text("last_message_at"),
-    messageCount: integer("message_count").default(0),
-    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
-  },
-  (t) => [
-    index("idx_thread_channel_archived_last_message").on(
-      t.channelId,
-      t.archived,
-      t.lastMessageAt
-    ),
-    unique("uq_thread_parent_message").on(t.parentMessageId),
-  ]
-);
-
-// 6. community_message
-// CHECK constraint (in migration SQL): exactly one of channelId/dmConversationId/threadId is non-null
+// 5. community_message
+// CHECK constraint (in migration SQL): exactly one of channelId/dmConversationId is non-null
 export const communityMessage = sqliteTable(
   "community_message",
   {
@@ -123,9 +105,6 @@ export const communityMessage = sqliteTable(
     type: text("type").notNull().default("default"),
     mentionType: text("mention_type"),
     replyToId: text("reply_to_id"), // Logical reference, no FK
-    threadId: text("thread_id").references(() => communityThread.id, {
-      onDelete: "cascade",
-    }),
     embeds: text("embeds"),
     flags: integer("flags").default(0),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
@@ -145,7 +124,6 @@ export const communityMessage = sqliteTable(
       t.createdAt
     ),
     index("idx_message_dm_created").on(t.dmConversationId, t.createdAt),
-    index("idx_message_thread_created").on(t.threadId, t.createdAt),
   ]
 );
 
@@ -245,7 +223,7 @@ export const communityFriendship = sqliteTable(
 );
 
 // 12. community_read_state
-// CHECK constraint (in migration SQL): exactly one of channelId/dmConversationId/threadId is non-null
+// CHECK constraint (in migration SQL): exactly one of channelId/dmConversationId is non-null
 // Partial unique indexes will be in migration SQL since Drizzle doesn't support partial indexes
 export const communityReadState = sqliteTable(
   "community_read_state",
@@ -261,9 +239,6 @@ export const communityReadState = sqliteTable(
       () => communityDmConversation.id,
       { onDelete: "cascade" }
     ),
-    threadId: text("thread_id").references(() => communityThread.id, {
-      onDelete: "cascade",
-    }),
     lastReadAt: text("last_read_at").notNull(),
     lastReadMessageId: text("last_read_message_id"),
   },

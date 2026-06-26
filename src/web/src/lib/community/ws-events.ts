@@ -77,25 +77,25 @@ export type CommunityTypingStart = {
   userId: string
 }
 
-// ── Thread events ─────────────────────────────────────────────────────────────
+// ── Child channel events (threads + forum posts) ─────────────────────────────
 
-export type CommunityThreadCreate = {
-  type: "community:thread.create"
-  channelId: string
-  thread: {
+export type CommunityChildChannelCreate = {
+  type: "community:channel.child_create"
+  parentChannelId: string
+  channel: {
     id: string
     name: string
-    kind: "thread" | "forum_post"
+    type: "thread" | "forum_post"
     creatorId?: string
     createdAt: string
   }
   parentMessageId?: string
 }
 
-export type CommunityThreadUpdate = {
-  type: "community:thread.update"
+export type CommunityChildChannelUpdate = {
+  type: "community:channel.child_update"
+  parentChannelId: string
   channelId: string
-  threadId: string
   changes: {
     name?: string
     archived?: boolean
@@ -309,6 +309,16 @@ export type CommunityInviteCreate = {
   }
 }
 
+// ── Mention events ───────────────────────────────────────────────────────────
+
+export type CommunityMentionCreate = {
+  type: "community:mention.create"
+  userId: string
+  messageId: string
+  channelId?: string
+  authorName: string
+}
+
 // ── Presence events ───────────────────────────────────────────────────────────
 
 export type CommunityPresenceUpdate = {
@@ -326,8 +336,8 @@ export type CommunityWsEvent =
   | CommunityPinAdd
   | CommunityPinRemove
   | CommunityTypingStart
-  | CommunityThreadCreate
-  | CommunityThreadUpdate
+  | CommunityChildChannelCreate
+  | CommunityChildChannelUpdate
   | CommunityServerUpdate
   | CommunityServerDelete
   | CommunityChannelCreate
@@ -350,6 +360,7 @@ export type CommunityWsEvent =
   | CommunityDmNewMessage
   | CommunityDmTyping
   | CommunityPresenceUpdate
+  | CommunityMentionCreate
 
 /** Type guard: is this a community WS event? */
 export function isCommunityEvent(msg: { type: string }): msg is CommunityWsEvent {

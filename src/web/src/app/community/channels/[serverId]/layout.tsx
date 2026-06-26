@@ -24,6 +24,7 @@ import { Overlay } from "@/components/community/overlay"
 import { ProfileCard } from "@/components/community/profile-card"
 import { ImageLightbox } from "@/components/community/image-lightbox"
 import type { MobileZone, View, Profile, SettingsSection } from "@/components/community/_types"
+import { canManageServer } from "@/components/community/_types"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ serverId: string }>()
@@ -119,18 +120,23 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }
 
   // ── Channel sidebar props ─────────────────────────────────────────────────
+  const myMember = ctx.members.find((m) => m.userId === ctx.currentUser.id)
+  const isAdmin = canManageServer(myMember?.role)
   const channelProps = {
     tree: channelTree,
     serverName: ctx.currentServer?.name ?? "",
-    activeChannel: ctx.currentChannelId ?? "",
+    activeChannel: ctx.currentChannelMeta?.parentChannelId ?? ctx.currentChannelId ?? "",
+    isAdmin,
+    currentUserId: ctx.currentUser.id,
     setActiveChannel: (id: string) => {
+      router.push(`/community/channels/${serverId}/${id}`)
       ctx.setCurrentChannelId(id)
       ctx.markChannelRead(id)
       channelTree.markRead(id)
       if (bp === "tablet") setSidebarOpen(false)
       if (bp === "mobile") setMobileZone("messages")
     },
-    onOpenSettings: () => { setServerSettingsOpen(true) },
+    onOpenSettings: isAdmin ? () => { setServerSettingsOpen(true) } : undefined,
     onBlockedCreate: () => toast("Only admins can create channels in a private category"),
     mutedChannels: Object.fromEntries(
       Object.entries(ctx.channelNotif).map(([k, v]) => [k, v === "Nothing"])
@@ -140,6 +146,16 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     },
     onCreateCategory: (name: string, opts?: { private?: boolean }) => {
       ctx.createCategory(serverId, name, opts)
+    },
+    onRenameChannel: async (channelId: string, name: string) => {
+      try {
+        await apiFetch(`/api/community/channels/${channelId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ name }),
+        })
+      } catch (e: any) {
+        toast(e?.message || "Failed to rename channel")
+      }
     },
     onDeleteChannel: (channelId: string) => {
       ctx.deleteChannel(channelId)
@@ -236,7 +252,15 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       <InboxPopover
         feed={ctx.inboxFeed}
         mentions={ctx.mentions}
-        onOpenItem={ctx.openInboxItem}
+        onOpenItem={(id) => {
+          ctx.openInboxItem(id)
+          router.push(`/community/channels/${id}`)
+        }}
+        onOpenMention={(mention) => {
+          if (mention.serverId && mention.channelId) {
+            router.push(`/community/channels/${mention.serverId}/${mention.channelId}`)
+          }
+        }}
         onMarkAllRead={ctx.markAllInboxRead}
       />
     ),
@@ -273,6 +297,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
                   method: "PATCH",
                   body: JSON.stringify(data),
                 })
+                ctx.setCurrentUser((u) => ({
+                  ...u,
+                  ...(data.name ? { name: data.name } : {}),
+                  ...(data.aboutMe !== undefined ? { aboutMe: data.aboutMe } : {}),
+                }))
               } catch { toast("Failed to save profile") }
             }}
             onLogout={() => { window.location.href = "/sign-in" }}

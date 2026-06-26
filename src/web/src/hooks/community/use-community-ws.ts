@@ -9,8 +9,8 @@ import type {
   CommunityReactionRemove,
   CommunityTypingStart,
   CommunityPresenceUpdate,
-  CommunityThreadCreate,
-  CommunityThreadUpdate,
+  CommunityChildChannelCreate,
+  CommunityChildChannelUpdate,
   CommunityMemberJoin,
   CommunityMemberLeave,
   CommunityMemberUpdate,
@@ -49,7 +49,7 @@ export type CommunityWsCallbacks = {
   onReaction?: (event: CommunityReactionAdd | CommunityReactionRemove) => void
   onTyping?: (event: CommunityTypingStart | CommunityDmTyping) => void
   onPresence?: (event: CommunityPresenceUpdate) => void
-  onThread?: (event: CommunityThreadCreate | CommunityThreadUpdate) => void
+  onChildChannel?: (event: CommunityChildChannelCreate | CommunityChildChannelUpdate) => void
   onMember?: (event: CommunityMemberJoin | CommunityMemberLeave | CommunityMemberUpdate) => void
   onChannel?: (event: CommunityChannelCreate | CommunityChannelUpdate | CommunityChannelDelete | CommunityChannelReorder) => void
   onPin?: (event: CommunityPinAdd | CommunityPinRemove) => void
@@ -131,10 +131,10 @@ export function useCommunityWs(callbacks: CommunityWsCallbacks) {
         }
         break
 
-      // ── Threads ───────────────────────────────────────────────────────
-      case "community:thread.create":
-      case "community:thread.update":
-        cbs.onThread?.(event)
+      // ── Child channels (threads + forum posts) ────────────────────────
+      case "community:channel.child_create":
+      case "community:channel.child_update":
+        cbs.onChildChannel?.(event)
         break
 
       // ── Server ────────────────────────────────────────────────────────

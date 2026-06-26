@@ -31,7 +31,7 @@ function InboxFeedRows({ feed, unreadOnly, onOpenItem }: { feed: InboxRow[]; unr
   )
 }
 
-export function InboxPopover({ feed, mentions, onOpenItem, onMarkAllRead }: { feed: InboxRow[]; mentions: Mention[]; onOpenItem?: (id: string) => void; onMarkAllRead?: () => void }) {
+export function InboxPopover({ feed, mentions, onOpenItem, onOpenMention, onMarkAllRead }: { feed: InboxRow[]; mentions: Mention[]; onOpenItem?: (id: string) => void; onOpenMention?: (mention: Mention) => void; onMarkAllRead?: () => void }) {
   return (
     <Tabs defaultValue="foryou">
       <div className="flex items-center gap-2 px-4 pt-3">
@@ -54,7 +54,7 @@ export function InboxPopover({ feed, mentions, onOpenItem, onMarkAllRead }: { fe
             <EmptyState icon={Inbox} label="No mentions yet." />
           ) : (
             mentions.map((mn) => (
-              <button key={mn.id} onClick={() => onOpenItem?.(mn.id)} className="flex w-full items-start gap-3 rounded-md p-2 text-left hover:bg-accent">
+              <button key={mn.id} onClick={() => onOpenMention?.(mn)} className="flex w-full items-start gap-3 rounded-md p-2 text-left hover:bg-accent">
                 <Avatar label={mn.m.authorAvatar ?? "?"} size={36} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm">

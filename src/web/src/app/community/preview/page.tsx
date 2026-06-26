@@ -437,7 +437,6 @@ export default function CommunityPreview() {
           tags={FORUM_TAGS}
           onOpenPost={enterThread}
           onCreatePost={createForumPost}
-          onAttach={() => toast("Attach an image")}
           onHamburger={hamburger ? () => setSidebarOpen(true) : undefined}
           onBack={compact ? () => setMobileZone("channels") : undefined}
         />

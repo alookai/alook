@@ -22,3 +22,4 @@ plans/
 .playwright-mcp/
 .lighthouseci/
 src/cli/LICENSE
+.superpowers/

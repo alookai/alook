@@ -30,19 +30,34 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   if (!body.name) return writeError("name is required", 400)
 
-  const thread = await queries.communityThread.createThread(db, {
-    channelId: message.channelId,
+  const childChannel = await queries.communityChannel.createChannel(db, {
+    serverId: channel.serverId,
+    parentChannelId: message.channelId,
     parentMessageId: messageId,
     name: body.name,
+    type: "thread",
     creatorId: ctx.userId,
   })
 
+  // Copy the original message as the first message in the thread
+  await queries.communityMessage.createMessage(db, {
+    authorId: message.authorId,
+    content: message.content ?? "",
+    channelId: childChannel.id,
+  })
+
   fanOutToChannel(message.channelId, {
-    type: "community:thread.create",
-    channelId: message.channelId,
-    thread,
+    type: "community:channel.child_create",
+    parentChannelId: message.channelId,
+    channel: {
+      id: childChannel.id,
+      name: childChannel.name,
+      type: "thread" as const,
+      creatorId: ctx.userId,
+      createdAt: childChannel.createdAt,
+    },
     parentMessageId: messageId,
   } as never, { excludeUserId: ctx.userId }).catch(() => {})
 
-  return writeJSON(thread, 201)
+  return writeJSON(childChannel, 201)
 })

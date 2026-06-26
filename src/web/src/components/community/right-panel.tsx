@@ -12,7 +12,7 @@ import type { RightPanel, Member, Role, Msg, Thread, OpenProfile } from "./_type
 // Right-panel content router — members / pinned / search / threads. Data via props.
 export function RightPanelContent({
   kind, members, pinned, searchResults, searchQuery, threads, onClose, showClose, onOpenThread, onOpenProfile,
-  onSetRole, onKickMember,
+  onSetRole, onKickMember, myRole,
 }: {
   kind: Exclude<RightPanel, null>
   members: Member[]
@@ -26,16 +26,17 @@ export function RightPanelContent({
   onOpenProfile?: OpenProfile
   onSetRole?: (name: string, role: Role) => void
   onKickMember?: (name: string) => void
+  myRole?: Role
 }) {
   if (kind === "members")
     // Desktop shows the bare list under the spanning channel header (no own header).
     // Overlay contexts (tablet/mobile) wrap it so it gets a dismiss bar.
     return showClose ? (
       <PanelShell icon={Users} title="Members" onClose={onClose} showClose bodyClassName="p-0">
-        <MemberList members={members} onOpenProfile={onOpenProfile} onSetRole={onSetRole} onKick={onKickMember} />
+        <MemberList members={members} myRole={myRole} onOpenProfile={onOpenProfile} onSetRole={onSetRole} onKick={onKickMember} />
       </PanelShell>
     ) : (
-      <MemberList members={members} onOpenProfile={onOpenProfile} onSetRole={onSetRole} onKick={onKickMember} />
+      <MemberList members={members} myRole={myRole} onOpenProfile={onOpenProfile} onSetRole={onSetRole} onKick={onKickMember} />
     )
   if (kind === "pinned")
     return (
