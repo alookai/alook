@@ -923,11 +923,35 @@ export function CommunityProvider({
         return { ...m, reactions }
       })
     })
-    if (wasMe) {
-      apiFetch(`/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`, { method: "DELETE" }).catch(() => {})
-    } else {
-      apiFetch(`/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`, { method: "PUT" }).catch(() => {})
-    }
+    const url = `/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`
+    const method = wasMe ? "DELETE" : "PUT"
+    apiFetch(url, { method }).catch(() => {
+      setMessages((prev) => {
+        return prev.map((m) => {
+          if (m.id !== messageId) return m
+          const reactions = (m.reactions ?? []).map((r) => ({ ...r, userIds: [...(r.userIds ?? [])] }))
+          const existing = reactions.find((r) => r.emoji === emoji)
+          if (wasMe) {
+            if (existing) {
+              existing.userIds.push(userId)
+              existing.count = existing.userIds.length
+              existing.me = true
+            } else {
+              reactions.push({ emoji, count: 1, me: true, userIds: [userId] })
+            }
+          } else if (existing) {
+            existing.userIds = existing.userIds.filter((id) => id !== userId)
+            existing.count = existing.userIds.length
+            existing.me = false
+            if (existing.count <= 0) {
+              const idx = reactions.indexOf(existing)
+              reactions.splice(idx, 1)
+            }
+          }
+          return { ...m, reactions }
+        })
+      })
+    })
   }, [])
 
   const pinMessage = useCallback((messageId: string) => {
