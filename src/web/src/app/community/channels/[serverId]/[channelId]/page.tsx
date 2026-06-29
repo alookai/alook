@@ -291,8 +291,6 @@ export default function ChannelPage() {
           forum={parentChannel?.type === "forum"}
           rightPanel={rightPanel}
           onToggle={togglePanel}
-          onSearch={(q) => { doSearch(q); setRightPanel("search") }}
-          searchBox={bp !== "mobile"}
           onBack={bp === "mobile" ? () => router.back() : undefined}
           server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
           breadcrumb={{
@@ -361,10 +359,8 @@ export default function ChannelPage() {
           forum
           rightPanel={rightPanel}
           onToggle={togglePanel}
-          onSearch={(q) => { doSearch(q); setRightPanel("search") }}
           notifLevel={(ctx.channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
           onSetNotifLevel={(l) => ctx.setChannelNotif(channelId, l)}
-          searchBox={bp !== "mobile"}
           onBack={bp === "mobile" ? goBack : undefined}
           server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
           tools={{ threads: false, pinned: false }}
@@ -408,10 +404,8 @@ export default function ChannelPage() {
         channel={channelName}
         rightPanel={rightPanel}
         onToggle={togglePanel}
-        onSearch={(q) => { doSearch(q); setRightPanel("search") }}
         notifLevel={(ctx.channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
         onSetNotifLevel={(l) => ctx.setChannelNotif(channelId, l)}
-        searchBox={bp !== "mobile"}
         onBack={bp === "mobile" ? goBack : undefined}
         server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
       />

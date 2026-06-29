@@ -382,7 +382,7 @@ export default function CommunityPreview() {
       setOpenThreadId(null)
       if (bp === "mobile") setMobileZone("messages")
     },
-    onOpenSettings: () => setView("settings"),
+    onOpenSettings: (section?: SettingsSection) => { if (section) setSettingsSection(section); setView("settings") },
     onBlockedCreate: () => toast("Only admins can create channels in a private category"),
     mutedChannels: Object.fromEntries(Object.entries(channelNotif).map(([k, v]) => [k, v === "Nothing"])),
   }
@@ -407,8 +407,6 @@ export default function CommunityPreview() {
             forum={isForum}
             rightPanel={rightPanel}
             onToggle={togglePanel}
-            onSearch={(q) => { setSearchQuery(q); setRightPanel("search") }}
-            searchBox={bp !== "mobile"}
             onBack={compact ? () => setMobileZone("channels") : undefined}
             breadcrumb={{
               label: openThread.name,
@@ -446,10 +444,8 @@ export default function CommunityPreview() {
             forum
             rightPanel={rightPanel}
             onToggle={togglePanel}
-            onSearch={(q) => { setSearchQuery(q); setRightPanel("search") }}
             notifLevel={(channelNotif[activeChannel] as ChannelNotifLevel) ?? "Use Server Default"}
             onSetNotifLevel={(l) => setChannelNotif((p) => ({ ...p, [activeChannel]: l }))}
-            searchBox={bp !== "mobile"}
             onBack={compact ? () => setMobileZone("channels") : undefined}
             tools={{ threads: false, pinned: false }}
           />
@@ -478,10 +474,8 @@ export default function CommunityPreview() {
           channel={activeChannel}
           rightPanel={rightPanel}
           onToggle={togglePanel}
-          onSearch={(q) => { setSearchQuery(q); setRightPanel("search") }}
           notifLevel={(channelNotif[activeChannel] as ChannelNotifLevel) ?? "Use Server Default"}
           onSetNotifLevel={(l) => setChannelNotif((p) => ({ ...p, [activeChannel]: l }))}
-          searchBox={bp !== "mobile"}
           onBack={compact ? () => setMobileZone("channels") : undefined}
         />
         <div className="flex min-h-0 flex-1">

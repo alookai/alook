@@ -1,19 +1,20 @@
 "use client"
 
 import { useState } from "react"
-import { Settings } from "lucide-react"
+import { Settings, Users, Link2, Bell, ScrollText, ChevronDown } from "lucide-react"
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
 } from "@dnd-kit/core"
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { SortableCategory } from "./sortable-category"
 import { SortableChannel } from "./sortable-channel"
 import { CreateChannelDialog } from "./create-channel-dialog"
 import { CreateCategoryDialog } from "./create-category-dialog"
 import { CategorySettingsDialog } from "./category-settings-dialog"
 import { catId, type ChannelTree } from "./use-channel-tree"
-import type { Channel } from "./_types"
+import type { Channel, SettingsSection } from "./_types"
 import type { ChannelType } from "@alook/shared"
 
 
@@ -39,7 +40,7 @@ export function ChannelSidebar({
   activeChannel: string
   setActiveChannel: (id: string) => void
   noHeader?: boolean
-  onOpenSettings?: () => void
+  onOpenSettings?: (section?: SettingsSection) => void
   isAdmin?: boolean
   currentUserId?: string
   onBlockedCreate?: () => void
@@ -96,12 +97,23 @@ export function ChannelSidebar({
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
       {!noHeader && (
-        <header className="flex h-12 items-center justify-between gap-2 border-b border-border/40 px-4">
-          <span className="truncate text-lg font-semibold">{serverName || "\u00a0"}</span>
-          {serverName && onOpenSettings && (
-            <button onClick={onOpenSettings} className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Server settings">
-              <Settings className="size-4" />
-            </button>
+        <header className="flex h-12 items-center border-b border-border/40 px-4">
+          {serverName && onOpenSettings ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                <span className="truncate text-lg font-semibold">{serverName}</span>
+                <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                <DropdownMenuItem onClick={() => onOpenSettings("overview")}><Settings className="size-4" /> Overview</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onOpenSettings("members")}><Users className="size-4" /> Members</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onOpenSettings("invites")}><Link2 className="size-4" /> Invites</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onOpenSettings("notifications")}><Bell className="size-4" /> Notifications</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onOpenSettings("audit")}><ScrollText className="size-4" /> Audit Log</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <span className="truncate text-lg font-semibold">{serverName || "\u00a0"}</span>
           )}
         </header>
       )}

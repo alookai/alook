@@ -133,7 +133,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       channelTree.markRead(id)
       if (bp === "mobile") setMobileZone("messages")
     },
-    onOpenSettings: isAdmin ? () => { setServerSettingsOpen(true) } : undefined,
+    onOpenSettings: isAdmin ? (section?: SettingsSection) => { if (section) setSettingsSection(section); setServerSettingsOpen(true) } : undefined,
     onBlockedCreate: () => toast("Only admins can create channels in a private category"),
     mutedChannels: Object.fromEntries(
       Object.entries(ctx.channelNotif).map(([k, v]) => [k, v === "Nothing"])

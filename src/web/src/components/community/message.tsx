@@ -133,9 +133,7 @@ export function Message({
             </div>
           )}
           {m.content && (
-            <div className="inline">
-              <MessageBody text={m.content} />
-            </div>
+            <MessageBody text={m.content} />
           )}
 
           {m.attachments && (

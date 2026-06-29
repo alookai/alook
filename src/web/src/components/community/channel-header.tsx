@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Bell, BellOff, Pin, Users, Search, MessagesSquare, ChevronLeft, X, Check, Pencil } from "lucide-react"
+import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -12,42 +12,21 @@ import type { RightPanel } from "./_types"
 
 export type ChannelNotifLevel = "Use Server Default" | "All Messages" | "Only @mentions" | "Nothing"
 
-// Channel header — title + thread/notif/pin/member/search toolbar.
-// Search has two modes:
-//  - searchBox (desktop): clicking the search button expands an inline input;
-//    typing + Enter submits the query → opens the search panel.
-//  - !searchBox (mobile): the icon opens the panel directly (search happens inside it).
 export function ChannelHeader({
-  channel, rightPanel, onToggle, onSearch, notifLevel, onSetNotifLevel, onBack, searchBox,
+  channel, rightPanel, onToggle, notifLevel, onSetNotifLevel, onBack,
   breadcrumb, forum, server, tools,
 }: {
   channel: string
   rightPanel: RightPanel
   onToggle: (k: Exclude<RightPanel, null>) => void
-  onSearch?: (query: string) => void
   notifLevel?: ChannelNotifLevel
   onSetNotifLevel?: (l: ChannelNotifLevel) => void
   onBack?: () => void
-  searchBox?: boolean
   forum?: boolean
   breadcrumb?: { label: string; onRename?: (name: string) => void; onNavigateBack?: () => void }
   server?: { name: string; icon: string | null }
-  // Per-tool visibility (default: all shown). Forums hide threads/pinned.
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
 }) {
-  const [searchActive, setSearchActive] = useState(false)
-  const [query, setQuery] = useState("")
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (searchActive) inputRef.current?.focus()
-  }, [searchActive])
-
-  const submitSearch = () => {
-    const q = query.trim()
-    if (!q) return
-    onSearch?.(q)
-  }
 
   const tool = (k: Exclude<RightPanel, null>, Icon: LucideIcon, label: string) => (
     <Button
@@ -81,7 +60,7 @@ export function ChannelHeader({
       ) : (
         <>
           {forum ? <MessagesSquare className={`size-4 shrink-0 text-muted-foreground ${server ? "" : "ml-1"}`} /> : <ChannelIcon className={`text-base text-muted-foreground ${server ? "" : "ml-1"}`} />}
-          <span className="truncate text-base font-medium">{channel}</span>
+          <span className="truncate text-base font-bold">{channel}</span>
         </>
       )}
       <div className="ml-auto flex items-center gap-1 text-muted-foreground">
@@ -89,50 +68,7 @@ export function ChannelHeader({
         <ChannelNotifDropdown level={notifLevel ?? "Use Server Default"} onSetLevel={onSetNotifLevel} />
         {tools?.pinned !== false && tool("pinned", Pin, "Pinned messages")}
         {tools?.members !== false && tool("members", Users, "Member list")}
-        {/* Mobile: icon opens the panel directly */}
-        {!searchBox && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => onToggle("search")}
-            aria-label="Search"
-            className={`text-muted-foreground hover:text-foreground ${rightPanel === "search" ? "bg-accent text-foreground" : ""}`}
-          >
-            <Search className="size-4.5" />
-          </Button>
-        )}
       </div>
-      {/* Desktop: inline search input that expands on click */}
-      {searchBox && !searchActive && (
-        <Button
-          variant="secondary"
-          onClick={() => setSearchActive(true)}
-          className="ml-2 h-8 w-60 shrink-0 justify-between font-normal text-muted-foreground hover:text-foreground"
-        >
-          Search <Search className="size-4" />
-        </Button>
-      )}
-      {searchBox && searchActive && (
-        <div className="relative ml-2 flex h-8 w-60 shrink-0 items-center">
-          <Input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") submitSearch(); if (e.key === "Escape") { setSearchActive(false); setQuery("") } }}
-            placeholder="Search messages…"
-            className="h-full pr-8"
-          />
-          {query ? (
-            <button onClick={submitSearch} className="absolute right-2 text-muted-foreground hover:text-foreground" aria-label="Submit search">
-              <Search className="size-4" />
-            </button>
-          ) : (
-            <button onClick={() => { setSearchActive(false); setQuery("") }} className="absolute right-2 text-muted-foreground hover:text-foreground" aria-label="Close search">
-              <X className="size-4" />
-            </button>
-          )}
-        </div>
-      )}
     </header>
   )
 }

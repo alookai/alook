@@ -55,7 +55,8 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
     ],
     editorProps: {
       attributes: {
-        class: "chat-composer flex-1 min-w-0 max-h-40 overflow-y-auto thin-scrollbar text-sm leading-relaxed outline-none",
+        class: "outline-none",
+        enterkeyhint: "send",
       },
       handleKeyDown: (_view, event) => {
         if (event.key === "Enter" && !event.shiftKey) {
@@ -157,7 +158,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
         </div>
       )}
 
-      <div className={`flex min-h-14 items-center gap-2 bg-muted px-4 py-2 shadow-[var(--e1)] ring-1 ring-border/40 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}>
+      <div className={`relative bg-muted shadow-[var(--e1)] ring-1 ring-border/40 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}>
         <input
           ref={fileInputRef}
           type="file"
@@ -166,9 +167,13 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
           onChange={handleFileSelect}
           className="hidden"
         />
+        <div className="chat-composer relative px-13 py-3">
+          <EditorContent editor={editor} className="max-h-40 overflow-y-auto thin-scrollbar text-base chat-input-line-height outline-none" />
+        </div>
+        {/* Attach button — fixed bottom-left */}
         <DropdownMenu>
           <DropdownMenuTrigger
-            render={<button className="shrink-0 text-muted-foreground hover:text-foreground aria-expanded:text-foreground" aria-label="Add" />}
+            render={<button className="absolute left-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground aria-expanded:text-foreground" aria-label="Add" />}
           >
             <PlusCircle className="size-5" />
           </DropdownMenuTrigger>
@@ -177,9 +182,9 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
             {!thread && <DropdownMenuItem onClick={onCreateThread}><MessagesSquare className="size-4" /> Create Thread</DropdownMenuItem>}
           </DropdownMenuContent>
         </DropdownMenu>
-        <EditorContent editor={editor} className="min-w-0 flex-1" />
+        {/* Emoji button — fixed bottom-right */}
         <EmojiPickerPopover side="top" align="end" onPick={(e) => editor?.chain().focus().insertContent(e).run()}>
-          <button className="shrink-0 text-muted-foreground hover:text-foreground aria-expanded:text-foreground" aria-label="Emoji picker">
+          <button className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground aria-expanded:text-foreground" aria-label="Emoji picker">
             <Smile className="size-5" />
           </button>
         </EmojiPickerPopover>
