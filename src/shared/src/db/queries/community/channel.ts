@@ -1,4 +1,4 @@
-import { eq, and, asc, desc, isNull } from "drizzle-orm";
+import { eq, and, asc, desc, isNull, max, inArray } from "drizzle-orm";
 import { communityChannel, communityServerMember } from "../../community-schema";
 import type { Database } from "../../index";
 
@@ -139,4 +139,23 @@ export async function reorderChannels(
         .where(eq(communityChannel.id, id))
     )
   );
+}
+
+export async function getServersLastActivity(
+  db: Database,
+  serverIds: string[]
+): Promise<Map<string, string>> {
+  if (serverIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      serverId: communityChannel.serverId,
+      latestAt: max(communityChannel.lastMessageAt),
+    })
+    .from(communityChannel)
+    .where(and(
+      inArray(communityChannel.serverId, serverIds),
+      isNull(communityChannel.parentChannelId),
+    ))
+    .groupBy(communityChannel.serverId);
+  return new Map(rows.filter((r) => r.latestAt).map((r) => [r.serverId, r.latestAt!]));
 }

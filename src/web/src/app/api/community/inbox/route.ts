@@ -8,10 +8,14 @@ export const GET = withAuth(async (_req, ctx) => {
 
   const servers = await queries.communityServer.listUserServers(db, ctx.userId)
 
-  // Get unread mentions to determine which servers have unread activity
-  const unreadMentions = await queries.communityMention.listUnreadMentions(db, ctx.userId)
+  // Get the latest lastMessageAt per server from channels
+  const serverActivity = await queries.communityChannel.getServersLastActivity(
+    db,
+    servers.map((s) => s.id)
+  )
 
-  // Build a set of serverIds that have unread mentions
+  // Unread mentions to determine the unread badge
+  const unreadMentions = await queries.communityMention.listUnreadMentions(db, ctx.userId)
   const unreadServerIds = new Set<string>()
   for (const row of unreadMentions) {
     if (row.message.channelId) {
@@ -24,7 +28,7 @@ export const GET = withAuth(async (_req, ctx) => {
     id: s.id,
     server: s.name,
     initial: s.name.charAt(0).toUpperCase(),
-    lastActivityAt: s.createdAt,
+    lastActivityAt: serverActivity.get(s.id) ?? s.createdAt,
     unread: unreadServerIds.has(s.id),
   }))
 
