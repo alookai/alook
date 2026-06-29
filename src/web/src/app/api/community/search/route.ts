@@ -17,6 +17,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
+  if (!serverId && !channelId && !dmConversationId) {
+    return writeError("a scope parameter (serverId, channelId, or dmConversationId) is required", 400)
+  }
+
   // Search within a server — verify membership
   if (serverId) {
     const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
@@ -26,7 +30,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       query: q,
       serverId,
     })
-    return writeJSON(results)
+    return writeJSON({ results })
   }
 
   // Search within a channel — verify membership via channel's server
@@ -41,25 +45,19 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       query: q,
       channelId,
     })
-    return writeJSON(results)
+    return writeJSON({ results })
   }
 
   // Search within a DM — verify participant
-  if (dmConversationId) {
-    const dm = await queries.communityDm.getDM(db, dmConversationId)
-    if (!dm) return writeError("dm not found", 404)
-    if (dm.user1Id !== ctx.userId && dm.user2Id !== ctx.userId) {
-      return writeError("forbidden", 403)
-    }
-
-    const results = await queries.communitySearch.searchMessages(db, {
-      query: q,
-      dmConversationId,
-    })
-    return writeJSON(results)
+  const dm = await queries.communityDm.getDM(db, dmConversationId!)
+  if (!dm) return writeError("dm not found", 404)
+  if (dm.user1Id !== ctx.userId && dm.user2Id !== ctx.userId) {
+    return writeError("forbidden", 403)
   }
 
-  // General search (no scope filter)
-  const results = await queries.communitySearch.searchMessages(db, { query: q })
-  return writeJSON(results)
+  const results = await queries.communitySearch.searchMessages(db, {
+    query: q,
+    dmConversationId: dmConversationId!,
+  })
+  return writeJSON({ results })
 })

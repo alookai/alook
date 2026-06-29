@@ -1,13 +1,20 @@
-import { sql, eq, and, inArray } from "drizzle-orm";
+import { eq, and, like } from "drizzle-orm";
 import { communityMessage, communityChannel } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 
 const DEFAULT_LIMIT = 50;
 
-/** Sanitize user input for FTS5 MATCH — removes special operators and wraps as a phrase. */
-function sanitizeFtsQuery(query: string): string {
-  return '"' + query.replace(/["\-*()^~]/g, " ").replace(/\s+/g, " ").trim() + '"';
+const FTS_KEYWORDS = new Set(["and", "or", "not", "near"]);
+
+/** Sanitize user input for FTS5 MATCH — each term gets prefix matching with implicit AND. */
+export function sanitizeFtsQuery(query: string): string {
+  const terms = query
+    .replace(/["\-*()^~{}[\]:.!?,;@#$%&/\\]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t && !FTS_KEYWORDS.has(t.toLowerCase()));
+  if (terms.length === 0) return '""';
+  return terms.map((t) => `"${t}"*`).join(" ");
 }
 
 export async function searchMessages(
@@ -21,33 +28,16 @@ export async function searchMessages(
   }
 ) {
   const limit = opts.limit ?? DEFAULT_LIMIT;
-  const sanitized = sanitizeFtsQuery(opts.query);
 
-  // FTS5 requires raw SQL — no Drizzle ORM equivalent exists
-  let ftsResults: { id: string }[];
-  try {
-    ftsResults = await db.all<{ id: string }>(
-      sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${sanitized} LIMIT ${limit}`
-    );
-  } catch {
-    return [];
-  }
-
-  if (ftsResults.length === 0) return [];
-
-  const ids = ftsResults.map((r) => r.id);
-
-  // If serverId filter, use the server-scoped function
   if (opts.serverId) {
     return searchMessagesInServer(db, {
       query: opts.query,
       serverId: opts.serverId,
-      ids,
+      limit,
     });
   }
 
-  // Fetch full messages with author info using ORM, with scope filters in SQL
-  const conditions = [inArray(communityMessage.id, ids)];
+  const conditions = [like(communityMessage.content, `%${opts.query}%`)];
   if (opts.channelId) {
     conditions.push(eq(communityMessage.channelId, opts.channelId));
   }
@@ -62,7 +52,8 @@ export async function searchMessages(
     })
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
-    .where(and(...conditions));
+    .where(and(...conditions))
+    .limit(limit);
 }
 
 export async function searchMessagesInServer(
@@ -70,26 +61,10 @@ export async function searchMessagesInServer(
   opts: {
     query: string;
     serverId: string;
-    ids?: string[];
     limit?: number;
   }
 ) {
   const limit = opts.limit ?? DEFAULT_LIMIT;
-
-  let ids = opts.ids;
-  if (!ids) {
-    const sanitized = sanitizeFtsQuery(opts.query);
-    let ftsResults: { id: string }[];
-    try {
-      ftsResults = await db.all<{ id: string }>(
-        sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${sanitized} LIMIT ${limit}`
-      );
-    } catch {
-      return [];
-    }
-    if (ftsResults.length === 0) return [];
-    ids = ftsResults.map((r) => r.id);
-  }
 
   return db
     .select({
@@ -104,8 +79,9 @@ export async function searchMessagesInServer(
     )
     .where(
       and(
-        inArray(communityMessage.id, ids),
+        like(communityMessage.content, `%${opts.query}%`),
         eq(communityChannel.serverId, opts.serverId)
       )
-    );
+    )
+    .limit(limit);
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import { Users, Pin, Search, MessagesSquare } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { PanelShell } from "./panel-shell"
@@ -12,7 +12,7 @@ import type { RightPanel, Member, Role, Msg, Thread, OpenProfile } from "./_type
 // Right-panel content router — members / pinned / search / threads. Data via props.
 export function RightPanelContent({
   kind, members, pinned, searchResults, searchQuery, threads, onClose, showClose, onOpenThread, onOpenProfile,
-  onSetRole, onKickMember, myRole, onJumpToMessage,
+  onSetRole, onKickMember, myRole, onJumpToMessage, onSearch,
 }: {
   kind: Exclude<RightPanel, null>
   members: Member[]
@@ -28,6 +28,7 @@ export function RightPanelContent({
   onKickMember?: (name: string) => void
   myRole?: Role
   onJumpToMessage?: (id: string) => void
+  onSearch?: (query: string) => void
 }) {
   if (kind === "members")
     // Desktop shows the bare list under the spanning channel header (no own header).
@@ -67,7 +68,7 @@ export function RightPanelContent({
       </PanelShell>
     )
   if (kind === "search")
-    return <SearchPanel searchResults={searchResults} initialQuery={searchQuery} onClose={onClose} showClose={showClose} onOpenProfile={onOpenProfile} />
+    return <SearchPanel searchResults={searchResults} initialQuery={searchQuery} onClose={onClose} showClose={showClose} onOpenProfile={onOpenProfile} onSearch={onSearch} />
   // threads — channel thread list. Picking one opens it in the message area.
   return (
     <PanelShell icon={MessagesSquare} title="Threads" onClose={onClose} showClose={showClose}>
@@ -94,22 +95,27 @@ export function RightPanelContent({
   )
 }
 
-function SearchPanel({ searchResults, initialQuery, onClose, showClose, onOpenProfile }: {
-  searchResults: Msg[]; initialQuery?: string; onClose: () => void; showClose?: boolean; onOpenProfile?: OpenProfile
+function SearchPanel({ searchResults, initialQuery, onClose, showClose, onOpenProfile, onSearch }: {
+  searchResults: Msg[]; initialQuery?: string; onClose: () => void; showClose?: boolean; onOpenProfile?: OpenProfile; onSearch?: (query: string) => void
 }) {
   const [query, setQuery] = useState(initialQuery ?? "")
-  const filtered = useMemo(() => {
-    const q = query.toLowerCase()
-    return q ? searchResults.filter((m) => m.content?.toLowerCase().includes(q) || m.authorName?.toLowerCase().includes(q)) : searchResults
-  }, [query, searchResults])
+  const submit = () => { const q = query.trim(); if (q) onSearch?.(q) }
   return (
     <PanelShell icon={Search} title="Search" onClose={onClose} showClose={showClose}>
-      <div className="relative mb-3">
-        <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input className="h-9 pl-8" placeholder="Search messages" value={query} onChange={(e) => setQuery(e.target.value)} />
-      </div>
-      <div className="mb-2 text-xs text-muted-foreground">{filtered.length} results</div>
-      {filtered.map((m) => <Message key={m.id} m={{ ...m, grouped: false }} compact onOpenThread={() => {}} onOpenProfile={onOpenProfile} />)}
+      {showClose && (
+        <div className="relative mb-3">
+          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="h-9 pl-8"
+            placeholder="Search messages"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") submit() }}
+          />
+        </div>
+      )}
+      <div className="mb-2 text-xs text-muted-foreground">{searchResults.length} results</div>
+      {searchResults.map((m) => <Message key={m.id} m={{ ...m, grouped: false }} compact onOpenThread={() => {}} onOpenProfile={onOpenProfile} />)}
     </PanelShell>
   )
 }

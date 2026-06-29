@@ -232,6 +232,7 @@ export default function ChannelPage() {
     threads: ctx.threads,
     searchQuery,
     myRole,
+    onSearch: doSearch,
     onSetRole: (name: string, role: Role) => {
       const m = ctx.members.find((x) => x.name === name)
       if (m) ctx.setMemberRole(m.id, role)

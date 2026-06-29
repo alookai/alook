@@ -47,8 +47,6 @@ export function ChannelHeader({
     const q = query.trim()
     if (!q) return
     onSearch?.(q)
-    setSearchActive(false)
-    setQuery("")
   }
 
   const tool = (k: Exclude<RightPanel, null>, Icon: LucideIcon, label: string) => (
