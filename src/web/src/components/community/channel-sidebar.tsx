@@ -29,7 +29,7 @@ type Dialog =
 // right-click) creates; channels right-click to edit/delete. A private category only
 // lets admins create channels — non-admins are blocked via onBlockedCreate.
 export function ChannelSidebar({
-  tree, serverName, activeChannel, setActiveChannel, bordered, noHeader, onOpenSettings,
+  tree, serverName, activeChannel, setActiveChannel, noHeader, onOpenSettings,
   isAdmin = true, currentUserId, onBlockedCreate, mutedChannels,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
   onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
@@ -38,7 +38,6 @@ export function ChannelSidebar({
   serverName: string
   activeChannel: string
   setActiveChannel: (id: string) => void
-  bordered?: boolean
   noHeader?: boolean
   onOpenSettings?: () => void
   isAdmin?: boolean
@@ -95,12 +94,12 @@ export function ChannelSidebar({
   }
 
   return (
-    <aside className={`flex min-w-0 flex-1 flex-col ${bordered ? "rounded-tl-xl border-l border-t border-border" : ""}`}>
+    <aside className="flex min-w-0 flex-1 flex-col">
       {!noHeader && (
-        <header className="flex h-12 items-center justify-between gap-2 border-b border-border px-4">
+        <header className="flex h-12 items-center justify-between gap-2 border-b border-border/40 px-4">
           <span className="truncate text-base font-semibold">{serverName || "\u00a0"}</span>
           {serverName && onOpenSettings && (
-            <button onClick={onOpenSettings} className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Server settings">
+            <button onClick={onOpenSettings} className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Server settings">
               <Settings className="size-4" />
             </button>
           )}

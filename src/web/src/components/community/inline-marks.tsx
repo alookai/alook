@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import type React from "react"
-import { Hash } from "lucide-react"
+import { ChannelIcon } from "./channel-icon"
 
 // Pill components the streamdown renderer maps custom tags to (see message-markdown.tsx).
 
@@ -40,7 +40,7 @@ export function MentionPill({ children, everyone }: { children?: React.ReactNode
 export function ChannelPill({ children }: { children?: React.ReactNode }) {
   return (
     <span className="inline-flex items-center gap-0.5 rounded-lg bg-accent px-1 font-medium text-foreground">
-      <Hash className="size-3" />
+      <ChannelIcon className="text-xs" />
       {String(children).replace(/^#/, "")}
     </span>
   )

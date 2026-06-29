@@ -13,7 +13,7 @@ import {
 // and mapped to pill components — no custom markdown parser.
 export function MessageBody({ text }: { text: string }) {
   return (
-    <div className="markdown text-[15px] leading-[1.4]">
+    <div className="markdown text-[15px] leading-snug">
       <Streamdown
         parseIncompleteMarkdown={false}
         linkSafety={{ enabled: false }}

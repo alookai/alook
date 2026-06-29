@@ -6,13 +6,13 @@ import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
 import { useCommunity } from "@/contexts/community/context"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
+import { InboxPopover } from "@/components/community/community-inbox-popover"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { DmHeader } from "@/components/community/dm-header"
 import { MessageList } from "@/components/community/message-list"
 import { Composer } from "@/components/community/composer"
 import { DmMessages } from "@/components/community/dm-messages"
 import { ForumView } from "@/components/community/forum-view"
-import { ThreadHeader } from "@/components/community/thread-header"
 import { RightPanelContent } from "@/components/community/right-panel"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
@@ -39,8 +39,8 @@ export default function ChannelPage() {
     ctx.openSidebar()
   }, [ctx])
   const goBack = useCallback(() => {
-    router.push(`/community/channels/${params.serverId}`)
-  }, [router, params.serverId])
+    ctx.goBackMobile()
+  }, [ctx])
 
   // Set the current channel from URL params
   useEffect(() => {
@@ -49,7 +49,7 @@ export default function ChannelPage() {
   }, [channelId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Local UI state ──────────────────────────────────────────────────────
-  const [rightPanel, setRightPanel] = useState<RightPanel>("members")
+  const [rightPanel, setRightPanel] = useState<RightPanel>(null)
   const [creatingThread, setCreatingThread] = useState(false)
   const [replyTo, setReplyTo] = useState<{ id: string; authorName: string; text: string } | null>(null)
   const [localName, setLocalName] = useState<string | null>(null)
@@ -285,21 +285,28 @@ export default function ChannelPage() {
     const parentName = parentChannel?.name ?? "channel"
     return (
       <>
-        <ThreadHeader
-          thread={{ id: channelId, name: channelName, messageCount: 0, lastMessageAt: "", parent: { authorName: "", text: "" }, messages: [] }}
-          channelName={parentName}
+        <ChannelHeader
+          channel={parentName}
           forum={parentChannel?.type === "forum"}
-          onClose={() => { if (parentId) router.push(`/community/channels/${params.serverId}/${parentId}`); else router.back() }}
+          rightPanel={rightPanel}
+          onToggle={togglePanel}
+          onSearch={(q) => { doSearch(q); setRightPanel("search") }}
+          searchBox={bp !== "mobile"}
+          onHamburger={bp === "tablet" ? openSidebar : undefined}
           onBack={bp === "mobile" ? () => router.back() : undefined}
-          onRename={canManageServer(myRole) ? async (name) => {
-            try {
-              await apiFetch(`/api/community/channels/${channelId}`, {
-                method: "PATCH",
-                body: JSON.stringify({ name }),
-              })
-              setLocalName(name)
-            } catch { toast("Failed to rename") }
-          } : undefined}
+          breadcrumb={{
+            label: channelName,
+            onNavigateBack: () => { if (parentId) router.push(`/community/channels/${params.serverId}/${parentId}`); else router.back() },
+            onRename: canManageServer(myRole) ? async (name) => {
+              try {
+                await apiFetch(`/api/community/channels/${channelId}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({ name }),
+                })
+                setLocalName(name)
+              } catch { toast("Failed to rename") }
+            } : undefined,
+          }}
         />
         <div className="flex min-h-0 flex-1">
           <main className="flex min-w-0 flex-1 flex-col">
@@ -366,6 +373,16 @@ export default function ChannelPage() {
         searchBox={bp !== "mobile"}
         onHamburger={bp === "tablet" ? openSidebar : undefined}
         onBack={bp === "mobile" ? goBack : undefined}
+        inbox={
+          <InboxPopover
+            feed={ctx.inboxFeed}
+            mentions={ctx.mentions}
+            onOpenItem={(id) => { ctx.openInboxItem(id); router.push(`/community/channels/${id}`) }}
+            onOpenMention={(mention) => { if (mention.serverId && mention.channelId) router.push(`/community/channels/${mention.serverId}/${mention.channelId}`) }}
+            onMarkAllRead={ctx.markAllInboxRead}
+          />
+        }
+        hasUnread={ctx.inboxFeed?.some((f) => f.unread) ?? false}
       />
       <div className="flex min-h-0 flex-1">
         <main className="flex min-w-0 flex-1 flex-col">
@@ -391,7 +408,7 @@ export default function ChannelPage() {
         </main>
         {/* Desktop: inline right panel */}
         {bp === "desktop" && rightPanel && (
-          <aside className={`${rightPanel === "members" ? "w-60" : "w-80"} shrink-0 border-l border-border`}>
+          <aside className={`${rightPanel === "members" ? "w-60" : "w-80"} shrink-0 border-l border-border/40`}>
             <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} {...panelProps} onOpenProfile={openProfile} />
           </aside>
         )}

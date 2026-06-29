@@ -43,7 +43,6 @@ import { ChannelSidebar } from "@/components/community/channel-sidebar"
 import { DmSidebar } from "@/components/community/dm-sidebar"
 import { UserBar } from "@/components/community/user-bar"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channel-header"
-import { ThreadHeader } from "@/components/community/thread-header"
 import { DmHeader } from "@/components/community/dm-header"
 import { MessageList } from "@/components/community/message-list"
 import { Composer } from "@/components/community/composer"
@@ -411,7 +410,21 @@ export default function CommunityPreview() {
     if (openThread)
       return (
         <>
-          <ThreadHeader thread={openThread} channelName={activeChannel} forum={isForum} onClose={() => setOpenThreadId(null)} onBack={compact ? () => setMobileZone("channels") : undefined} onRename={(name) => { setThreads((p) => p.map((t) => t.id === openThreadId ? { ...t, name } : t)); setForumPosts((p) => { const next = { ...p }; for (const [ch, posts] of Object.entries(next)) next[ch] = posts.map((fp) => fp.id === openThreadId ? { ...fp, name } : fp); return next }) }} />
+          <ChannelHeader
+            channel={activeChannel}
+            forum={isForum}
+            rightPanel={rightPanel}
+            onToggle={togglePanel}
+            onSearch={(q) => { setSearchQuery(q); setRightPanel("search") }}
+            searchBox={bp !== "mobile"}
+            onHamburger={hamburger ? () => setSidebarOpen(true) : undefined}
+            onBack={compact ? () => setMobileZone("channels") : undefined}
+            breadcrumb={{
+              label: openThread.name,
+              onNavigateBack: () => setOpenThreadId(null),
+              onRename: (name) => { setThreads((p) => p.map((t) => t.id === openThreadId ? { ...t, name } : t)); setForumPosts((p) => { const next = { ...p }; for (const [ch, posts] of Object.entries(next)) next[ch] = posts.map((fp) => fp.id === openThreadId ? { ...fp, name } : fp); return next }) },
+            }}
+          />
           <main className="flex min-h-0 flex-1 flex-col">
             <ThreadMessages thread={openThread} {...profileProps} />
             <Composer channel={openThread.name} thread members={friendList} onSend={sendThreadMessage} />

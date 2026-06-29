@@ -83,7 +83,7 @@ export function ServerRail({
   }, [folders])
 
   return (
-    <nav className="flex w-18 shrink-0 flex-col items-center gap-2 overflow-y-auto overflow-x-clip thin-scrollbar">
+    <nav aria-label="Server navigation" className="flex w-14 shrink-0 flex-col items-center gap-1.5 pt-1 pb-2 overflow-y-auto overflow-x-clip thin-scrollbar">
       <RailIcon
         active={view === "dm"}
         onClick={onHome}
@@ -96,7 +96,7 @@ export function ServerRail({
         }
         round
       />
-      <div className="my-1 h-px w-8 bg-border" />
+      <div className="w-6 border-t border-border/50 my-1" />
       <DndContext id="d-rail" sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis]} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => setDragActiveId(null)}>
         <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
           <div className="flex w-full flex-col items-center gap-2">
@@ -189,7 +189,7 @@ export function ServerRail({
               const folder = folderById.get(fId)
               if (!folder) return null
               return (
-                <div className="grid size-10 grid-cols-2 gap-0.5 rounded-xl bg-primary/15 p-1.5 shadow-lg">
+                <div className="grid size-10 grid-cols-2 gap-0.5 rounded-xl bg-accent p-1.5 shadow-[var(--e2)]">
                   {Array.from({ length: 4 }).map((_, idx) => {
                     const s = folder.servers[idx]
                     return s ? (
@@ -206,7 +206,7 @@ export function ServerRail({
             const s = serverById.get(dragActiveId) ?? folderServerMap.get(dragActiveId)
             if (!s) return null
             return (
-              <div className="grid size-10 place-items-center overflow-hidden rounded-xl bg-primary text-sm font-semibold text-primary-foreground shadow-lg">
+              <div className="grid size-10 place-items-center overflow-hidden rounded-xl bg-secondary text-sm font-semibold text-foreground shadow-[var(--e2)]">
                 {"icon" in s && s.icon ? (
                   <img src={s.icon} alt={s.name} className="size-full object-cover" />
                 ) : (

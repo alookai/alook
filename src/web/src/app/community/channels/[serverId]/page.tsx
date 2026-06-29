@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useCommunity } from "@/contexts/community/context"
+import { useBreakpoint } from "@/components/community/use-breakpoint"
 import { FriendsPage } from "@/components/community/friends-page"
 
 /**
@@ -15,6 +16,7 @@ export default function ServerDefaultPage() {
   const params = useParams<{ serverId: string }>()
   const router = useRouter()
   const ctx = useCommunity()
+  const bp = useBreakpoint()
   const serverId = decodeURIComponent(params.serverId)
   const isAtMe = serverId === "@me"
 
@@ -36,6 +38,8 @@ export default function ServerDefaultPage() {
         friends={ctx.friends ?? []}
         pending={ctx.pending ?? []}
         blocked={ctx.blocked ?? []}
+        onBack={bp === "mobile" ? () => ctx.goBackMobile() : undefined}
+        hamburger={bp === "tablet" ? () => ctx.openSidebar() : undefined}
         onAccept={ctx.acceptFriendRequest}
         onReject={ctx.rejectFriendRequest}
         onCancelRequest={ctx.rejectFriendRequest}

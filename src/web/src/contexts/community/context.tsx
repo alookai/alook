@@ -221,10 +221,12 @@ export type CommunityContextValue = {
   openSidebar: () => void
   previewImage: (url: string) => void
   openProfile: (name: string, e: React.MouseEvent) => void
+  goBackMobile: () => void
   registerUiHandlers: (handlers: {
     openSidebar: () => void
     previewImage: (url: string) => void
     openProfile: (name: string, e: React.MouseEvent) => void
+    goBackMobile?: () => void
   }) => void
 }
 
@@ -693,13 +695,15 @@ export function CommunityProvider({
     openSidebar?: () => void
     previewImage?: (url: string) => void
     openProfile?: (name: string, e: React.MouseEvent) => void
+    goBackMobile?: () => void
   }>({})
-  const registerUiHandlers = useCallback((handlers: { openSidebar: () => void; previewImage: (url: string) => void; openProfile: (name: string, e: React.MouseEvent) => void }) => {
+  const registerUiHandlers = useCallback((handlers: { openSidebar: () => void; previewImage: (url: string) => void; openProfile: (name: string, e: React.MouseEvent) => void; goBackMobile?: () => void }) => {
     uiHandlersRef.current = handlers
   }, [])
   const openSidebar = useCallback(() => { uiHandlersRef.current.openSidebar?.() }, [])
   const previewImage = useCallback((url: string) => { uiHandlersRef.current.previewImage?.(url) }, [])
   const openProfileFn = useCallback((name: string, e: React.MouseEvent) => { uiHandlersRef.current.openProfile?.(name, e) }, [])
+  const goBackMobile = useCallback(() => { uiHandlersRef.current.goBackMobile?.() }, [])
 
   // ── Effects: fetch on mount / server or channel change ───────────────────
 
@@ -1654,6 +1658,7 @@ export function CommunityProvider({
       openSidebar,
       previewImage,
       openProfile: openProfileFn,
+      goBackMobile,
       registerUiHandlers,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

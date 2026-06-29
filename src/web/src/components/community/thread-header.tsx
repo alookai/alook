@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Hash, MessagesSquare, ChevronRight, ChevronLeft, X, Pencil } from "lucide-react"
+import { MessagesSquare, ChevronRight, ChevronLeft, X, Pencil } from "lucide-react"
+import { ChannelIcon } from "./channel-icon"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -26,16 +27,16 @@ export function ThreadHeader({ thread, channelName = "welcome", forum, onClose, 
 
   return (
     <>
-      <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-3">
+      <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
         {onBack && (
           <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
         )}
         <Button variant="ghost" size="sm" onClick={onClose} className="-mr-1 gap-1.5 px-1.5 text-base font-medium text-muted-foreground hover:text-foreground">
-          {forum ? <MessagesSquare className="size-5" /> : <Hash className="size-5" />}
+          {forum ? <MessagesSquare className="size-5" /> : <ChannelIcon className="text-base text-muted-foreground" />}
           {channelName}
         </Button>
         <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-        <Hash className="size-5 shrink-0 text-muted-foreground" />
+        <ChannelIcon className="shrink-0 text-base text-muted-foreground" />
         <span className="min-w-0 truncate text-base font-medium">{thread.name}</span>
         {onRename && (
           <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(thread.name); setRenameOpen(true) }} className="text-muted-foreground hover:text-foreground" aria-label="Rename"><Pencil className="size-4" /></Button>
@@ -53,7 +54,7 @@ export function ThreadHeader({ thread, channelName = "welcome", forum, onClose, 
               <label className="block">
                 <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channel Name</div>
                 <div className="relative">
-                  <Hash className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <ChannelIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground" />
                   <Input
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}

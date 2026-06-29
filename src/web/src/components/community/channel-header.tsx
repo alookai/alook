@@ -1,11 +1,15 @@
 "use client"
 
+import type React from "react"
 import { useState, useRef, useEffect } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Hash, Bell, BellOff, Pin, Users, Search, MessagesSquare, Menu, ChevronLeft, X, Check } from "lucide-react"
+import { Bell, BellOff, Pin, Users, Search, MessagesSquare, Menu, ChevronLeft, X, Check, Inbox, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { ChannelIcon } from "./channel-icon"
 import type { RightPanel } from "./_types"
 
 export type ChannelNotifLevel = "Use Server Default" | "All Messages" | "Only @mentions" | "Nothing"
@@ -17,6 +21,7 @@ export type ChannelNotifLevel = "Use Server Default" | "All Messages" | "Only @m
 //  - !searchBox (mobile): the icon opens the panel directly (search happens inside it).
 export function ChannelHeader({
   channel, rightPanel, onToggle, onSearch, notifLevel, onSetNotifLevel, onHamburger, onBack, searchBox,
+  inbox, hasUnread, breadcrumb, forum,
 }: {
   channel: string
   rightPanel: RightPanel
@@ -27,6 +32,10 @@ export function ChannelHeader({
   onHamburger?: () => void
   onBack?: () => void
   searchBox?: boolean
+  inbox?: React.ReactNode
+  hasUnread?: boolean
+  forum?: boolean
+  breadcrumb?: { label: string; onRename?: (name: string) => void; onNavigateBack?: () => void }
 }) {
   const [searchActive, setSearchActive] = useState(false)
   const [query, setQuery] = useState("")
@@ -52,20 +61,51 @@ export function ChannelHeader({
       aria-label={label}
       className={`text-muted-foreground hover:text-foreground ${rightPanel === k ? "bg-accent text-foreground" : ""}`}
     >
-      <Icon className="size-5" />
+      <Icon className="size-4.5" />
     </Button>
   )
   return (
-    <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-3">
+    <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
       {onHamburger && (
         <Button variant="ghost" size="icon-sm" onClick={onHamburger} className="text-muted-foreground hover:text-foreground" aria-label="Open channels"><Menu className="size-5" /></Button>
       )}
-      <Hash className="ml-1 size-6 text-muted-foreground" />
-      <h1 className="truncate text-base font-medium">{channel}</h1>
+      {breadcrumb ? (
+        <>
+          <button onClick={breadcrumb.onNavigateBack} className="ml-1 flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
+            {forum ? <MessagesSquare className="size-4 shrink-0" /> : <ChannelIcon className="text-base" />}
+            <span className="truncate text-base font-medium">{channel}</span>
+          </button>
+          <ChannelIcon className="shrink-0 text-base text-muted-foreground/60" />
+          <span className="min-w-0 truncate text-base font-medium">{breadcrumb.label}</span>
+          {breadcrumb.onRename && (
+            <BreadcrumbRename label={breadcrumb.label} onRename={breadcrumb.onRename} />
+          )}
+        </>
+      ) : (
+        <>
+          {forum ? <MessagesSquare className="ml-1 size-4 shrink-0 text-muted-foreground" /> : <ChannelIcon className="ml-1 text-base text-muted-foreground" />}
+          <span className="truncate text-base font-medium">{channel}</span>
+        </>
+      )}
       <div className="ml-auto flex items-center gap-0.5 text-muted-foreground">
+        {inbox && (
+          <Popover>
+            <PopoverTrigger
+              render={
+                <Button variant="ghost" size="icon-sm" className="relative text-muted-foreground hover:text-foreground" aria-label="Inbox" />
+              }
+            >
+              <Inbox className="size-4.5" />
+              {hasUnread && <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />}
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="end" className="w-90 max-w-[calc(100vw-1rem)] overflow-hidden p-0">
+              {inbox}
+            </PopoverContent>
+          </Popover>
+        )}
         {tool("threads", MessagesSquare, "Threads")}
         <ChannelNotifDropdown level={notifLevel ?? "Use Server Default"} onSetLevel={onSetNotifLevel} />
         {tool("pinned", Pin, "Pinned messages")}
@@ -79,7 +119,7 @@ export function ChannelHeader({
             aria-label="Search"
             className={`text-muted-foreground hover:text-foreground ${rightPanel === "search" ? "bg-accent text-foreground" : ""}`}
           >
-            <Search className="size-5" />
+            <Search className="size-4.5" />
           </Button>
         )}
       </div>
@@ -135,7 +175,7 @@ function ChannelNotifDropdown({ level, onSetLevel }: {
       <DropdownMenuTrigger
         render={<Button variant="ghost" size="icon-sm" className={`text-muted-foreground hover:text-foreground ${isMuted ? "text-destructive" : ""}`} aria-label="Channel notifications" />}
       >
-        {isMuted ? <BellOff className="size-5" /> : <Bell className="size-5" />}
+        {isMuted ? <BellOff className="size-4.5" /> : <Bell className="size-4.5" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem onClick={() => onSetLevel?.(isMuted ? "Use Server Default" : "Nothing")}>
@@ -151,5 +191,48 @@ function ChannelNotifDropdown({ level, onSetLevel }: {
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(label)
+  const save = () => {
+    const trimmed = draft.trim()
+    if (trimmed && trimmed !== label) onRename(trimmed)
+    setOpen(false)
+  }
+  return (
+    <>
+      <Button variant="ghost" size="icon-sm" onClick={() => { setDraft(label); setOpen(true) }} className="text-muted-foreground hover:text-foreground" aria-label="Rename">
+        <Pencil className="size-3.5" />
+      </Button>
+      {open && (
+        <Dialog open onOpenChange={(o) => { if (!o) setOpen(false) }}>
+          <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
+            <DialogHeader className="border-b border-border px-5 py-4">
+              <DialogTitle>Rename Thread</DialogTitle>
+            </DialogHeader>
+            <div className="px-5 pb-5 pt-4">
+              <label className="block">
+                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</div>
+                <Input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") save() }}
+                  placeholder="thread-name"
+                  className="h-10"
+                  autoFocus
+                />
+              </label>
+            </div>
+            <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-5 py-3">
+              <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button size="sm" onClick={save} disabled={!draft.trim()}>Save</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   )
 }

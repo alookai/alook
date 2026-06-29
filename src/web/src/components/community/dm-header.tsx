@@ -11,7 +11,7 @@ export function DmHeader({ dm, onBack, onOpenPins, onAddFriend }: {
   onAddFriend?: () => void
 }) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}

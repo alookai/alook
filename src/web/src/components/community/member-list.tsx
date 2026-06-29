@@ -71,7 +71,7 @@ export function MemberList({ members, myRole, onOpenProfile, onSetRole, onKick }
                 >
                   <Avatar label={mem.avatar} size={32} presence={mem.status} />
                   <div className="min-w-0 flex-1 text-left">
-                    <div className="truncate text-[15px] leading-tight">{mem.name}</div>
+                    <div className="truncate text-sm leading-tight">{mem.name}</div>
                     {mem.sub && (
                       <div className="truncate text-xs leading-tight text-muted-foreground">{mem.sub}</div>
                     )}

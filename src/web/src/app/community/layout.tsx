@@ -19,7 +19,7 @@ export default async function CommunityLayout({
     id: session.user.id,
     name: session.user.name,
     email: session.user.email,
-    avatar: session.user.name.charAt(0).toUpperCase(),
+    avatar: session.user.image || session.user.name.charAt(0).toUpperCase(),
   }
 
   return <CommunityShell currentUser={currentUser}>{children}</CommunityShell>

@@ -21,7 +21,7 @@ export function MobileRail({
   const [folderOpen, setFolderOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-3" style={{ background: "var(--d-rail)" }}>
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar bg-card p-3">
       <button onClick={onHome} className={`mb-1 flex items-center gap-3 rounded-lg p-2 ${view === "dm" ? "bg-accent" : "hover:bg-accent"}`}>
         <span className="grid size-10 shrink-0 place-items-center rounded-[18px] bg-card">
           <img src="/alook.svg" alt="" className="size-6 dark:hidden" />
@@ -36,7 +36,7 @@ export function MobileRail({
             "grid size-10 shrink-0 place-items-center rounded-[18px] text-sm font-semibold",
             view !== "dm" && s.active ? "bg-primary text-primary-foreground" : "bg-card",
           ].join(" ")}>{s.initial}</span>
-          <span className="flex-1 text-left text-[15px] font-medium">{s.name}</span>
+          <span className="flex-1 text-left text-sm font-medium">{s.name}</span>
           {s.unread && <span className="size-2 rounded-full bg-primary" />}
         </button>
       ))}
@@ -49,7 +49,7 @@ export function MobileRail({
                 <span key={s.id} className="grid place-items-center rounded-lg bg-card text-[7px] font-semibold text-muted-foreground">{s.initial}</span>
               ))}
             </span>
-            <span className="flex-1 text-left text-[15px] font-medium">{folder.name}</span>
+            <span className="flex-1 text-left text-sm font-medium">{folder.name}</span>
             <ChevronDown className={`size-4 text-muted-foreground transition-transform ${folderOpen ? "" : "-rotate-90"}`} />
           </button>
           {folderOpen && (
@@ -57,7 +57,7 @@ export function MobileRail({
               {folder.servers.map((s) => (
                 <button key={s.id} onClick={() => { onServer(); onServerNavigate?.(s.id); onPick() }} className="flex items-center gap-3 rounded-lg p-2 hover:bg-accent">
                   <span className="grid size-10 shrink-0 place-items-center rounded-[18px] bg-card text-sm font-semibold">{s.initial}</span>
-                  <span className="flex-1 text-left text-[15px] font-medium">{s.name}</span>
+                  <span className="flex-1 text-left text-sm font-medium">{s.name}</span>
                 </button>
               ))}
             </div>
@@ -67,7 +67,7 @@ export function MobileRail({
 
       <button onClick={() => setCreateOpen(true)} className="mt-1 flex items-center gap-3 rounded-lg p-2 text-primary hover:bg-accent">
         <span className="grid size-10 shrink-0 place-items-center rounded-[18px] bg-card"><Plus className="size-6" /></span>
-        <span className="text-[15px] font-medium">Add a Server</span>
+        <span className="text-sm font-medium">Add a Server</span>
       </button>
 
       {createOpen && (

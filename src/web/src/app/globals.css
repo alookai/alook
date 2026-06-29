@@ -17,7 +17,7 @@
   --font-sans: var(--font-dm-sans);
   --font-mono: var(--font-dm-mono);
   --font-heading: var(--font-dm-sans);
-  --font-display: var(--font-dm-sans);
+  --font-display: var(--font-instrument-serif);
   --font-news: var(--font-literata);
   --font-brand: var(--font-caveat);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -61,6 +61,7 @@
 }
 
 :root {
+  --app-bg: oklch(0.93 0.015 80);
   --background: oklch(0.995 0.003 80);
   --foreground: oklch(0.18 0.01 60);
   --card: oklch(1 0.003 80);
@@ -108,6 +109,7 @@
 }
 
 .dark {
+  --app-bg: transparent;
   --background: oklch(0.16 0.008 60);
   --foreground: oklch(0.93 0.006 80);
   --card: oklch(0.21 0.008 60);
@@ -145,7 +147,7 @@
   --e2: 0 12px 24px -8px oklch(0 0 0 / 50%);
   --sidebar: oklch(0.21 0.008 60);
   --sidebar-foreground: oklch(0.93 0.006 80);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary: oklch(0.85 0.02 75);
   --sidebar-primary-foreground: oklch(0.985 0.005 80);
   --sidebar-accent: oklch(0.27 0.008 60);
   --sidebar-accent-foreground: oklch(0.93 0.006 80);

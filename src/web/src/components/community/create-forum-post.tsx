@@ -44,7 +44,7 @@ export function CreateForumPost({ tags, onCancel, onPost }: {
             onChange={(e) => setBody(e.target.value)}
             placeholder="Enter a message…"
             rows={2}
-            className="mt-1 w-full resize-none bg-transparent text-[15px] leading-[1.4] outline-none placeholder:text-muted-foreground"
+            className="mt-1 w-full resize-none bg-transparent text-sm leading-relaxed outline-none placeholder:text-muted-foreground"
           />
         </div>
       </div>

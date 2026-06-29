@@ -1,6 +1,7 @@
 "use client"
 
-import { Hash, MessagesSquare, BellOff, Pencil, Trash2 } from "lucide-react"
+import { MessagesSquare, BellOff, Pencil, Trash2 } from "lucide-react"
+import { ChannelIcon } from "./channel-icon"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
@@ -29,7 +30,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
       {...attributes}
       {...listeners}
       className={[
-        "group relative flex h-8 w-full cursor-pointer touch-none items-center gap-1.5 rounded-md px-2 text-[15px] active:cursor-grabbing",
+        "group relative flex h-8 w-full cursor-pointer touch-none items-center gap-1.5 rounded-md px-2 text-sm active:cursor-grabbing",
         active
           ? "bg-accent text-foreground"
           : ch.muted
@@ -43,7 +44,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
       {ch.type === "forum" ? (
         <MessagesSquare className="size-5 shrink-0 opacity-70" />
       ) : (
-        <Hash className="size-5 shrink-0 opacity-70" />
+        <ChannelIcon className="shrink-0 text-base opacity-70" />
       )}
       <span className="truncate">{ch.name}</span>
       {ch.muted ? (
@@ -57,7 +58,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
     <ContextMenu>
       <ContextMenuTrigger render={row} />
       <ContextMenuContent className="w-48">
-        <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">#{ch.name}</div>
+        <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">/{ch.name}</div>
         {onEdit && <ContextMenuItem onClick={onEdit}><Pencil className="size-4" /> Edit Channel</ContextMenuItem>}
         {onDelete && (
           <>

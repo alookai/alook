@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Hash, MessagesSquare } from "lucide-react"
+import { MessagesSquare } from "lucide-react"
+import { ChannelIcon } from "./channel-icon"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,8 +21,8 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
   const [type, setType] = useState<ChannelType>(initial?.type ?? "text")
   const [name, setName] = useState(initial?.name ?? "")
 
-  const options: { value: ChannelType; icon: typeof Hash; label: string; desc: string }[] = [
-    { value: "text", icon: Hash, label: "Text", desc: "Send messages, images, emoji, and opinions" },
+  const options: { value: ChannelType; icon: typeof MessagesSquare | typeof ChannelIcon; label: string; desc: string }[] = [
+    { value: "text", icon: ChannelIcon, label: "Text", desc: "Send messages, images, emoji, and opinions" },
     { value: "forum", icon: MessagesSquare, label: "Forum", desc: "Create a space for organized discussions" },
   ]
 
@@ -55,7 +56,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
                 >
                   <o.icon className="size-5 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
-                    <div className="text-[15px] font-medium">{o.label}</div>
+                    <div className="text-sm font-medium">{o.label}</div>
                     <div className="text-xs text-muted-foreground">{o.desc}</div>
                   </div>
                   <span className={`grid size-4 shrink-0 place-items-center rounded-full border ${type === o.value ? "border-primary" : "border-muted-foreground"}`}>
@@ -71,7 +72,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
             <div className="relative">
               {type === "forum"
                 ? <MessagesSquare className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                : <Hash className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />}
+                : <ChannelIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground" />}
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}

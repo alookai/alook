@@ -66,27 +66,27 @@ export function Message({
       className={[
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
         m.grouped ? "pt-0 pb-0" : "py-1",
-        highlighted ? "bg-primary/15" : "hover:bg-accent/40",
+        highlighted ? "bg-primary/10" : "hover:bg-accent/40",
       ].join(" ")}
     >
       <div className="min-w-0 flex-1">
       {interactive && (
-        <div className={`absolute -top-3 right-2 z-20 flex items-center gap-0.5 rounded-md border border-border bg-popover px-1 py-0.5 shadow-[var(--e2)] transition-opacity duration-150 ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
+        <div className={`absolute -top-3 right-2 z-20 flex items-center gap-0.5 rounded-lg border border-border/60 bg-card px-1 py-0.5 shadow-[var(--e1)] transition-opacity duration-150 ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
           {onReact && (
             <EmojiPickerPopover side="bottom" align="end" onPick={(e) => onReact(e)} onOpenChange={setToolbarOpen}>
-              <button className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:text-foreground" aria-label="Add reaction">
+              <button className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" aria-label="Add reaction">
                 <SmilePlus className="size-4.5" />
               </button>
             </EmojiPickerPopover>
           )}
           {onReply && (
-            <button onClick={onReply} className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Reply">
+            <button onClick={onReply} className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Reply">
               <Reply className="size-4.5" />
             </button>
           )}
           <DropdownMenu onOpenChange={setToolbarOpen}>
             <DropdownMenuTrigger
-              render={<button className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:text-foreground" />}
+              render={<button className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" />}
             >
               <MoreHorizontal className="size-4.5" />
             </DropdownMenuTrigger>
@@ -124,7 +124,7 @@ export function Message({
             <div className="flex items-baseline gap-2">
               <button
                 onClick={(e) => onOpenProfile?.(m.authorName ?? "", e)}
-                className="font-medium hover:underline"
+                className="text-[15px] font-semibold hover:underline"
                 style={{ color: m.color ?? "var(--foreground)" }}
               >
                 {m.authorName}

@@ -6,22 +6,20 @@ import type { DM } from "./_types"
 
 // DM list sidebar (@me view).
 export function DmSidebar({
-  dms, activeDm, onPickDm, onShowFriends, bordered, noHeader,
+  dms, activeDm, onPickDm, onShowFriends,
 }: {
   dms: DM[]
   activeDm: string | null
   onPickDm: (id: string) => void
   onShowFriends: () => void
-  bordered?: boolean
-  noHeader?: boolean
 }) {
   return (
-    <aside className={`flex min-w-0 flex-1 flex-col ${bordered ? "rounded-tl-xl border-l border-t border-border" : ""}`}>
+    <aside className="flex min-w-0 flex-1 flex-col">
       <div className="flex-1 overflow-y-auto thin-scrollbar px-2 py-3">
         <button
           onClick={onShowFriends}
           className={[
-            "mb-2 flex h-9 w-full items-center gap-2 rounded-md px-2 text-[15px] font-medium",
+            "mb-2 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
             activeDm === null ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
           ].join(" ")}
         >
@@ -47,7 +45,7 @@ export function DmSidebar({
             >
               <Avatar label={d.avatar} size={32} presence={d.status} />
               <div className="min-w-0 flex-1 text-left">
-                <div className="truncate text-[15px] leading-tight text-foreground">{d.name}</div>
+                <div className="truncate text-sm leading-tight text-foreground">{d.name}</div>
                 <div className="truncate text-xs leading-tight text-muted-foreground">{d.preview}</div>
               </div>
               {d.unread && <span className="size-2 shrink-0 rounded-full bg-primary" />}

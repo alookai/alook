@@ -51,8 +51,8 @@ export function NewThreadDialog({ channel, open, onClose, onCreate }: {
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") submit() }}
-                placeholder={`Message #${channel}`}
-                className="min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
+                placeholder={`Message /${channel}`}
+                className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
               <EmojiPickerPopover side="top" align="end" onPick={(e) => setMessage((m) => m + e)}>
                 <button className="shrink-0 text-muted-foreground hover:text-foreground aria-expanded:text-foreground" aria-label="Emoji picker">

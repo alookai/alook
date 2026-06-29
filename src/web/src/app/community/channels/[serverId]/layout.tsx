@@ -1,10 +1,11 @@
 "use client"
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { useParams, useRouter, useSearchParams, useSelectedLayoutSegment } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
+import { AppSurface } from "@/components/ui/app-surface"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft } from "lucide-react"
@@ -29,6 +30,7 @@ import { canManageServer, type ChannelType } from "@alook/shared"
 export default function ServerLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ serverId: string }>()
   const searchParams = useSearchParams()
+  const channelSegment = useSelectedLayoutSegment()
   const serverId = decodeURIComponent(params.serverId)
   const isAtMe = serverId === "@me"
 
@@ -44,7 +46,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // ── Local UI state ────────────────────────────────────────────────────────
   const [view, setView] = useState<View>(isAtMe ? "dm" : "server")
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [mobileZone, setMobileZone] = useState<MobileZone>("messages")
+  const [mobileZone, setMobileZone] = useState<MobileZone>(() => channelSegment ? "messages" : "channels")
   const [editingProfile, setEditingProfile] = useState(false)
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview")
@@ -227,6 +229,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       openSidebar: () => setSidebarOpen(true),
       previewImage: (url) => setPreview(url),
       openProfile,
+      goBackMobile: () => setMobileZone("channels"),
     })
   })
 
@@ -271,14 +274,13 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }
 
   // ── Left sidebar rendering ────────────────────────────────────────────────
-  const sidebar = (opts: { bordered?: boolean; noHeader?: boolean } = {}) =>
+  const sidebar = (opts: { noHeader?: boolean } = {}) =>
     isAtMe || view === "dm" ? (
       <DmSidebar
         dms={ctx.dms ?? []}
         activeDm={ctx.currentChannelId}
         onPickDm={enterDm}
         onShowFriends={() => ctx.setCurrentChannelId(null)}
-        {...opts}
       />
     ) : (
       <ChannelSidebar {...channelProps} {...opts} />
@@ -347,20 +349,22 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // ── Desktop ───────────────────────────────────────────────────────────────
   if (bp === "desktop") {
     return (
-      <Shell {...shellProps}>
-        <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-          <ResizablePanel defaultSize="24%" minSize="20%" maxSize="36%" className="flex flex-col" style={{ background: "var(--d-rail)" }}>
-            <div className="flex min-h-0 flex-1">
-              <ServerRail {...railProps} />
-              {sidebar({ bordered: true })}
-            </div>
-            <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} mounted={mounted} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} />
-          </ResizablePanel>
-          <ResizableHandle className="bg-transparent" />
-          <ResizablePanel defaultSize="76%" className="flex min-w-0 flex-col border-t border-r border-border bg-sidebar">
-            {children}
-          </ResizablePanel>
-        </ResizablePanelGroup>
+      <Shell>
+        <ServerRail {...railProps} />
+        <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
+          <AppSurface>
+            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+              <ResizablePanel defaultSize="24%" minSize="20%" maxSize="36%" className="flex flex-col border-r border-border/40">
+                {sidebar()}
+                <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} mounted={mounted} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} />
+              </ResizablePanel>
+              <ResizableHandle className="bg-transparent" />
+              <ResizablePanel defaultSize="76%" className="flex min-w-0 flex-col bg-background">
+                {children}
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          </AppSurface>
+        </div>
         {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === ctx.currentUser.name} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
         {dialogs}
@@ -371,12 +375,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // ── Tablet ────────────────────────────────────────────────────────────────
   if (bp === "tablet") {
     return (
-      <Shell {...shellProps}>
-        <div className="flex min-h-0 flex-1" style={{ background: "var(--d-rail)" }}>
-          <ServerRail {...railProps} />
-          <div className="flex min-w-0 flex-1 flex-col rounded-tl-xl border-l border-t border-r border-border bg-sidebar">
+      <Shell>
+        <ServerRail {...railProps} />
+        <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
+          <AppSurface>
             {children}
-          </div>
+          </AppSurface>
         </div>
         <Sheet open={sidebarOpen} onOpenChange={(o) => { if (!o) setSidebarOpen(false) }}>
           <SheetContent side="left" className="w-70 p-0" showCloseButton={false}>
@@ -395,13 +399,13 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   // ── Mobile ────────────────────────────────────────────────────────────────
   return (
-    <Shell {...shellProps}>
+    <Shell>
       {mobileZone === "rail" && (
         <MobileRail servers={railServers} folders={ctx.folders} onPick={() => setMobileZone("channels")} onHome={goHome} onServer={goServer} onServerNavigate={railProps.onServerNavigate} onAddServer={railProps.onCreateServer} onJoinServer={() => { /* Join is handled by the dialog inside MobileRail */ }} view={view} />
       )}
       {mobileZone === "channels" && (
-        <div className="flex min-h-0 flex-1 flex-col" style={{ background: "var(--d-rail)" }}>
-          <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-3">
+        <div className="flex min-h-0 flex-1 flex-col bg-card">
+          <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
             <Button variant="ghost" size="icon-sm" onClick={() => setMobileZone("rail")} className="text-muted-foreground hover:text-foreground" aria-label="Back to servers">
               <ChevronLeft className="size-5" />
             </Button>
@@ -412,7 +416,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         </div>
       )}
       {mobileZone === "messages" && (
-        <div className="flex min-h-0 flex-1 flex-col bg-sidebar">
+        <div className="flex min-h-0 flex-1 flex-col bg-background">
           {children}
         </div>
       )}

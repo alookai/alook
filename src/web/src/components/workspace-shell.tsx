@@ -3,7 +3,7 @@
 import { createContext, useContext, type ReactNode, useRef, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { MobileTopBar } from "@/components/mobile-top-bar";
-import { GradientBackground } from "@/components/gradient-background";
+import { AppBackground, AppSurface } from "@/components/ui/app-surface";
 import { WorkspacePetLayer } from "@/components/home-pet/workspace-pet-layer";
 import { RuntimeVersionGate } from "@/components/runtime-version-gate";
 import { useWorkspace } from "@/contexts/workspace-context";
@@ -30,12 +30,12 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
       <SidebarTriggerContext.Provider value={() => setSidebarOpen(true)}>
         <AgentChatSheetProvider>
           <div ref={shellRef} className="flex flex-col h-dvh overflow-hidden relative">
-            <GradientBackground />
+            <AppBackground />
             <div className="flex-1 min-h-0 px-2 pb-2 pt-2 flex flex-col">
               <MobileTopBar />
-              <main className="flex-1 min-h-0 rounded-xl bg-card/80 backdrop-blur-xl ring-1 ring-border/40 overflow-hidden flex flex-col">
+              <AppSurface>
                 {children}
-              </main>
+              </AppSurface>
             </div>
             <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
               <SheetContent side="left" showCloseButton={false} style={{ width: 56 }} className="p-0">
@@ -53,12 +53,12 @@ export function WorkspaceShell({ children }: { children: ReactNode }) {
   return (
     <AgentChatSheetProvider>
       <div ref={shellRef} className="flex h-dvh overflow-hidden relative">
-        <GradientBackground />
+        <AppBackground />
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
-          <main className="flex-1 min-h-0 rounded-xl bg-card/80 backdrop-blur-xl shadow-lg ring-1 ring-border/40 overflow-hidden flex flex-col">
+          <AppSurface>
             {children}
-          </main>
+          </AppSurface>
         </div>
         <WorkspacePetLayer boundaryRef={shellRef} slug={slug} />
         <RuntimeVersionGate />

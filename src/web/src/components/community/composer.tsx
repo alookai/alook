@@ -44,11 +44,11 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
     extensions: [
       StarterKit.configure({ heading: false, horizontalRule: false }),
       ChatMarkdown,
-      Placeholder.configure({ placeholder: thread ? `Message ${channel}` : `Message #${channel}` }),
+      Placeholder.configure({ placeholder: thread ? `Message ${channel}` : `Message /${channel}` }),
     ],
     editorProps: {
       attributes: {
-        class: "chat-composer flex-1 min-w-0 max-h-40 overflow-y-auto thin-scrollbar text-[15px] leading-[1.4] outline-none",
+        class: "chat-composer flex-1 min-w-0 max-h-40 overflow-y-auto thin-scrollbar text-sm leading-relaxed outline-none",
       },
       handleKeyDown: (_view, event) => {
         if (event.key === "Enter" && !event.shiftKey) {
@@ -107,7 +107,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
     <div className="relative px-2 pb-2 pt-0">
       {/* @mention autocomplete — floats above the input */}
       {mentionMatches.length > 0 && (
-        <div className="absolute bottom-full left-2 right-2 mb-1 overflow-hidden rounded-lg border border-border bg-popover shadow-(--e2)">
+        <div className="absolute bottom-full left-2 right-2 mb-1 overflow-hidden rounded-lg border border-border bg-popover shadow-[var(--e2)]">
           <div className="border-b border-border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Members</div>
           {mentionMatches.map((f) => (
             <button key={f.id} onClick={() => pickMention(f.name)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-accent">
@@ -120,7 +120,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
 
       {/* reply context bar — attached above the input */}
       {replyingTo && (
-        <div className="flex items-center gap-2 rounded-t-lg border-b border-border bg-secondary/60 px-4 py-1.5 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 rounded-t-xl border border-b-0 border-border/40 bg-muted/60 px-4 py-2 text-xs text-muted-foreground">
           <span>Replying to <span className="font-medium text-foreground">{replyingTo}</span></span>
           <button onClick={onCancelReply} className="ml-auto grid size-4 place-items-center rounded-full hover:bg-foreground/10 hover:text-foreground" aria-label="Cancel reply">
             <X className="size-3.5" />
@@ -130,7 +130,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
 
       {/* pending attachments preview */}
       {pendingFiles.length > 0 && (
-        <div className={`flex flex-wrap gap-2 border-b border-border bg-secondary/40 px-4 py-2 ${replyingTo ? "" : "rounded-t-lg"}`}>
+        <div className={`flex flex-wrap gap-2 border-x border-b border-border/40 bg-muted/40 px-4 py-2 ${replyingTo ? "" : "rounded-t-xl border-t"}`}>
           {pendingFiles.map((file, i) => {
             const isImage = file.type.startsWith("image/")
             return (
@@ -150,7 +150,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
         </div>
       )}
 
-      <div className={`flex min-h-14 items-center gap-3 bg-secondary px-4 py-3 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-lg" : "rounded-lg"}`}>
+      <div className={`flex min-h-14 items-center gap-2 bg-muted px-4 py-2 shadow-[var(--e1)] ring-1 ring-border/40 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}>
         <input
           ref={fileInputRef}
           type="file"

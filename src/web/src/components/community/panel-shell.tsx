@@ -16,17 +16,17 @@ export function PanelShell({
 }) {
   return (
     <div className="flex h-full flex-col bg-background">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-4">
         {onBack ? (
-          <button onClick={onBack} className="-ml-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Back to threads">
-            <ChevronLeft className="size-5" />
+          <button onClick={onBack} className="-ml-1 grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Back to threads">
+            <ChevronLeft className="size-4.5" />
           </button>
         ) : (
-          <Icon className="size-5 text-muted-foreground" />
+          <Icon className="size-4.5 text-muted-foreground" />
         )}
-        <h2 className="flex-1 truncate text-lg font-semibold">{title}</h2>
+        <h2 className="flex-1 truncate text-base font-semibold">{title}</h2>
         {showClose && (
-          <button onClick={onClose} className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Close panel">
+          <button onClick={onClose} className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Close panel">
             <X className="size-4" />
           </button>
         )}
