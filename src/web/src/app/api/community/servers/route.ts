@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, MAX_SERVER_NAME_LENGTH } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const GET = withAuth(async (_req, ctx) => {
@@ -26,7 +26,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   const name = body.name.trim()
-  if (!name || name.length > 100) {
+  if (!name || name.length > MAX_SERVER_NAME_LENGTH) {
     return writeError("name must be 1-100 characters", 400)
   }
 

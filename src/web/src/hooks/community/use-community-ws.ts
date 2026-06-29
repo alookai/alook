@@ -34,7 +34,7 @@ import type {
   CommunityCategoryDelete,
   CommunityCategoryReorder,
 } from "@alook/shared"
-import { isCommunityEvent } from "@alook/shared"
+import { isCommunityEvent, TYPING_INDICATOR_TIMEOUT_MS } from "@alook/shared"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -59,9 +59,6 @@ export type CommunityWsCallbacks = {
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-/** Typing broadcast debounce (client-side) — 8 seconds per the plan */
-const TYPING_DEBOUNCE_MS = 8_000
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
@@ -217,7 +214,7 @@ export function useCommunityWs(callbacks: CommunityWsCallbacks) {
 
       const now = Date.now()
       const lastSent = lastTypingSent.current.get(key) || 0
-      if (now - lastSent < TYPING_DEBOUNCE_MS) return
+      if (now - lastSent < TYPING_INDICATOR_TIMEOUT_MS) return
 
       lastTypingSent.current.set(key, now)
       send({ type: "community:typing.start", ...target })

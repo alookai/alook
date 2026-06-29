@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
+import { CACHE_IMMUTABLE } from "@alook/shared"
 
 export const GET = async (req: NextRequest, { params }: { params: Promise<{ key: string[] }> }) => {
   const { key } = await params
@@ -15,7 +16,7 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ key:
     headers: {
       "Content-Type": obj.httpMetadata?.contentType ?? "application/octet-stream",
       "Content-Disposition": isImage ? "inline" : `attachment; filename="${key[key.length - 1]}"`,
-      "Cache-Control": "public, max-age=31536000, immutable",
+      "Cache-Control": CACHE_IMMUTABLE,
     },
   })
 }

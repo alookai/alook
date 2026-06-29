@@ -65,7 +65,7 @@ import type {
   ChannelType,
   CommunityRole,
 } from "@alook/shared"
-import { isServerOwner } from "@alook/shared"
+import { isServerOwner, TYPING_INDICATOR_TIMEOUT_MS } from "@alook/shared"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -585,7 +585,7 @@ export function CommunityProvider({
       typingTimers.current.set(userId, setTimeout(() => {
         setTypingUsers((prev) => prev.filter((id) => id !== userId))
         typingTimers.current.delete(userId)
-      }, 8_000))
+      }, TYPING_INDICATOR_TIMEOUT_MS))
     }, []),
     onPresence: useCallback((event: CommunityPresenceUpdate) => {
       setOnlineUserIds((prev) => {

@@ -2,6 +2,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, canManageServer } from "@alook/shared"
+import { logAudit } from "@/lib/community/audit"
 
 export const DELETE = withAuth(async (_req, ctx) => {
   const token = ctx.params?.token
@@ -24,7 +25,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
 
   await queries.communityInvite.revokeInvite(db, invite.id)
 
-  await queries.communityAuditLog.logAction(db, {
+  logAudit(db, {
     serverId: invite.serverId,
     actorId: ctx.userId,
     action: "invite_delete",

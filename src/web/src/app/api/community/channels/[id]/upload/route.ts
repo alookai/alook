@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
+import { buildMediaKey } from "@/lib/community/storage"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -21,7 +22,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!file) return writeError("no file provided", 400)
 
   const fileId = crypto.randomUUID()
-  const key = `channel/${channelId}/${fileId}/${file.name}`
+  const key = buildMediaKey("channel", channelId, fileId, file.name)
 
   await ctx.env.COMMUNITY_MEDIA.put(
     key,

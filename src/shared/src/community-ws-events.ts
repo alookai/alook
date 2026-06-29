@@ -3,7 +3,7 @@
  *
  * Convention: every event type starts with "community:" prefix.
  * The server fans events to each recipient's per-user DO via POST /broadcast/user/<userId>.
- * The client filters events based on its focused subscription (channelId/dmConversationId).
+ * The client filters events based on its focused subscription (channelId/threadId/dmConversationId).
  */
 
 import type { ChannelType } from "./utils/community-roles"
@@ -14,6 +14,7 @@ export type CommunityMessageCreate = {
   type: "community:message.create"
   channelId?: string
   dmConversationId?: string
+  threadId?: string
   message: {
     id: string
     authorId: string
@@ -42,6 +43,7 @@ export type CommunityReactionAdd = {
   type: "community:reaction.add"
   channelId?: string
   dmConversationId?: string
+  threadId?: string
   messageId: string
   userId: string
   emoji: string
@@ -51,6 +53,7 @@ export type CommunityReactionRemove = {
   type: "community:reaction.remove"
   channelId?: string
   dmConversationId?: string
+  threadId?: string
   messageId: string
   userId: string
   emoji: string
@@ -72,6 +75,7 @@ export type CommunityTypingStart = {
   type: "community:typing.start"
   channelId?: string
   dmConversationId?: string
+  threadId?: string
   userId: string
 }
 

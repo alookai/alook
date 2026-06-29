@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, canManageServer, isServerOwner } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { logAudit } from "@/lib/community/audit"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
@@ -48,14 +49,14 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const updated = await queries.communityMember.updateRole(db, memberId, body.role)
   if (!updated) return writeError("member not found", 404)
 
-  queries.communityAuditLog.logAction(db, {
+  logAudit(db, {
     serverId,
     actorId: ctx.userId,
     action: "member_role_update",
     targetType: "member",
     targetId: memberId,
     changes: JSON.stringify({ role: body.role }),
-  }).catch(() => {})
+  })
 
   fanOutToServerMembers(serverId, {
     type: "community:member.update",
@@ -99,14 +100,14 @@ export const DELETE = withAuth(async (_req, ctx) => {
   const removed = await queries.communityMember.removeMember(db, memberId)
   if (!removed) return writeError("member not found", 404)
 
-  queries.communityAuditLog.logAction(db, {
+  logAudit(db, {
     serverId,
     actorId: ctx.userId,
     action: "member_kick",
     targetType: "member",
     targetId: memberId,
     changes: JSON.stringify({ userId: target.userId }),
-  }).catch(() => {})
+  })
 
   fanOutToServerMembers(serverId, {
     type: "community:member.leave",

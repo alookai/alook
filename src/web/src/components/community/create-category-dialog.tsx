@@ -10,9 +10,10 @@ import { Field } from "./field"
 
 // Create Category dialog — name + private toggle (default public). A private category
 // restricts channel creation to admins.
-export function CreateCategoryDialog({ onClose, onCreate }: {
+export function CreateCategoryDialog({ onClose, onCreate, canTogglePrivate = true }: {
   onClose: () => void
   onCreate: (name: string, opts: { private: boolean }) => void
+  canTogglePrivate?: boolean
 }) {
   const [name, setName] = useState("")
   const [isPrivate, setIsPrivate] = useState(false)
@@ -38,14 +39,16 @@ export function CreateCategoryDialog({ onClose, onCreate }: {
               autoFocus
             />
           </Field>
-          <label className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5">
-            <Lock className="size-4 shrink-0 text-muted-foreground" />
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium">Private Category</div>
-              <div className="text-xs text-muted-foreground">Only admins can create channels here.</div>
-            </div>
-            <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
-          </label>
+          {canTogglePrivate && (
+            <label className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5">
+              <Lock className="size-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">Private Category</div>
+                <div className="text-xs text-muted-foreground">Only admins can create channels here.</div>
+              </div>
+              <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
+            </label>
+          )}
         </div>
         <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-5 py-3">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>

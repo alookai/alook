@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, MAX_EMOJI_BYTES } from "@alook/shared"
 import { fanOutToChannel, fanOutToDM } from "@/lib/community/fanout"
 
 export const PUT = withAuth(async (_req: NextRequest, ctx) => {
@@ -11,7 +11,7 @@ export const PUT = withAuth(async (_req: NextRequest, ctx) => {
   if (!messageId || !rawEmoji) return writeError("missing params", 400)
 
   const emoji = decodeURIComponent(rawEmoji)
-  if (Buffer.byteLength(emoji, "utf8") > 32) {
+  if (Buffer.byteLength(emoji, "utf8") > MAX_EMOJI_BYTES) {
     return writeError("emoji too long", 400)
   }
 

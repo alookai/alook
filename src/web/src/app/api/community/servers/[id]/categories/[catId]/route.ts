@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, canManageServer } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { logAudit } from "@/lib/community/audit"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
@@ -50,7 +51,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     changes,
   })
 
-  await queries.communityAuditLog.logAction(db, {
+  logAudit(db, {
     serverId,
     actorId: ctx.userId,
     action: "category_update",
@@ -90,7 +91,7 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     categoryId,
   })
 
-  await queries.communityAuditLog.logAction(db, {
+  logAudit(db, {
     serverId,
     actorId: ctx.userId,
     action: "category_delete",

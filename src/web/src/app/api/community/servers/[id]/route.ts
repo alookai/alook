@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, canManageServer, isServerOwner } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { logAudit } from "@/lib/community/audit"
 
 export const GET = withAuth(async (_req, ctx) => {
   const serverId = ctx.params?.id
@@ -90,14 +91,14 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const updated = await queries.communityServer.updateServer(db, serverId, changes)
   if (!updated) return writeError("server not found", 404)
 
-  queries.communityAuditLog.logAction(db, {
+  logAudit(db, {
     serverId,
     actorId: ctx.userId,
     action: "server_update",
     targetType: "server",
     targetId: serverId,
     changes: JSON.stringify(changes),
-  }).catch(() => {})
+  })
 
   fanOutToServerMembers(serverId, {
     type: "community:server.update",

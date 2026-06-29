@@ -3,7 +3,8 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, canManageServer } from "@alook/shared"
+import { queries, canManageServer, CACHE_SHORT } from "@alook/shared"
+import { buildServerIconKey } from "@/lib/community/storage"
 
 export const GET = async (_req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id: serverId } = await params
@@ -24,7 +25,7 @@ export const GET = async (_req: NextRequest, { params }: { params: Promise<{ id:
   return new Response(obj.body, {
     headers: {
       "Content-Type": obj.httpMetadata?.contentType ?? "image/png",
-      "Cache-Control": "public, max-age=3600",
+      "Cache-Control": CACHE_SHORT,
     },
   })
 }
@@ -45,7 +46,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!file) return writeError("no file provided", 400)
 
   const fileId = crypto.randomUUID()
-  const key = `server-icon/${serverId}/${fileId}`
+  const key = buildServerIconKey(serverId, fileId)
 
   await ctx.env.COMMUNITY_MEDIA.put(
     key,

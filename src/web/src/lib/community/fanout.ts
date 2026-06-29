@@ -89,11 +89,6 @@ export async function fanOutToServerMembers(
 /**
  * Internal: broadcast a community event to a list of user IDs.
  * Optionally excludes a specific user (e.g., the event author).
- *
- * The event is cast to `any` for broadcastToUser because the existing
- * WsMessage union does not include community events. The per-user DO
- * forwards all messages to authenticated WebSocket connections regardless
- * of type, so this is safe.
  */
 async function broadcastToRecipients(
   userIds: string[],
@@ -108,8 +103,7 @@ async function broadcastToRecipients(
 
   // Fire all broadcasts concurrently — non-blocking via waitUntil in broadcastToUser
   const promises = recipients.map((userId) =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    broadcastToUser(userId, event as any).catch((err) => {
+    broadcastToUser(userId, event).catch((err) => {
       log.warn("broadcastToRecipient failed", { userId, type: event.type, err: String(err) })
     })
   )

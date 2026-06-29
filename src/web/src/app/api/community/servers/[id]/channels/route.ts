@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, canManageServer, type ChannelType } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { logAudit } from "@/lib/community/audit"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
@@ -59,7 +60,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     channel,
   })
 
-  await queries.communityAuditLog.logAction(db, {
+  logAudit(db, {
     serverId,
     actorId: ctx.userId,
     action: "channel_create",
