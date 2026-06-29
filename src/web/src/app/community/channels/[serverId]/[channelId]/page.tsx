@@ -155,6 +155,9 @@ export default function ChannelPage() {
     },
   }
 
+  // Thread/child-channel: strip actions that don't apply inside a thread
+  const threadActions = { ...messageActions, onCreateThread: undefined }
+
   const resolveUserName = useCallback((userId: string) => {
     const m = ctx.members.find((x) => x.userId === userId)
     return m?.name ?? userId
@@ -318,6 +321,7 @@ export default function ChannelPage() {
           onToggle={togglePanel}
           onBack={bp === "mobile" ? () => router.back() : undefined}
           server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
+          tools={{ threads: false }}
           breadcrumb={{
             label: channelName,
             onNavigateBack: () => { if (parentId) router.push(`/community/channels/${params.serverId}/${parentId}`); else router.back() },
@@ -340,13 +344,14 @@ export default function ChannelPage() {
               pinnedIds={pinnedIds}
               typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
               onOpenThread={() => {}}
-              {...messageActions}
+              {...threadActions}
               onOpenProfile={openProfile}
               resolveUserName={resolveUserName}
               scrollToMessageId={scrollToMessageId}
             />
             <Composer
               channel={channelName}
+              thread
               members={ctx.friends}
               onSend={sendMessage}
               onTyping={handleTyping}
