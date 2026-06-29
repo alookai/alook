@@ -552,7 +552,7 @@ export function CommunityProvider({
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== event.messageId) return m
-          const reactions = [...(m.reactions ?? [])]
+          const reactions = (m.reactions ?? []).map((r) => ({ ...r }))
           if (event.type === "community:reaction.add") {
             const existing = reactions.find((r) => r.emoji === event.emoji)
             if (existing) {
@@ -887,12 +887,13 @@ export function CommunityProvider({
   }, [])
 
   const toggleReaction = useCallback((messageId: string, emoji: string) => {
+    let wasMe = false
     setMessages((prev) => {
       const msg = prev.find((m) => m.id === messageId)
-      const wasMe = msg?.reactions?.find((r) => r.emoji === emoji)?.me ?? false
+      wasMe = msg?.reactions?.find((r) => r.emoji === emoji)?.me ?? false
       return prev.map((m) => {
         if (m.id !== messageId) return m
-        const reactions = [...(m.reactions ?? [])]
+        const reactions = (m.reactions ?? []).map((r) => ({ ...r }))
         const existing = reactions.find((r) => r.emoji === emoji)
         if (wasMe) {
           if (existing) {
@@ -912,15 +913,12 @@ export function CommunityProvider({
         return { ...m, reactions }
       })
     })
-    // Optimistic — fire API in background
-    const msg = messages.find((m) => m.id === messageId)
-    const wasMe = msg?.reactions?.find((r) => r.emoji === emoji)?.me ?? false
     if (wasMe) {
       apiFetch(`/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`, { method: "DELETE" }).catch(() => {})
     } else {
       apiFetch(`/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`, { method: "PUT" }).catch(() => {})
     }
-  }, [messages])
+  }, [])
 
   const pinMessage = useCallback((messageId: string) => {
     const cid = currentChannelIdRef.current
