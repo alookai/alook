@@ -1,6 +1,26 @@
-import { eq, and, isNotNull } from "drizzle-orm";
+import { eq, and, or, isNotNull, inArray } from "drizzle-orm";
 import { communityNotificationSetting } from "../../community-schema";
 import type { Database } from "../../index";
+
+export async function getMutedUserIds(
+  db: Database,
+  userIds: string[],
+  opts: { channelId?: string; serverId?: string }
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set()
+  const rows = await db
+    .select({ userId: communityNotificationSetting.userId })
+    .from(communityNotificationSetting)
+    .where(and(
+      inArray(communityNotificationSetting.userId, userIds),
+      eq(communityNotificationSetting.level, "nothing"),
+      or(
+        opts.channelId ? eq(communityNotificationSetting.channelId, opts.channelId) : undefined,
+        opts.serverId ? and(eq(communityNotificationSetting.serverId, opts.serverId), isNotNull(communityNotificationSetting.serverId)) : undefined,
+      ),
+    ))
+  return new Set(rows.map((r) => r.userId))
+}
 
 export async function getSettings(db: Database, userId: string) {
   return db

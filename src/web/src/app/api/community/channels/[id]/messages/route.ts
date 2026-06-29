@@ -131,10 +131,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const replyMsg = await queries.communityMessage.getMessage(db, message!.replyToId)
     if (replyMsg) {
       replyTo = { id: replyMsg.id, authorName: replyMsg.authorName ?? "Unknown", text: (replyMsg.content ?? "").slice(0, 100) }
-      // Create mention for the replied-to user (unless replying to self) — before fanout so
-      // the user gets the mention before the real-time event arrives
       if (replyMsg.authorId && replyMsg.authorId !== ctx.userId) {
-        await queries.communityMention.createMentions(db, { messageId: created.id, userIds: [replyMsg.authorId] })
         mentionedUserIds.push(replyMsg.authorId)
       }
     }
@@ -144,22 +141,26 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (body.mentionType === "everyone" || body.mentionType === "here") {
     const members = await queries.communityMember.listMembers(db, channel.serverId)
     const userIds = members.filter((m) => m.userId !== ctx.userId).map((m) => m.userId)
-    if (userIds.length > 0) {
-      await queries.communityMention.createMentions(db, { messageId: created.id, userIds })
-      mentionedUserIds.push(...userIds)
-    }
+    mentionedUserIds.push(...userIds)
   }
 
-  // Broadcast mention event to all mentioned users
-  const authorName = message!.authorName ?? "Unknown"
-  for (const userId of [...new Set(mentionedUserIds)]) {
-    broadcastToUser(userId, {
-      type: "community:mention.create",
-      userId,
-      messageId: created.id,
-      channelId,
-      authorName,
-    } as never).catch(() => {})
+  // Filter out muted users, create mentions and broadcast
+  if (mentionedUserIds.length > 0) {
+    const muted = await queries.communityNotificationSetting.getMutedUserIds(db, mentionedUserIds, { channelId, serverId: channel.serverId })
+    const filtered = [...new Set(mentionedUserIds)].filter((id) => !muted.has(id))
+    if (filtered.length > 0) {
+      await queries.communityMention.createMentions(db, { messageId: created.id, userIds: filtered })
+      const authorName = message!.authorName ?? "Unknown"
+      for (const userId of filtered) {
+        broadcastToUser(userId, {
+          type: "community:mention.create",
+          userId,
+          messageId: created.id,
+          channelId,
+          authorName,
+        } as never).catch(() => {})
+      }
+    }
   }
 
   fanOutToChannel(channelId, {

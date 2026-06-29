@@ -100,18 +100,21 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const fullMessage = await queries.communityMessage.getMessage(db, message.id)
 
-  // Create mention for the replied-to user (unless replying to self)
+  // Create mention for the replied-to user (unless replying to self or muted)
   if (body.replyToId) {
     const replyMsg = await queries.communityMessage.getMessage(db, body.replyToId)
     if (replyMsg && replyMsg.authorId && replyMsg.authorId !== ctx.userId) {
-      await queries.communityMention.createMentions(db, { messageId: message.id, userIds: [replyMsg.authorId] })
-      broadcastToUser(replyMsg.authorId, {
-        type: "community:mention.create",
-        userId: replyMsg.authorId,
-        messageId: message.id,
-        channelId,
-        authorName: fullMessage!.authorName ?? "Unknown",
-      } as never).catch(() => {})
+      const muted = await queries.communityNotificationSetting.getMutedUserIds(db, [replyMsg.authorId], { channelId, serverId: channel.serverId })
+      if (!muted.has(replyMsg.authorId)) {
+        await queries.communityMention.createMentions(db, { messageId: message.id, userIds: [replyMsg.authorId] })
+        broadcastToUser(replyMsg.authorId, {
+          type: "community:mention.create",
+          userId: replyMsg.authorId,
+          messageId: message.id,
+          channelId,
+          authorName: fullMessage!.authorName ?? "Unknown",
+        } as never).catch(() => {})
+      }
     }
   }
 
