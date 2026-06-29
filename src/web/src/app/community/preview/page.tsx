@@ -49,7 +49,7 @@ import { Composer } from "@/components/community/composer"
 import { RightPanelContent } from "@/components/community/right-panel"
 import { ThreadMessages } from "@/components/community/thread-messages"
 import { ForumView } from "@/components/community/forum-view"
-import { DmMessages } from "@/components/community/dm-messages"
+import { Avatar } from "@/components/community/avatar"
 import { FriendsPage } from "@/components/community/friends-page"
 import { ServerSettings } from "@/components/community/server-settings"
 import { InboxPopover } from "@/components/community/community-inbox-popover"
@@ -426,7 +426,19 @@ export default function CommunityPreview() {
         <>
           <DmHeader dm={dm} onBack={compact ? () => setMobileZone("channels") : undefined} onOpenPins={() => setRightPanel("pinned")} onAddFriend={() => { if (!friendList.some((f) => f.name === dm.name)) setFriendList((p) => [...p, { id: `fr_${dm.id}`, name: dm.name, avatar: dm.avatar, status: dm.status, sub: "" }]); toast(`Added ${dm.name} as a friend`) }} />
           <main className="flex min-h-0 flex-1 flex-col">
-            <DmMessages dm={dm} {...profileProps} />
+            <MessageList
+              channel={dm.name}
+              messages={dm.messages}
+              onOpenThread={() => {}}
+              {...profileProps}
+              hero={
+                <>
+                  <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={68} /></div>
+                  <h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p>
+                </>
+              }
+            />
             <Composer channel={dm.name} thread members={friendList} onSend={sendDmMessage} />
           </main>
         </>

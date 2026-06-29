@@ -14,7 +14,7 @@ export function MessageList({
   channel, messages, pinnedIds, newDividerBefore, typingUsers, onOpenThread, onOpenProfile,
   onToggleReaction, onReact,
   onReply, onPin, onCreateThread, onCopy, onRetry, onPreviewImage, onDownloadFile,
-  resolveUserName, scrollToMessageId,
+  resolveUserName, scrollToMessageId, hero,
 }: {
   channel: string
   messages: Msg[]
@@ -34,6 +34,7 @@ export function MessageList({
   onDownloadFile?: (name: string) => void
   resolveUserName?: (userId: string) => string
   scrollToMessageId?: string | null
+  hero?: React.ReactNode
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -67,11 +68,15 @@ export function MessageList({
       <div ref={scrollRef} className="flex-1 overflow-y-auto thin-scrollbar">
         <div className="flex min-h-full flex-col justify-end gap-4 px-4 py-8">
           <div className="mb-4">
-            <div className="mb-2 grid size-12 place-items-center rounded-full bg-muted/60">
-              <ChannelIcon className="text-xl text-muted-foreground" />
-            </div>
-            <h2 className="text-xl font-semibold leading-tight">{channel}</h2>
-            <p className="mt-2 text-sm text-muted-foreground">This is the start of the channel.</p>
+            {hero ?? (
+              <>
+                <div className="mb-2 grid size-12 place-items-center rounded-full bg-muted/60">
+                  <ChannelIcon className="text-xl text-muted-foreground" />
+                </div>
+                <h2 className="text-xl font-semibold leading-tight">{channel}</h2>
+                <p className="mt-2 text-sm text-muted-foreground">This is the start of the channel.</p>
+              </>
+            )}
           </div>
 
           {(() => {

@@ -8,9 +8,9 @@ import { useCommunity } from "@/contexts/community/context"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { DmHeader } from "@/components/community/dm-header"
+import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
 import { Composer } from "@/components/community/composer"
-import { DmMessages } from "@/components/community/dm-messages"
 import { ForumView } from "@/components/community/forum-view"
 import { RightPanelContent } from "@/components/community/right-panel"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
@@ -28,7 +28,8 @@ import { canManageServer } from "@/components/community/_types"
 export default function ChannelPage() {
   const params = useParams<{ serverId: string; channelId: string }>()
   const router = useRouter()
-  const isAtMe = params.serverId === "@me"
+  const serverId = decodeURIComponent(params.serverId)
+  const isAtMe = serverId === "@me"
   const channelId = params.channelId
   const bp = useBreakpoint()
   const ctx = useCommunity()
@@ -251,7 +252,7 @@ export default function ChannelPage() {
   if (isAtMe && !dm) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
-        <span className="text-sm">Conversation not found</span>
+        <span className="text-sm">{ctx.dmsLoading ? "Loading…" : "Conversation not found"}</span>
       </div>
     )
   }
@@ -265,7 +266,24 @@ export default function ChannelPage() {
           onAddFriend={() => { ctx.sendFriendRequest(dm.userId); toast("Friend request sent") }}
         />
         <main className="flex min-h-0 flex-1 flex-col">
-          <DmMessages dm={dm} onOpenProfile={openProfile} />
+          <MessageList
+            channel={dm.name}
+            messages={ctx.messages}
+            pinnedIds={pinnedIds}
+            typingUsers={ctx.typingUsers.map((id) => ctx.friends.find((f) => f.userId === id)?.name ?? id)}
+            onOpenThread={() => {}}
+            {...messageActions}
+            onOpenProfile={openProfile}
+            resolveUserName={resolveUserName}
+            scrollToMessageId={scrollToMessageId}
+            hero={
+              <>
+                <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={68} /></div>
+                <h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p>
+              </>
+            }
+          />
           <Composer
             channel={dm.name}
             thread
