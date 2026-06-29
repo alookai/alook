@@ -20,7 +20,7 @@ import { UserBar } from "@/components/community/user-bar"
 import { UserSettings } from "@/components/community/edit-profile-dialog"
 import { ServerSettings } from "@/components/community/server-settings"
 import { InboxPopover } from "@/components/community/community-inbox-popover"
-import { Overlay } from "@/components/community/overlay"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { ProfileCard } from "@/components/community/profile-card"
 import { ImageLightbox } from "@/components/community/image-lightbox"
 import type { MobileZone, View, Profile, SettingsSection } from "@/components/community/_types"
@@ -375,14 +375,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
             {children}
           </div>
         </div>
-        {sidebarOpen && (
-          <Overlay onClose={() => setSidebarOpen(false)} side="left">
-            <div className="flex h-full w-70 flex-col" style={{ background: "var(--d-rail)" }}>
+        <Sheet open={sidebarOpen} onOpenChange={(o) => { if (!o) setSidebarOpen(false) }}>
+          <SheetContent side="left" className="w-70 p-0" showCloseButton={false}>
+            <div className="flex h-full flex-col" style={{ background: "var(--d-rail)" }}>
               <div className="flex min-h-0 flex-1">{sidebar()}</div>
               <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} mounted={mounted} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} />
             </div>
-          </Overlay>
-        )}
+          </SheetContent>
+        </Sheet>
         {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === ctx.currentUser.name} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
         {dialogs}

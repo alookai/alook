@@ -55,7 +55,7 @@ import { FriendsPage } from "@/components/community/friends-page"
 import { ServerSettings } from "@/components/community/server-settings"
 import { InboxPopover } from "@/components/community/community-inbox-popover"
 import { Shell } from "@/components/community/shell"
-import { Overlay } from "@/components/community/overlay"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
 
 // ── Page ────────────────────────────────────────────────────────────────
 export default function CommunityPreview() {
@@ -526,26 +526,24 @@ export default function CommunityPreview() {
           </div>
         </div>
 
-        {/* left overlay: channel / DM sidebar */}
-        {sidebarOpen && (
-          <Overlay onClose={() => setSidebarOpen(false)} side="left">
-            <div className="flex h-full w-70 flex-col" style={{ background: "var(--d-rail)" }}>
+        {/* left sheet: channel / DM sidebar */}
+        <Sheet open={sidebarOpen} onOpenChange={(o) => { if (!o) setSidebarOpen(false) }}>
+          <SheetContent side="left" className="w-70 p-0" showCloseButton={false}>
+            <div className="flex h-full flex-col" style={{ background: "var(--d-rail)" }}>
               <div className="flex min-h-0 flex-1">
                 {sidebar()}
               </div>
               <UserBar user={{ name: "Gener", avatar: "G" }} mounted={mounted} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
             </div>
-          </Overlay>
-        )}
+          </SheetContent>
+        </Sheet>
 
-        {/* right overlay: members / pinned / search / thread */}
-        {rightPanel && view === "server" && !openThread && (
-          <Overlay onClose={() => setRightPanel(null)} side="right">
-            <div className="h-full w-[320px] bg-background shadow-(--e2)">
-              <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} {...profileProps} />
-            </div>
-          </Overlay>
-        )}
+        {/* right sheet: members / pinned / search / thread */}
+        <Sheet open={!!rightPanel && view === "server" && !openThread} onOpenChange={(o) => { if (!o) setRightPanel(null) }}>
+          <SheetContent side="right" className="w-[320px] p-0" showCloseButton={false}>
+            {rightPanel && <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} {...profileProps} />}
+          </SheetContent>
+        </Sheet>
         {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === "Gener"} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
         {dialogs}

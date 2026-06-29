@@ -15,7 +15,7 @@ import { ForumView } from "@/components/community/forum-view"
 import { ThreadHeader } from "@/components/community/thread-header"
 import { RightPanelContent } from "@/components/community/right-panel"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
-import { Overlay } from "@/components/community/overlay"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
 import type { RightPanel, Msg, Thread, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
 
@@ -394,14 +394,12 @@ export default function ChannelPage() {
         )}
       </div>
 
-      {/* Tablet/mobile: right panel overlay */}
-      {bp === "tablet" && rightPanel && (
-        <Overlay onClose={() => setRightPanel(null)} side="right">
-          <div className="h-full w-[320px] bg-background shadow-(--e2)">
-            <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} onOpenProfile={openProfile} />
-          </div>
-        </Overlay>
-      )}
+      {/* Tablet/mobile: right panel sheet */}
+      <Sheet open={bp === "tablet" && !!rightPanel} onOpenChange={(o) => { if (!o) setRightPanel(null) }}>
+        <SheetContent side="right" className="w-[320px] p-0" showCloseButton={false}>
+          {rightPanel && <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} onOpenProfile={openProfile} />}
+        </SheetContent>
+      </Sheet>
 
       {/* Mobile: full-screen panel */}
       {bp === "mobile" && rightPanel && (
