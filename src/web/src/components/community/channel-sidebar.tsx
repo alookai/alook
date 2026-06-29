@@ -16,7 +16,6 @@ import { catId, type ChannelTree } from "./use-channel-tree"
 import type { Channel } from "./_types"
 import type { ChannelType } from "@alook/shared"
 
-let channelSeq = 0
 
 type Dialog =
   | { kind: "create-channel"; categoryId: string }
@@ -46,8 +45,8 @@ export function ChannelSidebar({
   currentUserId?: string
   onBlockedCreate?: () => void
   mutedChannels?: Record<string, boolean>
-  onCreateChannel?: (categoryId: string, name: string, type: ChannelType) => void
-  onCreateCategory?: (name: string, opts?: { private?: boolean }) => void
+  onCreateChannel?: (categoryId: string, name: string, type: ChannelType) => Promise<string | null> | void
+  onCreateCategory?: (name: string, opts?: { private?: boolean }) => Promise<string | null> | void
   onDeleteChannel?: (channelId: string) => void
   onDeleteCategory?: (categoryId: string) => void
   onUpdateCategory?: (categoryId: string, opts: { name?: string; isPrivate?: boolean }) => void
@@ -90,11 +89,9 @@ export function ChannelSidebar({
     setDialog({ kind: "create-channel", categoryId })
   }
 
-  const createChannel = (categoryId: string, { name, type }: { name: string; type: ChannelType }) => {
-    const ch: Channel = { id: `ch_local_${++channelSeq}`, name, active: false, unread: false, type }
-    addChannel(categoryId, ch)
-    setActiveChannel(ch.id)
-    onCreateChannel?.(categoryId, name, type)
+  const createChannel = async (categoryId: string, { name, type }: { name: string; type: ChannelType }) => {
+    const id = await onCreateChannel?.(categoryId, name, type)
+    if (id) setActiveChannel(id)
   }
 
   return (
@@ -189,7 +186,7 @@ export function ChannelSidebar({
       {dialog?.kind === "create-category" && (
         <CreateCategoryDialog
           onClose={() => setDialog(null)}
-          onCreate={(name, opts) => { addCategory(name, opts); onCreateCategory?.(name, opts) }}
+          onCreate={(name, opts) => { onCreateCategory?.(name, opts) }}
           canTogglePrivate={isAdmin}
         />
       )}
