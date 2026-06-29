@@ -70,7 +70,6 @@ export function reorderCategories(catOrder: string[], activeCatId: string, overC
   return arrayMove(catOrder, from, to)
 }
 
-let localCatSeq = 0
 
 /**
  * Channel-sidebar dnd state: category order + per-category channel order, with
@@ -121,8 +120,6 @@ export function useChannelTree(categories: Category[]) {
       return next
     })
 
-  const addChannel = (categoryId: string, channel: Channel) =>
-    setOrder((prev) => addChannelTo(prev, categoryId, channel))
   const removeChannel = (id: string) =>
     setOrder((prev) => removeChannelFrom(prev, id))
   const renameChannel = (id: string, name: string) =>
@@ -137,14 +134,6 @@ export function useChannelTree(categories: Category[]) {
       if (!cat) return prev
       return { ...prev, [cat]: prev[cat].map((c) => c.id === id ? { ...c, unread: false } : c) }
     })
-  // create an empty category; can be private (only admins can add channels later).
-  const addCategory = (name: string, opts?: { private?: boolean }) => {
-    const id = `cat_local_${++localCatSeq}`
-    setCatOrder((prev) => [...prev, id])
-    setOrder((prev) => ({ ...prev, [id]: [] }))
-    setCatNames((prev) => ({ ...prev, [id]: name }))
-    if (opts?.private) setCatPrivate((prev) => ({ ...prev, [id]: true }))
-  }
   const removeCategory = (id: string) => {
     // Find the "none" category (empty name) to move orphaned channels to
     const noneCatId = Object.keys(catNames).find((k) => catNames[k] === "") ?? catOrder[0]
@@ -179,7 +168,7 @@ export function useChannelTree(categories: Category[]) {
     setOrder((prev) => reorderChannelsWithin(prev, String(active.id), String(over.id)))
   }
 
-  return { collapsed, catOrder, order, catNames, catPrivate, catCreators, toggleCat, addChannel, removeChannel, renameChannel, markRead, addCategory, removeCategory, setCategoryPrivate, onDragOver, onDragEnd }
+  return { collapsed, catOrder, order, catNames, catPrivate, catCreators, toggleCat, removeChannel, renameChannel, markRead, removeCategory, setCategoryPrivate, onDragOver, onDragEnd }
 }
 
 export type ChannelTree = ReturnType<typeof useChannelTree>

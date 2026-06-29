@@ -54,7 +54,7 @@ export function ChannelSidebar({
   onReorderCategories?: (categoryIds: string[]) => void
   onReorderChannels?: (channelIds: string[]) => void
 }) {
-  const { collapsed, catOrder, order, catNames, catPrivate, catCreators, toggleCat, addChannel, removeChannel, renameChannel, addCategory, removeCategory, setCategoryPrivate, onDragOver, onDragEnd: treeDragEnd } = tree
+  const { collapsed, catOrder, order, catNames, catPrivate, catCreators, toggleCat, removeChannel, renameChannel, removeCategory, setCategoryPrivate, onDragOver, onDragEnd: treeDragEnd } = tree
   const onDragEnd = (e: Parameters<typeof treeDragEnd>[0]) => {
     treeDragEnd(e)
     const { active, over } = e
