@@ -1,9 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { Shield, ChevronRight, UserMinus, Check } from "lucide-react"
+import { Shield, UserMinus, Check } from "lucide-react"
 import {
   ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
+  ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
 } from "@/components/ui/context-menu"
 import { Avatar } from "./avatar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -38,7 +39,6 @@ export function MemberList({ members, myRole, onOpenProfile, onSetRole, onKick }
   onKick?: (name: string) => void
 }) {
   const [kickTarget, setKickTarget] = useState<string | null>(null)
-  const [roleTarget, setRoleTarget] = useState<string | null>(null)
   const canManage = canManageServer(myRole)
   return (
     <>
@@ -81,21 +81,20 @@ export function MemberList({ members, myRole, onOpenProfile, onSetRole, onKick }
                   <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">{mem.name}</div>
                   {canManage && mem.role !== "owner" && (
                     <>
-                      <ContextMenuItem onClick={() => setRoleTarget(roleTarget === mem.name ? null : mem.name)}>
-                        <Shield className="size-4" />
-                        <span className="flex-1">Role</span>
-                        <ChevronRight className={`size-3.5 transition-transform ${roleTarget === mem.name ? "rotate-90" : ""}`} />
-                      </ContextMenuItem>
-                      {roleTarget === mem.name && (
-                        <div className="pl-3">
+                      <ContextMenuSub>
+                        <ContextMenuSubTrigger>
+                          <Shield className="size-4" />
+                          Role
+                        </ContextMenuSubTrigger>
+                        <ContextMenuSubContent>
                           {SETTABLE_ROLES.map((r) => (
-                            <ContextMenuItem key={r} onClick={() => { onSetRole?.(mem.name, r); setRoleTarget(null) }}>
+                            <ContextMenuItem key={r} onClick={() => onSetRole?.(mem.name, r)}>
                               <span className="flex-1">{capitalize(r)}</span>
                               {mem.role === r && <Check className="size-4" />}
                             </ContextMenuItem>
                           ))}
-                        </div>
-                      )}
+                        </ContextMenuSubContent>
+                      </ContextMenuSub>
                       <ContextMenuSeparator />
                       <ContextMenuItem onClick={() => setKickTarget(mem.name)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
                         <UserMinus className="size-4" /> Kick {mem.name}
