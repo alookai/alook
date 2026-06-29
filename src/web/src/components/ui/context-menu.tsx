@@ -19,7 +19,7 @@ function ContextMenuContent({
 }: ContextMenuPrimitive.Popup.Props) {
   return (
     <ContextMenuPrimitive.Portal>
-      <ContextMenuPrimitive.Positioner className="isolate z-50 outline-none">
+      <ContextMenuPrimitive.Positioner className="isolate z-[70] outline-none">
         <ContextMenuPrimitive.Popup
           data-slot="context-menu-content"
           className={cn(
