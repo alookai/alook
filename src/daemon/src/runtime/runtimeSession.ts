@@ -12,6 +12,7 @@
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
 import type { Driver, LaunchContext, StdinMode } from "../types";
+import { killProcessTree } from "./killTree";
 
 /**
  * A flattened, daemon-facing description of how a runtime behaves, derived
@@ -133,17 +134,12 @@ export class ChildProcessRuntimeSession {
     const proc = this.process;
     if (!proc || this.closed) return;
     this.requestedStopReason = opts?.reason;
-    proc.kill(opts?.signal ?? "SIGTERM");
-    if (!opts?.forceAfterMs) return;
-    setTimeout(() => {
-      if (!this.closed) {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-          /* already gone */
-        }
-      }
-    }, opts.forceAfterMs).unref?.();
+    const pid = proc.pid;
+    if (pid) {
+      await killProcessTree(pid, { graceMs: opts?.forceAfterMs ?? 2000 });
+    } else {
+      proc.kill(opts?.signal ?? "SIGTERM");
+    }
   }
 
   /** Wire stdout line-buffering → parseLine → runtime_event, plus lifecycle. */
