@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
@@ -14,7 +14,7 @@ import { Composer } from "@/components/community/composer"
 import { ForumView } from "@/components/community/forum-view"
 import { RightPanelContent } from "@/components/community/right-panel"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
-import type { RightPanel, Msg, Thread, OpenProfile, Role } from "@/components/community/_types"
+import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
 
 /**

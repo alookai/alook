@@ -12,7 +12,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { SortableServer } from "./sortable-server"
 import { RailFolder } from "./rail-folder"
 import { CreateServerDialog } from "./create-server-dialog"
-import { useRailOrder, isFolderKey, extractFolderId, folderId } from "./use-rail-order"
+import { useRailOrder, isFolderKey, extractFolderId } from "./use-rail-order"
 import type { Server, CommunityFolder, MobileZone, View } from "./_types"
 
 export function ServerRail({
@@ -43,7 +43,7 @@ export function ServerRail({
   const railIds = useMemo(() => servers.map((s) => s.id), [servers])
 
   const {
-    visibleItems, sortableIds, openFolders, toggleFolder, folderOrders,
+    visibleItems, sortableIds, openFolders, toggleFolder,
     onDragStart: hookDragStart, onDragOver, onDragEnd: hookDragEnd, groupTarget,
   } = useRailOrder(railIds, folders, {
     onReorderRail, onReorderFolders, onFolderItemsChange, onCreateFolder: onDragCreateFolder,
@@ -195,7 +195,7 @@ export function ServerRail({
               const folder = folderById.get(fId)
               if (!folder) return null
               return (
-                <div className="grid size-10 grid-cols-2 gap-0.5 rounded-xl bg-accent p-1.5 shadow-[var(--e2)]">
+                <div className="grid size-10 grid-cols-2 gap-0.5 rounded-xl bg-accent p-1.5 shadow-(--e2)">
                   {Array.from({ length: 4 }).map((_, idx) => {
                     const s = folder.servers[idx]
                     return s ? (
@@ -212,7 +212,7 @@ export function ServerRail({
             const s = serverById.get(dragActiveId) ?? folderServerMap.get(dragActiveId)
             if (!s) return null
             return (
-              <div className="grid size-10 place-items-center overflow-hidden rounded-xl bg-secondary text-sm font-semibold text-foreground shadow-[var(--e2)]">
+              <div className="grid size-10 place-items-center overflow-hidden rounded-xl bg-secondary text-sm font-semibold text-foreground shadow-(--e2)">
                 {"icon" in s && s.icon ? (
                   <img src={s.icon} alt={s.name} className="size-full object-cover" />
                 ) : (

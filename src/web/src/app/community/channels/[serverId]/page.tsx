@@ -29,7 +29,7 @@ export default function ServerDefaultPage() {
     if (first) {
       router.replace(`/community/channels/${serverId}/${first.id}`)
     }
-  }, [isAtMe, ctx.currentServer, params.serverId, router])
+  }, [isAtMe, ctx.currentServer, serverId, router])
 
   // @me view: Friends page
   if (isAtMe) {

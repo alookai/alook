@@ -143,8 +143,8 @@ export function useChannelTree(categories: Category[]) {
       if (channels?.length && noneCatId) rest[noneCatId] = [...(rest[noneCatId] ?? []), ...channels]
       return rest
     })
-    setCatNames((prev) => { const { [id]: _, ...rest } = prev; return rest })
-    setCatPrivate((prev) => { const { [id]: _, ...rest } = prev; return rest })
+    setCatNames((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== id)))
+    setCatPrivate((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== id)))
   }
   const setCategoryPrivate = (id: string, isPrivate: boolean) =>
     setCatPrivate((prev) => ({ ...prev, [id]: isPrivate }))

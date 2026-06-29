@@ -318,7 +318,7 @@ export function useAgentChat(
   // This prevents layout shift: the browser image cache is warm before we
   // remove the local blob source, so the <img> switches without a flash.
   const preloadThenCleanPending = useCallback(
-    (arts: Artifact[], conversationId: string) => {
+    (arts: Artifact[], _conversationId: string) => {
       // Collect thumbnail URLs for image artifacts that have server thumbnails.
       const thumbUrls = arts
         .filter((a) => a.content_type.startsWith("image/") && a.has_thumbnail)

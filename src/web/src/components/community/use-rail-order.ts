@@ -158,8 +158,6 @@ export function useRailOrder(
     return null
   }, [])
 
-  const isRailItem = useCallback((id: string) => railOrderRef.current.includes(id), [])
-
   // --- Drag handlers ---
 
   const [reopenAfterDrag, setReopenAfterDrag] = useState<string | null>(null)

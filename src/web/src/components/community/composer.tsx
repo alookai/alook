@@ -115,7 +115,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
     <div className="relative px-2 pb-2 pt-0">
       {/* @mention autocomplete — floats above the input */}
       {mentionMatches.length > 0 && (
-        <div className="absolute bottom-full left-2 right-2 mb-1 overflow-hidden rounded-lg border border-border bg-popover shadow-[var(--e2)]">
+        <div className="absolute bottom-full left-2 right-2 mb-1 overflow-hidden rounded-lg border border-border bg-popover shadow-(--e2)">
           <div className="border-b border-border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Members</div>
           {mentionMatches.map((f) => (
             <button key={f.id} onClick={() => pickMention(f.name)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-accent">
@@ -144,7 +144,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
             return (
               <div key={i} className="group relative flex items-center gap-2 rounded border border-border bg-background px-3 py-1.5 text-xs">
                 {isImage ? <ImageIcon className="size-3.5 text-muted-foreground" /> : <FileIcon className="size-3.5 text-muted-foreground" />}
-                <span className="max-w-[120px] truncate text-foreground">{file.name}</span>
+                <span className="max-w-30 truncate text-foreground">{file.name}</span>
                 <button
                   onClick={() => removeFile(i)}
                   className="grid size-4 shrink-0 place-items-center rounded-full hover:bg-destructive/10 hover:text-destructive"
@@ -158,7 +158,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
         </div>
       )}
 
-      <div className={`relative bg-muted shadow-[var(--e1)] ring-1 ring-border/40 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}>
+      <div className={`relative bg-muted shadow-(--e1) ring-1 ring-border/40 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}>
         <input
           ref={fileInputRef}
           type="file"

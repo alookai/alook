@@ -1,6 +1,5 @@
 import type {
   Artifact,
-  Conversation,
   Issue,
   IssueComment,
   Message,

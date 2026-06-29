@@ -16,7 +16,6 @@ import { ApiError } from "@/lib/errors"
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import type {
   Server,
-  FolderServer,
   CommunityFolder,
   Category,
   Msg,
@@ -44,23 +43,10 @@ import type {
   CommunityMemberJoin,
   CommunityMemberLeave,
   CommunityMemberUpdate,
-  CommunityFriendRequest,
-  CommunityFriendAccept,
-  CommunityFriendReject,
-  CommunityFriendRemove,
-  CommunityFriendBlock,
   CommunityPinAdd,
   CommunityPinRemove,
   CommunityServerUpdate,
   CommunityServerDelete,
-  CommunityChannelCreate,
-  CommunityChannelUpdate,
-  CommunityChannelDelete,
-  CommunityChannelReorder,
-  CommunityCategoryCreate,
-  CommunityCategoryUpdate,
-  CommunityCategoryDelete,
-  CommunityCategoryReorder,
   CommunityChildChannelCreate,
   CommunityChildChannelUpdate,
   ChannelType,
@@ -642,7 +628,7 @@ export function CommunityProvider({
         )
       }
     }, []),
-    onFriend: useCallback((_event: CommunityFriendRequest | CommunityFriendAccept | CommunityFriendReject | CommunityFriendRemove | CommunityFriendBlock) => {
+    onFriend: useCallback(() => {
       fetchFriends()
     }, [fetchFriends]),
     onMember: useCallback((event: CommunityMemberJoin | CommunityMemberLeave | CommunityMemberUpdate) => {
@@ -678,11 +664,11 @@ export function CommunityProvider({
         }
       }
     }, []),
-    onChannel: useCallback((_event: CommunityChannelCreate | CommunityChannelUpdate | CommunityChannelDelete | CommunityChannelReorder) => {
+    onChannel: useCallback(() => {
       const sid = currentServerIdRef.current
       if (sid && sid !== "@me") fetchServerDetail(sid)
     }, [fetchServerDetail]),
-    onCategory: useCallback((_event: CommunityCategoryCreate | CommunityCategoryUpdate | CommunityCategoryDelete | CommunityCategoryReorder) => {
+    onCategory: useCallback(() => {
       const sid = currentServerIdRef.current
       if (sid && sid !== "@me") fetchServerDetail(sid)
     }, [fetchServerDetail]),

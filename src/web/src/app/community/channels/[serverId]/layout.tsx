@@ -150,8 +150,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
           method: "PATCH",
           body: JSON.stringify({ name }),
         })
-      } catch (e: any) {
-        toast(e?.message || "Failed to rename channel")
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "Failed to rename channel")
       }
     },
     onDeleteChannel: (channelId: string) => {
@@ -227,7 +227,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     })
   })
 
-  const profileMessage = async (name: string, _text: string) => {
+  const profileMessage = async (name: string) => {
     setProfile(null)
     const member = ctx.members.find((m) => m.name === name)
     const friend = ctx.friends.find((f) => f.name === name)

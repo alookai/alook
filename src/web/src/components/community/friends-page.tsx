@@ -28,7 +28,7 @@ function FriendSection({ title, count, emptyLabel, children }: {
 
 // Friends page (@me, no DM selected) — online / all / pending / blocked tabs.
 export function FriendsPage({
-  friends, pending, blocked, onBack, onOpenProfile,
+  friends, pending, blocked, onBack,
   onAccept, onReject, onCancelRequest, onUnblock, onSendRequest, onRemoveFriend, onBlock, onDm,
 }: {
   friends: Friend[]

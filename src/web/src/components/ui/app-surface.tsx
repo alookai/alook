@@ -6,7 +6,7 @@ function AppBackground({ className, ...props }: React.ComponentProps<"div">) {
     <div
       aria-hidden
       className={cn(
-        "pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-[var(--app-bg)]",
+        "pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-(--app-bg)",
         className,
       )}
       {...props}
@@ -18,7 +18,7 @@ function AppSurface({ className, ...props }: React.ComponentProps<"main">) {
   return (
     <main
       className={cn(
-        "flex-1 min-h-0 rounded-xl bg-card shadow-[var(--e1)] ring-1 ring-border/40 overflow-hidden flex flex-col",
+        "flex-1 min-h-0 rounded-xl bg-card shadow-(--e1) ring-1 ring-border/40 overflow-hidden flex flex-col",
         className,
       )}
       {...props}

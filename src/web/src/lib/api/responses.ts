@@ -18,7 +18,6 @@ type MeetingSessionRow = typeof schema.meetingSession.$inferSelect;
 type AgentLinkRow = typeof schema.agentLink.$inferSelect;
 type CalendarEventRow = typeof schema.calendarEvent.$inferSelect;
 type IssueRow = typeof schema.issue.$inferSelect;
-type AgentTaskQueueRow = typeof schema.agentTaskQueue.$inferSelect;
 
 export function userToResponse(u: UserRow) {
   return {

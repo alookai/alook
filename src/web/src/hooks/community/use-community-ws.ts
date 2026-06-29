@@ -193,7 +193,6 @@ export function useCommunityWs(callbacks: CommunityWsCallbacks) {
         cbs.onMention?.(event)
         break
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }, [])
 
   const { send } = useUserWs(handleMessage as any)

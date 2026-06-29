@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button"
 import {
   SERVERS, CATEGORIES, MESSAGES, NEW_DIVIDER_BEFORE, PINNED, SEARCH_RESULTS,
   THREADS, FORUM_POSTS, FORUM_TAGS, MEMBERS, FRIENDS, PENDING, BLOCKED, DMS,
-  PROFILES, INVITES, AUDIT_LOG, MENTIONS, INBOX_FEED, FOLDER_SERVERS, MOCK_FOLDERS,
+  PROFILES, INVITES, AUDIT_LOG, MENTIONS, INBOX_FEED, MOCK_FOLDERS,
 } from "./_mock"
 import type { RightPanel, MobileZone, View, SettingsSection, Msg, PendingRequest, BlockedUser, ForumPost, Profile, Thread, Role, DM } from "@/components/community/_types"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
@@ -95,7 +95,7 @@ export default function CommunityPreview() {
   // reply target (message being replied to) — drives the composer quote bar
   const [replyTo, setReplyTo] = useState<{ id: string; authorName: string; text: string } | null>(null)
   // search query submitted from the channel header (opens the search panel pre-filled)
-  const [searchQuery, setSearchQuery] = useState("")
+  const [searchQuery] = useState("")
   // image attachment being previewed in the lightbox
   const [preview, setPreview] = useState<string | null>(null)
   const [inboxFeed, setInboxFeed] = useState(INBOX_FEED)
@@ -341,7 +341,7 @@ export default function CommunityPreview() {
     onCopyInvite: (code: string) => { navigator.clipboard?.writeText(`/community/invite/${code}`); toast("Invite copied") },
     onDeleteServer: () => { toast("Server deleted"); goHome() },
     onUploadIcon: () => toast("Upload a server icon"),
-    onUpdateServer: (name: string, _desc: string) => { setServerName(name); toast("Server updated") },
+    onUpdateServer: (name: string) => { setServerName(name); toast("Server updated") },
     notifLevel,
     onSetNotifLevel: setNotifLevel,
   }

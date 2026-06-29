@@ -8,7 +8,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import type { FolderServer } from "./_types"
 
 export function RailFolder({
-  folderId, sortableId, open, onToggle, activeId, folderServers, onUngroup, dragging: isDragActive,
+  sortableId, open, onToggle, activeId, folderServers, onUngroup, dragging: isDragActive,
 }: {
   folderId: string
   sortableId: string

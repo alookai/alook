@@ -11,7 +11,7 @@ import { highlightMentions } from "@/lib/highlight-mentions";
 import { TaskStream } from "@/components/task-stream";
 import { RuntimeErrorBlock } from "@/components/agent-chat/runtime-error-block";
 import { AnimatedAvatar, type AvatarConfig } from "@/components/avatar";
-import { FileText, Flag, Copy, Check, MessageSquareQuote, MessageSquare, Image } from "lucide-react";
+import { FileText, Flag, Copy, Check, MessageSquareQuote, MessageSquare, Image as ImageIcon } from "lucide-react";
 import { getArtifactThumbnailUrl } from "@/components/artifact-content-renderer";
 import type { PendingFile } from "@/hooks/use-file-attachments";
 import { EmailCard } from "@/components/agent-chat/event-cards/email-card";
@@ -247,7 +247,7 @@ function ImageAttachmentCards({
             onClick={(e) => { e.stopPropagation(); onArtifactClick(a); }}
             className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-0.5 text-xs text-primary-foreground/80 hover:bg-primary-foreground/20 transition-colors cursor-pointer"
           >
-            <Image className="size-3 shrink-0" />
+            <ImageIcon className="size-3 shrink-0" />
             <span className="truncate max-w-37.5">{a.filename}</span>
           </button>
         );
