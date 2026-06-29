@@ -50,4 +50,40 @@ describe("createLogger", () => {
     log.warn("careful");
     expect(c.err[0]).toBe("2026-06-25T12:00:00.000Z @alook/daemon:daemon WARN  careful");
   });
+
+  it("formats object args as key=value pairs", () => {
+    const c = capture();
+    const log = createLogger({ now: FIXED, ...c.sink });
+    log.info("agent spawned", { agentId: "ag_1", pid: 1234 });
+    expect(c.out[0]).toContain("agent spawned agentId=ag_1 pid=1234");
+  });
+
+  it("formats Error args as err=<message>", () => {
+    const c = capture();
+    const log = createLogger({ now: FIXED, ...c.sink });
+    log.error("spawn failed", new Error("ENOENT"));
+    expect(c.out.length).toBe(0);
+    expect(c.err[0]).toContain("spawn failed err=ENOENT");
+  });
+
+  it("stringifies non-object args directly", () => {
+    const c = capture();
+    const log = createLogger({ now: FIXED, ...c.sink });
+    log.info("count", 42);
+    expect(c.out[0]).toContain("count 42");
+  });
+
+  it("handles multiple mixed data args", () => {
+    const c = capture();
+    const log = createLogger({ now: FIXED, ...c.sink });
+    log.info("result", { ok: true }, "extra");
+    expect(c.out[0]).toContain("result ok=true extra");
+  });
+
+  it("works with no data args (backward compatible)", () => {
+    const c = capture();
+    const log = createLogger({ now: FIXED, ...c.sink });
+    log.info("plain message");
+    expect(c.out[0]).toBe("2026-06-25T12:00:00.000Z @alook/daemon INFO  plain message");
+  });
 });
