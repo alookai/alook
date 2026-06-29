@@ -46,6 +46,10 @@ export default function ServerDefaultPage() {
         onSendRequest={ctx.sendFriendRequest}
         onRemoveFriend={ctx.removeFriend}
         onBlock={(id) => ctx.blockUser(id)}
+        onDm={async (userId) => {
+          const dmId = await ctx.createOrGetDm(userId)
+          if (dmId) router.push(`/community/channels/@me/${dmId}`)
+        }}
       />
     )
   }

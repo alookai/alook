@@ -175,6 +175,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const enterDm = (id: string) => {
     ctx.setCurrentChannelId(id)
     ctx.markDmRead(id)
+    router.push(`/community/channels/@me/${id}`)
     if (bp === "mobile") setMobileZone("messages")
   }
 
@@ -228,13 +229,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   const profileMessage = async (name: string, _text: string) => {
     setProfile(null)
-    // Find the member/friend to get their user ID
-    const member = ctx.members.find((m) => m.name === name) ?? ctx.friends.find((f) => f.name === name)
-    if (!member) {
+    const member = ctx.members.find((m) => m.name === name)
+    const friend = ctx.friends.find((f) => f.name === name)
+    const targetUserId = member?.userId ?? friend?.userId
+    if (!targetUserId) {
       toast(`Could not find user ${name}`)
       return
     }
-    const dmId = await ctx.createOrGetDm(member.id)
+    const dmId = await ctx.createOrGetDm(targetUserId)
     if (dmId) {
       router.push(`/community/channels/@me/${dmId}`)
     }
@@ -261,7 +263,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         dms={ctx.dms ?? []}
         activeDm={ctx.currentChannelId}
         onPickDm={enterDm}
-        onShowFriends={() => { ctx.setCurrentChannelId(null); if (bp === "mobile") setMobileZone("messages") }}
+        onShowFriends={() => { ctx.setCurrentChannelId(null); router.push("/community/channels/@me"); if (bp === "mobile") setMobileZone("messages") }}
       />
     ) : (
       <ChannelSidebar {...channelProps} {...opts} />

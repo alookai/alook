@@ -29,7 +29,7 @@ function FriendSection({ title, count, emptyLabel, children }: {
 // Friends page (@me, no DM selected) — online / all / pending / blocked tabs.
 export function FriendsPage({
   friends, pending, blocked, onBack, onOpenProfile,
-  onAccept, onReject, onCancelRequest, onUnblock, onSendRequest, onRemoveFriend, onBlock,
+  onAccept, onReject, onCancelRequest, onUnblock, onSendRequest, onRemoveFriend, onBlock, onDm,
 }: {
   friends: Friend[]
   pending: PendingRequest[]
@@ -43,6 +43,7 @@ export function FriendsPage({
   onSendRequest?: (username: string) => void
   onRemoveFriend?: (id: string) => void
   onBlock?: (id: string) => void
+  onDm?: (userId: string) => void
 }) {
   const onlineFriends = friends.filter((f) => f.status === "online")
   const [addValue, setAddValue] = useState("")
@@ -75,7 +76,7 @@ export function FriendsPage({
           <ContextMenuTrigger
             render={
               <button
-                onClick={(e) => onOpenProfile?.(f.name, e)}
+                onClick={() => { if (f.userId) onDm?.(f.userId) }}
                 className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent"
                 style={{ opacity: f.status === "offline" ? 0.5 : 1 }}
               />
@@ -91,7 +92,7 @@ export function FriendsPage({
           <ContextMenuContent className="w-44">
             <ContextMenuItem onClick={() => onRemoveFriend?.(f.id)}><UserMinus className="size-4" /> Remove Friend</ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuItem onClick={() => onBlock?.(f.id)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"><Ban className="size-4" /> Block</ContextMenuItem>
+            <ContextMenuItem onClick={() => onBlock?.(f.userId ?? f.id)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"><Ban className="size-4" /> Block</ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
       ))}
@@ -174,7 +175,7 @@ export function FriendsPage({
               <div key={b.id} className="flex items-center gap-3 rounded-md px-2.5 py-2.5 hover:bg-accent">
                 <Avatar label={b.avatar} size={32} dim />
                 <div className="min-w-0 flex-1 truncate text-sm font-medium">{b.name}</div>
-                <Button variant="secondary" size="sm" onClick={() => onUnblock?.(b.id)}>Unblock</Button>
+                <Button variant="secondary" size="sm" onClick={() => onUnblock?.(b.userId ?? b.id)}>Unblock</Button>
               </div>
             ))}
           </FriendSection>

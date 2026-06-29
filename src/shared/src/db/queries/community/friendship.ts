@@ -240,13 +240,12 @@ export async function listBlocked(db: Database, userId: string) {
 }
 
 export async function listPending(db: Database, userId: string) {
-  return db
+  const incoming = await db
     .select({
       id: communityFriendship.id,
-      requesterUserId: user.id,
-      requesterName: user.name,
-      requesterEmail: user.email,
-      requesterImage: user.image,
+      userId: user.id,
+      name: user.name,
+      image: user.image,
       createdAt: communityFriendship.createdAt,
     })
     .from(communityFriendship)
@@ -257,4 +256,26 @@ export async function listPending(db: Database, userId: string) {
         eq(communityFriendship.status, "pending")
       )
     );
+
+  const outgoing = await db
+    .select({
+      id: communityFriendship.id,
+      userId: user.id,
+      name: user.name,
+      image: user.image,
+      createdAt: communityFriendship.createdAt,
+    })
+    .from(communityFriendship)
+    .innerJoin(user, eq(user.id, communityFriendship.addresseeId))
+    .where(
+      and(
+        eq(communityFriendship.requesterId, userId),
+        eq(communityFriendship.status, "pending")
+      )
+    );
+
+  return [
+    ...incoming.map((r) => ({ ...r, kind: "incoming" as const })),
+    ...outgoing.map((r) => ({ ...r, kind: "outgoing" as const })),
+  ];
 }

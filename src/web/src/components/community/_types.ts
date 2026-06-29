@@ -145,6 +145,7 @@ export type Member = {
 
 export type Friend = {
   id: string
+  userId?: string
   name: string
   avatar: string
   status: Presence
@@ -158,7 +159,7 @@ export type PendingRequest = {
   kind: "incoming" | "outgoing"
 }
 
-export type BlockedUser = { id: string; name: string; avatar: string }
+export type BlockedUser = { id: string; userId?: string; name: string; avatar: string }
 
 export type DM = {
   id: string // nanoid
