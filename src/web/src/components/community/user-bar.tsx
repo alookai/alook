@@ -15,7 +15,7 @@ export function UserBar({ user, onOpenProfile, onEditProfile, inbox, hasUnread }
 }) {
   return (
     <div className="shrink-0 px-2 pb-2 pt-0">
-      <div className="flex min-h-14 items-center gap-3 rounded-xl bg-muted px-4 ring-1 ring-border/40">
+      <div className="flex h-12 items-center gap-3 rounded-xl bg-muted px-4 ring-1 ring-border/40">
         <Inner user={user} onOpenProfile={onOpenProfile} onEditProfile={onEditProfile} inbox={inbox} hasUnread={hasUnread} />
       </div>
     </div>

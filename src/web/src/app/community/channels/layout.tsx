@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { useParams, useRouter, useSearchParams, useSelectedLayoutSegment } from "next/navigation"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
@@ -27,11 +27,11 @@ import type { MobileZone, View, Profile, SettingsSection } from "@/components/co
 import { canManageServer, type ChannelType } from "@alook/shared"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
-  const params = useParams<{ serverId: string }>()
+  const params = useParams<{ serverId: string; channelId?: string }>()
   const searchParams = useSearchParams()
-  const channelSegment = useSelectedLayoutSegment()
   const serverId = decodeURIComponent(params.serverId)
   const isAtMe = serverId === "@me"
+  const hasChannel = !!params.channelId
 
   const router = useRouter()
   const bp = useBreakpoint()
@@ -44,7 +44,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   // ── Local UI state ────────────────────────────────────────────────────────
   const [view, setView] = useState<View>(isAtMe ? "dm" : "server")
-  const [mobileZone, setMobileZone] = useState<MobileZone>(() => channelSegment ? "messages" : "channels")
+  const [mobileZone, setMobileZone] = useState<MobileZone>(() => hasChannel ? "messages" : "channels")
   const [editingProfile, setEditingProfile] = useState(false)
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview")
@@ -332,19 +332,30 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     </>
   )
 
+  // ── Sidebar panel width tracking (for floating UserBar) ────────────────────
+  const sidebarPanelRef = useRef<HTMLDivElement>(null)
+  const [sidebarW, setSidebarW] = useState(240)
+  useEffect(() => {
+    const el = sidebarPanelRef.current
+    if (!el) return
+    setSidebarW(el.offsetWidth)
+    const ro = new ResizeObserver(([e]) => setSidebarW(e!.contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [bp])
+
   // ── Desktop ───────────────────────────────────────────────────────────────
   if (bp === "desktop") {
     return (
       <Shell>
-        <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
+        <ServerRail {...railProps} bottomInset={60} />
+        <div className="relative flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
           <AppSurface>
             <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-              <ResizablePanel defaultSize="24%" minSize={160} maxSize={360} className="flex flex-col">
-                <div className="flex min-h-0 flex-1">
-                  <ServerRail {...railProps} />
+              <ResizablePanel defaultSize="24%" minSize={160} maxSize={360} className="flex flex-col pb-14 bg-sidebar">
+                <div ref={sidebarPanelRef} className="flex min-h-0 flex-1 flex-col">
                   {sidebar()}
                 </div>
-                <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} />
               </ResizablePanel>
               <ResizableHandle className="bg-transparent" />
               <ResizablePanel defaultSize="76%" className="flex min-w-0 flex-col bg-background">
@@ -352,6 +363,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
               </ResizablePanel>
             </ResizablePanelGroup>
           </AppSurface>
+          <div className="absolute bottom-2 left-0 z-10" style={{ width: sidebarW + 56, marginLeft: -56 }}>
+            <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} />
+          </div>
         </div>
         {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === ctx.currentUser.name} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
@@ -367,7 +381,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         <MobileRail servers={railServers} folders={ctx.folders} onPick={() => setMobileZone("channels")} onHome={goHome} onServer={goServer} onServerNavigate={railProps.onServerNavigate} onAddServer={railProps.onCreateServer} onJoinServer={() => { /* Join is handled by the dialog inside MobileRail */ }} view={view} />
       )}
       {mobileZone === "channels" && (
-        <div className="flex min-h-0 flex-1 flex-col bg-card">
+        <div className="flex min-h-0 flex-1 flex-col bg-sidebar">
           <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
             <Button variant="ghost" size="icon-sm" onClick={() => setMobileZone("rail")} className="text-muted-foreground hover:text-foreground" aria-label="Back to servers">
               <ChevronLeft className="size-5" />

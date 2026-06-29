@@ -20,7 +20,7 @@ export function DmSidebar({
           onClick={onShowFriends}
           className={[
             "mb-2 flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-sm font-medium",
-            activeDm === null ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+            activeDm === null ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
           ].join(" ")}
         >
           <Users className="size-5" /> Friends
@@ -41,7 +41,7 @@ export function DmSidebar({
               onClick={() => onPickDm(d.id)}
               className={[
                 "flex w-full items-center gap-3 rounded-md px-2.5 py-2",
-                active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
               ].join(" ")}
             >
               <Avatar label={d.avatar} size={32} presence={isBlocked ? undefined : d.status} />

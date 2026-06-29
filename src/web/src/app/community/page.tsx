@@ -1,5 +1,10 @@
-import { redirect } from "next/navigation"
+"use client"
+
+import { useRouter } from "next/navigation"
+import { useEffect } from "react"
 
 export default function CommunityIndex() {
-  redirect("/community/channels/@me")
+  const router = useRouter()
+  useEffect(() => { router.replace("/community/channels/@me") }, [router])
+  return null
 }

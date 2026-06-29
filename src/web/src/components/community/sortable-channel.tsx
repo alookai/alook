@@ -32,12 +32,12 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
       className={[
         "group relative flex h-8 w-full cursor-pointer touch-none items-center gap-2 rounded-md px-2 text-sm active:cursor-grabbing",
         active
-          ? "bg-accent text-foreground"
+          ? "bg-sidebar-accent text-foreground"
           : ch.muted
-            ? "text-muted-foreground/50 hover:bg-accent/60 hover:text-muted-foreground"
+            ? "text-muted-foreground/50 hover:bg-sidebar-accent/60 hover:text-muted-foreground"
             : ch.unread
-              ? "text-foreground hover:bg-accent/60"
-              : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+              ? "text-foreground hover:bg-sidebar-accent/60"
+              : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
       ].join(" ")}
     >
       {showLine && <DropLine side={lineSide} />}
