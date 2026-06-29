@@ -3,7 +3,7 @@
 import { useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Settings, Users, Link2, Bell, ScrollText, Trash2, X, Shield } from "lucide-react"
-import { ConfirmDialog } from "./confirm-dialog"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Button } from "@/components/ui/button"
 import { formatMessageTime, formatRelativeTime } from "./format-time"
 import { Input } from "@/components/ui/input"
@@ -56,12 +56,12 @@ export function ServerSettings({
     <>
     <ConfirmDialog
       open={confirmDelete}
+      onOpenChange={setConfirmDelete}
       title={`Delete "${serverName}"?`}
       description="This cannot be undone. All channels, messages, and members will be permanently removed."
       confirmLabel="Delete Server"
-      destructive
+      confirmVariant="destructive"
       onConfirm={() => { setConfirmDelete(false); onDeleteServer?.() }}
-      onCancel={() => setConfirmDelete(false)}
     />
     <Tabs
       orientation="vertical"

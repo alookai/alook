@@ -1,5 +1,5 @@
 import type React from "react"
-import { RailTooltip } from "./rail-tooltip"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 
 // A server-rail icon button (home, add-server, etc.) with the active pill + hover tooltip.
 export function RailIcon({ label, round, accent, active, onClick, tooltip }: {
@@ -10,7 +10,7 @@ export function RailIcon({ label, round, accent, active, onClick, tooltip }: {
   onClick?: () => void
   tooltip?: string
 }) {
-  return (
+  const btn = (
     <div className="group relative flex w-full justify-center">
       {active !== undefined && (
         <span
@@ -29,7 +29,15 @@ export function RailIcon({ label, round, accent, active, onClick, tooltip }: {
       >
         {label}
       </button>
-      {tooltip && <RailTooltip label={tooltip} />}
     </div>
+  )
+
+  if (!tooltip) return btn
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={btn} />
+      <TooltipContent side="right" sideOffset={8}>{tooltip}</TooltipContent>
+    </Tooltip>
   )
 }

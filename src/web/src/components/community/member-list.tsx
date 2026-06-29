@@ -6,7 +6,7 @@ import {
   ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
 } from "@/components/ui/context-menu"
 import { Avatar } from "./avatar"
-import { ConfirmDialog } from "./confirm-dialog"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import type { Member, Role, OpenProfile } from "./_types"
 import { canManageServer } from "./_types"
 
@@ -44,12 +44,12 @@ export function MemberList({ members, myRole, onOpenProfile, onSetRole, onKick }
     <>
     <ConfirmDialog
       open={!!kickTarget}
+      onOpenChange={(o) => { if (!o) setKickTarget(null) }}
       title={`Kick ${kickTarget}?`}
       description="They will be removed from this server but can rejoin with an invite."
       confirmLabel="Kick"
-      destructive
+      confirmVariant="destructive"
       onConfirm={() => { if (kickTarget) onKick?.(kickTarget); setKickTarget(null) }}
-      onCancel={() => setKickTarget(null)}
     />
     <aside className="flex h-full flex-col overflow-y-auto thin-scrollbar bg-background">
       <div className="px-3 py-4">
