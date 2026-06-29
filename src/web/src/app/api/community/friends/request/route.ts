@@ -41,8 +41,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
     return writeJSON(friendship, 201)
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    if (message.includes("UNIQUE constraint")) {
+    const full = err instanceof Error
+      ? err.message + (err.cause instanceof Error ? " " + err.cause.message : "")
+      : String(err)
+    if (full.includes("UNIQUE constraint")) {
       return writeError("friend request already sent", 409)
     }
     throw err
