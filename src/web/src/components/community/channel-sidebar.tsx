@@ -97,7 +97,7 @@ export function ChannelSidebar({
     <aside className="flex min-w-0 flex-1 flex-col">
       {!noHeader && (
         <header className="flex h-12 items-center justify-between gap-2 border-b border-border/40 px-4">
-          <span className="truncate text-base font-semibold">{serverName || "\u00a0"}</span>
+          <span className="truncate text-lg font-semibold">{serverName || "\u00a0"}</span>
           {serverName && onOpenSettings && (
             <button onClick={onOpenSettings} className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Server settings">
               <Settings className="size-4" />
@@ -108,14 +108,14 @@ export function ChannelSidebar({
       {/* right-click anywhere in the list (incl. empty space) → create channel / category */}
       <ContextMenu>
         <ContextMenuTrigger
-          render={<div className="flex-1 overflow-y-auto thin-scrollbar px-2 py-3" />}
+          render={<div className="flex-1 overflow-y-auto thin-scrollbar px-2.5 py-4" />}
         >
           {/* one DndContext spans everything: categories sort among themselves, channels across categories */}
           <DndContext id="d-channels" sensors={sensors} collisionDetection={closestCenter} onDragOver={onDragOver} onDragEnd={onDragEnd}>
             {/* uncategorized channels (empty-name category) render bare at the top — no header */}
             {noneCatId && order[noneCatId]?.length > 0 && (
               <SortableContext items={order[noneCatId].map((c) => c.id)} strategy={verticalListSortingStrategy}>
-                <div className="mb-4 space-y-0.5">
+                <div className="mb-5 space-y-0.5">
                   {order[noneCatId].map((ch) => (
                     <SortableChannel
                       key={ch.id}
@@ -143,7 +143,7 @@ export function ChannelSidebar({
                   isPrivate={catPrivate[id]}
                 >
                   <SortableContext items={(order[id] ?? []).map((c) => c.id)} strategy={verticalListSortingStrategy}>
-                    <div className="mt-0.5 min-h-2 space-y-0.5">
+                    <div className="mt-1 min-h-2 space-y-0.5">
                       {(order[id] ?? []).map((ch) => (
                         <SortableChannel
                           key={ch.id}

@@ -39,7 +39,6 @@ export default function ServerDefaultPage() {
         pending={ctx.pending ?? []}
         blocked={ctx.blocked ?? []}
         onBack={bp === "mobile" ? () => ctx.goBackMobile() : undefined}
-        hamburger={bp === "tablet" ? () => ctx.openSidebar() : undefined}
         onAccept={ctx.acceptFriendRequest}
         onReject={ctx.rejectFriendRequest}
         onCancelRequest={ctx.rejectFriendRequest}

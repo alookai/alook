@@ -17,7 +17,7 @@ import type { ChannelType, CommunityRole } from "@alook/shared"
 export type Presence = "online" | "offline"
 
 export type RightPanel = "members" | "pinned" | "search" | "threads" | null
-export type Breakpoint = "desktop" | "tablet" | "mobile"
+export type Breakpoint = "desktop" | "mobile"
 export type MobileZone = "rail" | "channels" | "messages"
 export type View = "server" | "dm" | "settings"
 export type SettingsSection =
@@ -107,7 +107,7 @@ export type Msg = {
   attachments?: Attachment[]
   reactions?: Reaction[]
   replyTo?: { id: string; authorName: string; text: string; deleted?: boolean }
-  thread?: { id: string; name: string; messageCount: number }
+  thread?: { id: string; name: string; messageCount: number; participants?: string[]; lastReplyAt?: string }
   grouped?: boolean
 }
 

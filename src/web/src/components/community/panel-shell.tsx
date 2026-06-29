@@ -4,7 +4,7 @@ import { ChevronLeft, X } from "lucide-react"
 
 // Right-panel chrome (header + scroll body) shared by members / pinned / search / threads.
 export function PanelShell({
-  icon: Icon, title, onClose, showClose, children, bodyClassName = "p-3", onBack,
+  icon: Icon, title, onClose, showClose, children, bodyClassName = "p-4", onBack,
 }: {
   icon: LucideIcon
   title: string

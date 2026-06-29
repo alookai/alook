@@ -9,7 +9,7 @@ import type { InboxRow, Mention } from "./_types"
 function InboxFeedRows({ feed, unreadOnly, onOpenItem, onDismissItem }: { feed: InboxRow[]; unreadOnly?: boolean; onOpenItem?: (id: string) => void; onDismissItem?: (id: string) => void }) {
   const filtered = feed.filter((f) => !unreadOnly || f.unread)
   return (
-    <div className="max-h-90 overflow-y-auto thin-scrollbar p-1.5">
+    <div className="max-h-90 overflow-y-auto thin-scrollbar p-2">
       {filtered.length === 0 && (
         <EmptyState icon={Inbox} label={unreadOnly ? "All caught up." : "No activity yet."} />
       )}
@@ -58,14 +58,14 @@ export function InboxPopover({ feed, mentions, onOpenItem, onOpenMention, onMark
 }) {
   return (
     <Tabs defaultValue="foryou">
-      <div className="flex items-center gap-2 px-4 pt-3">
+      <div className="flex items-center gap-2 px-4 pt-4">
         <Inbox className="size-5" />
         <h2 className="flex-1 text-lg font-semibold">Inbox</h2>
         {onMarkAllRead && (
           <button onClick={onMarkAllRead} className="text-xs text-primary hover:underline">Mark all read</button>
         )}
       </div>
-      <TabsList variant="line" className="mt-2 w-full border-b border-border px-2">
+      <TabsList variant="line" className="mt-3 w-full border-b border-border px-2">
         <TabsTrigger value="foryou">For You</TabsTrigger>
         <TabsTrigger value="unreads">Unreads</TabsTrigger>
         <TabsTrigger value="mentions">Mentions</TabsTrigger>
@@ -73,7 +73,7 @@ export function InboxPopover({ feed, mentions, onOpenItem, onOpenMention, onMark
       <TabsContent value="foryou"><InboxFeedRows feed={feed} onOpenItem={onOpenItem} onDismissItem={onDismissItem} /></TabsContent>
       <TabsContent value="unreads"><InboxFeedRows feed={feed} unreadOnly onOpenItem={onOpenItem} onDismissItem={onDismissItem} /></TabsContent>
       <TabsContent value="mentions">
-        <div className="max-h-90 overflow-y-auto thin-scrollbar p-1.5">
+        <div className="max-h-90 overflow-y-auto thin-scrollbar p-2">
           {mentions.length === 0 ? (
             <EmptyState icon={Inbox} label="No mentions yet." />
           ) : (

@@ -1,13 +1,55 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { User, LogOut, X } from "lucide-react"
+import { User, LogOut, X, Palette, Sun, Moon, Monitor } from "lucide-react"
+import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Field } from "./field"
+
+const THEME_OPTIONS = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "System", icon: Monitor },
+] as const
+
+function AppearanceSettings() {
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const active = mounted ? theme ?? "system" : undefined
+
+  return (
+    <div className="max-w-xl space-y-5">
+      <Field label="Theme">
+        <div className="grid grid-cols-3 gap-2">
+          {THEME_OPTIONS.map(({ value, label, icon: Icon }) => {
+            const selected = active === value
+            return (
+              <button
+                key={value}
+                onClick={() => setTheme(value)}
+                aria-pressed={selected}
+                className={[
+                  "flex flex-col items-center gap-2 rounded-lg border p-4 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                  selected
+                    ? "border-primary bg-accent text-foreground"
+                    : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
+                ].join(" ")}
+              >
+                <Icon className="size-5" />
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      </Field>
+    </div>
+  )
+}
 
 export function UserSettings({ onClose, userName, aboutMe, onSave, onLogout }: {
   onClose: () => void
@@ -19,6 +61,7 @@ export function UserSettings({ onClose, userName, aboutMe, onSave, onLogout }: {
   const [name, setName] = useState(userName)
   const [value, setValue] = useState(aboutMe)
   const [saving, setSaving] = useState(false)
+  const [tab, setTab] = useState("profile")
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const onSaveRef = useRef(onSave)
   onSaveRef.current = onSave
@@ -47,7 +90,8 @@ export function UserSettings({ onClose, userName, aboutMe, onSave, onLogout }: {
   return (
     <Tabs
       orientation="vertical"
-      defaultValue="profile"
+      value={tab}
+      onValueChange={setTab}
       className="min-h-0 flex-1 flex-row gap-0"
     >
       <nav className="flex w-60 shrink-0 flex-col gap-2 overflow-y-auto thin-scrollbar border-r border-border p-3" style={{ background: "var(--d-rail)" }}>
@@ -55,6 +99,9 @@ export function UserSettings({ onClose, userName, aboutMe, onSave, onLogout }: {
         <TabsList variant="line" className="h-auto w-full flex-col gap-0.5">
           <TabsTrigger value="profile" className="h-8 w-full justify-start gap-2">
             <User className="size-4" /> My Profile
+          </TabsTrigger>
+          <TabsTrigger value="appearance" className="h-8 w-full justify-start gap-2">
+            <Palette className="size-4" /> Appearance
           </TabsTrigger>
         </TabsList>
         <Separator className="my-1" />
@@ -65,7 +112,7 @@ export function UserSettings({ onClose, userName, aboutMe, onSave, onLogout }: {
 
       <div className="flex min-w-0 flex-1 flex-col bg-background">
         <header className="flex h-12 shrink-0 items-center border-b border-border px-4">
-          <h1 className="flex-1 text-lg font-semibold">My Profile</h1>
+          <h1 className="flex-1 text-lg font-semibold">{tab === "appearance" ? "Appearance" : "My Profile"}</h1>
           <button onClick={onClose} className="flex flex-col items-center text-muted-foreground hover:text-foreground" aria-label="Close settings">
             <span className="grid size-8 place-items-center rounded-full border border-current"><X className="size-4" /></span>
           </button>
@@ -80,6 +127,9 @@ export function UserSettings({ onClose, userName, aboutMe, onSave, onLogout }: {
                 <Textarea className="h-24 resize-none" value={value} onChange={(e) => handleAboutMeChange(e.target.value)} />
               </Field>
             </div>
+          </TabsContent>
+          <TabsContent value="appearance">
+            <AppearanceSettings />
           </TabsContent>
         </div>
       </div>

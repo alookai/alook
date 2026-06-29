@@ -19,7 +19,7 @@ function generateGradient(name: string): string {
   return `linear-gradient(135deg, oklch(0.7 0.15 ${hue1}), oklch(0.6 0.12 ${hue2}))`
 }
 
-// Profile card — popover anchored at the click point on desktop/tablet, bottom sheet on mobile.
+// Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
 export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf }: {
   data: Profile
   x: number
@@ -43,14 +43,14 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf }: {
     <>
       {/* banner */}
       <div className="-m-2 mb-0 h-16 rounded-t-lg" style={{ background: gradient }} />
-      <div className="px-2 pb-1">
-        <div className="-mt-8 mb-2 flex items-end justify-between">
+      <div className="px-2 pb-2">
+        <div className="-mt-8 mb-3 flex items-end justify-between">
           <div className="rounded-full ring-4 ring-popover">
             <Avatar label={data.avatar} size={64} />
           </div>
           <Badge variant="secondary" className="mb-1 h-6 gap-1"><Shield className="size-3.5" /> {data.role}</Badge>
         </div>
-        <div className="rounded-lg bg-card p-3">
+        <div className="rounded-lg bg-card p-3.5">
           <div className="text-lg font-semibold">{data.name}</div>
           <Separator className="my-2" />
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">About Me</div>
@@ -91,7 +91,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf }: {
       </div>
     )
 
-  // desktop/tablet: shadcn Popover anchored to an invisible trigger at the click point
+  // desktop: shadcn Popover anchored to an invisible trigger at the click point
   return (
     <Popover open onOpenChange={(o) => { if (!o) onClose() }}>
       <PopoverTrigger

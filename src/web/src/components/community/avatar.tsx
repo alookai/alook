@@ -1,6 +1,6 @@
 import type React from "react"
 import { Avatar as UiAvatar, AvatarImage, AvatarFallback, AvatarBadge } from "@/components/ui/avatar"
-import { AvatarRenderer, parseAvatarUrl } from "@/components/avatar"
+import { AvatarRenderer, parseAvatarUrl, configFromName } from "@/components/avatar"
 import type { Presence } from "./_types"
 
 export const STATUS_COLOR: Record<Presence, string> = {
@@ -21,19 +21,29 @@ export function Avatar({ label, src, size = 40, dim = false, presence }: {
 }) {
   const avatarConfig = parseAvatarUrl(label)
   const imageUrl = src || (isUrl(label) ? label : undefined)
+  const fallbackConfig = !imageUrl && !avatarConfig ? configFromName(label) : null
+  const hasGenerated = !!avatarConfig || !!fallbackConfig
 
   return (
     <UiAvatar
-      className="bg-muted"
+      className={hasGenerated && !imageUrl ? "after:hidden" : "bg-muted"}
       style={{ width: size, height: size, opacity: dim ? 0.4 : 1 }}
     >
       {imageUrl ? (
         <AvatarImage src={imageUrl} alt={label} />
       ) : avatarConfig ? (
-        <AvatarRenderer config={avatarConfig} size={size} className="size-full" />
+        <span className="size-full rounded-full overflow-hidden">
+          <AvatarRenderer config={avatarConfig} size={size} className="size-full" />
+        </span>
       ) : null}
       <AvatarFallback className="font-medium" style={{ fontSize: size * 0.4 }}>
-        {label.charAt(0).toUpperCase()}
+        {fallbackConfig ? (
+          <span className="size-full rounded-full overflow-hidden">
+            <AvatarRenderer config={fallbackConfig} size={size} className="size-full" />
+          </span>
+        ) : (
+          label.charAt(0).toUpperCase()
+        )}
       </AvatarFallback>
       {presence === "online" && (
         <AvatarBadge

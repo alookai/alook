@@ -8,6 +8,7 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import { RailIcon } from "./rail-icon"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { SortableServer } from "./sortable-server"
 import { RailFolder } from "./rail-folder"
 import { CreateServerDialog } from "./create-server-dialog"
@@ -15,7 +16,7 @@ import { useRailOrder, isFolderKey, extractFolderId, folderId } from "./use-rail
 import type { Server, CommunityFolder, MobileZone, View } from "./_types"
 
 export function ServerRail({
-  servers, folders, activeServerId: activeServerIdProp, serversLoading, setMobileZone, view,
+  servers, folders, activeServerId: activeServerIdProp, serversLoading, setMobileZone, view, bottomInset,
   onHome, onServer, onServerNavigate, onCreateServer, onJoinServer, onLeaveServer,
   onOpenSettings, onUngroupFolder, onReorderRail, onReorderFolders, onFolderItemsChange, onDragCreateFolder,
 }: {
@@ -25,6 +26,7 @@ export function ServerRail({
   serversLoading?: boolean
   setMobileZone?: (z: MobileZone) => void
   view: View
+  bottomInset?: number
   onHome: () => void
   onServer: () => void
   onServerNavigate?: (id: string) => void
@@ -83,19 +85,23 @@ export function ServerRail({
   }, [folders])
 
   return (
-    <nav aria-label="Server navigation" className="flex w-14 shrink-0 flex-col items-center gap-1.5 pt-1 pb-2 overflow-y-auto overflow-x-clip thin-scrollbar">
-      <RailIcon
-        active={view === "dm"}
-        onClick={onHome}
-        tooltip="Direct Messages"
-        label={
-          <>
-            <img src="/alook.svg" alt="Alook" className="size-full p-1.5 dark:hidden" />
-            <img src="/alook-dark.svg" alt="Alook" className="hidden size-full p-1.5 dark:block" />
-          </>
-        }
-        round
-      />
+    <nav aria-label="Server navigation" className="flex w-14 shrink-0 flex-col items-center gap-1.5 pt-1 pb-2 overflow-y-auto overflow-x-clip thin-scrollbar" style={bottomInset ? { paddingBottom: bottomInset } : undefined}>
+      <Tooltip>
+        <TooltipTrigger render={<div className="group relative flex w-full justify-center" />}>
+          <span className={[
+            "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-foreground transition-all duration-150",
+            view === "dm" ? "h-8" : "h-0 group-hover:h-5",
+          ].join(" ")} />
+          <button
+            onClick={onHome}
+            className="grid size-10 shrink-0 place-items-center rounded-[20px] transition-all duration-150 hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <img src="/alook.svg" alt="Alook" className="size-8 dark:hidden" />
+            <img src="/alook-dark.svg" alt="Alook" className="hidden size-8 dark:block" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8}>Direct Messages</TooltipContent>
+      </Tooltip>
       <div className="w-6 border-t border-border/50 my-1" />
       <DndContext id="d-rail" sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis]} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => setDragActiveId(null)}>
         <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>

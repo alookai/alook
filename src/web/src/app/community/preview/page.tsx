@@ -10,12 +10,12 @@
  * --sidebar for the server rail — is scoped locally below as --d-rail.
  *
  * Covers two things from the plan:
- *  #1 Three responsive stages — desktop (≥961) / tablet (601–960) / mobile (≤600).
+ *  #1 Two responsive stages — desktop (≥601) / mobile (≤600).
  *  #2 A wider feature showcase — markdown, mentions, system messages, threads,
  *     pinned / search / thread side panels, typing indicator.
  */
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import type React from "react"
 import { toast } from "sonner"
 import { ChevronLeft } from "lucide-react"
@@ -54,7 +54,6 @@ import { FriendsPage } from "@/components/community/friends-page"
 import { ServerSettings } from "@/components/community/server-settings"
 import { InboxPopover } from "@/components/community/community-inbox-popover"
 import { Shell } from "@/components/community/shell"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
 
 // ── Page ────────────────────────────────────────────────────────────────
 export default function CommunityPreview() {
@@ -69,7 +68,6 @@ export default function CommunityPreview() {
   const [rightPanel, setRightPanel] = useState<RightPanel>("members")
   // An open thread takes over the message area like a channel.
   const [openThreadId, setOpenThreadId] = useState<string | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(false) // tablet left overlay
   const [mobileZone, setMobileZone] = useState<MobileZone>("messages")
   const [profile, setProfile] = useState<{ data: Profile; x: number; y: number } | null>(null)
   // demo state — preview-local; the live app replaces these handlers with API mutations + WS
@@ -100,10 +98,6 @@ export default function CommunityPreview() {
   const [searchQuery, setSearchQuery] = useState("")
   // image attachment being previewed in the lightbox
   const [preview, setPreview] = useState<string | null>(null)
-  // avoid hydration mismatch: theme is unknown on the server
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
-
   const [inboxFeed, setInboxFeed] = useState(INBOX_FEED)
 
   // inbox item / mention → jump to the server + a channel (front-end nav) + mark read
@@ -184,7 +178,6 @@ export default function CommunityPreview() {
   const enterDm = (id: string) => {
     setActiveDm(id)
     setDmList((prev) => prev.map((d) => d.id === id ? { ...d, unread: false } : d))
-    if (bp === "tablet") setSidebarOpen(false)
     if (bp === "mobile") setMobileZone("messages")
   }
 
@@ -387,7 +380,6 @@ export default function CommunityPreview() {
       setActiveChannel(id)
       channelTree.markRead(id)
       setOpenThreadId(null)
-      if (bp === "tablet") setSidebarOpen(false)
       if (bp === "mobile") setMobileZone("messages")
     },
     onOpenSettings: () => setView("settings"),
@@ -405,7 +397,7 @@ export default function CommunityPreview() {
 
   // The whole content column (header + body). Branches: open thread → thread takeover;
   // @me view → DM conversation or Friends page; server view → channel + right panel.
-  const contentColumn = ({ compact, hamburger }: { compact?: boolean; hamburger?: boolean } = {}) => {
+  const contentColumn = ({ compact }: { compact?: boolean } = {}) => {
 
     if (openThread)
       return (
@@ -417,7 +409,6 @@ export default function CommunityPreview() {
             onToggle={togglePanel}
             onSearch={(q) => { setSearchQuery(q); setRightPanel("search") }}
             searchBox={bp !== "mobile"}
-            onHamburger={hamburger ? () => setSidebarOpen(true) : undefined}
             onBack={compact ? () => setMobileZone("channels") : undefined}
             breadcrumb={{
               label: openThread.name,
@@ -442,21 +433,43 @@ export default function CommunityPreview() {
           </main>
         </>
       ) : (
-        <FriendsPage friends={friendList} pending={pending} blocked={blocked} onBack={compact ? () => setMobileZone("channels") : undefined} hamburger={hamburger ? () => setSidebarOpen(true) : undefined} {...friendActions} {...profileProps} />
+        <FriendsPage friends={friendList} pending={pending} blocked={blocked} onBack={compact ? () => setMobileZone("channels") : undefined} {...friendActions} {...profileProps} />
       )
 
-    // forum channel → post list (a forum is a feed of threads, not a chat)
+    // forum channel → post list (a forum is a feed of threads, not a chat).
+    // Shares ChannelHeader with text channels; forum actions live in its `actions` slot.
     if (isForum)
       return (
-        <ForumView
-          channel={activeChannel}
-          posts={forumPosts[activeChannel] ?? []}
-          tags={FORUM_TAGS}
-          onOpenPost={enterThread}
-          onCreatePost={createForumPost}
-          onHamburger={hamburger ? () => setSidebarOpen(true) : undefined}
-          onBack={compact ? () => setMobileZone("channels") : undefined}
-        />
+        <>
+          <ChannelHeader
+            channel={activeChannel}
+            forum
+            rightPanel={rightPanel}
+            onToggle={togglePanel}
+            onSearch={(q) => { setSearchQuery(q); setRightPanel("search") }}
+            notifLevel={(channelNotif[activeChannel] as ChannelNotifLevel) ?? "Use Server Default"}
+            onSetNotifLevel={(l) => setChannelNotif((p) => ({ ...p, [activeChannel]: l }))}
+            searchBox={bp !== "mobile"}
+            onBack={compact ? () => setMobileZone("channels") : undefined}
+            tools={{ threads: false, pinned: false }}
+          />
+          <div className="flex min-h-0 flex-1">
+            <main className="flex min-w-0 flex-1 flex-col">
+              <ForumView
+                posts={forumPosts[activeChannel] ?? []}
+                tags={FORUM_TAGS}
+                onOpenPost={enterThread}
+                onCreatePost={createForumPost}
+                canManageTags
+              />
+            </main>
+            {bp === "desktop" && rightPanel && (
+              <aside className={`${rightPanel === "members" ? "w-60" : "w-80"} shrink-0 border-l border-border`}>
+                <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} {...panelProps} {...profileProps} />
+              </aside>
+            )}
+          </div>
+        </>
       )
 
     return (
@@ -469,7 +482,6 @@ export default function CommunityPreview() {
           notifLevel={(channelNotif[activeChannel] as ChannelNotifLevel) ?? "Use Server Default"}
           onSetNotifLevel={(l) => setChannelNotif((p) => ({ ...p, [activeChannel]: l }))}
           searchBox={bp !== "mobile"}
-          onHamburger={hamburger ? () => setSidebarOpen(true) : undefined}
           onBack={compact ? () => setMobileZone("channels") : undefined}
         />
         <div className="flex min-h-0 flex-1">
@@ -477,7 +489,7 @@ export default function CommunityPreview() {
             <MessageList channel={activeChannel} messages={messages} pinnedIds={pinnedIds} newDividerBefore={NEW_DIVIDER_BEFORE} typingUsers={["Lindsay"]} onOpenThread={enterThread} {...messageActions} {...profileProps} />
             <Composer channel={activeChannel} members={friendList} onSend={sendMessage} onCreateThread={() => setCreatingThread(true)} replyingTo={replyTo?.authorName} onCancelReply={() => setReplyTo(null)} />
           </main>
-          {/* desktop renders the panel inline; tablet/mobile use overlays below */}
+          {/* desktop renders the panel inline; mobile uses the full-screen overlay below */}
           {bp === "desktop" && rightPanel && (
             <aside className={`${rightPanel === "members" ? "w-60" : "w-80"} shrink-0 border-l border-border`}>
               <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} {...panelProps} {...profileProps} />
@@ -516,7 +528,7 @@ export default function CommunityPreview() {
               <ServerRail {...railProps} />
               {sidebar({ bordered: true })}
             </div>
-            <UserBar user={{ name: "Gener", avatar: "G" }} mounted={mounted} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
+            <UserBar user={{ name: "Gener", avatar: "G" }} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
           </ResizablePanel>
 
           <ResizableHandle className="bg-transparent" />
@@ -525,42 +537,6 @@ export default function CommunityPreview() {
             {contentColumn()}
           </ResizablePanel>
         </ResizablePanelGroup>
-        {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === "Gener"} />}
-        {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
-        {dialogs}
-      </Shell>
-    )
-  }
-
-  // ── Tablet: rail + messages, sidebar & right panel as scrim overlays ──
-  if (bp === "tablet") {
-    return (
-      <Shell {...shellProps}>
-        <div className="flex min-h-0 flex-1" style={{ background: "var(--d-rail)" }}>
-          <ServerRail {...railProps} />
-          <div className="flex min-w-0 flex-1 flex-col rounded-tl-xl border-l border-t border-r border-border bg-sidebar">
-            {contentColumn({ hamburger: true })}
-          </div>
-        </div>
-
-        {/* left sheet: channel / DM sidebar */}
-        <Sheet open={sidebarOpen} onOpenChange={(o) => { if (!o) setSidebarOpen(false) }}>
-          <SheetContent side="left" className="w-70 p-0" showCloseButton={false}>
-            <div className="flex h-full flex-col" style={{ background: "var(--d-rail)" }}>
-              <div className="flex min-h-0 flex-1">
-                {sidebar()}
-              </div>
-              <UserBar user={{ name: "Gener", avatar: "G" }} mounted={mounted} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
-            </div>
-          </SheetContent>
-        </Sheet>
-
-        {/* right sheet: members / pinned / search / thread */}
-        <Sheet open={!!rightPanel && view === "server" && !openThread} onOpenChange={(o) => { if (!o) setRightPanel(null) }}>
-          <SheetContent side="right" className="w-[320px] p-0" showCloseButton={false}>
-            {rightPanel && <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} {...profileProps} />}
-          </SheetContent>
-        </Sheet>
         {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === "Gener"} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
         {dialogs}
@@ -584,7 +560,7 @@ export default function CommunityPreview() {
           <div className="flex min-h-0 flex-1">
             {sidebar({ noHeader: true })}
           </div>
-          <UserBar user={{ name: "Gener", avatar: "G" }} mounted={mounted} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
+          <UserBar user={{ name: "Gener", avatar: "G" }} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
         </div>
       )}
 

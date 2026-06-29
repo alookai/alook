@@ -30,7 +30,7 @@ export function RightPanelContent({
 }) {
   if (kind === "members")
     // Desktop shows the bare list under the spanning channel header (no own header).
-    // Overlay contexts (tablet/mobile) wrap it so it gets a dismiss bar.
+    // The mobile full-screen panel wraps it so it gets a dismiss bar.
     return showClose ? (
       <PanelShell icon={Users} title="Members" onClose={onClose} showClose bodyClassName="p-0">
         <MemberList members={members} myRole={myRole} onOpenProfile={onOpenProfile} onSetRole={onSetRole} onKick={onKickMember} />
@@ -50,12 +50,12 @@ export function RightPanelContent({
   return (
     <PanelShell icon={MessagesSquare} title="Threads" onClose={onClose} showClose={showClose}>
       <div className="mb-2 text-xs text-muted-foreground">{threads.length} threads</div>
-      <div className="space-y-1">
+      <div className="space-y-2">
         {threads.map((t) => (
           <button
             key={t.id}
             onClick={() => onOpenThread(t.id)}
-            className="flex w-full items-start gap-2 rounded-md border border-border bg-card p-2.5 text-left hover:bg-accent"
+            className="flex w-full items-start gap-3 rounded-md border border-border bg-card p-3 text-left hover:bg-accent"
           >
             <MessagesSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">

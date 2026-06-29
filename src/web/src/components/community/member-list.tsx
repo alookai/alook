@@ -52,10 +52,10 @@ export function MemberList({ members, myRole, onOpenProfile, onSetRole, onKick }
       onConfirm={() => { if (kickTarget) onKick?.(kickTarget); setKickTarget(null) }}
     />
     <aside className="flex h-full flex-col overflow-y-auto thin-scrollbar bg-background">
-      <div className="px-3 py-4">
+      <div className="px-3 py-5">
         {groupMembers(members).map((group) => (
-          <div key={group.label} className="mb-4">
-            <h3 className="mb-1 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <div key={group.label} className="mb-5">
+            <h3 className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {group.label} — {group.list.length}
             </h3>
             {group.list.map((mem) => (
@@ -64,7 +64,7 @@ export function MemberList({ members, myRole, onOpenProfile, onSetRole, onKick }
                   render={
                     <button
                       onClick={(e) => onOpenProfile?.(mem.name, e)}
-                      className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent"
+                      className="flex w-full items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
                       style={{ opacity: mem.status === "offline" ? 0.4 : 1 }}
                     />
                   }

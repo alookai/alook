@@ -15,18 +15,18 @@ export function DmSidebar({
 }) {
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
-      <div className="flex-1 overflow-y-auto thin-scrollbar px-2 py-3">
+      <div className="flex-1 overflow-y-auto thin-scrollbar px-2.5 py-4">
         <button
           onClick={onShowFriends}
           className={[
-            "mb-2 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
+            "mb-2 flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-sm font-medium",
             activeDm === null ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
           ].join(" ")}
         >
           <Users className="size-5" /> Friends
         </button>
         <div className="my-2 h-px bg-border" />
-        <div className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="mb-2 px-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Direct Messages
         </div>
         {dms.length === 0 && (
@@ -39,7 +39,7 @@ export function DmSidebar({
               key={d.id}
               onClick={() => onPickDm(d.id)}
               className={[
-                "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5",
+                "flex w-full items-center gap-3 rounded-md px-2.5 py-2",
                 active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
               ].join(" ")}
             >

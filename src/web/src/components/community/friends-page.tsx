@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import type React from "react"
-import { Users, MessagesSquare, Menu, ChevronLeft, Check, X, AtSign, UserMinus, Ban } from "lucide-react"
+import { Users, MessagesSquare, ChevronLeft, Check, X, AtSign, UserMinus, Ban } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -19,22 +19,21 @@ function FriendSection({ title, count, emptyLabel, children }: {
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</div>
-      {count === 0 ? <EmptyState icon={Users} label={emptyLabel} /> : <div className="flex flex-col">{children}</div>}
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</div>
+      {count === 0 ? <EmptyState icon={Users} label={emptyLabel} /> : <div className="flex flex-col gap-0.5">{children}</div>}
     </div>
   )
 }
 
 // Friends page (@me, no DM selected) — online / all / pending / blocked tabs.
 export function FriendsPage({
-  friends, pending, blocked, onBack, hamburger, onOpenProfile,
+  friends, pending, blocked, onBack, onOpenProfile,
   onAccept, onReject, onCancelRequest, onUnblock, onSendRequest, onRemoveFriend, onBlock,
 }: {
   friends: Friend[]
   pending: PendingRequest[]
   blocked: BlockedUser[]
   onBack?: () => void
-  hamburger?: () => void
   onOpenProfile?: OpenProfile
   onAccept?: (id: string) => void
   onReject?: (id: string) => void
@@ -89,9 +88,6 @@ export function FriendsPage({
         {onBack && (
           <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
         )}
-        {hamburger && (
-          <Button variant="ghost" size="icon-sm" onClick={hamburger} className="text-muted-foreground hover:text-foreground" aria-label="Open DMs"><Menu className="size-5" /></Button>
-        )}
         <TabsList variant="line">
           <TabsTrigger value="online">Online</TabsTrigger>
           <TabsTrigger value="all">All</TabsTrigger>
@@ -100,9 +96,9 @@ export function FriendsPage({
         </TabsList>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-4">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-5">
         {/* add-friend bar (shared across tabs) */}
-        <div className="mb-4">
+        <div className="mb-5">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add Friend</div>
           <div className="mt-2 flex items-center gap-2">
             <div className="relative flex-1">
@@ -124,7 +120,7 @@ export function FriendsPage({
         <TabsContent value="pending">
           <FriendSection title={`Pending — ${pending.length}`} count={pending.length} emptyLabel="No pending requests. When someone adds you, it'll show up here.">
             {pending.map((p) => (
-              <div key={p.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
+              <div key={p.id} className="flex items-center gap-3 rounded-md px-2.5 py-2.5 hover:bg-accent">
                 <Avatar label={p.avatar} size={32} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{p.name}</div>
@@ -145,7 +141,7 @@ export function FriendsPage({
         <TabsContent value="blocked">
           <FriendSection title={`Blocked — ${blocked.length}`} count={blocked.length} emptyLabel="You haven't blocked anyone.">
             {blocked.map((b) => (
-              <div key={b.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
+              <div key={b.id} className="flex items-center gap-3 rounded-md px-2.5 py-2.5 hover:bg-accent">
                 <Avatar label={b.avatar} size={32} dim />
                 <div className="min-w-0 flex-1 truncate text-sm font-medium">{b.name}</div>
                 <Button variant="secondary" size="sm" onClick={() => onUnblock?.(b.id)}>Unblock</Button>

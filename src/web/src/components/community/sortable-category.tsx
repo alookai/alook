@@ -38,11 +38,10 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
               {...attributes}
               {...listeners}
               onClick={onToggle}
-              className="group flex w-full cursor-grab touch-none items-center gap-0.5 rounded px-1 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:text-foreground active:cursor-grabbing"
+              className="group flex w-full cursor-grab touch-none items-center gap-1 rounded px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 hover:text-foreground active:cursor-grabbing"
             />
           }
         >
-          <ChevronDown className={`size-3 transition-transform ${open ? "" : "-rotate-90"}`} />
           {isPrivate && <Lock className="size-3 shrink-0" />}
           <span className="flex-1 truncate text-left">{name}</span>
           {onSettings && (
@@ -65,9 +64,10 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
             <Plus className="size-3.5" />
           </button>
           )}
+          <ChevronDown className={`size-3 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`} />
         </ContextMenuTrigger>
         <ContextMenuContent className="w-48">
-          <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">{name}</div>
+          <div className="truncate px-2 py-1.5 text-xs font-semibold text-muted-foreground">{name}</div>
           {onAddChannel && <ContextMenuItem onClick={onAddChannel}><Plus className="size-4" /> Create Channel</ContextMenuItem>}
           {onSettings && <ContextMenuItem onClick={onSettings}><Settings className="size-4" /> Category Settings</ContextMenuItem>}
           {onDelete && (

@@ -6,7 +6,6 @@ import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
 import { useCommunity } from "@/contexts/community/context"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
-import { InboxPopover } from "@/components/community/community-inbox-popover"
 import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { DmHeader } from "@/components/community/dm-header"
 import { MessageList } from "@/components/community/message-list"
@@ -15,7 +14,6 @@ import { DmMessages } from "@/components/community/dm-messages"
 import { ForumView } from "@/components/community/forum-view"
 import { RightPanelContent } from "@/components/community/right-panel"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
 import type { RightPanel, Msg, Thread, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
 
@@ -35,9 +33,6 @@ export default function ChannelPage() {
   const bp = useBreakpoint()
   const ctx = useCommunity()
 
-  const openSidebar = useCallback(() => {
-    ctx.openSidebar()
-  }, [ctx])
   const goBack = useCallback(() => {
     ctx.goBackMobile()
   }, [ctx])
@@ -292,8 +287,8 @@ export default function ChannelPage() {
           onToggle={togglePanel}
           onSearch={(q) => { doSearch(q); setRightPanel("search") }}
           searchBox={bp !== "mobile"}
-          onHamburger={bp === "tablet" ? openSidebar : undefined}
           onBack={bp === "mobile" ? () => router.back() : undefined}
+          server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
           breadcrumb={{
             label: channelName,
             onNavigateBack: () => { if (parentId) router.push(`/community/channels/${params.serverId}/${parentId}`); else router.back() },
@@ -313,7 +308,7 @@ export default function ChannelPage() {
             <MessageList
               channel={channelName}
               messages={ctx.messages}
-              pinnedIds={new Set()}
+              pinnedIds={pinnedIds}
               typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
               onOpenThread={() => {}}
               {...messageActions}
@@ -329,7 +324,18 @@ export default function ChannelPage() {
               onCancelReply={() => setReplyTo(null)}
             />
           </main>
+          {bp === "desktop" && rightPanel && (
+            <aside className={`${rightPanel === "members" ? "w-60" : "w-80"} shrink-0 border-l border-border/40`}>
+              <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} {...panelProps} onOpenProfile={openProfile} />
+            </aside>
+          )}
         </div>
+
+        {bp === "mobile" && rightPanel && (
+          <div className="absolute inset-0 z-20 bg-background">
+            <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} onOpenProfile={openProfile} />
+          </div>
+        )}
       </>
     )
   }
@@ -340,23 +346,51 @@ export default function ChannelPage() {
     const forumChannel = allChannels.find((ch) => ch.id === channelId)
     let forumTags: string[] = []
     try { forumTags = forumChannel?.forumTags ? JSON.parse(forumChannel.forumTags) : [] } catch { /* malformed JSON */ }
+    const canManage = canManageServer(myRole)
     return (
-      <ForumView
-        channel={channelName}
-        posts={ctx.forumPosts}
-        tags={forumTags}
-        onOpenPost={enterThread}
-        onCreatePost={createForumPost}
-        canManageTags={canManageServer(myRole)}
-        onTagsChanged={canManageServer(myRole) ? (tags) => {
-          apiFetch(`/api/community/channels/${channelId}`, {
-            method: "PATCH",
-            body: JSON.stringify({ forumTags: JSON.stringify(tags) }),
-          }).catch(() => toast("Failed to save tags"))
-        } : undefined}
-        onHamburger={bp === "tablet" ? openSidebar : undefined}
-        onBack={bp === "mobile" ? goBack : undefined}
-      />
+      <>
+        <ChannelHeader
+          channel={channelName}
+          forum
+          rightPanel={rightPanel}
+          onToggle={togglePanel}
+          onSearch={(q) => { doSearch(q); setRightPanel("search") }}
+          notifLevel={(ctx.channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
+          onSetNotifLevel={(l) => ctx.setChannelNotif(channelId, l)}
+          searchBox={bp !== "mobile"}
+          onBack={bp === "mobile" ? goBack : undefined}
+          server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
+          tools={{ threads: false, pinned: false }}
+        />
+        <div className="flex min-h-0 flex-1">
+          <main className="flex min-w-0 flex-1 flex-col">
+            <ForumView
+              posts={ctx.forumPosts}
+              tags={forumTags}
+              onOpenPost={enterThread}
+              onCreatePost={createForumPost}
+              canManageTags={canManage}
+              onTagsChanged={canManage ? (tags) => {
+                apiFetch(`/api/community/channels/${channelId}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({ forumTags: JSON.stringify(tags) }),
+                }).catch(() => toast("Failed to save tags"))
+              } : undefined}
+            />
+          </main>
+          {bp === "desktop" && rightPanel && (
+            <aside className={`${rightPanel === "members" ? "w-60" : "w-80"} shrink-0 border-l border-border/40`}>
+              <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} {...panelProps} onOpenProfile={openProfile} />
+            </aside>
+          )}
+        </div>
+
+        {bp === "mobile" && rightPanel && (
+          <div className="absolute inset-0 z-20 bg-background">
+            <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} onOpenProfile={openProfile} />
+          </div>
+        )}
+      </>
     )
   }
 
@@ -371,18 +405,8 @@ export default function ChannelPage() {
         notifLevel={(ctx.channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
         onSetNotifLevel={(l) => ctx.setChannelNotif(channelId, l)}
         searchBox={bp !== "mobile"}
-        onHamburger={bp === "tablet" ? openSidebar : undefined}
         onBack={bp === "mobile" ? goBack : undefined}
-        inbox={
-          <InboxPopover
-            feed={ctx.inboxFeed}
-            mentions={ctx.mentions}
-            onOpenItem={(id) => { ctx.openInboxItem(id); router.push(`/community/channels/${id}`) }}
-            onOpenMention={(mention) => { if (mention.serverId && mention.channelId) router.push(`/community/channels/${mention.serverId}/${mention.channelId}`) }}
-            onMarkAllRead={ctx.markAllInboxRead}
-          />
-        }
-        hasUnread={ctx.inboxFeed?.some((f) => f.unread) ?? false}
+        server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
       />
       <div className="flex min-h-0 flex-1">
         <main className="flex min-w-0 flex-1 flex-col">
@@ -413,13 +437,6 @@ export default function ChannelPage() {
           </aside>
         )}
       </div>
-
-      {/* Tablet/mobile: right panel sheet */}
-      <Sheet open={bp === "tablet" && !!rightPanel} onOpenChange={(o) => { if (!o) setRightPanel(null) }}>
-        <SheetContent side="right" className="w-[320px] p-0" showCloseButton={false}>
-          {rightPanel && <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} onOpenProfile={openProfile} />}
-        </SheetContent>
-      </Sheet>
 
       {/* Mobile: full-screen panel */}
       {bp === "mobile" && rightPanel && (

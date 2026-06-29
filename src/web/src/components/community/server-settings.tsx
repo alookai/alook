@@ -74,11 +74,11 @@ export function ServerSettings({
       className="min-h-0 flex-1 flex-row gap-0"
     >
       {/* settings nav */}
-      <nav className="flex w-60 shrink-0 flex-col gap-2 overflow-y-auto thin-scrollbar border-r border-border p-3" style={{ background: "var(--d-rail)" }}>
+      <nav className="flex w-60 shrink-0 flex-col gap-2 overflow-y-auto thin-scrollbar border-r border-border p-4" style={{ background: "var(--d-rail)" }}>
         <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{serverName}</div>
-        <TabsList variant="line" className="h-auto w-full flex-col gap-0.5">
+        <TabsList variant="line" className="h-auto w-full flex-col gap-1">
           {nav.map((n) => (
-            <TabsTrigger key={n.id} value={n.id} className="h-8 w-full justify-start gap-2">
+            <TabsTrigger key={n.id} value={n.id} className="h-9 w-full justify-start gap-2.5">
               <n.icon className="size-4" /> {n.label}
             </TabsTrigger>
           ))}
@@ -139,10 +139,10 @@ function SettingsMembers({ members, onOpenProfile, onKickMember, onSetRole }: {
   onSetRole?: (name: string, role: Role) => void
 }) {
   return (
-    <div className="space-y-1">
-      <div className="mb-2 text-sm text-muted-foreground">{members.length} members</div>
+    <div className="space-y-2">
+      <div className="mb-3 text-sm text-muted-foreground">{members.length} members</div>
       {members.map((m) => (
-        <div key={m.name} className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2">
+        <div key={m.name} className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-2.5">
           <button onClick={(e) => onOpenProfile?.(m.name, e)} className="shrink-0">
             <Avatar label={m.avatar} size={32} presence={m.status} />
           </button>
@@ -182,12 +182,12 @@ function SettingsInvites({ invites, onRevokeInvite, onCreateInvite, onCopyInvite
   onCopyInvite?: (code: string) => void
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2.5">
       {invites.length === 0 && (
         <p className="text-sm text-muted-foreground">No active invites. Create one to let people join this server.</p>
       )}
       {invites.map((iv) => (
-        <div key={iv.code} className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5">
+        <div key={iv.code} className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-3">
           <Link2 className="size-5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="truncate font-mono text-sm">/community/invite/{iv.code}</div>
@@ -205,13 +205,13 @@ function SettingsInvites({ invites, onRevokeInvite, onCreateInvite, onCopyInvite
 function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLevel?: (l: string) => void }) {
   const levels = ["All messages", "Only @mentions", "Nothing"]
   return (
-    <div className="max-w-md space-y-2">
-      <div className="mb-2 text-sm text-muted-foreground">Server notification setting</div>
+    <div className="max-w-md space-y-2.5">
+      <div className="mb-3 text-sm text-muted-foreground">Server notification setting</div>
       {levels.map((l) => (
         <button
           key={l}
           onClick={() => onSetLevel?.(l)}
-          className="flex w-full items-center gap-3 rounded-md border border-border bg-card px-3 py-2.5 text-left hover:bg-accent"
+          className="flex w-full items-center gap-3 rounded-md border border-border bg-card px-3.5 py-3 text-left hover:bg-accent"
         >
           <span className={`grid size-4 place-items-center rounded-full border ${level === l ? "border-primary" : "border-muted-foreground"}`}>
             {level === l && <span className="size-2 rounded-full bg-primary" />}
@@ -225,12 +225,12 @@ function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLeve
 
 function SettingsAudit({ auditLog }: { auditLog: AuditEntry[] }) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       {auditLog.length === 0 && (
         <p className="text-sm text-muted-foreground">No audit log entries yet. Admin actions will be recorded here.</p>
       )}
       {auditLog.map((e, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
+        <div key={i} className="flex items-center gap-3 rounded-md px-2.5 py-2.5 hover:bg-accent">
           <ScrollText className="size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1 text-sm">
             <span className="font-medium">{e.actor}</span>{" "}

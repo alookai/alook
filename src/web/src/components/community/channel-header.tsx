@@ -1,12 +1,10 @@
 "use client"
 
-import type React from "react"
 import { useState, useRef, useEffect } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Bell, BellOff, Pin, Users, Search, MessagesSquare, Menu, ChevronLeft, X, Check, Inbox, Pencil } from "lucide-react"
+import { Bell, BellOff, Pin, Users, Search, MessagesSquare, ChevronLeft, X, Check, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { ChannelIcon } from "./channel-icon"
@@ -16,12 +14,12 @@ export type ChannelNotifLevel = "Use Server Default" | "All Messages" | "Only @m
 
 // Channel header — title + thread/notif/pin/member/search toolbar.
 // Search has two modes:
-//  - searchBox (desktop/tablet): clicking the search button expands an inline input;
+//  - searchBox (desktop): clicking the search button expands an inline input;
 //    typing + Enter submits the query → opens the search panel.
 //  - !searchBox (mobile): the icon opens the panel directly (search happens inside it).
 export function ChannelHeader({
-  channel, rightPanel, onToggle, onSearch, notifLevel, onSetNotifLevel, onHamburger, onBack, searchBox,
-  inbox, hasUnread, breadcrumb, forum,
+  channel, rightPanel, onToggle, onSearch, notifLevel, onSetNotifLevel, onBack, searchBox,
+  breadcrumb, forum, server, tools,
 }: {
   channel: string
   rightPanel: RightPanel
@@ -29,13 +27,13 @@ export function ChannelHeader({
   onSearch?: (query: string) => void
   notifLevel?: ChannelNotifLevel
   onSetNotifLevel?: (l: ChannelNotifLevel) => void
-  onHamburger?: () => void
   onBack?: () => void
   searchBox?: boolean
-  inbox?: React.ReactNode
-  hasUnread?: boolean
   forum?: boolean
   breadcrumb?: { label: string; onRename?: (name: string) => void; onNavigateBack?: () => void }
+  server?: { name: string; icon: string | null }
+  // Per-tool visibility (default: all shown). Forums hide threads/pinned.
+  tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
 }) {
   const [searchActive, setSearchActive] = useState(false)
   const [query, setQuery] = useState("")
@@ -69,12 +67,10 @@ export function ChannelHeader({
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
-      {onHamburger && (
-        <Button variant="ghost" size="icon-sm" onClick={onHamburger} className="text-muted-foreground hover:text-foreground" aria-label="Open channels"><Menu className="size-5" /></Button>
-      )}
+      {server && <ServerCrumb name={server.name} icon={server.icon} />}
       {breadcrumb ? (
         <>
-          <button onClick={breadcrumb.onNavigateBack} className="ml-1 flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors">
+          <button onClick={breadcrumb.onNavigateBack} className={`flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors ${server ? "" : "ml-1"}`}>
             {forum ? <MessagesSquare className="size-4 shrink-0" /> : <ChannelIcon className="text-base" />}
             <span className="truncate text-base font-medium">{channel}</span>
           </button>
@@ -86,30 +82,15 @@ export function ChannelHeader({
         </>
       ) : (
         <>
-          {forum ? <MessagesSquare className="ml-1 size-4 shrink-0 text-muted-foreground" /> : <ChannelIcon className="ml-1 text-base text-muted-foreground" />}
+          {forum ? <MessagesSquare className={`size-4 shrink-0 text-muted-foreground ${server ? "" : "ml-1"}`} /> : <ChannelIcon className={`text-base text-muted-foreground ${server ? "" : "ml-1"}`} />}
           <span className="truncate text-base font-medium">{channel}</span>
         </>
       )}
-      <div className="ml-auto flex items-center gap-0.5 text-muted-foreground">
-        {inbox && (
-          <Popover>
-            <PopoverTrigger
-              render={
-                <Button variant="ghost" size="icon-sm" className="relative text-muted-foreground hover:text-foreground" aria-label="Inbox" />
-              }
-            >
-              <Inbox className="size-4.5" />
-              {hasUnread && <span className="absolute right-1 top-1 size-2 rounded-full bg-primary" />}
-            </PopoverTrigger>
-            <PopoverContent side="bottom" align="end" className="w-90 max-w-[calc(100vw-1rem)] overflow-hidden p-0">
-              {inbox}
-            </PopoverContent>
-          </Popover>
-        )}
-        {tool("threads", MessagesSquare, "Threads")}
+      <div className="ml-auto flex items-center gap-1 text-muted-foreground">
+        {tools?.threads !== false && tool("threads", MessagesSquare, "Threads")}
         <ChannelNotifDropdown level={notifLevel ?? "Use Server Default"} onSetLevel={onSetNotifLevel} />
-        {tool("pinned", Pin, "Pinned messages")}
-        {tool("members", Users, "Member list")}
+        {tools?.pinned !== false && tool("pinned", Pin, "Pinned messages")}
+        {tools?.members !== false && tool("members", Users, "Member list")}
         {/* Mobile: icon opens the panel directly */}
         {!searchBox && (
           <Button
@@ -123,7 +104,7 @@ export function ChannelHeader({
           </Button>
         )}
       </div>
-      {/* Desktop/tablet: inline search input that expands on click */}
+      {/* Desktop: inline search input that expands on click */}
       {searchBox && !searchActive && (
         <Button
           variant="secondary"
@@ -155,6 +136,17 @@ export function ChannelHeader({
         </div>
       )}
     </header>
+  )
+}
+
+// Leading breadcrumb segment for mobile — the server avatar. The channel segment
+// that follows leads with its own "/" (or forum icon), which serves as the separator.
+// Purely contextual (the rail is hidden at mobile widths).
+function ServerCrumb({ name, icon }: { name: string; icon: string | null }) {
+  return (
+    <span className="ml-1 grid size-5 shrink-0 place-items-center overflow-hidden rounded-md bg-secondary text-[0.625rem] font-semibold text-foreground" aria-label={name} title={name}>
+      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : name.charAt(0).toUpperCase()}
+    </span>
   )
 }
 

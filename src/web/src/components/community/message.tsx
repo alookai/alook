@@ -44,7 +44,7 @@ export function Message({
   if (m.type === "system") {
     const Icon = m.systemKind === "thread" ? MessagesSquare : UserPlus
     return (
-      <div className="flex items-center gap-2 px-2 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 px-2 py-1 text-sm text-muted-foreground">
         <Icon className="size-4.5 shrink-0" />
         <span>{m.content}</span>
         <span className="text-xs" suppressHydrationWarning>{formatMessageTime(m.createdAt)}</span>
@@ -65,28 +65,28 @@ export function Message({
       id={`dpv-${m.id}`}
       className={[
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
-        m.grouped ? "pt-0 pb-0" : "py-1",
+        m.grouped ? "pt-0 pb-0" : "py-1.5",
         highlighted ? "bg-primary/10" : "hover:bg-accent/40",
       ].join(" ")}
     >
       <div className="min-w-0 flex-1">
       {interactive && (
-        <div className={`absolute -top-3 right-2 z-20 flex items-center gap-0.5 rounded-lg border border-border/60 bg-card px-1 py-0.5 shadow-[var(--e1)] transition-opacity duration-150 ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
+        <div className={`absolute -top-3 right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-1.5 py-1 shadow-[var(--e1)] transition-opacity duration-150 ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
           {onReact && (
             <EmojiPickerPopover side="bottom" align="end" onPick={(e) => onReact(e)} onOpenChange={setToolbarOpen}>
-              <button className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" aria-label="Add reaction">
+              <button className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" aria-label="Add reaction">
                 <SmilePlus className="size-4.5" />
               </button>
             </EmojiPickerPopover>
           )}
           {onReply && (
-            <button onClick={onReply} className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Reply">
+            <button onClick={onReply} className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none" aria-label="Reply">
               <Reply className="size-4.5" />
             </button>
           )}
           <DropdownMenu onOpenChange={setToolbarOpen}>
             <DropdownMenuTrigger
-              render={<button className="grid size-6 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" />}
+              render={<button className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" />}
             >
               <MoreHorizontal className="size-4.5" />
             </DropdownMenuTrigger>
@@ -256,12 +256,26 @@ export function Message({
           {m.thread && !compact && (
             <button
               onClick={() => onOpenThread(m.thread!.id)}
-              className="mt-1.5 flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-sm hover:bg-accent"
+              className="group/thread mt-1.5 flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent/60"
             >
-              <MessagesSquare className="size-4 text-muted-foreground" />
-              <span className="font-medium text-foreground">{m.thread.name}</span>
-              <span className="text-xs text-muted-foreground">{m.thread.messageCount} messages</span>
-              <ChevronDown className="size-4 -rotate-90 text-muted-foreground" />
+              {m.thread.participants && m.thread.participants.length > 0 ? (
+                <div className="flex -space-x-1.5">
+                  {m.thread.participants.slice(0, 3).map((p, i) => (
+                    <Avatar key={i} label={p} size={20} />
+                  ))}
+                </div>
+              ) : (
+                <MessagesSquare className="size-4 text-primary" />
+              )}
+              <span className="font-medium text-primary">
+                {m.thread.messageCount} {m.thread.messageCount === 1 ? "reply" : "replies"}
+              </span>
+              {m.thread.lastReplyAt && (
+                <span className="text-xs text-muted-foreground group-hover/thread:hidden" suppressHydrationWarning>
+                  Last reply {formatMessageTime(m.thread.lastReplyAt)}
+                </span>
+              )}
+              <span className="hidden text-xs text-muted-foreground group-hover/thread:inline">View thread</span>
             </button>
           )}
 

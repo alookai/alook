@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useParams, useRouter, useSearchParams, useSelectedLayoutSegment } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
@@ -18,10 +18,9 @@ import { MobileRail } from "@/components/community/mobile-rail"
 import { ChannelSidebar } from "@/components/community/channel-sidebar"
 import { DmSidebar } from "@/components/community/dm-sidebar"
 import { UserBar } from "@/components/community/user-bar"
+import { InboxPopover } from "@/components/community/community-inbox-popover"
 import { UserSettings } from "@/components/community/edit-profile-dialog"
 import { ServerSettings } from "@/components/community/server-settings"
-import { InboxPopover } from "@/components/community/community-inbox-popover"
-import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { ProfileCard } from "@/components/community/profile-card"
 import { ImageLightbox } from "@/components/community/image-lightbox"
 import type { MobileZone, View, Profile, SettingsSection } from "@/components/community/_types"
@@ -45,15 +44,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   // ── Local UI state ────────────────────────────────────────────────────────
   const [view, setView] = useState<View>(isAtMe ? "dm" : "server")
-  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [mobileZone, setMobileZone] = useState<MobileZone>(() => channelSegment ? "messages" : "channels")
   const [editingProfile, setEditingProfile] = useState(false)
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview")
   const [profile, setProfile] = useState<{ data: Profile; x: number; y: number } | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
 
   useEffect(() => {
     setView(isAtMe ? "dm" : "server")
@@ -135,7 +131,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       ctx.setCurrentChannelId(id)
       ctx.markChannelRead(id)
       channelTree.markRead(id)
-      if (bp === "tablet") setSidebarOpen(false)
       if (bp === "mobile") setMobileZone("messages")
     },
     onOpenSettings: isAdmin ? () => { setServerSettingsOpen(true) } : undefined,
@@ -180,7 +175,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const enterDm = (id: string) => {
     ctx.setCurrentChannelId(id)
     ctx.markDmRead(id)
-    if (bp === "tablet") setSidebarOpen(false)
     if (bp === "mobile") setMobileZone("messages")
   }
 
@@ -226,7 +220,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // Register UI handlers so pages can trigger layout actions via context
   useEffect(() => {
     ctx.registerUiHandlers({
-      openSidebar: () => setSidebarOpen(true),
       previewImage: (url) => setPreview(url),
       openProfile,
       goBackMobile: () => setMobileZone("channels"),
@@ -247,31 +240,19 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     }
   }
 
-  // ── Shell chrome ──────────────────────────────────────────────────────────
-  const shellProps = {
-    appName: isAtMe ? "Friends" : (ctx.currentServer?.name ?? "Alook"),
-    appIcon: isAtMe ? "friends" as const : undefined,
-    serverIcon: isAtMe ? undefined : (ctx.currentServer?.icon ?? null),
-    inbox: (
-      <InboxPopover
-        feed={ctx.inboxFeed}
-        mentions={ctx.mentions}
-        onOpenItem={(id) => {
-          ctx.openInboxItem(id)
-          router.push(`/community/channels/${id}`)
-        }}
-        onOpenMention={(mention) => {
-          if (mention.serverId && mention.channelId) {
-            router.push(`/community/channels/${mention.serverId}/${mention.channelId}`)
-          }
-        }}
-        onMarkAllRead={ctx.markAllInboxRead}
-        onDismissItem={ctx.dismissInboxItem}
-        onDeleteMention={ctx.deleteMention}
-      />
-    ),
-    hasUnread: ctx.inboxFeed?.some((f) => f.unread) ?? false,
-  }
+  // ── Inbox (global) ────────────────────────────────────────────────────────
+  const inboxElement = (
+    <InboxPopover
+      feed={ctx.inboxFeed}
+      mentions={ctx.mentions}
+      onOpenItem={(id) => { ctx.openInboxItem(id); router.push(`/community/channels/${id}`) }}
+      onOpenMention={(mention) => { if (mention.serverId && mention.channelId) router.push(`/community/channels/${mention.serverId}/${mention.channelId}`) }}
+      onMarkAllRead={ctx.markAllInboxRead}
+      onDismissItem={ctx.dismissInboxItem}
+      onDeleteMention={ctx.deleteMention}
+    />
+  )
+  const inboxHasUnread = ctx.inboxFeed?.some((f) => f.unread) ?? false
 
   // ── Left sidebar rendering ────────────────────────────────────────────────
   const sidebar = (opts: { noHeader?: boolean } = {}) =>
@@ -347,16 +328,29 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   )
 
   // ── Desktop ───────────────────────────────────────────────────────────────
+  const leftPanelRef = useRef<HTMLDivElement>(null)
+  const [userBarRight, setUserBarRight] = useState(0)
+  useEffect(() => {
+    const el = leftPanelRef.current
+    if (!el) return
+    const update = () => { const rect = el.getBoundingClientRect(); setUserBarRight(window.innerWidth - rect.right) }
+    update()
+    const ro = new ResizeObserver(() => update())
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [bp])
+
   if (bp === "desktop") {
     return (
       <Shell>
-        <ServerRail {...railProps} />
+        <ServerRail {...railProps} bottomInset={52} />
         <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
           <AppSurface>
             <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-              <ResizablePanel defaultSize="24%" minSize="20%" maxSize="36%" className="flex flex-col border-r border-border/40">
-                {sidebar()}
-                <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} mounted={mounted} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} />
+              <ResizablePanel defaultSize="24%" minSize={160} maxSize={360} className="flex flex-col border-r border-border/40">
+                <div ref={leftPanelRef} className="flex min-h-0 flex-1 flex-col pb-12">
+                  {sidebar()}
+                </div>
               </ResizablePanel>
               <ResizableHandle className="bg-transparent" />
               <ResizablePanel defaultSize="76%" className="flex min-w-0 flex-col bg-background">
@@ -365,31 +359,17 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
             </ResizablePanelGroup>
           </AppSurface>
         </div>
-        {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === ctx.currentUser.name} />}
-        {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
-        {dialogs}
-      </Shell>
-    )
-  }
-
-  // ── Tablet ────────────────────────────────────────────────────────────────
-  if (bp === "tablet") {
-    return (
-      <Shell>
-        <ServerRail {...railProps} />
-        <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
-          <AppSurface>
-            {children}
-          </AppSurface>
-        </div>
-        <Sheet open={sidebarOpen} onOpenChange={(o) => { if (!o) setSidebarOpen(false) }}>
-          <SheetContent side="left" className="w-70 p-0" showCloseButton={false}>
-            <div className="flex h-full flex-col" style={{ background: "var(--d-rail)" }}>
-              <div className="flex min-h-0 flex-1">{sidebar()}</div>
-              <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} mounted={mounted} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} />
-            </div>
-          </SheetContent>
-        </Sheet>
+        {userBarRight > 0 && (
+          <UserBar
+            user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }}
+            floating
+            rightInset={userBarRight}
+            onOpenProfile={openProfile}
+            onEditProfile={() => setEditingProfile(true)}
+            inbox={inboxElement}
+            hasUnread={inboxHasUnread}
+          />
+        )}
         {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === ctx.currentUser.name} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
         {dialogs}
@@ -412,7 +392,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
             <span className="ml-1 truncate text-base font-semibold">{isAtMe ? "Direct Messages" : ctx.currentServer?.name ?? ""}</span>
           </header>
           <div className="flex min-h-0 flex-1">{sidebar({ noHeader: true })}</div>
-          <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} mounted={mounted} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} />
+          <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} />
         </div>
       )}
       {mobileZone === "messages" && (

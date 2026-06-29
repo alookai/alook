@@ -284,6 +284,27 @@ export function randomConfig(): AvatarConfig {
 }
 
 // ─────────────────────────────────────────────────────────────
+// DETERMINISTIC CONFIG FROM NAME
+// ─────────────────────────────────────────────────────────────
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+export function configFromName(name: string): AvatarConfig {
+  const h = hashStr(name.toLowerCase());
+  return {
+    shape: SHAPE_KEYS[h % SHAPE_KEYS.length]!,
+    eye: EYE_KEYS[(h >>> 4) % EYE_KEYS.length]!,
+    nose: NOSE_KEYS[(h >>> 8) % NOSE_KEYS.length]!,
+    bg: (h >>> 12) % BG_COLORS.length,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
 // AVATAR RENDERER
 // ─────────────────────────────────────────────────────────────
 interface AvatarRendererProps {

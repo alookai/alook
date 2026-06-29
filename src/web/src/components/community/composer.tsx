@@ -5,18 +5,13 @@ import { PlusCircle, Smile, Upload, MessagesSquare, X, FileIcon, ImageIcon } fro
 import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
-import { Markdown as ChatMarkdown } from "@tiptap/markdown"
-import { decodeChatEntities } from "@/lib/chat-markdown"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Avatar } from "./avatar"
 import { EmojiPickerPopover } from "./emoji-picker"
 import type { Friend } from "./_types"
 
-// Composer — TipTap rich-text input, same stack Alook's agent-chat composer uses
-// (useEditor + StarterKit + Placeholder + @tiptap/markdown). Markdown shortcuts
-// (**bold**, `code`, > quote…) work as you type. A lightweight @mention dropdown
-// reads the editor's trailing token; `members` is the autocomplete source. The "+"
-// opens an attach/thread menu (Upload a File / Create Thread only).
+// Composer — plain-text TipTap editor. Users type raw markdown which
+// MessageBody/Streamdown renders on display. Enter sends, Shift+Enter adds a newline.
 export function Composer({ channel, thread, members, onSend, onCreateThread, onTyping, replyingTo, onCancelReply }: {
   channel: string
   thread?: boolean
@@ -42,8 +37,20 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
-      StarterKit.configure({ heading: false, horizontalRule: false }),
-      ChatMarkdown,
+      StarterKit.configure({
+        heading: false,
+        horizontalRule: false,
+        codeBlock: false,
+        code: false,
+        blockquote: false,
+        bold: false,
+        italic: false,
+        strike: false,
+        bulletList: false,
+        orderedList: false,
+        listItem: false,
+        listKeymap: false,
+      }),
       Placeholder.configure({ placeholder: thread ? `Message ${channel}` : `Message /${channel}` }),
     ],
     editorProps: {
@@ -74,7 +81,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
 
   const send = () => {
     if (!editor || (editor.isEmpty && pendingFiles.length === 0)) return
-    const markdown = editor.isEmpty ? "" : decodeChatEntities(editor.getMarkdown() || "").trim()
+    const markdown = editor.isEmpty ? "" : editor.getText({ blockSeparator: "\n" }).trim()
     onSend?.(markdown, pendingFiles.length > 0 ? pendingFiles : undefined)
     editor.commands.clearContent()
     setPendingFiles([])

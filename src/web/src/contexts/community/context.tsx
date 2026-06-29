@@ -218,12 +218,10 @@ export type CommunityContextValue = {
   refreshMessages: () => void
 
   // UI actions (layout registers handlers, pages call them)
-  openSidebar: () => void
   previewImage: (url: string) => void
   openProfile: (name: string, e: React.MouseEvent) => void
   goBackMobile: () => void
   registerUiHandlers: (handlers: {
-    openSidebar: () => void
     previewImage: (url: string) => void
     openProfile: (name: string, e: React.MouseEvent) => void
     goBackMobile?: () => void
@@ -692,15 +690,13 @@ export function CommunityProvider({
 
   // ── UI dispatch (layout registers handlers, pages call these) ────────────
   const uiHandlersRef = useRef<{
-    openSidebar?: () => void
     previewImage?: (url: string) => void
     openProfile?: (name: string, e: React.MouseEvent) => void
     goBackMobile?: () => void
   }>({})
-  const registerUiHandlers = useCallback((handlers: { openSidebar: () => void; previewImage: (url: string) => void; openProfile: (name: string, e: React.MouseEvent) => void; goBackMobile?: () => void }) => {
+  const registerUiHandlers = useCallback((handlers: { previewImage: (url: string) => void; openProfile: (name: string, e: React.MouseEvent) => void; goBackMobile?: () => void }) => {
     uiHandlersRef.current = handlers
   }, [])
-  const openSidebar = useCallback(() => { uiHandlersRef.current.openSidebar?.() }, [])
   const previewImage = useCallback((url: string) => { uiHandlersRef.current.previewImage?.(url) }, [])
   const openProfileFn = useCallback((name: string, e: React.MouseEvent) => { uiHandlersRef.current.openProfile?.(name, e) }, [])
   const goBackMobile = useCallback(() => { uiHandlersRef.current.goBackMobile?.() }, [])
@@ -1655,7 +1651,6 @@ export function CommunityProvider({
         if (sid === "@me") fetchDmMessages(cid)
         else fetchMessages(cid)
       },
-      openSidebar,
       previewImage,
       openProfile: openProfileFn,
       goBackMobile,

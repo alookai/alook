@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, isUniqueConstraintError } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
@@ -49,11 +49,17 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   if (!body.messageId) return writeError("missing messageId", 400)
 
-  const pin = await queries.communityPin.pinMessage(db, {
-    channelId,
-    messageId: body.messageId,
-    pinnedBy: ctx.userId,
-  })
+  let pin
+  try {
+    pin = await queries.communityPin.pinMessage(db, {
+      channelId,
+      messageId: body.messageId,
+      pinnedBy: ctx.userId,
+    })
+  } catch (e: unknown) {
+    if (isUniqueConstraintError(e)) return writeError("message already pinned", 409)
+    throw e
+  }
 
   fanOutToChannel(channelId, {
     type: "community:pin.add",

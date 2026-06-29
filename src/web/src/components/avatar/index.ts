@@ -5,6 +5,7 @@ export {
   serializeAvatarConfig,
   parseAvatarUrl,
   randomConfig,
+  configFromName,
 } from "./avatar-parts";
 
 export { AnimatedAvatar } from "./animated-avatar";
