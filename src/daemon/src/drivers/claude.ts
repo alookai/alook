@@ -16,8 +16,8 @@ import {
   buildClaudeArgs,
   resolveClaudeLaunchCommand,
   buildClaudeSpawnSpec,
-  writeClaudeSystemPromptFile,
 } from "./claudeLaunch";
+import { writeAgentFile } from "./agentFile";
 import { ClaudeEventNormalizer } from "./claudeEventNormalizer";
 import { probeClaude } from "./probe";
 
@@ -44,9 +44,11 @@ export class ClaudeDriver implements Driver {
     const cliConfig = ctx.agentCliPath
       ? { ...DEFAULT_CLI_CONFIG, hostCliPath: ctx.agentCliPath }
       : undefined;
-    const { stateDir, spawnEnv } = await prepareCliTransport(ctx, buildClaudeProviderIsolationEnv(ctx), cliConfig);
-    const systemPromptPath = writeClaudeSystemPromptFile(ctx.standingPrompt, stateDir);
-    const args = buildClaudeArgs(ctx.config, { standingPromptFilePath: systemPromptPath });
+    const { spawnEnv } = await prepareCliTransport(ctx, buildClaudeProviderIsolationEnv(ctx), cliConfig);
+    // Write system prompt as AGENTS.md in workdir — Claude Code auto-reads
+    // CLAUDE.md (symlinked to AGENTS.md) from cwd, no CLI flag needed.
+    writeAgentFile(ctx.workingDirectory, ctx.standingPrompt);
+    const args = buildClaudeArgs(ctx.config);
 
     // Let Claude detect it is NOT nested in another Claude Code session.
     delete spawnEnv.CLAUDECODE;
