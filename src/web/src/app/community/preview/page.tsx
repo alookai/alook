@@ -424,7 +424,7 @@ export default function CommunityPreview() {
     if (view === "dm")
       return dm ? (
         <>
-          <DmHeader dm={dm} onBack={compact ? () => setMobileZone("channels") : undefined} onOpenPins={() => setRightPanel("pinned")} onAddFriend={() => { if (!friendList.some((f) => f.name === dm.name)) setFriendList((p) => [...p, { id: `fr_${dm.id}`, name: dm.name, avatar: dm.avatar, status: dm.status, sub: "" }]); toast(`Added ${dm.name} as a friend`) }} />
+          <DmHeader dm={dm} onBack={compact ? () => setMobileZone("channels") : undefined} />
           <main className="flex min-h-0 flex-1 flex-col">
             <MessageList
               channel={dm.name}

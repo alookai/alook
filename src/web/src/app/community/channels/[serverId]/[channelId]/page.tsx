@@ -262,17 +262,18 @@ export default function ChannelPage() {
         <DmHeader
           dm={dm}
           onBack={bp === "mobile" ? goBack : undefined}
-          onOpenPins={() => setRightPanel("pinned")}
-          onAddFriend={() => { ctx.sendFriendRequest(dm.userId); toast("Friend request sent") }}
         />
         <main className="flex min-h-0 flex-1 flex-col">
           <MessageList
             channel={dm.name}
             messages={ctx.messages}
-            pinnedIds={pinnedIds}
             typingUsers={ctx.typingUsers.map((id) => ctx.friends.find((f) => f.userId === id)?.name ?? id)}
             onOpenThread={() => {}}
-            {...messageActions}
+            onToggleReaction={messageActions.onToggleReaction}
+            onReact={messageActions.onReact}
+            onReply={messageActions.onReply}
+            onCopy={messageActions.onCopy}
+            onRetry={messageActions.onRetry}
             onOpenProfile={openProfile}
             resolveUserName={resolveUserName}
             scrollToMessageId={scrollToMessageId}
