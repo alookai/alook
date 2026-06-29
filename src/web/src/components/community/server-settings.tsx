@@ -9,7 +9,7 @@ import { formatMessageTime, formatRelativeTime } from "./format-time"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
-import { Badge } from "@/components/ui/badge"
+import { Badge, badgeVariants } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Avatar } from "./avatar"
@@ -155,7 +155,7 @@ function SettingsMembers({ members, onOpenProfile, onKickMember, onSetRole }: {
           ) : (
             <DropdownMenu>
               <DropdownMenuTrigger
-                render={<Badge variant="secondary" className="cursor-pointer gap-1" />}
+                render={<button className={badgeVariants({ variant: "secondary" }) + " cursor-pointer gap-1"} />}
               >
                 <Shield className="size-3.5" /> {capitalize(m.role)}
               </DropdownMenuTrigger>
