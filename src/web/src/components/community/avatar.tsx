@@ -8,8 +8,8 @@ export const STATUS_COLOR: Record<Presence, string> = {
   offline: "var(--status-offline)",
 }
 
-function isUrl(s: string) {
-  return s.startsWith("http://") || s.startsWith("https://") || s.startsWith("/")
+function isUrl(s: string | undefined | null): boolean {
+  return !!s && (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("/"))
 }
 
 export function Avatar({ label, src, size = 40, dim = false, presence }: {
@@ -19,9 +19,10 @@ export function Avatar({ label, src, size = 40, dim = false, presence }: {
   dim?: boolean
   presence?: Presence
 }) {
-  const avatarConfig = parseAvatarUrl(label)
-  const imageUrl = src || (isUrl(label) ? label : undefined)
-  const fallbackConfig = !imageUrl && !avatarConfig ? configFromName(label) : null
+  const safeLabel = label || "?"
+  const avatarConfig = parseAvatarUrl(safeLabel)
+  const imageUrl = src || (isUrl(safeLabel) ? safeLabel : undefined)
+  const fallbackConfig = !imageUrl && !avatarConfig ? configFromName(safeLabel) : null
   const hasGenerated = !!avatarConfig || !!fallbackConfig
 
   return (
@@ -30,7 +31,7 @@ export function Avatar({ label, src, size = 40, dim = false, presence }: {
       style={{ width: size, height: size, opacity: dim ? 0.4 : 1 }}
     >
       {imageUrl ? (
-        <AvatarImage src={imageUrl} alt={label} />
+        <AvatarImage src={imageUrl} alt={safeLabel} />
       ) : avatarConfig ? (
         <span className="size-full rounded-full overflow-hidden">
           <AvatarRenderer config={avatarConfig} size={size} className="size-full" />
@@ -42,7 +43,7 @@ export function Avatar({ label, src, size = 40, dim = false, presence }: {
             <AvatarRenderer config={fallbackConfig} size={size} className="size-full" />
           </span>
         ) : (
-          label.charAt(0).toUpperCase()
+          safeLabel.charAt(0).toUpperCase()
         )}
       </AvatarFallback>
       {presence === "online" && (
