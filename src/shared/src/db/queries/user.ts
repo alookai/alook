@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, like } from "drizzle-orm";
 import { user } from "../schema";
 import type { Database } from "../index";
 
@@ -15,6 +15,15 @@ export async function getUsersByIds(db: Database, ids: string[]) {
 export async function getUserByEmail(db: Database, email: string) {
   const rows = await db.select().from(user).where(eq(user.email, email));
   return rows[0] ?? null;
+}
+
+export async function getUserByNameCaseInsensitive(db: Database, name: string) {
+  const rows = await db.select().from(user).where(like(user.name, name));
+  return rows[0] ?? null;
+}
+
+export async function searchUsersByName(db: Database, name: string) {
+  return db.select().from(user).where(like(user.name, `%${name}%`)).limit(20);
 }
 
 export async function createUser(

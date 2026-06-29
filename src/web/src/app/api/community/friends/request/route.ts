@@ -8,29 +8,36 @@ import { broadcastToUser } from "@/lib/broadcast"
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
-  let body: { userId?: string }
+  let body: { userId?: string; username?: string }
   try {
     body = await req.json()
   } catch {
     return writeError("invalid request body", 400)
   }
 
-  if (!body.userId) {
-    return writeError("userId is required", 400)
+  let targetUserId = body.userId
+  if (!targetUserId && body.username) {
+    const targetUser = await queries.user.getUserByNameCaseInsensitive(db, body.username)
+    if (!targetUser) return writeError("user not found", 404)
+    targetUserId = targetUser.id
   }
 
-  if (body.userId === ctx.userId) {
+  if (!targetUserId) {
+    return writeError("userId or username is required", 400)
+  }
+
+  if (targetUserId === ctx.userId) {
     return writeError("cannot send friend request to yourself", 400)
   }
 
   try {
     const friendship = await queries.communityFriendship.sendRequest(db, {
       requesterId: ctx.userId,
-      addresseeId: body.userId,
+      addresseeId: targetUserId,
     })
 
     // Cast to any because community events aren't in the WsMessage union
-    broadcastToUser(body.userId, { type: "community:friend.request", friendship } as any).catch(() => {})
+    broadcastToUser(targetUserId, { type: "community:friend.request", friendship } as any).catch(() => {})
 
     return writeJSON(friendship, 201)
   } catch (err: unknown) {

@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import type React from "react"
-import { Users, MessagesSquare, ChevronLeft, Check, X, AtSign, UserMinus, Ban } from "lucide-react"
+import { Users, MessagesSquare, ChevronLeft, Check, X, AtSign, UserMinus, Ban, UserPlus } from "lucide-react"
+import { apiFetch } from "@/lib/api/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -45,11 +46,26 @@ export function FriendsPage({
 }) {
   const onlineFriends = friends.filter((f) => f.status === "online")
   const [addValue, setAddValue] = useState("")
-  const sendRequest = () => {
-    const name = addValue.trim()
-    if (!name) return
+  const [searchResults, setSearchResults] = useState<{ id: string; name: string; image: string | null }[]>([])
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    const q = addValue.trim()
+    if (!q) { setSearchResults([]); return }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const data = await apiFetch<{ users: { id: string; name: string; image: string | null }[] }>(`/api/community/users/search?q=${encodeURIComponent(q)}`)
+        setSearchResults(data.users)
+      } catch { setSearchResults([]) }
+    }, 300)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [addValue])
+
+  const sendRequest = (name: string) => {
     onSendRequest?.(name)
     setAddValue("")
+    setSearchResults([])
   }
 
   const friendList = (list: Friend[], title: string) => (
@@ -100,18 +116,32 @@ export function FriendsPage({
         {/* add-friend bar (shared across tabs) */}
         <div className="mb-5">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add Friend</div>
-          <div className="mt-2 flex items-center gap-2">
-            <div className="relative flex-1">
+          <div className="relative mt-2">
+            <div className="relative">
               <AtSign className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="h-11 pl-9"
-                placeholder="Enter a username to add a friend"
+                placeholder="Search by username"
                 value={addValue}
                 onChange={(e) => setAddValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") sendRequest() }}
+                onKeyDown={(e) => { if (e.key === "Enter" && addValue.trim()) sendRequest(addValue.trim()) }}
               />
             </div>
-            <Button onClick={sendRequest} disabled={!addValue.trim()}>Send</Button>
+            {searchResults.length > 0 && (
+              <div className="mt-1 rounded-md border border-border bg-popover p-1 shadow-md">
+                {searchResults.map((u) => (
+                  <button
+                    key={u.id}
+                    onClick={() => sendRequest(u.name)}
+                    className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-accent"
+                  >
+                    <Avatar label={u.image ?? u.name.charAt(0).toUpperCase()} size={28} />
+                    <span className="flex-1 truncate text-sm font-medium">{u.name}</span>
+                    <UserPlus className="size-4 shrink-0 text-muted-foreground" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

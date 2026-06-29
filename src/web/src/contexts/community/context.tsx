@@ -1061,16 +1061,17 @@ export function CommunityProvider({
     }
   }, [fetchThreads])
 
-  const sendFriendRequest = useCallback(async (userId: string) => {
+  const sendFriendRequest = useCallback(async (username: string) => {
     try {
       await apiFetch("/api/community/friends/request", {
         method: "POST",
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ username }),
       })
       toast("Friend request sent")
       fetchFriends()
-    } catch {
-      toast("Failed to send friend request")
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to send friend request"
+      toast(msg)
     }
   }, [fetchFriends])
 

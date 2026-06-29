@@ -261,7 +261,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         dms={ctx.dms ?? []}
         activeDm={ctx.currentChannelId}
         onPickDm={enterDm}
-        onShowFriends={() => ctx.setCurrentChannelId(null)}
+        onShowFriends={() => { ctx.setCurrentChannelId(null); if (bp === "mobile") setMobileZone("messages") }}
       />
     ) : (
       <ChannelSidebar {...channelProps} {...opts} />
