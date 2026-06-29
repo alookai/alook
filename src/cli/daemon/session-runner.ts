@@ -521,9 +521,13 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
               }
             }
           }
-        } catch { /* stream ended */ }
+        } catch (err) {
+          log.warn("steering: consumeParsedEvents error", { err: err instanceof Error ? err.message : String(err) });
+        }
       };
-      consumeParsedEvents();
+      consumeParsedEvents().catch((err) => {
+        log.error("steering: consumeParsedEvents unhandled error", { err: err instanceof Error ? err.message : String(err) });
+      });
     }
 
     // Stalled recovery + startup timeout timer

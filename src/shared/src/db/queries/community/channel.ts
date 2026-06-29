@@ -1,5 +1,5 @@
 import { eq, and, asc, desc, isNull } from "drizzle-orm";
-import { communityChannel } from "../../community-schema";
+import { communityChannel, communityServerMember } from "../../community-schema";
 import type { Database } from "../../index";
 
 export async function createChannel(
@@ -35,6 +35,37 @@ export async function getChannel(db: Database, channelId: string) {
   const rows = await db
     .select()
     .from(communityChannel)
+    .where(eq(communityChannel.id, channelId));
+  return rows[0] ?? null;
+}
+
+export async function getChannelForMember(db: Database, channelId: string, userId: string) {
+  const rows = await db
+    .select({
+      id: communityChannel.id,
+      serverId: communityChannel.serverId,
+      categoryId: communityChannel.categoryId,
+      name: communityChannel.name,
+      type: communityChannel.type,
+      topic: communityChannel.topic,
+      position: communityChannel.position,
+      forumTags: communityChannel.forumTags,
+      parentChannelId: communityChannel.parentChannelId,
+      creatorId: communityChannel.creatorId,
+      messageCount: communityChannel.messageCount,
+      archived: communityChannel.archived,
+      parentMessageId: communityChannel.parentMessageId,
+      lastMessageAt: communityChannel.lastMessageAt,
+      createdAt: communityChannel.createdAt,
+    })
+    .from(communityChannel)
+    .innerJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityChannel.serverId),
+        eq(communityServerMember.userId, userId)
+      )
+    )
     .where(eq(communityChannel.id, channelId));
   return rows[0] ?? null;
 }

@@ -17,11 +17,8 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) return writeError("channel not found", 404)
-
-  const member = await queries.communityMember.getMember(db, channel.serverId, ctx.userId)
-  if (!member) return writeError("forbidden", 403)
+  const channel = await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
+  if (!channel) return writeError("forbidden", 403)
 
   const cursorParam = req.nextUrl.searchParams.get("cursor")
   const limitParam = req.nextUrl.searchParams.get("limit")
@@ -124,11 +121,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) return writeError("channel not found", 404)
-
-  const member = await queries.communityMember.getMember(db, channel.serverId, ctx.userId)
-  if (!member) return writeError("forbidden", 403)
+  const channel = await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
+  if (!channel) return writeError("forbidden", 403)
 
   let body: { content?: string; replyToId?: string; mentionType?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }
   try {
@@ -150,8 +144,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   })
 
   // Create attachment records
+  let createdAttachments: { id: string; filename: string; url: string; contentType: string | null; size: number | null }[] = []
   if (body.attachments?.length) {
-    await Promise.all(
+    createdAttachments = await Promise.all(
       body.attachments.map((att) =>
         queries.communityAttachment.createAttachment(db, {
           messageId: created.id,
@@ -191,6 +186,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       type: (message!.type as "default" | "system" | "thread_created") ?? "default",
       mentionType: message!.mentionType as "everyone" | "here" | null,
       replyTo,
+      attachments: createdAttachments.length > 0 ? createdAttachments.map((att) => ({
+        id: att.id,
+        filename: att.filename,
+        url: att.url,
+        contentType: att.contentType ?? undefined,
+        size: att.size ?? undefined,
+      })) : undefined,
       createdAt: message!.createdAt,
     },
   }, { excludeUserId: ctx.userId }).catch(() => {})

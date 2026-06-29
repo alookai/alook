@@ -2,8 +2,8 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
+import type { CommunityInviteCreate } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
-import type { CommunityInviteCreate } from "@/lib/community/ws-events"
 
 export const GET = withAuth(async (req, ctx) => {
   const serverId = ctx.params?.id

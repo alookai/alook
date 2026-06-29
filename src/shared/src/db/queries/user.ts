@@ -1,10 +1,15 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { user } from "../schema";
 import type { Database } from "../index";
 
 export async function getUser(db: Database, id: string) {
   const rows = await db.select().from(user).where(eq(user.id, id));
   return rows[0] ?? null;
+}
+
+export async function getUsersByIds(db: Database, ids: string[]) {
+  if (ids.length === 0) return [];
+  return db.select().from(user).where(inArray(user.id, ids));
 }
 
 export async function getUserByEmail(db: Database, email: string) {

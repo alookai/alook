@@ -221,6 +221,43 @@ export type {
   DaemonPushMessageType,
 } from "./schemas";
 
+// Community WS events
+export type {
+  CommunityMessageCreate,
+  CommunityReactionAdd,
+  CommunityReactionRemove,
+  CommunityPinAdd,
+  CommunityPinRemove,
+  CommunityTypingStart,
+  CommunityChildChannelCreate,
+  CommunityChildChannelUpdate,
+  CommunityServerUpdate,
+  CommunityServerDelete,
+  CommunityChannelCreate,
+  CommunityChannelUpdate,
+  CommunityChannelDelete,
+  CommunityChannelReorder,
+  CommunityCategoryCreate,
+  CommunityCategoryUpdate,
+  CommunityCategoryDelete,
+  CommunityCategoryReorder,
+  CommunityInviteCreate,
+  CommunityMemberJoin,
+  CommunityMemberLeave,
+  CommunityMemberUpdate,
+  CommunityFriendRequest,
+  CommunityFriendAccept,
+  CommunityFriendReject,
+  CommunityFriendRemove,
+  CommunityFriendBlock,
+  CommunityDmNewMessage,
+  CommunityDmTyping,
+  CommunityPresenceUpdate,
+  CommunityMentionCreate,
+  CommunityWsEvent,
+} from "./community-ws-events";
+export { isCommunityEvent } from "./community-ws-events";
+
 // Database
 export { createDb } from "./db/index";
 export type { Database } from "./db/index";

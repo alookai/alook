@@ -33,14 +33,13 @@ import type {
   CommunityCategoryUpdate,
   CommunityCategoryDelete,
   CommunityCategoryReorder,
-} from "@/lib/community/ws-events"
-import { isCommunityEvent } from "@/lib/community/ws-events"
+} from "@alook/shared"
+import { isCommunityEvent } from "@alook/shared"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type Subscription = {
   channelId?: string
-  threadId?: string
   dmConversationId?: string
 }
 
@@ -238,18 +237,15 @@ export function useCommunityWs(callbacks: CommunityWsCallbacks) {
 
 /**
  * Determines if an event matches the current focused subscription.
- * Events with channelId/threadId/dmConversationId are filtered;
+ * Events with channelId/dmConversationId are filtered;
  * user-level events (friends, DMs, presence) bypass this check.
  */
 function matchesSubscription(
-  event: { channelId?: string; dmConversationId?: string; threadId?: string },
+  event: { channelId?: string; dmConversationId?: string },
   sub: Subscription
 ): boolean {
-  // If subscription is empty, nothing matches (user hasn't focused a conversation)
-  if (!sub.channelId && !sub.threadId && !sub.dmConversationId) return false
+  if (!sub.channelId && !sub.dmConversationId) return false
 
-  // Match by the most specific scope
-  if (event.threadId && sub.threadId) return event.threadId === sub.threadId
   if (event.dmConversationId && sub.dmConversationId) return event.dmConversationId === sub.dmConversationId
   if (event.channelId && sub.channelId) return event.channelId === sub.channelId
 

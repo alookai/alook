@@ -1,4 +1,4 @@
-import { eq, and, desc, lt, or, sql } from "drizzle-orm";
+import { eq, and, desc, asc, lt, or, sql, inArray } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -116,6 +116,24 @@ export async function listMessages(
     .limit(limit);
 
   return rows;
+}
+
+export async function getFirstMessageByChannelIds(db: Database, channelIds: string[]) {
+  if (channelIds.length === 0) return [];
+  const rows = await db
+    .select({
+      channelId: communityMessage.channelId,
+      content: communityMessage.content,
+    })
+    .from(communityMessage)
+    .where(inArray(communityMessage.channelId, channelIds))
+    .orderBy(asc(communityMessage.createdAt))
+  const seen = new Set<string>();
+  return rows.filter((r) => {
+    if (!r.channelId || seen.has(r.channelId)) return false;
+    seen.add(r.channelId);
+    return true;
+  });
 }
 
 export async function getMessage(db: Database, messageId: string) {

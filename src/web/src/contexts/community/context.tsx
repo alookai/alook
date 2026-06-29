@@ -62,7 +62,7 @@ import type {
   CommunityCategoryReorder,
   CommunityChildChannelCreate,
   CommunityChildChannelUpdate,
-} from "@/lib/community/ws-events"
+} from "@alook/shared"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

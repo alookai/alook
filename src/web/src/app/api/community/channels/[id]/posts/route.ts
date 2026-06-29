@@ -11,15 +11,12 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) return writeError("channel not found", 404)
+  const channel = await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
+  if (!channel) return writeError("forbidden", 403)
 
   if (channel.type !== "forum") {
     return writeError("channel is not a forum", 400)
   }
-
-  const member = await queries.communityMember.getMember(db, channel.serverId, ctx.userId)
-  if (!member) return writeError("forbidden", 403)
 
   const tag = req.nextUrl.searchParams.get("tag")
 
@@ -40,39 +37,37 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     })
   }
 
-  // Resolve author + first message for each forum post
-  const posts = await Promise.all(
-    childChannels.map(async (t) => {
-      let authorName = "Unknown"
-      let authorAvatar = "?"
-      let preview = ""
-      if (t.creatorId) {
-        const creator = await queries.user.getUser(db, t.creatorId)
-        if (creator) {
-          authorName = creator.name ?? "Unknown"
-          authorAvatar = creator.image ?? (creator.name ?? "?").charAt(0).toUpperCase()
-        }
-      }
-      // Get the first message in the post as preview
-      const msgs = await queries.communityMessage.listMessages(db, { channelId: t.id, limit: 1 })
-      if (msgs.length > 0) {
-        preview = (msgs[0].content ?? "").slice(0, 120)
-      }
-      let parsedTags: string[] = []
-      try { parsedTags = t.forumTags ? JSON.parse(t.forumTags) : [] } catch { /* */ }
-      return {
-        id: t.id,
-        name: t.name,
-        messageCount: t.messageCount ?? 0,
-        lastMessageAt: t.lastMessageAt ?? t.createdAt,
-        parent: { authorName, text: preview },
-        messages: [],
-        authorAvatar,
-        tags: parsedTags,
-        preview,
-      }
-    })
-  )
+  // Batch-fetch all creators in one query
+  const creatorIds = [...new Set(childChannels.map((t) => t.creatorId).filter(Boolean) as string[])]
+  const creators = creatorIds.length > 0 ? await queries.user.getUsersByIds(db, creatorIds) : []
+  const creatorMap = new Map(creators.map((u) => [u.id, u]))
+
+  // Batch-fetch first message for each post channel
+  const postChannelIds = childChannels.map((t) => t.id)
+  const firstMessages = postChannelIds.length > 0
+    ? await queries.communityMessage.getFirstMessageByChannelIds(db, postChannelIds)
+    : []
+  const previewMap = new Map(firstMessages.map((m) => [m.channelId, m.content]))
+
+  const posts = childChannels.map((t) => {
+    const creator = t.creatorId ? creatorMap.get(t.creatorId) : null
+    const authorName = creator?.name ?? "Unknown"
+    const authorAvatar = creator?.image ?? (creator?.name ?? "?").charAt(0).toUpperCase()
+    const preview = (previewMap.get(t.id) ?? "").slice(0, 120)
+    let parsedTags: string[] = []
+    try { parsedTags = t.forumTags ? JSON.parse(t.forumTags) : [] } catch { /* */ }
+    return {
+      id: t.id,
+      name: t.name,
+      messageCount: t.messageCount ?? 0,
+      lastMessageAt: t.lastMessageAt ?? t.createdAt,
+      parent: { authorName, text: preview },
+      messages: [],
+      authorAvatar,
+      tags: parsedTags,
+      preview,
+    }
+  })
 
   return writeJSON({ posts })
 })
@@ -83,15 +78,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) return writeError("channel not found", 404)
+  const channel = await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
+  if (!channel) return writeError("forbidden", 403)
 
   if (channel.type !== "forum") {
     return writeError("channel is not a forum", 400)
   }
-
-  const member = await queries.communityMember.getMember(db, channel.serverId, ctx.userId)
-  if (!member) return writeError("forbidden", 403)
 
   let body: { name?: string; content?: string; tags?: string[] }
   try {

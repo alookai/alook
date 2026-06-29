@@ -11,7 +11,7 @@
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { createDb, queries, createLogger } from "@alook/shared"
-import type { CommunityWsEvent } from "./ws-events"
+import type { CommunityWsEvent } from "@alook/shared"
 import { broadcastToUser } from "../broadcast"
 
 const log = createLogger({ service: "community-fanout" })

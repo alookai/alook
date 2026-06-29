@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers"
 import { createDb, queries, createLogger } from "@alook/shared"
+import type { CommunityTypingStart, CommunityPresenceUpdate } from "@alook/shared"
 
 const log = createLogger({ service: "ws-do" })
 
@@ -159,6 +160,20 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       if (now - lastTs < WebSocketDurableObject.TYPING_DEDUP_MS) return
       scopeMap.set(state.userId, now)
 
+      // Prune stale scopes to prevent unbounded growth
+      if (this.typingDedup.size > 200) {
+        for (const [key, map] of this.typingDedup) {
+          let allStale = true
+          for (const ts of map.values()) {
+            if (now - ts < WebSocketDurableObject.TYPING_DEDUP_MS * 4) {
+              allStale = false
+              break
+            }
+          }
+          if (allStale) this.typingDedup.delete(key)
+        }
+      }
+
       // Fan out: resolve recipients and POST to their user DOs.
       // The typing event is forwarded to the recipients' DOs which deliver it
       // via their existing broadcast path. The DO here only handles dedup.
@@ -265,20 +280,15 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       if (dm) {
         recipientUserIds = [dm.user1Id, dm.user2Id].filter(Boolean) as string[]
       }
-    } else if (threadId) {
-      const thread = await queries.communityThread.getThread(db, threadId)
-      if (thread) {
-        const channel = await queries.communityChannel.getChannel(db, thread.channelId)
+    } else {
+      // Both threadId and channelId resolve to a channel after thread→channel unification
+      const targetId = threadId || channelId
+      if (targetId) {
+        const channel = await queries.communityChannel.getChannel(db, targetId)
         if (channel) {
           const members = await queries.communityMember.listMembers(db, channel.serverId)
           recipientUserIds = members.map((m) => m.userId)
         }
-      }
-    } else if (channelId) {
-      const channel = await queries.communityChannel.getChannel(db, channelId)
-      if (channel) {
-        const members = await queries.communityMember.listMembers(db, channel.serverId)
-        recipientUserIds = members.map((m) => m.userId)
       }
     }
 

@@ -2,8 +2,8 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
+import type { CommunityMemberJoin } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
-import type { CommunityMemberJoin } from "@/lib/community/ws-events"
 
 export const POST = withAuth(async (req, ctx) => {
   const token = ctx.params?.token
