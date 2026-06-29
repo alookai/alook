@@ -137,8 +137,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   })
 
   // Create attachment records
+  let createdAttachments: { id: string; filename: string; url: string; contentType: string | null; size: number | null }[] = []
   if (body.attachments?.length) {
-    await Promise.all(
+    createdAttachments = await Promise.all(
       body.attachments.map((att) =>
         queries.communityAttachment.createAttachment(db, {
           messageId: created.id,
@@ -164,6 +165,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     mentionType: row!.mentionType as "everyone" | "here" | null | undefined,
     replyToId: row!.replyToId,
     embeds: row!.embeds ? JSON.parse(row!.embeds) : undefined,
+    attachments: createdAttachments.length > 0 ? createdAttachments.map((att) => ({
+      id: att.id,
+      filename: att.filename,
+      url: att.url,
+      contentType: att.contentType ?? undefined,
+      size: att.size ?? undefined,
+    })) : undefined,
     createdAt: row!.createdAt,
   }
 

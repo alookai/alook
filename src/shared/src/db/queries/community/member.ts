@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, ne, inArray } from "drizzle-orm";
 import { communityServerMember } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -89,4 +89,22 @@ export async function getMember(db: Database, serverId: string, userId: string) 
       )
     );
   return rows[0] ?? null;
+}
+
+export async function getCoMemberUserIds(db: Database, userId: string): Promise<string[]> {
+  const userServerIds = db
+    .select({ serverId: communityServerMember.serverId })
+    .from(communityServerMember)
+    .where(eq(communityServerMember.userId, userId));
+
+  const rows = await db
+    .selectDistinct({ userId: communityServerMember.userId })
+    .from(communityServerMember)
+    .where(
+      and(
+        inArray(communityServerMember.serverId, userServerIds),
+        ne(communityServerMember.userId, userId)
+      )
+    );
+  return rows.map((r) => r.userId);
 }

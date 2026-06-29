@@ -344,10 +344,13 @@ export class ClaudeBackend implements AgentBackend {
             }
 
             // In steering mode (--input-format stream-json), Claude keeps the
-            // process alive waiting for more stdin. Close stdin on result so the
-            // process exits and session.result resolves.
+            // process alive waiting for more stdin. Defer stdin close to allow
+            // the steering layer to flush pending messages on turn_end first.
+            // The session-runner calls closeStdin() after the flush completes.
             if (useStdinPrompt) {
-              try { proc.stdin?.end(); } catch { /* already closed */ }
+              setTimeout(() => {
+                try { proc.stdin?.end(); } catch { /* already closed */ }
+              }, 100);
             }
             break;
           }

@@ -18,9 +18,14 @@ export async function searchMessages(
   const limit = opts.limit ?? DEFAULT_LIMIT;
 
   // FTS5 requires raw SQL — no Drizzle ORM equivalent exists
-  const ftsResults = await db.all<{ id: string }>(
-    sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${opts.query} LIMIT ${limit}`
-  );
+  let ftsResults: { id: string }[];
+  try {
+    ftsResults = await db.all<{ id: string }>(
+      sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${opts.query} LIMIT ${limit}`
+    );
+  } catch {
+    return [];
+  }
 
   if (ftsResults.length === 0) return [];
 
@@ -35,26 +40,23 @@ export async function searchMessages(
     });
   }
 
-  // Fetch full messages with author info using ORM
-  const results = await db
+  // Fetch full messages with author info using ORM, with scope filters in SQL
+  const conditions = [inArray(communityMessage.id, ids)];
+  if (opts.channelId) {
+    conditions.push(eq(communityMessage.channelId, opts.channelId));
+  }
+  if (opts.dmConversationId) {
+    conditions.push(eq(communityMessage.dmConversationId, opts.dmConversationId));
+  }
+
+  return db
     .select({
       message: communityMessage,
       author: user,
     })
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
-    .where(inArray(communityMessage.id, ids));
-
-  // Apply additional filters in application layer
-  return results.filter((r) => {
-    if (opts.channelId && r.message.channelId !== opts.channelId) return false;
-    if (
-      opts.dmConversationId &&
-      r.message.dmConversationId !== opts.dmConversationId
-    )
-      return false;
-    return true;
-  });
+    .where(and(...conditions));
 }
 
 export async function searchMessagesInServer(
@@ -70,9 +72,14 @@ export async function searchMessagesInServer(
 
   let ids = opts.ids;
   if (!ids) {
-    const ftsResults = await db.all<{ id: string }>(
-      sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${opts.query} LIMIT ${limit}`
-    );
+    let ftsResults: { id: string }[];
+    try {
+      ftsResults = await db.all<{ id: string }>(
+        sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${opts.query} LIMIT ${limit}`
+      );
+    } catch {
+      return [];
+    }
     if (ftsResults.length === 0) return [];
     ids = ftsResults.map((r) => r.id);
   }

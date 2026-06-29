@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, lt, or, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, lt, or, sql, inArray } from "drizzle-orm";
 import {
   communityMessage,
   communityChannel,
@@ -120,14 +120,32 @@ export async function listMessages(
 
 export async function getFirstMessageByChannelIds(db: Database, channelIds: string[]) {
   if (channelIds.length === 0) return [];
+  // Use a subquery to get the min createdAt per channel, then join to get the content
+  const firstDates = db
+    .select({
+      channelId: communityMessage.channelId,
+      minCreatedAt: sql<string>`MIN(${communityMessage.createdAt})`.as("min_created_at"),
+    })
+    .from(communityMessage)
+    .where(inArray(communityMessage.channelId, channelIds))
+    .groupBy(communityMessage.channelId)
+    .as("first_dates");
+
   const rows = await db
     .select({
       channelId: communityMessage.channelId,
       content: communityMessage.content,
     })
     .from(communityMessage)
-    .where(inArray(communityMessage.channelId, channelIds))
-    .orderBy(asc(communityMessage.createdAt))
+    .innerJoin(
+      firstDates,
+      and(
+        eq(communityMessage.channelId, firstDates.channelId),
+        eq(communityMessage.createdAt, firstDates.minCreatedAt)
+      )
+    );
+
+  // Deduplicate in case of exact same createdAt within a channel
   const seen = new Set<string>();
   return rows.filter((r) => {
     if (!r.channelId || seen.has(r.channelId)) return false;

@@ -1,6 +1,5 @@
 import { DurableObject } from "cloudflare:workers"
 import { createDb, queries, createLogger } from "@alook/shared"
-import type { CommunityTypingStart, CommunityPresenceUpdate } from "@alook/shared"
 
 const log = createLogger({ service: "ws-do" })
 
@@ -296,17 +295,20 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     recipientUserIds = recipientUserIds.filter((id) => id !== senderUserId)
     if (recipientUserIds.length === 0) return
 
-    // POST to each user's DO broadcast endpoint
-    await Promise.all(
-      recipientUserIds.map((userId) => {
-        const doId = this.env.WS_DO.idFromName("user:" + userId)
-        const stub = this.env.WS_DO.get(doId)
-        return stub.fetch(new Request("http://internal/broadcast", {
-          method: "POST",
-          body: event,
-        })).catch(() => {})
-      })
-    )
+    // POST to each user's DO broadcast endpoint (batched to stay under subrequest limit)
+    for (let i = 0; i < recipientUserIds.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
+      const batch = recipientUserIds.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
+      await Promise.all(
+        batch.map((userId) => {
+          const doId = this.env.WS_DO.idFromName("user:" + userId)
+          const stub = this.env.WS_DO.get(doId)
+          return stub.fetch(new Request("http://internal/broadcast", {
+            method: "POST",
+            body: event,
+          })).catch(() => {})
+        })
+      )
+    }
   }
 
   private countAuthenticatedUserConnections(userId: string): number {
@@ -320,50 +322,53 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     return count
   }
 
+  private static readonly SUBREQUEST_BATCH_SIZE = 40
+
   private async broadcastPresence(userId: string, online: boolean): Promise<void> {
     const coMembers = await this.getCoMembers(userId)
     if (coMembers.length === 0) return
     const payload = JSON.stringify({ type: "community:presence.update", userId, online })
-    await Promise.allSettled(
-      coMembers.map((memberId) => {
-        const doId = this.env.WS_DO.idFromName("user:" + memberId)
-        const stub = this.env.WS_DO.get(doId)
-        return stub.fetch(new Request("http://internal/broadcast", {
-          method: "POST",
-          body: payload,
-        }))
-      })
-    )
+    for (let i = 0; i < coMembers.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
+      const batch = coMembers.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
+      await Promise.allSettled(
+        batch.map((memberId) => {
+          const doId = this.env.WS_DO.idFromName("user:" + memberId)
+          const stub = this.env.WS_DO.get(doId)
+          return stub.fetch(new Request("http://internal/broadcast", {
+            method: "POST",
+            body: payload,
+          }))
+        })
+      )
+    }
   }
 
   private async getCoMembers(userId: string): Promise<string[]> {
-    const result = await this.env.DB.prepare(
-      `SELECT DISTINCT sm2.user_id FROM community_server_member sm1
-       JOIN community_server_member sm2 ON sm1.server_id = sm2.server_id
-       WHERE sm1.user_id = ? AND sm2.user_id != ?`
-    ).bind(userId, userId).all<{ user_id: string }>()
-    return result.results.map((r) => r.user_id)
+    const db = createDb(this.env.DB)
+    return queries.communityMember.getCoMemberUserIds(db, userId)
   }
 
   private async sendPresenceSnapshot(ws: WebSocket, userId: string): Promise<void> {
     const coMembers = await this.getCoMembers(userId)
     if (coMembers.length === 0) return
-    const checks = await Promise.allSettled(
-      coMembers.map(async (memberId) => {
-        const doId = this.env.WS_DO.idFromName("user:" + memberId)
-        const stub = this.env.WS_DO.get(doId)
-        const resp = await stub.fetch(new Request("http://internal/check-user-online"))
-        const { online } = await resp.json() as { online: boolean }
-        return online ? memberId : null
-      })
-    )
-    const onlineIds = checks
-      .map((r) => r.status === "fulfilled" ? r.value : null)
-      .filter(Boolean) as string[]
-    if (onlineIds.length > 0) {
-      for (const id of onlineIds) {
-        ws.send(JSON.stringify({ type: "community:presence.update", userId: id, online: true }))
+    const onlineIds: string[] = []
+    for (let i = 0; i < coMembers.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
+      const batch = coMembers.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
+      const checks = await Promise.allSettled(
+        batch.map(async (memberId) => {
+          const doId = this.env.WS_DO.idFromName("user:" + memberId)
+          const stub = this.env.WS_DO.get(doId)
+          const resp = await stub.fetch(new Request("http://internal/check-user-online"))
+          const { online } = await resp.json() as { online: boolean }
+          return online ? memberId : null
+        })
+      )
+      for (const r of checks) {
+        if (r.status === "fulfilled" && r.value) onlineIds.push(r.value)
       }
+    }
+    for (const id of onlineIds) {
+      ws.send(JSON.stringify({ type: "community:presence.update", userId: id, online: true }))
     }
   }
 }
