@@ -129,9 +129,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const replyMsg = await queries.communityMessage.getMessage(db, message!.replyToId)
     if (replyMsg) {
       replyTo = { id: replyMsg.id, authorName: replyMsg.authorName ?? "Unknown", text: (replyMsg.content ?? "").slice(0, 100) }
-      // Create mention for the replied-to user (unless replying to self)
+      // Create mention for the replied-to user (unless replying to self) — before fanout so
+      // the user gets the mention before the real-time event arrives
       if (replyMsg.authorId && replyMsg.authorId !== ctx.userId) {
-        queries.communityMention.createMentions(db, { messageId: created.id, userIds: [replyMsg.authorId] }).catch(() => {})
+        await queries.communityMention.createMentions(db, { messageId: created.id, userIds: [replyMsg.authorId] })
       }
     }
   }

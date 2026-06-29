@@ -5,6 +5,11 @@ import type { Database } from "../../index";
 
 const DEFAULT_LIMIT = 50;
 
+/** Sanitize user input for FTS5 MATCH — removes special operators and wraps as a phrase. */
+function sanitizeFtsQuery(query: string): string {
+  return '"' + query.replace(/["\-*()^~]/g, " ").replace(/\s+/g, " ").trim() + '"';
+}
+
 export async function searchMessages(
   db: Database,
   opts: {
@@ -16,12 +21,13 @@ export async function searchMessages(
   }
 ) {
   const limit = opts.limit ?? DEFAULT_LIMIT;
+  const sanitized = sanitizeFtsQuery(opts.query);
 
   // FTS5 requires raw SQL — no Drizzle ORM equivalent exists
   let ftsResults: { id: string }[];
   try {
     ftsResults = await db.all<{ id: string }>(
-      sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${opts.query} LIMIT ${limit}`
+      sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${sanitized} LIMIT ${limit}`
     );
   } catch {
     return [];
@@ -72,10 +78,11 @@ export async function searchMessagesInServer(
 
   let ids = opts.ids;
   if (!ids) {
+    const sanitized = sanitizeFtsQuery(opts.query);
     let ftsResults: { id: string }[];
     try {
       ftsResults = await db.all<{ id: string }>(
-        sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${opts.query} LIMIT ${limit}`
+        sql`SELECT id FROM community_message_fts WHERE community_message_fts MATCH ${sanitized} LIMIT ${limit}`
       );
     } catch {
       return [];

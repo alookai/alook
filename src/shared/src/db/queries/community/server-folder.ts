@@ -104,16 +104,19 @@ export async function reorderFolders(
   userId: string,
   folderIds: string[]
 ) {
-  for (let i = 0; i < folderIds.length; i++) {
-    await db
+  const statements = folderIds.map((id, i) =>
+    db
       .update(communityServerFolder)
       .set({ position: i })
       .where(
         and(
-          eq(communityServerFolder.id, folderIds[i]!),
+          eq(communityServerFolder.id, id),
           eq(communityServerFolder.userId, userId)
         )
-      );
+      )
+  );
+  if (statements.length > 0) {
+    await db.batch(statements as [typeof statements[0], ...typeof statements]);
   }
 }
 

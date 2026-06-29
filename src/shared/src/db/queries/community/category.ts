@@ -56,12 +56,13 @@ export async function reorderCategories(
   serverId: string,
   categoryIds: string[]
 ) {
-  await (db as any).batch(
-    categoryIds.map((id, index) =>
-      db
-        .update(communityCategory)
-        .set({ position: index })
-        .where(eq(communityCategory.id, id))
-    )
+  const statements = categoryIds.map((id, index) =>
+    db
+      .update(communityCategory)
+      .set({ position: index })
+      .where(eq(communityCategory.id, id))
   );
+  if (statements.length > 0) {
+    await db.batch(statements as [typeof statements[0], ...typeof statements]);
+  }
 }

@@ -131,14 +131,15 @@ export async function reorderChannels(
   serverId: string,
   channelIds: string[]
 ) {
-  await (db as any).batch(
-    channelIds.map((id, index) =>
-      db
-        .update(communityChannel)
-        .set({ position: index })
-        .where(eq(communityChannel.id, id))
-    )
+  const statements = channelIds.map((id, index) =>
+    db
+      .update(communityChannel)
+      .set({ position: index })
+      .where(eq(communityChannel.id, id))
   );
+  if (statements.length > 0) {
+    await db.batch(statements as [typeof statements[0], ...typeof statements]);
+  }
 }
 
 export async function getServersLastActivity(

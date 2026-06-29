@@ -91,6 +91,19 @@ export async function getMember(db: Database, serverId: string, userId: string) 
   return rows[0] ?? null;
 }
 
+export async function getMemberships(db: Database, userId: string, serverIds: string[]) {
+  if (serverIds.length === 0) return [];
+  return db
+    .select()
+    .from(communityServerMember)
+    .where(
+      and(
+        eq(communityServerMember.userId, userId),
+        inArray(communityServerMember.serverId, serverIds)
+      )
+    );
+}
+
 export async function getCoMemberUserIds(db: Database, userId: string): Promise<string[]> {
   const userServerIds = db
     .select({ serverId: communityServerMember.serverId })

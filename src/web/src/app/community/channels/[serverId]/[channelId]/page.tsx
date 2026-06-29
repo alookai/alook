@@ -206,15 +206,11 @@ export default function ChannelPage() {
   }
 
   // ── Create thread from dialog ───────────────────────────────────────────
-  const createThreadFromDialog = (name: string, firstMessage?: string) => {
+  const createThreadFromDialog = async (name: string, firstMessage?: string) => {
     setCreatingThread(false)
     if (firstMessage) {
-      // Send a message first, then create a thread from it
-      ctx.sendMessage(firstMessage).then(() => {
-        // The newest message just got added; create thread from it
-        const lastMsg = ctx.messages[ctx.messages.length - 1]
-        if (lastMsg) ctx.createThread(lastMsg.id, name)
-      })
+      const msgId = await ctx.sendMessage(firstMessage)
+      if (msgId) await ctx.createThread(msgId, name)
     } else {
       toast("Create a thread by clicking 'Create Thread' on any message")
     }

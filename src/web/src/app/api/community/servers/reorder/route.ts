@@ -18,12 +18,10 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     return writeError("serverIds must be a non-empty array", 400)
   }
 
-  // Verify user is a member of each server (scope check)
-  for (const serverId of body.serverIds) {
-    const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-    if (!member) {
-      return writeError(`not a member of server ${serverId}`, 403)
-    }
+  // Verify user is a member of all servers in a single query
+  const memberships = await queries.communityMember.getMemberships(db, ctx.userId, body.serverIds)
+  if (memberships.length !== body.serverIds.length) {
+    return writeError("not a member of all servers", 403)
   }
 
   // Update railOrder for each server membership

@@ -159,7 +159,7 @@ export type CommunityContextValue = {
   channelNotif: Record<string, string>
 
   // Mutations
-  sendMessage: (content: string, opts?: { replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
+  sendMessage: (content: string, opts?: { replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<string | null>
   sendDmMessage: (dmId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
   sendThreadMessage: (threadId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
   fetchThreadMessages: (threadId: string) => Promise<void>
@@ -766,16 +766,18 @@ export function CommunityProvider({
       }
     }
     setTypingUsers([])
+    typingTimers.current.forEach((t) => clearTimeout(t))
+    typingTimers.current.clear()
     return () => { ws.unsubscribe() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentChannelId, currentServerId, currentServer])
 
   // ── Mutation functions ───────────────────────────────────────────────────
 
-  const sendMessage = useCallback(async (content: string, opts?: { replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
+  const sendMessage = useCallback(async (content: string, opts?: { replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }): Promise<string | null> => {
     const cid = currentChannelIdRef.current
     const sid = currentServerIdRef.current
-    if (!cid || sid === "@me") return
+    if (!cid || sid === "@me") return null
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
     const optimisticAttachments = opts?.attachments?.map((a) => {
       const isImage = a.contentType.startsWith("image/")
@@ -808,9 +810,11 @@ export function CommunityProvider({
         body: JSON.stringify({ content, replyToId: opts?.replyToId, attachments: opts?.attachments }),
       })
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: result.message.id } : m)))
+      return result.message.id
     } catch {
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, failed: true } : m)))
       toast("Failed to send message")
+      return null
     }
   }, [])
 
@@ -1385,8 +1389,6 @@ export function CommunityProvider({
   }, [fetchDms])
 
   const createServerFolderWith = useCallback(async (serverIdA: string, serverIdB: string) => {
-    const prevFolders = [...foldersRef.current]
-
     // Optimistic: create a temp folder
     const tempId = `temp_${Date.now()}`
     const sA = serversRef.current.find((s) => s.id === serverIdA)
@@ -1407,13 +1409,13 @@ export function CommunityProvider({
       // Replace temp folder with real id
       setFolders((cur) => cur.map((f) => f.id === tempId ? { ...f, id: data.id } : f))
     } catch {
-      setFolders(prevFolders)
+      setFolders((cur) => cur.filter((f) => f.id !== tempId))
       toast("Failed to create group")
     }
   }, [])
 
   const updateFolderItems = useCallback(async (targetFolderId: string, serverIds: string[]) => {
-    const prevFolders = [...foldersRef.current]
+    const prevFolder = foldersRef.current.find((f) => f.id === targetFolderId)
 
     // Optimistic: update folder's servers
     setFolders((cur) => {
@@ -1443,7 +1445,13 @@ export function CommunityProvider({
         })
       }
     } catch {
-      setFolders(prevFolders)
+      if (prevFolder) {
+        setFolders((cur) => {
+          const exists = cur.some((f) => f.id === targetFolderId)
+          if (exists) return cur.map((f) => f.id === targetFolderId ? prevFolder : f)
+          return [...cur, prevFolder]
+        })
+      }
       toast("Failed to update group")
     }
   }, [])
