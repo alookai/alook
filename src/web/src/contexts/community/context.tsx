@@ -1271,13 +1271,10 @@ export function CommunityProvider({
   }, [])
 
   const markAllInboxRead = useCallback(() => {
-    const messageIds = mentions.map((m) => m.m.id)
     setInboxFeed((prev) => prev.map((f) => ({ ...f, unread: false })))
     setMentions([])
-    if (messageIds.length > 0) {
-      apiFetch("/api/community/mentions/read", { method: "PUT", body: JSON.stringify({ messageIds }) }).catch(() => {})
-    }
-  }, [mentions])
+    apiFetch("/api/community/mentions/read", { method: "PUT", body: JSON.stringify({ all: true }) }).catch(() => {})
+  }, [])
 
   const openInboxItem = useCallback((id: string) => {
     setInboxFeed((prev) => prev.map((f) => (f.id === id ? { ...f, unread: false } : f)))

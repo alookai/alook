@@ -57,6 +57,13 @@ export async function markMentionsRead(
     );
 }
 
+export async function markAllMentionsRead(db: Database, userId: string) {
+  await db
+    .update(communityMention)
+    .set({ read: 1 })
+    .where(and(eq(communityMention.userId, userId), eq(communityMention.read, 0)));
+}
+
 export async function markChannelMentionsRead(db: Database, userId: string, channelId: string) {
   const mentionIds = await db
     .select({ id: communityMention.id })
