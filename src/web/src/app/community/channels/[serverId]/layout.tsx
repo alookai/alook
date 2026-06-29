@@ -262,6 +262,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
           }
         }}
         onMarkAllRead={ctx.markAllInboxRead}
+        onDismissItem={ctx.dismissInboxItem}
+        onDeleteMention={ctx.deleteMention}
       />
     ),
     hasUnread: ctx.inboxFeed?.some((f) => f.unread) ?? false,

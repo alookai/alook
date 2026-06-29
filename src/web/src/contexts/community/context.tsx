@@ -184,6 +184,8 @@ export type CommunityContextValue = {
   markDmRead: (dmId: string) => void
   markAllInboxRead: () => void
   openInboxItem: (id: string) => void
+  dismissInboxItem: (id: string) => void
+  deleteMention: (id: string) => void
   sendTyping: (target: { channelId?: string; dmConversationId?: string; threadId?: string }) => void
   createForumPost: (channelId: string, post: { name: string; content: string; tags: string[] }) => Promise<void>
   createChannel: (serverId: string, categoryId: string, name: string, type: "text" | "forum") => Promise<string | null>
@@ -1164,6 +1166,15 @@ export function CommunityProvider({
     setInboxFeed((prev) => prev.map((f) => (f.id === id ? { ...f, unread: false } : f)))
   }, [])
 
+  const dismissInboxItem = useCallback((id: string) => {
+    setInboxFeed((prev) => prev.filter((f) => f.id !== id))
+  }, [])
+
+  const deleteMention = useCallback((id: string) => {
+    setMentions((prev) => prev.filter((m) => m.id !== id))
+    apiFetch(`/api/community/mentions/${id}`, { method: "DELETE" }).catch(() => {})
+  }, [])
+
   const loadMoreMessages = useCallback(() => {
     if (!messageCursor) return
     const cid = currentChannelIdRef.current
@@ -1537,6 +1548,8 @@ export function CommunityProvider({
       markDmRead,
       markAllInboxRead,
       openInboxItem,
+      dismissInboxItem,
+      deleteMention,
       sendTyping: ws.sendTyping,
       createForumPost,
       createChannel,
@@ -1585,7 +1598,8 @@ export function CommunityProvider({
       acceptFriendRequest, rejectFriendRequest, removeFriend, blockUser, unblockUser,
       createServer, joinServer, leaveServer, setMemberRole, kickMember,
       createInvite, revokeInvite, updateServer, setChannelNotif, markChannelRead,
-      markDmRead, markAllInboxRead, openInboxItem, ws.sendTyping, createForumPost,
+      markDmRead, markAllInboxRead, openInboxItem, dismissInboxItem, deleteMention,
+      ws.sendTyping, createForumPost,
       createChannel, createCategory, deleteChannel, deleteCategory, updateCategory,
       reorderServers, reorderCategories, reorderChannels, deleteServer,
       uploadFile, uploadServerIcon, setServerNotifLevel, createOrGetDm,

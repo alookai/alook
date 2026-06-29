@@ -56,3 +56,11 @@ export async function markMentionsRead(
       )
     );
 }
+
+export async function deleteMention(db: Database, userId: string, mentionId: string) {
+  await db
+    .delete(communityMention)
+    .where(
+      and(eq(communityMention.id, mentionId), eq(communityMention.userId, userId))
+    );
+}
