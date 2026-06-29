@@ -139,5 +139,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     },
   }, { excludeUserId: ctx.userId }).catch(() => {})
 
+  // Notify parent channel watchers that thread messageCount changed
+  if (channel.parentChannelId) {
+    const updated = await queries.communityChannel.getChannel(db, channelId)
+    fanOutToChannel(channel.parentChannelId, {
+      type: "community:channel.child_update",
+      parentChannelId: channel.parentChannelId,
+      channelId,
+      changes: { messageCount: updated?.messageCount ?? 1, lastMessageAt: updated?.lastMessageAt ?? new Date().toISOString() },
+    } as never, { excludeUserId: ctx.userId }).catch(() => {})
+  }
+
   return writeJSON(message, 201)
 })

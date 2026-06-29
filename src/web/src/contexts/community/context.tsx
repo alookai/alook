@@ -692,6 +692,23 @@ export function CommunityProvider({
           if (cid && event.parentChannelId === cid) fetchForumPosts(cid)
         } else {
           if (cid && event.parentChannelId === cid) fetchThreads(cid)
+          if (event.parentMessageId) {
+            setMessages((prev) => prev.map((m) =>
+              m.id === event.parentMessageId
+                ? { ...m, thread: { id: event.channel.id, name: event.channel.name, messageCount: 1 } }
+                : m
+            ))
+          }
+        }
+      } else {
+        // child_update — sync messageCount/name on the parent message's thread indicator
+        const changes = event.changes
+        if (changes.messageCount !== undefined || changes.name !== undefined) {
+          setMessages((prev) => prev.map((m) =>
+            m.thread?.id === event.channelId
+              ? { ...m, thread: { ...m.thread, ...(changes.name !== undefined ? { name: changes.name } : {}), ...(changes.messageCount !== undefined ? { messageCount: changes.messageCount } : {}) } }
+              : m
+          ))
         }
       }
     }, [fetchForumPosts, fetchThreads]),
@@ -1036,7 +1053,7 @@ export function CommunityProvider({
       const cid = currentChannelIdRef.current
       if (cid) fetchThreads(cid)
       // Mark the message as having a thread
-      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, thread: { id: data.id, name, messageCount: 0 } } : m))
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, thread: { id: data.id, name, messageCount: 1 } } : m))
       return data.id
     } catch {
       toast("Failed to create thread")
