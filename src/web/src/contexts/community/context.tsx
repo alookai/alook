@@ -887,13 +887,7 @@ export function CommunityProvider({
     }
   }, [])
 
-  const reactionDebounce = useRef<Set<string>>(new Set())
   const toggleReaction = useCallback((messageId: string, emoji: string) => {
-    const key = `${messageId}:${emoji}`
-    if (reactionDebounce.current.has(key)) return
-    reactionDebounce.current.add(key)
-    setTimeout(() => reactionDebounce.current.delete(key), 300)
-
     const userId = currentUserRef.current.id
     let wasMe = false
     setMessages((prev) => {
