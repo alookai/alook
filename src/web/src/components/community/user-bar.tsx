@@ -6,29 +6,18 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Avatar } from "./avatar"
 import type { OpenProfile } from "./_types"
 
-export function UserBar({ user, onOpenProfile, onEditProfile, inbox, hasUnread, floating, rightInset }: {
+export function UserBar({ user, onOpenProfile, onEditProfile, inbox, hasUnread }: {
   user: { name: string; avatar: string }
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: React.ReactNode
   hasUnread?: boolean
-  floating?: boolean
-  rightInset?: number
 }) {
-  if (floating) {
-    return (
-      <div
-        className="fixed bottom-3 left-3 z-20 rounded-xl border border-border/60 bg-card px-3 py-2 shadow-[var(--e1)]"
-        style={{ right: rightInset != null ? rightInset + 12 : undefined }}
-      >
+  return (
+    <div className="shrink-0 px-2 pb-2 pt-0">
+      <div className="flex min-h-14 items-center gap-3 rounded-xl bg-muted px-4 ring-1 ring-border/40">
         <Inner user={user} onOpenProfile={onOpenProfile} onEditProfile={onEditProfile} inbox={inbox} hasUnread={hasUnread} />
       </div>
-    )
-  }
-
-  return (
-    <div className="shrink-0 border-t border-border/40 px-4 py-3">
-      <Inner user={user} onOpenProfile={onOpenProfile} onEditProfile={onEditProfile} inbox={inbox} hasUnread={hasUnread} />
     </div>
   )
 }
@@ -41,7 +30,7 @@ function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread }: {
   hasUnread?: boolean
 }) {
   return (
-    <div className="flex items-center gap-2.5">
+    <div className="flex flex-1 items-center gap-2.5">
       <button onClick={(e) => onOpenProfile?.(user.name, e)} className="shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
         <Avatar label={user.avatar} size={28} presence="online" />
       </button>

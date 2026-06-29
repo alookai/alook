@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useParams, useRouter, useSearchParams, useSelectedLayoutSegment } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
@@ -328,29 +328,18 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   )
 
   // ── Desktop ───────────────────────────────────────────────────────────────
-  const leftPanelRef = useRef<HTMLDivElement>(null)
-  const [userBarRight, setUserBarRight] = useState(0)
-  useEffect(() => {
-    const el = leftPanelRef.current
-    if (!el) return
-    const update = () => { const rect = el.getBoundingClientRect(); setUserBarRight(window.innerWidth - rect.right) }
-    update()
-    const ro = new ResizeObserver(() => update())
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [bp])
-
   if (bp === "desktop") {
     return (
       <Shell>
-        <ServerRail {...railProps} bottomInset={52} />
         <div className="flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
           <AppSurface>
             <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-              <ResizablePanel defaultSize="24%" minSize={160} maxSize={360} className="flex flex-col border-r border-border/40">
-                <div ref={leftPanelRef} className="flex min-h-0 flex-1 flex-col pb-12">
+              <ResizablePanel defaultSize="24%" minSize={160} maxSize={360} className="flex flex-col">
+                <div className="flex min-h-0 flex-1">
+                  <ServerRail {...railProps} />
                   {sidebar()}
                 </div>
+                <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} />
               </ResizablePanel>
               <ResizableHandle className="bg-transparent" />
               <ResizablePanel defaultSize="76%" className="flex min-w-0 flex-col bg-background">
@@ -359,17 +348,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
             </ResizablePanelGroup>
           </AppSurface>
         </div>
-        {userBarRight > 0 && (
-          <UserBar
-            user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }}
-            floating
-            rightInset={userBarRight}
-            onOpenProfile={openProfile}
-            onEditProfile={() => setEditingProfile(true)}
-            inbox={inboxElement}
-            hasUnread={inboxHasUnread}
-          />
-        )}
         {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === ctx.currentUser.name} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
         {dialogs}
