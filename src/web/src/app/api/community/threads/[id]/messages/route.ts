@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
+import { broadcastToUser } from "@/lib/broadcast"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
@@ -98,6 +99,21 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   const fullMessage = await queries.communityMessage.getMessage(db, message.id)
+
+  // Create mention for the replied-to user (unless replying to self)
+  if (body.replyToId) {
+    const replyMsg = await queries.communityMessage.getMessage(db, body.replyToId)
+    if (replyMsg && replyMsg.authorId && replyMsg.authorId !== ctx.userId) {
+      await queries.communityMention.createMentions(db, { messageId: message.id, userIds: [replyMsg.authorId] })
+      broadcastToUser(replyMsg.authorId, {
+        type: "community:mention.create",
+        userId: replyMsg.authorId,
+        messageId: message.id,
+        channelId,
+        authorName: fullMessage!.authorName ?? "Unknown",
+      } as never).catch(() => {})
+    }
+  }
 
   fanOutToChannel(channelId, {
     type: "community:message.create",

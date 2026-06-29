@@ -1,4 +1,4 @@
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, inArray } from "drizzle-orm";
 import {
   communityServer,
   communityCategory,
@@ -98,4 +98,9 @@ export async function listUserServers(db: Database, userId: string) {
       )
     )
     .orderBy(asc(communityServerMember.railOrder));
+}
+
+export async function getServersByIds(db: Database, serverIds: string[]) {
+  if (serverIds.length === 0) return [];
+  return db.select().from(communityServer).where(inArray(communityServer.id, serverIds));
 }

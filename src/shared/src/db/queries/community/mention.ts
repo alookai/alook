@@ -57,6 +57,22 @@ export async function markMentionsRead(
     );
 }
 
+export async function markChannelMentionsRead(db: Database, userId: string, channelId: string) {
+  const mentionIds = await db
+    .select({ id: communityMention.id })
+    .from(communityMention)
+    .innerJoin(communityMessage, eq(communityMention.messageId, communityMessage.id))
+    .where(and(
+      eq(communityMention.userId, userId),
+      eq(communityMention.read, 0),
+      eq(communityMessage.channelId, channelId)
+    ));
+  if (mentionIds.length === 0) return;
+  await db.update(communityMention)
+    .set({ read: 1 })
+    .where(inArray(communityMention.id, mentionIds.map((r) => r.id)));
+}
+
 export async function deleteMention(db: Database, userId: string, mentionId: string) {
   await db
     .delete(communityMention)

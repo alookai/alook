@@ -17,10 +17,11 @@ export const GET = withAuth(async (_req, ctx) => {
   // Unread mentions to determine the unread badge
   const unreadMentions = await queries.communityMention.listUnreadMentions(db, ctx.userId)
   const unreadServerIds = new Set<string>()
-  for (const row of unreadMentions) {
-    if (row.message.channelId) {
-      const ch = await queries.communityChannel.getChannel(db, row.message.channelId)
-      if (ch) unreadServerIds.add(ch.serverId)
+  const channelIds = [...new Set(unreadMentions.filter((r) => r.message.channelId).map((r) => r.message.channelId!))]
+  if (channelIds.length > 0) {
+    const channels = await queries.communityChannel.getChannelsByIds(db, channelIds)
+    for (const ch of channels) {
+      unreadServerIds.add(ch.serverId)
     }
   }
 

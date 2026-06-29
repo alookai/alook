@@ -153,10 +153,12 @@ export async function getServersLastActivity(
       latestAt: max(communityChannel.lastMessageAt),
     })
     .from(communityChannel)
-    .where(and(
-      inArray(communityChannel.serverId, serverIds),
-      isNull(communityChannel.parentChannelId),
-    ))
+    .where(inArray(communityChannel.serverId, serverIds))
     .groupBy(communityChannel.serverId);
   return new Map(rows.filter((r) => r.latestAt).map((r) => [r.serverId, r.latestAt!]));
+}
+
+export async function getChannelsByIds(db: Database, channelIds: string[]) {
+  if (channelIds.length === 0) return [];
+  return db.select().from(communityChannel).where(inArray(communityChannel.id, channelIds));
 }

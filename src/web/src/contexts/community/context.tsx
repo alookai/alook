@@ -678,6 +678,10 @@ export function CommunityProvider({
         }
       }
     }, [fetchForumPosts, fetchThreads]),
+    onMention: useCallback(() => {
+      fetchMentions()
+      fetchInbox()
+    }, [fetchMentions, fetchInbox]),
   })
 
   // ── UI dispatch (layout registers handlers, pages call these) ────────────
@@ -1200,10 +1204,13 @@ export function CommunityProvider({
   }, [])
 
   const markAllInboxRead = useCallback(() => {
+    const messageIds = mentions.map((m) => m.m.id)
     setInboxFeed((prev) => prev.map((f) => ({ ...f, unread: false })))
-    setMentions((prev) => prev.map((m) => ({ ...m, read: true })))
-    apiFetch("/api/community/mentions/read", { method: "PUT" }).catch(() => {})
-  }, [])
+    setMentions([])
+    if (messageIds.length > 0) {
+      apiFetch("/api/community/mentions/read", { method: "PUT", body: JSON.stringify({ messageIds }) }).catch(() => {})
+    }
+  }, [mentions])
 
   const openInboxItem = useCallback((id: string) => {
     setInboxFeed((prev) => prev.map((f) => (f.id === id ? { ...f, unread: false } : f)))

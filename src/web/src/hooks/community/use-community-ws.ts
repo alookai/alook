@@ -33,6 +33,7 @@ import type {
   CommunityCategoryUpdate,
   CommunityCategoryDelete,
   CommunityCategoryReorder,
+  CommunityMentionCreate,
 } from "@alook/shared"
 import { isCommunityEvent, TYPING_INDICATOR_TIMEOUT_MS } from "@alook/shared"
 
@@ -56,6 +57,7 @@ export type CommunityWsCallbacks = {
   onFriend?: (event: CommunityFriendRequest | CommunityFriendAccept | CommunityFriendReject | CommunityFriendRemove | CommunityFriendBlock) => void
   onServer?: (event: CommunityServerUpdate | CommunityServerDelete) => void
   onCategory?: (event: CommunityCategoryCreate | CommunityCategoryUpdate | CommunityCategoryDelete | CommunityCategoryReorder) => void
+  onMention?: (event: CommunityMentionCreate) => void
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -184,6 +186,11 @@ export function useCommunityWs(callbacks: CommunityWsCallbacks) {
       // ── Presence (always delivered) ───────────────────────────────────
       case "community:presence.update":
         cbs.onPresence?.(event)
+        break
+
+      // ── Mentions (always delivered) ──────────────────────────────────
+      case "community:mention.create":
+        cbs.onMention?.(event)
         break
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

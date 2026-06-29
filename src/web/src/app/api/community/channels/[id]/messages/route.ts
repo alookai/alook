@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
+import { broadcastToUser } from "@/lib/broadcast"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
@@ -125,6 +126,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   // Resolve reply reference for WS event + create mention for replied-to user
   let replyTo: { id: string; authorName: string; text: string } | undefined
+  const mentionedUserIds: string[] = []
   if (message!.replyToId) {
     const replyMsg = await queries.communityMessage.getMessage(db, message!.replyToId)
     if (replyMsg) {
@@ -133,8 +135,31 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       // the user gets the mention before the real-time event arrives
       if (replyMsg.authorId && replyMsg.authorId !== ctx.userId) {
         await queries.communityMention.createMentions(db, { messageId: created.id, userIds: [replyMsg.authorId] })
+        mentionedUserIds.push(replyMsg.authorId)
       }
     }
+  }
+
+  // Create mentions for @everyone/@here
+  if (body.mentionType === "everyone" || body.mentionType === "here") {
+    const members = await queries.communityMember.listMembers(db, channel.serverId)
+    const userIds = members.filter((m) => m.userId !== ctx.userId).map((m) => m.userId)
+    if (userIds.length > 0) {
+      await queries.communityMention.createMentions(db, { messageId: created.id, userIds })
+      mentionedUserIds.push(...userIds)
+    }
+  }
+
+  // Broadcast mention event to all mentioned users
+  const authorName = message!.authorName ?? "Unknown"
+  for (const userId of [...new Set(mentionedUserIds)]) {
+    broadcastToUser(userId, {
+      type: "community:mention.create",
+      userId,
+      messageId: created.id,
+      channelId,
+      authorName,
+    } as never).catch(() => {})
   }
 
   fanOutToChannel(channelId, {

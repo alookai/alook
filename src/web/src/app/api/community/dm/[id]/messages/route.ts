@@ -118,6 +118,20 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // Fetch with author join for the response
   const row = await queries.communityMessage.getMessage(db, created.id)
 
+  // Create mention for the replied-to user (unless replying to self)
+  if (body.replyToId) {
+    const replyMsg = await queries.communityMessage.getMessage(db, body.replyToId)
+    if (replyMsg && replyMsg.authorId && replyMsg.authorId !== ctx.userId) {
+      await queries.communityMention.createMentions(db, { messageId: created.id, userIds: [replyMsg.authorId] })
+      broadcastToUser(replyMsg.authorId, {
+        type: "community:mention.create",
+        userId: replyMsg.authorId,
+        messageId: created.id,
+        authorName: row?.authorName ?? "Unknown",
+      } as never).catch(() => {})
+    }
+  }
+
   const message = {
     id: row!.id,
     authorId: row!.authorId,
