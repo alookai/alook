@@ -83,12 +83,9 @@ async function main() {
   console.log(`SERVER_WS_URL=${wsUrl}`);
   console.log(`[mock-server] up — control ws (machineKey-authed) + http (/api /admin /enroll)`);
   console.log(`[mock-server] waiting for a daemon to connect… (Ctrl-C to stop)`);
-  // Ready-to-paste daemon command (machine key + URLs already filled in) so the
-  // operator can start a connected daemon in another terminal without copying
-  // three values by hand.
   console.log(`\n[mock-server] start a daemon in another terminal:\n`);
   console.log(
-    `  ALOOK_SERVER_URL=${bridge.url} ALOOK_SERVER_WS_URL=${wsUrl} npx @alook/daemon start --machine-key ${machineKey}\n`,
+    `  ALOOK_MACHINE_KEY=${machineKey} ALOOK_SERVER_URL=${bridge.url} ALOOK_SERVER_WS_URL=${wsUrl} pnpm run daemon\n`,
   );
 
   const shutdown = async () => {

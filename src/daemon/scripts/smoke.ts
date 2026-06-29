@@ -66,15 +66,20 @@ async function main(): Promise<number> {
   console.log(`\nwaiting for ${AGENT_NAMES.length} agent replies (timeout ${MAX_WAIT_MS / 1000}s)…`);
   const start = Date.now();
   let replies = 0;
+  const seen = new Set<string>();
   let page: { items: Array<{ seq: string; sender: string; content: { text: string } }> } = { items: [] };
 
   while (Date.now() - start < MAX_WAIT_MS) {
     page = await admin<typeof page>("readChannel", { channel: channelRef, limit: 50 });
-    const distinctSenders = new Set(page.items.filter((m) => m.sender !== "@gustavo").map((m) => m.sender));
-    replies = distinctSenders.size;
+    for (const m of page.items) {
+      if (m.sender === "@gustavo") continue;
+      if (seen.has(m.sender)) continue;
+      seen.add(m.sender);
+      const elapsed = Math.round((Date.now() - start) / 1000);
+      console.log(`  [${elapsed}s] ${m.sender}: ${m.content.text}`);
+    }
+    replies = seen.size;
     if (replies >= AGENT_NAMES.length) break;
-    const elapsed = Math.round((Date.now() - start) / 1000);
-    console.log(`  ${elapsed}s: ${replies}/${AGENT_NAMES.length} distinct agents replied`);
     await delay(POLL_INTERVAL_MS);
   }
 

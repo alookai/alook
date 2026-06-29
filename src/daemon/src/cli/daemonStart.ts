@@ -8,13 +8,20 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import { homedir } from "os";
 import { WebSocket } from "ws";
 import { createDaemon } from "../daemon/createDaemon";
 import { ClaudeDriver } from "../drivers/claude";
 import { createLogger } from "../logger";
 
 const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge"];
-export const DEFAULT_BASE_DIR = "/tmp/alook-daemon";
+
+function resolveDefaultBaseDir(): string {
+  const root = process.env.ALOOK_PROJECT_ROOT || path.join(homedir(), ".alook");
+  return path.join(root, "daemon");
+}
+
+export const DEFAULT_BASE_DIR = resolveDefaultBaseDir();
 
 const log = createLogger({ header: "@alook/daemon" });
 

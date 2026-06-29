@@ -19,6 +19,8 @@ const SERVER_WS_URL = process.env.ALOOK_SERVER_WS_URL;
 
 const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge"];
 const HOST_CLI_PATH = path.resolve(import.meta.dirname, "alook-shim.mjs");
+const PROJECT_ROOT = path.resolve(import.meta.dirname, "..");
+const WORKING_DIR_BASE = path.join(PROJECT_ROOT, ".alook", "daemon");
 
 const log = createLogger({ header: "@alook/daemon" });
 
@@ -39,9 +41,10 @@ async function main() {
     driverFor: () => driver,
     capabilities: CAPABILITIES,
     agentCliPath: HOST_CLI_PATH,
+    workingDirectoryBase: WORKING_DIR_BASE,
   });
 
-  log.info(`daemon up — proxy at ${daemon.proxyUrl}, dialing ${SERVER_WS_URL}`);
+  log.info(`daemon up — proxy at ${daemon.proxyUrl}, workdir=${WORKING_DIR_BASE}, dialing ${SERVER_WS_URL}`);
 
   const readyTimer = setInterval(() => {
     if (daemon.isOpen()) {

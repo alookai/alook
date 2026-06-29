@@ -24,6 +24,7 @@
  * a plugged-in dependency. Local tests inject a stub driver; production injects a
  * real runtime driver. Neither changes this file.
  */
+import { homedir } from "os";
 import { WsControlChannel } from "../server/wsControlChannel";
 import { CredentialBroker, startCredentialProxy } from "../credentials/index";
 import { AgentProcessManager, AgentRouter } from "../manager/index";
@@ -72,7 +73,8 @@ export interface RunningDaemon {
  * the agent manager. The full real code path is exercised — no shortcuts.
  */
 export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDaemon> {
-  const workdirFor = (agentId: string) => `${opts.workingDirectoryBase ?? "/tmp/alook-daemon"}/${agentId}`;
+  const fallbackBase = (process.env.ALOOK_PROJECT_ROOT || `${homedir()}/.alook`) + "/daemon";
+  const workdirFor = (agentId: string) => `${opts.workingDirectoryBase ?? fallbackBase}/${agentId}`;
 
   const timeline = createTimelineRecorder({
     timelineDirFor: (agentId) => `${workdirFor(agentId)}/.context_timeline`,
