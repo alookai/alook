@@ -292,8 +292,12 @@ export function CommunityProvider({
   // ── Settings / invites / audit ───────────────────────────────────────────
   const [invites, setInvites] = useState<InviteRow[]>([])
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([])
-  const [notifLevel, setNotifLevel] = useState("Only @mentions")
+  const [serverNotif, setServerNotif] = useState<Record<string, string>>({})
   const [channelNotif, setChannelNotifState] = useState<Record<string, string>>({})
+  const notifLevel = serverNotif[currentServerId ?? ""] ?? "Only @mentions"
+  const setNotifLevel = (level: string) => {
+    if (currentServerId) setServerNotif((prev) => ({ ...prev, [currentServerId]: level }))
+  }
 
   // ── Inbox ────────────────────────────────────────────────────────────────
   const [inboxFeed, setInboxFeed] = useState<InboxRow[]>([])
@@ -709,8 +713,20 @@ export function CommunityProvider({
     apiFetch<{ aboutMe: string }>("/api/community/users/me/profile")
       .then((data) => setCurrentUser((u) => ({ ...u, aboutMe: data.aboutMe })))
       .catch(() => {})
-    apiFetch<{ level?: string }>("/api/community/users/me/notifications")
-      .then((data) => { if (data.level) setNotifLevel(data.level) })
+    apiFetch<Array<{ serverId?: string | null; channelId?: string | null; level: string }>>("/api/community/users/me/notifications")
+      .then((settings) => {
+        const channelSettings: Record<string, string> = {}
+        const serverSettings: Record<string, string> = {}
+        for (const s of settings) {
+          if (s.channelId) {
+            channelSettings[s.channelId] = s.level
+          } else if (s.serverId) {
+            serverSettings[s.serverId] = s.level
+          }
+        }
+        if (Object.keys(channelSettings).length > 0) setChannelNotifState(channelSettings)
+        if (Object.keys(serverSettings).length > 0) setServerNotif(serverSettings)
+      })
       .catch(() => {})
   }, [fetchServers, fetchFriends, fetchDms, fetchFolders, fetchInbox, fetchMentions])
 

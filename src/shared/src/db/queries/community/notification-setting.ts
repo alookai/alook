@@ -8,18 +8,32 @@ export async function getMutedUserIds(
   opts: { channelId?: string; serverId?: string }
 ): Promise<Set<string>> {
   if (userIds.length === 0) return new Set()
+
   const rows = await db
-    .select({ userId: communityNotificationSetting.userId })
+    .select({
+      userId: communityNotificationSetting.userId,
+      channelId: communityNotificationSetting.channelId,
+      serverId: communityNotificationSetting.serverId,
+      level: communityNotificationSetting.level,
+    })
     .from(communityNotificationSetting)
     .where(and(
       inArray(communityNotificationSetting.userId, userIds),
-      eq(communityNotificationSetting.level, "nothing"),
       or(
         opts.channelId ? eq(communityNotificationSetting.channelId, opts.channelId) : undefined,
         opts.serverId ? and(eq(communityNotificationSetting.serverId, opts.serverId), isNotNull(communityNotificationSetting.serverId)) : undefined,
       ),
     ))
-  return new Set(rows.map((r) => r.userId))
+
+  const muted = new Set<string>()
+  for (const uid of userIds) {
+    const userRows = rows.filter((r) => r.userId === uid)
+    const channelSetting = userRows.find((r) => r.channelId != null)
+    const serverSetting = userRows.find((r) => r.serverId != null)
+    const effective = channelSetting ?? serverSetting
+    if (effective?.level === "nothing") muted.add(uid)
+  }
+  return muted
 }
 
 export async function getSettings(db: Database, userId: string) {
