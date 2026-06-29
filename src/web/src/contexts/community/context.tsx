@@ -532,6 +532,12 @@ export function CommunityProvider({
       const msg = event.message
       setMessages((prev) => {
         if (prev.some((m) => m.id === msg.id)) return prev
+        const attachments = msg.attachments?.map((a) => {
+          const isImage = a.contentType?.startsWith("image/")
+          return isImage
+            ? { kind: "image" as const, name: a.filename, url: a.url }
+            : { kind: "file" as const, name: a.filename, url: a.url, size: a.size ? `${Math.round(a.size / 1024)} KB` : "" }
+        })
         return [
           ...prev,
           {
@@ -543,6 +549,7 @@ export function CommunityProvider({
             createdAt: msg.createdAt,
             type: msg.type === "system" ? "system" : undefined,
             replyTo: msg.replyTo,
+            ...(attachments?.length ? { attachments } : {}),
           },
         ]
       })
@@ -611,6 +618,12 @@ export function CommunityProvider({
     onDm: useCallback((event: CommunityDmNewMessage | CommunityDmTyping) => {
       if (event.type === "community:dm.new_message") {
         const msg = event.message
+        const attachments = msg.attachments?.map((a: { filename: string; url: string; contentType?: string; size?: number }) => {
+          const isImage = a.contentType?.startsWith("image/")
+          return isImage
+            ? { kind: "image" as const, name: a.filename, url: a.url }
+            : { kind: "file" as const, name: a.filename, url: a.url, size: a.size ? `${Math.round(a.size / 1024)} KB` : "" }
+        })
         setDms((prev) =>
           prev.map((d) =>
             d.id !== event.dmConversationId
@@ -621,7 +634,7 @@ export function CommunityProvider({
                   unread: true,
                   messages: [
                     ...d.messages,
-                    { id: msg.id, authorName: msg.authorName, authorAvatar: msg.authorAvatar, content: msg.content, createdAt: msg.createdAt },
+                    { id: msg.id, authorName: msg.authorName, authorAvatar: msg.authorAvatar, content: msg.content, createdAt: msg.createdAt, ...(attachments?.length ? { attachments } : {}) },
                   ],
                 }
           )
@@ -841,9 +854,15 @@ export function CommunityProvider({
 
   const sendDmMessage = useCallback(async (dmId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
+    const optimisticAttachments = opts?.attachments?.map((a) => {
+      const isImage = a.contentType.startsWith("image/")
+      return isImage
+        ? { kind: "image" as const, name: a.filename, url: a.url }
+        : { kind: "file" as const, name: a.filename, url: a.url, size: `${Math.round(a.size / 1024)} KB` }
+    })
     setMessages((prev) => [
       ...prev,
-      { id: tempId, authorName: currentUserRef.current.name, authorAvatar: currentUserRef.current.avatar, content, createdAt: new Date().toISOString() },
+      { id: tempId, authorName: currentUserRef.current.name, authorAvatar: currentUserRef.current.avatar, content, createdAt: new Date().toISOString(), ...(optimisticAttachments?.length ? { attachments: optimisticAttachments } : {}) },
     ])
     setDms((prev) => prev.map((d) => (d.id !== dmId ? d : { ...d, preview: content.slice(0, 40) })))
     try {
@@ -861,12 +880,19 @@ export function CommunityProvider({
   const sendThreadMessage = useCallback(async (threadId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
     // Optimistic update
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
+    const optimisticAttachments = opts?.attachments?.map((a) => {
+      const isImage = a.contentType.startsWith("image/")
+      return isImage
+        ? { kind: "image" as const, name: a.filename, url: a.url }
+        : { kind: "file" as const, name: a.filename, url: a.url, size: `${Math.round(a.size / 1024)} KB` }
+    })
     const optimisticMsg: Msg = {
       id: tempId,
       authorName: currentUserRef.current.name,
       authorAvatar: currentUserRef.current.avatar,
       content,
       createdAt: new Date().toISOString(),
+      ...(optimisticAttachments?.length ? { attachments: optimisticAttachments } : {}),
     }
     const updateMessages = (setter: typeof setThreads | typeof setForumPosts) => {
       setter((prev: any[]) => prev.map((t: any) => t.id !== threadId ? t : { ...t, messages: [...t.messages, optimisticMsg] }))
