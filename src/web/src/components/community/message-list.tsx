@@ -14,7 +14,7 @@ export function MessageList({
   channel, messages, pinnedIds, newDividerBefore, typingUsers, onOpenThread, onOpenProfile,
   onToggleReaction, onReact,
   onReply, onPin, onCreateThread, onCopy, onRetry, onPreviewImage, onDownloadFile,
-  resolveUserName,
+  resolveUserName, scrollToMessageId,
 }: {
   channel: string
   messages: Msg[]
@@ -33,6 +33,7 @@ export function MessageList({
   onPreviewImage?: (name: string) => void
   onDownloadFile?: (name: string) => void
   resolveUserName?: (userId: string) => string
+  scrollToMessageId?: string | null
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -56,6 +57,10 @@ export function MessageList({
     document.getElementById(`dpv-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
     window.setTimeout(() => setJumped((v) => (v === id ? null : v)), 1600)
   }
+
+  useEffect(() => {
+    if (scrollToMessageId) jumpTo(scrollToMessageId)
+  }, [scrollToMessageId])
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">

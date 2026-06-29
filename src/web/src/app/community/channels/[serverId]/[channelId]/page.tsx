@@ -50,6 +50,7 @@ export default function ChannelPage() {
   const [localName, setLocalName] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<Msg[]>([])
+  const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null)
 
   const doSearch = useCallback(async (q: string) => {
     setSearchQuery(q)
@@ -239,6 +240,10 @@ export default function ChannelPage() {
       const m = ctx.members.find((x) => x.name === name)
       if (m) ctx.kickMember(m.id)
     },
+    onJumpToMessage: (id: string) => {
+      setScrollToMessageId(id)
+      setTimeout(() => setScrollToMessageId(null), 100)
+    },
   }
 
   // ── DM view ─────────────────────────────────────────────────────────────
@@ -314,6 +319,7 @@ export default function ChannelPage() {
               {...messageActions}
               onOpenProfile={openProfile}
               resolveUserName={resolveUserName}
+              scrollToMessageId={scrollToMessageId}
             />
             <Composer
               channel={channelName}
@@ -419,6 +425,7 @@ export default function ChannelPage() {
             {...messageActions}
             onOpenProfile={openProfile}
             resolveUserName={resolveUserName}
+            scrollToMessageId={scrollToMessageId}
           />
           <Composer
             channel={channelName}

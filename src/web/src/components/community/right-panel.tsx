@@ -12,7 +12,7 @@ import type { RightPanel, Member, Role, Msg, Thread, OpenProfile } from "./_type
 // Right-panel content router — members / pinned / search / threads. Data via props.
 export function RightPanelContent({
   kind, members, pinned, searchResults, searchQuery, threads, onClose, showClose, onOpenThread, onOpenProfile,
-  onSetRole, onKickMember, myRole,
+  onSetRole, onKickMember, myRole, onJumpToMessage,
 }: {
   kind: Exclude<RightPanel, null>
   members: Member[]
@@ -27,6 +27,7 @@ export function RightPanelContent({
   onSetRole?: (name: string, role: Role) => void
   onKickMember?: (name: string) => void
   myRole?: Role
+  onJumpToMessage?: (id: string) => void
 }) {
   if (kind === "members")
     // Desktop shows the bare list under the spanning channel header (no own header).
@@ -41,7 +42,28 @@ export function RightPanelContent({
   if (kind === "pinned")
     return (
       <PanelShell icon={Pin} title="Pinned Messages" onClose={onClose} showClose={showClose}>
-        {pinned.map((m) => <Message key={m.id} m={{ ...m, grouped: false }} compact onOpenThread={() => {}} onOpenProfile={onOpenProfile} />)}
+        {pinned.length === 0 ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">No pinned messages yet.</div>
+        ) : (
+          pinned.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => onJumpToMessage?.(m.id)}
+              className="flex w-full gap-2 rounded-md px-2 py-2 text-left hover:bg-accent"
+            >
+              <div className="size-6 shrink-0 rounded-full bg-muted grid place-items-center text-xs font-medium">
+                {m.authorAvatar ?? m.authorName?.charAt(0) ?? "?"}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-sm font-medium">{m.authorName}</span>
+                  {m.createdAt && <span className="text-xs text-muted-foreground">{formatRelativeTime(m.createdAt)}</span>}
+                </div>
+                <div className="truncate text-sm text-muted-foreground">{m.content}</div>
+              </div>
+            </button>
+          ))
+        )}
       </PanelShell>
     )
   if (kind === "search")
