@@ -611,8 +611,13 @@ export function CommunityProvider({
             ? { kind: "image" as const, name: a.filename, url: a.url }
             : { kind: "file" as const, name: a.filename, url: a.url, size: a.size ? `${Math.round(a.size / 1024)} KB` : "" }
         })
-        setDms((prev) =>
-          prev.map((d) =>
+        setDms((prev) => {
+          const exists = prev.some((d) => d.id === event.dmConversationId)
+          if (!exists) {
+            fetchDms()
+            return prev
+          }
+          return prev.map((d) =>
             d.id !== event.dmConversationId
               ? d
               : {
@@ -625,9 +630,9 @@ export function CommunityProvider({
                   ],
                 }
           )
-        )
+        })
       }
-    }, []),
+    }, [fetchDms]),
     onFriend: useCallback(() => {
       fetchFriends()
     }, [fetchFriends]),
