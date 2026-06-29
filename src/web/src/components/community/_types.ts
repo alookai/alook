@@ -11,6 +11,7 @@
  */
 
 import type React from "react"
+import type { ChannelType, CommunityRole } from "@alook/shared"
 
 // ── Presence / enums ───────────────────────────────────────────────────────
 export type Presence = "online" | "offline"
@@ -59,8 +60,9 @@ export type Channel = {
   active: boolean
   unread: boolean
   muted?: boolean
-  type?: "text" | "forum"
+  type?: ChannelType
   forumTags?: string | null
+  creatorId?: string | null
 }
 
 export type Category = {
@@ -126,11 +128,10 @@ export type ForumPost = Thread & {
 }
 
 // ── Members / friends / DMs ──────────────────────────────────────────────────
-export type Role = "Owner" | "Admin" | "Member"
+export type Role = CommunityRole
 
-export function canManageServer(role?: Role): boolean {
-  return role === "Owner" || role === "Admin"
-}
+export { canManageServer, isServerOwner } from "@alook/shared"
+export type { ChannelType } from "@alook/shared"
 
 export type Member = {
   id: string

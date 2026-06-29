@@ -5,8 +5,7 @@ import { Hash, MessagesSquare } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-
-type ChannelType = "text" | "forum"
+import type { ChannelType } from "@alook/shared"
 
 // Create / edit Channel dialog. v0.1 supports Text + Forum only. No private toggle.
 // Submits { name, type }.

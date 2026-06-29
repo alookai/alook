@@ -24,7 +24,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { ProfileCard } from "@/components/community/profile-card"
 import { ImageLightbox } from "@/components/community/image-lightbox"
 import type { MobileZone, View, Profile, SettingsSection } from "@/components/community/_types"
-import { canManageServer } from "@/components/community/_types"
+import { canManageServer, type ChannelType } from "@alook/shared"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ serverId: string }>()
@@ -141,7 +141,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     mutedChannels: Object.fromEntries(
       Object.entries(ctx.channelNotif).map(([k, v]) => [k, v === "Nothing"])
     ),
-    onCreateChannel: (categoryId: string, name: string, type: "text" | "forum") => {
+    onCreateChannel: (categoryId: string, name: string, type: ChannelType) => {
       ctx.createChannel(serverId, categoryId, name, type)
     },
     onCreateCategory: (name: string, opts?: { private?: boolean }) => {
@@ -199,15 +199,16 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     }
     const member = (ctx.members ?? []).find((m) => m.name === name)
       ?? (ctx.friends ?? []).find((f) => f.name === name)
-    const role: string = member && "role" in member ? (member as { role: string }).role : "Member"
+    const role: string = member && "role" in member ? (member as { role: string }).role : "member"
     const about: string = member && "sub" in member && (member as { sub: string }).sub ? (member as { sub: string }).sub : ""
+    const displayRole = role.charAt(0).toUpperCase() + role.slice(1)
     const data: Profile = {
       name,
       avatar: member?.avatar ?? name.charAt(0).toUpperCase(),
-      role,
+      role: displayRole,
       about,
       mutual: 0,
-      tags: role !== "Member" ? [role] : [],
+      tags: role !== "member" ? [displayRole] : [],
     }
     setProfile({ data, x: e.clientX, y: e.clientY })
     const userId = member && "userId" in member ? (member as { userId: string }).userId : member?.id

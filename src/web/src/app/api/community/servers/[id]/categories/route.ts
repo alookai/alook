@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, canManageServer } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -25,7 +25,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("name is required", 400)
   }
 
-  if (body.private && member.role !== "owner" && member.role !== "admin") {
+  if (body.private && !canManageServer(member.role)) {
     return writeError("only admins can create private categories", 403)
   }
 

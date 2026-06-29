@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, canManageServer, isServerOwner } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
@@ -15,7 +15,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
 
   // Verify caller is owner or admin
   const caller = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!caller || (caller.role !== "owner" && caller.role !== "admin")) {
+  if (!caller || !canManageServer(caller.role)) {
     return writeError("forbidden", 403)
   }
 
@@ -41,7 +41,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (!target) return writeError("member not found", 404)
 
   // Can't change owner's role unless you're the owner
-  if (target.role === "owner" && caller.role !== "owner") {
+  if (isServerOwner(target.role) && !isServerOwner(caller.role)) {
     return writeError("cannot change the owner's role", 403)
   }
 
@@ -77,7 +77,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
 
   // Verify caller is owner or admin
   const caller = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!caller || (caller.role !== "owner" && caller.role !== "admin")) {
+  if (!caller || !canManageServer(caller.role)) {
     return writeError("forbidden", 403)
   }
 
@@ -92,7 +92,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
   if (!target) return writeError("member not found", 404)
 
   // Can't kick owner
-  if (target.role === "owner") {
+  if (isServerOwner(target.role)) {
     return writeError("cannot kick the server owner", 403)
   }
 

@@ -14,12 +14,13 @@ import { CreateCategoryDialog } from "./create-category-dialog"
 import { CategorySettingsDialog } from "./category-settings-dialog"
 import { catId, type ChannelTree } from "./use-channel-tree"
 import type { Channel } from "./_types"
+import type { ChannelType } from "@alook/shared"
 
 let channelSeq = 0
 
 type Dialog =
   | { kind: "create-channel"; categoryId: string }
-  | { kind: "edit-channel"; id: string; categoryId: string; name: string; type: "text" | "forum" }
+  | { kind: "edit-channel"; id: string; categoryId: string; name: string; type: ChannelType }
   | { kind: "create-category" }
   | { kind: "category-settings"; categoryId: string }
   | null
@@ -45,7 +46,7 @@ export function ChannelSidebar({
   currentUserId?: string
   onBlockedCreate?: () => void
   mutedChannels?: Record<string, boolean>
-  onCreateChannel?: (categoryId: string, name: string, type: "text" | "forum") => void
+  onCreateChannel?: (categoryId: string, name: string, type: ChannelType) => void
   onCreateCategory?: (name: string, opts?: { private?: boolean }) => void
   onDeleteChannel?: (channelId: string) => void
   onDeleteCategory?: (categoryId: string) => void
@@ -89,7 +90,7 @@ export function ChannelSidebar({
     setDialog({ kind: "create-channel", categoryId })
   }
 
-  const createChannel = (categoryId: string, { name, type }: { name: string; type: "text" | "forum" }) => {
+  const createChannel = (categoryId: string, { name, type }: { name: string; type: ChannelType }) => {
     const ch: Channel = { id: `ch_local_${++channelSeq}`, name, active: false, unread: false, type }
     addChannel(categoryId, ch)
     setActiveChannel(ch.id)
@@ -125,8 +126,8 @@ export function ChannelSidebar({
                       ch={withMute(ch)}
                       active={ch.id === activeChannel}
                       onClick={() => setActiveChannel(ch.id)}
-                      onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" }) : undefined}
-                      onDelete={isAdmin ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
+                      onEdit={(isAdmin || ch.creatorId === currentUserId) ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: noneCatId, name: ch.name, type: ch.type ?? "text" }) : undefined}
+                      onDelete={(isAdmin || ch.creatorId === currentUserId) ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
                     />
                   ))}
                 </div>
@@ -153,8 +154,8 @@ export function ChannelSidebar({
                           ch={withMute(ch)}
                           active={ch.id === activeChannel}
                           onClick={() => setActiveChannel(ch.id)}
-                          onEdit={isAdmin ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" }) : undefined}
-                          onDelete={isAdmin ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
+                          onEdit={(isAdmin || (!catPrivate[id] && ch.creatorId === currentUserId)) ? () => setDialog({ kind: "edit-channel", id: ch.id, categoryId: id, name: ch.name, type: ch.type ?? "text" }) : undefined}
+                          onDelete={(isAdmin || (!catPrivate[id] && ch.creatorId === currentUserId)) ? () => { removeChannel(ch.id); onDeleteChannel?.(ch.id) } : undefined}
                         />
                       ))}
                     </div>

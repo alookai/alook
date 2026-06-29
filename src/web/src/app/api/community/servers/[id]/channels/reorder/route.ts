@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, canManageServer } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
@@ -12,7 +12,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
+  if (!member || !canManageServer(member.role)) {
     return writeError("forbidden", 403)
   }
 

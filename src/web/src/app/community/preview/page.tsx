@@ -132,10 +132,10 @@ export default function CommunityPreview() {
     let data: Profile = PROFILES[name] ?? {
       name,
       avatar: member?.avatar ?? name.charAt(0).toUpperCase(),
-      role: "Member",
+      role: "member",
       about: member && "sub" in member && member.sub ? member.sub : "No bio yet.",
       mutual: 1,
-      tags: ["Member"],
+      tags: [],
     }
     if (name === "Gener") data = { ...data, about: myAboutMe }
     setProfile({ data, x: e.clientX, y: e.clientY })
@@ -315,11 +315,11 @@ export default function CommunityPreview() {
   // member actions — change role / kick (real local-state mutations). Owner is fixed:
   // the UI never offers it, and we guard here too.
   const setMemberRole = (name: string, role: Role) => {
-    setMemberList((prev) => prev.map((m) => m.name === name && m.role !== "Owner" ? { ...m, role } : m))
+    setMemberList((prev) => prev.map((m) => m.name === name && m.role !== "owner" ? { ...m, role } : m))
     toast(`${name} is now ${role}`)
   }
   const kickMember = (name: string) => {
-    setMemberList((prev) => prev.filter((m) => m.name !== name || m.role === "Owner"))
+    setMemberList((prev) => prev.filter((m) => m.name !== name || m.role === "owner"))
     toast(`${name} kicked`)
   }
   const memberActions = { onSetRole: setMemberRole, onKickMember: kickMember }

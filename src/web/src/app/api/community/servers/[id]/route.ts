@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, canManageServer, isServerOwner } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const GET = withAuth(async (_req, ctx) => {
@@ -61,7 +61,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
 
   // Verify caller is owner or admin
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
+  if (!member || !canManageServer(member.role)) {
     return writeError("forbidden", 403)
   }
 
@@ -117,7 +117,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
   // Verify caller is owner
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
   if (!member) return writeError("not a member of this server", 403)
-  if (member.role !== "owner") {
+  if (!isServerOwner(member.role)) {
     return writeError("only the owner can delete the server", 403)
   }
 

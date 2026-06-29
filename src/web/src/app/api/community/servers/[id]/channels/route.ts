@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, canManageServer, type ChannelType } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -12,9 +12,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
-    return writeError("forbidden", 403)
-  }
+  if (!member) return writeError("forbidden", 403)
 
   let body: { name?: string; type?: string; categoryId?: string; topic?: string }
   try {
@@ -27,18 +25,28 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("name is required", 400)
   }
 
+  const isAdmin = canManageServer(member.role)
+
+  if (body.categoryId) {
+    const category = await queries.communityCategory.getCategory(db, body.categoryId)
+    if (category?.private && !isAdmin) {
+      return writeError("only admins can create channels in private categories", 403)
+    }
+  }
+
   const row = await queries.communityChannel.createChannel(db, {
     serverId,
     categoryId: body.categoryId,
     name: body.name.trim(),
     type: body.type,
     topic: body.topic,
+    creatorId: ctx.userId,
   })
 
   const channel = {
     id: row.id,
     name: row.name,
-    type: row.type as "text" | "forum",
+    type: row.type as ChannelType,
     categoryId: row.categoryId,
     topic: row.topic ?? undefined,
     position: row.position ?? 0,

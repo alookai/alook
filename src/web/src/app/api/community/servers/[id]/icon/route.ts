@@ -3,7 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, canManageServer } from "@alook/shared"
 
 export const GET = async (_req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id: serverId } = await params
@@ -36,7 +36,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
 
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
+  if (!member || !canManageServer(member.role)) {
     return writeError("forbidden", 403)
   }
 

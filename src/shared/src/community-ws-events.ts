@@ -6,6 +6,8 @@
  * The client filters events based on its focused subscription (channelId/dmConversationId).
  */
 
+import type { ChannelType } from "./utils/community-roles"
+
 // ── Message events ────────────────────────────────────────────────────────────
 
 export type CommunityMessageCreate = {
@@ -126,7 +128,7 @@ export type CommunityChannelCreate = {
   channel: {
     id: string
     name: string
-    type: "text" | "forum"
+    type: ChannelType
     categoryId?: string | null
     topic?: string
     position: number
@@ -142,7 +144,7 @@ export type CommunityChannelUpdate = {
     name?: string
     topic?: string
     categoryId?: string | null
-    type?: "text" | "forum"
+    type?: ChannelType
     forumTags?: string | null
   }
 }

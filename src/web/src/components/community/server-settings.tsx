@@ -16,7 +16,11 @@ import { Avatar } from "./avatar"
 import { Field } from "./field"
 import type { SettingsSection, Member, Role, InviteRow, AuditEntry, OpenProfile } from "./_types"
 
-const SETTABLE_ROLES: Role[] = ["Admin", "Member"]
+const SETTABLE_ROLES: Role[] = ["admin", "member"]
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
 
 // Full-screen server settings view. Data via props.
 export function ServerSettings({
@@ -144,26 +148,25 @@ function SettingsMembers({ members, onOpenProfile, onKickMember, onSetRole }: {
           </button>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-medium">{m.name}</div>
-            <div className="text-xs text-muted-foreground">{m.role}</div>
+            <div className="text-xs text-muted-foreground">{capitalize(m.role)}</div>
           </div>
-          {m.role === "Owner" ? (
-            // Owner is fixed (server creator) — shown, not editable
+          {m.role === "owner" ? (
             <Badge variant="secondary" className="gap-1"><Shield className="size-3.5" /> Owner</Badge>
           ) : (
             <DropdownMenu>
               <DropdownMenuTrigger
                 render={<Badge variant="secondary" className="cursor-pointer gap-1" />}
               >
-                <Shield className="size-3.5" /> {m.role}
+                <Shield className="size-3.5" /> {capitalize(m.role)}
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-32">
                 {SETTABLE_ROLES.map((r) => (
-                  <DropdownMenuItem key={r} onClick={() => onSetRole?.(m.name, r)}>{r}</DropdownMenuItem>
+                  <DropdownMenuItem key={r} onClick={() => onSetRole?.(m.name, r)}>{capitalize(r)}</DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          {m.role !== "Owner" && (
+          {m.role !== "owner" && (
             <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label="Kick member" onClick={() => onKickMember?.(m.name)}><Trash2 className="size-4" /></Button>
           )}
         </div>

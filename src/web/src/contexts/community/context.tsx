@@ -62,7 +62,10 @@ import type {
   CommunityCategoryReorder,
   CommunityChildChannelCreate,
   CommunityChildChannelUpdate,
+  ChannelType,
+  CommunityRole,
 } from "@alook/shared"
+import { isServerOwner } from "@alook/shared"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -188,7 +191,7 @@ export type CommunityContextValue = {
   deleteMention: (id: string) => void
   sendTyping: (target: { channelId?: string; dmConversationId?: string; threadId?: string }) => void
   createForumPost: (channelId: string, post: { name: string; content: string; tags: string[] }) => Promise<void>
-  createChannel: (serverId: string, categoryId: string, name: string, type: "text" | "forum") => Promise<string | null>
+  createChannel: (serverId: string, categoryId: string, name: string, type: ChannelType) => Promise<string | null>
   createCategory: (serverId: string, name: string, opts?: { private?: boolean }) => Promise<string | null>
   deleteChannel: (channelId: string) => Promise<void>
   deleteCategory: (serverId: string, categoryId: string) => Promise<void>
@@ -332,7 +335,7 @@ export function CommunityProvider({
         active: false,
         unread: s.unread ?? false,
         mentions: s.mentions ?? 0,
-        isOwner: s.role === "owner",
+        isOwner: isServerOwner(s.role),
         icon: s.icon ?? null,
       }))
       setServers((current) => {
@@ -627,7 +630,7 @@ export function CommunityProvider({
       if (event.type === "community:member.join") {
         setMembers((prev) => [
           ...prev,
-          { id: event.member.id, userId: event.member.userId, name: event.member.name, avatar: event.member.avatar ?? event.member.name.charAt(0).toUpperCase(), status: "online", sub: "", role: event.member.role as Role },
+          { id: event.member.id, userId: event.member.userId, name: event.member.name, avatar: event.member.avatar ?? event.member.name.charAt(0).toUpperCase(), status: "online", sub: "", role: event.member.role as CommunityRole },
         ])
       } else if (event.type === "community:member.leave") {
         setMembers((prev) => prev.filter((m) => m.userId !== event.userId))
@@ -636,7 +639,7 @@ export function CommunityProvider({
           if (m.id !== event.memberId) return m
           return {
             ...m,
-            ...(event.changes.role ? { role: event.changes.role as Role } : {}),
+            ...(event.changes.role ? { role: event.changes.role as CommunityRole } : {}),
             ...(event.changes.nickname !== undefined ? { name: event.changes.nickname ?? m.name } : {}),
           }
         }))
@@ -1074,10 +1077,10 @@ export function CommunityProvider({
     try {
       await apiFetch(`/api/community/servers/${sid}/members/${memberId}`, {
         method: "PATCH",
-        body: JSON.stringify({ role: role.toLowerCase() }),
+        body: JSON.stringify({ role }),
       })
       setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role } : m)))
-      toast(`Role updated to ${role}`)
+      toast(`Role updated`)
     } catch {
       toast("Failed to update role")
     }
@@ -1199,7 +1202,7 @@ export function CommunityProvider({
     }
   }, [])
 
-  const createChannel = useCallback(async (serverId: string, categoryId: string, name: string, type: "text" | "forum"): Promise<string | null> => {
+  const createChannel = useCallback(async (serverId: string, categoryId: string, name: string, type: ChannelType): Promise<string | null> => {
     try {
       const data = await apiFetch<{ channel: { id: string } }>(`/api/community/servers/${serverId}/channels`, {
         method: "POST",

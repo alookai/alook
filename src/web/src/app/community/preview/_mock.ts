@@ -232,14 +232,14 @@ export const FORUM_TAGS = ["All", "question", "bug", "showcase", "email", "billi
 // display groups (hoisted role groups, then Online/Offline) from this. Gener is the
 // Owner (server creator) — there is exactly one, and it can't be reassigned via the UI.
 export const MEMBERS: Member[] = [
-  { id: "m_gener", userId: "u_gener", name: "Gener", avatar: "G", status: "online", sub: "", role: "Owner" },
-  { id: "m_gus", userId: "u_gus", name: "Gus", avatar: "Gu", status: "online", sub: "", role: "Admin" },
-  { id: "m_lindsay", userId: "u_lindsay", name: "Lindsay", avatar: "L", status: "online", sub: "", role: "Admin" },
-  { id: "m_tomy", userId: "u_tomy", name: "lucky tomy", avatar: "t", status: "online", sub: "AI engineer", role: "Member" },
-  { id: "m_jgtech", userId: "u_jgtech", name: "jgtech", avatar: "j", status: "online", sub: "", role: "Member" },
-  { id: "m_azzo", userId: "u_azzo", name: "Azzo", avatar: "A", status: "offline", sub: "", role: "Member" },
-  { id: "m_distagon", userId: "u_distagon", name: "distagon", avatar: "d", status: "offline", sub: "", role: "Member" },
-  { id: "m_reece", userId: "u_reece", name: "Reece", avatar: "R", status: "offline", sub: "", role: "Member" },
+  { id: "m_gener", userId: "u_gener", name: "Gener", avatar: "G", status: "online", sub: "", role: "owner" },
+  { id: "m_gus", userId: "u_gus", name: "Gus", avatar: "Gu", status: "online", sub: "", role: "admin" },
+  { id: "m_lindsay", userId: "u_lindsay", name: "Lindsay", avatar: "L", status: "online", sub: "", role: "admin" },
+  { id: "m_tomy", userId: "u_tomy", name: "lucky tomy", avatar: "t", status: "online", sub: "AI engineer", role: "member" },
+  { id: "m_jgtech", userId: "u_jgtech", name: "jgtech", avatar: "j", status: "online", sub: "", role: "member" },
+  { id: "m_azzo", userId: "u_azzo", name: "Azzo", avatar: "A", status: "offline", sub: "", role: "member" },
+  { id: "m_distagon", userId: "u_distagon", name: "distagon", avatar: "d", status: "offline", sub: "", role: "member" },
+  { id: "m_reece", userId: "u_reece", name: "Reece", avatar: "R", status: "offline", sub: "", role: "member" },
 ]
 
 export const FRIENDS: Friend[] = [

@@ -1,7 +1,7 @@
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, isServerOwner } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const POST = withAuth(async (_req, ctx) => {
@@ -15,7 +15,7 @@ export const POST = withAuth(async (_req, ctx) => {
   if (!member) return writeError("not a member of this server", 403)
 
   // Owner cannot leave (must delete server instead)
-  if (member.role === "owner") {
+  if (isServerOwner(member.role)) {
     return writeError("owner cannot leave the server, delete it instead", 400)
   }
 

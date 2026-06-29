@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, canManageServer } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -12,7 +12,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   // Verify caller is admin or owner
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
+  if (!member || !canManageServer(member.role)) {
     return writeError("forbidden", 403)
   }
 

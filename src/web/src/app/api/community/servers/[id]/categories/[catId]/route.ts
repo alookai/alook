@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, canManageServer } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
@@ -19,7 +19,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (!category) return writeError("category not found", 404)
 
   // Admin/owner can edit any; others can only edit their own
-  const isAdmin = member.role === "owner" || member.role === "admin"
+  const isAdmin = canManageServer(member.role)
   if (!isAdmin && category.creatorId !== ctx.userId) {
     return writeError("forbidden", 403)
   }
@@ -76,7 +76,7 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   if (!category) return writeError("category not found", 404)
 
   // Admin/owner can delete any; others can only delete their own
-  const isAdmin = member.role === "owner" || member.role === "admin"
+  const isAdmin = canManageServer(member.role)
   if (!isAdmin && category.creatorId !== ctx.userId) {
     return writeError("forbidden", 403)
   }

@@ -1,7 +1,7 @@
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, canManageServer } from "@alook/shared"
 
 export const DELETE = withAuth(async (_req, ctx) => {
   const token = ctx.params?.token
@@ -18,7 +18,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
   }
 
   const member = await queries.communityMember.getMember(db, invite.serverId, ctx.userId)
-  if (!member || (member.role !== "admin" && member.role !== "owner")) {
+  if (!member || !canManageServer(member.role)) {
     return writeError("insufficient permissions", 403)
   }
 

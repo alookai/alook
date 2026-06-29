@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, canManageServer } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
@@ -16,8 +16,16 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
 
   const serverId = channel.serverId
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
-    return writeError("forbidden", 403)
+  if (!member) return writeError("forbidden", 403)
+
+  const isAdmin = canManageServer(member.role)
+  const isCreator = channel.creatorId === ctx.userId
+
+  if (!isAdmin && !isCreator) return writeError("forbidden", 403)
+
+  if (!isAdmin && channel.categoryId) {
+    const category = await queries.communityCategory.getCategory(db, channel.categoryId)
+    if (category?.private) return writeError("forbidden", 403)
   }
 
   let body: { name?: string; topic?: string; categoryId?: string | null; forumTags?: string | null }
@@ -66,8 +74,16 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
 
   const serverId = channel.serverId
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || (member.role !== "owner" && member.role !== "admin")) {
-    return writeError("forbidden", 403)
+  if (!member) return writeError("forbidden", 403)
+
+  const isAdmin = canManageServer(member.role)
+  const isCreator = channel.creatorId === ctx.userId
+
+  if (!isAdmin && !isCreator) return writeError("forbidden", 403)
+
+  if (!isAdmin && channel.categoryId) {
+    const category = await queries.communityCategory.getCategory(db, channel.categoryId)
+    if (category?.private) return writeError("forbidden", 403)
   }
 
   const deleted = await queries.communityChannel.deleteChannel(db, channelId)
