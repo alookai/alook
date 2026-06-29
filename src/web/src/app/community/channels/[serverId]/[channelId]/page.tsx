@@ -257,6 +257,7 @@ export default function ChannelPage() {
     )
   }
   if (isAtMe && dm) {
+    const dmBlocked = ctx.blocked.some((b) => (b.userId ?? b.id) === dm.userId)
     return (
       <>
         <DmHeader
@@ -269,11 +270,10 @@ export default function ChannelPage() {
             messages={ctx.messages}
             typingUsers={ctx.typingUsers.map((id) => ctx.friends.find((f) => f.userId === id)?.name ?? id)}
             onOpenThread={() => {}}
-            onToggleReaction={messageActions.onToggleReaction}
-            onReact={messageActions.onReact}
-            onReply={messageActions.onReply}
+            onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
+            onReact={dmBlocked ? undefined : messageActions.onReact}
             onCopy={messageActions.onCopy}
-            onRetry={messageActions.onRetry}
+            onRetry={dmBlocked ? undefined : messageActions.onRetry}
             onOpenProfile={openProfile}
             resolveUserName={resolveUserName}
             scrollToMessageId={scrollToMessageId}
@@ -285,13 +285,19 @@ export default function ChannelPage() {
               </>
             }
           />
-          <Composer
-            channel={dm.name}
-            thread
-            members={ctx.friends}
-            onSend={sendDmMsg}
-            onTyping={handleTyping}
-          />
+          {dmBlocked ? (
+            <div className="flex h-14 shrink-0 items-center justify-center border-t border-border/40 px-4 text-sm text-muted-foreground">
+              You have blocked this user. Unblock to send messages.
+            </div>
+          ) : (
+            <Composer
+              channel={dm.name}
+              thread
+              members={ctx.friends}
+              onSend={sendDmMsg}
+              onTyping={handleTyping}
+            />
+          )}
         </main>
       </>
     )

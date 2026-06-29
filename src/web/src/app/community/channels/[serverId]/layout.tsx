@@ -256,12 +256,15 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   )
   const inboxHasUnread = ctx.inboxFeed?.some((f) => f.unread) ?? false
 
+  const blockedUserIds = useMemo(() => new Set(ctx.blocked.map((b) => b.userId ?? b.id)), [ctx.blocked])
+
   // ── Left sidebar rendering ────────────────────────────────────────────────
   const sidebar = (opts: { noHeader?: boolean } = {}) =>
     isAtMe || view === "dm" ? (
       <DmSidebar
         dms={ctx.dms ?? []}
         activeDm={ctx.currentChannelId}
+        blockedUserIds={blockedUserIds}
         onPickDm={enterDm}
         onShowFriends={() => { ctx.setCurrentChannelId(null); router.push("/community/channels/@me"); if (bp === "mobile") setMobileZone("messages") }}
       />

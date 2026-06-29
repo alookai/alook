@@ -1,15 +1,15 @@
 "use client"
 
-import { Users } from "lucide-react"
+import { Users, Ban } from "lucide-react"
 import { Avatar } from "./avatar"
 import type { DM } from "./_types"
 
-// DM list sidebar (@me view).
 export function DmSidebar({
-  dms, activeDm, onPickDm, onShowFriends,
+  dms, activeDm, blockedUserIds, onPickDm, onShowFriends,
 }: {
   dms: DM[]
   activeDm: string | null
+  blockedUserIds?: Set<string>
   onPickDm: (id: string) => void
   onShowFriends: () => void
 }) {
@@ -34,6 +34,7 @@ export function DmSidebar({
         )}
         {dms.map((d) => {
           const active = d.id === activeDm
+          const isBlocked = blockedUserIds?.has(d.userId)
           return (
             <button
               key={d.id}
@@ -43,12 +44,13 @@ export function DmSidebar({
                 active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
               ].join(" ")}
             >
-              <Avatar label={d.avatar} size={32} presence={d.status} />
+              <Avatar label={d.avatar} size={32} presence={isBlocked ? undefined : d.status} />
               <div className="min-w-0 flex-1 text-left">
                 <div className="truncate text-sm leading-tight text-foreground">{d.name}</div>
                 <div className="truncate text-xs leading-tight text-muted-foreground">{d.preview}</div>
               </div>
-              {d.unread && <span className="size-2 shrink-0 rounded-full bg-primary" />}
+              {isBlocked && <Ban className="size-4 shrink-0 text-destructive" />}
+              {!isBlocked && d.unread && <span className="size-2 shrink-0 rounded-full bg-primary" />}
             </button>
           )
         })}

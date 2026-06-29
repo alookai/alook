@@ -12,6 +12,7 @@ import {
 } from "react"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
+import { ApiError } from "@/lib/errors"
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
 import type {
   Server,
@@ -888,9 +889,15 @@ export function CommunityProvider({
         body: JSON.stringify({ content, attachments: opts?.attachments }),
       })
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: result.message.id } : m)))
-    } catch {
-      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, failed: true } : m)))
-      toast("Failed to send message")
+    } catch (err) {
+      const isBlocked = err instanceof ApiError && err.status === 403 && err.message === "blocked"
+      if (isBlocked) {
+        setMessages((prev) => prev.filter((m) => m.id !== tempId))
+        toast("You cannot send messages to this user")
+      } else {
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, failed: true } : m)))
+        toast("Failed to send message")
+      }
     }
   }, [])
 

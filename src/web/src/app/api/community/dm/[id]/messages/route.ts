@@ -79,7 +79,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   // Check if blocked
   const blocked = await queries.communityFriendship.isBlocked(db, ctx.userId, otherUserId!)
-  if (blocked) return writeError("forbidden", 403)
+  if (blocked) return writeError("blocked", 403)
 
   let body: { content: string; replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }
   try {

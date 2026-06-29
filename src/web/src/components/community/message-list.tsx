@@ -108,13 +108,13 @@ export function MessageList({
                       onOpenThread={onOpenThread}
                       onOpenProfile={onOpenProfile}
                       onJumpReply={() => m.replyTo && jumpTo(m.replyTo.id)}
-                      onToggleReaction={(emoji) => onToggleReaction?.(m.id, emoji)}
-                      onReact={(emoji) => onReact?.(m.id, emoji)}
-                      onReply={() => onReply?.(m.id)}
-                      onPin={() => onPin?.(m.id)}
-                      onCreateThread={() => onCreateThread?.(m.id)}
-                      onCopy={() => onCopy?.(m.id)}
-                      onRetry={() => onRetry?.(m.id)}
+                      onToggleReaction={onToggleReaction ? (emoji) => onToggleReaction(m.id, emoji) : undefined}
+                      onReact={onReact ? (emoji) => onReact(m.id, emoji) : undefined}
+                      onReply={onReply ? () => onReply(m.id) : undefined}
+                      onPin={onPin ? () => onPin(m.id) : undefined}
+                      onCreateThread={onCreateThread ? () => onCreateThread(m.id) : undefined}
+                      onCopy={onCopy ? () => onCopy(m.id) : undefined}
+                      onRetry={onRetry ? () => onRetry(m.id) : undefined}
                       onPreviewImage={onPreviewImage}
                       onDownloadFile={onDownloadFile}
                       highlighted={jumped === m.id}
