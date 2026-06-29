@@ -18,7 +18,7 @@ import type { Msg, OpenProfile } from "./_types"
 export function Message({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onCreateThread, onCopy, onRetry,
-  onPreviewImage, onDownloadFile, highlighted,
+  onPreviewImage, onDownloadFile, highlighted, resolveUserName,
 }: {
   m: Msg
   compact?: boolean
@@ -36,6 +36,7 @@ export function Message({
   onPreviewImage?: (name: string) => void
   onDownloadFile?: (name: string) => void
   highlighted?: boolean
+  resolveUserName?: (userId: string) => string
 }) {
   // keep the hover toolbar pinned open while its ⋯ dropdown is open
   const [toolbarOpen, setToolbarOpen] = useState(false)
@@ -234,6 +235,7 @@ export function Message({
                 <button
                   key={i}
                   onClick={() => onToggleReaction?.(r.emoji)}
+                  title={r.userIds?.length ? r.userIds.map((id) => resolveUserName?.(id) ?? id).join(", ") : undefined}
                   className={[
                     "flex h-6 items-center gap-1 rounded-md px-1.5 text-sm",
                     r.me ? "border border-primary/50 bg-accent" : "bg-secondary",

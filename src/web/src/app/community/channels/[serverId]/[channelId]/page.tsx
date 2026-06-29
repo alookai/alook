@@ -158,6 +158,11 @@ export default function ChannelPage() {
     },
   }
 
+  const resolveUserName = useCallback((userId: string) => {
+    const m = ctx.members.find((x) => x.userId === userId)
+    return m?.name ?? userId
+  }, [ctx.members])
+
   // ── Send messages ───────────────────────────────────────────────────────
   const sendMessage = async (markdown: string, attachments?: File[]) => {
     if (!markdown && !attachments?.length) return
@@ -306,6 +311,7 @@ export default function ChannelPage() {
               onOpenThread={() => {}}
               {...messageActions}
               onOpenProfile={openProfile}
+              resolveUserName={resolveUserName}
             />
             <Composer
               channel={channelName}
@@ -371,6 +377,7 @@ export default function ChannelPage() {
             onOpenThread={enterThread}
             {...messageActions}
             onOpenProfile={openProfile}
+            resolveUserName={resolveUserName}
           />
           <Composer
             channel={channelName}

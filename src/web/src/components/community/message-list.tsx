@@ -14,6 +14,7 @@ export function MessageList({
   channel, messages, pinnedIds, newDividerBefore, typingUsers, onOpenThread, onOpenProfile,
   onToggleReaction, onReact,
   onReply, onPin, onCreateThread, onCopy, onRetry, onPreviewImage, onDownloadFile,
+  resolveUserName,
 }: {
   channel: string
   messages: Msg[]
@@ -31,6 +32,7 @@ export function MessageList({
   onRetry?: (id: string) => void
   onPreviewImage?: (name: string) => void
   onDownloadFile?: (name: string) => void
+  resolveUserName?: (userId: string) => string
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -106,6 +108,7 @@ export function MessageList({
                       onPreviewImage={onPreviewImage}
                       onDownloadFile={onDownloadFile}
                       highlighted={jumped === m.id}
+                      resolveUserName={resolveUserName}
                     />
                   </div>
                 ))}

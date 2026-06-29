@@ -51,16 +51,17 @@ export function groupAttachments(
 export function groupReactions(
   reactions: Array<{ messageId: string; emoji: string; userId: string }>,
   currentUserId: string
-): Record<string, Array<{ emoji: string; count: number; me: boolean }>> {
-  const map: Record<string, Array<{ emoji: string; count: number; me: boolean }>> = {}
+): Record<string, Array<{ emoji: string; count: number; me: boolean; userIds: string[] }>> {
+  const map: Record<string, Array<{ emoji: string; count: number; me: boolean; userIds: string[] }>> = {}
   for (const r of reactions) {
     const list = (map[r.messageId] ??= [])
     const existing = list.find((x) => x.emoji === r.emoji)
     if (existing) {
       existing.count++
+      existing.userIds.push(r.userId)
       if (r.userId === currentUserId) existing.me = true
     } else {
-      list.push({ emoji: r.emoji, count: 1, me: r.userId === currentUserId })
+      list.push({ emoji: r.emoji, count: 1, me: r.userId === currentUserId, userIds: [r.userId] })
     }
   }
   return map

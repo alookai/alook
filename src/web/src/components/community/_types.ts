@@ -91,7 +91,7 @@ export type Embed = {
   author?: { name: string; url?: string; iconUrl?: string }
 }
 
-export type Reaction = { emoji: string; count: number; me: boolean }
+export type Reaction = { emoji: string; count: number; me: boolean; userIds?: string[] }
 
 export type Msg = {
   id: string // nanoid

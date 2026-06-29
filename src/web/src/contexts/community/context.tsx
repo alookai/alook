@@ -552,23 +552,24 @@ export function CommunityProvider({
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== event.messageId) return m
-          const reactions = (m.reactions ?? []).map((r) => ({ ...r }))
+          const reactions = (m.reactions ?? []).map((r) => ({ ...r, userIds: [...(r.userIds ?? [])] }))
           if (event.type === "community:reaction.add") {
             const existing = reactions.find((r) => r.emoji === event.emoji)
             if (existing) {
-              existing.count += 1
+              if (!existing.userIds.includes(event.userId)) {
+                existing.userIds.push(event.userId)
+                existing.count = existing.userIds.length
+              }
               if (event.userId === currentUserRef.current.id) existing.me = true
             } else {
-              reactions.push({ emoji: event.emoji, count: 1, me: event.userId === currentUserRef.current.id })
+              reactions.push({ emoji: event.emoji, count: 1, me: event.userId === currentUserRef.current.id, userIds: [event.userId] })
             }
           } else {
             const idx = reactions.findIndex((r) => r.emoji === event.emoji)
             if (idx !== -1) {
-              reactions[idx] = {
-                ...reactions[idx],
-                count: reactions[idx].count - 1,
-                me: event.userId === currentUserRef.current.id ? false : reactions[idx].me,
-              }
+              reactions[idx].userIds = reactions[idx].userIds.filter((id) => id !== event.userId)
+              reactions[idx].count = reactions[idx].userIds.length
+              if (event.userId === currentUserRef.current.id) reactions[idx].me = false
               if (reactions[idx].count <= 0) reactions.splice(idx, 1)
             }
           }
@@ -886,18 +887,26 @@ export function CommunityProvider({
     }
   }, [])
 
+  const reactionDebounce = useRef<Set<string>>(new Set())
   const toggleReaction = useCallback((messageId: string, emoji: string) => {
+    const key = `${messageId}:${emoji}`
+    if (reactionDebounce.current.has(key)) return
+    reactionDebounce.current.add(key)
+    setTimeout(() => reactionDebounce.current.delete(key), 300)
+
+    const userId = currentUserRef.current.id
     let wasMe = false
     setMessages((prev) => {
       const msg = prev.find((m) => m.id === messageId)
       wasMe = msg?.reactions?.find((r) => r.emoji === emoji)?.me ?? false
       return prev.map((m) => {
         if (m.id !== messageId) return m
-        const reactions = (m.reactions ?? []).map((r) => ({ ...r }))
+        const reactions = (m.reactions ?? []).map((r) => ({ ...r, userIds: [...(r.userIds ?? [])] }))
         const existing = reactions.find((r) => r.emoji === emoji)
         if (wasMe) {
           if (existing) {
-            existing.count -= 1
+            existing.userIds = existing.userIds.filter((id) => id !== userId)
+            existing.count = existing.userIds.length
             existing.me = false
             if (existing.count <= 0) {
               const idx = reactions.indexOf(existing)
@@ -905,10 +914,11 @@ export function CommunityProvider({
             }
           }
         } else if (existing) {
-          existing.count += 1
+          existing.userIds.push(userId)
+          existing.count = existing.userIds.length
           existing.me = true
         } else {
-          reactions.push({ emoji, count: 1, me: true })
+          reactions.push({ emoji, count: 1, me: true, userIds: [userId] })
         }
         return { ...m, reactions }
       })
