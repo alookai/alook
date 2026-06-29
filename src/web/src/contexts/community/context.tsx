@@ -887,8 +887,11 @@ export function CommunityProvider({
     }
   }, [])
 
+  const reactionTimers = useRef<Map<string, { timer: NodeJS.Timeout; originalMe: boolean }>>(new Map())
   const toggleReaction = useCallback((messageId: string, emoji: string) => {
     const userId = currentUserRef.current.id
+    const key = `${messageId}:${emoji}`
+
     let wasMe = false
     setMessages((prev) => {
       const msg = prev.find((m) => m.id === messageId)
@@ -902,10 +905,7 @@ export function CommunityProvider({
             existing.userIds = existing.userIds.filter((id) => id !== userId)
             existing.count = existing.userIds.length
             existing.me = false
-            if (existing.count <= 0) {
-              const idx = reactions.indexOf(existing)
-              reactions.splice(idx, 1)
-            }
+            if (existing.count <= 0) reactions.splice(reactions.indexOf(existing), 1)
           }
         } else if (existing) {
           existing.userIds.push(userId)
@@ -917,15 +917,27 @@ export function CommunityProvider({
         return { ...m, reactions }
       })
     })
-    const url = `/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`
-    const method = wasMe ? "DELETE" : "PUT"
-    apiFetch(url, { method }).catch(() => {
-      setMessages((prev) => {
-        return prev.map((m) => {
+
+    const pending = reactionTimers.current.get(key)
+    if (pending) {
+      clearTimeout(pending.timer)
+      if (pending.originalMe === !wasMe) {
+        reactionTimers.current.delete(key)
+        return
+      }
+    }
+
+    const originalMe = pending?.originalMe ?? wasMe
+    const timer = setTimeout(() => {
+      reactionTimers.current.delete(key)
+      const url = `/api/community/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`
+      const method = originalMe ? "DELETE" : "PUT"
+      apiFetch(url, { method }).catch(() => {
+        setMessages((prev) => prev.map((m) => {
           if (m.id !== messageId) return m
           const reactions = (m.reactions ?? []).map((r) => ({ ...r, userIds: [...(r.userIds ?? [])] }))
           const existing = reactions.find((r) => r.emoji === emoji)
-          if (wasMe) {
+          if (originalMe) {
             if (existing) {
               existing.userIds.push(userId)
               existing.count = existing.userIds.length
@@ -937,15 +949,13 @@ export function CommunityProvider({
             existing.userIds = existing.userIds.filter((id) => id !== userId)
             existing.count = existing.userIds.length
             existing.me = false
-            if (existing.count <= 0) {
-              const idx = reactions.indexOf(existing)
-              reactions.splice(idx, 1)
-            }
+            if (existing.count <= 0) reactions.splice(reactions.indexOf(existing), 1)
           }
           return { ...m, reactions }
-        })
+        }))
       })
-    })
+    }, 300)
+    reactionTimers.current.set(key, { timer, originalMe })
   }, [])
 
   const pinMessage = useCallback((messageId: string) => {
