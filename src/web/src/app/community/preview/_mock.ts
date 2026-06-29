@@ -88,7 +88,7 @@ export const MESSAGES: Msg[] = [
       desc: "Your AI agents, always on. Give them an email, let them work for you around the clock.",
       image: { url: "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=600&q=80" },
     }],
-    reactions: [{ emoji: "👍", count: 3, me: true }],
+    reactions: [{ emoji: "👍", count: 3, me: true, userIds: ["u_gener", "u_gus", "u_lindsay"] }],
     thread: { id: "thr_research", name: "Research team setup", messageCount: 3 },
   },
   {
@@ -103,7 +103,7 @@ export const MESSAGES: Msg[] = [
     id: "m4", authorName: "Lindsay", createdAt: "2026-06-24T21:42:00Z", authorAvatar: "L",
     replyTo: { id: "m3", authorName: "Gus", text: "is there a template for a research team?" },
     content: "Yes — check the Templates page, there's a Research Analyst preset. Deploys in a minute.",
-    reactions: [{ emoji: "🔥", count: 2, me: false }, { emoji: "🙏", count: 1, me: false }],
+    reactions: [{ emoji: "🔥", count: 2, me: false, userIds: ["u_gus", "u_tomy"] }, { emoji: "🙏", count: 1, me: false, userIds: ["u_gus"] }],
   },
   {
     id: "m5", authorName: "Gener", createdAt: "2026-06-24T21:45:00Z", authorAvatar: "G",

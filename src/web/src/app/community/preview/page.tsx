@@ -268,9 +268,13 @@ export default function CommunityPreview() {
     setMessages((prev) => prev.map((m) => {
       if (m.id !== id) return m
       const existing = m.reactions?.find((r) => r.emoji === emoji)
-      if (!existing) return { ...m, reactions: [...(m.reactions ?? []), { emoji, count: 1, me: true }] }
+      if (!existing) return { ...m, reactions: [...(m.reactions ?? []), { emoji, count: 1, me: true, userIds: ["u_gener"] }] }
       const reactions = m.reactions!
-        .map((r) => r.emoji === emoji ? { ...r, me: !r.me, count: r.count + (r.me ? -1 : 1) } : r)
+        .map((r) => {
+          if (r.emoji !== emoji) return r
+          const userIds = r.me ? (r.userIds ?? []).filter((uid) => uid !== "u_gener") : [...(r.userIds ?? []), "u_gener"]
+          return { ...r, me: !r.me, count: userIds.length, userIds }
+        })
         .filter((r) => r.count > 0)
       return { ...m, reactions }
     }))
