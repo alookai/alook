@@ -1,6 +1,7 @@
 packages:
   - "src/shared"
   - "src/cli"
+  - "src/daemon"
   - "src/web"
   - "src/email-worker"
   - "src/ws-do"

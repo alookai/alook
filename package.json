@@ -23,6 +23,7 @@
     "dev:send": "node -e \"const c=require('crypto');const a=process.argv.slice(1);const[f,t,s='Test',b='Hello from dev']=a;if(!f||!t){console.error('Usage: pnpm dev:send <from> <to> [subject] [body]');process.exit(1)}const raw=['From: '+f,'To: '+t,'Subject: '+s,'Message-ID: <'+c.randomUUID()+'@dev.local>','Date: '+new Date().toUTCString(),'MIME-Version: 1.0','Content-Type: text/plain; charset=utf-8','',b].join('\\r\\n');fetch('http://localhost:8787/cdn-cgi/handler/email?from='+encodeURIComponent(f)+'&to='+encodeURIComponent(t),{method:'POST',headers:{'Content-Type':'application/json'},body:raw}).then(r=>{if(r.ok)console.log('Email delivered to worker');else return r.text().then(t=>{throw new Error(t)})}).catch(e=>console.error('Email worker not running?',e.message))\"",
     "test:shared": "pnpm --filter @alook/shared test",
     "test:cli": "pnpm --filter @alook/cli test",
+    "test:daemon": "pnpm --filter @alook/daemon test",
     "test:web": "pnpm --filter @alook/web test",
     "test:e2e": "pnpm --filter @alook/web test:e2e",
     "db:migrate": "pnpm --filter @alook/web exec wrangler d1 migrations apply alook-app --local",
