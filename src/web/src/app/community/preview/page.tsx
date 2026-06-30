@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button"
 // Data lives in ./_mock (disposable); shared types in @/components/community/_types.
 import {
   SERVERS, CATEGORIES, MESSAGES, NEW_DIVIDER_BEFORE, PINNED, SEARCH_RESULTS,
-  THREADS, FORUM_POSTS, FORUM_TAGS, MEMBERS, FRIENDS, PENDING, BLOCKED, DMS,
+  THREADS, THREAD_MESSAGES, FORUM_POSTS, FORUM_TAGS, MEMBERS, FRIENDS, PENDING, BLOCKED, DMS, DM_MESSAGES,
   PROFILES, INVITES, AUDIT_LOG, MENTIONS, FOR_YOU_FEED, UNREAD_SERVERS, MOCK_FOLDERS,
 } from "./_mock"
 import type { RightPanel, MobileZone, View, SettingsSection, Msg, PendingRequest, BlockedUser, ForumPost, Profile, Thread, Role, DM } from "@/components/community/_types"
@@ -47,7 +47,6 @@ import { DmHeader } from "@/components/community/dm-header"
 import { MessageList } from "@/components/community/message-list"
 import { Composer } from "@/components/community/composer"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
-import { ThreadMessages } from "@/components/community/thread-messages"
 import { ForumView } from "@/components/community/forum-view"
 import { Avatar } from "@/components/community/avatar"
 import { FriendsPage } from "@/components/community/friends-page"
@@ -80,6 +79,11 @@ export default function CommunityPreview() {
   const [forumPosts, setForumPosts] = useState(FORUM_POSTS)
   const [threads, setThreads] = useState(THREADS)
   const [dmList, setDmList] = useState<DM[]>(DMS)
+  // Per-surface message streams. Mirrors the live app, where opening a DM or
+  // child channel loads its messages into `ctx.messages`; here we keep them
+  // keyed by surface id so each takeover view reads from the same shape.
+  const [threadMessages, setThreadMessages] = useState<Record<string, Msg[]>>(THREAD_MESSAGES)
+  const [dmMessages, setDmMessages] = useState<Record<string, Msg[]>>(DM_MESSAGES)
   const [memberList, setMemberList] = useState(MEMBERS)
   const [serverName, setServerName] = useState("Alook")
   const [notifLevel, setNotifLevel] = useState("Only @mentions")
@@ -150,15 +154,17 @@ export default function CommunityPreview() {
   const profileMessage = (name: string, text: string) => {
     let target = dmList.find((d) => d.name === name)
     if (!target) {
-      target = { id: `dm_${name.toLowerCase()}`, userId: `u_${name.toLowerCase()}`, name, avatar: name.charAt(0).toUpperCase(), status: "online" as const, preview: text.slice(0, 40), messages: [] }
+      target = { id: `dm_${name.toLowerCase()}`, userId: `u_${name.toLowerCase()}`, name, avatar: name.charAt(0).toUpperCase(), status: "online" as const, preview: text.slice(0, 40) }
       setDmList((prev) => [target!, ...prev])
     }
-    setDmList((prev) => prev.map((d) => d.id !== target!.id ? d : {
-      ...d, preview: text.slice(0, 40),
-      messages: [...d.messages, { id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: text }],
+    const dmId = target.id
+    setDmList((prev) => prev.map((d) => d.id !== dmId ? d : { ...d, preview: text.slice(0, 40) }))
+    setDmMessages((prev) => ({
+      ...prev,
+      [dmId]: [...(prev[dmId] ?? []), { id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: text }],
     }))
     setView("dm")
-    setActiveDm(target!.id)
+    setActiveDm(dmId)
     setProfile(null)
     if (bp === "mobile") setMobileZone("messages")
   }
@@ -208,9 +214,9 @@ export default function CommunityPreview() {
         authorName: opts?.anchor?.authorName ?? "Gener",
         text: opts?.anchor?.content ?? name,
       },
-      messages: seed,
     }
     setThreads((prev) => [t, ...prev])
+    setThreadMessages((prev) => ({ ...prev, [id]: seed }))
     setCreatingThread(false)
     enterThread(id)
   }
@@ -235,22 +241,20 @@ export default function CommunityPreview() {
     setReplyTo(null)
   }
 
-  // send into the open thread — appends to the thread's message array (live: POST to thread)
+  // send into the open thread — appends to the thread's message stream (live: POST to thread)
   const sendThreadMessage = (markdown: string) => {
     if (!markdown || !openThreadId) return
-    setThreads((prev) => prev.map((t) => t.id !== openThreadId ? t : {
-      ...t,
-      messageCount: t.messageCount + 1,
-      lastMessageAt: new Date().toISOString(),
-      messages: [...t.messages, { id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: markdown }],
+    const tid = openThreadId
+    const now = new Date().toISOString()
+    setThreadMessages((prev) => ({
+      ...prev,
+      [tid]: [...(prev[tid] ?? []), { id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: now, content: markdown }],
     }))
+    setThreads((prev) => prev.map((t) => t.id !== tid ? t : { ...t, messageCount: t.messageCount + 1, lastMessageAt: now }))
     setForumPosts((prev) => {
       const next = { ...prev }
       for (const [ch, posts] of Object.entries(next))
-        next[ch] = posts.map((p) => p.id !== openThreadId ? p : {
-          ...p, messageCount: p.messageCount + 1, lastMessageAt: new Date().toISOString(),
-          messages: [...p.messages, { id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: markdown }],
-        })
+        next[ch] = posts.map((p) => p.id !== tid ? p : { ...p, messageCount: p.messageCount + 1, lastMessageAt: now })
       return next
     })
   }
@@ -258,10 +262,11 @@ export default function CommunityPreview() {
   // send into a DM conversation
   const sendDmMessage = (markdown: string) => {
     if (!markdown || !activeDm) return
-    setDmList((prev) => prev.map((d) => d.id !== activeDm ? d : {
-      ...d,
-      preview: markdown.slice(0, 40),
-      messages: [...d.messages, { id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: markdown }],
+    const dmId = activeDm
+    setDmList((prev) => prev.map((d) => d.id !== dmId ? d : { ...d, preview: markdown.slice(0, 40) }))
+    setDmMessages((prev) => ({
+      ...prev,
+      [dmId]: [...(prev[dmId] ?? []), { id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: markdown }],
     }))
   }
 
@@ -360,13 +365,17 @@ export default function CommunityPreview() {
   let postSeq = 0
   const createForumPost = (post: { name: string; content: string; tags: string[] }) => {
     const id = `fp_local_${++postSeq}`
+    const now = new Date().toISOString()
     const created: ForumPost = {
-      id, name: post.name, authorAvatar: "G", messageCount: 1, lastMessageAt: new Date().toISOString(),
+      id, name: post.name, authorAvatar: "G", messageCount: 1, lastMessageAt: now,
       tags: post.tags, preview: post.content || "(no description)",
       parent: { authorName: "Gener", text: post.content || post.name },
-      messages: [{ id: `${id}_1`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: post.content || post.name }],
     }
     setForumPosts((prev) => ({ ...prev, [activeChannel]: [created, ...(prev[activeChannel] ?? [])] }))
+    setThreadMessages((prev) => ({
+      ...prev,
+      [id]: [{ id: `${id}_1`, authorName: "Gener", authorAvatar: "G", createdAt: now, content: post.content || post.name }],
+    }))
     toast(`Posted “${post.name}”`)
   }
 
@@ -425,7 +434,12 @@ export default function CommunityPreview() {
             }}
           />
           <main className="flex min-h-0 flex-1 flex-col">
-            <ThreadMessages thread={openThread} {...profileProps} />
+            <MessageList
+              channel={openThread.name}
+              messages={threadMessages[openThread.id] ?? []}
+              onOpenThread={() => {}}
+              {...profileProps}
+            />
             <Composer channel={openThread.name} context="thread" members={friendList} onSend={sendThreadMessage} />
           </main>
         </>
@@ -438,7 +452,7 @@ export default function CommunityPreview() {
           <main className="flex min-h-0 flex-1 flex-col">
             <MessageList
               channel={dm.name}
-              messages={dm.messages}
+              messages={dmMessages[dm.id] ?? []}
               onOpenThread={() => {}}
               {...profileProps}
               hero={

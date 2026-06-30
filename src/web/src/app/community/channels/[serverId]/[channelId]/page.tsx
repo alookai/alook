@@ -186,7 +186,8 @@ export default function ChannelPage() {
   }
 
   // DM endpoint ignores mentionType (no roster to fan out to), so the third
-  // arg is accepted to match the Composer signature and dropped.
+  // arg is accepted to match the Composer signature and dropped. Replies are
+  // supported — the backend persists `replyToId` for DMs too.
   const sendDmMsg = async (markdown: string, attachments?: File[]) => {
     if (!markdown && !attachments?.length) return
     if (!channelId) return
@@ -201,8 +202,10 @@ export default function ChannelPage() {
     }
 
     ctx.sendDmMessage(channelId, markdown || "", {
+      replyToId: replyTo?.id,
       attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
     })
+    setReplyTo(null)
   }
 
   // ── Send typing ─────────────────────────────────────────────────────────
@@ -303,6 +306,8 @@ export default function ChannelPage() {
               members={ctx.friends}
               onSend={sendDmMsg}
               onTyping={handleTyping}
+              replyingTo={replyTo?.authorName}
+              onCancelReply={() => setReplyTo(null)}
             />
           )}
         </main>

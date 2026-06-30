@@ -164,11 +164,6 @@ export const THREADS: Thread[] = [
     messageCount: 3,
     lastMessageAt: "2026-06-24T21:36:00Z",
     parent: { authorName: "Gener", text: "👋 Welcome to the Alook Community!" },
-    messages: [
-      { id: "t1", authorName: "Gus", createdAt: "2026-06-24T21:33:00Z", authorAvatar: "Gu", content: "what roles should the research team have?" },
-      { id: "t2", authorName: "Lindsay", createdAt: "2026-06-24T21:35:00Z", authorAvatar: "L", content: "Analyst, Summarizer, and a Fact-checker works well. Give each its own `@inbox`." },
-      { id: "t3", authorName: "Gener", createdAt: "2026-06-24T21:36:00Z", authorAvatar: "G", content: "nice — shipping that preset 🚀" },
-    ],
   },
   {
     id: "thr_billing",
@@ -176,10 +171,6 @@ export const THREADS: Thread[] = [
     messageCount: 5,
     lastMessageAt: "2026-06-24T20:12:00Z",
     parent: { authorName: "jgtech", text: "how do per-agent usage limits work?" },
-    messages: [
-      { id: "b1", authorName: "jgtech", createdAt: "2026-06-24T20:05:00Z", authorAvatar: "j", content: "is there a cap on messages per agent?" },
-      { id: "b2", authorName: "Gener", createdAt: "2026-06-24T20:12:00Z", authorAvatar: "G", content: "Soft limits per plan — you can raise them in **Settings → Usage**." },
-    ],
   },
   {
     id: "thr_selfhost",
@@ -187,9 +178,6 @@ export const THREADS: Thread[] = [
     messageCount: 2,
     lastMessageAt: "2026-06-23T15:30:00Z",
     parent: { authorName: "distagon", text: "anyone running this on their own Workers account?" },
-    messages: [
-      { id: "s1", authorName: "lucky tomy", createdAt: "2026-06-23T15:30:00Z", authorAvatar: "t", content: "yep — `wrangler deploy` and point D1 + R2 at your own buckets." },
-    ],
   },
 ]
 
@@ -200,30 +188,49 @@ export const FORUM_POSTS: Record<string, ForumPost[]> = {
       id: "fp_smtp", name: "Custom SMTP keeps timing out", authorAvatar: "j", messageCount: 6, lastMessageAt: "2026-06-25T09:50:00Z",
       tags: ["email", "bug"], preview: "I set up a custom SMTP relay but sends time out after ~30s…",
       parent: { authorName: "jgtech", text: "I set up a custom SMTP relay but sends time out after ~30s. Anyone seen this?" },
-      messages: [
-        { id: "fp_smtp_1", authorName: "jgtech", createdAt: "2026-06-25T09:02:00Z", authorAvatar: "j", content: "I set up a custom SMTP relay but sends time out after ~30s. Anyone seen this?" },
-        { id: "fp_smtp_2", authorName: "Lindsay", createdAt: "2026-06-25T09:08:00Z", authorAvatar: "L", content: "Check the port — `587` with STARTTLS works, `465` sometimes hangs on Workers." },
-        { id: "fp_smtp_3", authorName: "jgtech", createdAt: "2026-06-25T09:14:00Z", authorAvatar: "j", content: "587 fixed it 🙏 thank you!" },
-      ],
     },
     {
       id: "fp_preset", name: "Share your best agent presets", authorAvatar: "L", messageCount: 23, lastMessageAt: "2026-06-25T09:00:00Z",
       tags: ["showcase"], preview: "Drop your favorite agent setups here — let's build a library.",
       parent: { authorName: "Lindsay", text: "Drop your favorite agent setups here — let's build a library." },
-      messages: [
-        { id: "fp_preset_1", authorName: "Lindsay", createdAt: "2026-06-25T07:00:00Z", authorAvatar: "L", content: "Drop your favorite agent setups here — let's build a library." },
-        { id: "fp_preset_2", authorName: "Gus", createdAt: "2026-06-25T07:20:00Z", authorAvatar: "Gu", content: "Research Analyst + Fact-checker combo has been 🔥 for me" },
-      ],
     },
     {
       id: "fp_pricing", name: "How do per-agent limits scale?", authorAvatar: "A", messageCount: 4, lastMessageAt: "2026-06-25T07:30:00Z",
       tags: ["question", "billing"], preview: "Trying to understand how message limits work across a team…",
       parent: { authorName: "Azzo", text: "Trying to understand how message limits work across a team of agents." },
-      messages: [
-        { id: "fp_pricing_1", authorName: "Azzo", createdAt: "2026-06-25T06:30:00Z", authorAvatar: "A", content: "Trying to understand how message limits work across a team of agents." },
-        { id: "fp_pricing_2", authorName: "Gener", createdAt: "2026-06-25T06:45:00Z", authorAvatar: "G", content: "Limits are per-workspace, pooled across agents. Raise them in **Settings → Usage**." },
-      ],
     },
+  ],
+}
+
+// Mock message streams for threads, forum posts, and DMs. The live app loads
+// these into `ctx.messages` once the user navigates into the surface; the
+// preview keeps them keyed by surface id so the takeover view can read them
+// the same way (look up the active id → get a message list).
+export const THREAD_MESSAGES: Record<string, Msg[]> = {
+  thr_research: [
+    { id: "t1", authorName: "Gus", createdAt: "2026-06-24T21:33:00Z", authorAvatar: "Gu", content: "what roles should the research team have?" },
+    { id: "t2", authorName: "Lindsay", createdAt: "2026-06-24T21:35:00Z", authorAvatar: "L", content: "Analyst, Summarizer, and a Fact-checker works well. Give each its own `@inbox`." },
+    { id: "t3", authorName: "Gener", createdAt: "2026-06-24T21:36:00Z", authorAvatar: "G", content: "nice — shipping that preset 🚀" },
+  ],
+  thr_billing: [
+    { id: "b1", authorName: "jgtech", createdAt: "2026-06-24T20:05:00Z", authorAvatar: "j", content: "is there a cap on messages per agent?" },
+    { id: "b2", authorName: "Gener", createdAt: "2026-06-24T20:12:00Z", authorAvatar: "G", content: "Soft limits per plan — you can raise them in **Settings → Usage**." },
+  ],
+  thr_selfhost: [
+    { id: "s1", authorName: "lucky tomy", createdAt: "2026-06-23T15:30:00Z", authorAvatar: "t", content: "yep — `wrangler deploy` and point D1 + R2 at your own buckets." },
+  ],
+  fp_smtp: [
+    { id: "fp_smtp_1", authorName: "jgtech", createdAt: "2026-06-25T09:02:00Z", authorAvatar: "j", content: "I set up a custom SMTP relay but sends time out after ~30s. Anyone seen this?" },
+    { id: "fp_smtp_2", authorName: "Lindsay", createdAt: "2026-06-25T09:08:00Z", authorAvatar: "L", content: "Check the port — `587` with STARTTLS works, `465` sometimes hangs on Workers." },
+    { id: "fp_smtp_3", authorName: "jgtech", createdAt: "2026-06-25T09:14:00Z", authorAvatar: "j", content: "587 fixed it 🙏 thank you!" },
+  ],
+  fp_preset: [
+    { id: "fp_preset_1", authorName: "Lindsay", createdAt: "2026-06-25T07:00:00Z", authorAvatar: "L", content: "Drop your favorite agent setups here — let's build a library." },
+    { id: "fp_preset_2", authorName: "Gus", createdAt: "2026-06-25T07:20:00Z", authorAvatar: "Gu", content: "Research Analyst + Fact-checker combo has been 🔥 for me" },
+  ],
+  fp_pricing: [
+    { id: "fp_pricing_1", authorName: "Azzo", createdAt: "2026-06-25T06:30:00Z", authorAvatar: "A", content: "Trying to understand how message limits work across a team of agents." },
+    { id: "fp_pricing_2", authorName: "Gener", createdAt: "2026-06-25T06:45:00Z", authorAvatar: "G", content: "Limits are per-workspace, pooled across agents. Raise them in **Settings → Usage**." },
   ],
 }
 
@@ -264,28 +271,31 @@ export const DMS: DM[] = [
   {
     id: "dm_lindsay", userId: "u_lindsay", name: "Lindsay", avatar: "L", status: "online",
     preview: "shipping that preset 🚀", unread: true,
-    messages: [
-      { id: "d1", authorName: "Lindsay", createdAt: "2026-06-24T21:50:00Z", authorAvatar: "L", content: "hey! saw your research preset — looks great" },
-      { id: "d2", authorName: "Gener", createdAt: "2026-06-24T21:51:00Z", authorAvatar: "G", content: "thanks! still tuning the **fact-checker** role" },
-      { id: "d3", authorName: "Lindsay", createdAt: "2026-06-24T21:52:00Z", authorAvatar: "L", content: "want me to test it on the Q2 report?" },
-    ],
   },
   {
     id: "dm_gus", userId: "u_gus", name: "Gus", avatar: "Gu", status: "online",
     preview: "the email-per-agent thing is wild",
-    messages: [
-      { id: "g1", authorName: "Gus", createdAt: "2026-06-24T20:30:00Z", authorAvatar: "Gu", content: "can I forward an email straight to an agent?" },
-      { id: "g2", authorName: "Gener", createdAt: "2026-06-24T20:31:00Z", authorAvatar: "G", content: "yep — each agent has its own address. just CC it." },
-    ],
   },
   {
     id: "dm_tomy", userId: "u_tomy", name: "lucky tomy", avatar: "t", status: "offline",
     preview: "wrangler deploy and you're set",
-    messages: [
-      { id: "y1", authorName: "lucky tomy", createdAt: "2026-06-23T14:00:00Z", authorAvatar: "t", content: "self-hosting was easier than I expected" },
-    ],
   },
 ]
+
+export const DM_MESSAGES: Record<string, Msg[]> = {
+  dm_lindsay: [
+    { id: "d1", authorName: "Lindsay", createdAt: "2026-06-24T21:50:00Z", authorAvatar: "L", content: "hey! saw your research preset — looks great" },
+    { id: "d2", authorName: "Gener", createdAt: "2026-06-24T21:51:00Z", authorAvatar: "G", content: "thanks! still tuning the **fact-checker** role" },
+    { id: "d3", authorName: "Lindsay", createdAt: "2026-06-24T21:52:00Z", authorAvatar: "L", content: "want me to test it on the Q2 report?" },
+  ],
+  dm_gus: [
+    { id: "g1", authorName: "Gus", createdAt: "2026-06-24T20:30:00Z", authorAvatar: "Gu", content: "can I forward an email straight to an agent?" },
+    { id: "g2", authorName: "Gener", createdAt: "2026-06-24T20:31:00Z", authorAvatar: "G", content: "yep — each agent has its own address. just CC it." },
+  ],
+  dm_tomy: [
+    { id: "y1", authorName: "lucky tomy", createdAt: "2026-06-23T14:00:00Z", authorAvatar: "t", content: "self-hosting was easier than I expected" },
+  ],
+}
 
 export const PROFILES: Record<string, Profile> = {
   Gener: { name: "Gener", avatar: "G", role: "Owner", about: "Building Alook. Coffee, agents, and warm gray UIs.", mutual: 3, tags: ["Owner"] },

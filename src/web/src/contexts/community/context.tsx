@@ -151,9 +151,7 @@ export type CommunityContextValue = {
 
   // Mutations
   sendMessage: (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<string | null>
-  sendDmMessage: (dmId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
-  sendThreadMessage: (threadId: string, content: string, opts?: { mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
-  fetchThreadMessages: (threadId: string) => Promise<void>
+  sendDmMessage: (dmId: string, content: string, opts?: { replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
   toggleReaction: (messageId: string, emoji: string) => void
   pinMessage: (messageId: string) => void
   unpinMessage: (messageId: string) => void
@@ -334,6 +332,8 @@ export function CommunityProvider({
   currentServerIdRef.current = currentServerId
   const currentChannelIdRef = useRef(currentChannelId)
   currentChannelIdRef.current = currentChannelId
+  const currentChannelMetaRef = useRef(currentChannelMeta)
+  currentChannelMetaRef.current = currentChannelMeta
   const currentServerRef = useRef(currentServer)
   currentServerRef.current = currentServer
 
@@ -653,12 +653,6 @@ export function CommunityProvider({
     onDm: useCallback((event: CommunityDmNewMessage | CommunityDmTyping) => {
       if (event.type === "community:dm.new_message") {
         const msg = event.message
-        const attachments = msg.attachments?.map((a: { filename: string; url: string; contentType?: string; size?: number }) => {
-          const isImage = a.contentType?.startsWith("image/")
-          return isImage
-            ? { kind: "image" as const, name: a.filename, url: a.url }
-            : { kind: "file" as const, name: a.filename, url: a.url, size: a.size ? `${Math.round(a.size / 1024)} KB` : "" }
-        })
         setDms((prev) => {
           const exists = prev.some((d) => d.id === event.dmConversationId)
           if (!exists) {
@@ -668,15 +662,7 @@ export function CommunityProvider({
           return prev.map((d) =>
             d.id !== event.dmConversationId
               ? d
-              : {
-                  ...d,
-                  preview: msg.content.slice(0, 40),
-                  unread: true,
-                  messages: [
-                    ...d.messages,
-                    { id: msg.id, authorName: msg.authorName, authorAvatar: msg.authorAvatar, content: msg.content, createdAt: msg.createdAt, ...(attachments?.length ? { attachments } : {}) },
-                  ],
-                }
+              : { ...d, preview: msg.content.slice(0, 40), unread: true },
           )
         })
       }
@@ -867,10 +853,19 @@ export function CommunityProvider({
 
   // ── Mutation functions ───────────────────────────────────────────────────
 
-  const sendMessage = useCallback(async (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }): Promise<string | null> => {
-    const cid = currentChannelIdRef.current
-    const sid = currentServerIdRef.current
-    if (!cid || sid === "@me") return null
+  // Post a message into `ctx.messages` (the currently-focused channel/dm view) with
+  // optimistic insert + id reconciliation. The two callers below differ only in the
+  // endpoint and response shape — channel/thread POSTs return `{ message: { id } }`,
+  // DM POSTs return `{ message: { id } }`. Reply-to + attachment handling is shared.
+  const postWithOptimisticInsert = useCallback(async (
+    url: string,
+    body: Record<string, unknown>,
+    opts?: {
+      replyToId?: string
+      attachments?: { url: string; filename: string; contentType: string; size: number }[]
+      onBlocked?: (tempId: string) => void
+    },
+  ): Promise<string | null> => {
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
     const optimisticAttachments = opts?.attachments?.map((a) => {
       const isImage = a.contentType.startsWith("image/")
@@ -878,6 +873,7 @@ export function CommunityProvider({
         ? { kind: "image" as const, name: a.filename, url: a.url }
         : { kind: "file" as const, name: a.filename, url: a.url, size: `${Math.round(a.size / 1024)} KB` }
     })
+    const content = typeof body.content === "string" ? body.content : ""
     setMessages((prev) => {
       let replyTo: { id: string; authorName: string; text: string } | undefined
       if (opts?.replyToId) {
@@ -898,105 +894,54 @@ export function CommunityProvider({
       ]
     })
     try {
-      const result = await apiFetch<{ message: { id: string } }>(`/api/community/channels/${cid}/messages`, {
+      const result = await apiFetch<{ message: { id: string } }>(url, {
         method: "POST",
-        body: JSON.stringify({ content, replyToId: opts?.replyToId, mentionType: opts?.mentionType, attachments: opts?.attachments }),
+        body: JSON.stringify(body),
       })
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: result.message.id } : m)))
       return result.message.id
-    } catch {
+    } catch (err) {
+      if (opts?.onBlocked && err instanceof ApiError && err.status === 403 && err.message === "blocked") {
+        setMessages((prev) => prev.filter((m) => m.id !== tempId))
+        opts.onBlocked(tempId)
+        return null
+      }
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, failed: true } : m)))
       toast("Failed to send message")
       return null
     }
   }, [])
 
-  const sendDmMessage = useCallback(async (dmId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
-    const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
-    const optimisticAttachments = opts?.attachments?.map((a) => {
-      const isImage = a.contentType.startsWith("image/")
-      return isImage
-        ? { kind: "image" as const, name: a.filename, url: a.url }
-        : { kind: "file" as const, name: a.filename, url: a.url, size: `${Math.round(a.size / 1024)} KB` }
-    })
-    setMessages((prev) => [
-      ...prev,
-      { id: tempId, authorName: currentUserRef.current.name, authorAvatar: currentUserRef.current.avatar, content, createdAt: new Date().toISOString(), ...(optimisticAttachments?.length ? { attachments: optimisticAttachments } : {}) },
-    ])
-    setDms((prev) => prev.map((d) => (d.id !== dmId ? d : { ...d, preview: content.slice(0, 40) })))
-    try {
-      const result = await apiFetch<{ message: { id: string } }>(`/api/community/dm/${dmId}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ content, attachments: opts?.attachments }),
-      })
-      setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: result.message.id } : m)))
-    } catch (err) {
-      const isBlocked = err instanceof ApiError && err.status === 403 && err.message === "blocked"
-      if (isBlocked) {
-        setMessages((prev) => prev.filter((m) => m.id !== tempId))
-        toast("You cannot send messages to this user")
-      } else {
-        setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, failed: true } : m)))
-        toast("Failed to send message")
-      }
-    }
-  }, [])
-
-  const sendThreadMessage = useCallback(async (threadId: string, content: string, opts?: { mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
-    // Optimistic update
-    const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
-    const optimisticAttachments = opts?.attachments?.map((a) => {
-      const isImage = a.contentType.startsWith("image/")
-      return isImage
-        ? { kind: "image" as const, name: a.filename, url: a.url }
-        : { kind: "file" as const, name: a.filename, url: a.url, size: `${Math.round(a.size / 1024)} KB` }
-    })
-    const optimisticMsg: Msg = {
-      id: tempId,
-      authorName: currentUserRef.current.name,
-      authorAvatar: currentUserRef.current.avatar,
+  const sendMessage = useCallback(async (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }): Promise<string | null> => {
+    const cid = currentChannelIdRef.current
+    const sid = currentServerIdRef.current
+    if (!cid || sid === "@me") return null
+    // Child channels (threads + forum posts) route through the thread endpoint so
+    // the parent fans out CHILD_CHANNEL_UPDATE; top-level channels go direct.
+    const meta = currentChannelMetaRef.current
+    const url = meta?.parentChannelId
+      ? `/api/community/threads/${cid}/messages`
+      : `/api/community/channels/${cid}/messages`
+    return postWithOptimisticInsert(url, {
       content,
-      createdAt: new Date().toISOString(),
-      ...(optimisticAttachments?.length ? { attachments: optimisticAttachments } : {}),
-    }
-    const updateMessages = (setter: typeof setThreads | typeof setForumPosts) => {
-      setter((prev: any[]) => prev.map((t: any) => t.id !== threadId ? t : { ...t, messages: [...t.messages, optimisticMsg] }))
-    }
-    updateMessages(setThreads)
-    updateMessages(setForumPosts)
-    try {
-      const result = await apiFetch<{ id: string }>(`/api/community/threads/${threadId}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ content, mentionType: opts?.mentionType, attachments: opts?.attachments }),
-      })
-      // Replace temp id with real id
-      const replaceId = (setter: typeof setThreads | typeof setForumPosts) => {
-        setter((prev: any[]) => prev.map((t: any) => t.id !== threadId ? t : { ...t, messages: t.messages.map((m: any) => m.id === tempId ? { ...m, id: result.id ?? m.id } : m) }))
-      }
-      replaceId(setThreads)
-      replaceId(setForumPosts)
-    } catch {
-      // Remove optimistic message on failure
-      const removeTemp = (setter: typeof setThreads | typeof setForumPosts) => {
-        setter((prev: any[]) => prev.map((t: any) => t.id !== threadId ? t : { ...t, messages: t.messages.filter((m: any) => m.id !== tempId) }))
-      }
-      removeTemp(setThreads)
-      removeTemp(setForumPosts)
-      toast("Failed to send message")
-    }
-  }, [])
+      replyToId: opts?.replyToId,
+      mentionType: opts?.mentionType,
+      attachments: opts?.attachments,
+    }, { replyToId: opts?.replyToId, attachments: opts?.attachments })
+  }, [postWithOptimisticInsert])
 
-  const fetchThreadMessages = useCallback(async (threadId: string) => {
-    try {
-      const data = await apiFetch<{ messages: Msg[] }>(`/api/community/threads/${threadId}/messages`)
-      const msgs = data.messages
-      // Update messages in both threads and forumPosts
-      setThreads((prev) => prev.map((t) => t.id !== threadId ? t : { ...t, messages: msgs }))
-      setForumPosts((prev) => prev.map((p) => p.id !== threadId ? p : { ...p, messages: msgs }))
-    } catch {
-      // silent
-    }
-  }, [])
+  const sendDmMessage = useCallback(async (dmId: string, content: string, opts?: { replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
+    setDms((prev) => prev.map((d) => (d.id !== dmId ? d : { ...d, preview: content.slice(0, 40) })))
+    await postWithOptimisticInsert(
+      `/api/community/dm/${dmId}/messages`,
+      { content, replyToId: opts?.replyToId, attachments: opts?.attachments },
+      {
+        replyToId: opts?.replyToId,
+        attachments: opts?.attachments,
+        onBlocked: () => toast("You cannot send messages to this user"),
+      },
+    )
+  }, [postWithOptimisticInsert])
 
   const reactionTimers = useRef<Map<string, { timer: NodeJS.Timeout; originalMe: boolean }>>(new Map())
   const toggleReaction = useCallback((messageId: string, emoji: string) => {
@@ -1734,8 +1679,6 @@ export function CommunityProvider({
       channelNotif,
       sendMessage,
       sendDmMessage,
-      sendThreadMessage,
-      fetchThreadMessages,
       toggleReaction,
       pinMessage,
       unpinMessage,
@@ -1805,7 +1748,7 @@ export function CommunityProvider({
       dms, dmsLoading, messages, messagesLoading, hasMoreMessages, loadMoreMessages,
       threads, threadsLoading, forumPosts, forumPostsLoading, pinned, pinnedLoading,
       invites, auditLog, forYouFeed, unreadFeed, mentions, onlineUserIds, typingUsers, folders,
-      notifLevel, channelNotif, sendMessage, sendDmMessage, sendThreadMessage,
+      notifLevel, channelNotif, sendMessage, sendDmMessage,
       toggleReaction, pinMessage, unpinMessage, createThread, sendFriendRequest,
       acceptFriendRequest, rejectFriendRequest, removeFriend, blockUser, unblockUser,
       createServer, joinServer, leaveServer, setMemberRole, kickMember,

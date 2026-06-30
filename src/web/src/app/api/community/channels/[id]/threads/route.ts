@@ -46,7 +46,6 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
         messageCount: t.messageCount ?? 0,
         lastMessageAt: t.lastMessageAt ?? t.createdAt,
         parent,
-        messages: [],
       }
     })
   )

@@ -112,13 +112,15 @@ export type Msg = {
 }
 
 // ── Threads / forum ──────────────────────────────────────────────────────────
+// Thread/forum-post summaries shown in side panels and forum lists. Actual
+// message content for a thread or post is loaded into `ctx.messages` once the
+// user navigates into the child channel — these summaries don't carry messages.
 export type Thread = {
   id: string // nanoid
   name: string
   messageCount: number
   lastMessageAt: string
   parent: { authorName: string; text: string }
-  messages: Msg[]
 }
 
 export type ForumPost = Thread & {
@@ -161,6 +163,9 @@ export type PendingRequest = {
 
 export type BlockedUser = { id: string; userId?: string; name: string; avatar: string }
 
+// DM summary shown in the DM sidebar. Actual conversation history is loaded
+// into `ctx.messages` once the user opens the DM — DM summaries don't carry
+// inline messages.
 export type DM = {
   id: string // nanoid
   userId: string
@@ -169,7 +174,6 @@ export type DM = {
   status: Presence
   preview: string
   unread?: boolean
-  messages: Msg[]
 }
 
 // ── Profile ──────────────────────────────────────────────────────────────────

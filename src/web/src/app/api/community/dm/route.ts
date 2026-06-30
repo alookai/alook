@@ -15,7 +15,6 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
     avatar: r.otherUserImage ?? (r.otherUserName ?? "?").charAt(0).toUpperCase(),
     status: "offline" as const,
     preview: "",
-    messages: [],
   }))
   return writeJSON({ conversations })
 })
