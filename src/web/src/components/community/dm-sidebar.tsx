@@ -1,10 +1,11 @@
 "use client"
 
+import { memo } from "react"
 import { Users, Ban } from "lucide-react"
 import { Avatar } from "./avatar"
 import type { DM } from "./_types"
 
-export function DmSidebar({
+export const DmSidebar = memo(function DmSidebar({
   dms, activeDm, blockedUserIds, onPickDm, onShowFriends,
 }: {
   dms: DM[]
@@ -57,4 +58,4 @@ export function DmSidebar({
       </div>
     </aside>
   )
-}
+})

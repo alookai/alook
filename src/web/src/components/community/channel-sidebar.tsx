@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { memo, useState } from "react"
 import { Settings, Users, Link2, Bell, ScrollText, ChevronDown } from "lucide-react"
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
@@ -29,7 +29,7 @@ type Dialog =
 // useChannelTree. The category gear/right-click opens settings; "+" (or empty-space
 // right-click) creates; channels right-click to edit/delete. A private category only
 // lets admins create channels — non-admins are blocked via onBlockedCreate.
-export function ChannelSidebar({
+export const ChannelSidebar = memo(function ChannelSidebar({
   tree, serverName, activeChannel, setActiveChannel, noHeader, onOpenSettings,
   isAdmin = true, currentUserId, onBlockedCreate, mutedChannels,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
@@ -212,4 +212,4 @@ export function ChannelSidebar({
       )}
     </aside>
   )
-}
+})

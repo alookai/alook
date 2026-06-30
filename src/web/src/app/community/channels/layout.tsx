@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
@@ -79,10 +79,38 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     [ctx.servers, serverId, folderServerIds]
   )
 
-  const goHome = () => { setView("dm"); setMobileZone("channels"); router.push("/community/channels/@me") }
-  const goServer = () => { setView("server"); setMobileZone("channels") }
+  const goHome = useCallback(() => {
+    setView("dm"); setMobileZone("channels"); router.push("/community/channels/@me")
+  }, [router])
+  const goServer = useCallback(() => { setView("server"); setMobileZone("channels") }, [])
 
-  const railProps = {
+  const onRailServerNavigate = useCallback((id: string) => { router.push(`/community/channels/${id}`) }, [router])
+  const onRailCreateServer = useCallback(async (name: string, icon?: File) => {
+    const newId = await ctx.createServer(name)
+    if (newId) {
+      if (icon) ctx.uploadServerIcon(newId, icon)
+      router.push(`/community/channels/${newId}`)
+    }
+  }, [ctx.createServer, ctx.uploadServerIcon, router])
+  const onRailJoinServer = useCallback(async (invite: string) => {
+    const newId = await ctx.joinServer(invite)
+    if (newId) router.push(`/community/channels/${newId}`)
+  }, [ctx.joinServer, router])
+  const onRailLeaveServer = useCallback((id: string) => { ctx.leaveServer(id) }, [ctx.leaveServer])
+  const onRailOpenSettings = useCallback((id?: string) => {
+    if (id && id !== serverId) {
+      router.push(`/community/channels/${id}?settings=1`)
+    } else {
+      setServerSettingsOpen(true)
+    }
+  }, [serverId, router])
+  const onRailUngroupFolder = useCallback((fId: string) => { ctx.deleteServerFolder(fId) }, [ctx.deleteServerFolder])
+  const onRailReorderRail = useCallback((ids: string[]) => { ctx.reorderServers(ids) }, [ctx.reorderServers])
+  const onRailReorderFolders = useCallback((ids: string[]) => { ctx.reorderFolders(ids) }, [ctx.reorderFolders])
+  const onRailFolderItemsChange = useCallback((fId: string, ids: string[]) => { ctx.updateFolderItems(fId, ids) }, [ctx.updateFolderItems])
+  const onRailDragCreateFolder = useCallback((a: string, b: string) => { ctx.createServerFolderWith(a, b) }, [ctx.createServerFolderWith])
+
+  const railProps = useMemo(() => ({
     servers: railServers,
     folders: ctx.folders,
     activeServerId: isAtMe ? undefined : serverId,
@@ -91,94 +119,123 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     view,
     onHome: goHome,
     onServer: goServer,
-    onServerNavigate: (id: string) => { router.push(`/community/channels/${id}`) },
-    onCreateServer: async (name: string, icon?: File) => {
-      const newId = await ctx.createServer(name)
-      if (newId) {
-        if (icon) ctx.uploadServerIcon(newId, icon)
-        router.push(`/community/channels/${newId}`)
-      }
-    },
-    onJoinServer: async (invite: string) => {
-      const newId = await ctx.joinServer(invite)
-      if (newId) router.push(`/community/channels/${newId}`)
-    },
-    onLeaveServer: (id: string) => { ctx.leaveServer(id) },
-    onOpenSettings: (id?: string) => {
-      if (id && id !== serverId) {
-        router.push(`/community/channels/${id}?settings=1`)
-      } else {
-        setServerSettingsOpen(true)
-      }
-    },
-    onUngroupFolder: (fId: string) => { ctx.deleteServerFolder(fId) },
-    onReorderRail: (ids: string[]) => { ctx.reorderServers(ids) },
-    onReorderFolders: (ids: string[]) => { ctx.reorderFolders(ids) },
-    onFolderItemsChange: (fId: string, ids: string[]) => { ctx.updateFolderItems(fId, ids) },
-    onDragCreateFolder: (a: string, b: string) => { ctx.createServerFolderWith(a, b) },
-  }
+    onServerNavigate: onRailServerNavigate,
+    onCreateServer: onRailCreateServer,
+    onJoinServer: onRailJoinServer,
+    onLeaveServer: onRailLeaveServer,
+    onOpenSettings: onRailOpenSettings,
+    onUngroupFolder: onRailUngroupFolder,
+    onReorderRail: onRailReorderRail,
+    onReorderFolders: onRailReorderFolders,
+    onFolderItemsChange: onRailFolderItemsChange,
+    onDragCreateFolder: onRailDragCreateFolder,
+  }), [
+    railServers, ctx.folders, isAtMe, serverId, ctx.serversLoading, view,
+    goHome, goServer, onRailServerNavigate, onRailCreateServer, onRailJoinServer,
+    onRailLeaveServer, onRailOpenSettings, onRailUngroupFolder, onRailReorderRail,
+    onRailReorderFolders, onRailFolderItemsChange, onRailDragCreateFolder,
+  ])
 
   // ── Channel sidebar props ─────────────────────────────────────────────────
   const myMember = ctx.members.find((m) => m.userId === ctx.currentUser.id)
   const isAdmin = canManageServer(myMember?.role)
-  const channelProps = {
+
+  const setActiveChannel = useCallback((id: string) => {
+    router.push(`/community/channels/${serverId}/${id}`)
+    ctx.setCurrentChannelId(id)
+    ctx.markChannelRead(id)
+    channelTree.markRead(id)
+    if (bp === "mobile") setMobileZone("messages")
+  }, [router, serverId, ctx.setCurrentChannelId, ctx.markChannelRead, channelTree.markRead, bp])
+
+  const onSidebarOpenSettings = useCallback((section?: SettingsSection) => {
+    if (section) setSettingsSection(section)
+    setServerSettingsOpen(true)
+  }, [])
+
+  const onBlockedCreate = useCallback(() => {
+    toast("Only admins can create channels in a private category")
+  }, [])
+
+  const mutedChannels = useMemo(
+    () => Object.fromEntries(
+      Object.entries(ctx.channelNotif).map(([k, v]) => [k, v === "Nothing"])
+    ),
+    [ctx.channelNotif]
+  )
+
+  const onCreateChannelInSidebar = useCallback((categoryId: string, name: string, type: ChannelType) => {
+    ctx.createChannel(serverId, categoryId, name, type)
+  }, [ctx.createChannel, serverId])
+  const onCreateCategoryInSidebar = useCallback((name: string, opts?: { private?: boolean }) => {
+    ctx.createCategory(serverId, name, opts)
+  }, [ctx.createCategory, serverId])
+  const onRenameChannel = useCallback(async (channelId: string, name: string) => {
+    try {
+      await apiFetch(`/api/community/channels/${channelId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      })
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Failed to rename channel")
+    }
+  }, [])
+  const onDeleteChannelInSidebar = useCallback((channelId: string) => {
+    ctx.deleteChannel(channelId)
+  }, [ctx.deleteChannel])
+  const onDeleteCategoryInSidebar = useCallback((categoryId: string) => {
+    ctx.deleteCategory(serverId, categoryId)
+  }, [ctx.deleteCategory, serverId])
+  const onUpdateCategoryInSidebar = useCallback((categoryId: string, opts: { name?: string; isPrivate?: boolean }) => {
+    ctx.updateCategory(serverId, categoryId, opts)
+  }, [ctx.updateCategory, serverId])
+  const onReorderCategoriesInSidebar = useCallback((categoryIds: string[]) => {
+    ctx.reorderCategories(serverId, categoryIds)
+  }, [ctx.reorderCategories, serverId])
+  const onReorderChannelsInSidebar = useCallback((channelIds: string[]) => {
+    ctx.reorderChannels(serverId, channelIds)
+  }, [ctx.reorderChannels, serverId])
+
+  const channelProps = useMemo(() => ({
     tree: channelTree,
     serverName: ctx.currentServer?.name ?? "",
     activeChannel: ctx.currentChannelMeta?.parentChannelId ?? ctx.currentChannelId ?? "",
     isAdmin,
     currentUserId: ctx.currentUser.id,
-    setActiveChannel: (id: string) => {
-      router.push(`/community/channels/${serverId}/${id}`)
-      ctx.setCurrentChannelId(id)
-      ctx.markChannelRead(id)
-      channelTree.markRead(id)
-      if (bp === "mobile") setMobileZone("messages")
-    },
-    onOpenSettings: isAdmin ? (section?: SettingsSection) => { if (section) setSettingsSection(section); setServerSettingsOpen(true) } : undefined,
-    onBlockedCreate: () => toast("Only admins can create channels in a private category"),
-    mutedChannels: Object.fromEntries(
-      Object.entries(ctx.channelNotif).map(([k, v]) => [k, v === "Nothing"])
-    ),
-    onCreateChannel: (categoryId: string, name: string, type: ChannelType) => {
-      ctx.createChannel(serverId, categoryId, name, type)
-    },
-    onCreateCategory: (name: string, opts?: { private?: boolean }) => {
-      ctx.createCategory(serverId, name, opts)
-    },
-    onRenameChannel: async (channelId: string, name: string) => {
-      try {
-        await apiFetch(`/api/community/channels/${channelId}`, {
-          method: "PATCH",
-          body: JSON.stringify({ name }),
-        })
-      } catch (e) {
-        toast(e instanceof Error ? e.message : "Failed to rename channel")
-      }
-    },
-    onDeleteChannel: (channelId: string) => {
-      ctx.deleteChannel(channelId)
-    },
-    onDeleteCategory: (categoryId: string) => {
-      ctx.deleteCategory(serverId, categoryId)
-    },
-    onUpdateCategory: (categoryId: string, opts: { name?: string; isPrivate?: boolean }) => {
-      ctx.updateCategory(serverId, categoryId, opts)
-    },
-    onReorderCategories: (categoryIds: string[]) => {
-      ctx.reorderCategories(serverId, categoryIds)
-    },
-    onReorderChannels: (channelIds: string[]) => {
-      ctx.reorderChannels(serverId, channelIds)
-    },
-  }
+    setActiveChannel,
+    onOpenSettings: isAdmin ? onSidebarOpenSettings : undefined,
+    onBlockedCreate,
+    mutedChannels,
+    onCreateChannel: onCreateChannelInSidebar,
+    onCreateCategory: onCreateCategoryInSidebar,
+    onRenameChannel,
+    onDeleteChannel: onDeleteChannelInSidebar,
+    onDeleteCategory: onDeleteCategoryInSidebar,
+    onUpdateCategory: onUpdateCategoryInSidebar,
+    onReorderCategories: onReorderCategoriesInSidebar,
+    onReorderChannels: onReorderChannelsInSidebar,
+  }), [
+    channelTree, ctx.currentServer?.name, ctx.currentChannelMeta?.parentChannelId,
+    ctx.currentChannelId, isAdmin, ctx.currentUser.id, setActiveChannel,
+    onSidebarOpenSettings, onBlockedCreate, mutedChannels,
+    onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel,
+    onDeleteChannelInSidebar, onDeleteCategoryInSidebar, onUpdateCategoryInSidebar,
+    onReorderCategoriesInSidebar, onReorderChannelsInSidebar,
+  ])
 
   // ── DM sidebar props ──────────────────────────────────────────────────────
-  const enterDm = (id: string) => {
+  const enterDm = useCallback((id: string) => {
     ctx.setCurrentChannelId(id)
     ctx.markDmRead(id)
     router.push(`/community/channels/@me/${id}`)
     if (bp === "mobile") setMobileZone("messages")
-  }
+  }, [ctx.setCurrentChannelId, ctx.markDmRead, router, bp])
+
+  const onShowFriends = useCallback(() => {
+    ctx.setCurrentChannelId(null)
+    router.push("/community/channels/@me")
+    if (bp === "mobile") setMobileZone("messages")
+  }, [ctx.setCurrentChannelId, router, bp])
 
   // ── Profile card ──────────────────────────────────────────────────────────
   const openProfile = (name: string, e: React.MouseEvent) => {
@@ -267,7 +324,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         activeDm={ctx.currentChannelId}
         blockedUserIds={blockedUserIds}
         onPickDm={enterDm}
-        onShowFriends={() => { ctx.setCurrentChannelId(null); router.push("/community/channels/@me"); if (bp === "mobile") setMobileZone("messages") }}
+        onShowFriends={onShowFriends}
       />
     ) : (
       <ChannelSidebar {...channelProps} {...opts} />

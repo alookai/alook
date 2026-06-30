@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { arrayMove } from "@dnd-kit/sortable"
 import type { DragEndEvent } from "@dnd-kit/core"
 import type { Category, Channel } from "./_types"
@@ -112,31 +112,38 @@ export function useChannelTree(categories: Category[]) {
     setCatCreators(Object.fromEntries(categories.map((c) => [c.id, c.creatorId ?? null])))
   }, [categories])
 
-  const toggleCat = (id: string) =>
+  const toggleCat = useCallback((id: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
-    })
+    }), [])
 
-  const removeChannel = (id: string) =>
-    setOrder((prev) => removeChannelFrom(prev, id))
-  const renameChannel = (id: string, name: string) =>
+  const removeChannel = useCallback((id: string) =>
+    setOrder((prev) => removeChannelFrom(prev, id)), [])
+  const renameChannel = useCallback((id: string, name: string) =>
     setOrder((prev) => {
       const cat = catOf(id, prev)
       if (!cat) return prev
       return { ...prev, [cat]: prev[cat].map((c) => c.id === id ? { ...c, name } : c) }
-    })
-  const markRead = (id: string) =>
+    }), [])
+  const markRead = useCallback((id: string) =>
     setOrder((prev) => {
       const cat = catOf(id, prev)
       if (!cat) return prev
       return { ...prev, [cat]: prev[cat].map((c) => c.id === id ? { ...c, unread: false } : c) }
-    })
-  const removeCategory = (id: string) => {
-    // Find the "none" category (empty name) to move orphaned channels to
-    const noneCatId = Object.keys(catNames).find((k) => catNames[k] === "") ?? catOrder[0]
+    }), [])
+  // Refs for removeCategory — depends on current catNames/catOrder but we don't want
+  // its identity to churn every time those change.
+  const catNamesRef = useRef(catNames)
+  catNamesRef.current = catNames
+  const catOrderRef = useRef(catOrder)
+  catOrderRef.current = catOrder
+  const removeCategory = useCallback((id: string) => {
+    const names = catNamesRef.current
+    const order = catOrderRef.current
+    const noneCatId = Object.keys(names).find((k) => names[k] === "") ?? order[0]
     setCatOrder((prev) => prev.filter((cid) => cid !== id))
     setOrder((prev) => {
       const { [id]: channels, ...rest } = prev
@@ -145,30 +152,36 @@ export function useChannelTree(categories: Category[]) {
     })
     setCatNames((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== id)))
     setCatPrivate((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== id)))
-  }
-  const setCategoryPrivate = (id: string, isPrivate: boolean) =>
-    setCatPrivate((prev) => ({ ...prev, [id]: isPrivate }))
+  }, [])
+  const setCategoryPrivate = useCallback((id: string, isPrivate: boolean) =>
+    setCatPrivate((prev) => ({ ...prev, [id]: isPrivate })), [])
 
-  const onDragOver = (e: DragEndEvent) => {
+  const onDragOver = useCallback((e: DragEndEvent) => {
     const { active, over } = e
     if (!over || isCat(String(active.id))) return // category drags handled on drop
     setOrder((prev) => moveChannelAcrossCategories(prev, String(active.id), String(over.id)))
-  }
+  }, [])
 
-  const onDragEnd = (e: DragEndEvent) => {
+  const onDragEnd = useCallback((e: DragEndEvent) => {
     const { active, over } = e
     if (!over || active.id === over.id) return
-    // category drag → reorder categories (channels ride along since they live in `order`)
     if (isCat(String(active.id)) && isCat(String(over.id))) {
       setCatOrder((prev) => reorderCategories(prev, String(active.id), String(over.id)))
       return
     }
     if (isCat(String(active.id))) return
-    // channel drag → settle order within the destination category
     setOrder((prev) => reorderChannelsWithin(prev, String(active.id), String(over.id)))
-  }
+  }, [])
 
-  return { collapsed, catOrder, order, catNames, catPrivate, catCreators, toggleCat, removeChannel, renameChannel, markRead, removeCategory, setCategoryPrivate, onDragOver, onDragEnd }
+  return useMemo(() => ({
+    collapsed, catOrder, order, catNames, catPrivate, catCreators,
+    toggleCat, removeChannel, renameChannel, markRead, removeCategory,
+    setCategoryPrivate, onDragOver, onDragEnd,
+  }), [
+    collapsed, catOrder, order, catNames, catPrivate, catCreators,
+    toggleCat, removeChannel, renameChannel, markRead, removeCategory,
+    setCategoryPrivate, onDragOver, onDragEnd,
+  ])
 }
 
 export type ChannelTree = ReturnType<typeof useChannelTree>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react"
 import { Plus } from "lucide-react"
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragOverlay,
@@ -15,7 +15,7 @@ import { CreateServerDialog } from "./create-server-dialog"
 import { useRailOrder, isFolderKey, extractFolderId } from "./use-rail-order"
 import type { Server, CommunityFolder, MobileZone, View } from "./_types"
 
-export function ServerRail({
+export const ServerRail = memo(function ServerRail({
   servers, folders, activeServerId: activeServerIdProp, serversLoading, setMobileZone, view, bottomInset,
   onHome, onServer, onServerNavigate, onCreateServer, onJoinServer, onLeaveServer,
   onOpenSettings, onUngroupFolder, onReorderRail, onReorderFolders, onFolderItemsChange, onDragCreateFolder,
@@ -234,4 +234,4 @@ export function ServerRail({
       )}
     </nav>
   )
-}
+})
