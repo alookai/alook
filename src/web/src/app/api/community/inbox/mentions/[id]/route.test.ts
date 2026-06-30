@@ -39,12 +39,21 @@ describe("DELETE /api/community/inbox/mentions/{id}", () => {
   beforeEach(() => vi.clearAllMocks())
 
   it("deletes the mention scoped to the current user", async () => {
-    mockDeleteMention.mockResolvedValue(undefined)
+    // The query returns the number of rows affected; a real hit returns 1.
+    mockDeleteMention.mockResolvedValue(1)
     const res = await DELETE(new NextRequest("http://localhost/api/community/inbox/mentions/mn1", { method: "DELETE" }), {
       params: { id: "mn1" },
     } as never)
     expect(res.status).toBe(200)
     expect(mockDeleteMention).toHaveBeenCalledWith({}, "u1", "mn1")
+  })
+
+  it("404 when the mention does not exist or belongs to another user", async () => {
+    mockDeleteMention.mockResolvedValue(0)
+    const res = await DELETE(new NextRequest("http://localhost/api/community/inbox/mentions/mn1", { method: "DELETE" }), {
+      params: { id: "mn1" },
+    } as never)
+    expect(res.status).toBe(404)
   })
 
   it("400 when mention id is missing from route params", async () => {
