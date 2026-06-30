@@ -45,7 +45,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
         {ch.type === "forum" ? (
           <MessagesSquare className="size-4.5" />
         ) : (
-          <ChannelIcon className="size-4.5" />
+          <ChannelIcon className="h-4.5" />
         )}
       </span>
       <span className="truncate font-semibold">{ch.name}</span>

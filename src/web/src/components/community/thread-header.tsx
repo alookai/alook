@@ -32,7 +32,7 @@ export function ThreadHeader({ thread, channelName = "welcome", forum, onClose, 
           <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
         )}
         <Button variant="ghost" size="sm" onClick={onClose} className="-mr-1 gap-1.5 px-1.5 text-base font-medium text-muted-foreground hover:text-foreground">
-          {forum ? <MessagesSquare className="size-5" /> : <ChannelIcon className="size-5 text-muted-foreground" />}
+          {forum ? <MessagesSquare className="size-5" /> : <ChannelIcon className="h-5 text-muted-foreground" />}
           {channelName}
         </Button>
         <ChevronRight className="size-4 shrink-0 text-muted-foreground" />

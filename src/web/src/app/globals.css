@@ -61,28 +61,28 @@
 }
 
 :root {
-  --app-bg: oklch(0.91 0.02 80);
+  --app-bg: oklch(0.955 0.008 80);
   --background: oklch(1 0 0);
-  --foreground: oklch(0.18 0.01 60);
+  --foreground: oklch(0.18 0.03 230);
   --card: oklch(1 0.003 80);
-  --card-foreground: oklch(0.18 0.01 60);
+  --card-foreground: oklch(0.18 0.03 230);
   --popover: oklch(1 0.003 80);
-  --popover-foreground: oklch(0.18 0.01 60);
-  --primary: oklch(0.25 0.012 60);
+  --popover-foreground: oklch(0.18 0.03 230);
+  --primary: oklch(0.22 0.03 230);
   --primary-foreground: oklch(0.985 0.005 80);
-  --secondary: oklch(0.965 0.006 80);
-  --secondary-foreground: oklch(0.25 0.012 60);
+  --secondary: oklch(0.96 0.006 80);
+  --secondary-foreground: oklch(0.22 0.03 230);
   --shimmer: rgba(0, 0, 0, 0.06);
   --shimmer-peak: rgba(0, 0, 0, 0.12);
   --bubble-glow: rgba(255, 255, 255, 0.5);
-  --muted: oklch(0.94 0.02 80);
-  --muted-foreground: oklch(0.52 0.01 60);
-  --accent: oklch(0.92 0.012 80);
-  --accent-foreground: oklch(0.25 0.012 60);
+  --muted: oklch(0.925 0.012 80);
+  --muted-foreground: oklch(0.44 0.03 230);
+  --accent: oklch(0.94 0.008 80);
+  --accent-foreground: oklch(0.22 0.03 230);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.915 0.008 80);
-  --input: oklch(0.915 0.008 80);
-  --ring: oklch(0.68 0.01 60);
+  --border: oklch(0.86 0.01 80);
+  --input: oklch(0.86 0.01 80);
+  --ring: oklch(0.55 0.03 230);
   --chart-1: oklch(0.85 0.01 80);
   --chart-2: oklch(0.55 0.01 60);
   --chart-3: oklch(0.44 0.01 60);
@@ -98,14 +98,14 @@
   --paper: oklch(0.97 0.005 80);
   --e1: 0 1px 2px oklch(0.3 0.02 60 / 6%);
   --e2: 0 10px 20px -6px oklch(0.3 0.02 60 / 18%);
-  --sidebar: oklch(0.96 0.015 80);
-  --sidebar-foreground: oklch(0.18 0.01 60);
-  --sidebar-primary: oklch(0.25 0.012 60);
+  --sidebar: oklch(0.97 0.008 80);
+  --sidebar-foreground: oklch(0.18 0.03 230);
+  --sidebar-primary: oklch(0.22 0.03 230);
   --sidebar-primary-foreground: oklch(0.985 0.005 80);
-  --sidebar-accent: oklch(0.89 0.018 80);
-  --sidebar-accent-foreground: oklch(0.25 0.012 60);
-  --sidebar-border: oklch(0.90 0.012 80);
-  --sidebar-ring: oklch(0.68 0.01 60);
+  --sidebar-accent: oklch(0.91 0.015 80);
+  --sidebar-accent-foreground: oklch(0.22 0.03 230);
+  --sidebar-border: oklch(0.87 0.01 80);
+  --sidebar-ring: oklch(0.55 0.03 230);
 }
 
 .dark {
@@ -179,8 +179,8 @@
 
 /* ── Homepage "1980s CRT Nostalgia" scoped tokens ── */
 .landing {
-  --landing-bg: oklch(0.91 0.02 80);
-  --landing-bg-translucent: oklch(0.91 0.02 80 / 90%);
+  --landing-bg: oklch(0.955 0.008 80);
+  --landing-bg-translucent: oklch(0.955 0.008 80 / 90%);
   --landing-surface: oklch(0.88 0.02 75);
   --landing-text: oklch(0.15 0.01 55);
   --landing-text-muted: oklch(0.45 0.01 55);
@@ -2386,7 +2386,7 @@ body {
 
 html,
 body {
-  background-color: oklch(0.91 0.02 80);
+  background-color: oklch(0.955 0.008 80);
   min-height: 100dvh;
 }
 
