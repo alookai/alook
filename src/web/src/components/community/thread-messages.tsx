@@ -8,9 +8,9 @@ import type { Thread, OpenProfile } from "./_types"
 export function ThreadMessages({ thread, onOpenProfile }: { thread: Thread; onOpenProfile?: OpenProfile }) {
   return (
     <div className="flex-1 overflow-y-auto thin-scrollbar">
-      <div className="flex min-h-full flex-col justify-end gap-4 px-4 py-5">
+      <div className="flex min-h-full flex-col justify-end px-4 py-5">
         {/* thread hero — mirrors the channel welcome */}
-        <div className="mb-2">
+        <div className="mb-4">
           <div className="mb-3 grid size-17 place-items-center rounded-full bg-muted">
             <MessagesSquare className="size-8 text-muted-foreground" />
           </div>

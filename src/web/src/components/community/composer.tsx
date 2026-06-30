@@ -112,7 +112,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
   }
 
   return (
-    <div className="relative px-2 pb-2 pt-0">
+    <div className="relative px-3 pb-3 pt-0">
       {/* @mention autocomplete — floats above the input */}
       {mentionMatches.length > 0 && (
         <div className="absolute bottom-full left-2 right-2 mb-1 overflow-hidden rounded-lg border border-border bg-popover shadow-(--e2)">

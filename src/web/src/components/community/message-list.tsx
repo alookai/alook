@@ -66,8 +66,8 @@ export function MessageList({
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scrollRef} className="flex-1 overflow-y-auto thin-scrollbar">
-        <div className="flex min-h-full flex-col justify-end gap-4 px-4 py-8">
-          <div className="mb-4">
+        <div className="flex min-h-full flex-col justify-end px-4 py-8">
+          <div className="mb-6">
             {hero ?? (
               <>
                 <div className="mb-2 grid size-12 place-items-center rounded-full bg-muted/60">

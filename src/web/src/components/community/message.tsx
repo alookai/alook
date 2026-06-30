@@ -65,7 +65,7 @@ export function Message({
       id={`dpv-${m.id}`}
       className={[
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
-        m.grouped ? "pt-0 pb-0" : "py-1.5",
+        m.grouped ? "pt-0.5 pb-0" : "mt-3 pt-1.5 pb-0",
         highlighted ? "bg-primary/10" : "hover:bg-accent/40",
       ].join(" ")}
     >
