@@ -74,7 +74,7 @@ export function MessageList({
                   <ChannelIcon className="text-xl text-muted-foreground" />
                 </div>
                 <h2 className="text-xl font-semibold leading-tight">{channel}</h2>
-                <p className="mt-2 text-sm text-muted-foreground">This is the start of the channel.</p>
+                <p className="mt-2 text-sm text-muted-foreground">Beginning of the channel. Say hello, share what you&apos;re working on, or drop a link.</p>
               </>
             )}
           </div>

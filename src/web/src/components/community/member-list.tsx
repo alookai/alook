@@ -65,13 +65,12 @@ export function MemberList({ members, myRole, onOpenProfile, onSetRole, onKick }
                     <button
                       onClick={(e) => onOpenProfile?.(mem.name, e)}
                       className="flex w-full items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
-                      style={{ opacity: mem.status === "offline" ? 0.4 : 1 }}
                     />
                   }
                 >
-                  <Avatar label={mem.avatar} size={32} presence={mem.status} />
+                  <Avatar label={mem.avatar} size={32} presence={mem.status} dim={mem.status === "offline"} />
                   <div className="min-w-0 flex-1 text-left">
-                    <div className="truncate text-sm leading-tight">{mem.name}</div>
+                    <div className={`truncate text-sm leading-tight ${mem.status === "offline" ? "text-muted-foreground" : ""}`}>{mem.name}</div>
                     {mem.sub && (
                       <div className="truncate text-xs leading-tight text-muted-foreground">{mem.sub}</div>
                     )}

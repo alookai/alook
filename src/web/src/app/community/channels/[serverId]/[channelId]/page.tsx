@@ -12,7 +12,7 @@ import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
 import { Composer } from "@/components/community/composer"
 import { ForumView } from "@/components/community/forum-view"
-import { RightPanelContent } from "@/components/community/right-panel"
+import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
 import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
@@ -336,40 +336,37 @@ export default function ChannelPage() {
             } : undefined,
           }}
         />
-        <div className="flex min-h-0 flex-1">
-          <main className="flex min-w-0 flex-1 flex-col">
-            <MessageList
-              channel={channelName}
-              messages={ctx.messages}
-              pinnedIds={pinnedIds}
-              typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
-              onOpenThread={() => {}}
-              {...threadActions}
-              onOpenProfile={openProfile}
-              resolveUserName={resolveUserName}
-              scrollToMessageId={scrollToMessageId}
-            />
-            <Composer
-              channel={channelName}
-              thread
-              members={ctx.friends}
-              onSend={sendMessage}
-              onTyping={handleTyping}
-              replyingTo={replyTo?.authorName}
-              onCancelReply={() => setReplyTo(null)}
-            />
-          </main>
-          {bp === "desktop" && rightPanel && (
-            <aside className={`${rightPanel === "members" ? "w-60" : "w-80"} shrink-0 border-l border-border/40`}>
-              <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} {...panelProps} onOpenProfile={openProfile} />
-            </aside>
-          )}
-        </div>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <MessageList
+            channel={channelName}
+            messages={ctx.messages}
+            pinnedIds={pinnedIds}
+            typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
+            onOpenThread={() => {}}
+            {...threadActions}
+            onOpenProfile={openProfile}
+            resolveUserName={resolveUserName}
+            scrollToMessageId={scrollToMessageId}
+          />
+          <Composer
+            channel={channelName}
+            thread
+            members={ctx.friends}
+            onSend={sendMessage}
+            onTyping={handleTyping}
+            replyingTo={replyTo?.authorName}
+            onCancelReply={() => setReplyTo(null)}
+          />
+        </main>
 
-        {bp === "mobile" && rightPanel && (
-          <div className="absolute inset-0 z-20 bg-background">
-            <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} onOpenProfile={openProfile} />
-          </div>
+        {rightPanel && (
+          <CommunityPanelSheet
+            open
+            onOpenChange={(v) => { if (!v) setRightPanel(null) }}
+            kind={rightPanel}
+            {...panelProps}
+            onOpenProfile={openProfile}
+          />
         )}
       </>
     )
@@ -395,33 +392,30 @@ export default function ChannelPage() {
           server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
           tools={{ threads: false, pinned: false }}
         />
-        <div className="flex min-h-0 flex-1">
-          <main className="flex min-w-0 flex-1 flex-col">
-            <ForumView
-              posts={ctx.forumPosts}
-              tags={forumTags}
-              onOpenPost={enterThread}
-              onCreatePost={createForumPost}
-              canManageTags={canManage}
-              onTagsChanged={canManage ? (tags) => {
-                apiFetch(`/api/community/channels/${channelId}`, {
-                  method: "PATCH",
-                  body: JSON.stringify({ forumTags: JSON.stringify(tags) }),
-                }).catch(() => toast("Failed to save tags"))
-              } : undefined}
-            />
-          </main>
-          {bp === "desktop" && rightPanel && (
-            <aside className={`${rightPanel === "members" ? "w-60" : "w-80"} shrink-0 border-l border-border/40`}>
-              <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} {...panelProps} onOpenProfile={openProfile} />
-            </aside>
-          )}
-        </div>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <ForumView
+            posts={ctx.forumPosts}
+            tags={forumTags}
+            onOpenPost={enterThread}
+            onCreatePost={createForumPost}
+            canManageTags={canManage}
+            onTagsChanged={canManage ? (tags) => {
+              apiFetch(`/api/community/channels/${channelId}`, {
+                method: "PATCH",
+                body: JSON.stringify({ forumTags: JSON.stringify(tags) }),
+              }).catch(() => toast("Failed to save tags"))
+            } : undefined}
+          />
+        </main>
 
-        {bp === "mobile" && rightPanel && (
-          <div className="absolute inset-0 z-20 bg-background">
-            <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} onOpenProfile={openProfile} />
-          </div>
+        {rightPanel && (
+          <CommunityPanelSheet
+            open
+            onOpenChange={(v) => { if (!v) setRightPanel(null) }}
+            kind={rightPanel}
+            {...panelProps}
+            onOpenProfile={openProfile}
+          />
         )}
       </>
     )
@@ -439,42 +433,37 @@ export default function ChannelPage() {
         onBack={bp === "mobile" ? goBack : undefined}
         server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
       />
-      <div className="flex min-h-0 flex-1">
-        <main className="flex min-w-0 flex-1 flex-col">
-          <MessageList
-            channel={channelName}
-            messages={ctx.messages}
-            pinnedIds={pinnedIds}
-            typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
-            onOpenThread={enterThread}
-            {...messageActions}
-            onOpenProfile={openProfile}
-            resolveUserName={resolveUserName}
-            scrollToMessageId={scrollToMessageId}
-          />
-          <Composer
-            channel={channelName}
-            members={ctx.friends}
-            onSend={sendMessage}
-            onCreateThread={() => setCreatingThread(true)}
-            onTyping={handleTyping}
-            replyingTo={replyTo?.authorName}
-            onCancelReply={() => setReplyTo(null)}
-          />
-        </main>
-        {/* Desktop: inline right panel */}
-        {bp === "desktop" && rightPanel && (
-          <aside className={`${rightPanel === "members" ? "w-60" : "w-80"} shrink-0 border-l border-border/40`}>
-            <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} {...panelProps} onOpenProfile={openProfile} />
-          </aside>
-        )}
-      </div>
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <MessageList
+          channel={channelName}
+          messages={ctx.messages}
+          pinnedIds={pinnedIds}
+          typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
+          onOpenThread={enterThread}
+          {...messageActions}
+          onOpenProfile={openProfile}
+          resolveUserName={resolveUserName}
+          scrollToMessageId={scrollToMessageId}
+        />
+        <Composer
+          channel={channelName}
+          members={ctx.friends}
+          onSend={sendMessage}
+          onCreateThread={() => setCreatingThread(true)}
+          onTyping={handleTyping}
+          replyingTo={replyTo?.authorName}
+          onCancelReply={() => setReplyTo(null)}
+        />
+      </main>
 
-      {/* Mobile: full-screen panel */}
-      {bp === "mobile" && rightPanel && (
-        <div className="absolute inset-0 z-20 bg-background">
-          <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} onOpenProfile={openProfile} />
-        </div>
+      {rightPanel && (
+        <CommunityPanelSheet
+          open
+          onOpenChange={(v) => { if (!v) setRightPanel(null) }}
+          kind={rightPanel}
+          {...panelProps}
+          onOpenProfile={openProfile}
+        />
       )}
 
       <NewThreadDialog

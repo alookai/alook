@@ -46,7 +46,7 @@ import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/ch
 import { DmHeader } from "@/components/community/dm-header"
 import { MessageList } from "@/components/community/message-list"
 import { Composer } from "@/components/community/composer"
-import { RightPanelContent } from "@/components/community/right-panel"
+import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import { ThreadMessages } from "@/components/community/thread-messages"
 import { ForumView } from "@/components/community/forum-view"
 import { Avatar } from "@/components/community/avatar"
@@ -461,22 +461,15 @@ export default function CommunityPreview() {
             onBack={compact ? () => setMobileZone("channels") : undefined}
             tools={{ threads: false, pinned: false }}
           />
-          <div className="flex min-h-0 flex-1">
-            <main className="flex min-w-0 flex-1 flex-col">
-              <ForumView
-                posts={forumPosts[activeChannel] ?? []}
-                tags={FORUM_TAGS}
-                onOpenPost={enterThread}
-                onCreatePost={createForumPost}
-                canManageTags
-              />
-            </main>
-            {bp === "desktop" && rightPanel && (
-              <aside className={`${rightPanel === "members" ? "w-60" : "w-80"} shrink-0 border-l border-border`}>
-                <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} {...panelProps} {...profileProps} />
-              </aside>
-            )}
-          </div>
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <ForumView
+              posts={forumPosts[activeChannel] ?? []}
+              tags={FORUM_TAGS}
+              onOpenPost={enterThread}
+              onCreatePost={createForumPost}
+              canManageTags
+            />
+          </main>
         </>
       )
 
@@ -490,18 +483,10 @@ export default function CommunityPreview() {
           onSetNotifLevel={(l) => setChannelNotif((p) => ({ ...p, [activeChannel]: l }))}
           onBack={compact ? () => setMobileZone("channels") : undefined}
         />
-        <div className="flex min-h-0 flex-1">
-          <main className="flex min-w-0 flex-1 flex-col">
-            <MessageList channel={activeChannel} messages={messages} pinnedIds={pinnedIds} newDividerBefore={NEW_DIVIDER_BEFORE} typingUsers={["Lindsay"]} onOpenThread={enterThread} {...messageActions} {...profileProps} />
-            <Composer channel={activeChannel} members={friendList} onSend={sendMessage} onCreateThread={() => setCreatingThread(true)} replyingTo={replyTo?.authorName} onCancelReply={() => setReplyTo(null)} />
-          </main>
-          {/* desktop renders the panel inline; mobile uses the full-screen overlay below */}
-          {bp === "desktop" && rightPanel && (
-            <aside className={`${rightPanel === "members" ? "w-60" : "w-80"} shrink-0 border-l border-border`}>
-              <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} {...panelProps} {...profileProps} />
-            </aside>
-          )}
-        </div>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <MessageList channel={activeChannel} messages={messages} pinnedIds={pinnedIds} newDividerBefore={NEW_DIVIDER_BEFORE} typingUsers={["Lindsay"]} onOpenThread={enterThread} {...messageActions} {...profileProps} />
+          <Composer channel={activeChannel} members={friendList} onSend={sendMessage} onCreateThread={() => setCreatingThread(true)} replyingTo={replyTo?.authorName} onCancelReply={() => setReplyTo(null)} />
+        </main>
       </>
     )
   }
@@ -543,6 +528,15 @@ export default function CommunityPreview() {
             {contentColumn()}
           </ResizablePanel>
         </ResizablePanelGroup>
+        {rightPanel && view === "server" && !openThread && (
+          <CommunityPanelSheet
+            open
+            onOpenChange={(v) => { if (!v) setRightPanel(null) }}
+            kind={rightPanel}
+            {...panelProps}
+            {...profileProps}
+          />
+        )}
         {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === "Gener"} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
         {dialogs}
@@ -576,11 +570,14 @@ export default function CommunityPreview() {
         </div>
       )}
 
-      {/* full-screen panel overlay */}
       {rightPanel && view === "server" && !openThread && (
-        <div className="absolute inset-0 z-20 bg-background">
-          <RightPanelContent kind={rightPanel} onClose={() => setRightPanel(null)} showClose {...panelProps} {...profileProps} />
-        </div>
+        <CommunityPanelSheet
+          open
+          onOpenChange={(v) => { if (!v) setRightPanel(null) }}
+          kind={rightPanel}
+          {...panelProps}
+          {...profileProps}
+        />
       )}
       {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === "Gener"} />}
       {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}

@@ -10,8 +10,10 @@ import { formatRelativeTime } from "./format-time"
 import type { RightPanel, Member, Role, Msg, Thread, OpenProfile } from "./_types"
 
 // Right-panel content router — members / pinned / search / threads. Data via props.
+// Always wraps the active section in PanelShell — the surrounding Sheet provides the
+// outer frame and its own close button, so we don't need a panel-level close affordance.
 export function RightPanelContent({
-  kind, members, pinned, searchResults, searchQuery, threads, onClose, showClose, onOpenThread, onOpenProfile,
+  kind, members, pinned, searchResults, searchQuery, threads, showSearchInput = true, onOpenThread, onOpenProfile,
   onSetRole, onKickMember, myRole, onJumpToMessage, onSearch,
 }: {
   kind: Exclude<RightPanel, null>
@@ -20,8 +22,7 @@ export function RightPanelContent({
   searchResults: Msg[]
   searchQuery?: string
   threads: Thread[]
-  onClose: () => void
-  showClose?: boolean
+  showSearchInput?: boolean
   onOpenThread: (id: string) => void
   onOpenProfile?: OpenProfile
   onSetRole?: (name: string, role: Role) => void
@@ -31,18 +32,14 @@ export function RightPanelContent({
   onSearch?: (query: string) => void
 }) {
   if (kind === "members")
-    // Desktop shows the bare list under the spanning channel header (no own header).
-    // The mobile full-screen panel wraps it so it gets a dismiss bar.
-    return showClose ? (
-      <PanelShell icon={Users} title="Members" onClose={onClose} showClose bodyClassName="p-0">
+    return (
+      <PanelShell icon={Users} title="Members" bodyClassName="p-0">
         <MemberList members={members} myRole={myRole} onOpenProfile={onOpenProfile} onSetRole={onSetRole} onKick={onKickMember} />
       </PanelShell>
-    ) : (
-      <MemberList members={members} myRole={myRole} onOpenProfile={onOpenProfile} onSetRole={onSetRole} onKick={onKickMember} />
     )
   if (kind === "pinned")
     return (
-      <PanelShell icon={Pin} title="Pinned Messages" onClose={onClose} showClose={showClose}>
+      <PanelShell icon={Pin} title="Pinned Messages">
         {pinned.length === 0 ? (
           <div className="py-8 text-center text-sm text-muted-foreground">No pinned messages yet.</div>
         ) : (
@@ -68,10 +65,9 @@ export function RightPanelContent({
       </PanelShell>
     )
   if (kind === "search")
-    return <SearchPanel searchResults={searchResults} initialQuery={searchQuery} onClose={onClose} showClose={showClose} onOpenProfile={onOpenProfile} onSearch={onSearch} />
-  // threads — channel thread list. Picking one opens it in the message area.
+    return <SearchPanel searchResults={searchResults} initialQuery={searchQuery} showSearchInput={showSearchInput} onOpenProfile={onOpenProfile} onSearch={onSearch} />
   return (
-    <PanelShell icon={MessagesSquare} title="Threads" onClose={onClose} showClose={showClose}>
+    <PanelShell icon={MessagesSquare} title="Threads">
       <div className="mb-2 text-xs text-muted-foreground">{threads.length} threads</div>
       <div className="space-y-2">
         {threads.map((t) => (
@@ -95,14 +91,14 @@ export function RightPanelContent({
   )
 }
 
-function SearchPanel({ searchResults, initialQuery, onClose, showClose, onOpenProfile, onSearch }: {
-  searchResults: Msg[]; initialQuery?: string; onClose: () => void; showClose?: boolean; onOpenProfile?: OpenProfile; onSearch?: (query: string) => void
+function SearchPanel({ searchResults, initialQuery, showSearchInput, onOpenProfile, onSearch }: {
+  searchResults: Msg[]; initialQuery?: string; showSearchInput?: boolean; onOpenProfile?: OpenProfile; onSearch?: (query: string) => void
 }) {
   const [query, setQuery] = useState(initialQuery ?? "")
   const submit = () => { const q = query.trim(); if (q) onSearch?.(q) }
   return (
-    <PanelShell icon={Search} title="Search" onClose={onClose} showClose={showClose}>
-      {showClose && (
+    <PanelShell icon={Search} title="Search">
+      {showSearchInput && (
         <div className="relative mb-3">
           <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input

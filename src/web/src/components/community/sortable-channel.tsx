@@ -1,10 +1,12 @@
 "use client"
 
+import { useState } from "react"
 import { ListChevronsUpDown, BellOff, Pencil, Trash2 } from "lucide-react"
 import { ChannelIcon } from "./channel-icon"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { DropLine } from "./drop-line"
 import type { Channel } from "./_types"
 
@@ -18,6 +20,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
   onEdit?: () => void
   onDelete?: () => void
 }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: ch.id })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging
@@ -57,18 +60,33 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
     </div>
   )
   return (
-    <ContextMenu>
-      <ContextMenuTrigger render={row} />
-      <ContextMenuContent className="w-48">
-        <div className="truncate px-2 py-1.5 text-xs font-semibold text-muted-foreground">/{ch.name}</div>
-        {onEdit && <ContextMenuItem onClick={onEdit}><Pencil className="size-4" /> Edit Channel</ContextMenuItem>}
-        {onDelete && (
-          <>
-            {onEdit && <ContextMenuSeparator />}
-            <ContextMenuItem onClick={onDelete} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"><Trash2 className="size-4" /> Delete Channel</ContextMenuItem>
-          </>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger render={row} />
+        <ContextMenuContent className="w-48">
+          <div className="truncate px-2 py-1.5 text-xs font-semibold text-muted-foreground">/{ch.name}</div>
+          {onEdit && <ContextMenuItem onClick={onEdit}><Pencil className="size-4" /> Edit channel</ContextMenuItem>}
+          {onDelete && (
+            <>
+              {onEdit && <ContextMenuSeparator />}
+              <ContextMenuItem
+                onClick={() => setConfirmingDelete(true)}
+                className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"
+              ><Trash2 className="size-4" /> Delete channel</ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+      {onDelete && (
+        <ConfirmDialog
+          open={confirmingDelete}
+          onOpenChange={setConfirmingDelete}
+          title={`Delete /${ch.name}?`}
+          description="This channel and its message history will be removed for everyone. This can't be undone."
+          confirmLabel="Delete channel"
+          onConfirm={() => { setConfirmingDelete(false); onDelete() }}
+        />
+      )}
+    </>
   )
 }

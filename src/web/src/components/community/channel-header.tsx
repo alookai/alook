@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Bell, BellOff, Pin, Users, MessagesSquare, ListChevronsUpDown, ChevronLeft, Check, Pencil } from "lucide-react"
+import { Bell, BellOff, Pin, Users, MessagesSquare, ListChevronsUpDown, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -60,16 +60,66 @@ export function ChannelHeader({
       ) : (
         <>
           {forum ? <ListChevronsUpDown className={`size-4 shrink-0 text-muted-foreground ${server ? "" : "ml-1"}`} /> : <ChannelIcon className={`text-base text-muted-foreground ${server ? "" : "ml-1"}`} />}
-          <span className="truncate text-base font-bold">{channel}</span>
+          <span className="truncate text-base font-semibold">{channel}</span>
         </>
       )}
-      <div className="ml-auto flex items-center gap-1 text-muted-foreground">
-        {tools?.threads !== false && tool("threads", MessagesSquare, "Threads")}
-        <ChannelNotifDropdown level={notifLevel ?? "Use Server Default"} onSetLevel={onSetNotifLevel} />
-        {tools?.pinned !== false && tool("pinned", Pin, "Pinned messages")}
+      <div className="ml-auto flex items-center text-muted-foreground">
         {tools?.members !== false && tool("members", Users, "Member list")}
+        <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
+        <ChannelNotifDropdown level={notifLevel ?? "Use Server Default"} onSetLevel={onSetNotifLevel} />
+        {(tools?.threads !== false || tools?.pinned !== false) && (
+          <ChannelOverflowMenu
+            rightPanel={rightPanel}
+            onToggle={onToggle}
+            showThreads={tools?.threads !== false}
+            showPinned={tools?.pinned !== false}
+          />
+        )}
       </div>
     </header>
+  )
+}
+
+function ChannelOverflowMenu({
+  rightPanel, onToggle, showThreads, showPinned,
+}: {
+  rightPanel: RightPanel
+  onToggle: (k: Exclude<RightPanel, null>) => void
+  showThreads: boolean
+  showPinned: boolean
+}) {
+  const activeInside = (rightPanel === "threads" && showThreads) || (rightPanel === "pinned" && showPinned)
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="More channel options"
+            className={`text-muted-foreground hover:text-foreground ${activeInside ? "bg-accent text-foreground" : ""}`}
+          />
+        }
+      >
+        <MoreHorizontal className="size-4.5" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        {showThreads && (
+          <DropdownMenuItem onClick={() => onToggle("threads")}>
+            <MessagesSquare className="size-4" />
+            <span className="flex-1">Threads</span>
+            {rightPanel === "threads" && <Check className="size-4 shrink-0 text-primary" />}
+          </DropdownMenuItem>
+        )}
+        {showPinned && (
+          <DropdownMenuItem onClick={() => onToggle("pinned")}>
+            <Pin className="size-4" />
+            <span className="flex-1">Pinned messages</span>
+            {rightPanel === "pinned" && <Check className="size-4 shrink-0 text-primary" />}
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -84,11 +134,11 @@ function ServerCrumb({ name, icon }: { name: string; icon: string | null }) {
   )
 }
 
-const NOTIF_LEVELS: ChannelNotifLevel[] = [
-  "Use Server Default",
-  "All Messages",
-  "Only @mentions",
-  "Nothing",
+const NOTIF_LEVELS: { value: ChannelNotifLevel; label: string; hint: string }[] = [
+  { value: "Use Server Default", label: "Use server default", hint: "Inherit this server's setting" },
+  { value: "All Messages", label: "Every message", hint: "Notify for every new message" },
+  { value: "Only @mentions", label: "Mentions only", hint: "Notify when someone @s you" },
+  { value: "Nothing", label: "Muted", hint: "No notifications, no badges" },
 ]
 
 function ChannelNotifDropdown({ level, onSetLevel }: {
@@ -103,16 +153,16 @@ function ChannelNotifDropdown({ level, onSetLevel }: {
       >
         {isMuted ? <BellOff className="size-4.5" /> : <Bell className="size-4.5" />}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-52">
+      <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuItem onClick={() => onSetLevel?.(isMuted ? "Use Server Default" : "Nothing")}>
           {isMuted ? <Bell className="size-4" /> : <BellOff className="size-4" />}
-          {isMuted ? "Unmute Channel" : "Mute Channel"}
+          {isMuted ? "Unmute channel" : "Mute channel"}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {NOTIF_LEVELS.map((n) => (
-          <DropdownMenuItem key={n} onClick={() => onSetLevel?.(n)}>
-            <span className="min-w-0 flex-1 text-sm">{n}</span>
-            {level === n && <Check className="size-4 shrink-0 text-primary" />}
+          <DropdownMenuItem key={n.value} onClick={() => onSetLevel?.(n.value)}>
+            <span className="min-w-0 flex-1 text-sm">{n.label}</span>
+            {level === n.value && <Check className="size-4 shrink-0 text-primary" />}
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

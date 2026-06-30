@@ -174,8 +174,8 @@ export const ChannelSidebar = memo(function ChannelSidebar({
           </DndContext>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-48">
-          <ContextMenuItem onClick={() => requestCreateChannel(noneCatId)}>Create Channel</ContextMenuItem>
-          <ContextMenuItem onClick={() => setDialog({ kind: "create-category" })}>Create Category</ContextMenuItem>
+          <ContextMenuItem onClick={() => requestCreateChannel(noneCatId)}>Create channel</ContextMenuItem>
+          <ContextMenuItem onClick={() => setDialog({ kind: "create-category" })}>Create category</ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
 

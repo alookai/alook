@@ -1,4 +1,6 @@
-// Typing indicator — bouncing dots + "{names} is/are typing…".
+// Typing indicator — soft opacity pulse + "{names} is/are typing…".
+// Uses the `typing-dot` keyframe in globals.css so we stay on the house easing
+// curve and inherit the `prefers-reduced-motion` rules already wired there.
 export function TypingIndicator({ names }: { names: string[] }) {
   if (!names.length) return null
   const label = names.length === 1
@@ -10,7 +12,11 @@ export function TypingIndicator({ names }: { names: string[] }) {
     <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
       <span className="flex gap-1">
         {[0, 1, 2].map((i) => (
-          <span key={i} className="size-1.5 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: `${i * 120}ms` }} />
+          <span
+            key={i}
+            className="size-1.5 rounded-full bg-muted-foreground"
+            style={{ animation: "typing-dot 1.4s ease-in-out infinite", animationDelay: `${i * 160}ms` }}
+          />
         ))}
       </span>
       <span>{label}</span>

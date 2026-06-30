@@ -8,15 +8,17 @@ import { Separator } from "@/components/ui/separator"
 import { Avatar } from "./avatar"
 import type { Profile, Breakpoint } from "./_types"
 
-// Generate a deterministic gradient from a name string (hash to pick hue values)
+// Deterministic, on-brand banner gradient. Hue is constrained to the warm band
+// (60–80 per DESIGN.md) and chroma kept low so two profiles always read as the
+// same family — distinct but never garish.
 function generateGradient(name: string): string {
   let hash = 0
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash)
   }
-  const hue1 = Math.abs(hash % 360)
-  const hue2 = Math.abs((hash * 2) % 360)
-  return `linear-gradient(135deg, oklch(0.7 0.15 ${hue1}), oklch(0.6 0.12 ${hue2}))`
+  const hue1 = 60 + (Math.abs(hash) % 21)
+  const hue2 = 60 + (Math.abs(hash * 7) % 21)
+  return `linear-gradient(135deg, oklch(0.78 0.06 ${hue1}), oklch(0.68 0.05 ${hue2}))`
 }
 
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
@@ -53,12 +55,12 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf }: {
         <div className="rounded-lg bg-card p-3.5">
           <div className="text-lg font-semibold">{data.name}</div>
           <Separator className="my-2" />
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">About Me</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">About</div>
           <p className="mt-1 text-sm text-muted-foreground">{data.about || "No bio yet."}</p>
           {data.mutual > 0 && (
             <>
-              <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mutual Servers</div>
-              <p className="mt-1 text-sm text-muted-foreground">{data.mutual} servers in common</p>
+              <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mutual servers</div>
+              <p className="mt-1 text-sm text-muted-foreground">{data.mutual} in common</p>
             </>
           )}
           {!isSelf && (

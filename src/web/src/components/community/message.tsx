@@ -71,7 +71,7 @@ export function Message({
     >
       <div className="min-w-0 flex-1">
       {interactive && (
-        <div className={`absolute -top-3 right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-1.5 py-1 shadow-(--e1) transition-opacity duration-150 ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
+        <div className={`absolute right-2 z-20 flex items-center gap-1 rounded-lg border border-border/60 bg-card px-1.5 py-1 shadow-(--e1) transition-opacity duration-150 ${m.grouped ? "-top-2" : "-top-3"} ${toolbarOpen ? "opacity-100" : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"}`}>
           {onReact && (
             <EmojiPickerPopover side="bottom" align="end" onPick={(e) => onReact(e)} onOpenChange={setToolbarOpen}>
               <button className="grid size-7 place-items-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none aria-expanded:text-foreground" aria-label="Add reaction">

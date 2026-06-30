@@ -78,19 +78,18 @@ export function FriendsPage({
               <button
                 onClick={() => { if (f.userId) onDm?.(f.userId) }}
                 className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left hover:bg-accent"
-                style={{ opacity: f.status === "offline" ? 0.5 : 1 }}
               />
             }
           >
-            <Avatar label={f.avatar} size={32} presence={f.status} />
+            <Avatar label={f.avatar} size={32} presence={f.status} dim={f.status === "offline"} />
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">{f.name}</div>
+              <div className={`truncate text-sm font-medium ${f.status === "offline" ? "text-muted-foreground" : ""}`}>{f.name}</div>
               <div className="truncate text-xs text-muted-foreground">{f.sub}</div>
             </div>
             <span className="grid size-8 place-items-center rounded-full bg-secondary text-muted-foreground"><MessagesSquare className="size-4" /></span>
           </ContextMenuTrigger>
           <ContextMenuContent className="w-44">
-            <ContextMenuItem onClick={() => onRemoveFriend?.(f.id)}><UserMinus className="size-4" /> Remove Friend</ContextMenuItem>
+            <ContextMenuItem onClick={() => onRemoveFriend?.(f.id)}><UserMinus className="size-4" /> Remove friend</ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem onClick={() => onBlock?.(f.userId ?? f.id)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive"><Ban className="size-4" /> Block</ContextMenuItem>
           </ContextMenuContent>
@@ -116,20 +115,31 @@ export function FriendsPage({
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-5">
         {/* add-friend bar (shared across tabs) */}
         <div className="mb-5">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add Friend</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add a friend</div>
           <div className="relative mt-2">
-            <div className="relative">
-              <AtSign className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-11 pl-9"
-                placeholder="Search by username"
-                value={addValue}
-                onChange={(e) => setAddValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && addValue.trim()) sendRequest(addValue.trim()) }}
-              />
+            <div className="relative flex items-center gap-2">
+              <div className="relative flex-1">
+                <AtSign className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="h-11 pl-9"
+                  placeholder="Search by username"
+                  value={addValue}
+                  onChange={(e) => setAddValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && addValue.trim()) sendRequest(addValue.trim()) }}
+                />
+              </div>
+              <Button
+                size="sm"
+                className="h-11 px-4"
+                disabled={!addValue.trim()}
+                onClick={() => { if (addValue.trim()) sendRequest(addValue.trim()) }}
+              >
+                <UserPlus className="size-4" />
+                Send request
+              </Button>
             </div>
             {searchResults.length > 0 && (
-              <div className="mt-1 rounded-md border border-border bg-popover p-1 shadow-md">
+              <div className="mt-1 rounded-md border border-border bg-popover p-1 shadow-(--e2)">
                 {searchResults.map((u) => (
                   <button
                     key={u.id}
@@ -147,7 +157,7 @@ export function FriendsPage({
         </div>
 
         <TabsContent value="online">{friendList(onlineFriends, "Online")}</TabsContent>
-        <TabsContent value="all">{friendList(friends, "All Friends")}</TabsContent>
+        <TabsContent value="all">{friendList(friends, "All friends")}</TabsContent>
         <TabsContent value="pending">
           <FriendSection title={`Pending — ${pending.length}`} count={pending.length} emptyLabel="No pending requests. When someone adds you, it'll show up here.">
             {pending.map((p) => (

@@ -54,12 +54,12 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
             </ContextMenuTrigger>
             <ContextMenuContent className="w-52">
               <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">{server.name}</div>
-              {!inFolder && onCreateFolder && <ContextMenuItem onClick={onCreateFolder}>Create Group</ContextMenuItem>}
-              <ContextMenuItem onClick={onOpenSettings}>Server Settings</ContextMenuItem>
+              {!inFolder && onCreateFolder && <ContextMenuItem onClick={onCreateFolder}>Create group</ContextMenuItem>}
+              <ContextMenuItem onClick={onOpenSettings}>Server settings</ContextMenuItem>
               {!server.isOwner && !inFolder && (
                 <>
                   <ContextMenuSeparator />
-                  <ContextMenuItem onClick={() => setConfirmLeave(true)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">Leave Server</ContextMenuItem>
+                  <ContextMenuItem onClick={() => setConfirmLeave(true)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">Leave server</ContextMenuItem>
                 </>
               )}
             </ContextMenuContent>
@@ -70,9 +70,9 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
       <ConfirmDialog
         open={confirmLeave}
         onOpenChange={setConfirmLeave}
-        title={`Leave "${server.name}"?`}
-        description="You won't be able to rejoin without a new invite."
-        confirmLabel="Leave Server"
+        title={`Leave ${server.name}?`}
+        description="You won't see this server's channels anymore, and you'll need a new invite to come back."
+        confirmLabel="Leave server"
         confirmVariant="destructive"
         onConfirm={() => { setConfirmLeave(false); onLeave?.() }}
       />

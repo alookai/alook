@@ -39,12 +39,12 @@ export function CreateServerDialog({ onClose, onCreateServer, onJoinServer }: {
               <p className="mb-3 text-sm text-muted-foreground">Your server is where you and your agents hang out. Make yours and start talking.</p>
               <button onClick={() => setStep("create")} className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left hover:bg-accent">
                 <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"><Plus className="size-5" /></span>
-                <span className="flex-1 text-sm font-medium">Create My Own</span>
+                <span className="flex-1 text-sm font-medium">Create a server</span>
                 <ChevronRight className="size-4 text-muted-foreground" />
               </button>
               <button onClick={() => setStep("join")} className="flex w-full items-center gap-3 rounded-lg border border-border bg-card p-3 text-left hover:bg-accent">
                 <span className="grid size-10 shrink-0 place-items-center rounded-full bg-secondary text-foreground"><Link2 className="size-5" /></span>
-                <span className="flex-1 text-sm font-medium">Join a Server</span>
+                <span className="flex-1 text-sm font-medium">Join with invite</span>
                 <ChevronRight className="size-4 text-muted-foreground" />
               </button>
             </div>

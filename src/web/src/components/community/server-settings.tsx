@@ -181,6 +181,7 @@ function SettingsInvites({ invites, onRevokeInvite, onCreateInvite, onCopyInvite
   onCreateInvite?: () => void
   onCopyInvite?: (code: string) => void
 }) {
+  const [revokingCode, setRevokingCode] = useState<string | null>(null)
   return (
     <div className="space-y-2.5">
       {invites.length === 0 && (
@@ -194,29 +195,44 @@ function SettingsInvites({ invites, onRevokeInvite, onCreateInvite, onCopyInvite
             <div className="text-xs text-muted-foreground" suppressHydrationWarning>by {iv.by} · {iv.uses}{iv.maxUses ? ` / ${iv.maxUses}` : ""} uses · {iv.expiresAt ? `expires ${formatRelativeTime(iv.expiresAt)}` : "never expires"}</div>
           </div>
           <Button variant="secondary" size="sm" onClick={() => onCopyInvite?.(iv.code)}>Copy</Button>
-          <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label="Revoke invite" onClick={() => onRevokeInvite?.(iv.code)}><X className="size-4" /></Button>
+          <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label="Revoke invite" onClick={() => setRevokingCode(iv.code)}><X className="size-4" /></Button>
         </div>
       ))}
       <Button size="sm" className="mt-2" onClick={onCreateInvite}>Create invite</Button>
+      <ConfirmDialog
+        open={revokingCode !== null}
+        onOpenChange={(o) => { if (!o) setRevokingCode(null) }}
+        title="Revoke this invite?"
+        description="Anyone who hasn't used it yet won't be able to join with this link. Existing members aren't affected."
+        confirmLabel="Revoke invite"
+        onConfirm={() => { if (revokingCode) onRevokeInvite?.(revokingCode); setRevokingCode(null) }}
+      />
     </div>
   )
 }
 
 function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLevel?: (l: string) => void }) {
-  const levels = ["All messages", "Only @mentions", "Nothing"]
+  const levels: { value: string; label: string; hint: string }[] = [
+    { value: "All messages", label: "Every message", hint: "Notify for every new message on this server" },
+    { value: "Only @mentions", label: "Mentions only", hint: "Notify when someone @s you" },
+    { value: "Nothing", label: "Muted", hint: "No notifications, no badges" },
+  ]
   return (
     <div className="max-w-md space-y-2.5">
-      <div className="mb-3 text-sm text-muted-foreground">Server notification setting</div>
+      <div className="mb-3 text-sm text-muted-foreground">Default notifications for this server</div>
       {levels.map((l) => (
         <button
-          key={l}
-          onClick={() => onSetLevel?.(l)}
+          key={l.value}
+          onClick={() => onSetLevel?.(l.value)}
           className="flex w-full items-center gap-3 rounded-md border border-border bg-card px-3.5 py-3 text-left hover:bg-accent"
         >
-          <span className={`grid size-4 place-items-center rounded-full border ${level === l ? "border-primary" : "border-muted-foreground"}`}>
-            {level === l && <span className="size-2 rounded-full bg-primary" />}
+          <span className={`grid size-4 shrink-0 place-items-center rounded-full border ${level === l.value ? "border-primary" : "border-muted-foreground"}`}>
+            {level === l.value && <span className="size-2 rounded-full bg-primary" />}
           </span>
-          <span className="text-sm font-medium">{l}</span>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium">{l.label}</div>
+            <div className="text-xs text-muted-foreground">{l.hint}</div>
+          </div>
         </button>
       ))}
     </div>

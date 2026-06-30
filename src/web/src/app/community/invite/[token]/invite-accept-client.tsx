@@ -30,7 +30,7 @@ export function InviteAcceptClient({ token }: { token: string }) {
         const data = await apiFetch<InviteInfo>(`/api/community/invites/${token}/info`)
         setInfo(data)
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Invalid or expired invite"
+        const message = err instanceof Error ? err.message : "This invite is no longer valid"
         setError(message)
       } finally {
         setLoading(false)
@@ -48,7 +48,7 @@ export function InviteAcceptClient({ token }: { token: string }) {
       toast("Joined server")
       router.push(`/community/channels/${result.serverId}`)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to join server"
+      const message = err instanceof Error ? err.message : "Couldn't join the server — try the invite again"
       toast(message)
       setJoining(false)
     }
@@ -56,8 +56,14 @@ export function InviteAcceptClient({ token }: { token: string }) {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="text-muted-foreground">Loading invite...</div>
+      <div className="flex min-h-screen items-center justify-center bg-background px-4">
+        <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-(--e2)">
+          <div className="mx-auto size-20 animate-pulse rounded-full bg-muted" />
+          <div className="mx-auto mt-5 h-3 w-32 animate-pulse rounded bg-muted" />
+          <div className="mx-auto mt-3 h-5 w-48 animate-pulse rounded bg-muted" />
+          <div className="mx-auto mt-2 h-3 w-24 animate-pulse rounded bg-muted" />
+          <div className="mt-6 h-9 w-full animate-pulse rounded-md bg-muted" />
+        </div>
       </div>
     )
   }
@@ -66,14 +72,15 @@ export function InviteAcceptClient({ token }: { token: string }) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-4">
         <div className="max-w-sm rounded-xl border border-border bg-card p-8 text-center shadow-(--e2)">
-          <h1 className="text-xl font-semibold">Invite Invalid</h1>
+          <h1 className="text-xl font-semibold">This invite isn&apos;t working</h1>
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+          <p className="mt-1 text-xs text-muted-foreground">Ask whoever shared it for a fresh link.</p>
           <Button
             className="mt-6"
             variant="secondary"
             onClick={() => router.push("/community/channels/@me")}
           >
-            Go Home
+            Back to community
           </Button>
         </div>
       </div>
@@ -88,14 +95,14 @@ export function InviteAcceptClient({ token }: { token: string }) {
           {info?.serverIcon ? (
             <img src={info.serverIcon} alt={info.serverName} className="size-20 rounded-full object-cover" />
           ) : (
-            <span className="text-3xl font-bold text-muted-foreground">
+            <span className="text-3xl font-semibold text-muted-foreground">
               {info?.serverName.charAt(0).toUpperCase() ?? "?"}
             </span>
           )}
         </div>
 
         {/* Server info */}
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">You have been invited to join</p>
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">You&apos;re invited to join</p>
         <h1 className="mt-1 text-2xl font-semibold">{info?.serverName}</h1>
         {info?.serverDescription && (
           <p className="mt-2 text-sm text-muted-foreground">{info.serverDescription}</p>
@@ -112,7 +119,7 @@ export function InviteAcceptClient({ token }: { token: string }) {
           onClick={handleJoin}
           disabled={joining}
         >
-          {joining ? "Joining..." : "Accept Invite"}
+          {joining ? "Joining…" : "Join server"}
         </Button>
       </div>
     </div>
