@@ -2,17 +2,10 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import {
-  queries,
-  extractMentionedUserIds,
-  MAX_MESSAGE_CONTENT_LENGTH,
-  MAX_ATTACHMENTS_PER_MESSAGE,
-  WS_EVENTS,
-} from "@alook/shared"
-import { fanOutToChannel } from "@/lib/community/fanout"
-import { broadcastToUser } from "@/lib/broadcast"
+import { queries } from "@alook/shared"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
 import { requireChannelMember } from "@/lib/community/permissions"
+import { createCommunityMessage } from "@/lib/community/message-handler"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -74,121 +67,38 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!auth.ok) return writeError(auth.error, auth.status)
   const channel = auth.value
 
-  let body: { content: string; replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }
+  let body: unknown
   try {
     body = await req.json()
   } catch {
     return writeError("invalid request body", 400)
   }
 
-  if (!body.content || typeof body.content !== "string" || body.content.trim().length === 0) {
-    return writeError("content is required", 400)
-  }
-  if (body.content.length > MAX_MESSAGE_CONTENT_LENGTH) {
-    return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
-  }
-  if (body.attachments && body.attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
-    return writeError(`too many attachments (max ${MAX_ATTACHMENTS_PER_MESSAGE})`, 400)
-  }
-
-  const message = await queries.communityMessage.createMessage(db, {
-    authorId: ctx.userId,
-    content: body.content,
-    channelId,
-    replyToId: body.replyToId,
-  })
-
-  let createdAttachments: { id: string; filename: string; url: string; contentType: string | null; size: number | null }[] = []
-  if (body.attachments?.length) {
-    createdAttachments = await Promise.all(
-      body.attachments.map((att) =>
-        queries.communityAttachment.createAttachment(db, {
-          messageId: message.id,
-          filename: att.filename,
-          url: att.url,
-          contentType: att.contentType,
-          size: att.size,
-        })
-      )
-    )
-  }
-
-  const fullMessage = await queries.communityMessage.getMessage(db, message.id)
-
-  // Collect mention targets, split by kind. See channels/messages route for
-  // the same pattern.
-  const replyTargets = new Set<string>()
-  const mentionTargets = new Set<string>()
-  if (body.replyToId) {
-    const replyMsg = await queries.communityMessage.getMessage(db, body.replyToId)
-    if (replyMsg && replyMsg.authorId && replyMsg.authorId !== ctx.userId) {
-      replyTargets.add(replyMsg.authorId)
-    }
-  }
-  if (fullMessage?.content) {
-    const members = await queries.communityMember.listMembers(db, channel.serverId)
-    const candidates = members
-      .filter((m) => m.userId !== ctx.userId && m.userName)
-      .map((m) => ({ userId: m.userId, name: m.userName as string }))
-    for (const id of extractMentionedUserIds(fullMessage.content, candidates)) {
-      mentionTargets.add(id)
-    }
-  }
-  for (const id of mentionTargets) replyTargets.delete(id)
-
-  // See channels/messages route — mute affects Unreads only, never mention/reply.
-  const liveMentions = [...mentionTargets]
-  const liveReplies = [...replyTargets]
-  if (liveMentions.length > 0) {
-    await queries.communityMention.createMentions(db, { messageId: message.id, userIds: liveMentions, kind: "mention" })
-  }
-  if (liveReplies.length > 0) {
-    await queries.communityMention.createMentions(db, { messageId: message.id, userIds: liveReplies, kind: "reply" })
-  }
-  if (liveMentions.length > 0 || liveReplies.length > 0) {
-    const authorName = fullMessage!.authorName ?? "Unknown"
-    for (const userId of [...liveMentions, ...liveReplies]) {
-      broadcastToUser(userId, {
-        type: WS_EVENTS.MENTION_CREATE,
-        userId,
-        messageId: message.id,
+  // Threads only fire CHILD_CHANNEL_UPDATE when they actually live under a
+  // parent channel. A naked channel without a parent shouldn't reach this
+  // route in practice, but fall back to the plain channel target so the
+  // contract still holds if it ever does.
+  const target = channel.parentChannelId
+    ? {
+        kind: "thread" as const,
         channelId,
-        authorName,
-      } as never).catch(() => {})
-    }
-  }
+        parentChannelId: channel.parentChannelId,
+        serverId: channel.serverId,
+      }
+    : {
+        kind: "channel" as const,
+        channelId,
+        serverId: channel.serverId,
+      }
 
-  fanOutToChannel(channelId, {
-    type: WS_EVENTS.MESSAGE_CREATE,
-    channelId,
-    message: {
-      id: fullMessage!.id,
-      authorId: fullMessage!.authorId,
-      authorName: fullMessage!.authorName ?? "",
-      authorAvatar: fullMessage!.authorImage ?? (fullMessage!.authorName ?? "?").charAt(0).toUpperCase(),
-      content: fullMessage!.content,
-      type: (fullMessage!.type as "default" | "system" | "thread_created") ?? "default",
-      createdAt: fullMessage!.createdAt,
-      attachments: createdAttachments.length > 0 ? createdAttachments.map((att) => ({
-        id: att.id,
-        filename: att.filename,
-        url: att.url,
-        contentType: att.contentType ?? undefined,
-        size: att.size ?? undefined,
-      })) : undefined,
-    },
-  }, { excludeUserId: ctx.userId }).catch(() => {})
+  const result = await createCommunityMessage({
+    db,
+    authorId: ctx.userId,
+    target,
+    body: body as Record<string, unknown>,
+  })
+  if (!result.ok) return writeError(result.error, result.status)
 
-  // Notify parent channel watchers that thread messageCount changed
-  if (channel.parentChannelId) {
-    const updated = await queries.communityChannel.getChannel(db, channelId)
-    fanOutToChannel(channel.parentChannelId, {
-      type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
-      parentChannelId: channel.parentChannelId,
-      channelId,
-      changes: { messageCount: updated?.messageCount ?? 1, lastMessageAt: updated?.lastMessageAt ?? new Date().toISOString() },
-    } as never, { excludeUserId: ctx.userId }).catch(() => {})
-  }
-
-  return writeJSON(message, 201)
+  // Existing thread client consumes `result.id` (bare row), not `{ message }`.
+  return writeJSON(result.row, 201)
 })
