@@ -6,6 +6,7 @@ import {
   ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
   ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
 } from "@/components/ui/context-menu"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import type { Member, Role, OpenProfile } from "./_types"
@@ -31,8 +32,9 @@ function groupMembers(members: Member[]): { label: string; list: Member[] }[] {
   ].filter((g) => g.list.length > 0)
 }
 
-export function MemberList({ members, myRole, onOpenProfile, onSetRole, onKick }: {
+export function MemberList({ members, loading, myRole, onOpenProfile, onSetRole, onKick }: {
   members: Member[]
+  loading?: boolean
   myRole?: Role
   onOpenProfile?: OpenProfile
   onSetRole?: (name: string, role: Role) => void
@@ -40,6 +42,7 @@ export function MemberList({ members, myRole, onOpenProfile, onSetRole, onKick }
 }) {
   const [kickTarget, setKickTarget] = useState<string | null>(null)
   const canManage = canManageServer(myRole)
+  if (loading && members.length === 0) return <MemberListSkeleton />
   return (
     <>
     <ConfirmDialog
@@ -108,5 +111,34 @@ export function MemberList({ members, myRole, onOpenProfile, onSetRole, onKick }
       </div>
     </aside>
     </>
+  )
+}
+
+// Loading placeholder for the right-panel Members list — reserves space for
+// two role groups + a body of online members, matching <MemberList>'s grouping.
+function MemberListSkeleton() {
+  const groups: { width: number; rows: number }[] = [
+    { width: 60, rows: 1 },
+    { width: 60, rows: 2 },
+    { width: 60, rows: 6 },
+  ]
+  return (
+    <aside className="flex h-full flex-col overflow-hidden bg-background">
+      <div className="px-3 py-5">
+        {groups.map((g, i) => (
+          <div key={i} className="mb-5">
+            <Skeleton className="mb-2 ml-1 h-3 rounded" style={{ width: g.width }} />
+            <div className="space-y-1">
+              {Array.from({ length: g.rows }).map((_, j) => (
+                <div key={j} className="flex items-center gap-3 rounded-md px-2 py-2">
+                  <Skeleton className="size-8 shrink-0 rounded-full" />
+                  <Skeleton className="h-3.5 w-3/5 rounded" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </aside>
   )
 }

@@ -1,14 +1,35 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Bell, BellOff, Pin, Users, MessagesSquare, ListChevronsUpDown, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { Skeleton } from "@/components/ui/skeleton"
 import { ChannelIcon } from "./channel-icon"
 import type { RightPanel } from "./_types"
+
+// Skeleton header for the loading frame between route change and channel
+// metadata arriving. Same h-12 footprint as <ChannelHeader> so the body below
+// doesn't shift when the real header lands.
+export function ChannelHeaderSkeleton({ onBack }: { onBack?: () => void }) {
+  return (
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
+      {onBack && (
+        <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
+      )}
+      <Skeleton className="ml-1 size-4 rounded" />
+      <Skeleton className="h-4 w-32 rounded" />
+      <div className="ml-auto flex items-center gap-2">
+        <Skeleton className="size-7 rounded-md" />
+        <Skeleton className="size-7 rounded-md" />
+        <Skeleton className="size-7 rounded-md" />
+      </div>
+    </header>
+  )
+}
 
 export type ChannelNotifLevel = "Use Server Default" | "All Messages" | "Only @mentions" | "Nothing"
 
@@ -173,6 +194,12 @@ function ChannelNotifDropdown({ level, onSetLevel }: {
 function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name: string) => void }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(label)
+  // Keep the draft mirror in sync with the upstream label whenever the dialog
+  // is closed — covers WS-driven renames and channel switches (the parent
+  // component is reused across channelId changes).
+  useEffect(() => {
+    if (!open) setDraft(label)
+  }, [label, open])
   const save = () => {
     const trimmed = draft.trim()
     if (trimmed && trimmed !== label) onRename(trimmed)

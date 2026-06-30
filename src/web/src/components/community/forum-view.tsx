@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "./format-time"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { EmptyState } from "./empty-state"
 import { CreateForumPost, type NewForumPost } from "./create-forum-post"
@@ -17,10 +18,11 @@ import type { ForumPost } from "./_types"
 // `tags` seeds the available tag chips ("All" + tag names); tags can be added/removed
 // in manage mode.
 export function ForumView({
-  posts, tags, onOpenPost, onCreatePost, onTagsChanged, canManageTags,
+  posts, tags, loading, onOpenPost, onCreatePost, onTagsChanged, canManageTags,
 }: {
   posts: ForumPost[]
   tags: string[]
+  loading?: boolean
   onOpenPost: (id: string) => void
   onCreatePost?: (post: NewForumPost) => void
   onTagsChanged?: (tags: string[]) => void
@@ -113,7 +115,9 @@ export function ForumView({
       </div>
 
       <main className="flex-1 overflow-y-auto thin-scrollbar p-5">
-        {filtered.length === 0 ? (
+        {loading && posts.length === 0 ? (
+          <ForumListSkeleton />
+        ) : filtered.length === 0 ? (
           <EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." />
         ) : (
           <div className="flex flex-col gap-3">
@@ -145,5 +149,33 @@ export function ForumView({
         )}
       </main>
     </>
+  )
+}
+
+// Loading placeholder for the forum post list — three card placeholders that
+// match <ForumView>'s post-card density so the filter bar above doesn't shift
+// when posts arrive.
+function ForumListSkeleton() {
+  return (
+    <div className="flex flex-col gap-3">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="flex flex-col gap-2.5 rounded-lg border border-border bg-card p-5">
+          <div className="flex items-center gap-2">
+            <Skeleton className="size-6 shrink-0 rounded-full" />
+            <Skeleton className="h-3 w-40 rounded" />
+          </div>
+          <Skeleton className="h-4 w-2/3 rounded" />
+          <div className="space-y-1.5">
+            <Skeleton className="h-3 w-full rounded" />
+            <Skeleton className="h-3 w-5/6 rounded" />
+          </div>
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-5 w-14 rounded-full" />
+            <Skeleton className="h-5 w-12 rounded-full" />
+            <Skeleton className="ml-auto h-3 w-10 rounded" />
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }

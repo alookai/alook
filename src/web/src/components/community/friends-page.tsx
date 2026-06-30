@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { EmptyState } from "./empty-state"
 import type { Friend, PendingRequest, BlockedUser, OpenProfile } from "./_types"
@@ -28,12 +29,13 @@ function FriendSection({ title, count, emptyLabel, children }: {
 
 // Friends page (@me, no DM selected) — online / all / pending / blocked tabs.
 export function FriendsPage({
-  friends, pending, blocked, onBack,
+  friends, pending, blocked, loading, onBack,
   onAccept, onReject, onCancelRequest, onUnblock, onSendRequest, onRemoveFriend, onBlock, onDm,
 }: {
   friends: Friend[]
   pending: PendingRequest[]
   blocked: BlockedUser[]
+  loading?: boolean
   onBack?: () => void
   onOpenProfile?: OpenProfile
   onAccept?: (id: string) => void
@@ -69,7 +71,16 @@ export function FriendsPage({
     setSearchResults([])
   }
 
-  const friendList = (list: Friend[], title: string) => (
+  const friendList = (list: Friend[], title: string) => {
+    if (loading && list.length === 0) {
+      return (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title} — …</div>
+          <FriendRowsSkeleton />
+        </div>
+      )
+    }
+    return (
     <FriendSection title={`${title} — ${list.length}`} count={list.length} emptyLabel="No friends yet. Search for users to add.">
       {list.map((f) => (
         <ContextMenu key={f.id}>
@@ -96,7 +107,8 @@ export function FriendsPage({
         </ContextMenu>
       ))}
     </FriendSection>
-  )
+    )
+  }
 
   return (
     <Tabs defaultValue="online" className="min-h-0 flex-1">
@@ -159,6 +171,12 @@ export function FriendsPage({
         <TabsContent value="online">{friendList(onlineFriends, "Online")}</TabsContent>
         <TabsContent value="all">{friendList(friends, "All friends")}</TabsContent>
         <TabsContent value="pending">
+          {loading && pending.length === 0 ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pending — …</div>
+              <FriendRowsSkeleton withActions />
+            </div>
+          ) : (
           <FriendSection title={`Pending — ${pending.length}`} count={pending.length} emptyLabel="No pending requests. When someone adds you, it'll show up here.">
             {pending.map((p) => (
               <div key={p.id} className="flex items-center gap-3 rounded-md px-2.5 py-2.5 hover:bg-accent">
@@ -178,8 +196,15 @@ export function FriendsPage({
               </div>
             ))}
           </FriendSection>
+          )}
         </TabsContent>
         <TabsContent value="blocked">
+          {loading && blocked.length === 0 ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Blocked — …</div>
+              <FriendRowsSkeleton withActions />
+            </div>
+          ) : (
           <FriendSection title={`Blocked — ${blocked.length}`} count={blocked.length} emptyLabel="You haven't blocked anyone.">
             {blocked.map((b) => (
               <div key={b.id} className="flex items-center gap-3 rounded-md px-2.5 py-2.5 hover:bg-accent">
@@ -189,8 +214,36 @@ export function FriendsPage({
               </div>
             ))}
           </FriendSection>
+          )}
         </TabsContent>
       </div>
     </Tabs>
+  )
+}
+
+// Skeleton rows for the friends/pending/blocked tabs. `withActions` reserves
+// the trailing action-button slot so pending/blocked rows don't reflow into
+// the friend-row footprint and back.
+function FriendRowsSkeleton({ withActions = false }: { withActions?: boolean }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
+          <Skeleton className="size-8 shrink-0 rounded-full" />
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <Skeleton className="h-3.5 w-2/5 rounded" />
+            <Skeleton className="h-3 w-3/5 rounded" />
+          </div>
+          {withActions ? (
+            <div className="flex gap-1.5">
+              <Skeleton className="size-8 shrink-0 rounded-full" />
+              <Skeleton className="size-8 shrink-0 rounded-full" />
+            </div>
+          ) : (
+            <Skeleton className="size-8 shrink-0 rounded-full" />
+          )}
+        </div>
+      ))}
+    </div>
   )
 }

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api/client"
 
 type InviteInfo = {
@@ -58,11 +59,11 @@ export function InviteAcceptClient({ token }: { token: string }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-(--e2)">
-          <div className="mx-auto size-20 animate-pulse rounded-full bg-muted" />
-          <div className="mx-auto mt-5 h-3 w-32 animate-pulse rounded bg-muted" />
-          <div className="mx-auto mt-3 h-5 w-48 animate-pulse rounded bg-muted" />
-          <div className="mx-auto mt-2 h-3 w-24 animate-pulse rounded bg-muted" />
-          <div className="mt-6 h-9 w-full animate-pulse rounded-md bg-muted" />
+          <Skeleton className="mx-auto size-20 rounded-full" />
+          <Skeleton className="mx-auto mt-5 h-3 w-32 rounded" />
+          <Skeleton className="mx-auto mt-3 h-5 w-48 rounded" />
+          <Skeleton className="mx-auto mt-2 h-3 w-24 rounded" />
+          <Skeleton className="mt-6 h-9 w-full rounded-md" />
         </div>
       </div>
     )

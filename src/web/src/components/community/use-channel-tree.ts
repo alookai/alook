@@ -100,7 +100,18 @@ export function useChannelTree(categories: Category[]) {
   useEffect(() => {
     const prev = prevCatsRef.current
     prevCatsRef.current = categories
-    if (categories.length === 0 || categories === prev) return
+    if (categories === prev) return
+    // Server-detail cleared on route change — collapse our derived state so the
+    // sidebar's loading branch can render the skeleton instead of stale rows.
+    if (categories.length === 0) {
+      if (prev.length === 0) return
+      setCatOrder([])
+      setOrder({})
+      setCatNames({})
+      setCatPrivate({})
+      setCatCreators({})
+      return
+    }
     // Compare both category IDs and channel IDs to detect any change
     const prevKey = prev.map((c) => `${c.id}:${c.channels.map((ch) => ch.id).join(",")}`).join("|")
     const nextKey = categories.map((c) => `${c.id}:${c.channels.map((ch) => ch.id).join(",")}`).join("|")

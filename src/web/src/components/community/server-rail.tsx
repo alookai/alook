@@ -9,6 +9,7 @@ import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers"
 import { RailIcon } from "./rail-icon"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import { Skeleton } from "@/components/ui/skeleton"
 import { SortableServer } from "./sortable-server"
 import { RailFolder } from "./rail-folder"
 import { CreateServerDialog } from "./create-server-dialog"
@@ -103,6 +104,9 @@ export const ServerRail = memo(function ServerRail({
         <TooltipContent side="right" sideOffset={8}>Direct Messages</TooltipContent>
       </Tooltip>
       <div className="w-6 border-t border-border/50 my-1" />
+      {serversLoading && servers.length === 0 && folders.length === 0 ? (
+        <ServerRailSkeleton />
+      ) : (
       <DndContext id="d-rail" sensors={sensors} collisionDetection={closestCenter} modifiers={[restrictToVerticalAxis]} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => setDragActiveId(null)}>
         <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
           <div className="flex w-full flex-col items-center gap-2">
@@ -223,6 +227,7 @@ export const ServerRail = memo(function ServerRail({
           })()}
         </DragOverlay>
       </DndContext>
+      )}
       <RailIcon label={<Plus className="size-6" />} round accent tooltip="Add a Server" onClick={() => setCreateOpen(true)} />
 
       {createOpen && (
@@ -235,3 +240,16 @@ export const ServerRail = memo(function ServerRail({
     </nav>
   )
 })
+
+// Loading placeholder for the vertical server rail. Reserves the size-10
+// square footprint of each <RailIcon> so the rail's width and rhythm don't
+// change once servers arrive.
+function ServerRailSkeleton() {
+  return (
+    <div className="flex w-full flex-col items-center gap-2">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <Skeleton key={i} className="size-10 rounded-[20px]" />
+      ))}
+    </div>
+  )
+}

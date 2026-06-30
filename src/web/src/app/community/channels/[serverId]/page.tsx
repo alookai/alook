@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation"
 import { useCommunity } from "@/contexts/community/context"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
 import { FriendsPage } from "@/components/community/friends-page"
+import { MessageList } from "@/components/community/message-list"
+import { Skeleton } from "@/components/ui/skeleton"
 
 /**
  * /community/channels/:serverId
@@ -38,6 +40,7 @@ export default function ServerDefaultPage() {
         friends={ctx.friends ?? []}
         pending={ctx.pending ?? []}
         blocked={ctx.blocked ?? []}
+        loading={ctx.friendsLoading}
         onBack={bp === "mobile" ? () => ctx.goBackMobile() : undefined}
         onAccept={ctx.acceptFriendRequest}
         onReject={ctx.rejectFriendRequest}
@@ -65,9 +68,26 @@ export default function ServerDefaultPage() {
     )
   }
 
+  // Waiting for server detail → redirect to first channel. Render the same
+  // channel-shell skeleton the destination route uses so the transition feels
+  // like a reveal, not a swap. Avoids a centered "Loading…" pop.
   return (
-    <div className="flex flex-1 items-center justify-center text-muted-foreground">
-      <span className="text-sm">Loading...</span>
-    </div>
+    <>
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
+        <Skeleton className="size-4.5 rounded" />
+        <Skeleton className="h-4 w-40 rounded" />
+        <div className="ml-auto flex items-center gap-2">
+          <Skeleton className="size-7 rounded-md" />
+          <Skeleton className="size-7 rounded-md" />
+          <Skeleton className="size-7 rounded-md" />
+        </div>
+      </header>
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <MessageList channel="" messages={[]} loading onOpenThread={() => {}} />
+        <div className="px-3 pb-3 pt-0">
+          <Skeleton className="h-12 w-full rounded-xl" />
+        </div>
+      </main>
+    </>
   )
 }

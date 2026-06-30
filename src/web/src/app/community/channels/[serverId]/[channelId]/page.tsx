@@ -6,11 +6,11 @@ import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
 import { useCommunity } from "@/contexts/community/context"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
-import { ChannelHeader, type ChannelNotifLevel } from "@/components/community/channel-header"
-import { DmHeader } from "@/components/community/dm-header"
+import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channel-header"
+import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
 import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
-import { Composer } from "@/components/community/composer"
+import { Composer, ComposerSkeleton } from "@/components/community/composer"
 import { ForumView } from "@/components/community/forum-view"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
@@ -26,7 +26,19 @@ import type { MentionType } from "@alook/shared"
  * - If server + text channel: MessageList + Composer + right panels
  * - Thread takeover when a thread is opened
  */
+// Thin wrapper that re-keys the actual view on channelId. The page component
+// would otherwise stay mounted across channel switches (Next.js dynamic
+// segment reuses the same component instance), leaving local state — replyTo,
+// pendingFiles, the TipTap editor doc, the rightPanel toggle — visible for a
+// frame until the post-render reset effects fire. A keyed remount is
+// synchronous: the previous channel's view tears down before the next paints.
 export default function ChannelPage() {
+  const params = useParams<{ serverId: string; channelId: string }>()
+  const key = `${params.serverId}/${params.channelId}`
+  return <ChannelView key={key} />
+}
+
+function ChannelView() {
   const params = useParams<{ serverId: string; channelId: string }>()
   const router = useRouter()
   const serverId = decodeURIComponent(params.serverId)
@@ -53,6 +65,20 @@ export default function ChannelPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<Msg[]>([])
   const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null)
+
+  // Channel switch — reset every piece of UI state scoped to the previous
+  // channel. Without this the page component stays mounted across channel
+  // changes (Next.js dynamic segment), so a stale replyTo would attach a new
+  // send to a message id from the previous channel.
+  useEffect(() => {
+    setReplyTo(null)
+    setRightPanel(null)
+    setSearchQuery("")
+    setSearchResults([])
+    setLocalName(null)
+    setScrollToMessageId(null)
+    setCreatingThread(false)
+  }, [channelId])
 
   const doSearch = useCallback(async (q: string) => {
     setSearchQuery(q)
@@ -238,9 +264,12 @@ export default function ChannelPage() {
   const panelProps = {
     onOpenThread: enterThread,
     members: ctx.members,
+    membersLoading: ctx.membersLoading,
     pinned: ctx.pinned,
+    pinnedLoading: ctx.pinnedLoading,
     searchResults,
     threads: ctx.threads,
+    threadsLoading: ctx.threadsLoading,
     searchQuery,
     myRole,
     onSearch: doSearch,
@@ -258,11 +287,39 @@ export default function ChannelPage() {
     },
   }
 
+  // Top-level loading gate. The context tracks the active channel id via its
+  // own effect, which fires AFTER the URL-driven render commits. Between those
+  // two ticks `ctx.currentChannelId` still points at the previous channel and
+  // `ctx.messages` is its history. Render the channel shell skeleton until
+  // they line up — this also catches the same-server c1 → c2 case where the
+  // server detail is already loaded so no other branch would trip.
+  // Child channels (thread / forum post) additionally wait on the meta fetch
+  // so the breadcrumb shows the new parent name instead of the previous one.
+  const isPotentialChild = !isAtMe && !channelInServer && !!ctx.currentServer?.categories
+  const channelHydrated =
+    ctx.currentChannelId === channelId &&
+    !ctx.messagesLoading &&
+    (!isPotentialChild || ctx.currentChannelMeta !== null) &&
+    (!isAtMe || !ctx.dmsLoading)
+  if (!channelHydrated) {
+    return (
+      <>
+        {isAtMe
+          ? <DmHeaderSkeleton onBack={bp === "mobile" ? goBack : undefined} />
+          : <ChannelHeaderSkeleton onBack={bp === "mobile" ? goBack : undefined} />}
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <MessageList channel="" messages={[]} loading={true} onOpenThread={() => {}} hero={isAtMe ? <></> : undefined} />
+          <ComposerSkeleton />
+        </main>
+      </>
+    )
+  }
+
   // ── DM view ─────────────────────────────────────────────────────────────
   if (isAtMe && !dm) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
-        <span className="text-sm">{ctx.dmsLoading ? "Loading…" : "Conversation not found"}</span>
+        <span className="text-sm">Conversation not found</span>
       </div>
     )
   }
@@ -278,6 +335,7 @@ export default function ChannelPage() {
           <MessageList
             channel={dm.name}
             messages={ctx.messages}
+            loading={ctx.messagesLoading}
             typingUsers={ctx.typingUsers.map((id) => ctx.friends.find((f) => f.userId === id)?.name ?? id)}
             onOpenThread={() => {}}
             onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
@@ -349,6 +407,7 @@ export default function ChannelPage() {
           <MessageList
             channel={channelName}
             messages={ctx.messages}
+            loading={ctx.messagesLoading}
             pinnedIds={pinnedIds}
             typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
             onOpenThread={() => {}}
@@ -405,6 +464,7 @@ export default function ChannelPage() {
           <ForumView
             posts={ctx.forumPosts}
             tags={forumTags}
+            loading={ctx.forumPostsLoading}
             onOpenPost={enterThread}
             onCreatePost={createForumPost}
             canManageTags={canManage}
@@ -446,6 +506,7 @@ export default function ChannelPage() {
         <MessageList
           channel={channelName}
           messages={ctx.messages}
+          loading={ctx.messagesLoading}
           pinnedIds={pinnedIds}
           typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
           onOpenThread={enterThread}

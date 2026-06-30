@@ -127,14 +127,17 @@ export type CommunityContextValue = {
 
   // Invites
   invites: InviteRow[]
+  invitesLoading: boolean
 
   // Audit log
   auditLog: AuditEntry[]
+  auditLogLoading: boolean
 
   // Inbox — three independent feeds, see /api/community/inbox/* routes.
   forYouFeed: ForYouEvent[]
   unreadFeed: UnreadServer[]
   mentions: Mention[]
+  inboxLoading: boolean
   refreshInbox: () => void
 
   // Presence
@@ -308,7 +311,9 @@ export function CommunityProvider({
 
   // ── Settings / invites / audit ───────────────────────────────────────────
   const [invites, setInvites] = useState<InviteRow[]>([])
+  const [invitesLoading, setInvitesLoading] = useState(false)
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([])
+  const [auditLogLoading, setAuditLogLoading] = useState(false)
   const [serverNotif, setServerNotif] = useState<Record<string, string>>({})
   const [channelNotif, setChannelNotifState] = useState<Record<string, string>>({})
   const notifLevel = serverNotif[currentServerId ?? ""] ?? "Only @mentions"
@@ -320,6 +325,11 @@ export function CommunityProvider({
   const [forYouFeed, setForYouFeed] = useState<ForYouEvent[]>([])
   const [unreadFeed, setUnreadFeed] = useState<UnreadServer[]>([])
   const [mentions, setMentions] = useState<Mention[]>([])
+  // Three feeds load in parallel on mount; surface a single `inboxLoading`
+  // flag covering the initial round-trip so the popover can show skeleton
+  // tabs instead of flashing the empty state ("Nothing for you right now")
+  // before data arrives.
+  const [inboxLoading, setInboxLoading] = useState(true)
 
   // ── Presence ─────────────────────────────────────────────────────────────
   const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set())
@@ -823,9 +833,12 @@ export function CommunityProvider({
     fetchFriends()
     fetchDms()
     fetchFolders()
-    fetchForYou()
-    fetchUnreads()
-    fetchMentions()
+    // Single inboxLoading covers the first round-trip across all three feeds
+    // — the popover uses it to render skeleton tabs instead of an empty state
+    // until the initial fetch settles. `inboxLoading` starts true via
+    // useState, so no `setInboxLoading(true)` is needed here.
+    Promise.allSettled([fetchForYou(), fetchUnreads(), fetchMentions()])
+      .finally(() => setInboxLoading(false))
     apiFetch<{ aboutMe: string }>("/api/community/users/me/profile")
       .then((data) => setCurrentUser((u) => ({ ...u, aboutMe: data.aboutMe })))
       .catch(() => {})
@@ -848,9 +861,18 @@ export function CommunityProvider({
   }, [fetchServers, fetchFriends, fetchDms, fetchFolders, fetchForYou, fetchUnreads, fetchMentions])
 
   useEffect(() => {
+    // Reset server-scoped state on every URL change so the in-flight fetches
+    // never paint over the previous server's data. *Loading flags become the
+    // single source of truth for "data not yet here".
+    setCurrentServer(null)
+    setMembers([])
+    setInvites([])
+    setAuditLog([])
+    setOnlineUserIds(new Set())
+
     if (!currentServerId || currentServerId === "@me") {
-      setInvites([])
-      setAuditLog([])
+      setInvitesLoading(false)
+      setAuditLogLoading(false)
       return
     }
     fetchServerDetail(currentServerId)
@@ -859,20 +881,49 @@ export function CommunityProvider({
       .then((data) => setOnlineUserIds(new Set(data.online)))
       .catch(() => {})
     // Fetch invites and audit log for settings
+    setInvitesLoading(true)
     apiFetch<{ invites: Array<{ id: string; token: string; maxUses: number | null; uses: number; expiresAt: string | null; createdAt: string; creatorName: string | null }> }>(`/api/community/servers/${currentServerId}/invites`)
       .then((data) => setInvites(data.invites.map((i) => ({ code: i.token, uses: i.uses, maxUses: i.maxUses, expiresAt: i.expiresAt, by: i.creatorName ?? "Unknown" }))))
       .catch(() => setInvites([]))
+      .finally(() => setInvitesLoading(false))
+    setAuditLogLoading(true)
     apiFetch<{ entries: Array<{ log: { action: string; targetType: string; targetId: string; createdAt: string }; actor: { name: string | null } | null }> }>(`/api/community/servers/${currentServerId}/audit-log`)
       .then((data) => setAuditLog(data.entries.map((e) => ({ actor: e.actor?.name ?? "System", action: e.log.action.replace(/_/g, " "), target: e.log.targetType, createdAt: e.log.createdAt }))))
       .catch(() => setAuditLog([]))
+      .finally(() => setAuditLogLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentServerId])
 
+  // Channel/DM switch — reset everything scoped to the previous channel BEFORE
+  // any fetch fires. Without this, a fast switch from c1 → c2 paints c1's
+  // messages until c2's fetch resolves. Keyed only on the route values (not on
+  // currentServer), so the fetch effect below can re-run when server detail
+  // arrives without nuking freshly-loaded data.
   useEffect(() => {
+    setMessages([])
+    setPinned([])
+    setThreads([])
+    setForumPosts([])
+    setCurrentChannelMeta(null)
+    setHasMoreMessages(false)
+    setMessageCursor(null)
+    setTypingUsers([])
+    typingTimers.current.forEach((t) => clearTimeout(t))
+    typingTimers.current.clear()
     if (!currentChannelId) {
-      setMessages((prev) => prev.length ? [] : prev)
-      return
+      setMessagesLoading(false)
+      setPinnedLoading(false)
+      setThreadsLoading(false)
+      setForumPostsLoading(false)
+    } else {
+      // Hint to the UI that data is on the way — actual fetches set true again
+      // when they fire in the effect below.
+      setMessagesLoading(true)
     }
+  }, [currentChannelId, currentServerId])
+
+  useEffect(() => {
+    if (!currentChannelId) return
     if (currentServerId === "@me") {
       ws.subscribe({ dmConversationId: currentChannelId })
       fetchDmMessages(currentChannelId)
@@ -903,9 +954,6 @@ export function CommunityProvider({
           .catch(() => setCurrentChannelMeta(null))
       }
     }
-    setTypingUsers([])
-    typingTimers.current.forEach((t) => clearTimeout(t))
-    typingTimers.current.clear()
     return () => { ws.unsubscribe() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentChannelId, currentServerId, currentServer])
@@ -1727,10 +1775,13 @@ export function CommunityProvider({
       pinned,
       pinnedLoading,
       invites,
+      invitesLoading,
       auditLog,
+      auditLogLoading,
       forYouFeed,
       unreadFeed,
       mentions,
+      inboxLoading,
       onlineUserIds,
       typingUsers,
       folders,
@@ -1812,7 +1863,7 @@ export function CommunityProvider({
       currentChannelId, members, membersLoading, friends, pending, blocked, friendsLoading,
       dms, dmsLoading, messages, messagesLoading, hasMoreMessages, loadMoreMessages,
       threads, threadsLoading, forumPosts, forumPostsLoading, pinned, pinnedLoading,
-      invites, auditLog, forYouFeed, unreadFeed, mentions, onlineUserIds, typingUsers, folders,
+      invites, invitesLoading, auditLog, auditLogLoading, forYouFeed, unreadFeed, mentions, inboxLoading, onlineUserIds, typingUsers, folders,
       machines, machinesLoading, loadMachines, removeMachineLocal, pendingMachineTokenId,
       notifLevel, channelNotif, sendMessage, sendDmMessage,
       toggleReaction, pinMessage, unpinMessage, createThread, sendFriendRequest,

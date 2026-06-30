@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge, badgeVariants } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { Field } from "./field"
 import type { SettingsSection, Member, Role, InviteRow, AuditEntry, OpenProfile } from "./_types"
@@ -24,7 +25,8 @@ function capitalize(s: string): string {
 
 // Full-screen server settings view. Data via props.
 export function ServerSettings({
-  section, setSection, onClose, serverName, serverDescription, serverIcon, members, invites, auditLog, onOpenProfile,
+  section, setSection, onClose, serverName, serverDescription, serverIcon,
+  members, membersLoading, invites, invitesLoading, auditLog, auditLogLoading, onOpenProfile,
   onKickMember, onSetRole, onRevokeInvite, onCreateInvite, onCopyInvite, onDeleteServer, onUploadIcon, onUpdateServer, notifLevel, onSetNotifLevel,
 }: {
   section: SettingsSection
@@ -34,8 +36,11 @@ export function ServerSettings({
   serverDescription?: string
   serverIcon?: string | null
   members: Member[]
+  membersLoading?: boolean
   invites: InviteRow[]
+  invitesLoading?: boolean
   auditLog: AuditEntry[]
+  auditLogLoading?: boolean
   onOpenProfile?: OpenProfile
   onKickMember?: (name: string) => void
   onSetRole?: (name: string, role: Role) => void
@@ -97,10 +102,10 @@ export function ServerSettings({
         </header>
         <div className="flex-1 overflow-y-auto thin-scrollbar p-5">
           <TabsContent value="overview"><SettingsOverview serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} /></TabsContent>
-          <TabsContent value="members"><SettingsMembers members={members} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></TabsContent>
-          <TabsContent value="invites"><SettingsInvites invites={invites} onRevokeInvite={onRevokeInvite} onCreateInvite={onCreateInvite} onCopyInvite={onCopyInvite} /></TabsContent>
+          <TabsContent value="members"><SettingsMembers members={members} loading={membersLoading} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></TabsContent>
+          <TabsContent value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCreateInvite={onCreateInvite} onCopyInvite={onCopyInvite} /></TabsContent>
           <TabsContent value="notifications"><SettingsNotifications level={notifLevel ?? "Only @mentions"} onSetLevel={onSetNotifLevel} /></TabsContent>
-          <TabsContent value="audit"><SettingsAudit auditLog={auditLog} /></TabsContent>
+          <TabsContent value="audit"><SettingsAudit auditLog={auditLog} loading={auditLogLoading} /></TabsContent>
         </div>
       </div>
     </Tabs>
@@ -109,6 +114,13 @@ export function ServerSettings({
 }
 
 function SettingsOverview({ serverName, serverDescription, serverIcon, onUploadIcon, onUpdateServer }: { serverName: string; serverDescription?: string; serverIcon?: string | null; onUploadIcon?: () => void; onUpdateServer?: (name: string, desc: string) => void }) {
+  // The draft is mount-only on purpose. The cross-server "stale draft" case
+  // is already handled in layout.tsx — switching servers closes the dialog
+  // (`setServerSettingsOpen(false)` in the serverId effect), which unmounts
+  // <SettingsOverview>; reopening on the new server mounts a fresh instance
+  // with the new initial values. Syncing props into draft state via useEffect
+  // would also fire on WS-driven server renames, clobbering the user's
+  // in-progress edits — keep it simple and let mount handle it.
   const [name, setName] = useState(serverName)
   const [desc, setDesc] = useState(serverDescription ?? "")
   const save = () => onUpdateServer?.(name, desc)
@@ -132,12 +144,14 @@ function SettingsOverview({ serverName, serverDescription, serverIcon, onUploadI
   )
 }
 
-function SettingsMembers({ members, onOpenProfile, onKickMember, onSetRole }: {
+function SettingsMembers({ members, loading, onOpenProfile, onKickMember, onSetRole }: {
   members: Member[]
+  loading?: boolean
   onOpenProfile?: OpenProfile
   onKickMember?: (name: string) => void
   onSetRole?: (name: string, role: Role) => void
 }) {
+  if (loading && members.length === 0) return <SettingsMembersSkeleton />
   return (
     <div className="space-y-2">
       <div className="mb-3 text-sm text-muted-foreground">{members.length} members</div>
@@ -175,13 +189,15 @@ function SettingsMembers({ members, onOpenProfile, onKickMember, onSetRole }: {
   )
 }
 
-function SettingsInvites({ invites, onRevokeInvite, onCreateInvite, onCopyInvite }: {
+function SettingsInvites({ invites, loading, onRevokeInvite, onCreateInvite, onCopyInvite }: {
   invites: InviteRow[]
+  loading?: boolean
   onRevokeInvite?: (code: string) => void
   onCreateInvite?: () => void
   onCopyInvite?: (code: string) => void
 }) {
   const [revokingCode, setRevokingCode] = useState<string | null>(null)
+  if (loading && invites.length === 0) return <SettingsInvitesSkeleton />
   return (
     <div className="space-y-2.5">
       {invites.length === 0 && (
@@ -239,7 +255,8 @@ function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLeve
   )
 }
 
-function SettingsAudit({ auditLog }: { auditLog: AuditEntry[] }) {
+function SettingsAudit({ auditLog, loading }: { auditLog: AuditEntry[]; loading?: boolean }) {
+  if (loading && auditLog.length === 0) return <SettingsAuditSkeleton />
   return (
     <div className="space-y-1.5">
       {auditLog.length === 0 && (
@@ -254,6 +271,59 @@ function SettingsAudit({ auditLog }: { auditLog: AuditEntry[] }) {
             <span className="font-medium">{e.target}</span>
           </div>
           <span className="shrink-0 text-xs text-muted-foreground" suppressHydrationWarning>{formatMessageTime(e.createdAt)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Loading placeholders for the settings panels — match the real row heights
+// so the body doesn't shift when data lands.
+function SettingsMembersSkeleton() {
+  return (
+    <div className="space-y-2">
+      <Skeleton className="mb-3 h-4 w-24 rounded" />
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-2.5">
+          <Skeleton className="size-8 shrink-0 rounded-full" />
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <Skeleton className="h-4 w-2/5 rounded" />
+            <Skeleton className="h-3 w-16 rounded" />
+          </div>
+          <Skeleton className="h-6 w-16 rounded-full" />
+          <Skeleton className="size-7 shrink-0 rounded-md" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SettingsInvitesSkeleton() {
+  return (
+    <div className="space-y-2.5">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-3">
+          <Skeleton className="size-5 shrink-0 rounded" />
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <Skeleton className="h-4 w-1/2 rounded" />
+            <Skeleton className="h-3 w-3/4 rounded" />
+          </div>
+          <Skeleton className="h-8 w-16 rounded-md" />
+          <Skeleton className="size-7 shrink-0 rounded-md" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SettingsAuditSkeleton() {
+  return (
+    <div className="space-y-1.5">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-md px-2.5 py-2.5">
+          <Skeleton className="size-4 shrink-0 rounded" />
+          <Skeleton className="h-4 flex-1 rounded" style={{ maxWidth: 360 + ((i * 37) % 80) }} />
+          <Skeleton className="h-3 w-16 shrink-0 rounded" />
         </div>
       ))}
     </div>

@@ -56,6 +56,16 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     setView(isAtMe ? "dm" : "server")
   }, [isAtMe])
 
+  // Close any open server-scoped dialogs/popovers when the user navigates to a
+  // different server. Without this, the settings dialog for server A would
+  // remain open after switching to server B, showing a confusing mix of A's
+  // form draft and B's loaded metadata.
+  useEffect(() => {
+    setServerSettingsOpen(false)
+    setSettingsSection("overview")
+    setProfile(null)
+  }, [serverId])
+
   useEffect(() => {
     if (searchParams.get("settings") === "1") {
       setServerSettingsOpen(true)
@@ -202,6 +212,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     activeChannel: ctx.currentChannelMeta?.parentChannelId ?? ctx.currentChannelId ?? "",
     isAdmin,
     currentUserId: ctx.currentUser.id,
+    loading: !isAtMe && !ctx.currentServer,
     setActiveChannel,
     onOpenSettings: isAdmin ? onSidebarOpenSettings : undefined,
     onBlockedCreate,
@@ -215,7 +226,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     onReorderCategories: onReorderCategoriesInSidebar,
     onReorderChannels: onReorderChannelsInSidebar,
   }), [
-    channelTree, ctx.currentServer?.name, ctx.currentChannelMeta?.parentChannelId,
+    channelTree, ctx.currentServer, isAtMe,
+    ctx.currentChannelMeta?.parentChannelId,
     ctx.currentChannelId, isAdmin, ctx.currentUser.id, setActiveChannel,
     onSidebarOpenSettings, onBlockedCreate, mutedChannels,
     onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel,
@@ -318,6 +330,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       forYou={ctx.forYouFeed}
       unreads={ctx.unreadFeed}
       mentions={ctx.mentions}
+      loading={ctx.inboxLoading}
       onOpenEvent={(e) => openServerChannel(e.serverId, e.channelId)}
       onOpenChannel={openServerChannel}
       onOpenMention={(mention) => {
@@ -342,6 +355,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         dms={ctx.dms ?? []}
         activeDm={ctx.currentChannelId}
         blockedUserIds={blockedUserIds}
+        loading={ctx.dmsLoading}
         onPickDm={enterDm}
         onShowFriends={onShowFriends}
         onShowMachines={onShowMachines}
@@ -389,8 +403,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
             serverDescription={ctx.currentServer?.description ?? ""}
             serverIcon={ctx.currentServer?.icon ?? null}
             members={ctx.members}
+            membersLoading={ctx.membersLoading}
             invites={ctx.invites}
+            invitesLoading={ctx.invitesLoading}
             auditLog={ctx.auditLog}
+            auditLogLoading={ctx.auditLogLoading}
             onKickMember={(name) => { const m = ctx.members.find((x) => x.name === name); if (m) ctx.kickMember(m.id) }}
             onSetRole={(name, role) => { const m = ctx.members.find((x) => x.name === name); if (m) ctx.setMemberRole(m.id, role) }}
             onRevokeInvite={(code) => ctx.revokeInvite(code)}

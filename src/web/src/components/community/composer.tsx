@@ -7,6 +7,7 @@ import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { EmojiPickerPopover } from "./emoji-picker"
 import type { Friend } from "./_types"
@@ -204,6 +205,21 @@ export function Composer({ channel, context, members, onSend, onCreateThread, on
             <Smile className="size-5" />
           </button>
         </EmojiPickerPopover>
+      </div>
+    </div>
+  )
+}
+
+// Loading placeholder for <Composer>. Same outer footprint (px-3 pb-3 pt-0 +
+// rounded surface) so the message list above stays anchored across channel
+// switches and the input bar doesn't jump in.
+export function ComposerSkeleton() {
+  return (
+    <div className="relative px-3 pb-3 pt-0">
+      <div className="relative rounded-xl bg-muted px-13 py-3 shadow-(--e1) ring-1 ring-border/40">
+        <Skeleton className="h-5 w-2/5 rounded" />
+        <Skeleton className="absolute left-2 bottom-2 size-8 rounded-full" />
+        <Skeleton className="absolute right-2 bottom-2 size-8 rounded-full" />
       </div>
     </div>
   )

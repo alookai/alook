@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Users, Pin, Search, MessagesSquare } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { PanelShell } from "./panel-shell"
 import { MemberList } from "./member-list"
 import { Message } from "./message"
@@ -13,15 +14,19 @@ import type { RightPanel, Member, Role, Msg, Thread, OpenProfile } from "./_type
 // Always wraps the active section in PanelShell — the surrounding Sheet provides the
 // outer frame and its own close button, so we don't need a panel-level close affordance.
 export function RightPanelContent({
-  kind, members, pinned, searchResults, searchQuery, threads, showSearchInput = true, onOpenThread, onOpenProfile,
+  kind, members, membersLoading, pinned, pinnedLoading, searchResults, searchQuery,
+  threads, threadsLoading, showSearchInput = true, onOpenThread, onOpenProfile,
   onSetRole, onKickMember, myRole, onJumpToMessage, onSearch,
 }: {
   kind: Exclude<RightPanel, null>
   members: Member[]
+  membersLoading?: boolean
   pinned: Msg[]
+  pinnedLoading?: boolean
   searchResults: Msg[]
   searchQuery?: string
   threads: Thread[]
+  threadsLoading?: boolean
   showSearchInput?: boolean
   onOpenThread: (id: string) => void
   onOpenProfile?: OpenProfile
@@ -34,13 +39,15 @@ export function RightPanelContent({
   if (kind === "members")
     return (
       <PanelShell icon={Users} title="Members" bodyClassName="p-0">
-        <MemberList members={members} myRole={myRole} onOpenProfile={onOpenProfile} onSetRole={onSetRole} onKick={onKickMember} />
+        <MemberList members={members} loading={membersLoading} myRole={myRole} onOpenProfile={onOpenProfile} onSetRole={onSetRole} onKick={onKickMember} />
       </PanelShell>
     )
   if (kind === "pinned")
     return (
       <PanelShell icon={Pin} title="Pinned Messages">
-        {pinned.length === 0 ? (
+        {pinnedLoading && pinned.length === 0 ? (
+          <PinnedListSkeleton />
+        ) : pinned.length === 0 ? (
           <div className="py-8 text-center text-sm text-muted-foreground">No pinned messages yet.</div>
         ) : (
           pinned.map((m) => (
@@ -68,6 +75,10 @@ export function RightPanelContent({
     return <SearchPanel searchResults={searchResults} initialQuery={searchQuery} showSearchInput={showSearchInput} onOpenProfile={onOpenProfile} onSearch={onSearch} />
   return (
     <PanelShell icon={MessagesSquare} title="Threads">
+      {threadsLoading && threads.length === 0 ? (
+        <ThreadListSkeleton />
+      ) : (
+        <>
       <div className="mb-2 text-xs text-muted-foreground">{threads.length} threads</div>
       <div className="space-y-2">
         {threads.map((t) => (
@@ -87,7 +98,47 @@ export function RightPanelContent({
           </button>
         ))}
       </div>
+        </>
+      )}
     </PanelShell>
+  )
+}
+
+// Loading placeholders for the right-panel sub-views — sized to match the
+// real row heights so the panel body doesn't reflow when data lands.
+function PinnedListSkeleton() {
+  return (
+    <div className="space-y-1.5">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="flex gap-2 rounded-md px-2 py-2">
+          <Skeleton className="size-6 shrink-0 rounded-full" />
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <div className="flex items-baseline gap-1.5">
+              <Skeleton className="h-3 w-20 rounded" />
+              <Skeleton className="h-3 w-10 rounded" />
+            </div>
+            <Skeleton className="h-3 w-5/6 rounded" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ThreadListSkeleton() {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-card p-3">
+          <Skeleton className="mt-0.5 size-4 shrink-0 rounded" />
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <Skeleton className="h-3.5 w-3/5 rounded" />
+            <Skeleton className="h-3 w-11/12 rounded" />
+            <Skeleton className="h-3 w-2/5 rounded" />
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 

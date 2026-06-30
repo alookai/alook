@@ -8,6 +8,7 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { Skeleton } from "@/components/ui/skeleton"
 import { SortableCategory } from "./sortable-category"
 import { SortableChannel } from "./sortable-channel"
 import { CreateChannelDialog } from "./create-channel-dialog"
@@ -31,7 +32,7 @@ type Dialog =
 // lets admins create channels — non-admins are blocked via onBlockedCreate.
 export const ChannelSidebar = memo(function ChannelSidebar({
   tree, serverName, activeChannel, setActiveChannel, noHeader, onOpenSettings,
-  isAdmin = true, currentUserId, onBlockedCreate, mutedChannels,
+  isAdmin = true, currentUserId, onBlockedCreate, mutedChannels, loading,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
   onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
 }: {
@@ -45,6 +46,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   currentUserId?: string
   onBlockedCreate?: () => void
   mutedChannels?: Record<string, boolean>
+  loading?: boolean
   onCreateChannel?: (categoryId: string, name: string, type: ChannelType) => Promise<string | null> | void
   onCreateCategory?: (name: string, opts?: { private?: boolean }) => Promise<string | null> | void
   onDeleteChannel?: (channelId: string) => void
@@ -83,6 +85,11 @@ export const ChannelSidebar = memo(function ChannelSidebar({
 
   // Find the "none" category ID (empty name) — only if one explicitly exists
   const noneCatId = Object.keys(catNames).find((id) => catNames[id] === "") ?? ""
+
+  // Initial load (no tree yet) — render skeleton so the sidebar holds its
+  // width and rhythm instead of collapsing to an empty column.
+  if (loading && catOrder.length === 0) return <ChannelSidebarSkeleton noHeader={noHeader} />
+
 
   const requestCreateChannel = (categoryId: string) => {
     if (catPrivate[categoryId] && !isAdmin) { onBlockedCreate?.(); return }
@@ -213,3 +220,36 @@ export const ChannelSidebar = memo(function ChannelSidebar({
     </aside>
   )
 })
+
+// Loading placeholder for the channel sidebar. Kept colocated so changes to
+// row density or header height stay in sync with the live sidebar above.
+function ChannelSidebarSkeleton({ noHeader }: { noHeader?: boolean }) {
+  return (
+    <aside className="flex min-w-0 flex-1 flex-col">
+      {!noHeader && (
+        <header className="flex h-12 items-center border-b border-border/40 px-4">
+          <Skeleton className="h-5 w-32 rounded" />
+        </header>
+      )}
+      <div className="flex-1 overflow-hidden px-2.5 py-4">
+        <div className="mb-5 space-y-1">
+          <Skeleton className="h-7 w-full rounded-md" />
+          <Skeleton className="h-7 w-11/12 rounded-md" />
+        </div>
+        {[40, 32].map((w, i) => (
+          <div key={i} className="mb-5">
+            <div className="mb-2 flex items-center gap-1 px-1">
+              <Skeleton className="h-3 rounded" style={{ width: w }} />
+            </div>
+            <div className="space-y-1">
+              <Skeleton className="h-7 w-full rounded-md" />
+              <Skeleton className="h-7 w-10/12 rounded-md" />
+              <Skeleton className="h-7 w-11/12 rounded-md" />
+              <Skeleton className="h-7 w-9/12 rounded-md" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </aside>
+  )
+}

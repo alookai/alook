@@ -3,21 +3,24 @@
 import { memo } from "react"
 import { Users, Ban, Monitor } from "lucide-react"
 import { Avatar } from "./avatar"
+import { Skeleton } from "@/components/ui/skeleton"
 import type { DM } from "./_types"
 
 export const DmSidebar = memo(function DmSidebar({
-  dms, activeDm, blockedUserIds, onPickDm, onShowFriends, onShowMachines,
+  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines,
   friendsActive, machinesActive,
 }: {
   dms: DM[]
   activeDm: string | null
   blockedUserIds?: Set<string>
+  loading?: boolean
   onPickDm: (id: string) => void
   onShowFriends: () => void
   onShowMachines?: () => void
   friendsActive?: boolean
   machinesActive?: boolean
 }) {
+  if (loading && dms.length === 0) return <DmSidebarSkeleton />
   const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive)
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
@@ -75,3 +78,28 @@ export const DmSidebar = memo(function DmSidebar({
     </aside>
   )
 })
+
+// Loading placeholder for the DM sidebar — mirrors the Friends button + DM
+// row footprint so the column doesn't reflow when conversations arrive.
+function DmSidebarSkeleton() {
+  return (
+    <aside className="flex min-w-0 flex-1 flex-col">
+      <div className="flex-1 overflow-hidden px-2.5 py-4">
+        <Skeleton className="mb-2 h-9 w-full rounded-md" />
+        <div className="my-2 h-px bg-border" />
+        <div className="mb-2 px-2.5">
+          <Skeleton className="h-3 w-32 rounded" />
+        </div>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 rounded-md px-2.5 py-2">
+            <Skeleton className="size-8 shrink-0 rounded-full" />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <Skeleton className="h-3.5 w-3/5 rounded" />
+              <Skeleton className="h-3 w-4/5 rounded" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </aside>
+  )
+}

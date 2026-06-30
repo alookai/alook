@@ -14,10 +14,13 @@ export function CommunityPanelSheet({
   onOpenChange,
   kind,
   members,
+  membersLoading,
   pinned,
+  pinnedLoading,
   searchResults,
   searchQuery,
   threads,
+  threadsLoading,
   onOpenThread,
   onOpenProfile,
   onSetRole,
@@ -30,10 +33,13 @@ export function CommunityPanelSheet({
   onOpenChange: (v: boolean) => void
   kind: Exclude<RightPanel, null>
   members: Member[]
+  membersLoading?: boolean
   pinned: Msg[]
+  pinnedLoading?: boolean
   searchResults: Msg[]
   searchQuery?: string
   threads: Thread[]
+  threadsLoading?: boolean
   onOpenThread: (id: string) => void
   onOpenProfile?: OpenProfile
   onSetRole?: (name: string, role: Role) => void
@@ -61,10 +67,13 @@ export function CommunityPanelSheet({
         <RightPanelContent
           kind={kind}
           members={members}
+          membersLoading={membersLoading}
           pinned={pinned}
+          pinnedLoading={pinnedLoading}
           searchResults={searchResults}
           searchQuery={searchQuery}
           threads={threads}
+          threadsLoading={threadsLoading}
           showSearchInput
           onOpenThread={onOpenThread}
           onOpenProfile={onOpenProfile}
