@@ -7,6 +7,7 @@
  */
 
 import type { ChannelType } from "./utils/community-roles"
+import type { MentionType } from "./utils/community-mentions"
 
 // ── Message events ────────────────────────────────────────────────────────────
 
@@ -22,7 +23,7 @@ export type CommunityMessageCreate = {
     authorAvatar?: string
     content: string
     type?: "default" | "system" | "thread_created"
-    mentionType?: "everyone" | "here" | null
+    mentionType?: MentionType | null
     replyToId?: string | null
     replyTo?: { id: string; authorName: string; text: string }
     embeds?: unknown[]

@@ -426,7 +426,7 @@ export default function CommunityPreview() {
           />
           <main className="flex min-h-0 flex-1 flex-col">
             <ThreadMessages thread={openThread} {...profileProps} />
-            <Composer channel={openThread.name} thread members={friendList} onSend={sendThreadMessage} />
+            <Composer channel={openThread.name} context="thread" members={friendList} onSend={sendThreadMessage} />
           </main>
         </>
       )
@@ -449,7 +449,7 @@ export default function CommunityPreview() {
                 </>
               }
             />
-            <Composer channel={dm.name} thread members={friendList} onSend={sendDmMessage} />
+            <Composer channel={dm.name} context="dm" members={friendList} onSend={sendDmMessage} />
           </main>
         </>
       ) : (
@@ -495,7 +495,7 @@ export default function CommunityPreview() {
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MessageList channel={activeChannel} messages={messages} pinnedIds={pinnedIds} newDividerBefore={NEW_DIVIDER_BEFORE} typingUsers={["Lindsay"]} onOpenThread={enterThread} {...messageActions} {...profileProps} />
-          <Composer channel={activeChannel} members={friendList} onSend={sendMessage} onCreateThread={() => setCreatingThread(true)} replyingTo={replyTo?.authorName} onCancelReply={() => setReplyTo(null)} />
+          <Composer channel={activeChannel} context="channel" members={friendList} onSend={sendMessage} onCreateThread={() => setCreatingThread(true)} replyingTo={replyTo?.authorName} onCancelReply={() => setReplyTo(null)} />
         </main>
       </>
     )

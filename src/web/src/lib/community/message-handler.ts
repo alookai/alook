@@ -1,11 +1,13 @@
 import {
   queries,
   extractMentionedUserIds,
+  isMentionType,
   MAX_MESSAGE_CONTENT_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
   MESSAGE_PREVIEW_LENGTH,
   WS_EVENTS,
 } from "@alook/shared"
+import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { fanOutToChannel, fanOutToDM } from "./fanout"
 import { broadcastToUser } from "../broadcast"
@@ -106,8 +108,8 @@ export async function createCommunityMessage(params: {
 
   const replyToId =
     typeof body.replyToId === "string" ? body.replyToId : undefined
-  const mentionType =
-    target.kind !== "dm" && typeof body.mentionType === "string"
+  const mentionType: MentionType | undefined =
+    target.kind !== "dm" && isMentionType(body.mentionType)
       ? body.mentionType
       : undefined
 
@@ -296,7 +298,7 @@ function buildMessagePayload(
   if (kind === "dm") {
     return {
       ...base,
-      mentionType: row.mentionType as "everyone" | "here" | null | undefined,
+      mentionType: row.mentionType as MentionType | null | undefined,
       replyToId: row.replyToId,
       embeds: row.embeds ? JSON.parse(row.embeds) : undefined,
     }
@@ -306,7 +308,7 @@ function buildMessagePayload(
   }
   return {
     ...base,
-    mentionType: row.mentionType as "everyone" | "here" | null,
+    mentionType: row.mentionType as MentionType | null,
     replyTo,
   }
 }

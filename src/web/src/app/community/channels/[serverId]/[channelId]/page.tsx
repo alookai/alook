@@ -16,6 +16,7 @@ import { CommunityPanelSheet } from "@/components/community/community-panel-shee
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
 import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
+import type { MentionType } from "@alook/shared"
 
 /**
  * /community/channels/:serverId/:channelId
@@ -164,7 +165,7 @@ export default function ChannelPage() {
   }, [ctx.members])
 
   // ── Send messages ───────────────────────────────────────────────────────
-  const sendMessage = async (markdown: string, attachments?: File[]) => {
+  const sendMessage = async (markdown: string, attachments?: File[], mentionType?: MentionType) => {
     if (!markdown && !attachments?.length) return
 
     // Upload files first if any
@@ -178,11 +179,14 @@ export default function ChannelPage() {
 
     ctx.sendMessage(markdown || "", {
       replyToId: replyTo?.id,
+      mentionType,
       attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
     })
     setReplyTo(null)
   }
 
+  // DM endpoint ignores mentionType (no roster to fan out to), so the third
+  // arg is accepted to match the Composer signature and dropped.
   const sendDmMsg = async (markdown: string, attachments?: File[]) => {
     if (!markdown && !attachments?.length) return
     if (!channelId) return
@@ -295,7 +299,7 @@ export default function ChannelPage() {
           ) : (
             <Composer
               channel={dm.name}
-              thread
+              context="dm"
               members={ctx.friends}
               onSend={sendDmMsg}
               onTyping={handleTyping}
@@ -350,7 +354,7 @@ export default function ChannelPage() {
           />
           <Composer
             channel={channelName}
-            thread
+            context="thread"
             members={ctx.friends}
             onSend={sendMessage}
             onTyping={handleTyping}
@@ -447,6 +451,7 @@ export default function ChannelPage() {
         />
         <Composer
           channel={channelName}
+          context="channel"
           members={ctx.friends}
           onSend={sendMessage}
           onCreateThread={() => setCreatingThread(true)}

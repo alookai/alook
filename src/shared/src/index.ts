@@ -351,8 +351,8 @@ export {
   CHANNEL_TYPES,
 } from "./utils/community-roles";
 export type { CommunityRole, ChannelType, AssignableRole } from "./utils/community-roles";
-export { extractMentionedUserIds } from "./utils/community-mentions";
-export type { MentionCandidate } from "./utils/community-mentions";
+export { extractMentionedUserIds, MENTION_TYPES, isMentionType } from "./utils/community-mentions";
+export type { MentionCandidate, MentionType } from "./utils/community-mentions";
 export { semverGte } from "./semver";
 export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "./mode";
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";

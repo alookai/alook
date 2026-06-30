@@ -52,6 +52,7 @@ import type {
   CommunityChildChannelUpdate,
   ChannelType,
   CommunityRole,
+  MentionType,
 } from "@alook/shared"
 import { isServerOwner, TYPING_INDICATOR_TIMEOUT_MS } from "@alook/shared"
 
@@ -149,9 +150,9 @@ export type CommunityContextValue = {
   channelNotif: Record<string, string>
 
   // Mutations
-  sendMessage: (content: string, opts?: { replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<string | null>
+  sendMessage: (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<string | null>
   sendDmMessage: (dmId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
-  sendThreadMessage: (threadId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
+  sendThreadMessage: (threadId: string, content: string, opts?: { mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => Promise<void>
   fetchThreadMessages: (threadId: string) => Promise<void>
   toggleReaction: (messageId: string, emoji: string) => void
   pinMessage: (messageId: string) => void
@@ -866,7 +867,7 @@ export function CommunityProvider({
 
   // ── Mutation functions ───────────────────────────────────────────────────
 
-  const sendMessage = useCallback(async (content: string, opts?: { replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }): Promise<string | null> => {
+  const sendMessage = useCallback(async (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }): Promise<string | null> => {
     const cid = currentChannelIdRef.current
     const sid = currentServerIdRef.current
     if (!cid || sid === "@me") return null
@@ -899,7 +900,7 @@ export function CommunityProvider({
     try {
       const result = await apiFetch<{ message: { id: string } }>(`/api/community/channels/${cid}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content, replyToId: opts?.replyToId, attachments: opts?.attachments }),
+        body: JSON.stringify({ content, replyToId: opts?.replyToId, mentionType: opts?.mentionType, attachments: opts?.attachments }),
       })
       setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: result.message.id } : m)))
       return result.message.id
@@ -941,7 +942,7 @@ export function CommunityProvider({
     }
   }, [])
 
-  const sendThreadMessage = useCallback(async (threadId: string, content: string, opts?: { attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
+  const sendThreadMessage = useCallback(async (threadId: string, content: string, opts?: { mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
     // Optimistic update
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
     const optimisticAttachments = opts?.attachments?.map((a) => {
@@ -966,7 +967,7 @@ export function CommunityProvider({
     try {
       const result = await apiFetch<{ id: string }>(`/api/community/threads/${threadId}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content, attachments: opts?.attachments }),
+        body: JSON.stringify({ content, mentionType: opts?.mentionType, attachments: opts?.attachments }),
       })
       // Replace temp id with real id
       const replaceId = (setter: typeof setThreads | typeof setForumPosts) => {

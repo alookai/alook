@@ -17,6 +17,17 @@ export interface MentionCandidate {
   name: string;
 }
 
+/**
+ * The roster-wide mention triggers. Order matters — when both `@everyone` and
+ * `@here` appear in the same message, `everyone` wins (Discord precedence).
+ */
+export const MENTION_TYPES = ["everyone", "here"] as const;
+export type MentionType = (typeof MENTION_TYPES)[number];
+
+export function isMentionType(value: unknown): value is MentionType {
+  return value === "everyone" || value === "here";
+}
+
 const ID_CHAR_RE = /[A-Za-z0-9_]/;
 
 function isBoundaryChar(ch: string | undefined): boolean {

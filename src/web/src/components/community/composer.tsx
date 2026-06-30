@@ -1,7 +1,8 @@
 "use client"
 
-import { useRef, useState } from "react"
-import { PlusCircle, Smile, Upload, MessagesSquare, X, FileIcon, ImageIcon } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
+import { AtSign, FileIcon, ImageIcon, MessagesSquare, PlusCircle, Smile, Upload, Users, X } from "lucide-react"
 import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
@@ -9,30 +10,63 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Avatar } from "./avatar"
 import { EmojiPickerPopover } from "./emoji-picker"
 import type { Friend } from "./_types"
+import type { MentionType } from "@alook/shared"
+import {
+  buildCommunityMentionExtension,
+  detectMentionType,
+  EMPTY_MENTION_STATE,
+  type MentionContext,
+  type MentionItem,
+  type MentionPopupState,
+} from "@/lib/community/mention-extension"
 
-// Composer — plain-text TipTap editor. Users type raw markdown which
-// MessageBody/Streamdown renders on display. Enter sends, Shift+Enter adds a newline.
-export function Composer({ channel, thread, members, onSend, onCreateThread, onTyping, replyingTo, onCancelReply }: {
+// Composer — plain-text TipTap editor with a Discord-style @-mention popover.
+// Users type raw markdown which MessageBody/Streamdown renders on display.
+// Enter sends, Shift+Enter adds a newline; while the mention popover is open
+// Enter/Tab/Arrow keys drive selection instead. @everyone / @here are virtual
+// candidates in channel + thread contexts (hidden in DM).
+export function Composer({ channel, context, members, onSend, onCreateThread, onTyping, replyingTo, onCancelReply }: {
   channel: string
-  thread?: boolean
+  context: MentionContext
   members: Friend[]
-  onSend?: (markdown: string, attachments?: File[]) => void
+  onSend?: (markdown: string, attachments?: File[], mentionType?: MentionType) => void
   onCreateThread?: () => void
   onTyping?: () => void
   // when set, shows a "Replying to X" bar above the input
   replyingTo?: string
   onCancelReply?: () => void
 }) {
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const typingTimer = useRef<NodeJS.Timeout | null>(null)
+
+  const [mentionPopup, setMentionPopup] = useState<MentionPopupState>(EMPTY_MENTION_STATE)
+  const mentionPopupRef = useRef(mentionPopup)
+  useEffect(() => { mentionPopupRef.current = mentionPopup }, [mentionPopup])
+
+  // The mention extension is built ONCE — its suggestion callbacks read refs
+  // at runtime so live `members`/`context` updates are visible without
+  // rebuilding the editor (which would reset its state).
+  const membersRef = useRef(members)
+  const contextRef = useRef(context)
+  useEffect(() => { membersRef.current = members }, [members])
+  useEffect(() => { contextRef.current = context }, [context])
 
   const fireTyping = () => {
     if (!onTyping || typingTimer.current) return
     onTyping()
     typingTimer.current = setTimeout(() => { typingTimer.current = null }, 3_000)
   }
+
+  // eslint-disable-next-line react-hooks/refs -- refs read in runtime callbacks, not render
+  const [mentionExtension] = useState(() =>
+    buildCommunityMentionExtension({
+      membersRef,
+      contextRef,
+      popupRef: mentionPopupRef,
+      setPopup: setMentionPopup,
+    }),
+  )
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -51,7 +85,8 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
         listItem: false,
         listKeymap: false,
       }),
-      Placeholder.configure({ placeholder: thread ? `Message ${channel}` : `Message /${channel}` }),
+      Placeholder.configure({ placeholder: context === "channel" ? `Message /${channel}` : `Message ${channel}` }),
+      mentionExtension,
     ],
     editorProps: {
       attributes: {
@@ -59,7 +94,16 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
         enterkeyhint: "send",
       },
       handleKeyDown: (_view, event) => {
-        if (event.key === "Enter" && !event.shiftKey) {
+        // editorProps.handleKeyDown runs BEFORE the suggestion plugin's keymap,
+        // so when the mention popup is open we must NOT intercept Enter here —
+        // otherwise we'd send the message instead of picking the highlighted
+        // candidate. Returning false yields to ProseMirror's keymap chain, so
+        // the suggestion plugin gets Enter/Arrow/Tab/Esc as designed.
+        const mentionOpen =
+          mentionPopupRef.current.items.length > 0 && mentionPopupRef.current.command !== null
+        if (mentionOpen) return false
+
+        if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
           event.preventDefault()
           send()
           return true
@@ -67,36 +111,19 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
         return false
       },
     },
-    onUpdate: ({ editor }) => {
-      // detect a trailing "@token" in the current line for the mention dropdown
-      const text = editor.state.doc.textBetween(0, editor.state.selection.from, "\n", "\n")
-      const m = text.match(/@(\w*)$/)
-      setMentionQuery(m ? m[1].toLowerCase() : null)
+    onUpdate: () => {
       fireTyping()
     },
   })
 
-  const mentionMatches = mentionQuery !== null
-    ? members.filter((f) => f.name.toLowerCase().includes(mentionQuery)).slice(0, 5)
-    : []
-
   const send = () => {
     if (!editor || (editor.isEmpty && pendingFiles.length === 0)) return
     const markdown = editor.isEmpty ? "" : editor.getText({ blockSeparator: "\n" }).trim()
-    onSend?.(markdown, pendingFiles.length > 0 ? pendingFiles : undefined)
+    const mentionType = detectMentionType(markdown)
+    onSend?.(markdown, pendingFiles.length > 0 ? pendingFiles : undefined, mentionType)
     editor.commands.clearContent()
     setPendingFiles([])
-    setMentionQuery(null)
-  }
-
-  const pickMention = (name: string) => {
-    if (!editor) return
-    // replace the trailing "@token" with "@Name "
-    const { from } = editor.state.selection
-    const text = editor.state.doc.textBetween(0, from, "\n", "\n")
-    const tokenLen = (text.match(/@\w*$/)?.[0].length) ?? 0
-    editor.chain().focus().deleteRange({ from: from - tokenLen, to: from }).insertContent(`@${name} `).run()
-    setMentionQuery(null)
+    setMentionPopup(EMPTY_MENTION_STATE)
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,18 +140,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
 
   return (
     <div className="relative px-3 pb-3 pt-0">
-      {/* @mention autocomplete — floats above the input */}
-      {mentionMatches.length > 0 && (
-        <div className="absolute bottom-full left-2 right-2 mb-1 overflow-hidden rounded-lg border border-border bg-popover shadow-(--e2)">
-          <div className="border-b border-border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Members</div>
-          {mentionMatches.map((f) => (
-            <button key={f.id} onClick={() => pickMention(f.name)} className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-accent">
-              <Avatar label={f.avatar} size={24} presence={f.status} />
-              <span className="text-sm font-medium">{f.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
+      <CommunityMentionList state={mentionPopup} />
 
       {/* reply context bar — attached above the input */}
       {replyingTo && (
@@ -179,7 +195,7 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-44">
             <DropdownMenuItem onClick={() => fileInputRef.current?.click()}><Upload className="size-4" /> Upload a File</DropdownMenuItem>
-            {!thread && <DropdownMenuItem onClick={onCreateThread}><MessagesSquare className="size-4" /> Create Thread</DropdownMenuItem>}
+            {context === "channel" && <DropdownMenuItem onClick={onCreateThread}><MessagesSquare className="size-4" /> Create Thread</DropdownMenuItem>}
           </DropdownMenuContent>
         </DropdownMenu>
         {/* Emoji button — fixed bottom-right */}
@@ -190,5 +206,102 @@ export function Composer({ channel, thread, members, onSend, onCreateThread, onT
         </EmojiPickerPopover>
       </div>
     </div>
+  )
+}
+
+// Portal-rendered popup. Anchored above the caret via clientRect() from
+// @tiptap/suggestion. Highlighted row syncs to hover so keyboard + pointer agree.
+function CommunityMentionList({ state }: { state: MentionPopupState }) {
+  const listRef = useRef<HTMLDivElement>(null)
+  const { items, selectedIndex, command, rect } = state
+
+  useEffect(() => {
+    if (!listRef.current) return
+    const el = listRef.current.children[selectedIndex] as HTMLElement | undefined
+    el?.scrollIntoView({ block: "nearest" })
+  }, [selectedIndex])
+
+  if (!rect || items.length === 0 || !command) return null
+
+  const POPUP_WIDTH = 256
+  const VIEWPORT_MARGIN = 8
+  const maxLeft = typeof window !== "undefined"
+    ? Math.max(VIEWPORT_MARGIN, window.innerWidth - POPUP_WIDTH - VIEWPORT_MARGIN)
+    : rect.left
+  const clampedLeft = Math.min(rect.left, maxLeft)
+
+  // Whether to show a "MEMBERS" section header above the first member row —
+  // only when virtual (everyone/here) rows precede members.
+  const firstMemberIdx = items.findIndex((it) => it.kind === "member")
+  const hasVirtual = items.some((it) => it.kind !== "member")
+  const showMembersHeader = hasVirtual && firstMemberIdx > 0
+
+  return createPortal(
+    <div
+      className="fixed z-100 w-64 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-(--e2)"
+      style={{ top: rect.top - 4, left: clampedLeft, transform: "translateY(-100%)" }}
+    >
+      <div ref={listRef} className="max-h-60 overflow-y-auto thin-scrollbar py-1">
+        {items.map((item, i) => {
+          const selected = i === selectedIndex
+          return (
+            <MentionRow
+              key={`${item.kind}:${item.id}`}
+              item={item}
+              selected={selected}
+              showMembersHeader={showMembersHeader && i === firstMemberIdx}
+              onSelect={() => command({ id: item.id, label: item.label })}
+            />
+          )
+        })}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function MentionRow({ item, selected, showMembersHeader, onSelect }: {
+  item: MentionItem
+  selected: boolean
+  showMembersHeader: boolean
+  onSelect: () => void
+}) {
+  return (
+    <>
+      {showMembersHeader && (
+        <div className="border-t border-border/60 px-3 pt-1.5 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Members</div>
+      )}
+      <button
+        type="button"
+        role="option"
+        aria-selected={selected}
+        className={[
+          "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors",
+          selected ? "bg-accent" : "hover:bg-accent/50",
+        ].join(" ")}
+        onMouseDown={(e) => {
+          // mousedown (not click) so the editor doesn't blur first and lose
+          // the suggestion plugin's caret tracking.
+          e.preventDefault()
+          onSelect()
+        }}
+      >
+        {item.kind === "member" ? (
+          <Avatar label={item.avatar} size={24} presence={item.status} />
+        ) : (
+          <span className="grid size-6 place-items-center rounded-full bg-primary/15 text-primary">
+            {item.kind === "everyone" ? <Users className="size-3.5" /> : <AtSign className="size-3.5" />}
+          </span>
+        )}
+        <span className="font-medium">
+          {item.kind === "member" ? item.label : `@${item.label}`}
+        </span>
+        {item.kind !== "member" && (
+          <span className="ml-auto text-xs text-muted-foreground">
+            {item.kind === "everyone" ? "Notify everyone" : "Notify online"}
+          </span>
+        )}
+      </button>
+    </>
   )
 }
