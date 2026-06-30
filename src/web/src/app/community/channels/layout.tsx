@@ -301,18 +301,31 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   }
 
   // ── Inbox (global) ────────────────────────────────────────────────────────
+  const openServerChannel = useCallback((sid: string, cid: string) => {
+    router.push(`/community/channels/${sid}/${cid}`)
+    ctx.setCurrentChannelId(cid)
+    ctx.markChannelRead(cid)
+  }, [router, ctx.setCurrentChannelId, ctx.markChannelRead])
+
   const inboxElement = (
     <InboxPopover
-      feed={ctx.inboxFeed}
+      forYou={ctx.forYouFeed}
+      unreads={ctx.unreadFeed}
       mentions={ctx.mentions}
-      onOpenItem={(id) => { ctx.openInboxItem(id); router.push(`/community/channels/${id}`) }}
-      onOpenMention={(mention) => { if (mention.serverId && mention.channelId) router.push(`/community/channels/${mention.serverId}/${mention.channelId}`) }}
-      onMarkAllRead={ctx.markAllInboxRead}
-      onDismissItem={ctx.dismissInboxItem}
+      onOpenEvent={(e) => openServerChannel(e.serverId, e.channelId)}
+      onOpenChannel={openServerChannel}
+      onOpenMention={(mention) => {
+        if (mention.serverId && mention.channelId) openServerChannel(mention.serverId, mention.channelId)
+      }}
+      onMarkAllRead={() => { void ctx.markAllInboxRead() }}
+      onDismissEvent={(eventKey) => { void ctx.dismissForYouEvent(eventKey) }}
       onDeleteMention={ctx.deleteMention}
     />
   )
-  const inboxHasUnread = ctx.inboxFeed?.some((f) => f.unread) ?? false
+  const inboxHasUnread =
+    (ctx.forYouFeed?.length ?? 0) > 0 ||
+    (ctx.unreadFeed?.length ?? 0) > 0 ||
+    (ctx.mentions?.length ?? 0) > 0
 
   const blockedUserIds = useMemo(() => new Set(ctx.blocked.map((b) => b.userId ?? b.id)), [ctx.blocked])
 

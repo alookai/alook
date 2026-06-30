@@ -122,7 +122,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (body.replyToId) {
     const replyMsg = await queries.communityMessage.getMessage(db, body.replyToId)
     if (replyMsg && replyMsg.authorId && replyMsg.authorId !== ctx.userId) {
-      await queries.communityMention.createMentions(db, { messageId: created.id, userIds: [replyMsg.authorId] })
+      await queries.communityMention.createMentions(db, { messageId: created.id, userIds: [replyMsg.authorId], kind: "reply" })
       broadcastToUser(replyMsg.authorId, {
         type: "community:mention.create",
         userId: replyMsg.authorId,

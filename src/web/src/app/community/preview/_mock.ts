@@ -28,7 +28,8 @@ import type {
   InviteRow,
   AuditEntry,
   Mention,
-  InboxRow,
+  ForYouEvent,
+  UnreadServer,
 } from "@/components/community/_types"
 
 export const SERVERS: Server[] = [
@@ -319,13 +320,66 @@ export const MENTIONS: Mention[] = [
   },
 ]
 
-// inbox feed rows — "You have new messages in <server>" (For You / Unreads tabs)
-export const INBOX_FEED: InboxRow[] = [
-  { id: "if_1", server: "memobase", initial: "ML", lastActivityAt: "2026-06-07T12:00:00Z", unread: true },
-  { id: "if_2", server: "OSS Club", initial: "OS", lastActivityAt: "2026-06-02T09:00:00Z", unread: true },
-  { id: "if_3", server: "Midjourney", initial: "MJ", lastActivityAt: "2026-05-25T14:00:00Z", unread: false },
-  { id: "if_4", server: "Cloudflare", initial: "CF", lastActivityAt: "2026-04-25T10:00:00Z", unread: false },
-  { id: "if_5", server: "Acontext", initial: "AI", lastActivityAt: "2026-04-20T08:00:00Z", unread: false },
+// "For You" events — direct hits (mentions, replies, thread updates)
+export const FOR_YOU_FEED: ForYouEvent[] = [
+  {
+    eventKey: "mention:mn_m1",
+    kind: "mention",
+    serverId: "sv_alook",
+    serverName: "Alook",
+    channelId: "ch_general",
+    channelName: "general",
+    messageId: "mn_m1",
+    authorName: "Gus",
+    authorAvatar: "Gu",
+    preview: "thanks @Gener — can you cross-post this in #general?",
+    createdAt: "2026-06-25T09:48:00Z",
+  },
+  {
+    eventKey: "reply:r_m1",
+    kind: "reply",
+    serverId: "sv_alook",
+    serverName: "Alook",
+    channelId: "ch_general",
+    channelName: "general",
+    messageId: "r_m1",
+    authorName: "Lindsay",
+    authorAvatar: "L",
+    preview: "got it — that approach works for me",
+    createdAt: "2026-06-25T09:20:00Z",
+  },
+  {
+    eventKey: "thread:ch_thread_42",
+    kind: "thread",
+    serverId: "sv_cf",
+    serverName: "Cloudflare",
+    channelId: "ch_thread_42",
+    channelName: "workers-routing",
+    messageId: "ch_thread_42",
+    authorName: "",
+    authorAvatar: "",
+    preview: "",
+    createdAt: "2026-06-25T08:00:00Z",
+  },
+]
+
+// Unreads grouped by server — channel-level
+export const UNREAD_SERVERS: UnreadServer[] = [
+  {
+    serverId: "sv_alook",
+    serverName: "Alook",
+    channels: [
+      { channelId: "ch_general", channelName: "general", lastMessageAt: "2026-06-25T10:00:00Z", mentionCount: 1 },
+      { channelId: "ch_releases", channelName: "releases", lastMessageAt: "2026-06-25T07:30:00Z", mentionCount: 0 },
+    ],
+  },
+  {
+    serverId: "sv_cf",
+    serverName: "Cloudflare",
+    channels: [
+      { channelId: "ch_flagship", channelName: "flagship", lastMessageAt: "2026-06-25T08:43:00Z", mentionCount: 1 },
+    ],
+  },
 ]
 
 export const FOLDER_SERVERS: FolderServer[] = [

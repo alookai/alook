@@ -308,6 +308,8 @@ export { generateWorkspaceSlug } from "./utils/slug";
 export { truncateTitle } from "./utils/title";
 export { canManageServer, isServerOwner } from "./utils/community-roles";
 export type { CommunityRole, ChannelType } from "./utils/community-roles";
+export { extractMentionedUserIds } from "./utils/community-mentions";
+export type { MentionCandidate } from "./utils/community-mentions";
 export { semverGte } from "./semver";
 export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "./mode";
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";

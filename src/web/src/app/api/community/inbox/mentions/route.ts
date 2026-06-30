@@ -5,7 +5,7 @@ import { queries } from "@alook/shared"
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const rows = await queries.communityMention.listUnreadMentions(db, ctx.userId)
+  const rows = await queries.communityMention.listUnreadMentions(db, ctx.userId, { kind: "mention" })
 
   // Batch fetch all channels and servers
   const channelIds = [...new Set(rows.filter((r) => r.message.channelId).map((r) => r.message.channelId!))]

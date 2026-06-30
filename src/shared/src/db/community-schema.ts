@@ -305,6 +305,10 @@ export const communityPin = sqliteTable(
 );
 
 // 16. community_mention
+// `kind` distinguishes how the mention was created:
+//   - "mention" — explicit @user / @everyone / @here in the message body
+//   - "reply"   — message replies to one of the user's earlier messages
+// The Mentions tab only surfaces kind="mention"; the For You tab uses both.
 export const communityMention = sqliteTable(
   "community_mention",
   {
@@ -315,6 +319,7 @@ export const communityMention = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().default("mention"),
     read: integer("read").default(0),
   },
   (t) => [
@@ -373,5 +378,26 @@ export const communityAuditLog = sqliteTable(
   (t) => [
     index("idx_audit_log_server_created").on(t.serverId, t.createdAt),
     index("idx_audit_log_server_action").on(t.serverId, t.action),
+  ]
+);
+
+// 20. community_inbox_dismissal
+// Tracks which "For You" inbox events the user has hard-dismissed.
+// eventKey is opaque, formed like "mention:<messageId>" / "reply:<messageId>" /
+// "thread:<channelId>". Once dismissed, the corresponding event is filtered out
+// of /api/community/inbox/foryou permanently.
+export const communityInboxDismissal = sqliteTable(
+  "community_inbox_dismissal",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    eventKey: text("event_key").notNull(),
+    dismissedAt: text("dismissed_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    unique("uq_inbox_dismissal_user_event").on(t.userId, t.eventKey),
+    index("idx_inbox_dismissal_user").on(t.userId),
   ]
 );

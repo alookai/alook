@@ -5,23 +5,35 @@ import type { Database } from "../../index";
 
 export async function createMentions(
   db: Database,
-  data: { messageId: string; userIds: string[] }
+  data: { messageId: string; userIds: string[]; kind?: "mention" | "reply" }
 ) {
   if (data.userIds.length === 0) return [];
 
+  const kind = data.kind ?? "mention";
   const rows = await db
     .insert(communityMention)
     .values(
       data.userIds.map((userId) => ({
         messageId: data.messageId,
         userId,
+        kind,
       }))
     )
     .returning();
   return rows;
 }
 
-export async function listUnreadMentions(db: Database, userId: string) {
+export async function listUnreadMentions(
+  db: Database,
+  userId: string,
+  opts: { kind?: "mention" | "reply" } = {}
+) {
+  const conditions = [
+    eq(communityMention.userId, userId),
+    eq(communityMention.read, 0),
+  ];
+  if (opts.kind) conditions.push(eq(communityMention.kind, opts.kind));
+
   return db
     .select({
       mention: communityMention,
@@ -34,9 +46,7 @@ export async function listUnreadMentions(db: Database, userId: string) {
       eq(communityMention.messageId, communityMessage.id)
     )
     .innerJoin(user, eq(communityMessage.authorId, user.id))
-    .where(
-      and(eq(communityMention.userId, userId), eq(communityMention.read, 0))
-    );
+    .where(and(...conditions));
 }
 
 export async function markMentionsRead(

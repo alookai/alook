@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, extractMentionedUserIds } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { broadcastToUser } from "@/lib/broadcast"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
@@ -124,42 +124,67 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const message = await queries.communityMessage.getMessage(db, created.id)
 
-  // Resolve reply reference for WS event + create mention for replied-to user
+  // Collect mention targets, split by kind:
+  //   replyTargets   → kind="reply"   (For You only)
+  //   mentionTargets → kind="mention" (For You + Mentions tab)
   let replyTo: { id: string; authorName: string; text: string } | undefined
-  const mentionedUserIds: string[] = []
+  const replyTargets = new Set<string>()
+  const mentionTargets = new Set<string>()
   if (message!.replyToId) {
     const replyMsg = await queries.communityMessage.getMessage(db, message!.replyToId)
     if (replyMsg) {
       replyTo = { id: replyMsg.id, authorName: replyMsg.authorName ?? "Unknown", text: (replyMsg.content ?? "").slice(0, 100) }
       if (replyMsg.authorId && replyMsg.authorId !== ctx.userId) {
-        mentionedUserIds.push(replyMsg.authorId)
+        replyTargets.add(replyMsg.authorId)
       }
     }
   }
 
+  // Fetch members once; both @everyone/@here and @username resolution need them.
+  const members = await queries.communityMember.listMembers(db, channel.serverId)
+
   // Create mentions for @everyone/@here
   if (body.mentionType === "everyone" || body.mentionType === "here") {
-    const members = await queries.communityMember.listMembers(db, channel.serverId)
-    const userIds = members.filter((m) => m.userId !== ctx.userId).map((m) => m.userId)
-    mentionedUserIds.push(...userIds)
+    for (const m of members) {
+      if (m.userId !== ctx.userId) mentionTargets.add(m.userId)
+    }
   }
 
-  // Filter out muted users, create mentions and broadcast
-  if (mentionedUserIds.length > 0) {
-    const muted = await queries.communityNotificationSetting.getMutedUserIds(db, mentionedUserIds, { channelId, serverId: channel.serverId })
-    const filtered = [...new Set(mentionedUserIds)].filter((id) => !muted.has(id))
-    if (filtered.length > 0) {
-      await queries.communityMention.createMentions(db, { messageId: created.id, userIds: filtered })
-      const authorName = message!.authorName ?? "Unknown"
-      for (const userId of filtered) {
-        broadcastToUser(userId, {
-          type: "community:mention.create",
-          userId,
-          messageId: created.id,
-          channelId,
-          authorName,
-        } as never).catch(() => {})
-      }
+  // Resolve @username tokens in the message body.
+  if (message?.content) {
+    const candidates = members
+      .filter((m) => m.userId !== ctx.userId && m.userName)
+      .map((m) => ({ userId: m.userId, name: m.userName as string }))
+    for (const id of extractMentionedUserIds(message.content, candidates)) {
+      mentionTargets.add(id)
+    }
+  }
+
+  // A user explicitly @-mentioned should not also be classified as a reply
+  // recipient — mention is more specific and should win.
+  for (const id of mentionTargets) replyTargets.delete(id)
+
+  // Mentions are always written — being @-mentioned or replied to always
+  // surfaces in the user's inbox (For You + Mentions). Channel/server mute
+  // only suppresses the channel from the Unreads tab, not direct hits.
+  const liveMentions = [...mentionTargets]
+  const liveReplies = [...replyTargets]
+  if (liveMentions.length > 0) {
+    await queries.communityMention.createMentions(db, { messageId: created.id, userIds: liveMentions, kind: "mention" })
+  }
+  if (liveReplies.length > 0) {
+    await queries.communityMention.createMentions(db, { messageId: created.id, userIds: liveReplies, kind: "reply" })
+  }
+  if (liveMentions.length > 0 || liveReplies.length > 0) {
+    const authorName = message!.authorName ?? "Unknown"
+    for (const userId of [...liveMentions, ...liveReplies]) {
+      broadcastToUser(userId, {
+        type: "community:mention.create",
+        userId,
+        messageId: created.id,
+        channelId,
+        authorName,
+      } as never).catch(() => {})
     }
   }
 

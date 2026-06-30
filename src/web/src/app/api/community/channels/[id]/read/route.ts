@@ -25,5 +25,9 @@ export const PUT = withAuth(async (_req: NextRequest, ctx) => {
   // Also mark any mentions in this channel as read
   await queries.communityMention.markChannelMentionsRead(db, ctx.userId, channelId)
 
+  // Dismiss reply / thread "For You" events for this channel so they don't
+  // reappear after the next refetch.
+  await queries.communityInbox.dismissForYouForChannel(db, ctx.userId, channelId)
+
   return writeJSON({ ok: true })
 })

@@ -28,7 +28,7 @@ import { Button } from "@/components/ui/button"
 import {
   SERVERS, CATEGORIES, MESSAGES, NEW_DIVIDER_BEFORE, PINNED, SEARCH_RESULTS,
   THREADS, FORUM_POSTS, FORUM_TAGS, MEMBERS, FRIENDS, PENDING, BLOCKED, DMS,
-  PROFILES, INVITES, AUDIT_LOG, MENTIONS, INBOX_FEED, MOCK_FOLDERS,
+  PROFILES, INVITES, AUDIT_LOG, MENTIONS, FOR_YOU_FEED, UNREAD_SERVERS, MOCK_FOLDERS,
 } from "./_mock"
 import type { RightPanel, MobileZone, View, SettingsSection, Msg, PendingRequest, BlockedUser, ForumPost, Profile, Thread, Role, DM } from "@/components/community/_types"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
@@ -98,13 +98,13 @@ export default function CommunityPreview() {
   const [searchQuery] = useState("")
   // image attachment being previewed in the lightbox
   const [preview, setPreview] = useState<string | null>(null)
-  const [inboxFeed, setInboxFeed] = useState(INBOX_FEED)
+  const [forYouFeed, setForYouFeed] = useState(FOR_YOU_FEED)
+  const [unreadFeed] = useState(UNREAD_SERVERS)
 
-  // inbox item / mention → jump to the server + a channel (front-end nav) + mark read
-  const openInboxItem = (id: string) => {
-    setInboxFeed((prev) => prev.map((f) => f.id === id ? { ...f, unread: false } : f))
+  // open an inbox event → jump to its server + channel
+  const openServerChannel = (_sid: string, cid: string) => {
     setView("server")
-    setActiveChannel("general")
+    setActiveChannel(cid)
     setOpenThreadId(null)
     if (bp === "mobile") setMobileZone("messages")
   }
@@ -112,8 +112,18 @@ export default function CommunityPreview() {
   // shell chrome — app name + inbox popover slot
   const shellProps = {
     appName: "Alook",
-    inbox: <InboxPopover feed={inboxFeed} mentions={MENTIONS} onOpenItem={openInboxItem} onMarkAllRead={() => setInboxFeed((prev) => prev.map((f) => ({ ...f, unread: false })))} />,
-    hasUnread: inboxFeed.some((f) => f.unread),
+    inbox: (
+      <InboxPopover
+        forYou={forYouFeed}
+        unreads={unreadFeed}
+        mentions={MENTIONS}
+        onOpenEvent={(e) => openServerChannel(e.serverId, e.channelId)}
+        onOpenChannel={openServerChannel}
+        onDismissEvent={(eventKey) => setForYouFeed((prev) => prev.filter((e) => e.eventKey !== eventKey))}
+        onMarkAllRead={() => setForYouFeed([])}
+      />
+    ),
+    hasUnread: forYouFeed.length > 0 || unreadFeed.length > 0 || MENTIONS.length > 0,
   }
 
   // open a profile card near the click point (desktop popover / mobile sheet).

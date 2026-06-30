@@ -28,7 +28,8 @@ import type {
   DM,
   InviteRow,
   AuditEntry,
-  InboxRow,
+  ForYouEvent,
+  UnreadServer,
   Mention,
   Role,
 } from "@/components/community/_types"
@@ -128,9 +129,11 @@ export type CommunityContextValue = {
   // Audit log
   auditLog: AuditEntry[]
 
-  // Inbox
-  inboxFeed: InboxRow[]
+  // Inbox — three independent feeds, see /api/community/inbox/* routes.
+  forYouFeed: ForYouEvent[]
+  unreadFeed: UnreadServer[]
   mentions: Mention[]
+  refreshInbox: () => void
 
   // Presence
   onlineUserIds: Set<string>
@@ -172,9 +175,8 @@ export type CommunityContextValue = {
   setChannelNotif: (channelId: string, level: string) => void
   markChannelRead: (channelId: string) => void
   markDmRead: (dmId: string) => void
-  markAllInboxRead: () => void
-  openInboxItem: (id: string) => void
-  dismissInboxItem: (id: string) => void
+  markAllInboxRead: () => Promise<void>
+  dismissForYouEvent: (eventKey: string) => Promise<void>
   deleteMention: (id: string) => void
   sendTyping: (target: { channelId?: string; dmConversationId?: string; threadId?: string }) => void
   createForumPost: (channelId: string, post: { name: string; content: string; tags: string[] }) => Promise<void>
@@ -216,6 +218,26 @@ export type CommunityContextValue = {
 }
 
 // ── Context ─────────────────────────────────────────────────────────────────────
+
+// UI presents user-facing strings ("Nothing", "All Messages", "Only @mentions",
+// "Use Server Default"). The API only accepts lowercase: "all" | "mentions" |
+// "nothing". Server default is represented by deleting the override.
+function normalizeNotifLevel(level: string): "all" | "mentions" | "nothing" {
+  if (level === "All Messages") return "all"
+  if (level === "Only @mentions") return "mentions"
+  if (level === "Nothing") return "nothing"
+  // Already lowercase, or unknown — fall through to a safe default.
+  if (level === "all" || level === "mentions" || level === "nothing") return level
+  return "mentions"
+}
+
+// API → UI mapping. Keep these mirror images of normalizeNotifLevel.
+function displayNotifLevel(level: string): string {
+  if (level === "all") return "All Messages"
+  if (level === "mentions") return "Only @mentions"
+  if (level === "nothing") return "Nothing"
+  return level
+}
 
 const CommunityContext = createContext<CommunityContextValue | null>(null)
 
@@ -287,7 +309,8 @@ export function CommunityProvider({
   }
 
   // ── Inbox ────────────────────────────────────────────────────────────────
-  const [inboxFeed, setInboxFeed] = useState<InboxRow[]>([])
+  const [forYouFeed, setForYouFeed] = useState<ForYouEvent[]>([])
+  const [unreadFeed, setUnreadFeed] = useState<UnreadServer[]>([])
   const [mentions, setMentions] = useState<Mention[]>([])
 
   // ── Presence ─────────────────────────────────────────────────────────────
@@ -495,10 +518,19 @@ export function CommunityProvider({
     }
   }, [])
 
-  const fetchInbox = useCallback(async () => {
+  const fetchForYou = useCallback(async () => {
     try {
-      const data = await apiFetch<InboxRow[] | { items: InboxRow[] }>("/api/community/inbox")
-      setInboxFeed(Array.isArray(data) ? data : data.items ?? [])
+      const data = await apiFetch<{ events: ForYouEvent[] }>("/api/community/inbox/foryou")
+      setForYouFeed(data.events ?? [])
+    } catch {
+      // silent
+    }
+  }, [])
+
+  const fetchUnreads = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ servers: UnreadServer[] }>("/api/community/inbox/unreads")
+      setUnreadFeed(data.servers ?? [])
     } catch {
       // silent
     }
@@ -506,8 +538,8 @@ export function CommunityProvider({
 
   const fetchMentions = useCallback(async () => {
     try {
-      const data = await apiFetch<Mention[] | { mentions: Mention[] }>("/api/community/mentions")
-      setMentions(Array.isArray(data) ? data : data.mentions ?? [])
+      const data = await apiFetch<{ mentions: Mention[] }>("/api/community/inbox/mentions")
+      setMentions(data.mentions ?? [])
     } catch {
       // silent
     }
@@ -540,12 +572,27 @@ export function CommunityProvider({
           },
         ]
       })
-      // If this message is a reply to the current user, refresh mentions/inbox
-      if (msg.replyTo && msg.authorId !== currentUserRef.current.id) {
-        fetchMentions()
-        fetchInbox()
+    }, []),
+    onAnyMessage: useCallback((event: CommunityMessageCreate) => {
+      const msg = event.message
+      if (msg.authorId === currentUserRef.current.id) return
+      // If the message lands in the channel the user is actively viewing,
+      // mark it read on the server so it doesn't surface in Unreads. This
+      // also takes care of the "B is in #general → A sends → don't notify B"
+      // case in a single round-trip.
+      if (event.channelId && event.channelId === currentChannelIdRef.current) {
+        apiFetch(`/api/community/channels/${event.channelId}/read`, { method: "PUT" })
+          .then(() => { fetchUnreads(); fetchForYou(); fetchMentions() })
+          .catch(() => {})
+        return
       }
-    }, [fetchMentions, fetchInbox]),
+      // Any server-channel message → refresh Unreads. For You + Mentions are
+      // covered by the dedicated `onMention` callback when this message
+      // actually targets the user.
+      if (event.channelId) {
+        fetchUnreads()
+      }
+    }, [fetchForYou, fetchMentions, fetchUnreads]),
     onReaction: useCallback((event: CommunityReactionAdd | CommunityReactionRemove) => {
       setMessages((prev) =>
         prev.map((m) => {
@@ -706,8 +753,8 @@ export function CommunityProvider({
     }, [fetchForumPosts, fetchThreads]),
     onMention: useCallback(() => {
       fetchMentions()
-      fetchInbox()
-    }, [fetchMentions, fetchInbox]),
+      fetchForYou()
+    }, [fetchMentions, fetchForYou]),
   })
 
   // ── UI dispatch (layout registers handlers, pages call these) ────────────
@@ -730,7 +777,8 @@ export function CommunityProvider({
     fetchFriends()
     fetchDms()
     fetchFolders()
-    fetchInbox()
+    fetchForYou()
+    fetchUnreads()
     fetchMentions()
     apiFetch<{ aboutMe: string }>("/api/community/users/me/profile")
       .then((data) => setCurrentUser((u) => ({ ...u, aboutMe: data.aboutMe })))
@@ -740,17 +788,18 @@ export function CommunityProvider({
         const channelSettings: Record<string, string> = {}
         const serverSettings: Record<string, string> = {}
         for (const s of settings) {
+          const level = displayNotifLevel(s.level)
           if (s.channelId) {
-            channelSettings[s.channelId] = s.level
+            channelSettings[s.channelId] = level
           } else if (s.serverId) {
-            serverSettings[s.serverId] = s.level
+            serverSettings[s.serverId] = level
           }
         }
         if (Object.keys(channelSettings).length > 0) setChannelNotifState(channelSettings)
         if (Object.keys(serverSettings).length > 0) setServerNotif(serverSettings)
       })
       .catch(() => {})
-  }, [fetchServers, fetchFriends, fetchDms, fetchFolders, fetchInbox, fetchMentions])
+  }, [fetchServers, fetchFriends, fetchDms, fetchFolders, fetchForYou, fetchUnreads, fetchMentions])
 
   useEffect(() => {
     if (!currentServerId || currentServerId === "@me") {
@@ -1246,38 +1295,90 @@ export function CommunityProvider({
 
   const setChannelNotif = useCallback((channelId: string, level: string) => {
     setChannelNotifState((prev) => ({ ...prev, [channelId]: level }))
+    // "Use Server Default" means "drop the channel-level override", everything
+    // else maps to lowercase NotifLevel for the API.
+    if (level === "Use Server Default") {
+      apiFetch(`/api/community/users/me/notifications/channel/${channelId}`, {
+        method: "DELETE",
+      }).catch(() => {})
+      return
+    }
     apiFetch(`/api/community/users/me/notifications/channel/${channelId}`, {
       method: "PUT",
-      body: JSON.stringify({ level }),
+      body: JSON.stringify({ level: normalizeNotifLevel(level) }),
     }).catch(() => {})
   }, [])
 
   const markChannelRead = useCallback((channelId: string) => {
-    apiFetch(`/api/community/channels/${channelId}/read`, { method: "PUT" }).catch(() => {})
-  }, [])
+    // Optimistically drop the channel from the Unreads feed and any of its
+    // mentions from the Mentions / For You feeds so the inbox updates instantly.
+    setUnreadFeed((prev) =>
+      prev
+        .map((s) => ({ ...s, channels: s.channels.filter((c) => c.channelId !== channelId) }))
+        .filter((s) => s.channels.length > 0)
+    )
+    setMentions((prev) => prev.filter((m) => m.channelId !== channelId))
+    setForYouFeed((prev) => prev.filter((e) => e.channelId !== channelId))
+    apiFetch(`/api/community/channels/${channelId}/read`, { method: "PUT" })
+      .then(() => {
+        fetchUnreads()
+        fetchMentions()
+        fetchForYou()
+      })
+      .catch(() => {})
+  }, [fetchUnreads, fetchMentions, fetchForYou])
 
   const markDmRead = useCallback((dmId: string) => {
     apiFetch(`/api/community/dm/${dmId}/read`, { method: "PUT" }).catch(() => {})
     setDms((prev) => prev.map((d) => (d.id === dmId ? { ...d, unread: false } : d)))
   }, [])
 
-  const markAllInboxRead = useCallback(() => {
-    setInboxFeed((prev) => prev.map((f) => ({ ...f, unread: false })))
+  const markAllInboxRead = useCallback(async () => {
+    const eventKeys = forYouFeed.map((e) => e.eventKey)
+    // Optimistically empty all three feeds so the popover updates instantly.
+    setForYouFeed([])
+    setUnreadFeed([])
     setMentions([])
-    apiFetch("/api/community/mentions/read", { method: "PUT", body: JSON.stringify({ all: true }) }).catch(() => {})
-  }, [])
+    let ok = true
+    try {
+      await Promise.all([
+        apiFetch("/api/community/inbox/mentions/read-all", { method: "POST" }),
+        apiFetch("/api/community/inbox/unreads/read-all", { method: "POST" }),
+        eventKeys.length > 0
+          ? apiFetch("/api/community/inbox/foryou/dismiss", { method: "POST", body: JSON.stringify({ eventKeys }) })
+          : Promise.resolve(),
+      ])
+    } catch {
+      ok = false
+    }
+    // Only reconcile from the server if something went wrong; the happy path
+    // already matches server state and refetching would just churn the UI.
+    if (!ok) {
+      await Promise.all([fetchForYou(), fetchUnreads(), fetchMentions()])
+    }
+  }, [forYouFeed, fetchForYou, fetchUnreads, fetchMentions])
 
-  const openInboxItem = useCallback((id: string) => {
-    setInboxFeed((prev) => prev.map((f) => (f.id === id ? { ...f, unread: false } : f)))
-  }, [])
-
-  const dismissInboxItem = useCallback((id: string) => {
-    setInboxFeed((prev) => prev.filter((f) => f.id !== id))
+  const dismissForYouEvent = useCallback(async (eventKey: string) => {
+    // Capture the dismissed event from the latest state inside the setter so
+    // overlapping dismisses don't restore each other on failure.
+    let removed: ForYouEvent | undefined
+    setForYouFeed((cur) => {
+      removed = cur.find((e) => e.eventKey === eventKey)
+      return cur.filter((e) => e.eventKey !== eventKey)
+    })
+    try {
+      await apiFetch("/api/community/inbox/foryou/dismiss", {
+        method: "POST",
+        body: JSON.stringify({ eventKeys: [eventKey] }),
+      })
+    } catch {
+      if (removed) setForYouFeed((cur) => (cur.some((e) => e.eventKey === eventKey) ? cur : [removed!, ...cur]))
+    }
   }, [])
 
   const deleteMention = useCallback((id: string) => {
     setMentions((prev) => prev.filter((m) => m.id !== id))
-    apiFetch(`/api/community/mentions/${id}`, { method: "DELETE" }).catch(() => {})
+    apiFetch(`/api/community/inbox/mentions/${id}`, { method: "DELETE" }).catch(() => {})
   }, [])
 
   const loadMoreMessages = useCallback(() => {
@@ -1465,7 +1566,7 @@ export function CommunityProvider({
     try {
       await apiFetch(`/api/community/users/me/notifications/server/${serverId}`, {
         method: "PUT",
-        body: JSON.stringify({ level }),
+        body: JSON.stringify({ level: normalizeNotifLevel(level) }),
       })
     } catch {
       toast("Failed to update notification level")
@@ -1622,7 +1723,8 @@ export function CommunityProvider({
       pinnedLoading,
       invites,
       auditLog,
-      inboxFeed,
+      forYouFeed,
+      unreadFeed,
       mentions,
       onlineUserIds,
       typingUsers,
@@ -1656,8 +1758,7 @@ export function CommunityProvider({
       markChannelRead,
       markDmRead,
       markAllInboxRead,
-      openInboxItem,
-      dismissInboxItem,
+      dismissForYouEvent,
       deleteMention,
       sendTyping: ws.sendTyping,
       createForumPost,
@@ -1683,6 +1784,7 @@ export function CommunityProvider({
       refreshMembers: fetchMembers,
       refreshFriends: fetchFriends,
       refreshDms: fetchDms,
+      refreshInbox: () => { fetchForYou(); fetchUnreads(); fetchMentions() },
       refreshMessages: () => {
         const cid = currentChannelIdRef.current
         const sid = currentServerIdRef.current
@@ -1701,19 +1803,20 @@ export function CommunityProvider({
       currentChannelId, members, membersLoading, friends, pending, blocked, friendsLoading,
       dms, dmsLoading, messages, messagesLoading, hasMoreMessages, loadMoreMessages,
       threads, threadsLoading, forumPosts, forumPostsLoading, pinned, pinnedLoading,
-      invites, auditLog, inboxFeed, mentions, onlineUserIds, typingUsers, folders,
+      invites, auditLog, forYouFeed, unreadFeed, mentions, onlineUserIds, typingUsers, folders,
       notifLevel, channelNotif, sendMessage, sendDmMessage, sendThreadMessage,
       toggleReaction, pinMessage, unpinMessage, createThread, sendFriendRequest,
       acceptFriendRequest, rejectFriendRequest, removeFriend, blockUser, unblockUser,
       createServer, joinServer, leaveServer, setMemberRole, kickMember,
       createInvite, revokeInvite, updateServer, setChannelNotif, markChannelRead,
-      markDmRead, markAllInboxRead, openInboxItem, dismissInboxItem, deleteMention,
+      markDmRead, markAllInboxRead, dismissForYouEvent, deleteMention,
       ws.sendTyping, createForumPost,
       createChannel, createCategory, deleteChannel, deleteCategory, updateCategory,
       reorderServers, reorderCategories, reorderChannels, deleteServer,
       uploadFile, uploadServerIcon, setServerNotifLevel, createOrGetDm,
       createServerFolderWith, updateFolderItems, deleteServerFolder, reorderFoldersApi,
       fetchServers, fetchMembers, fetchFriends, fetchDms, fetchMessages, fetchDmMessages,
+      fetchForYou, fetchUnreads, fetchMentions,
     ]
   )
 

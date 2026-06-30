@@ -1,5 +1,9 @@
-import { eq, and } from "drizzle-orm";
-import { communityReadState } from "../../community-schema";
+import { eq, and, inArray } from "drizzle-orm";
+import {
+  communityReadState,
+  communityChannel,
+  communityServerMember,
+} from "../../community-schema";
 import type { Database } from "../../index";
 
 function buildTargetFilter(data: {
@@ -59,6 +63,74 @@ export async function markRead(
     })
     .returning();
   return inserted!;
+}
+
+/**
+ * Mark every top-level channel in every server the user is a member of as
+ * read at `now`. Used by the inbox's global "Mark all read". Upserts in a
+ * single batch — preserves existing rows by id, inserts a new row otherwise.
+ */
+export async function markAllServerChannelsRead(
+  db: Database,
+  userId: string
+): Promise<number> {
+  const now = new Date().toISOString();
+
+  const channelRows = await db
+    .select({ channelId: communityChannel.id })
+    .from(communityServerMember)
+    .innerJoin(
+      communityChannel,
+      eq(communityChannel.serverId, communityServerMember.serverId)
+    )
+    .where(eq(communityServerMember.userId, userId));
+
+  const channelIds = channelRows.map((r) => r.channelId);
+  if (channelIds.length === 0) return 0;
+
+  // Existing read_state rows for these channels.
+  const existing = await db
+    .select({
+      id: communityReadState.id,
+      channelId: communityReadState.channelId,
+    })
+    .from(communityReadState)
+    .where(
+      and(
+        eq(communityReadState.userId, userId),
+        inArray(communityReadState.channelId, channelIds)
+      )
+    );
+  const existingIds = new Set(
+    existing.map((r) => r.channelId).filter((id): id is string => !!id)
+  );
+
+  if (existing.length > 0) {
+    await db
+      .update(communityReadState)
+      .set({ lastReadAt: now })
+      .where(
+        and(
+          eq(communityReadState.userId, userId),
+          inArray(communityReadState.channelId, channelIds)
+        )
+      );
+  }
+
+  const toInsert = channelIds.filter((id) => !existingIds.has(id));
+  if (toInsert.length > 0) {
+    await db.insert(communityReadState).values(
+      toInsert.map((channelId) => ({
+        userId,
+        channelId,
+        dmConversationId: null,
+        lastReadAt: now,
+        lastReadMessageId: null,
+      }))
+    );
+  }
+
+  return channelIds.length;
 }
 
 export async function getReadState(

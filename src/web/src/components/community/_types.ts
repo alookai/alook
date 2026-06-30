@@ -209,12 +209,34 @@ export type Mention = {
   m: Msg
 }
 
-export type InboxRow = {
-  id: string
-  server: string
-  initial: string
-  lastActivityAt: string // ISO timestamp
-  unread: boolean
+// "For You" — a single event the user should see.
+// eventKey is opaque: "mention:<msgId>" | "reply:<msgId>" | "thread:<channelId>".
+export type ForYouKind = "mention" | "reply" | "thread"
+
+export type ForYouEvent = {
+  eventKey: string
+  kind: ForYouKind
+  serverId: string
+  serverName: string
+  channelId: string
+  channelName: string
+  messageId: string
+  authorName: string
+  authorAvatar: string
+  preview: string
+  createdAt: string
+}
+
+// "Unreads" — channels with unread messages, grouped by server.
+export type UnreadServer = {
+  serverId: string
+  serverName: string
+  channels: Array<{
+    channelId: string
+    channelName: string
+    lastMessageAt: string
+    mentionCount: number
+  }>
 }
 
 // Shared callback signature for opening a user's profile card at a click point.

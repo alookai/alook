@@ -46,6 +46,10 @@ export type Subscription = {
 
 export type CommunityWsCallbacks = {
   onMessage?: (event: CommunityMessageCreate) => void
+  // Fires for every message.create event regardless of subscription focus.
+  // Use for inbox / unread tracking where the user may not currently be viewing
+  // the destination channel.
+  onAnyMessage?: (event: CommunityMessageCreate) => void
   onReaction?: (event: CommunityReactionAdd | CommunityReactionRemove) => void
   onTyping?: (event: CommunityTypingStart | CommunityDmTyping) => void
   onPresence?: (event: CommunityPresenceUpdate) => void
@@ -99,7 +103,11 @@ export function useCommunityWs(callbacks: CommunityWsCallbacks) {
             [...seenMessageIds.current].slice(-400)
           )
         }
-        // Only deliver if matches focused subscription
+        // onAnyMessage fires regardless of subscription — used for inbox /
+        // unread state across the whole community.
+        cbs.onAnyMessage?.(event)
+        // onMessage only fires when this matches the currently focused channel/dm
+        // so message list rendering stays correct.
         if (matchesSubscription(event, sub)) {
           cbs.onMessage?.(event)
         }
