@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
-import { Monitor } from "lucide-react"
+import { ChevronLeft, Monitor } from "lucide-react"
 import type { CommunityMachineSummary } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import {
@@ -20,7 +20,7 @@ import { MachineCard } from "./machine-card"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { useCommunity } from "@/contexts/community/context"
 
-export function MachineList() {
+export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   const ctx = useCommunity()
   const [pairOpen, setPairOpen] = useState(false)
   const [pairMode, setPairMode] = useState<PairMachineSheetMode>({ kind: "pair" })
@@ -92,30 +92,45 @@ export function MachineList() {
     ctx.setPendingMachineTokenId(tokenId)
   }, [ctx])
 
+  const backBar = onBack ? (
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
+      <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back">
+        <ChevronLeft className="size-5" />
+      </Button>
+      <span className="ml-1 truncate text-base font-semibold">Machines</span>
+    </header>
+  ) : null
+
   if (ctx.machinesLoading) {
     return (
-      <div className="flex flex-col gap-3 p-6">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-[88px] animate-pulse rounded-lg border bg-muted/30" />
-        ))}
+      <div className="flex min-h-0 flex-1 flex-col">
+        {backBar}
+        <div className="flex flex-col gap-3 p-6">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-[88px] animate-pulse rounded-lg border bg-muted/30" />
+          ))}
+        </div>
       </div>
     )
   }
 
   if (ctx.machines.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
-        <div className="grid size-12 place-items-center rounded-2xl bg-secondary text-muted-foreground">
-          <Monitor className="size-6" />
+      <div className="flex min-h-0 flex-1 flex-col">
+        {backBar}
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
+          <div className="grid size-12 place-items-center rounded-2xl bg-secondary text-muted-foreground">
+            <Monitor className="size-6" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <h2 className="text-lg font-medium text-foreground">No machines yet</h2>
+            <p className="max-w-md text-sm text-muted-foreground">
+              Connect your computer to keep your agent always-on. Generate a key,
+              run the daemon, and the machine shows up here.
+            </p>
+          </div>
+          <Button onClick={openPair}>Connect a machine</Button>
         </div>
-        <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-medium text-foreground">No machines yet</h2>
-          <p className="max-w-md text-sm text-muted-foreground">
-            Connect your computer to keep your agent always-on. Generate a key,
-            run the daemon, and the machine shows up here.
-          </p>
-        </div>
-        <Button onClick={openPair}>Connect a machine</Button>
         <PairMachineSheet
           open={pairOpen}
           onOpenChange={closePair}
@@ -129,25 +144,28 @@ export function MachineList() {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-6 overflow-y-auto thin-scrollbar">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-medium text-foreground">Machines</h1>
-          <p className="text-sm text-muted-foreground">
-            Your computers running the alook daemon.
-          </p>
+    <div className="flex min-h-0 flex-1 flex-col">
+      {backBar}
+      <div className="flex flex-1 flex-col gap-6 p-6 overflow-y-auto thin-scrollbar">
+        <header className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-medium text-foreground">Machines</h1>
+            <p className="text-sm text-muted-foreground">
+              Your computers running the alook daemon.
+            </p>
+          </div>
+          <Button onClick={openPair}>Connect a machine</Button>
+        </header>
+        <div className="flex flex-col gap-3">
+          {ctx.machines.map((m) => (
+            <MachineCard
+              key={m.id}
+              machine={m}
+              onDelete={() => setConfirmDelete(m)}
+              onReconnect={() => openReconnect(m)}
+            />
+          ))}
         </div>
-        <Button onClick={openPair}>Connect a machine</Button>
-      </header>
-      <div className="flex flex-col gap-3">
-        {ctx.machines.map((m) => (
-          <MachineCard
-            key={m.id}
-            machine={m}
-            onDelete={() => setConfirmDelete(m)}
-            onReconnect={() => openReconnect(m)}
-          />
-        ))}
       </div>
       <PairMachineSheet
         open={pairOpen}

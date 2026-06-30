@@ -18,10 +18,8 @@
 import { useMemo, useState } from "react"
 import type React from "react"
 import { toast } from "sonner"
-import { ChevronLeft } from "lucide-react"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
 
 // ── Mock data + shared view-model types ──────────────────────────────────
 // Data lives in ./_mock (disposable); shared types in @/components/community/_types.
@@ -38,7 +36,6 @@ import { ImageLightbox } from "@/components/community/image-lightbox"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
 import { UserSettings } from "@/components/community/edit-profile-dialog"
 import { ServerRail } from "@/components/community/server-rail"
-import { MobileRail } from "@/components/community/mobile-rail"
 import { ChannelSidebar } from "@/components/community/channel-sidebar"
 import { DmSidebar } from "@/components/community/dm-sidebar"
 import { UserBar } from "@/components/community/user-bar"
@@ -188,8 +185,8 @@ export default function CommunityPreview() {
   }
 
   // rail: @me → DM/Friends view; a server → server view
-  const goHome = () => { setView("dm"); setActiveDm(null); setOpenThreadId(null); if (bp === "mobile") setMobileZone("channels") }
-  const goServer = () => { setView("server"); setOpenThreadId(null); if (bp === "mobile") setMobileZone("channels") }
+  const goHome = () => { setView("dm"); setActiveDm(null); setOpenThreadId(null); if (bp === "mobile") setMobileZone("nav") }
+  const goServer = () => { setView("server"); setOpenThreadId(null); if (bp === "mobile") setMobileZone("nav") }
 
   const enterDm = (id: string) => {
     setActiveDm(id)
@@ -426,7 +423,7 @@ export default function CommunityPreview() {
             forum={isForum}
             rightPanel={rightPanel}
             onToggle={togglePanel}
-            onBack={compact ? () => setMobileZone("channels") : undefined}
+            onBack={compact ? () => setMobileZone("nav") : undefined}
             breadcrumb={{
               label: openThread.name,
               onNavigateBack: () => setOpenThreadId(null),
@@ -448,7 +445,7 @@ export default function CommunityPreview() {
     if (view === "dm")
       return dm ? (
         <>
-          <DmHeader dm={dm} onBack={compact ? () => setMobileZone("channels") : undefined} />
+          <DmHeader dm={dm} onBack={compact ? () => setMobileZone("nav") : undefined} />
           <main className="flex min-h-0 flex-1 flex-col">
             <MessageList
               channel={dm.name}
@@ -467,7 +464,7 @@ export default function CommunityPreview() {
           </main>
         </>
       ) : (
-        <FriendsPage friends={friendList} pending={pending} blocked={blocked} onBack={compact ? () => setMobileZone("channels") : undefined} {...friendActions} {...profileProps} />
+        <FriendsPage friends={friendList} pending={pending} blocked={blocked} onBack={compact ? () => setMobileZone("nav") : undefined} {...friendActions} {...profileProps} />
       )
 
     // forum channel → post list (a forum is a feed of threads, not a chat).
@@ -482,7 +479,7 @@ export default function CommunityPreview() {
             onToggle={togglePanel}
             notifLevel={(channelNotif[activeChannel] as ChannelNotifLevel) ?? "Use Server Default"}
             onSetNotifLevel={(l) => setChannelNotif((p) => ({ ...p, [activeChannel]: l }))}
-            onBack={compact ? () => setMobileZone("channels") : undefined}
+            onBack={compact ? () => setMobileZone("nav") : undefined}
             tools={{ threads: false, pinned: false }}
           />
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -505,7 +502,7 @@ export default function CommunityPreview() {
           onToggle={togglePanel}
           notifLevel={(channelNotif[activeChannel] as ChannelNotifLevel) ?? "Use Server Default"}
           onSetNotifLevel={(l) => setChannelNotif((p) => ({ ...p, [activeChannel]: l }))}
-          onBack={compact ? () => setMobileZone("channels") : undefined}
+          onBack={compact ? () => setMobileZone("nav") : undefined}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MessageList channel={activeChannel} messages={messages} pinnedIds={pinnedIds} newDividerBefore={NEW_DIVIDER_BEFORE} typingUsers={["Lindsay"]} onOpenThread={enterThread} {...messageActions} {...profileProps} />
@@ -571,21 +568,16 @@ export default function CommunityPreview() {
   // ── Mobile: single-zone stack navigation ──
   return (
     <Shell {...shellProps}>
-      {mobileZone === "rail" && (
-        <MobileRail servers={SERVERS} folders={MOCK_FOLDERS} onPick={() => setMobileZone("channels")} onHome={goHome} onServer={goServer} onAddServer={railProps.onCreateServer} onJoinServer={railProps.onJoinServer} view={view} />
-      )}
-
-      {mobileZone === "channels" && (
-        <div className="flex min-h-0 flex-1 flex-col" style={{ background: "var(--d-rail)" }}>
-          <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-3">
-            <Button variant="ghost" size="icon-sm" onClick={() => setMobileZone("rail")} className="text-muted-foreground hover:text-foreground" aria-label="Back to servers"><ChevronLeft className="size-5" /></Button>
-            <span className="ml-1 truncate text-base font-semibold">{view === "dm" ? "Direct Messages" : serverName}</span>
-          </header>
-          <div className="flex min-h-0 flex-1">
-            {sidebar({ noHeader: true })}
+      {mobileZone === "nav" && (
+        <>
+          <ServerRail {...railProps} bottomInset={60} />
+          <div className="flex min-h-0 flex-1 flex-col" style={{ background: "var(--d-rail)" }}>
+            <div className="flex min-h-0 flex-1">
+              {sidebar({ noHeader: false })}
+            </div>
+            <UserBar user={{ name: "Gener", avatar: "G" }} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
           </div>
-          <UserBar user={{ name: "Gener", avatar: "G" }} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
-        </div>
+        </>
       )}
 
       {mobileZone === "messages" && (

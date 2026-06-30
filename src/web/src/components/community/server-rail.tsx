@@ -73,7 +73,7 @@ export const ServerRail = memo(function ServerRail({
   }, [servers.length, folders.length, serversLoading, didAutoOpen])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
-  const pickServer = (id: string) => { setActiveId(id); onServer(); onServerNavigate?.(id); setMobileZone?.("channels") }
+  const pickServer = (id: string) => { setActiveId(id); onServer(); onServerNavigate?.(id); setMobileZone?.("nav") }
 
   const serverById = useMemo(() => new Map(servers.map((s) => [s.id, s])), [servers])
   const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders])

@@ -7,14 +7,11 @@ import { apiFetch } from "@/lib/api/client"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { AppSurface } from "@/components/ui/app-surface"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { ChevronLeft } from "lucide-react"
 import { useCommunity } from "@/contexts/community/context"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
 import { useChannelTree } from "@/components/community/use-channel-tree"
 import { Shell } from "@/components/community/shell"
 import { ServerRail } from "@/components/community/server-rail"
-import { MobileRail } from "@/components/community/mobile-rail"
 import { ChannelSidebar } from "@/components/community/channel-sidebar"
 import { DmSidebar } from "@/components/community/dm-sidebar"
 import { UserBar } from "@/components/community/user-bar"
@@ -48,7 +45,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   // ── Local UI state ────────────────────────────────────────────────────────
   const [view, setView] = useState<View>(isAtMe ? "dm" : "server")
-  const [mobileZone, setMobileZone] = useState<MobileZone>(() => hasChannel ? "messages" : "channels")
+  const [mobileZone, setMobileZone] = useState<MobileZone>(() => hasChannel ? "messages" : "nav")
   const [editingProfile, setEditingProfile] = useState(false)
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview")
@@ -83,9 +80,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   )
 
   const goHome = useCallback(() => {
-    setView("dm"); setMobileZone("channels"); router.push("/community/channels/@me")
+    setView("dm"); setMobileZone("nav"); router.push("/community/channels/@me")
   }, [router])
-  const goServer = useCallback(() => { setView("server"); setMobileZone("channels") }, [])
+  const goServer = useCallback(() => { setView("server"); setMobileZone("nav") }, [])
 
   const onRailServerNavigate = useCallback((id: string) => { router.push(`/community/channels/${id}`) }, [router])
   const onRailCreateServer = useCallback(async (name: string, icon?: File) => {
@@ -290,7 +287,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     ctx.registerUiHandlers({
       previewImage: (url) => setPreview(url),
       openProfile,
-      goBackMobile: () => setMobileZone("channels"),
+      goBackMobile: () => setMobileZone("nav"),
     })
   })
 
@@ -460,20 +457,14 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // ── Mobile ────────────────────────────────────────────────────────────────
   return (
     <Shell>
-      {mobileZone === "rail" && (
-        <MobileRail servers={railServers} folders={ctx.folders} onPick={() => setMobileZone("channels")} onHome={goHome} onServer={goServer} onServerNavigate={railProps.onServerNavigate} onAddServer={railProps.onCreateServer} onJoinServer={() => { /* Join is handled by the dialog inside MobileRail */ }} view={view} />
-      )}
-      {mobileZone === "channels" && (
-        <div className="flex min-h-0 flex-1 flex-col bg-sidebar">
-          <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
-            <Button variant="ghost" size="icon-sm" onClick={() => setMobileZone("rail")} className="text-muted-foreground hover:text-foreground" aria-label="Back to servers">
-              <ChevronLeft className="size-5" />
-            </Button>
-            <span className="ml-1 truncate text-base font-semibold">{isAtMe ? "Direct Messages" : ctx.currentServer?.name ?? ""}</span>
-          </header>
-          <div className="flex min-h-0 flex-1">{sidebar({ noHeader: true })}</div>
-          <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} />
-        </div>
+      {mobileZone === "nav" && (
+        <>
+          <ServerRail {...railProps} bottomInset={60} />
+          <div className="flex min-h-0 flex-1 flex-col bg-sidebar">
+            <div className="flex min-h-0 flex-1">{sidebar({ noHeader: false })}</div>
+            <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} />
+          </div>
+        </>
       )}
       {mobileZone === "messages" && (
         <div className="flex min-h-0 flex-1 flex-col bg-background">
