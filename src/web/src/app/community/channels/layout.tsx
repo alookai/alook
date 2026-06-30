@@ -407,8 +407,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     return (
       <Shell>
         <ServerRail {...railProps} bottomInset={60} />
-        <div className="relative flex-1 flex flex-col min-w-0 pt-2 pr-2 pb-2">
-          <AppSurface>
+        <div className="relative flex-1 flex flex-col min-w-0 pt-2">
+          <AppSurface className="rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none">
             <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
               <ResizablePanel defaultSize="24%" minSize={160} maxSize={360} className="flex flex-col pb-14 bg-sidebar">
                 <div ref={sidebarPanelRef} className="flex min-h-0 flex-1 flex-col">
@@ -421,7 +421,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
               </ResizablePanel>
             </ResizablePanelGroup>
           </AppSurface>
-          <div className="absolute bottom-2 left-0 z-10" style={{ width: sidebarW + 56, marginLeft: -56 }}>
+          <div className="absolute bottom-0 left-0 z-10" style={{ width: sidebarW + 56, marginLeft: -56 }}>
             <UserBar user={{ name: ctx.currentUser.name, avatar: ctx.currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} />
           </div>
         </div>
