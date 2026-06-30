@@ -21,6 +21,19 @@ export function parsePageSize(limitParam: string | null): number {
   return Math.min(Math.max(parseInt(limitParam, 10) || DEFAULT_MESSAGE_PAGE_SIZE, 1), MAX_MESSAGE_PAGE_SIZE)
 }
 
+// Parse a positive integer query param with default + ceiling.
+export function parseBoundedInt(
+  param: string | null,
+  defaultValue: number,
+  max: number,
+  min = 1,
+): number {
+  if (!param) return defaultValue
+  const n = parseInt(param, 10)
+  if (!Number.isFinite(n) || Number.isNaN(n)) return defaultValue
+  return Math.min(Math.max(n, min), max)
+}
+
 // Build next cursor string from the last item, or undefined if no more pages
 export function buildPaginatedResponse<T extends { createdAt: string; id: string }>(
   rows: T[],

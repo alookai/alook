@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
@@ -14,7 +14,6 @@ export const DELETE = withAuth(async (_req, ctx) => {
   }
 
   const friendship = await queries.communityFriendship.getFriendship(db, id)
-
   if (!friendship) {
     return writeError("friendship not found", 404)
   }
@@ -33,8 +32,10 @@ export const DELETE = withAuth(async (_req, ctx) => {
     ? friendship.addresseeId
     : friendship.requesterId
 
-  // Cast to any because community events aren't in the WsMessage union
-  broadcastToUser(otherUserId, { type: "community:friend.remove", friendshipId: id } as any).catch(() => {})
+  broadcastToUser(otherUserId, {
+    type: WS_EVENTS.FRIEND_REMOVE,
+    friendshipId: id,
+  } as never).catch(() => {})
 
   return new NextResponse(null, { status: 204 })
 })

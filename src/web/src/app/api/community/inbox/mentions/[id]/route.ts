@@ -8,7 +8,8 @@ export const DELETE = withAuth(async (_req, ctx) => {
   if (!mentionId) return writeError("missing mention id", 400)
 
   const db = getDb(ctx.env.DB)
-  await queries.communityMention.deleteMention(db, ctx.userId, mentionId)
+  const affected = await queries.communityMention.deleteMention(db, ctx.userId, mentionId)
+  if (affected === 0) return writeError("mention not found", 404)
 
   return writeJSON({ ok: true })
 })

@@ -1,5 +1,10 @@
 import { NextRequest } from "next/server"
-import { queries } from "@alook/shared"
+import {
+  queries,
+  MAX_PROFILE_NAME_LENGTH,
+  MAX_PROFILE_ABOUT_LENGTH,
+  BANNER_COLOR_REGEX,
+} from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -24,22 +29,47 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     return writeError("no changes provided", 400)
   }
 
-  // Update user name if provided
   if (body.name !== undefined) {
+    if (typeof body.name !== "string") return writeError("name must be a string", 400)
     const trimmed = body.name.trim()
     if (!trimmed) return writeError("name cannot be empty", 400)
+    if (trimmed.length > MAX_PROFILE_NAME_LENGTH) {
+      return writeError(`name must be ≤ ${MAX_PROFILE_NAME_LENGTH} characters`, 400)
+    }
     const existing = await queries.user.getUser(db, ctx.userId)
     await queries.user.updateUser(db, ctx.userId, { name: trimmed, image: existing?.image ?? null })
   }
 
   const data: { aboutMe?: string; bannerColor?: string | null } = {}
-  if (body.aboutMe !== undefined) data.aboutMe = body.aboutMe
-  if (body.bannerColor !== undefined) data.bannerColor = body.bannerColor
+  if (body.aboutMe !== undefined) {
+    if (typeof body.aboutMe !== "string") return writeError("aboutMe must be a string", 400)
+    if (body.aboutMe.length > MAX_PROFILE_ABOUT_LENGTH) {
+      return writeError(`aboutMe must be ≤ ${MAX_PROFILE_ABOUT_LENGTH} characters`, 400)
+    }
+    data.aboutMe = body.aboutMe
+  }
+  if (body.bannerColor !== undefined) {
+    if (body.bannerColor !== null) {
+      // Hex-only allowlist prevents CSS injection if the value is ever
+      // rendered into a style attribute.
+      if (typeof body.bannerColor !== "string" || !BANNER_COLOR_REGEX.test(body.bannerColor.trim())) {
+        return writeError("bannerColor must be a hex color like #aabbcc", 400)
+      }
+      data.bannerColor = body.bannerColor.trim()
+    } else {
+      data.bannerColor = null
+    }
+  }
 
-  let updated = null
+  let updated: { aboutMe: string | null; bannerColor: string | null } | null = null
   if (data.aboutMe !== undefined || data.bannerColor !== undefined) {
     updated = await queries.communityUserProfile.updateProfile(db, ctx.userId, data)
   }
 
-  return writeJSON(updated ?? { aboutMe: "", bannerColor: null })
+  // Normalise the response shape — same as GET — so callers don't see
+  // `userId` leak through on PATCH.
+  return writeJSON({
+    aboutMe: updated?.aboutMe ?? "",
+    bannerColor: updated?.bannerColor ?? null,
+  })
 })

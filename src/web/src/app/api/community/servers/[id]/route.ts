@@ -2,19 +2,24 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, canManageServer, isServerOwner } from "@alook/shared"
+import {
+  queries,
+  isServerOwner,
+  MAX_SERVER_NAME_LENGTH,
+  MAX_SERVER_DESCRIPTION_LENGTH,
+  WS_EVENTS,
+} from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
+import { requireServerAdmin, requireServerMember } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (_req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 
   const db = getDb(ctx.env.DB)
-
-  // Verify membership
-  const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member) return writeError("not a member of this server", 403)
+  const auth = await requireServerMember(db, serverId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
 
   const [server, channels, categories] = await Promise.all([
     queries.communityServer.getServer(db, serverId),
@@ -27,12 +32,10 @@ export const GET = withAuth(async (_req, ctx) => {
 
   if (!server) return writeError("server not found", 404)
 
-  // Merge into a flat ServerDetail shape with categories embedding their channels
   const categoriesWithChannels = categories.map((c) => ({
     ...c,
     channels: channels.filter((ch) => ch.categoryId === c.id),
   }))
-  // Include uncategorized channels as a virtual category
   const uncategorized = channels.filter((ch) => !ch.categoryId)
   if (uncategorized.length > 0) {
     categoriesWithChannels.push({
@@ -59,12 +62,8 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (!serverId) return writeError("missing server id", 400)
 
   const db = getDb(ctx.env.DB)
-
-  // Verify caller is owner or admin
-  const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || !canManageServer(member.role)) {
-    return writeError("forbidden", 403)
-  }
+  const auth = await requireServerAdmin(db, serverId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
 
   let body: { name?: string; description?: string }
   try {
@@ -75,12 +74,22 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
 
   const changes: { name?: string; description?: string } = {}
   if (body.name !== undefined) {
-    if (typeof body.name !== "string" || !body.name.trim()) {
-      return writeError("name must be a non-empty string", 400)
+    if (typeof body.name !== "string") {
+      return writeError("name must be a string", 400)
     }
-    changes.name = body.name.trim()
+    const trimmed = body.name.trim()
+    if (!trimmed || trimmed.length > MAX_SERVER_NAME_LENGTH) {
+      return writeError(`name must be 1-${MAX_SERVER_NAME_LENGTH} characters`, 400)
+    }
+    changes.name = trimmed
   }
   if (body.description !== undefined) {
+    if (typeof body.description !== "string") {
+      return writeError("description must be a string", 400)
+    }
+    if (body.description.length > MAX_SERVER_DESCRIPTION_LENGTH) {
+      return writeError(`description must be ≤ ${MAX_SERVER_DESCRIPTION_LENGTH} characters`, 400)
+    }
     changes.description = body.description
   }
 
@@ -101,7 +110,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   })
 
   fanOutToServerMembers(serverId, {
-    type: "community:server.update",
+    type: WS_EVENTS.SERVER_UPDATE,
     serverId,
     changes,
   }, { excludeUserId: ctx.userId }).catch(() => {})
@@ -115,21 +124,27 @@ export const DELETE = withAuth(async (_req, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  // Verify caller is owner
   const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
   if (!member) return writeError("not a member of this server", 403)
   if (!isServerOwner(member.role)) {
     return writeError("only the owner can delete the server", 403)
   }
 
-  // Fan out before deletion so members still exist for recipient resolution
   await fanOutToServerMembers(serverId, {
-    type: "community:server.delete",
+    type: WS_EVENTS.SERVER_DELETE,
     serverId,
   }, { excludeUserId: ctx.userId })
 
   const deleted = await queries.communityServer.deleteServer(db, serverId)
   if (!deleted) return writeError("server not found", 404)
+
+  logAudit(db, {
+    serverId,
+    actorId: ctx.userId,
+    action: "server_delete",
+    targetType: "server",
+    targetId: serverId,
+  })
 
   return new Response(null, { status: 204 })
 })

@@ -2,10 +2,17 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, extractMentionedUserIds } from "@alook/shared"
+import {
+  queries,
+  extractMentionedUserIds,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  WS_EVENTS,
+} from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { broadcastToUser } from "@/lib/broadcast"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
+import { requireChannelMember } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -13,8 +20,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
-  if (!channel) return writeError("forbidden", 403)
+  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const channel = auth.value
 
   const cursor = parseCursor(req.nextUrl.searchParams.get("cursor"))
   const pageSize = parsePageSize(req.nextUrl.searchParams.get("limit"))
@@ -62,8 +70,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
-  if (!channel) return writeError("forbidden", 403)
+  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const channel = auth.value
 
   let body: { content: string; replyToId?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }
   try {
@@ -74,6 +83,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   if (!body.content || typeof body.content !== "string" || body.content.trim().length === 0) {
     return writeError("content is required", 400)
+  }
+  if (body.content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+    return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
+  }
+  if (body.attachments && body.attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+    return writeError(`too many attachments (max ${MAX_ATTACHMENTS_PER_MESSAGE})`, 400)
   }
 
   const message = await queries.communityMessage.createMessage(db, {
@@ -134,7 +149,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const authorName = fullMessage!.authorName ?? "Unknown"
     for (const userId of [...liveMentions, ...liveReplies]) {
       broadcastToUser(userId, {
-        type: "community:mention.create",
+        type: WS_EVENTS.MENTION_CREATE,
         userId,
         messageId: message.id,
         channelId,
@@ -144,7 +159,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   fanOutToChannel(channelId, {
-    type: "community:message.create",
+    type: WS_EVENTS.MESSAGE_CREATE,
     channelId,
     message: {
       id: fullMessage!.id,
@@ -168,7 +183,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (channel.parentChannelId) {
     const updated = await queries.communityChannel.getChannel(db, channelId)
     fanOutToChannel(channel.parentChannelId, {
-      type: "community:channel.child_update",
+      type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
       parentChannelId: channel.parentChannelId,
       channelId,
       changes: { messageCount: updated?.messageCount ?? 1, lastMessageAt: updated?.lastMessageAt ?? new Date().toISOString() },

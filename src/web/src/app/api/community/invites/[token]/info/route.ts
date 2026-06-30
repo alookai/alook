@@ -4,7 +4,10 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 
-export const GET = async (req: NextRequest, { params }: { params: Promise<{ token: string }> }) => {
+// Public — anyone with the token can preview the server. This mirrors
+// Discord/Slack-style invite link unfurls. We deliberately do NOT include
+// any sensitive metadata (description, audit, member list) here.
+export const GET = async (_req: NextRequest, { params }: { params: Promise<{ token: string }> }) => {
   const { token } = await params
   if (!token) return writeError("missing token", 400)
 
@@ -30,7 +33,6 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ toke
   return writeJSON({
     serverName: server.name,
     serverIcon: server.icon,
-    serverDescription: server.description ?? "",
     memberCount: members.length,
   })
 }

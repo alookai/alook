@@ -1,6 +1,7 @@
-import { eq, inArray, like } from "drizzle-orm";
+import { eq, inArray, like, sql, and, ne } from "drizzle-orm";
 import { user } from "../schema";
 import type { Database } from "../index";
+import { escapeLikePattern } from "../../utils/sql-like";
 
 export async function getUser(db: Database, id: string) {
   const rows = await db.select().from(user).where(eq(user.id, id));
@@ -22,8 +23,21 @@ export async function getUserByNameCaseInsensitive(db: Database, name: string) {
   return rows[0] ?? null;
 }
 
-export async function searchUsersByName(db: Database, name: string) {
-  return db.select().from(user).where(like(user.name, `%${name}%`)).limit(20);
+export async function searchUsersByName(
+  db: Database,
+  name: string,
+  opts?: { excludeUserId?: string; limit?: number },
+) {
+  const pattern = `%${escapeLikePattern(name)}%`;
+  const conditions = [sql`${user.name} LIKE ${pattern} ESCAPE '\\'`];
+  if (opts?.excludeUserId) {
+    conditions.push(ne(user.id, opts.excludeUserId));
+  }
+  return db
+    .select()
+    .from(user)
+    .where(and(...conditions))
+    .limit(opts?.limit ?? 20);
 }
 
 export async function createUser(

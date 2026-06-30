@@ -96,8 +96,39 @@ export {
 export {
   DEFAULT_MESSAGE_PAGE_SIZE,
   MAX_MESSAGE_PAGE_SIZE,
+  DEFAULT_MEMBERS_PAGE_SIZE,
+  MAX_MEMBERS_PAGE_SIZE,
+  DEFAULT_AUDIT_LOG_PAGE_SIZE,
+  MAX_AUDIT_LOG_PAGE_SIZE,
+  DEFAULT_USER_SEARCH_LIMIT,
   MAX_SERVER_NAME_LENGTH,
+  MAX_SERVER_DESCRIPTION_LENGTH,
+  MAX_CHANNEL_NAME_LENGTH,
+  MAX_CHANNEL_TOPIC_LENGTH,
+  MAX_CATEGORY_NAME_LENGTH,
+  MAX_FOLDER_NAME_LENGTH,
+  MAX_PROFILE_NAME_LENGTH,
+  MAX_PROFILE_ABOUT_LENGTH,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  MAX_FORUM_TAG_LENGTH,
+  MAX_FORUM_TAGS_PER_POST,
   MAX_EMOJI_BYTES,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_ATTACHMENT_SIZE_BYTES,
+  MAX_SERVER_ICON_SIZE_BYTES,
+  ALLOWED_ATTACHMENT_MIME_PREFIXES,
+  ALLOWED_ICON_MIME_TYPES,
+  MIN_SEARCH_LENGTH,
+  MAX_SEARCH_LENGTH,
+  DEFAULT_SEARCH_LIMIT,
+  MAX_SEARCH_LIMIT,
+  MIN_INVITE_MAX_USES,
+  MAX_INVITE_MAX_USES,
+  MAX_INVITE_EXPIRY_DAYS,
+  MAX_ACTIVE_INVITES_PER_SERVER,
+  MESSAGE_PREVIEW_LENGTH,
+  BANNER_COLOR_REGEX,
+  NOTIFICATION_LEVEL_VALUES,
   TYPING_INDICATOR_TIMEOUT_MS,
   MESSAGE_DEDUP_CACHE_MAX,
   MESSAGE_DEDUP_CACHE_TRIM,
@@ -105,7 +136,7 @@ export {
   CACHE_IMMUTABLE,
   CACHE_SHORT,
 } from "./constants/community";
-export type { NotifLevel } from "./constants/community";
+export type { NotifLevel, NotificationLevelValue } from "./constants/community";
 
 export type {
   AgentStatusType,
@@ -270,7 +301,7 @@ export type {
   CommunityMentionCreate,
   CommunityWsEvent,
 } from "./community-ws-events";
-export { isCommunityEvent } from "./community-ws-events";
+export { isCommunityEvent, WS_EVENTS } from "./community-ws-events";
 
 // Database
 export { createDb } from "./db/index";
@@ -302,12 +333,21 @@ export { parseEmailHandle, toAlookAddress, isValidHandle } from "./utils/email";
 export { parsePromptMentions } from "./utils/prompt-parser";
 export type { PromptAgent, PromptMention, ParseResult } from "./utils/prompt-parser";
 export { isValidToken, isValidEmail } from "./utils/validation";
+export { escapeLikePattern } from "./utils/sql-like";
 export { isOnline, formatStatus } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
 export { generateWorkspaceSlug } from "./utils/slug";
 export { truncateTitle } from "./utils/title";
-export { canManageServer, isServerOwner } from "./utils/community-roles";
-export type { CommunityRole, ChannelType } from "./utils/community-roles";
+export {
+  canManageServer,
+  isServerOwner,
+  isAssignableRole,
+  isChannelType,
+  ROLES,
+  ASSIGNABLE_ROLES,
+  CHANNEL_TYPES,
+} from "./utils/community-roles";
+export type { CommunityRole, ChannelType, AssignableRole } from "./utils/community-roles";
 export { extractMentionedUserIds } from "./utils/community-mentions";
 export type { MentionCandidate } from "./utils/community-mentions";
 export { semverGte } from "./semver";

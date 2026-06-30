@@ -1,22 +1,26 @@
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import {
+  queries,
+  MIN_INVITE_MAX_USES,
+  MAX_INVITE_MAX_USES,
+  MAX_INVITE_EXPIRY_DAYS,
+  MAX_ACTIVE_INVITES_PER_SERVER,
+  WS_EVENTS,
+} from "@alook/shared"
 import type { CommunityInviteCreate } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { requireServerAdmin, requireServerMember } from "@/lib/community/permissions"
 
-export const GET = withAuth(async (req, ctx) => {
+export const GET = withAuth(async (_req, ctx) => {
   const serverId = ctx.params?.id
-  if (!serverId) {
-    return writeError("server id is required", 400)
-  }
+  if (!serverId) return writeError("server id is required", 400)
 
   const db = getDb(ctx.env.DB)
-
-  const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member) {
-    return writeError("not a member of this server", 403)
-  }
+  // Any member can see the invite list (Discord-like).
+  const auth = await requireServerMember(db, serverId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
 
   const invites = await queries.communityInvite.listServerInvites(db, serverId)
   return writeJSON({ invites })
@@ -24,22 +28,55 @@ export const GET = withAuth(async (req, ctx) => {
 
 export const POST = withAuth(async (req, ctx) => {
   const serverId = ctx.params?.id
-  if (!serverId) {
-    return writeError("server id is required", 400)
-  }
+  if (!serverId) return writeError("server id is required", 400)
 
   const db = getDb(ctx.env.DB)
-
-  const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member) {
-    return writeError("not a member of this server", 403)
-  }
+  // Creating invites is admin-gated to prevent invite spam / unwanted growth.
+  const auth = await requireServerAdmin(db, serverId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
 
   let body: { maxUses?: number; expiresAt?: string } = {}
   try {
     body = await req.json()
   } catch {
     // empty body is fine — all fields are optional
+  }
+
+  if (body.maxUses !== undefined) {
+    if (
+      !Number.isInteger(body.maxUses) ||
+      body.maxUses < MIN_INVITE_MAX_USES ||
+      body.maxUses > MAX_INVITE_MAX_USES
+    ) {
+      return writeError(
+        `maxUses must be an integer between ${MIN_INVITE_MAX_USES} and ${MAX_INVITE_MAX_USES}`,
+        400,
+      )
+    }
+  }
+  if (body.expiresAt !== undefined) {
+    if (typeof body.expiresAt !== "string") {
+      return writeError("expiresAt must be an ISO date string", 400)
+    }
+    const expiry = new Date(body.expiresAt)
+    const now = Date.now()
+    const maxExpiry = now + MAX_INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000
+    const ts = expiry.getTime()
+    if (Number.isNaN(ts) || ts <= now || ts > maxExpiry) {
+      return writeError(
+        `expiresAt must be a future ISO date within ${MAX_INVITE_EXPIRY_DAYS} days`,
+        400,
+      )
+    }
+  }
+
+  // Cap active invites per server to bound token-table growth + enumeration risk.
+  const existing = await queries.communityInvite.listServerInvites(db, serverId)
+  if (existing.length >= MAX_ACTIVE_INVITES_PER_SERVER) {
+    return writeError(
+      `server has reached the active invite cap (${MAX_ACTIVE_INVITES_PER_SERVER}); revoke an existing invite first`,
+      409,
+    )
   }
 
   const invite = await queries.communityInvite.createInvite(db, {
@@ -58,7 +95,7 @@ export const POST = withAuth(async (req, ctx) => {
   })
 
   const event: CommunityInviteCreate = {
-    type: "community:invite.create",
+    type: WS_EVENTS.INVITE_CREATE,
     serverId,
     invite: {
       id: invite.id,

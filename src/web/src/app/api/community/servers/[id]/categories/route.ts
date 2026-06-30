@@ -2,18 +2,24 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, canManageServer } from "@alook/shared"
+import {
+  queries,
+  canManageServer,
+  MAX_CATEGORY_NAME_LENGTH,
+  WS_EVENTS,
+} from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
+import { requireServerMember } from "@/lib/community/permissions"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 
   const db = getDb(ctx.env.DB)
-
-  const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member) return writeError("forbidden", 403)
+  const auth = await requireServerMember(db, serverId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const member = auth.value!
 
   let body: { name?: string; private?: boolean }
   try {
@@ -25,6 +31,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!body.name || typeof body.name !== "string") {
     return writeError("name is required", 400)
   }
+  const name = body.name.trim()
+  if (!name || name.length > MAX_CATEGORY_NAME_LENGTH) {
+    return writeError(`name must be 1-${MAX_CATEGORY_NAME_LENGTH} characters`, 400)
+  }
 
   if (body.private && !canManageServer(member.role)) {
     return writeError("only admins can create private categories", 403)
@@ -32,7 +42,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const row = await queries.communityCategory.createCategory(db, {
     serverId,
-    name: body.name,
+    name,
     private: body.private,
     creatorId: ctx.userId,
   })
@@ -45,7 +55,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   await fanOutToServerMembers(serverId, {
-    type: "community:category.create",
+    type: WS_EVENTS.CATEGORY_CREATE,
     serverId,
     category,
   })

@@ -1,9 +1,10 @@
 import { NextRequest } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { broadcastToUser } from "@/lib/broadcast"
+import { requireNotBlocked } from "@/lib/community/permissions"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -30,14 +31,22 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("cannot send friend request to yourself", 400)
   }
 
+  // Make sure the user exists; also avoids leaking block state vs unknown user.
+  const target = await queries.user.getUser(db, targetUserId)
+  if (!target) return writeError("user not found", 404)
+
+  // Surface block as 403 explicitly — same response code as DM, so a blocked
+  // user can't enumerate "block" vs "friendship exists" via timing/error text.
+  const block = await requireNotBlocked(db, ctx.userId, targetUserId)
+  if (!block.ok) return writeError(block.error, block.status)
+
   try {
     const friendship = await queries.communityFriendship.sendRequest(db, {
       requesterId: ctx.userId,
       addresseeId: targetUserId,
     })
 
-    // Cast to any because community events aren't in the WsMessage union
-    broadcastToUser(targetUserId, { type: "community:friend.request", friendship } as any).catch(() => {})
+    broadcastToUser(targetUserId, { type: WS_EVENTS.FRIEND_REQUEST, friendship } as never).catch(() => {})
 
     return writeJSON(friendship, 201)
   } catch (err: unknown) {

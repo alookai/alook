@@ -51,7 +51,13 @@ export async function listAuditLog(
   return db
     .select({
       log: communityAuditLog,
-      actor: user,
+      // Project only the fields needed to render audit log entries — never
+      // leak full user PII (email, etc.) to server admins.
+      actor: {
+        id: user.id,
+        name: user.name,
+        image: user.image,
+      },
     })
     .from(communityAuditLog)
     .leftJoin(user, eq(communityAuditLog.actorId, user.id))

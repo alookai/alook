@@ -2,7 +2,13 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, MAX_SERVER_NAME_LENGTH } from "@alook/shared"
+import {
+  queries,
+  MAX_SERVER_NAME_LENGTH,
+  MAX_SERVER_DESCRIPTION_LENGTH,
+  ROLES,
+  WS_EVENTS,
+} from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const GET = withAuth(async (_req, ctx) => {
@@ -24,31 +30,40 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!body.name || typeof body.name !== "string") {
     return writeError("name is required", 400)
   }
-
   const name = body.name.trim()
   if (!name || name.length > MAX_SERVER_NAME_LENGTH) {
-    return writeError("name must be 1-100 characters", 400)
+    return writeError(`name must be 1-${MAX_SERVER_NAME_LENGTH} characters`, 400)
+  }
+
+  let description: string | undefined
+  if (body.description !== undefined) {
+    if (typeof body.description !== "string") {
+      return writeError("description must be a string", 400)
+    }
+    if (body.description.length > MAX_SERVER_DESCRIPTION_LENGTH) {
+      return writeError(`description must be ≤ ${MAX_SERVER_DESCRIPTION_LENGTH} characters`, 400)
+    }
+    description = body.description
   }
 
   const server = await queries.communityServer.createServer(db, {
     name,
-    description: body.description,
+    description,
     ownerId: ctx.userId,
   })
 
-  // Fetch the owner membership (with user info) to include in the fanout event
   const members = await queries.communityMember.listMembers(db, server.id)
   const ownerMember = members.find((m) => m.userId === ctx.userId)
 
   if (ownerMember) {
     fanOutToServerMembers(server.id, {
-      type: "community:member.join",
+      type: WS_EVENTS.MEMBER_JOIN,
       serverId: server.id,
       member: {
         id: ownerMember.id,
         userId: ctx.userId,
         name: ownerMember.userName ?? ctx.email,
-        role: "owner",
+        role: ROLES.OWNER,
         joinedAt: ownerMember.joinedAt,
       },
     }).catch(() => {})

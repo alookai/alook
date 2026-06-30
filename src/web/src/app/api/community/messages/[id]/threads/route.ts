@@ -2,8 +2,9 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, MAX_CHANNEL_NAME_LENGTH, WS_EVENTS } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
+import { requireChannelMember } from "@/lib/community/permissions"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const messageId = ctx.params?.id
@@ -15,31 +16,39 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!message) return writeError("message not found", 404)
   if (!message.channelId) return writeError("message is not in a channel", 400)
 
-  const channel = await queries.communityChannel.getChannel(db, message.channelId)
-  if (!channel) return writeError("channel not found", 404)
+  const auth = await requireChannelMember(db, message.channelId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const channel = auth.value
 
-  const member = await queries.communityMember.getMember(db, channel.serverId, ctx.userId)
-  if (!member) return writeError("forbidden", 403)
-
-  let body: { name: string }
+  let body: { name?: string }
   try {
     body = await req.json()
   } catch {
     return writeError("invalid request body", 400)
   }
+  if (!body.name || typeof body.name !== "string") return writeError("name is required", 400)
+  const name = body.name.trim()
+  if (!name || name.length > MAX_CHANNEL_NAME_LENGTH) {
+    return writeError(`name must be 1-${MAX_CHANNEL_NAME_LENGTH} characters`, 400)
+  }
 
-  if (!body.name) return writeError("name is required", 400)
+  // Discord/Slack semantics: one thread per message.
+  const existing = await queries.communityChannel.listChildChannels(db, message.channelId, {
+    type: "thread",
+  })
+  if (existing.some((c) => c.parentMessageId === messageId)) {
+    return writeError("message already has a thread", 409)
+  }
 
   const childChannel = await queries.communityChannel.createChannel(db, {
     serverId: channel.serverId,
     parentChannelId: message.channelId,
     parentMessageId: messageId,
-    name: body.name,
+    name,
     type: "thread",
     creatorId: ctx.userId,
   })
 
-  // Copy the original message as the first message in the thread
   await queries.communityMessage.createMessage(db, {
     authorId: message.authorId,
     content: message.content ?? "",
@@ -47,7 +56,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   })
 
   fanOutToChannel(message.channelId, {
-    type: "community:channel.child_create",
+    type: WS_EVENTS.CHILD_CHANNEL_CREATE,
     parentChannelId: message.channelId,
     channel: {
       id: childChannel.id,

@@ -3,8 +3,9 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, canManageServer, CACHE_SHORT } from "@alook/shared"
-import { buildServerIconKey } from "@/lib/community/storage"
+import { queries, CACHE_SHORT } from "@alook/shared"
+import { requireServerAdmin } from "@/lib/community/permissions"
+import { handleServerIconUpload } from "@/lib/community/upload"
 
 export const GET = async (_req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id: serverId } = await params
@@ -35,24 +36,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!serverId) return writeError("missing server id", 400)
 
   const db = getDb(ctx.env.DB)
+  const auth = await requireServerAdmin(db, serverId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member || !canManageServer(member.role)) {
-    return writeError("forbidden", 403)
-  }
-
-  const formData = await req.formData()
-  const file = formData.get("file") as File | null
-  if (!file) return writeError("no file provided", 400)
-
-  const fileId = crypto.randomUUID()
-  const key = buildServerIconKey(serverId, fileId)
-
-  await ctx.env.COMMUNITY_MEDIA.put(
-    key,
-    await file.arrayBuffer(),
-    { httpMetadata: { contentType: file.type } }
-  )
+  const result = await handleServerIconUpload(req, ctx.env, serverId)
+  if (!result.ok) return result.response
 
   const iconUrl = `/api/community/servers/${serverId}/icon`
   const updated = await queries.communityServer.updateServer(db, serverId, { icon: iconUrl })

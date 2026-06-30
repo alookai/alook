@@ -1,4 +1,4 @@
-import { queries } from "@alook/shared"
+import { queries, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -13,23 +13,18 @@ export const POST = withAuth(async (_req, ctx) => {
   }
 
   const friendship = await queries.communityFriendship.getFriendship(db, id)
-
-  if (!friendship) {
-    return writeError("friendship not found", 404)
-  }
-
+  if (!friendship) return writeError("friendship not found", 404)
   if (friendship.addresseeId !== ctx.userId) {
     return writeError("only the addressee can reject a friend request", 403)
   }
 
-  if (friendship.status !== "pending") {
-    return writeError("request is not pending", 400)
-  }
+  const deleted = await queries.communityFriendship.rejectRequest(db, id)
+  if (!deleted) return writeError("request is not pending", 400)
 
-  await queries.communityFriendship.rejectRequest(db, id)
-
-  // Cast to any because community events aren't in the WsMessage union
-  broadcastToUser(friendship.requesterId, { type: "community:friend.reject", friendshipId: id } as any).catch(() => {})
+  broadcastToUser(friendship.requesterId, {
+    type: WS_EVENTS.FRIEND_REJECT,
+    friendshipId: id,
+  } as never).catch(() => {})
 
   return writeJSON({ ok: true })
 })

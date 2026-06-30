@@ -91,9 +91,11 @@ export async function markChannelMentionsRead(db: Database, userId: string, chan
 }
 
 export async function deleteMention(db: Database, userId: string, mentionId: string) {
-  await db
+  const rows = await db
     .delete(communityMention)
     .where(
       and(eq(communityMention.id, mentionId), eq(communityMention.userId, userId))
-    );
+    )
+    .returning({ id: communityMention.id });
+  return rows.length;
 }

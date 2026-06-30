@@ -2,7 +2,13 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import {
+  queries,
+  MAX_CHANNEL_NAME_LENGTH,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  MESSAGE_PREVIEW_LENGTH,
+  WS_EVENTS,
+} from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
@@ -53,7 +59,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     const creator = t.creatorId ? creatorMap.get(t.creatorId) : null
     const authorName = creator?.name ?? "Unknown"
     const authorAvatar = creator?.image ?? (creator?.name ?? "?").charAt(0).toUpperCase()
-    const preview = (previewMap.get(t.id) ?? "").slice(0, 120)
+    const preview = (previewMap.get(t.id) ?? "").slice(0, MESSAGE_PREVIEW_LENGTH)
     let parsedTags: string[] = []
     try { parsedTags = t.forumTags ? JSON.parse(t.forumTags) : [] } catch { /* */ }
     return {
@@ -95,9 +101,15 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!body.name || typeof body.name !== "string" || body.name.trim().length === 0) {
     return writeError("name is required", 400)
   }
+  if (body.name.trim().length > MAX_CHANNEL_NAME_LENGTH) {
+    return writeError(`name must be 1-${MAX_CHANNEL_NAME_LENGTH} characters`, 400)
+  }
 
   if (!body.content || typeof body.content !== "string" || body.content.trim().length === 0) {
     return writeError("content is required", 400)
+  }
+  if (body.content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+    return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
   }
 
   // Validate tags against channel's forumTags if present
@@ -145,7 +157,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const authorAvatar = creator?.image ?? (creator?.name ?? "?").charAt(0).toUpperCase()
 
   fanOutToChannel(channelId, {
-    type: "community:channel.child_create",
+    type: WS_EVENTS.CHILD_CHANNEL_CREATE,
     parentChannelId: channelId,
     channel: {
       id: postChannel.id,
@@ -162,11 +174,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       name: postChannel.name,
       messageCount: 1,
       lastMessageAt: message.createdAt,
-      parent: { authorName, text: body.content.slice(0, 120) },
+      parent: { authorName, text: body.content.slice(0, MESSAGE_PREVIEW_LENGTH) },
       messages: [],
       authorAvatar,
       tags: body.tags ?? [],
-      preview: body.content.slice(0, 120),
+      preview: body.content.slice(0, MESSAGE_PREVIEW_LENGTH),
     },
   }, 201)
 })

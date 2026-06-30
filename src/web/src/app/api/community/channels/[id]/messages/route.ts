@@ -2,10 +2,18 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, extractMentionedUserIds } from "@alook/shared"
+import {
+  queries,
+  extractMentionedUserIds,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  MESSAGE_PREVIEW_LENGTH,
+  WS_EVENTS,
+} from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { broadcastToUser } from "@/lib/broadcast"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
+import { requireChannelMember } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -13,8 +21,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
-  if (!channel) return writeError("forbidden", 403)
+  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const channel = auth.value
 
   const cursor = parseCursor(req.nextUrl.searchParams.get("cursor"))
   const pageSize = parsePageSize(req.nextUrl.searchParams.get("limit"))
@@ -66,7 +75,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       content: r.content,
       type: r.type === "system" ? "system" as const : undefined,
       mentionType: r.mentionType,
-      replyTo: reply ? { id: reply.id, authorName: reply.authorName ?? "Unknown", text: (reply.content ?? "").slice(0, 100) } : r.replyToId ? { id: r.replyToId, authorName: "Unknown", text: "", deleted: true } : undefined,
+      replyTo: reply ? { id: reply.id, authorName: reply.authorName ?? "Unknown", text: (reply.content ?? "").slice(0, MESSAGE_PREVIEW_LENGTH) } : r.replyToId ? { id: r.replyToId, authorName: "Unknown", text: "", deleted: true } : undefined,
       createdAt: r.createdAt,
       embeds: r.embeds ? JSON.parse(r.embeds) : undefined,
       attachments: attachmentsByMessage[r.id]?.length ? attachmentsByMessage[r.id] : undefined,
@@ -84,8 +93,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
-  if (!channel) return writeError("forbidden", 403)
+  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const channel = auth.value
 
   let body: { content?: string; replyToId?: string; mentionType?: string; attachments?: { url: string; filename: string; contentType: string; size: number }[] }
   try {
@@ -96,6 +106,12 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   if (!body.content || typeof body.content !== "string" || body.content.trim().length === 0) {
     return writeError("content is required", 400)
+  }
+  if (body.content.length > MAX_MESSAGE_CONTENT_LENGTH) {
+    return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
+  }
+  if (body.attachments && body.attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+    return writeError(`too many attachments (max ${MAX_ATTACHMENTS_PER_MESSAGE})`, 400)
   }
 
   const created = await queries.communityMessage.createMessage(db, {
@@ -133,7 +149,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (message!.replyToId) {
     const replyMsg = await queries.communityMessage.getMessage(db, message!.replyToId)
     if (replyMsg) {
-      replyTo = { id: replyMsg.id, authorName: replyMsg.authorName ?? "Unknown", text: (replyMsg.content ?? "").slice(0, 100) }
+      replyTo = { id: replyMsg.id, authorName: replyMsg.authorName ?? "Unknown", text: (replyMsg.content ?? "").slice(0, MESSAGE_PREVIEW_LENGTH) }
       if (replyMsg.authorId && replyMsg.authorId !== ctx.userId) {
         replyTargets.add(replyMsg.authorId)
       }
@@ -179,7 +195,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     const authorName = message!.authorName ?? "Unknown"
     for (const userId of [...liveMentions, ...liveReplies]) {
       broadcastToUser(userId, {
-        type: "community:mention.create",
+        type: WS_EVENTS.MENTION_CREATE,
         userId,
         messageId: created.id,
         channelId,
@@ -189,7 +205,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   fanOutToChannel(channelId, {
-    type: "community:message.create",
+    type: WS_EVENTS.MESSAGE_CREATE,
     channelId,
     message: {
       id: message!.id,

@@ -2,9 +2,15 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, canManageServer } from "@alook/shared"
+import {
+  queries,
+  canManageServer,
+  MAX_CATEGORY_NAME_LENGTH,
+  WS_EVENTS,
+} from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
+import { requireServerMember } from "@/lib/community/permissions"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
@@ -12,14 +18,13 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (!serverId || !categoryId) return writeError("missing params", 400)
 
   const db = getDb(ctx.env.DB)
-
-  const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member) return writeError("forbidden", 403)
+  const auth = await requireServerMember(db, serverId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const member = auth.value!
 
   const category = await queries.communityCategory.getCategory(db, categoryId)
-  if (!category) return writeError("category not found", 404)
+  if (!category || category.serverId !== serverId) return writeError("category not found", 404)
 
-  // Admin/owner can edit any; others can only edit their own
   const isAdmin = canManageServer(member.role)
   if (!isAdmin && category.creatorId !== ctx.userId) {
     return writeError("forbidden", 403)
@@ -32,20 +37,30 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     return writeError("invalid request body", 400)
   }
 
-  // Only admin/owner can toggle private
   if (body.private !== undefined && !isAdmin) {
     return writeError("only admins can change private setting", 403)
   }
 
   const changes: { name?: string; private?: boolean } = {}
-  if (body.name !== undefined) changes.name = body.name
+  if (body.name !== undefined) {
+    if (typeof body.name !== "string") return writeError("name must be a string", 400)
+    const trimmed = body.name.trim()
+    if (!trimmed || trimmed.length > MAX_CATEGORY_NAME_LENGTH) {
+      return writeError(`name must be 1-${MAX_CATEGORY_NAME_LENGTH} characters`, 400)
+    }
+    changes.name = trimmed
+  }
   if (body.private !== undefined) changes.private = body.private
+
+  if (Object.keys(changes).length === 0) {
+    return writeError("no changes provided", 400)
+  }
 
   const updated = await queries.communityCategory.updateCategory(db, categoryId, changes)
   if (!updated) return writeError("category not found", 404)
 
   await fanOutToServerMembers(serverId, {
-    type: "community:category.update",
+    type: WS_EVENTS.CATEGORY_UPDATE,
     serverId,
     categoryId,
     changes,
@@ -69,14 +84,13 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   if (!serverId || !categoryId) return writeError("missing params", 400)
 
   const db = getDb(ctx.env.DB)
-
-  const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member) return writeError("forbidden", 403)
+  const auth = await requireServerMember(db, serverId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const member = auth.value!
 
   const category = await queries.communityCategory.getCategory(db, categoryId)
-  if (!category) return writeError("category not found", 404)
+  if (!category || category.serverId !== serverId) return writeError("category not found", 404)
 
-  // Admin/owner can delete any; others can only delete their own
   const isAdmin = canManageServer(member.role)
   if (!isAdmin && category.creatorId !== ctx.userId) {
     return writeError("forbidden", 403)
@@ -86,7 +100,7 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   if (!deleted) return writeError("category not found", 404)
 
   await fanOutToServerMembers(serverId, {
-    type: "community:category.delete",
+    type: WS_EVENTS.CATEGORY_DELETE,
     serverId,
     categoryId,
   })

@@ -18,6 +18,11 @@ export async function sendRequest(
   return rows[0]!;
 }
 
+/**
+ * Accept a pending request atomically. Returns null if the row no longer
+ * exists or was already accepted/rejected — callers should treat that as a
+ * 400/409 rather than blindly succeeding.
+ */
 export async function acceptRequest(db: Database, friendshipId: string) {
   const rows = await db
     .update(communityFriendship)
@@ -25,17 +30,31 @@ export async function acceptRequest(db: Database, friendshipId: string) {
       status: "accepted",
       updatedAt: new Date().toISOString(),
     })
-    .where(eq(communityFriendship.id, friendshipId))
+    .where(
+      and(
+        eq(communityFriendship.id, friendshipId),
+        eq(communityFriendship.status, "pending"),
+      ),
+    )
     .returning();
-  return rows[0]!;
+  return rows[0] ?? null;
 }
 
+/**
+ * Reject a pending request. Atomic: returns null if the row no longer exists
+ * or was already accepted (in which case rejecting is no longer valid).
+ */
 export async function rejectRequest(db: Database, friendshipId: string) {
   const rows = await db
     .delete(communityFriendship)
-    .where(eq(communityFriendship.id, friendshipId))
+    .where(
+      and(
+        eq(communityFriendship.id, friendshipId),
+        eq(communityFriendship.status, "pending"),
+      ),
+    )
     .returning();
-  return rows[0]!;
+  return rows[0] ?? null;
 }
 
 export async function removeFriend(db: Database, friendshipId: string) {

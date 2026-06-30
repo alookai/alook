@@ -18,13 +18,16 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     return writeError("serverIds must be a non-empty array", 400)
   }
 
-  // Verify user is a member of all servers in a single query
+  const unique = new Set(body.serverIds)
+  if (unique.size !== body.serverIds.length) {
+    return writeError("serverIds must be unique", 400)
+  }
+
   const memberships = await queries.communityMember.getMemberships(db, ctx.userId, body.serverIds)
   if (memberships.length !== body.serverIds.length) {
     return writeError("not a member of all servers", 403)
   }
 
-  // Update railOrder for each server membership
   for (let i = 0; i < body.serverIds.length; i++) {
     await queries.communityMember.updateRailOrder(db, body.serverIds[i]!, ctx.userId, i)
   }

@@ -7,6 +7,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockGetChannel = vi.fn();
 const mockGetMember = vi.fn();
+const mockGetMessage = vi.fn();
 const mockPinMessage = vi.fn();
 const mockLogAction = vi.fn();
 const mockFanOut = vi.fn();
@@ -21,11 +22,16 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityChannel: { getChannel: (...a: unknown[]) => mockGetChannel(...a) },
       communityMember: { getMember: (...a: unknown[]) => mockGetMember(...a) },
+      communityMessage: { getMessage: (...a: unknown[]) => mockGetMessage(...a) },
       communityPin: { pinMessage: (...a: unknown[]) => mockPinMessage(...a) },
       communityAuditLog: { logAction: (...a: unknown[]) => mockLogAction(...a) },
     },
   };
 });
+
+vi.mock("@/lib/community/audit", () => ({
+  logAudit: (...a: unknown[]) => mockLogAction(...a),
+}));
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOut(...a),
@@ -63,7 +69,9 @@ describe("POST /api/community/channels/[id]/pins", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" });
-    mockGetMember.mockResolvedValue({ userId: "u1" });
+    // Pinning is admin-only — every happy path starts with an admin caller.
+    mockGetMember.mockResolvedValue({ userId: "u1", role: "admin" });
+    mockGetMessage.mockResolvedValue({ id: "m1", channelId: "c1" });
     mockFanOut.mockResolvedValue(undefined);
     mockLogAction.mockResolvedValue(undefined);
   });
@@ -120,5 +128,19 @@ describe("POST /api/community/channels/[id]/pins", () => {
     mockGetMember.mockResolvedValue(null);
     const res = await POST(postReq("m1"), ctx);
     expect(res.status).toBe(403);
+  });
+
+  it("returns 403 when the user is a regular member (not admin)", async () => {
+    mockGetMember.mockResolvedValue({ userId: "u1", role: "member" });
+    const res = await POST(postReq("m1"), ctx);
+    expect(res.status).toBe(403);
+    expect(mockPinMessage).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when the message does not belong to the channel", async () => {
+    mockGetMessage.mockResolvedValue({ id: "m1", channelId: "other" });
+    const res = await POST(postReq("m1"), ctx);
+    expect(res.status).toBe(404);
+    expect(mockPinMessage).not.toHaveBeenCalled();
   });
 });

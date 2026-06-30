@@ -7,18 +7,13 @@ export const POST = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const targetId = ctx.params?.userId as string
 
-  if (!targetId) {
-    return writeError("userId is required", 400)
-  }
+  if (!targetId) return writeError("userId is required", 400)
 
   const result = await queries.communityFriendship.unblock(db, {
     blockerId: ctx.userId,
     targetId,
   })
 
-  if (!result) {
-    return writeError("no blocked relationship found", 404)
-  }
-
-  return writeJSON(result)
+  // Unblock is idempotent — no-op if the relationship is already gone.
+  return writeJSON({ ok: true, removed: result ?? null })
 })

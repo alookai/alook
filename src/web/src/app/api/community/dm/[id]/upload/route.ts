@@ -2,38 +2,32 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
-import { buildMediaKey } from "@/lib/community/storage"
+import {
+  requireDMParticipant,
+  requireNotBlocked,
+  otherDmParticipant,
+} from "@/lib/community/permissions"
+import { handleAttachmentUpload } from "@/lib/community/upload"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id
   if (!dmId) return writeError("missing dm id", 400)
 
   const db = getDb(ctx.env.DB)
+  const auth = await requireDMParticipant(db, dmId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const dm = await queries.communityDm.getDM(db, dmId)
-  if (!dm) return writeError("dm not found", 404)
-  if (dm.user1Id !== ctx.userId && dm.user2Id !== ctx.userId) {
-    return writeError("forbidden", 403)
-  }
+  const otherId = otherDmParticipant(auth.value, ctx.userId)
+  const block = await requireNotBlocked(db, ctx.userId, otherId)
+  if (!block.ok) return writeError(block.error, block.status)
 
-  const formData = await req.formData()
-  const file = formData.get("file") as File | null
-  if (!file) return writeError("no file provided", 400)
-
-  const fileId = crypto.randomUUID()
-  const key = buildMediaKey("dm", dmId, fileId, file.name)
-
-  await ctx.env.COMMUNITY_MEDIA.put(
-    key,
-    await file.arrayBuffer(),
-    { httpMetadata: { contentType: file.type } }
-  )
+  const result = await handleAttachmentUpload(req, ctx.env, "dm", dmId)
+  if (!result.ok) return result.response
 
   return writeJSON({
-    url: `/api/community/media/${key}`,
-    filename: file.name,
-    contentType: file.type,
-    size: file.size,
+    url: result.url,
+    filename: result.filename,
+    contentType: result.contentType,
+    size: result.size,
   })
 })

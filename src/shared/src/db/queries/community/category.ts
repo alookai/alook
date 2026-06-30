@@ -1,6 +1,14 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { communityCategory } from "../../community-schema";
 import type { Database } from "../../index";
+
+export async function getCategoriesByIds(db: Database, categoryIds: string[]) {
+  if (categoryIds.length === 0) return [];
+  return db
+    .select()
+    .from(communityCategory)
+    .where(inArray(communityCategory.id, categoryIds));
+}
 
 export async function createCategory(
   db: Database,

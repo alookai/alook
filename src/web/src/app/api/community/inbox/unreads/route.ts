@@ -32,6 +32,9 @@ export const GET = withAuth(async (_req, ctx) => {
     { serverId: string; serverName: string; channels: Array<{ channelId: string; channelName: string; lastMessageAt: string; mentionCount: number }> }
   >()
   for (const row of unread) {
+    // Skip orphan rows where the server/channel was deleted between fetch
+    // and join — the UI can't render them anyway.
+    if (!row.serverId || !row.channelId || !row.serverName || !row.channelName) continue
     if (mutedServers.has(row.serverId)) continue
     if (mutedChannels.has(row.channelId)) continue
     let bucket = grouped.get(row.serverId)

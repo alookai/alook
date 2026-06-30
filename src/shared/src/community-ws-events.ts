@@ -368,3 +368,38 @@ export type CommunityWsEvent =
 export function isCommunityEvent(msg: { type: string }): msg is CommunityWsEvent {
   return msg.type.startsWith("community:")
 }
+
+/** Constant map of every community WS event type string. */
+export const WS_EVENTS = {
+  MESSAGE_CREATE: "community:message.create",
+  REACTION_ADD: "community:reaction.add",
+  REACTION_REMOVE: "community:reaction.remove",
+  PIN_ADD: "community:pin.add",
+  PIN_REMOVE: "community:pin.remove",
+  TYPING_START: "community:typing.start",
+  CHILD_CHANNEL_CREATE: "community:channel.child_create",
+  CHILD_CHANNEL_UPDATE: "community:channel.child_update",
+  SERVER_UPDATE: "community:server.update",
+  SERVER_DELETE: "community:server.delete",
+  CHANNEL_CREATE: "community:channel.create",
+  CHANNEL_UPDATE: "community:channel.update",
+  CHANNEL_DELETE: "community:channel.delete",
+  CHANNEL_REORDER: "community:channel.reorder",
+  CATEGORY_CREATE: "community:category.create",
+  CATEGORY_UPDATE: "community:category.update",
+  CATEGORY_DELETE: "community:category.delete",
+  CATEGORY_REORDER: "community:category.reorder",
+  MEMBER_JOIN: "community:member.join",
+  MEMBER_LEAVE: "community:member.leave",
+  MEMBER_UPDATE: "community:member.update",
+  FRIEND_REQUEST: "community:friend.request",
+  FRIEND_ACCEPT: "community:friend.accept",
+  FRIEND_REJECT: "community:friend.reject",
+  FRIEND_REMOVE: "community:friend.remove",
+  FRIEND_BLOCK: "community:friend.block",
+  DM_NEW_MESSAGE: "community:dm.new_message",
+  DM_TYPING: "community:dm.typing",
+  INVITE_CREATE: "community:invite.create",
+  MENTION_CREATE: "community:mention.create",
+  PRESENCE_UPDATE: "community:presence.update",
+} as const
