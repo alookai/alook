@@ -1,0 +1,131 @@
+import { describe, it, expect, vi, beforeEach } from "vitest"
+import { NextRequest } from "next/server"
+
+const getUser = vi.fn()
+const isBlocked = vi.fn()
+const sendRequest = vi.fn()
+const broadcastToUser = vi.fn()
+
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return {
+    ...actual,
+    queries: {
+      user: {
+        getUser: (...a: unknown[]) => getUser(...a),
+        getUserByNameCaseInsensitive: vi.fn(),
+      },
+      communityFriendship: {
+        sendRequest: (...a: unknown[]) => sendRequest(...a),
+        isBlocked: (...a: unknown[]) => isBlocked(...a),
+      },
+    },
+  }
+})
+
+vi.mock("@/lib/middleware/auth", () => ({
+  withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
+    const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
+    return handler(req, { env: {}, userId: "u1", email: "u@t.com", params })
+  }),
+}))
+
+vi.mock("@/lib/middleware/helpers", async () => {
+  const { NextResponse } = require("next/server")
+  return {
+    writeJSON: (data: unknown, status = 200) => NextResponse.json(data, { status }),
+    writeError: (message: string, status: number) => NextResponse.json({ error: message }, { status }),
+  }
+})
+
+vi.mock("@/lib/broadcast", () => ({
+  broadcastToUser: (...a: unknown[]) => broadcastToUser(...a),
+}))
+
+import { POST } from "./route"
+
+function postReq(body: unknown) {
+  return new NextRequest("http://localhost/api/community/friends/request", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+describe("POST /api/community/friends/request", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUser.mockResolvedValue({ id: "u2" })
+    isBlocked.mockResolvedValue(false)
+    broadcastToUser.mockResolvedValue(undefined)
+  })
+
+  it("creates a pending friendship and broadcasts friend.request (201)", async () => {
+    sendRequest.mockResolvedValue({
+      kind: "created",
+      friendship: { id: "f1", requesterId: "u1", addresseeId: "u2", status: "pending" },
+    })
+    const res = await POST(postReq({ userId: "u2" }), {} as never)
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body.id).toBe("f1")
+    expect(broadcastToUser).toHaveBeenCalledWith(
+      "u2",
+      expect.objectContaining({ type: "community:friend.request" }),
+    )
+  })
+
+  it("auto-accepts when the reverse-direction request already exists (200 + friend.accept)", async () => {
+    // The query layer reports it promoted an existing reverse pending row.
+    sendRequest.mockResolvedValue({
+      kind: "auto_accepted",
+      friendship: { id: "f1", requesterId: "u2", addresseeId: "u1", status: "accepted" },
+    })
+    const res = await POST(postReq({ userId: "u2" }), {} as never)
+    expect(res.status).toBe(200)
+    expect(broadcastToUser).toHaveBeenCalledWith(
+      "u2",
+      expect.objectContaining({ type: "community:friend.accept", friendshipId: "f1" }),
+    )
+  })
+
+  it("returns 403 when the query reports the pair is blocked", async () => {
+    sendRequest.mockRejectedValue(new Error("blocked"))
+    const res = await POST(postReq({ userId: "u2" }), {} as never)
+    expect(res.status).toBe(403)
+  })
+
+  it("returns 409 when the query reports the users are already friends", async () => {
+    sendRequest.mockRejectedValue(new Error("already friends"))
+    const res = await POST(postReq({ userId: "u2" }), {} as never)
+    expect(res.status).toBe(409)
+  })
+
+  it("returns 409 when the UNIQUE constraint already covers this direction", async () => {
+    sendRequest.mockRejectedValue(new Error("UNIQUE constraint failed: community_friendship..."))
+    const res = await POST(postReq({ userId: "u2" }), {} as never)
+    expect(res.status).toBe(409)
+  })
+
+  it("returns 400 when the target equals the caller", async () => {
+    const res = await POST(postReq({ userId: "u1" }), {} as never)
+    expect(res.status).toBe(400)
+    expect(sendRequest).not.toHaveBeenCalled()
+  })
+
+  it("returns 404 when the target user doesn't exist", async () => {
+    getUser.mockResolvedValue(null)
+    const res = await POST(postReq({ userId: "u2" }), {} as never)
+    expect(res.status).toBe(404)
+    expect(sendRequest).not.toHaveBeenCalled()
+  })
+
+  it("returns 403 when the caller is blocked by the target (or vice versa)", async () => {
+    isBlocked.mockResolvedValue(true)
+    const res = await POST(postReq({ userId: "u2" }), {} as never)
+    expect(res.status).toBe(403)
+    expect(sendRequest).not.toHaveBeenCalled()
+  })
+})

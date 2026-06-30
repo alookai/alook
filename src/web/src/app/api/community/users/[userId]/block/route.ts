@@ -24,14 +24,14 @@ export const POST = withAuth(async (_req, ctx) => {
     userId: ctx.userId,
   } as never).catch(() => {})
 
-  // If we converted an accepted friendship into a block, tell the other side
-  // their friend list lost an entry so the UI stays consistent.
-  if (result.status === "blocked") {
+  // If blocking tore down an existing accepted friendship, tell the other
+  // side so their friend list reflects it.
+  if (result.removedFriendshipId) {
     broadcastToUser(targetId, {
       type: WS_EVENTS.FRIEND_REMOVE,
-      friendshipId: result.id,
+      friendshipId: result.removedFriendshipId,
     } as never).catch(() => {})
   }
 
-  return writeJSON(result)
+  return writeJSON(result.row)
 })

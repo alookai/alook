@@ -3,10 +3,87 @@ import { communityFriendship } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 
+/**
+ * Look up any friendship row between two users, in either direction.
+ * The schema's UNIQUE is on `(requester, addressee)` — not the unordered
+ * pair — so we still have to scan both orderings ourselves.
+ */
+async function findExisting(
+  db: Database,
+  userA: string,
+  userB: string,
+) {
+  const rows = await db
+    .select()
+    .from(communityFriendship)
+    .where(
+      or(
+        and(
+          eq(communityFriendship.requesterId, userA),
+          eq(communityFriendship.addresseeId, userB),
+        ),
+        and(
+          eq(communityFriendship.requesterId, userB),
+          eq(communityFriendship.addresseeId, userA),
+        ),
+      ),
+    );
+  return rows[0] ?? null;
+}
+
+export type SendRequestOutcome =
+  | { kind: "created"; friendship: typeof communityFriendship.$inferSelect }
+  | { kind: "auto_accepted"; friendship: typeof communityFriendship.$inferSelect }
+
+/**
+ * Send a friend request. The reverse-direction case is the subtle one:
+ * if B already has a pending request to A and A then "sends" to B, both
+ * sides have signalled intent — promote the existing row to accepted
+ * rather than letting the UNIQUE constraint reject the request or
+ * leaving two pending rows around.
+ *
+ * Throws if the pair already has an accepted or blocked relationship.
+ */
 export async function sendRequest(
   db: Database,
-  data: { requesterId: string; addresseeId: string }
-) {
+  data: { requesterId: string; addresseeId: string },
+): Promise<SendRequestOutcome> {
+  const existing = await findExisting(db, data.requesterId, data.addresseeId);
+
+  if (existing) {
+    if (existing.status === "blocked") {
+      throw new Error("blocked");
+    }
+    if (existing.status === "accepted") {
+      throw new Error("already friends");
+    }
+    // status === "pending"
+    if (
+      existing.requesterId === data.addresseeId &&
+      existing.addresseeId === data.requesterId
+    ) {
+      // Reverse-direction pending request — auto-accept it.
+      const [updated] = await db
+        .update(communityFriendship)
+        .set({ status: "accepted", updatedAt: new Date().toISOString() })
+        .where(
+          and(
+            eq(communityFriendship.id, existing.id),
+            eq(communityFriendship.status, "pending"),
+          ),
+        )
+        .returning();
+      if (!updated) {
+        // Lost the race — fall through to insert, which will likely fail
+        // the UNIQUE check and surface as a 409 in the route.
+      } else {
+        return { kind: "auto_accepted", friendship: updated };
+      }
+    }
+    // Forward-direction pending already exists — let the UNIQUE conflict
+    // surface so the route returns 409.
+  }
+
   const rows = await db
     .insert(communityFriendship)
     .values({
@@ -15,7 +92,7 @@ export async function sendRequest(
       status: "pending",
     })
     .returning();
-  return rows[0]!;
+  return { kind: "created", friendship: rows[0]! };
 }
 
 /**
@@ -65,41 +142,45 @@ export async function removeFriend(db: Database, friendshipId: string) {
   return rows[0]!;
 }
 
+export type BlockOutcome = {
+  /** The fresh blocked row inserted by this call. */
+  row: typeof communityFriendship.$inferSelect;
+  /** Friendship id that was deleted to make room, if any. The route uses this
+   *  to broadcast a `friend.remove` so the other side's UI stays consistent. */
+  removedFriendshipId: string | null;
+}
+
 export async function block(
   db: Database,
-  data: { blockerId: string; targetId: string }
-) {
-  // Find existing row in either direction
-  const existing = await db
-    .select()
-    .from(communityFriendship)
-    .where(
-      or(
-        and(
-          eq(communityFriendship.requesterId, data.blockerId),
-          eq(communityFriendship.addresseeId, data.targetId)
-        ),
-        and(
-          eq(communityFriendship.requesterId, data.targetId),
-          eq(communityFriendship.addresseeId, data.blockerId)
-        )
-      )
-    );
+  data: { blockerId: string; targetId: string },
+): Promise<BlockOutcome> {
+  const existing = await findExisting(db, data.blockerId, data.targetId);
 
-  if (existing[0]) {
-    const rows = await db
-      .update(communityFriendship)
-      .set({
-        status: "blocked",
-        blockerId: data.blockerId,
-        updatedAt: new Date().toISOString(),
-      })
-      .where(eq(communityFriendship.id, existing[0].id))
-      .returning();
-    return rows[0]!;
+  let removedFriendshipId: string | null = null;
+  if (existing) {
+    if (existing.status === "blocked") {
+      // Already blocked — keep it idempotent; just refresh `updatedAt` so
+      // anyone re-issuing the block sees a current timestamp.
+      const rows = await db
+        .update(communityFriendship)
+        .set({ updatedAt: new Date().toISOString() })
+        .where(eq(communityFriendship.id, existing.id))
+        .returning();
+      return { row: rows[0]!, removedFriendshipId: null };
+    }
+    // Wipe the existing pending/accepted row so the blocker's row is the
+    // single source of truth instead of leaving a hybrid status='blocked'
+    // entry whose requester/addressee ordering may not match the blocker.
+    await db
+      .delete(communityFriendship)
+      .where(eq(communityFriendship.id, existing.id));
+    // Tell the route whether to broadcast friend.remove — only if we just
+    // tore down a real friendship, not a pending request.
+    if (existing.status === "accepted") {
+      removedFriendshipId = existing.id;
+    }
   }
 
-  // No existing row — insert a new one
   const rows = await db
     .insert(communityFriendship)
     .values({
@@ -109,7 +190,7 @@ export async function block(
       blockerId: data.blockerId,
     })
     .returning();
-  return rows[0]!;
+  return { row: rows[0]!, removedFriendshipId };
 }
 
 export async function unblock(

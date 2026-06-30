@@ -41,15 +41,32 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!block.ok) return writeError(block.error, block.status)
 
   try {
-    const friendship = await queries.communityFriendship.sendRequest(db, {
+    const result = await queries.communityFriendship.sendRequest(db, {
       requesterId: ctx.userId,
       addresseeId: targetUserId,
     })
 
-    broadcastToUser(targetUserId, { type: WS_EVENTS.FRIEND_REQUEST, friendship } as never).catch(() => {})
+    if (result.kind === "auto_accepted") {
+      // Both sides had pending intents; promoting to accepted is the
+      // right behaviour. Notify the other party as if they had accepted
+      // an outbound request from us.
+      broadcastToUser(targetUserId, {
+        type: WS_EVENTS.FRIEND_ACCEPT,
+        friendshipId: result.friendship.id,
+      } as never).catch(() => {})
+      return writeJSON(result.friendship, 200)
+    }
 
-    return writeJSON(friendship, 201)
+    broadcastToUser(targetUserId, {
+      type: WS_EVENTS.FRIEND_REQUEST,
+      friendship: result.friendship,
+    } as never).catch(() => {})
+    return writeJSON(result.friendship, 201)
   } catch (err: unknown) {
+    if (err instanceof Error) {
+      if (err.message === "blocked") return writeError("blocked", 403)
+      if (err.message === "already friends") return writeError("already friends", 409)
+    }
     const full = err instanceof Error
       ? err.message + (err.cause instanceof Error ? " " + err.cause.message : "")
       : String(err)
