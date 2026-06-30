@@ -1,6 +1,6 @@
 "use client"
 
-import { MessagesSquare, BellOff, Pencil, Trash2 } from "lucide-react"
+import { ListChevronsUpDown, BellOff, Pencil, Trash2 } from "lucide-react"
 import { ChannelIcon } from "./channel-icon"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
@@ -43,7 +43,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
       {showLine && <DropLine side={lineSide} />}
       <span className="grid size-5 shrink-0 place-items-center opacity-70">
         {ch.type === "forum" ? (
-          <MessagesSquare className="size-4.5" />
+          <ListChevronsUpDown className="size-4.5" />
         ) : (
           <ChannelIcon className="h-4.5" />
         )}

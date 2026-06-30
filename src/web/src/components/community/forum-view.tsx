@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { MessagesSquare, Plus, Tags, X, Check } from "lucide-react"
+import { MessagesSquare, ListChevronsUpDown, Plus, Tags, X, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "./format-time"
 import { Badge } from "@/components/ui/badge"
@@ -114,7 +114,7 @@ export function ForumView({
 
       <main className="flex-1 overflow-y-auto thin-scrollbar p-5">
         {filtered.length === 0 ? (
-          <EmptyState icon={MessagesSquare} label="No posts with this tag yet. Start one with New Post." />
+          <EmptyState icon={ListChevronsUpDown} label="No posts with this tag yet. Start one with New Post." />
         ) : (
           <div className="flex flex-col gap-3">
             {filtered.map((p) => (

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { MessagesSquare } from "lucide-react"
+import { ListChevronsUpDown } from "lucide-react"
 import { ChannelIcon } from "./channel-icon"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -21,9 +21,9 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
   const [type, setType] = useState<ChannelType>(initial?.type ?? "text")
   const [name, setName] = useState(initial?.name ?? "")
 
-  const options: { value: ChannelType; icon: typeof MessagesSquare | typeof ChannelIcon; label: string; desc: string }[] = [
+  const options: { value: ChannelType; icon: typeof ListChevronsUpDown | typeof ChannelIcon; label: string; desc: string }[] = [
     { value: "text", icon: ChannelIcon, label: "Text", desc: "Send messages, images, emoji, and opinions" },
-    { value: "forum", icon: MessagesSquare, label: "Forum", desc: "Create a space for organized discussions" },
+    { value: "forum", icon: ListChevronsUpDown, label: "Forum", desc: "Create a space for organized discussions" },
   ]
 
   const submit = () => {
@@ -71,7 +71,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
             <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channel Name</div>
             <div className="relative">
               {type === "forum"
-                ? <MessagesSquare className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                ? <ListChevronsUpDown className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 : <ChannelIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground" />}
               <Input
                 value={name}

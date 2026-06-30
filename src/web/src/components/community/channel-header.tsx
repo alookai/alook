@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil } from "lucide-react"
+import { Bell, BellOff, Pin, Users, MessagesSquare, ListChevronsUpDown, ChevronLeft, Check, Pencil } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
@@ -48,7 +48,7 @@ export function ChannelHeader({
       {breadcrumb ? (
         <>
           <button onClick={breadcrumb.onNavigateBack} className={`flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors ${server ? "" : "ml-1"}`}>
-            {forum ? <MessagesSquare className="size-4 shrink-0" /> : <ChannelIcon className="text-base" />}
+            {forum ? <ListChevronsUpDown className="size-4 shrink-0" /> : <ChannelIcon className="text-base" />}
             <span className="truncate text-base font-medium">{channel}</span>
           </button>
           <ChannelIcon className="shrink-0 text-base text-muted-foreground/60" />
@@ -59,7 +59,7 @@ export function ChannelHeader({
         </>
       ) : (
         <>
-          {forum ? <MessagesSquare className={`size-4 shrink-0 text-muted-foreground ${server ? "" : "ml-1"}`} /> : <ChannelIcon className={`text-base text-muted-foreground ${server ? "" : "ml-1"}`} />}
+          {forum ? <ListChevronsUpDown className={`size-4 shrink-0 text-muted-foreground ${server ? "" : "ml-1"}`} /> : <ChannelIcon className={`text-base text-muted-foreground ${server ? "" : "ml-1"}`} />}
           <span className="truncate text-base font-bold">{channel}</span>
         </>
       )}
