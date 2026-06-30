@@ -1,0 +1,186 @@
+"use client"
+
+import { useCallback, useEffect, useState } from "react"
+import { toast } from "sonner"
+import { Monitor } from "lucide-react"
+import type { CommunityMachineSummary } from "@alook/shared"
+import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog"
+import { apiFetch } from "@/lib/api/client"
+import { MachineCard } from "./machine-card"
+import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
+import { useCommunity } from "@/contexts/community/context"
+
+export function MachineList() {
+  const ctx = useCommunity()
+  const [pairOpen, setPairOpen] = useState(false)
+  const [pairMode, setPairMode] = useState<PairMachineSheetMode>({ kind: "pair" })
+  const [pendingTokenId, setPendingTokenId] = useState<string | null>(null)
+  const [connectedHostname, setConnectedHostname] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<CommunityMachineSummary | null>(null)
+
+  useEffect(() => {
+    ctx.loadMachines()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When the WS layer announces a machine for our pending token, flip the sheet.
+  useEffect(() => {
+    if (!pendingTokenId) return
+    const justConnected = ctx.machines.find(
+      (m) =>
+        m.lastSeenAt &&
+        m.status === "online" &&
+        ctx.pendingMachineTokenId === pendingTokenId
+    )
+    if (justConnected && !connectedHostname) {
+      setConnectedHostname(justConnected.hostname || "machine")
+    }
+  }, [ctx.machines, ctx.pendingMachineTokenId, pendingTokenId, connectedHostname])
+
+  const openPair = useCallback(() => {
+    setPairMode({ kind: "pair" })
+    setPendingTokenId(null)
+    setConnectedHostname(null)
+    ctx.setPendingMachineTokenId(null)
+    setPairOpen(true)
+  }, [ctx])
+
+  const openReconnect = useCallback((machine: CommunityMachineSummary) => {
+    setPairMode({
+      kind: "reconnect",
+      machineId: machine.id,
+      hostname: machine.hostname || "machine",
+    })
+    setPendingTokenId(null)
+    setConnectedHostname(null)
+    ctx.setPendingMachineTokenId(null)
+    setPairOpen(true)
+  }, [ctx])
+
+  const closePair = useCallback((open: boolean) => {
+    setPairOpen(open)
+    if (!open) {
+      setPendingTokenId(null)
+      setConnectedHostname(null)
+      ctx.setPendingMachineTokenId(null)
+    }
+  }, [ctx])
+
+  const onConfirmDelete = useCallback(async () => {
+    if (!confirmDelete) return
+    const id = confirmDelete.id
+    setConfirmDelete(null)
+    try {
+      await apiFetch(`/api/community/machines/${id}`, { method: "DELETE" })
+      ctx.removeMachineLocal(id)
+    } catch {
+      toast.error("Couldn't delete the machine")
+    }
+  }, [confirmDelete, ctx])
+
+  const handleSetPendingTokenId = useCallback((tokenId: string | null) => {
+    setPendingTokenId(tokenId)
+    ctx.setPendingMachineTokenId(tokenId)
+  }, [ctx])
+
+  if (ctx.machinesLoading) {
+    return (
+      <div className="flex flex-col gap-3 p-6">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="h-[88px] animate-pulse rounded-lg border bg-muted/30" />
+        ))}
+      </div>
+    )
+  }
+
+  if (ctx.machines.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 p-12 text-center">
+        <div className="grid size-12 place-items-center rounded-2xl bg-secondary text-muted-foreground">
+          <Monitor className="size-6" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <h2 className="text-lg font-medium text-foreground">No machines yet</h2>
+          <p className="max-w-md text-sm text-muted-foreground">
+            Connect your computer to keep your agent always-on. Generate a key,
+            run the daemon, and the machine shows up here.
+          </p>
+        </div>
+        <Button onClick={openPair}>Connect a machine</Button>
+        <PairMachineSheet
+          open={pairOpen}
+          onOpenChange={closePair}
+          pendingTokenId={pendingTokenId}
+          setPendingTokenId={handleSetPendingTokenId}
+          connectedHostname={connectedHostname}
+          mode={pairMode}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-1 flex-col gap-6 p-6 overflow-y-auto thin-scrollbar">
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-medium text-foreground">Machines</h1>
+          <p className="text-sm text-muted-foreground">
+            Your computers running the alook daemon.
+          </p>
+        </div>
+        <Button onClick={openPair}>Connect a machine</Button>
+      </header>
+      <div className="flex flex-col gap-3">
+        {ctx.machines.map((m) => (
+          <MachineCard
+            key={m.id}
+            machine={m}
+            onDelete={() => setConfirmDelete(m)}
+            onReconnect={() => openReconnect(m)}
+          />
+        ))}
+      </div>
+      <PairMachineSheet
+        open={pairOpen}
+        onOpenChange={closePair}
+        pendingTokenId={pendingTokenId}
+        setPendingTokenId={handleSetPendingTokenId}
+        connectedHostname={connectedHostname}
+        mode={pairMode}
+      />
+      <AlertDialog
+        open={!!confirmDelete}
+        onOpenChange={(o) => !o && setConfirmDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {confirmDelete?.hostname || "machine"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The daemon will be disconnected immediately and the pairing key revoked.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={onConfirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}

@@ -55,6 +55,7 @@ import type {
   MentionType,
 } from "@alook/shared"
 import { isServerOwner, TYPING_INDICATOR_TIMEOUT_MS } from "@alook/shared"
+import type { CommunityMachineSummary, CommunityMachineCreated, CommunityMachineStatus, CommunityMachineRemoved } from "@alook/shared"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -141,6 +142,14 @@ export type CommunityContextValue = {
 
   // Typing
   typingUsers: string[]
+
+  // Machines (community daemon connections, scoped to current user)
+  machines: CommunityMachineSummary[]
+  machinesLoading: boolean
+  loadMachines: () => Promise<void>
+  removeMachineLocal: (machineId: string) => void
+  pendingMachineTokenId: string | null
+  setPendingMachineTokenId: (tokenId: string | null) => void
 
   // Folders
   folders: CommunityFolder[]
@@ -324,6 +333,29 @@ export function CommunityProvider({
 
   // ── Folders ──────────────────────────────────────────────────────────────
   const [folders, setFolders] = useState<CommunityFolder[]>([])
+  const [machines, setMachines] = useState<CommunityMachineSummary[]>([])
+  const [machinesLoading, setMachinesLoading] = useState(false)
+  const [pendingMachineTokenId, setPendingMachineTokenId] = useState<string | null>(null)
+  const machinesLoadedOnce = useRef(false)
+
+  const loadMachines = useCallback(async () => {
+    if (!machinesLoadedOnce.current) setMachinesLoading(true)
+    try {
+      const res = await apiFetch<{ machines: CommunityMachineSummary[] }>(
+        "/api/community/machines"
+      )
+      setMachines(res.machines)
+      machinesLoadedOnce.current = true
+    } catch (err) {
+      console.error("loadMachines failed", err)
+    } finally {
+      setMachinesLoading(false)
+    }
+  }, [])
+
+  const removeMachineLocal = useCallback((machineId: string) => {
+    setMachines((prev) => prev.filter((m) => m.id !== machineId))
+  }, [])
 
   // Keep stable refs for WS callbacks
   const currentUserRef = useRef(currentUser)
@@ -742,6 +774,33 @@ export function CommunityProvider({
       fetchMentions()
       fetchForYou()
     }, [fetchMentions, fetchForYou]),
+    onMachine: useCallback((event: CommunityMachineCreated | CommunityMachineStatus | CommunityMachineRemoved) => {
+      if (event.type === "community:machine.created") {
+        setMachines((prev) => {
+          const idx = prev.findIndex((m) => m.id === event.machine.id)
+          if (idx === -1) return [event.machine, ...prev]
+          const next = prev.slice()
+          next[idx] = event.machine
+          return next
+        })
+        setPendingMachineTokenId(event.tokenId)
+        return
+      }
+      if (event.type === "community:machine.status") {
+        setMachines((prev) =>
+          prev.map((m) =>
+            m.id === event.machineId
+              ? { ...m, lastSeenAt: event.lastSeenAt, status: event.status }
+              : m
+          )
+        )
+        return
+      }
+      if (event.type === "community:machine.removed") {
+        setMachines((prev) => prev.filter((m) => m.id !== event.machineId))
+        return
+      }
+    }, []),
   })
 
   // ── UI dispatch (layout registers handlers, pages call these) ────────────
@@ -1675,6 +1734,12 @@ export function CommunityProvider({
       onlineUserIds,
       typingUsers,
       folders,
+      machines,
+      machinesLoading,
+      loadMachines,
+      removeMachineLocal,
+      pendingMachineTokenId,
+      setPendingMachineTokenId,
       notifLevel,
       channelNotif,
       sendMessage,
@@ -1748,6 +1813,7 @@ export function CommunityProvider({
       dms, dmsLoading, messages, messagesLoading, hasMoreMessages, loadMoreMessages,
       threads, threadsLoading, forumPosts, forumPostsLoading, pinned, pinnedLoading,
       invites, auditLog, forYouFeed, unreadFeed, mentions, onlineUserIds, typingUsers, folders,
+      machines, machinesLoading, loadMachines, removeMachineLocal, pendingMachineTokenId,
       notifLevel, channelNotif, sendMessage, sendDmMessage,
       toggleReaction, pinMessage, unpinMessage, createThread, sendFriendRequest,
       acceptFriendRequest, rejectFriendRequest, removeFriend, blockUser, unblockUser,

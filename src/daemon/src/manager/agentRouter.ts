@@ -26,6 +26,9 @@ export interface AgentRouterOpts {
   runtimes: string[];
   hostname?: string;
   os?: string;
+  arch?: string;
+  osRelease?: string;
+  daemonVersion?: string;
   /**
    * Called before registering/delivering to an agent. The daemon uses this to
    * enroll the agent (fetch its runner key) so the credential proxy can swap
@@ -65,6 +68,9 @@ export class AgentRouter {
       runningAgents: [...this.running],
       hostname: this.opts.hostname,
       os: this.opts.os,
+      arch: this.opts.arch,
+      osRelease: this.opts.osRelease,
+      daemonVersion: this.opts.daemonVersion,
     };
   }
 

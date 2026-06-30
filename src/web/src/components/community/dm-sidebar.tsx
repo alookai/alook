@@ -1,31 +1,47 @@
 "use client"
 
 import { memo } from "react"
-import { Users, Ban } from "lucide-react"
+import { Users, Ban, Monitor } from "lucide-react"
 import { Avatar } from "./avatar"
 import type { DM } from "./_types"
 
 export const DmSidebar = memo(function DmSidebar({
-  dms, activeDm, blockedUserIds, onPickDm, onShowFriends,
+  dms, activeDm, blockedUserIds, onPickDm, onShowFriends, onShowMachines,
+  friendsActive, machinesActive,
 }: {
   dms: DM[]
   activeDm: string | null
   blockedUserIds?: Set<string>
   onPickDm: (id: string) => void
   onShowFriends: () => void
+  onShowMachines?: () => void
+  friendsActive?: boolean
+  machinesActive?: boolean
 }) {
+  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive)
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
       <div className="flex-1 overflow-y-auto thin-scrollbar px-2.5 py-4">
         <button
           onClick={onShowFriends}
           className={[
-            "mb-2 flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-sm font-medium",
-            activeDm === null ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+            "mb-1 flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-sm font-medium",
+            isFriendsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
           ].join(" ")}
         >
           <Users className="size-5" /> Friends
         </button>
+        {onShowMachines && (
+          <button
+            onClick={onShowMachines}
+            className={[
+              "mb-2 flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-sm font-medium",
+              machinesActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+            ].join(" ")}
+          >
+            <Monitor className="size-5" /> Machines
+          </button>
+        )}
         <div className="my-2 h-px bg-border" />
         <div className="mb-2 px-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Direct Messages

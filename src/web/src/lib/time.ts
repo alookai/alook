@@ -12,3 +12,8 @@ export function relativeTime(dateStr: string): string {
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
+
+export function timeAgo(dateStr: string | null): string {
+  if (!dateStr) return "never";
+  return relativeTime(dateStr);
+}

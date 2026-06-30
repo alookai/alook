@@ -806,3 +806,38 @@ export const CreateThreadRequestSchema = z.object({
   attachment_ids: z.array(z.string()).optional(),
 });
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// Community machines
+// ---------------------------------------------------------------------------
+
+export const CommunityMachineSummarySchema = z.object({
+  id: z.string(),
+  hostname: z.string(),
+  displayName: z.string(),
+  platform: z.string(),
+  arch: z.string(),
+  osRelease: z.string(),
+  daemonVersion: z.string(),
+  lastSeenAt: z.string().nullable(),
+  status: z.enum(["online", "offline"]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const CommunityDaemonReadySchema = z.object({
+  runtimes: z.array(z.string()).default([]),
+  runningAgents: z.array(z.string()).default([]),
+  hostname: z.string().optional(),
+  os: z.string().optional(),
+  arch: z.string().optional(),
+  osRelease: z.string().optional(),
+  daemonVersion: z.string().optional(),
+});
+export type CommunityDaemonReady = z.infer<typeof CommunityDaemonReadySchema>;
+
+export const CommunityPairTokenResponseSchema = z.object({
+  tokenId: z.string(),
+  expiresAt: z.string(),
+});
+export type CommunityPairTokenResponse = z.infer<typeof CommunityPairTokenResponseSchema>;

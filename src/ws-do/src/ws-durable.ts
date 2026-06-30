@@ -1,11 +1,18 @@
 import { DurableObject } from "cloudflare:workers"
-import { createDb, queries, createLogger } from "@alook/shared"
+import {
+  createDb,
+  queries,
+  createLogger,
+  COMMUNITY_MACHINE_HEARTBEAT_MS,
+  COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
+} from "@alook/shared"
 
 const log = createLogger({ service: "ws-do" })
 
 type ConnectionState =
   | { type: "user"; userId: string; authenticated: boolean }
   | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }
+  | { type: "community-machine"; tokenId: string; userId: string; authenticated: boolean }
 
 export class WebSocketDurableObject extends DurableObject<Env> {
   /**
@@ -48,8 +55,31 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       })
     }
 
+    if (url.pathname === "/force-close" && request.method === "POST") {
+      let closed = 0
+      for (const ws of this.ctx.getWebSockets()) {
+        const s = ws.deserializeAttachment() as ConnectionState
+        if (s?.type === "community-machine") {
+          try {
+            ws.send(JSON.stringify({ type: "error", code: "AUTH_REJECTED" }))
+            ws.close(1008, "Revoked")
+            closed++
+          } catch { /* ok */ }
+        }
+      }
+      return new Response(JSON.stringify({ closed }), {
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 })
+    }
+
+    // Community-machine connections carry their auth token in `?token=`.
+    const machineToken = url.searchParams.get("token")
+    if (machineToken) {
+      return this.acceptCommunityMachine(request, machineToken)
     }
 
     const pair = new WebSocketPair()
@@ -66,6 +96,71 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client })
   }
 
+  private async acceptCommunityMachine(_request: Request, tokenId: string): Promise<Response> {
+    const pair = new WebSocketPair()
+    const [client, server] = Object.values(pair)
+    this.ctx.acceptWebSocket(server)
+
+    // Validate token. Pending → claim; active → reuse; anything else → reject.
+    const db = createDb(this.env.DB)
+    let authResult: { tokenId: string; userId: string } | null = null
+    try {
+      const existing = await queries.communityMachine.findTokenById(db, tokenId)
+      if (!existing) {
+        this.rejectCommunityMachine(server, "unknown token")
+        return new Response(null, { status: 101, webSocket: client })
+      }
+      if (existing.status === "pending") {
+        try {
+          authResult = await queries.communityMachine.claimPairingToken(db, tokenId)
+        } catch {
+          this.rejectCommunityMachine(server, "token claim failed")
+          return new Response(null, { status: 101, webSocket: client })
+        }
+      } else if (existing.status === "active") {
+        authResult = { tokenId: existing.tokenId, userId: existing.userId }
+      } else {
+        this.rejectCommunityMachine(server, "token revoked/expired")
+        return new Response(null, { status: 101, webSocket: client })
+      }
+    } catch (err) {
+      log.warn("community machine auth lookup failed", { err: String(err) })
+      this.rejectCommunityMachine(server, "auth lookup failed")
+      return new Response(null, { status: 101, webSocket: client })
+    }
+
+    server.serializeAttachment({
+      type: "community-machine",
+      tokenId: authResult.tokenId,
+      userId: authResult.userId,
+      authenticated: true,
+    } as ConnectionState)
+
+    // Note: do NOT setWebSocketAutoResponse — the new daemon uses WS-protocol
+    // pings, which CF runtime answers transparently. Auto-response is only for
+    // text-frame "ping"/"pong" used by the legacy CLI daemon path.
+
+    // Schedule heartbeat alarm for last_seen_at refresh.
+    await this.scheduleHeartbeatAlarm()
+
+    return new Response(null, { status: 101, webSocket: client })
+  }
+
+  private rejectCommunityMachine(ws: WebSocket, reason: string): void {
+    try {
+      ws.send(JSON.stringify({ type: "error", code: "AUTH_REJECTED", reason }))
+    } catch { /* ok */ }
+    try { ws.close(1008, "Unauthorized") } catch { /* ok */ }
+  }
+
+  private async scheduleHeartbeatAlarm(): Promise<void> {
+    const current = await this.ctx.storage.getAlarm()
+    const want = Date.now() + COMMUNITY_MACHINE_HEARTBEAT_MS
+    if (current == null || current > want) {
+      await this.ctx.storage.setAlarm(want)
+    }
+  }
+
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (typeof message !== "string") return
 
@@ -73,6 +168,11 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     try { parsed = JSON.parse(message) } catch { ws.close(1008, "Invalid JSON"); return }
 
     const state = ws.deserializeAttachment() as ConnectionState
+
+    if (state?.type === "community-machine") {
+      await this.handleCommunityMachineMessage(state, parsed)
+      return
+    }
 
     const msg = parsed as { type: string; token?: string; machineToken?: string; daemonId?: string }
 
@@ -206,6 +306,138 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         this.broadcastPresence(state.userId, false).catch(() => {})
       }
     }
+    if (state?.type === "community-machine" && state.authenticated) {
+      log.info("community machine websocket closed", { tokenId: state.tokenId, userId: state.userId })
+      // Update last_seen_at on close (best-effort) so the alarm path can
+      // compute "stale enough to declare offline" against a real timestamp.
+      try {
+        const db = createDb(this.env.DB)
+        await queries.communityMachine.touchMachineHeartbeat(
+          db,
+          state.userId,
+          queries.communityMachine.machineUuidFromTokenId(state.tokenId)
+        )
+      } catch { /* ok */ }
+      // Arm an offline-detection alarm exactly OFFLINE_THRESHOLD_MS out.
+      // Overwrite any earlier (heartbeat) alarm — once the WS closes, the
+      // heartbeat path has nothing to do, so the offline alarm wins.
+      await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS)
+    }
+  }
+
+  async alarm(): Promise<void> {
+    const sockets = this.ctx.getWebSockets()
+    const hasMachine = sockets.some((ws) => {
+      const s = ws.deserializeAttachment() as ConnectionState
+      return s?.type === "community-machine" && s.authenticated
+    })
+
+    if (hasMachine) {
+      // Connection still live — refresh last_seen_at then reschedule.
+      const db = createDb(this.env.DB)
+      for (const ws of sockets) {
+        const s = ws.deserializeAttachment() as ConnectionState
+        if (s?.type === "community-machine" && s.authenticated) {
+          try {
+            await queries.communityMachine.touchMachineHeartbeat(
+              db,
+              s.userId,
+              queries.communityMachine.machineUuidFromTokenId(s.tokenId)
+            )
+          } catch { /* ok */ }
+        }
+      }
+      await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_HEARTBEAT_MS)
+      return
+    }
+
+    // No live community-machine WS — emit offline events for any of OUR
+    // matching machine rows whose last_seen_at is stale; otherwise reschedule
+    // a wakeup at the exact moment the row becomes stale.
+    const stored = await this.ctx.storage.get<{ tokenId: string; userId: string; machineId: string }>(
+      "community-machine-handle"
+    )
+    if (!stored) return
+    const db = createDb(this.env.DB)
+    const machine = await queries.communityMachine.getMachineByIdForUser(
+      db,
+      stored.userId,
+      stored.machineId
+    )
+    if (!machine) {
+      // Row was deleted — drop the handle so we don't keep waking up forever.
+      await this.ctx.storage.delete("community-machine-handle")
+      return
+    }
+    const lastSeen = machine.lastSeenAt ? Date.parse(machine.lastSeenAt) : 0
+    const elapsed = Date.now() - lastSeen
+    if (elapsed >= COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS) {
+      const nowIso = new Date().toISOString()
+      await this.notifyUserDO(stored.userId, {
+        type: "community:machine.status",
+        machineId: stored.machineId,
+        status: "offline",
+        lastSeenAt: machine.lastSeenAt ?? nowIso,
+      }).catch(() => {})
+      return
+    }
+    // Not stale yet — wake up again precisely when it will be.
+    await this.ctx.storage.setAlarm(Date.now() + (COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS - elapsed))
+  }
+
+  private async handleCommunityMachineMessage(
+    state: { type: "community-machine"; tokenId: string; userId: string; authenticated: boolean },
+    parsed: unknown
+  ): Promise<void> {
+    const msg = parsed as { type?: string; ready?: Record<string, unknown> }
+    if (msg.type !== "ready") return
+    const ready = (msg.ready ?? {}) as Record<string, unknown>
+    const hostname = typeof ready.hostname === "string" ? ready.hostname : ""
+    const platform = typeof ready.os === "string" ? ready.os : ""
+    const arch = typeof ready.arch === "string" ? ready.arch : ""
+    const daemonVersion = typeof ready.daemonVersion === "string" ? ready.daemonVersion : ""
+    const osRelease = typeof ready.osRelease === "string" ? ready.osRelease : ""
+
+    const db = createDb(this.env.DB)
+    const { machine, priorLastSeenAt } = await queries.communityMachine.upsertMachineForUser(
+      db,
+      state.userId,
+      state.tokenId,
+      { hostname, platform, arch, daemonVersion, osRelease }
+    )
+    await queries.communityMachine.touchTokenLastUsed(db, state.tokenId)
+
+    const summary = queries.communityMachine.toSummary(machine)
+    // Persist a small handle so alarm() (which has no WS to read state from)
+    // can find the right machine row.
+    await this.ctx.storage.put("community-machine-handle", {
+      tokenId: state.tokenId,
+      userId: state.userId,
+      machineId: machine.id,
+    })
+
+    // First-time pair: broadcast created. Reconnect from stale: online transition.
+    if (!priorLastSeenAt) {
+      await this.notifyUserDO(state.userId, {
+        type: "community:machine.created",
+        machine: summary,
+        tokenId: state.tokenId,
+      }).catch(() => {})
+    } else {
+      const priorMs = Date.parse(priorLastSeenAt)
+      const wasOffline = Number.isNaN(priorMs)
+        ? true
+        : Date.now() - priorMs >= COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS
+      if (wasOffline) {
+        await this.notifyUserDO(state.userId, {
+          type: "community:machine.status",
+          machineId: machine.id,
+          status: "online",
+          lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
+        }).catch(() => {})
+      }
+    }
+    await this.scheduleHeartbeatAlarm()
   }
 
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {

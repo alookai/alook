@@ -14,6 +14,7 @@
     "lint": "turbo run lint",
     "dev:web": "pnpm --filter @alook/web dev",
     "dev:cli": "ALOOK_SERVER_URL=http://localhost:3000 ALOOK_PROJECT_ROOT=$PWD/.alook ALOOK_HEALTH_PORT=19515 pnpm --filter @alook/cli dev",
+    "daemon": "pnpm --filter @alook/daemon exec tsx src/cli/index.ts daemon",
     "dev:desktop": "pnpm --filter @alook/desktop dev",
     "build:desktop": "pnpm --filter @alook/desktop build",
     "dev:email": "pnpm --filter @alook/email-worker dev",

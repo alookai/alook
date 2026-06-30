@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { useParams, useRouter, useSearchParams, usePathname } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
@@ -35,8 +35,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const hasChannel = !!params.channelId
 
   const router = useRouter()
+  const pathname = usePathname()
   const bp = useBreakpoint()
   const ctx = useCommunity()
+  const machinesActive = pathname?.startsWith("/community/channels/@me/machines") ?? false
+  const friendsActive = isAtMe && !ctx.currentChannelId && !machinesActive
 
   // Sync the context's current server id from the route param
   useEffect(() => {
@@ -237,6 +240,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     if (bp === "mobile") setMobileZone("messages")
   }, [ctx.setCurrentChannelId, router, bp])
 
+  const onShowMachines = useCallback(() => {
+    ctx.setCurrentChannelId(null)
+    router.push("/community/channels/@me/machines")
+    if (bp === "mobile") setMobileZone("messages")
+  }, [ctx.setCurrentChannelId, router, bp])
+
   // ── Profile card ──────────────────────────────────────────────────────────
   const openProfile = (name: string, e: React.MouseEvent) => {
     const isSelf = name === ctx.currentUser.name
@@ -338,6 +347,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         blockedUserIds={blockedUserIds}
         onPickDm={enterDm}
         onShowFriends={onShowFriends}
+        onShowMachines={onShowMachines}
+        friendsActive={friendsActive}
+        machinesActive={machinesActive}
       />
     ) : (
       <ChannelSidebar {...channelProps} {...opts} />

@@ -330,6 +330,40 @@ export type CommunityPresenceUpdate = {
   online: boolean
 }
 
+// ── Machine events ────────────────────────────────────────────────────────────
+
+export type CommunityMachineSummary = {
+  id: string
+  hostname: string
+  displayName: string
+  platform: string
+  arch: string
+  osRelease: string
+  daemonVersion: string
+  lastSeenAt: string | null
+  status: "online" | "offline"
+  createdAt: string
+  updatedAt: string
+}
+
+export type CommunityMachineCreated = {
+  type: "community:machine.created"
+  machine: CommunityMachineSummary
+  tokenId: string
+}
+
+export type CommunityMachineStatus = {
+  type: "community:machine.status"
+  machineId: string
+  status: "online" | "offline"
+  lastSeenAt: string
+}
+
+export type CommunityMachineRemoved = {
+  type: "community:machine.removed"
+  machineId: string
+}
+
 // ── Union type ────────────────────────────────────────────────────────────────
 
 export type CommunityWsEvent =
@@ -364,6 +398,9 @@ export type CommunityWsEvent =
   | CommunityDmTyping
   | CommunityPresenceUpdate
   | CommunityMentionCreate
+  | CommunityMachineCreated
+  | CommunityMachineStatus
+  | CommunityMachineRemoved
 
 /** Type guard: is this a community WS event? */
 export function isCommunityEvent(msg: { type: string }): msg is CommunityWsEvent {

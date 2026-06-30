@@ -82,6 +82,9 @@ export {
   MessageRole,
   POLL_INTERVAL_MS,
   OFFLINE_THRESHOLD_MS,
+  COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
+  COMMUNITY_MACHINE_HEARTBEAT_MS,
+  COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS,
   EVENT_POLL_INTERVAL_MS,
   AGENT_HANDLE_MIN_LENGTH,
   MAX_TASKS_PER_TRACE,
@@ -216,6 +219,9 @@ export {
   RecruitAgentRequestSchema,
   CreateThreadRequestSchema,
   DaemonPushMessageSchema,
+  CommunityMachineSummarySchema,
+  CommunityDaemonReadySchema,
+  CommunityPairTokenResponseSchema,
 } from "./schemas";
 
 export type {
@@ -267,7 +273,11 @@ export type {
   RecruitAgentRequest,
   CreateThreadRequest,
   DaemonPushMessageType,
+  CommunityDaemonReady,
+  CommunityPairTokenResponse,
 } from "./schemas";
+
+export type { CommunityMachineSummary } from "./community-ws-events";
 
 // Community WS events
 export type {
@@ -302,6 +312,9 @@ export type {
   CommunityDmTyping,
   CommunityPresenceUpdate,
   CommunityMentionCreate,
+  CommunityMachineCreated,
+  CommunityMachineStatus,
+  CommunityMachineRemoved,
   CommunityWsEvent,
 } from "./community-ws-events";
 export { isCommunityEvent, WS_EVENTS } from "./community-ws-events";

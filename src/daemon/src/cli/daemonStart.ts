@@ -8,12 +8,24 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import * as os from "os";
 import { homedir } from "os";
 import { WebSocket } from "ws";
+import { createRequire } from "module";
 import { createDaemon } from "../daemon/createDaemon.js";
 import { getDriver } from "../drivers/index.js";
 import { resolveAlookCliPathWithFallback, getAvailableRuntimes } from "../discovery.js";
 import { createLogger } from "../logger.js";
+
+const requireFromHere = createRequire(import.meta.url);
+function readDaemonVersion(): string {
+  try {
+    const pkg = requireFromHere("../../package.json") as { version?: string };
+    return pkg.version ?? "";
+  } catch {
+    return "";
+  }
+}
 
 const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge"];
 
@@ -185,10 +197,6 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
   const serverUrl = opts.serverUrl || process.env.ALOOK_SERVER_URL;
   const wsUrl = opts.wsUrl || process.env.ALOOK_SERVER_WS_URL;
 
-  if (!serverUrl) {
-    log.error("server URL required — pass --server-url or set ALOOK_SERVER_URL");
-    process.exit(2);
-  }
   if (!wsUrl) {
     log.error("WebSocket URL required — pass --ws-url or set ALOOK_SERVER_WS_URL");
     process.exit(2);
@@ -201,13 +209,19 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
   const agentCliPath = resolveAlookCliPathWithFallback() ?? process.argv[1];
   log.info(`agent CLI: ${agentCliPath}`);
 
-  // Auto-detect available runtimes
-  const availableRuntimes = await getAvailableRuntimes();
-  if (availableRuntimes.length === 0) {
-    log.error("no runtimes detected — install at least one (claude, codex, gemini, etc.)");
-    process.exit(2);
+  // Auto-detect available runtimes — only required in alook mode (with a
+  // server-url + data plane). Community mode can run with zero runtimes.
+  let availableRuntimes: string[] = [];
+  if (serverUrl) {
+    availableRuntimes = await getAvailableRuntimes();
+    if (availableRuntimes.length === 0) {
+      log.error("no runtimes detected — install at least one (claude, codex, gemini, etc.)");
+      process.exit(2);
+    }
+    log.info(`detected runtimes: ${availableRuntimes.join(", ")}`);
+  } else {
+    log.info("community mode — skipping runtime detection");
   }
-  log.info(`detected runtimes: ${availableRuntimes.join(", ")}`);
 
   const daemon = await createDaemon({
     machineKey: opts.machineKey,
@@ -215,10 +229,15 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     serverWsUrl: wsUrl,
     webSocketFactory: (url, headers) => new WebSocket(url, { headers }),
     runtimes: availableRuntimes,
-    driverFor: () => getDriver(availableRuntimes[0]),
+    driverFor: () => getDriver(availableRuntimes[0] ?? "mock"),
     capabilities: CAPABILITIES,
     agentCliPath,
     workingDirectoryBase: baseDir,
+    hostname: os.hostname(),
+    os: process.platform,
+    arch: process.arch,
+    osRelease: os.release(),
+    daemonVersion: readDaemonVersion(),
     onAuthRejected: () => {
       log.error("machine key rejected by server — is it correct / has it expired?");
       releaseLock(pf);
@@ -226,7 +245,7 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     },
   });
 
-  log.info(`daemon up — proxy at ${daemon.proxyUrl}, dialing ${wsUrl}`);
+  log.info(`daemon up — ${daemon.proxyUrl ? `proxy at ${daemon.proxyUrl}, ` : ""}dialing ${wsUrl}`);
 
   const readyTimer = setInterval(() => {
     if (daemon.isOpen()) {

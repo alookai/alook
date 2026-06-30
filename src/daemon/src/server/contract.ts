@@ -364,6 +364,9 @@ export interface HostReady {
   runningAgents: AgentId[];
   hostname?: string;
   os?: string;
+  arch?: string;
+  osRelease?: string;
+  daemonVersion?: string;
 }
 
 /**

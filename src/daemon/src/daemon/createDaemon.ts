@@ -38,8 +38,13 @@ export type DaemonWebSocketFactory = (url: string, headers: Record<string, strin
 
 export interface CreateDaemonOptions {
   machineKey: string;
-  /** Server HTTP base, e.g. http://127.0.0.1:4517 (enroll + data plane upstream). */
-  serverUrl: string;
+  /**
+   * Server HTTP base, e.g. http://127.0.0.1:4517 (enroll + data plane upstream).
+   * Optional: when absent, the daemon runs in "community mode" — no enroll /
+   * credential proxy, just a WS liveness reporter that connects, sends `ready`,
+   * and sits idle.
+   */
+  serverUrl?: string;
   /** Server control-plane ws base, e.g. ws://127.0.0.1:4518. */
   serverWsUrl: string;
   /** Builds the real `ws` client (injected so this module has no hard ws dep). */
@@ -61,6 +66,12 @@ export interface CreateDaemonOptions {
   tickIntervalMs?: number;
   /** Called when the server rejects our machine key (fatal — no reconnect). */
   onAuthRejected?: () => void;
+  /** Optional machine metadata surfaced in the ready frame. */
+  hostname?: string;
+  os?: string;
+  arch?: string;
+  osRelease?: string;
+  daemonVersion?: string;
 }
 
 export interface RunningDaemon {
@@ -87,15 +98,26 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     providerFor: () => opts.runtimes[0] ?? null,
   });
 
-  const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
-  const proxy = await startCredentialProxy(broker, {
-    onInboxPullResponse: (agentId, messages) => timeline.appendEntryForAgent(agentId, messages),
-  });
+  const hasServerUrl = !!opts.serverUrl;
+
+  // Community mode: no server-url → no enroll/credential proxy/data plane.
+  // The daemon is just a WS liveness reporter (connects, sends ready, idle).
+  const broker = hasServerUrl
+    ? new CredentialBroker({ upstreamBaseUrl: opts.serverUrl as string })
+    : null;
+  const proxy = broker
+    ? await startCredentialProxy(broker, {
+        onInboxPullResponse: (agentId, messages) => timeline.appendEntryForAgent(agentId, messages),
+      })
+    : null;
 
   // Per-agent enrolled runner keys (enrollment is async; stored before deliver).
   const enrolledKeys = new Map<string, string>();
 
   const enrollAgent = async (agentId: string): Promise<string> => {
+    if (!hasServerUrl) {
+      throw new Error("enrollAgent called in community mode — no server-url configured");
+    }
     const existing = enrolledKeys.get(agentId);
     if (existing) return existing;
     const res = await fetch(`${opts.serverUrl}/enroll/agent-credential`, {
@@ -109,9 +131,13 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     return json.runnerKey;
   };
 
+  // In community mode, the token rides in the URL; in alook mode, headers carry it.
+  const channelUrl = hasServerUrl
+    ? opts.serverWsUrl
+    : appendTokenQuery(opts.serverWsUrl, opts.machineKey);
   const channel = new WsControlChannel({
-    url: opts.serverWsUrl,
-    headers: { Authorization: `Bearer ${opts.machineKey}` },
+    url: channelUrl,
+    headers: hasServerUrl ? { Authorization: `Bearer ${opts.machineKey}` } : undefined,
     webSocketFactory: opts.webSocketFactory as never,
     onAuthRejected: opts.onAuthRejected,
   });
@@ -121,6 +147,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     baseContextFor: (agentId: string) => {
       const runnerKey = enrolledKeys.get(agentId);
       if (!runnerKey) throw new Error(`agent ${agentId} not enrolled yet — enroll before deliver`);
+      if (!broker || !proxy) {
+        throw new Error("baseContextFor called in community mode — daemon has no credential proxy");
+      }
       return {
         agentId,
         workingDirectory: workdirFor(agentId),
@@ -140,7 +169,12 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     manager,
     channel,
     runtimes: opts.runtimes,
-    onBeforeAgent: async (agentId) => { await enrollAgent(agentId); },
+    hostname: opts.hostname,
+    os: opts.os,
+    arch: opts.arch,
+    osRelease: opts.osRelease,
+    daemonVersion: opts.daemonVersion,
+    onBeforeAgent: hasServerUrl ? async (agentId) => { await enrollAgent(agentId); } : undefined,
     transformWakeText: (message: Message) =>
       `You have a new message in channel ${message.channel}.`,
   });
@@ -149,11 +183,16 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   return {
     isOpen: () => channel.status === "open",
-    proxyUrl: proxy.url,
+    proxyUrl: proxy?.url ?? "",
     stop: async () => {
       channel.close();
-      await proxy.close();
+      await proxy?.close();
       await manager.stopAll();
     },
   };
+}
+
+function appendTokenQuery(url: string, token: string): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
 }
