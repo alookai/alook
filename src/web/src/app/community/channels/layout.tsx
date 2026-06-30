@@ -25,6 +25,7 @@ import { ProfileCard } from "@/components/community/profile-card"
 import { ImageLightbox } from "@/components/community/image-lightbox"
 import type { MobileZone, View, Profile, SettingsSection } from "@/components/community/_types"
 import { canManageServer, type ChannelType } from "@alook/shared"
+import { signOut } from "@/lib/auth-client"
 
 export default function ServerLayout({ children }: { children: ReactNode }) {
   const params = useParams<{ serverId: string; channelId?: string }>()
@@ -295,7 +296,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
                 }))
               } catch { toast("Failed to save profile") }
             }}
-            onLogout={() => { window.location.href = "/sign-in" }}
+            onLogout={async () => { await signOut(); router.push("/sign-in") }}
           />
         </DialogContent>
       </Dialog>

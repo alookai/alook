@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useSession } from "@/lib/auth-client"
 import { CommunityShell } from "./community-shell"
@@ -12,11 +13,13 @@ export default function CommunityLayout({
   const router = useRouter()
   const { data: session, isPending } = useSession()
 
-  if (isPending) return null
-  if (!session) {
-    router.replace("/sign-in")
-    return null
-  }
+  useEffect(() => {
+    if (!isPending && !session) {
+      router.replace("/sign-in")
+    }
+  }, [isPending, session, router])
+
+  if (isPending || !session) return null
 
   const currentUser = {
     id: session.user.id,
