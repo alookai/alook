@@ -1,22 +1,24 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, DEV_WS_DO_URL } from "@alook/shared"
+import { queries, DEV_WS_DO_URL, PRESENCE_MEMBER_CAP } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
+import { requireServerMember } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (_req, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 
   const db = getDb(ctx.env.DB)
+  const auth = await requireServerMember(db, serverId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member) return writeError("not a member of this server", 403)
-
+  // Cap the fan-out: a 10k-member server would otherwise spawn 10k Worker
+  // subrequests and time out. Client paginates if it needs more.
   const members = await queries.communityMember.listMembers(db, serverId)
-  const userIds = members.map((m) => m.userId)
+  const truncated = members.length > PRESENCE_MEMBER_CAP
+  const userIds = members.slice(0, PRESENCE_MEMBER_CAP).map((m) => m.userId)
 
-  // Check each member's presence via the ws-do worker
   const online: string[] = []
   await Promise.allSettled(
     userIds.map(async (userId) => {
@@ -35,8 +37,8 @@ export const GET = withAuth(async (_req, ctx) => {
           if (data.online) online.push(userId)
         }
       } catch { /* skip */ }
-    })
+    }),
   )
 
-  return writeJSON({ online })
+  return writeJSON({ online, truncated, limit: PRESENCE_MEMBER_CAP })
 })

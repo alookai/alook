@@ -26,7 +26,7 @@ export async function createMentions(
 export async function listUnreadMentions(
   db: Database,
   userId: string,
-  opts: { kind?: "mention" | "reply" } = {}
+  opts: { kind?: "mention" | "reply"; limit?: number } = {}
 ) {
   const conditions = [
     eq(communityMention.userId, userId),
@@ -34,7 +34,7 @@ export async function listUnreadMentions(
   ];
   if (opts.kind) conditions.push(eq(communityMention.kind, opts.kind));
 
-  return db
+  const q = db
     .select({
       mention: communityMention,
       message: communityMessage,
@@ -47,6 +47,8 @@ export async function listUnreadMentions(
     )
     .innerJoin(user, eq(communityMessage.authorId, user.id))
     .where(and(...conditions));
+
+  return opts.limit !== undefined ? q.limit(opts.limit) : q;
 }
 
 export async function markMentionsRead(

@@ -1,10 +1,21 @@
-import { queries } from "@alook/shared"
+import {
+  queries,
+  DEFAULT_INBOX_PAGE_SIZE,
+  MAX_INBOX_PAGE_SIZE,
+} from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
+import { parseBoundedInt } from "@/lib/community/messages"
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withAuth(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
+  const url = new URL(req.url)
+  const limit = parseBoundedInt(
+    url.searchParams.get("limit"),
+    DEFAULT_INBOX_PAGE_SIZE,
+    MAX_INBOX_PAGE_SIZE,
+  )
 
   const [unread, settings, mentions] = await Promise.all([
     queries.communityInbox.listUnreadChannels(db, ctx.userId),
@@ -50,15 +61,32 @@ export const GET = withAuth(async (_req, ctx) => {
     })
   }
 
-  const servers = Array.from(grouped.values()).map((g) => ({
+  const allServers = Array.from(grouped.values()).map((g) => ({
     ...g,
     channels: g.channels.sort((a, b) => (a.lastMessageAt < b.lastMessageAt ? 1 : -1)),
   }))
-  servers.sort((a, b) => {
+  allServers.sort((a, b) => {
     const aLatest = a.channels[0]?.lastMessageAt ?? ""
     const bLatest = b.channels[0]?.lastMessageAt ?? ""
     return aLatest < bLatest ? 1 : aLatest > bLatest ? -1 : 0
   })
 
-  return writeJSON({ servers })
+  // Cap by channel count rather than server count — a single very active
+  // server shouldn't be able to drown out the rest of the inbox payload.
+  const servers: typeof allServers = []
+  let total = 0
+  for (const s of allServers) {
+    const remaining = limit - total
+    if (remaining <= 0) break
+    if (s.channels.length <= remaining) {
+      servers.push(s)
+      total += s.channels.length
+    } else {
+      servers.push({ ...s, channels: s.channels.slice(0, remaining) })
+      total = limit
+    }
+  }
+  const truncated = total < allServers.reduce((n, s) => n + s.channels.length, 0)
+
+  return writeJSON({ servers, limit, truncated })
 })

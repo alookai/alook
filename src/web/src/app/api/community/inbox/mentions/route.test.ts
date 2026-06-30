@@ -11,20 +11,23 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
-vi.mock("@alook/shared", () => ({
-  createDb: vi.fn(() => ({})),
-  queries: {
-    communityMention: {
-      listUnreadMentions: (...args: unknown[]) => mockListUnreadMentions(...args),
+vi.mock("@alook/shared", async () => {
+  const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
+  return {
+    ...actual,
+    queries: {
+      communityMention: {
+        listUnreadMentions: (...args: unknown[]) => mockListUnreadMentions(...args),
+      },
+      communityChannel: {
+        getChannelsByIds: (...args: unknown[]) => mockGetChannelsByIds(...args),
+      },
+      communityServer: {
+        getServersByIds: (...args: unknown[]) => mockGetServersByIds(...args),
+      },
     },
-    communityChannel: {
-      getChannelsByIds: (...args: unknown[]) => mockGetChannelsByIds(...args),
-    },
-    communityServer: {
-      getServersByIds: (...args: unknown[]) => mockGetServersByIds(...args),
-    },
-  },
-}))
+  }
+})
 
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
@@ -53,7 +56,7 @@ describe("GET /api/community/inbox/mentions", () => {
   it("queries only kind='mention' so replies don't leak into Mentions tab", async () => {
     mockListUnreadMentions.mockResolvedValue([])
     await GET(new NextRequest("http://localhost/api/community/inbox/mentions"))
-    expect(mockListUnreadMentions).toHaveBeenCalledWith({}, "u1", { kind: "mention" })
+    expect(mockListUnreadMentions).toHaveBeenCalledWith({}, "u1", expect.objectContaining({ kind: "mention" }))
   })
 
   it("hydrates server + channel names into the response", async () => {
@@ -84,6 +87,14 @@ describe("GET /api/community/inbox/mentions", () => {
     mockListUnreadMentions.mockResolvedValue([])
     const res = await GET(new NextRequest("http://localhost/api/community/inbox/mentions"))
     const body = await res.json()
-    expect(body).toEqual({ mentions: [] })
+    expect(body.mentions).toEqual([])
+  })
+
+  it("clamps over-cap limit and forwards it to the query", async () => {
+    mockListUnreadMentions.mockResolvedValue([])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/mentions?limit=99999"))
+    const body = await res.json()
+    expect(body.limit).toBe(200) // MAX_INBOX_PAGE_SIZE
+    expect(mockListUnreadMentions).toHaveBeenCalledWith({}, "u1", { kind: "mention", limit: 200 })
   })
 })

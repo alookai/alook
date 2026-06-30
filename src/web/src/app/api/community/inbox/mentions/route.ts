@@ -1,13 +1,27 @@
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import {
+  queries,
+  DEFAULT_INBOX_PAGE_SIZE,
+  MAX_INBOX_PAGE_SIZE,
+} from "@alook/shared"
+import { parseBoundedInt } from "@/lib/community/messages"
 
-export const GET = withAuth(async (_req, ctx) => {
+export const GET = withAuth(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const rows = await queries.communityMention.listUnreadMentions(db, ctx.userId, { kind: "mention" })
+  const url = new URL(req.url)
+  const limit = parseBoundedInt(
+    url.searchParams.get("limit"),
+    DEFAULT_INBOX_PAGE_SIZE,
+    MAX_INBOX_PAGE_SIZE,
+  )
 
-  // Batch fetch all channels and servers
+  const rows = await queries.communityMention.listUnreadMentions(db, ctx.userId, {
+    kind: "mention",
+    limit,
+  })
+
   const channelIds = [...new Set(rows.filter((r) => r.message.channelId).map((r) => r.message.channelId!))]
   const channels = channelIds.length > 0 ? await queries.communityChannel.getChannelsByIds(db, channelIds) : []
   const channelMap = new Map(channels.map((ch) => [ch.id, ch]))
@@ -35,5 +49,5 @@ export const GET = withAuth(async (_req, ctx) => {
     }
   })
 
-  return writeJSON({ mentions })
+  return writeJSON({ mentions, limit })
 })

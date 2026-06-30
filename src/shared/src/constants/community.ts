@@ -56,6 +56,13 @@ export const MAX_ACTIVE_INVITES_PER_SERVER = 50
 // Previews
 export const MESSAGE_PREVIEW_LENGTH = 120
 
+// Inbox / unreads
+export const DEFAULT_INBOX_PAGE_SIZE = 100
+export const MAX_INBOX_PAGE_SIZE = 200
+
+// Presence
+export const PRESENCE_MEMBER_CAP = 200
+
 // Banner color — accepts hex (#RRGGBB / #RGB) only
 export const BANNER_COLOR_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 
