@@ -25,13 +25,13 @@
  * real runtime driver. Neither changes this file.
  */
 import { homedir } from "os";
-import { WsControlChannel } from "../server/wsControlChannel";
-import { CredentialBroker, startCredentialProxy } from "../credentials/index";
-import { AgentProcessManager, AgentRouter } from "../manager/index";
-import { createTimelineRecorder } from "../timeline/index";
-import { resolveAlookCliPathWithFallback } from "../discovery";
-import type { Driver, LaunchContext } from "../types";
-import type { Message } from "../server/contract";
+import { WsControlChannel } from "../server/wsControlChannel.js";
+import { CredentialBroker, startCredentialProxy } from "../credentials/index.js";
+import { AgentProcessManager, AgentRouter } from "../manager/index.js";
+import { createTimelineRecorder } from "../timeline/index.js";
+import { resolveAlookCliPathWithFallback } from "../discovery.js";
+import type { Driver, LaunchContext } from "../types.js";
+import type { Message } from "../server/contract.js";
 
 /** The minimal WebSocket the control channel needs (host injects a `ws` factory). */
 export type DaemonWebSocketFactory = (url: string, headers: Record<string, string>) => unknown;
@@ -59,6 +59,8 @@ export interface CreateDaemonOptions {
    */
   agentCliPath?: string;
   tickIntervalMs?: number;
+  /** Called when the server rejects our machine key (fatal — no reconnect). */
+  onAuthRejected?: () => void;
 }
 
 export interface RunningDaemon {
@@ -111,6 +113,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     url: opts.serverWsUrl,
     headers: { Authorization: `Bearer ${opts.machineKey}` },
     webSocketFactory: opts.webSocketFactory as never,
+    onAuthRejected: opts.onAuthRejected,
   });
 
   const manager = new AgentProcessManager({

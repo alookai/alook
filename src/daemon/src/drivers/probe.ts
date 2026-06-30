@@ -5,7 +5,7 @@
 import { execFileSync } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import type { ProbeResult } from "../types";
+import type { ProbeResult } from "../types.js";
 
 export interface ProbeDeps {
   homeDir?: string;

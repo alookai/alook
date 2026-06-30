@@ -30,9 +30,9 @@ import type {
   AgentSessionReport,
   WebSocketLike,
   WebSocketFactory,
-} from "./contract";
+} from "./contract.js";
 // Re-export so existing importers of these from this module keep working.
-export type { WebSocketLike, WebSocketFactory } from "./contract";
+export type { WebSocketLike, WebSocketFactory } from "./contract.js";
 
 export type ControlChannelStatus = "idle" | "connecting" | "open" | "reconnecting" | "closed";
 
@@ -45,6 +45,8 @@ export interface WsControlChannelOpts {
   reconnect?: { baseMs?: number; maxMs?: number; maxAttempts?: number };
   /** Heartbeat: ping every `pingIntervalMs`, declare dead after `pongTimeoutMs`. */
   heartbeat?: { pingIntervalMs?: number; pongTimeoutMs?: number };
+  /** Called when the server explicitly rejects our machine key — no reconnect will follow. */
+  onAuthRejected?: () => void;
   now?: () => number;
 }
 
@@ -62,6 +64,7 @@ export class WsControlChannel implements HostControlChannel {
   private ws: WebSocketLike | null = null;
   private attempt = 0;
   private closedByUser = false;
+  private authRejected = false;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pongDeadline = 0;
   private resyncProvider: ResyncProvider | null = null;
@@ -82,6 +85,7 @@ export class WsControlChannel implements HostControlChannel {
   /** Open the socket and begin consuming server→host commands. */
   connect(): void {
     this.closedByUser = false;
+    this.authRejected = false;
     this.openSocket();
   }
 
@@ -155,13 +159,13 @@ export class WsControlChannel implements HostControlChannel {
     this.ws = ws;
 
     ws.on("open", () => {
-      this.attempt = 0;
       this.statusValue = "open";
       this.startHeartbeat();
       this.resyncOnConnect();
     });
     ws.on("message", (data: unknown) => this.onMessage(data));
     ws.on("pong", () => {
+      this.attempt = 0;
       this.pongDeadline = this.now() + (this.opts.heartbeat?.pongTimeoutMs ?? 30_000);
     });
     ws.on("close", () => this.onSocketClosed());
@@ -172,19 +176,33 @@ export class WsControlChannel implements HostControlChannel {
   }
 
   private onMessage(data: unknown): void {
-    let cmd: HostCommand | null = null;
+    let frame: Record<string, unknown> | null = null;
     try {
-      cmd = JSON.parse(String(data)) as HostCommand;
+      frame = JSON.parse(String(data)) as Record<string, unknown>;
     } catch {
       return;
     }
-    if (cmd && typeof cmd.type === "string") this.commandCb?.(cmd);
+    if (!frame || typeof frame.type !== "string") return;
+
+    if (frame.type === "error" && frame.code === "AUTH_REJECTED") {
+      this.authRejected = true;
+      this.opts.onAuthRejected?.();
+      return;
+    }
+
+    // Valid server frame — reset backoff (server accepted us).
+    this.attempt = 0;
+    this.commandCb?.(frame as unknown as HostCommand);
   }
 
   private onSocketClosed(): void {
     this.clearHeartbeat();
     this.ws = null;
     if (this.closedByUser) return;
+    if (this.authRejected) {
+      this.statusValue = "closed";
+      return;
+    }
     this.scheduleReconnect();
   }
 

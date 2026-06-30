@@ -5,4 +5,4 @@
  *                     credential proxy (with inboxPull hook for timeline), and
  *                     runs injected agent sessions as subprocesses. No test/mock code.
  */
-export * from "./createDaemon";
+export * from "./createDaemon.js";

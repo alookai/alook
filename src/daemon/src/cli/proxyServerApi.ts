@@ -33,7 +33,7 @@ import type {
   Server,
   Channel,
   AgentId,
-} from "../server/contract";
+} from "../server/contract.js";
 
 export interface ProxyServerApiConfig {
   /** The credential proxy base URL (from `<PREFIX>_PROXY_URL`). */

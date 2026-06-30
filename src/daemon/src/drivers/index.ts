@@ -5,17 +5,17 @@
  * and NO auto-migration between runtimes (notably `kimi` vs `kimi-sdk`): the
  * runtime is an explicit choice made at agent-create time.
  */
-import type { Driver } from "../types";
-import { ClaudeDriver } from "./claude";
-import { CodexDriver } from "./codex";
-import { GeminiDriver } from "./gemini";
-import { CopilotDriver } from "./copilot";
-import { CursorDriver } from "./cursor";
-import { OpenCodeDriver } from "./opencode";
-import { AntigravityDriver } from "./antigravity";
-import { KimiDriver } from "./kimi";
-import { KimiSdkDriver } from "./kimiSdk";
-import { PiDriver } from "./pi";
+import type { Driver } from "../types.js";
+import { ClaudeDriver } from "./claude.js";
+import { CodexDriver } from "./codex.js";
+import { GeminiDriver } from "./gemini.js";
+import { CopilotDriver } from "./copilot.js";
+import { CursorDriver } from "./cursor.js";
+import { OpenCodeDriver } from "./opencode.js";
+import { AntigravityDriver } from "./antigravity.js";
+import { KimiDriver } from "./kimi.js";
+import { KimiSdkDriver } from "./kimiSdk.js";
+import { PiDriver } from "./pi.js";
 
 export type RuntimeId =
   | "claude"

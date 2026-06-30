@@ -9,7 +9,7 @@
  * transport-agnostic.
  */
 import { EventEmitter } from "events";
-import type { ParsedEvent, StdinMode } from "../types";
+import type { ParsedEvent, StdinMode } from "../types.js";
 
 /** What a vendor SDK session must expose for the wrapper to drive it. */
 export interface SdkSessionHandle {

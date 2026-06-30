@@ -9,10 +9,10 @@
  *
  * Steering is `direct` — the SDK accepts `session.steer(text)` any time.
  */
-import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types";
-import { buildCliTransportSystemPrompt } from "./cliTransport";
-import { SdkRuntimeSession, type SdkSessionHandle } from "../runtime/sdkRuntimeSession";
-import { resolveLaunchFieldsOrDefault } from "../runtimeConfig";
+import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
+import { buildCliTransportSystemPrompt } from "./cliTransport.js";
+import { SdkRuntimeSession, type SdkSessionHandle } from "../runtime/sdkRuntimeSession.js";
+import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 
 /** Map a Kimi SDK event to zero or more normalized events. */
 export function mapKimiSdkEventToParsedEvents(event: any, sessionId: string): ParsedEvent[] {

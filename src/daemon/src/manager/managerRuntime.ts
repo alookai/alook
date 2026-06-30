@@ -18,10 +18,10 @@ import {
   type ManagerEffect,
   type AgentRuntimeCaps,
   type AgentMsg,
-} from "./managerPolicy";
-import type { Driver, LaunchContext } from "../types";
-import type { RuntimeConfig } from "../runtimeConfig";
-import { createChildProcessRuntimeSession, type ChildProcessRuntimeSession } from "../runtime/runtimeSession";
+} from "./managerPolicy.js";
+import type { Driver, LaunchContext } from "../types.js";
+import type { RuntimeConfig } from "../runtimeConfig.js";
+import { createChildProcessRuntimeSession, type ChildProcessRuntimeSession } from "../runtime/runtimeSession.js";
 
 /** Minimal shape the executor needs from a runtime session. */
 export interface ManagedSession {

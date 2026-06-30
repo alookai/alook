@@ -3,7 +3,7 @@
  * `telemetry` ParsedEvents. Kept separate from the main event flow because it
  * is purely observability (token accounting + rate limits), not turn content.
  */
-import type { ParsedEvent } from "../types";
+import type { ParsedEvent } from "../types.js";
 
 export function mapCodexTelemetry(method: string, params: any): ParsedEvent[] {
   if (method === "thread/tokenUsage/updated") {

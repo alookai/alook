@@ -13,7 +13,7 @@
  *
  * The `session_id` on any line keeps `currentSessionId` fresh for resume.
  */
-import type { ParsedEvent } from "../types";
+import type { ParsedEvent } from "../types.js";
 
 const API_ERROR_RE = /API Error:.*(?:Connection error|\b[45]\d{2}\b)/i;
 

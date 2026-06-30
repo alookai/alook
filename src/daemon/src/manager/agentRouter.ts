@@ -15,9 +15,9 @@
  * supplies a resync snapshot so the server recovers this host's state after a
  * dropped control connection.
  */
-import type { HostCommand, HostControlChannel, HostReady, Message, AgentSessionReport } from "../server/contract";
-import { parseSeq } from "../server/contract";
-import type { AgentProcessManager } from "./managerRuntime";
+import type { HostCommand, HostControlChannel, HostReady, Message, AgentSessionReport } from "../server/contract.js";
+import { parseSeq } from "../server/contract.js";
+import type { AgentProcessManager } from "./managerRuntime.js";
 
 export interface AgentRouterOpts {
   manager: AgentProcessManager;

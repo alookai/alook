@@ -8,10 +8,10 @@
  * new messages mean a brand-new process and the agent polls the inbox.
  */
 import { spawn } from "child_process";
-import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types";
-import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport";
-import { resolveCommandOnPath, readCommandVersion, resolveSpawnSpec } from "./probe";
-import { resolveLaunchFieldsOrDefault } from "../runtimeConfig";
+import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
+import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
+import { resolveCommandOnPath, readCommandVersion, resolveSpawnSpec } from "./probe.js";
+import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 
 export function buildGeminiArgs(config: LaunchConfig): string[] {
   const f = resolveLaunchFieldsOrDefault(config.runtimeConfig);

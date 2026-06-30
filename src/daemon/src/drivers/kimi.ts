@@ -13,10 +13,10 @@
  */
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
-import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types";
-import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport";
-import { resolveCommandOnPath, readCommandVersion } from "./probe";
-import { resolveLaunchFieldsOrDefault } from "../runtimeConfig";
+import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
+import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
+import { resolveCommandOnPath, readCommandVersion } from "./probe.js";
+import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 
 function parseToolArguments(args: unknown): unknown {
   if (typeof args !== "string") return args ?? {};

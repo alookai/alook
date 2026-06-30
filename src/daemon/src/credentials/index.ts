@@ -8,4 +8,4 @@
  * agent it spawns and injects the proxy URL + voucher file (never the real key)
  * via `cliTransport`'s credential mode.
  */
-export * from "./credentialProxy";
+export * from "./credentialProxy.js";

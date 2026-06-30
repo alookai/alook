@@ -6,9 +6,9 @@
  * what makes same-turn steering possible: stdin is a long-lived NDJSON channel
  * onto which new user messages can be appended at safe boundaries.
  */
-import type { LaunchConfig } from "../types";
-import { resolveLaunchFieldsOrDefault } from "../runtimeConfig";
-import { resolveClaudeCommand } from "./probe";
+import type { LaunchConfig } from "../types.js";
+import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
+import { resolveClaudeCommand } from "./probe.js";
 
 /** Default Claude model when the launch config doesn't specify one. */
 export const DEFAULT_CLAUDE_MODEL = "sonnet";

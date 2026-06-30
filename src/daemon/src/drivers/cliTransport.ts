@@ -30,11 +30,11 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import type { LaunchContext, LaunchConfig } from "../types";
-import { buildCliSystemPrompt, type SystemPromptOpts } from "./systemPrompt";
-import { resolveLaunchFieldsOrDefault } from "../runtimeConfig";
-import { writeCliLink } from "./cliLink";
-import { mergeEnvLayers, platformEnv, runtimeContextEnv, type EnvLayer } from "./spawnEnv";
+import type { LaunchContext, LaunchConfig } from "../types.js";
+import { buildCliSystemPrompt, type SystemPromptOpts } from "./systemPrompt.js";
+import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
+import { writeCliLink } from "./cliLink.js";
+import { mergeEnvLayers, platformEnv, runtimeContextEnv, type EnvLayer } from "./spawnEnv.js";
 
 export interface PreparedCliTransport {
   /** Per-launch state directory created under the working directory. */

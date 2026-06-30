@@ -6,10 +6,10 @@
  * written to stdin). Emits a JSON event stream and exits.
  */
 import { spawn } from "child_process";
-import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types";
-import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport";
-import { resolveCommandOnPath, readCommandVersion } from "./probe";
-import { resolveLaunchFieldsOrDefault } from "../runtimeConfig";
+import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
+import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
+import { resolveCommandOnPath, readCommandVersion } from "./probe.js";
+import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 
 export class CopilotDriver implements Driver {
   readonly id = "copilot";

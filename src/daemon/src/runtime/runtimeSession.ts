@@ -11,8 +11,8 @@
  */
 import { EventEmitter } from "events";
 import type { ChildProcess } from "child_process";
-import type { Driver, LaunchContext, StdinMode } from "../types";
-import { killProcessTree } from "./killTree";
+import type { Driver, LaunchContext, StdinMode } from "../types.js";
+import { killProcessTree } from "./killTree.js";
 
 /**
  * A flattened, daemon-facing description of how a runtime behaves, derived

@@ -5,5 +5,5 @@
  *   projection.ts  — bucket pending messages by target → notice snapshots
  *   stateMachine.ts — pre-action freshness decision (forward / hold / bypass)
  */
-export * from "./projection";
-export * from "./stateMachine";
+export * from "./projection.js";
+export * from "./stateMachine.js";

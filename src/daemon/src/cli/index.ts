@@ -14,9 +14,9 @@
  * the sole result channel.
  */
 import { Command, CommanderError } from "commander";
-import type { ServerApi, Cursor, Message } from "../server/contract";
-import { proxyServerApiFromEnv } from "./proxyServerApi";
-import { daemonStart, daemonStop, daemonList } from "./daemonStart";
+import type { ServerApi, Cursor, Message } from "../server/contract.js";
+import { proxyServerApiFromEnv } from "./proxyServerApi.js";
+import { daemonStart, daemonStop, daemonList } from "./daemonStart.js";
 
 /** The mandatory output envelope. Null/undefined fields are stripped on print. */
 interface Envelope {

@@ -6,6 +6,6 @@
  *   managerRuntime.ts — thin executor: applies policy effects to real sessions,
  *                       runs the tick timer, feeds runtime events back in.
  */
-export * from "./managerPolicy";
-export * from "./managerRuntime";
-export * from "./agentRouter";
+export * from "./managerPolicy.js";
+export * from "./managerRuntime.js";
+export * from "./agentRouter.js";

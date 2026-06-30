@@ -7,10 +7,10 @@
  * JSONL; a custom bash tool is injected so shell calls inherit the CLI-transport
  * env. Steering is `direct` (guarded by `session.isStreaming`).
  */
-import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types";
-import { buildCliTransportSystemPrompt } from "./cliTransport";
-import { SdkRuntimeSession, type SdkSessionHandle } from "../runtime/sdkRuntimeSession";
-import { resolveLaunchFieldsOrDefault } from "../runtimeConfig";
+import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
+import { buildCliTransportSystemPrompt } from "./cliTransport.js";
+import { SdkRuntimeSession, type SdkSessionHandle } from "../runtime/sdkRuntimeSession.js";
+import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 
 /** Map a Pi SDK event to zero or more normalized events. */
 export function mapPiSdkEventToParsedEvents(event: any, sessionId: string, state: { sawTextDelta: boolean }): ParsedEvent[] {

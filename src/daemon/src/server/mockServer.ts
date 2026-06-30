@@ -38,11 +38,11 @@ import type {
   UserId,
   HostCommand,
   EnrollmentApi,
-} from "./contract";
-import { DM_SERVER, parseRef, formatSeq } from "./contract";
+} from "./contract.js";
+import { DM_SERVER, parseRef, formatSeq } from "./contract.js";
 import * as crypto from "crypto";
-import type { RuntimeConfig } from "../runtimeConfig";
-import { makeRuntimeConfig } from "../runtimeConfig";
+import type { RuntimeConfig } from "../runtimeConfig.js";
+import { makeRuntimeConfig } from "../runtimeConfig.js";
 
 /** Internal stored row — richer than the flat agent-facing Message. */
 interface StoredMessage {

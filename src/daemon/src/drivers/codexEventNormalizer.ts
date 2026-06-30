@@ -11,9 +11,9 @@
  *   - `thread/tokenUsage/updated`     → cumulative-session token telemetry
  *   - `account/rateLimits/updated`    → rate-limit telemetry
  */
-import type { ParsedEvent } from "../types";
-import { mapCodexTelemetry } from "./codexTelemetrySidecar";
-import { RuntimeTurnState } from "../runtime/turnState";
+import type { ParsedEvent } from "../types.js";
+import { mapCodexTelemetry } from "./codexTelemetrySidecar.js";
+import { RuntimeTurnState } from "../runtime/turnState.js";
 
 export class CodexEventNormalizer {
   private threadId: string | null = null;

@@ -21,8 +21,8 @@
  * agent_responses, provider}` — no task id / datetime / status / pid.
  */
 import { mkdirSync } from "fs";
-import { appendOrMergeEntry, updateLatestEntry, readRecentEntries, createTimelineEntry, findResumableSession } from "./timeline";
-import type { Message } from "../server/contract";
+import { appendOrMergeEntry, updateLatestEntry, readRecentEntries, createTimelineEntry, findResumableSession } from "./timeline.js";
+import type { Message } from "../server/contract.js";
 
 /** Manager/daemon-facing recorder interface (structural, avoids a cyclic import). */
 export interface TimelineRecorderLike {

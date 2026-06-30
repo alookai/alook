@@ -59,8 +59,9 @@ async function main(): Promise<number> {
   const channelRef = `/${server.id}/general`;
   console.log(`  channel: ${channelRef} (${channel.id})`);
 
-  console.log(`\nposting "报数，从1开始，每个人报一次就停止" to ${channelRef} …`);
-  await admin("postMessage", { channel: channelRef, sender: "@gustavo", text: "报数，从1开始，每个人报一次就停止" });
+  const commandText = "报数，从1开始，每个人只能报一次就停止自己的报数"
+  console.log(`\nposting ${commandText} to ${channelRef} …`);
+  await admin("postMessage", { channel: channelRef, sender: "@gustavo", text: commandText });
 
   // Poll until all agents have replied or timeout.
   console.log(`\nwaiting for ${AGENT_NAMES.length} agent replies (timeout ${MAX_WAIT_MS / 1000}s)…`);

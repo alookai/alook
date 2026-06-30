@@ -13,9 +13,9 @@
  */
 import { appendFileSync, readFileSync, writeFileSync, renameSync, existsSync } from "fs";
 import { join } from "path";
-import { acquireLock, releaseLock, lockPathFor } from "./filelock";
-import type { ContextTimelineEntry } from "./types";
-import type { Message } from "../server/contract";
+import { acquireLock, releaseLock, lockPathFor } from "./filelock.js";
+import type { ContextTimelineEntry } from "./types.js";
+import type { Message } from "../server/contract.js";
 
 /* ------------------------------------------------------------------ */
 /* Date / filename helpers (injectable clock)                          */

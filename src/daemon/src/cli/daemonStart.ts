@@ -10,10 +10,10 @@ import * as path from "path";
 import * as crypto from "crypto";
 import { homedir } from "os";
 import { WebSocket } from "ws";
-import { createDaemon } from "../daemon/createDaemon";
-import { getDriver } from "../drivers/index";
-import { resolveAlookCliPathWithFallback, getAvailableRuntimes } from "../discovery";
-import { createLogger } from "../logger";
+import { createDaemon } from "../daemon/createDaemon.js";
+import { getDriver } from "../drivers/index.js";
+import { resolveAlookCliPathWithFallback, getAvailableRuntimes } from "../discovery.js";
+import { createLogger } from "../logger.js";
 
 const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge"];
 
@@ -219,6 +219,11 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     capabilities: CAPABILITIES,
     agentCliPath,
     workingDirectoryBase: baseDir,
+    onAuthRejected: () => {
+      log.error("machine key rejected by server — is it correct / has it expired?");
+      releaseLock(pf);
+      process.exit(1);
+    },
   });
 
   log.info(`daemon up — proxy at ${daemon.proxyUrl}, dialing ${wsUrl}`);

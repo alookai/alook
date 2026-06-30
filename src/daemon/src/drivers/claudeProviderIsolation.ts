@@ -11,7 +11,7 @@
  */
 import * as fs from "fs";
 import * as path from "path";
-import type { LaunchContext } from "../types";
+import type { LaunchContext } from "../types.js";
 
 export function buildClaudeProviderIsolationEnv(ctx: LaunchContext): NodeJS.ProcessEnv {
   const hasCustomProvider = Boolean(process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_API_KEY);

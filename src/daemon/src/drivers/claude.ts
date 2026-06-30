@@ -9,17 +9,17 @@
  * and runtime/turnState).
  */
 import { spawn } from "child_process";
-import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types";
-import { prepareCliTransport, buildCliTransportSystemPrompt, DEFAULT_CLI_CONFIG } from "./cliTransport";
-import { buildClaudeProviderIsolationEnv } from "./claudeProviderIsolation";
+import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
+import { prepareCliTransport, buildCliTransportSystemPrompt, DEFAULT_CLI_CONFIG } from "./cliTransport.js";
+import { buildClaudeProviderIsolationEnv } from "./claudeProviderIsolation.js";
 import {
   buildClaudeArgs,
   resolveClaudeLaunchCommand,
   buildClaudeSpawnSpec,
-} from "./claudeLaunch";
-import { writeAgentFile } from "./agentFile";
-import { ClaudeEventNormalizer } from "./claudeEventNormalizer";
-import { probeClaude } from "./probe";
+} from "./claudeLaunch.js";
+import { writeAgentFile } from "./agentFile.js";
+import { ClaudeEventNormalizer } from "./claudeEventNormalizer.js";
+import { probeClaude } from "./probe.js";
 
 export class ClaudeDriver implements Driver {
   readonly id = "claude";

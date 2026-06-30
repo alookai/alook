@@ -10,12 +10,12 @@
  * `thread/resume` with the prior threadId). The thread id is the session id.
  */
 import { spawn } from "child_process";
-import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types";
-import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport";
-import { CodexEventNormalizer } from "./codexEventNormalizer";
-import { resolveCommandOnPath, readCommandVersion, resolveSpawnSpec } from "./probe";
-import { resolveCodexHomeRootFromEnv } from "./codexHome";
-import { resolveLaunchFieldsOrDefault } from "../runtimeConfig";
+import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
+import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
+import { CodexEventNormalizer } from "./codexEventNormalizer.js";
+import { resolveCommandOnPath, readCommandVersion, resolveSpawnSpec } from "./probe.js";
+import { resolveCodexHomeRootFromEnv } from "./codexHome.js";
+import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 
 /** True if a resume error means the prior thread rollout is gone. */
 export function isCodexMissingRolloutError(message: string): boolean {

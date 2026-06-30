@@ -44,7 +44,7 @@ import * as https from "https";
 import * as os from "os";
 import * as path from "path";
 import { URL } from "url";
-import type { Message } from "../server/contract";
+import type { Message } from "../server/contract.js";
 
 /** A capability token gating which actions a voucher may perform. */
 export type Capability = string;

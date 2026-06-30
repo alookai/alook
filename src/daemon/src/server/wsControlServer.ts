@@ -20,10 +20,10 @@
  * hard `ws` dependency and stays unit-testable; `mock-server` passes a factory
  * built on the `ws` package.
  */
-import type { HostCommand, HostReady, AgentId, WebSocketLike } from "./contract";
-import type { MockServer } from "./mockServer";
+import type { HostCommand, HostReady, AgentId, WebSocketLike } from "./contract.js";
+import type { MockServer } from "./mockServer.js";
 // Re-export so existing importers of WebSocketLike from this module keep working.
-export type { WebSocketLike } from "./contract";
+export type { WebSocketLike } from "./contract.js";
 
 /** Per-connection metadata extracted from the WS upgrade request. */
 export interface WsConnectionMeta {
@@ -99,6 +99,7 @@ export class WsControlServer {
     // what stops anyone who can open the port from impersonating a host.
     if (this.opts.verifyMachineKey && !this.opts.verifyMachineKey(meta?.authHeader)) {
       try {
+        socket.send(JSON.stringify({ type: "error", code: "AUTH_REJECTED" }));
         socket.close();
       } catch {
         /* already gone */

@@ -98,6 +98,10 @@ async function main() {
     capabilities: CAPABILITIES,
     agentCliPath,
     workingDirectoryBase: WORKING_DIR_BASE,
+    onAuthRejected: () => {
+      log.error("machine key rejected by server — check ALOOK_MACHINE_KEY is correct");
+      process.exit(1);
+    },
   });
 
   log.info(`daemon up — proxy at ${daemon.proxyUrl}, workdir=${WORKING_DIR_BASE}, dialing ${SERVER_WS_URL}`);

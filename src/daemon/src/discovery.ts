@@ -7,8 +7,8 @@
 import * as path from "path";
 import * as fs from "fs";
 import { fileURLToPath } from "url";
-import { getDriver, listRuntimeIds, type RuntimeId } from "./drivers/index";
-import type { ProbeResult } from "./types";
+import { getDriver, listRuntimeIds, type RuntimeId } from "./drivers/index.js";
+import type { ProbeResult } from "./types.js";
 
 /* ------------------------------------------------------------------ */
 /* Agent CLI path resolution                                           */

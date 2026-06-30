@@ -8,9 +8,9 @@
  */
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";
-import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types";
-import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport";
-import { resolveCommandOnPath, readCommandVersion } from "./probe";
+import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
+import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
+import { resolveCommandOnPath, readCommandVersion } from "./probe.js";
 
 const ERROR_LINE_PATTERNS: RegExp[] = [/^error[:\s]/i, /\bfatal\b/i, /\bpanic\b/i, /unable to/i];
 

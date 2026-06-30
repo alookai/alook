@@ -20,7 +20,7 @@
  * defaulting to the `alook` placeholder. A real deployment passes its own CLI
  * guide via `opts.communicationGuide` rather than baking it in.
  */
-import type { LaunchConfig } from "../types";
+import type { LaunchConfig } from "../types.js";
 
 export interface SystemPromptOpts {
   extraCriticalRules?: string[];

@@ -89,6 +89,59 @@ describe("WsControlChannel — resync on (re)connect", () => {
   });
 });
 
+describe("WsControlChannel — auth rejection", () => {
+  it("stops reconnecting when server sends AUTH_REJECTED", async () => {
+    const sockets: FakeSocket[] = [];
+    let authRejectedCalled = false;
+    const ch = new WsControlChannel({
+      url: "ws://test",
+      webSocketFactory: () => {
+        const s = new FakeSocket();
+        sockets.push(s);
+        return s;
+      },
+      reconnect: { baseMs: 1, maxMs: 1 },
+      onAuthRejected: () => { authRejectedCalled = true; },
+    });
+    ch.onResync(() => ({ ready: { runtimes: [], runningAgents: [] }, sessions: [] }));
+
+    ch.connect();
+    sockets[0].emit("open");
+    // Server sends auth rejection frame then closes
+    sockets[0].emit("message", JSON.stringify({ type: "error", code: "AUTH_REJECTED" }));
+    sockets[0].emit("close");
+
+    await new Promise((r) => setTimeout(r, 20));
+    // Should NOT have reconnected — only 1 socket total
+    expect(sockets.length).toBe(1);
+    expect(ch.status).toBe("closed");
+    expect(authRejectedCalled).toBe(true);
+  });
+
+  it("does reconnect on normal close (no auth rejection)", async () => {
+    const sockets: FakeSocket[] = [];
+    const ch = new WsControlChannel({
+      url: "ws://test",
+      webSocketFactory: () => {
+        const s = new FakeSocket();
+        sockets.push(s);
+        return s;
+      },
+      reconnect: { baseMs: 1, maxMs: 1 },
+    });
+    ch.onResync(() => ({ ready: { runtimes: [], runningAgents: [] }, sessions: [] }));
+
+    ch.connect();
+    sockets[0].emit("open");
+    sockets[0].emit("close");
+
+    await new Promise((r) => setTimeout(r, 20));
+    // Should have reconnected — 2 sockets
+    expect(sockets.length).toBe(2);
+    expect(ch.status).toBe("reconnecting");
+  });
+});
+
 describe("WsControlChannel — deliver acks", () => {
   it("sends an ack when open", async () => {
     const { ch, sockets } = makeChannel();

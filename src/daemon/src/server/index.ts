@@ -6,7 +6,7 @@
  *   wsControlChannel     — WebSocket HostControlChannel (reconnect + heartbeat).
  *   wsControlServer      — WebSocket server for the control plane.
  */
-export * from "./contract";
-export * from "./mockServer";
-export * from "./wsControlChannel";
-export * from "./wsControlServer";
+export * from "./contract.js";
+export * from "./mockServer.js";
+export * from "./wsControlChannel.js";
+export * from "./wsControlServer.js";

@@ -8,7 +8,7 @@
  * `timeline.ts`; the concurrent-write file lock in `filelock.ts`; shared types
  * in `types.ts`.
  */
-export * from "./types";
-export * from "./timeline";
-export * from "./filelock";
-export * from "./recorder";
+export * from "./types.js";
+export * from "./timeline.js";
+export * from "./filelock.js";
+export * from "./recorder.js";

@@ -13,7 +13,7 @@
  * is the agent-facing `Message` shape — an entry records exactly what the agent
  * saw (its inbox-pull payload), so it reuses that contract type verbatim.
  */
-import type { Message } from "../server/contract";
+import type { Message } from "../server/contract.js";
 
 /**
  * A timeline row — exactly four fields (gustavo's final schema). Per-turn

@@ -22,7 +22,7 @@
  * existing `apmStateMachine` / `RuntimeTurnState` reducers; this layer is the
  * higher-level lifecycle/queue orchestrator above them.
  */
-import type { BusyDeliveryMode, DriverLifecycle } from "../types";
+import type { BusyDeliveryMode, DriverLifecycle } from "../types.js";
 
 export type AgentStatus = "idle" | "starting" | "running" | "stopping";
 
