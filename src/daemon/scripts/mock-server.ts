@@ -35,6 +35,13 @@ const WS_PORT = Number(process.env.ALOOK_SERVER_WS_PORT || HTTP_PORT + 1);
 async function main() {
   const server = new MockServer();
 
+  // Wrap resetRunningAgents to log daemon ready reports
+  const originalReset = server.resetRunningAgents.bind(server);
+  server.resetRunningAgents = (agentIds: string[]) => {
+    console.log(`[mock-server] daemon ready — reported ${agentIds.length} running agent(s)${agentIds.length ? `: ${agentIds.join(", ")}` : ""}`);
+    originalReset(agentIds);
+  };
+
   // Enroll THIS machine and surface its key for the daemon (script greps this line).
   const machineKey = server.enrollMachine();
 
@@ -44,11 +51,20 @@ async function main() {
   const wsServer = new WsControlServer({
     server,
     port: WS_PORT,
-    verifyMachineKey: (authHeader) => server.verifyMachineKey(parseBearer(authHeader)),
+    verifyMachineKey: (authHeader) => {
+      const ok = server.verifyMachineKey(parseBearer(authHeader));
+      if (ok) {
+        console.log(`[mock-server] daemon connected (machine key verified ✓)`);
+      } else {
+        console.log(`[mock-server] daemon connection REJECTED (invalid machine key)`);
+      }
+      return ok;
+    },
+    onAgentSession: (info) => {
+      console.log(`[mock-server] agent session: ${info.agentId} → session=${info.sessionId}`);
+    },
     webSocketServerFactory: (port) => {
       const wss = new WebSocketServer({ host: "127.0.0.1", port });
-      // Without an error listener, an EADDRINUSE on the ws port crashes the whole
-      // process with an unhandled-'error' stack trace. Fail cleanly with a hint.
       wss.on("error", (err: NodeJS.ErrnoException) => {
         if (err.code === "EADDRINUSE") {
           console.error(

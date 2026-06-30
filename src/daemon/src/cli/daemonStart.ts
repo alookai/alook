@@ -11,7 +11,8 @@ import * as crypto from "crypto";
 import { homedir } from "os";
 import { WebSocket } from "ws";
 import { createDaemon } from "../daemon/createDaemon";
-import { ClaudeDriver } from "../drivers/claude";
+import { getDriver } from "../drivers/index";
+import { resolveAlookCliPathWithFallback, getAvailableRuntimes } from "../discovery";
 import { createLogger } from "../logger";
 
 const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge"];
@@ -196,16 +197,25 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
   const pf = acquireLock(baseDir, opts.machineKey);
 
-  const agentCliPath = process.argv[1];
-  const driver = new ClaudeDriver();
+  // Auto-discover agent CLI path (fallback: process.argv[1])
+  const agentCliPath = resolveAlookCliPathWithFallback() ?? process.argv[1];
+  log.info(`agent CLI: ${agentCliPath}`);
+
+  // Auto-detect available runtimes
+  const availableRuntimes = await getAvailableRuntimes();
+  if (availableRuntimes.length === 0) {
+    log.error("no runtimes detected — install at least one (claude, codex, gemini, etc.)");
+    process.exit(2);
+  }
+  log.info(`detected runtimes: ${availableRuntimes.join(", ")}`);
 
   const daemon = await createDaemon({
     machineKey: opts.machineKey,
     serverUrl,
     serverWsUrl: wsUrl,
     webSocketFactory: (url, headers) => new WebSocket(url, { headers }),
-    runtimes: ["claude"],
-    driverFor: () => driver,
+    runtimes: availableRuntimes,
+    driverFor: () => getDriver(availableRuntimes[0]),
     capabilities: CAPABILITIES,
     agentCliPath,
     workingDirectoryBase: baseDir,

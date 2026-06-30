@@ -29,3 +29,11 @@ export * from "./credentials";
 export * from "./daemon";
 export * from "./drivers/codexHome";
 export { resolveSpawnSpec, type SpawnSpec } from "./drivers/probe";
+export {
+  resolveAlookCliPath,
+  resolveAlookCliPathWithFallback,
+  deriveCliFallbackCandidates,
+  detectRuntimes,
+  getAvailableRuntimes,
+  type RuntimeInfo,
+} from "./discovery";

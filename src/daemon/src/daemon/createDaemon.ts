@@ -29,6 +29,7 @@ import { WsControlChannel } from "../server/wsControlChannel";
 import { CredentialBroker, startCredentialProxy } from "../credentials/index";
 import { AgentProcessManager, AgentRouter } from "../manager/index";
 import { createTimelineRecorder } from "../timeline/index";
+import { resolveAlookCliPathWithFallback } from "../discovery";
 import type { Driver, LaunchContext } from "../types";
 import type { Message } from "../server/contract";
 
@@ -76,6 +77,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const fallbackBase = (process.env.ALOOK_PROJECT_ROOT || `${homedir()}/.alook`) + "/daemon";
   const workdirFor = (agentId: string) => `${opts.workingDirectoryBase ?? fallbackBase}/${agentId}`;
 
+  // Self-healing: resolve CLI path with fallback if primary is missing
+  const resolvedCliPath = resolveAlookCliPathWithFallback(opts.agentCliPath);
+
   const timeline = createTimelineRecorder({
     timelineDirFor: (agentId) => `${workdirFor(agentId)}/.context_timeline`,
     providerFor: () => opts.runtimes[0] ?? null,
@@ -118,7 +122,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         agentId,
         workingDirectory: workdirFor(agentId),
         credentialProxy: { broker, proxyUrl: proxy.url, runnerKey },
-        agentCliPath: opts.agentCliPath,
+        agentCliPath: resolvedCliPath ?? opts.agentCliPath,
         config: {},
       } as Omit<LaunchContext, "prompt" | "standingPrompt"> & { config?: LaunchContext["config"] };
     },
