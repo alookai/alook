@@ -178,11 +178,11 @@ function MessageListSkeleton({ dm = false }: { dm?: boolean }) {
               </>
             )}
           </div>
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-3">
             {clusters.map((lines, i) => (
-              <div key={i} className="flex gap-3">
+              <div key={i} className="flex gap-3 pt-1.5">
                 <Skeleton className="size-9 shrink-0 rounded-full" />
-                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                   <div className="flex items-center gap-2">
                     <Skeleton className="h-4 w-24 rounded" />
                     <Skeleton className="h-3 w-14 rounded" />

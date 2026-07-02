@@ -16,14 +16,15 @@ import type { RightPanel } from "./_types"
 // doesn't shift when the real header lands.
 export function ChannelHeaderSkeleton({ onBack }: { onBack?: () => void }) {
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
+    <header className="flex h-12 shrink-0 items-center gap-1 border-b border-border/40 px-3">
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
       <Skeleton className="ml-1 size-4 rounded" />
       <Skeleton className="h-4 w-32 rounded" />
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center text-muted-foreground">
         <Skeleton className="size-7 rounded-md" />
+        <span className="mx-1 h-5 w-px bg-border/60" aria-hidden />
         <Skeleton className="size-7 rounded-md" />
         <Skeleton className="size-7 rounded-md" />
       </div>

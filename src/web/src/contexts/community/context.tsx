@@ -871,10 +871,16 @@ export function CommunityProvider({
     setOnlineUserIds(new Set())
 
     if (!currentServerId || currentServerId === "@me") {
+      setMembersLoading(false)
       setInvitesLoading(false)
       setAuditLogLoading(false)
       return
     }
+    // Flip loading flags synchronously in the reset commit — `fetchMembers`
+    // runs after this effect, so without this hint the right panel would see
+    // `members=[] + membersLoading=false` for a frame and render the empty
+    // state instead of the skeleton.
+    setMembersLoading(true)
     fetchServerDetail(currentServerId)
     fetchMembers()
     apiFetch<{ online: string[] }>(`/api/community/servers/${currentServerId}/presence`)
@@ -917,8 +923,14 @@ export function CommunityProvider({
       setForumPostsLoading(false)
     } else {
       // Hint to the UI that data is on the way — actual fetches set true again
-      // when they fire in the effect below.
+      // when they fire in the effect below. We flip BOTH `messagesLoading` and
+      // `forumPostsLoading` here because the channel's type (text vs forum)
+      // isn't known until server-detail lands — the corresponding hydration
+      // gate then reads whichever flag matches. The other flag is cleared by
+      // the fetch effect below (forum branch sets messagesLoading=false; text
+      // branch never calls fetchForumPosts so it decays via the next reset).
       setMessagesLoading(true)
+      setForumPostsLoading(true)
     }
   }, [currentChannelId, currentServerId])
 
@@ -926,6 +938,7 @@ export function CommunityProvider({
     if (!currentChannelId) return
     if (currentServerId === "@me") {
       ws.subscribe({ dmConversationId: currentChannelId })
+      setForumPostsLoading(false)
       fetchDmMessages(currentChannelId)
     } else {
       // Wait for server detail to load before fetching — needed for forum detection
@@ -935,19 +948,25 @@ export function CommunityProvider({
       const allChannels = currentServer.categories.flatMap((c) => c.channels)
       const channel = allChannels.find((ch) => ch.id === currentChannelId)
       if (channel?.type === "forum") {
-        // Forum channel: show post listing
+        // Forum channel: show post listing. No message fetch runs here, so
+        // clear the `messagesLoading` hint set by the reset effect — otherwise
+        // the channel-shell skeleton (gated on !messagesLoading) never lifts.
         setCurrentChannelMeta(null)
+        setMessagesLoading(false)
         fetchForumPosts(currentChannelId)
         fetchPinned(currentChannelId)
         fetchThreads(currentChannelId)
       } else if (channel) {
-        // Top-level text channel
+        // Top-level text channel — no forum-posts fetch, so clear the hint set
+        // by the reset effect for symmetry with the forum branch above.
         setCurrentChannelMeta(null)
+        setForumPostsLoading(false)
         fetchMessages(currentChannelId)
         fetchPinned(currentChannelId)
         fetchThreads(currentChannelId)
       } else {
         // Child channel (forum post / thread) — fetch its metadata + messages
+        setForumPostsLoading(false)
         fetchMessages(currentChannelId)
         apiFetch<{ id: string; name: string; parentChannelId: string | null }>(`/api/community/threads/${currentChannelId}`)
           .then((data) => setCurrentChannelMeta({ name: data.name, parentChannelId: data.parentChannelId }))

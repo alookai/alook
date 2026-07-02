@@ -86,9 +86,14 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   // Find the "none" category ID (empty name) — only if one explicitly exists
   const noneCatId = Object.keys(catNames).find((id) => catNames[id] === "") ?? ""
 
-  // Initial load (no tree yet) — render skeleton so the sidebar holds its
-  // width and rhythm instead of collapsing to an empty column.
-  if (loading && catOrder.length === 0) return <ChannelSidebarSkeleton noHeader={noHeader} />
+  // Initial load / server switch — render skeleton so the sidebar holds its
+  // width and rhythm instead of collapsing to an empty column. Do NOT gate on
+  // `catOrder.length === 0`: the tree is derived from `categories` inside a
+  // useEffect (use-channel-tree.ts), so on a server switch it still holds the
+  // PREVIOUS server's categories for one commit while `loading` has already
+  // flipped true. Gating on catOrder would flash the old server's channel list
+  // for a frame before collapsing to skeleton.
+  if (loading) return <ChannelSidebarSkeleton noHeader={noHeader} />
 
 
   const requestCreateChannel = (categoryId: string) => {

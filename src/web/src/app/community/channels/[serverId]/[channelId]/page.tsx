@@ -11,7 +11,7 @@ import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
 import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
 import { Composer, ComposerSkeleton } from "@/components/community/composer"
-import { ForumView } from "@/components/community/forum-view"
+import { ForumView, ForumViewSkeleton } from "@/components/community/forum-view"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
 import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
@@ -296,12 +296,31 @@ function ChannelView() {
   // Child channels (thread / forum post) additionally wait on the meta fetch
   // so the breadcrumb shows the new parent name instead of the previous one.
   const isPotentialChild = !isAtMe && !channelInServer && !!ctx.currentServer?.categories
+  // Forum body has no message list — its skeleton lifts when forumPosts arrive.
+  // Text/DM channels lift when messages arrive. Gating a forum on messagesLoading
+  // alone made the header flash to real for one frame between "context syncs
+  // channelId" and "forum fetch flips forumPostsLoading true".
+  const bodyLoading = isForum ? ctx.forumPostsLoading : ctx.messagesLoading
   const channelHydrated =
     ctx.currentChannelId === channelId &&
-    !ctx.messagesLoading &&
+    !bodyLoading &&
     (!isPotentialChild || ctx.currentChannelMeta !== null) &&
     (!isAtMe || !ctx.dmsLoading)
   if (!channelHydrated) {
+    // Forum has no message list / composer — use a filter-bar + card skeleton
+    // so the shell doesn't briefly show a chat-shaped placeholder before the
+    // forum view mounts. Falls through to the chat shell when the channel type
+    // isn't known yet.
+    if (isForum) {
+      return (
+        <>
+          <ChannelHeaderSkeleton onBack={bp === "mobile" ? goBack : undefined} />
+          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <ForumViewSkeleton />
+          </main>
+        </>
+      )
+    }
     return (
       <>
         {isAtMe

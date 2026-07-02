@@ -151,12 +151,19 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const isAdmin = canManageServer(myMember?.role)
 
   const setActiveChannel = useCallback((id: string) => {
+    // Only navigate — do NOT eagerly set the context's currentChannelId here.
+    // The currently-mounted ChannelView is still keyed to the old channelId;
+    // flipping the context now triggers its reset effect (messagesLoading=true)
+    // while the URL still points at the OLD channel, so the loading skeleton
+    // renders using the old channel's type for one frame (e.g. forum skeleton
+    // when switching from forum → text). Letting the newly-mounted ChannelView
+    // sync the context in its own useEffect keeps skeleton type consistent
+    // with the target channel.
     router.push(`/community/channels/${serverId}/${id}`)
-    ctx.setCurrentChannelId(id)
     ctx.markChannelRead(id)
     channelTree.markRead(id)
     if (bp === "mobile") setMobileZone("messages")
-  }, [router, serverId, ctx.setCurrentChannelId, ctx.markChannelRead, channelTree.markRead, bp])
+  }, [router, serverId, ctx.markChannelRead, channelTree.markRead, bp])
 
   const onSidebarOpenSettings = useCallback((section?: SettingsSection) => {
     if (section) setSettingsSection(section)
@@ -237,11 +244,13 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   // ── DM sidebar props ──────────────────────────────────────────────────────
   const enterDm = useCallback((id: string) => {
-    ctx.setCurrentChannelId(id)
+    // See setActiveChannel — let ChannelView sync currentChannelId when it
+    // mounts under the new URL so the skeleton doesn't render one frame using
+    // the previous channel's type.
     ctx.markDmRead(id)
     router.push(`/community/channels/@me/${id}`)
     if (bp === "mobile") setMobileZone("messages")
-  }, [ctx.setCurrentChannelId, ctx.markDmRead, router, bp])
+  }, [ctx.markDmRead, router, bp])
 
   const onShowFriends = useCallback(() => {
     ctx.setCurrentChannelId(null)
@@ -320,10 +329,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
 
   // ── Inbox (global) ────────────────────────────────────────────────────────
   const openServerChannel = useCallback((sid: string, cid: string) => {
+    // See setActiveChannel — let ChannelView sync currentChannelId when it
+    // mounts under the new URL so the skeleton doesn't render one frame using
+    // the previous channel's type.
     router.push(`/community/channels/${sid}/${cid}`)
-    ctx.setCurrentChannelId(cid)
     ctx.markChannelRead(cid)
-  }, [router, ctx.setCurrentChannelId, ctx.markChannelRead])
+  }, [router, ctx.markChannelRead])
 
   const inboxElement = (
     <InboxPopover

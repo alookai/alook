@@ -179,3 +179,29 @@ function ForumListSkeleton() {
     </div>
   )
 }
+
+// Full-body loading placeholder for the forum route — the filter bar + card
+// list mirror <ForumView>'s outer frame so the header + filter bar don't shift
+// when the real posts arrive. Used while the channel is still hydrating (i.e.
+// before ForumView itself mounts).
+export function ForumViewSkeleton() {
+  return (
+    <>
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <Skeleton className="h-5 w-10 rounded-4xl" />
+          <Skeleton className="h-5 w-16 rounded-4xl" />
+          <Skeleton className="h-5 w-14 rounded-4xl" />
+          <Skeleton className="h-5 w-20 rounded-4xl" />
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Skeleton className="size-7 rounded-md" />
+          <Skeleton className="h-8 w-25 rounded-md" />
+        </div>
+      </div>
+      <main className="flex-1 overflow-y-auto thin-scrollbar p-5">
+        <ForumListSkeleton />
+      </main>
+    </>
+  )
+}
