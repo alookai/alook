@@ -1,15 +1,10 @@
 /**
- * Kimi driver (legacy) — persistent child-process CLI over JSON-RPC, DIRECT
- * steering.
+ * Kimi driver — persistent child-process CLI over JSON-RPC, DIRECT steering.
  *
  * `kimi --wire --yolo --agent-file <file> --session <id>` runs a long-lived
  * process speaking JSON-RPC 2.0 over stdio (the "wire" protocol). On spawn we
  * send `initialize` then a `prompt`; thereafter idle messages are `prompt` and
  * busy messages are `steer`.
- *
- * NOTE: This is the deprecated runtime kept for backward-compat. New agents use
- * `kimi-sdk` (the in-process SDK driver). No alias / auto-migration — the
- * runtime is chosen explicitly at agent-create time.
  */
 import { spawn } from "child_process";
 import { randomUUID } from "crypto";

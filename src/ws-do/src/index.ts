@@ -1,4 +1,4 @@
-import { createLogger } from "@alook/shared"
+import { createDb, createLogger, queries } from "@alook/shared"
 
 export { WebSocketDurableObject } from "./ws-durable"
 
@@ -44,30 +44,50 @@ export default {
       return stub.fetch(new Request("http://internal/check-user-online"))
     }
 
-    // POST /community-machine/<tokenId>/force-close — disconnect a daemon.
+    // POST /community-machine/<machineId>/force-close — disconnect a daemon
+    // by its machine id (cm_<nanoid>). Keyed by machineId post-refactor.
     const forceClose = url.pathname.match(/^\/community-machine\/([^/]+)\/force-close$/)
     if (forceClose && request.method === "POST") {
-      const tokenId = decodeURIComponent(forceClose[1])
-      const reqLog = log.child({ traceId, tokenId })
+      const machineId = decodeURIComponent(forceClose[1])
+      const reqLog = log.child({ traceId, machineId })
       reqLog.debug("force-closing community machine")
 
-      const doId = env.WS_DO.idFromName("community-machine:" + tokenId)
+      const doId = env.WS_DO.idFromName("community-machine:" + machineId)
       const stub = env.WS_DO.get(doId)
       return stub.fetch(new Request("http://internal/force-close", { method: "POST" }))
     }
 
-    // Community-machine daemon WS upgrade — routed by ?token=<cmt_…>
-    const machineToken = url.searchParams.get("token")
-    if (machineToken) {
-      if (!machineToken.startsWith("cmt_")) {
-        // Defense in depth: only community tokens are accepted on this path.
-        return new Response("invalid token", { status: 400 })
+    // Community-machine daemon WS upgrade — Bearer cmk_<credential> only.
+    // The router looks up the credential to name the DO (by machineId);
+    // the DO re-validates the same credential authoritatively.
+    const authHeader = request.headers.get("Authorization")
+    const legacyToken = url.searchParams.get("token")
+    if (authHeader?.startsWith("Bearer cmk_")) {
+      const credentialId = authHeader.slice(7).trim()
+      const db = createDb(env.DB)
+      const active = await queries.communityMachine.findActiveCredentialByBearer(db, credentialId)
+      if (!active) {
+        log.info("community machine ws rejected: unknown/revoked credential", { traceId })
+        return new Response("credential revoked or unknown", { status: 401 })
       }
-      const reqLog = log.child({ traceId })
+      const reqLog = log.child({ traceId, machineId: active.machineId })
       reqLog.info("community machine websocket upgrade")
-      const doId = env.WS_DO.idFromName("community-machine:" + machineToken)
+      const doId = env.WS_DO.idFromName("community-machine:" + active.machineId)
       const stub = env.WS_DO.get(doId)
       return stub.fetch(request)
+    }
+
+    // Legacy daemon compat: reject `?token=cmt_...` with a helpful reason so
+    // out-of-date daemons log a comprehensible message. Deleted a release
+    // after users have upgraded.
+    if (legacyToken) {
+      log.info("legacy community machine ws token rejected — upgrade CLI", { traceId })
+      return new Response(
+        JSON.stringify({
+          error: "daemon version out of date; please upgrade the alook CLI",
+        }),
+        { status: 426, headers: { "Content-Type": "application/json" } }
+      )
     }
 
     const daemonId = url.searchParams.get("daemonId")

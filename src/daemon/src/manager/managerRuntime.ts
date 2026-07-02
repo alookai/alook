@@ -44,7 +44,12 @@ export type SessionFactory = (args: {
 }) => ManagedSession;
 
 export interface ManagerRuntimeOpts {
-  driverFor: (agentId: string) => Driver;
+  /**
+   * Resolve a driver for an agent. The optional `runtimeConfig` is supplied
+   * whenever the manager knows it (i.e. after `register` with the server-pushed
+   * config) so callers can pick the right runtime; tests may omit it.
+   */
+  driverFor: (agentId: string, runtimeConfig?: RuntimeConfig) => Driver;
   baseContextFor: (agentId: string) => Omit<LaunchContext, "prompt" | "config" | "standingPrompt"> & {
     standingPrompt?: string;
     config?: LaunchContext["config"];
@@ -144,7 +149,7 @@ export class AgentProcessManager {
     if (launch?.runtimeConfig) this.runtimeConfigs.set(agentId, launch.runtimeConfig);
     if (launch?.sessionId) this.resumeSessions.set(agentId, launch.sessionId);
     if (launch?.launchId) this.launchIds.set(agentId, launch.launchId);
-    const driver = this.opts.driverFor(agentId);
+    const driver = this.opts.driverFor(agentId, this.runtimeConfigs.get(agentId));
     const caps: AgentRuntimeCaps = {
       lifecycleKind: driver.lifecycle.kind,
       supportsStdinNotification: driver.supportsStdinNotification,
@@ -232,7 +237,7 @@ export class AgentProcessManager {
   }
 
   private doSpawn(agentId: string, prompt: string, resumeSessionId: string | null): void {
-    const driver = this.opts.driverFor(agentId);
+    const driver = this.opts.driverFor(agentId, this.runtimeConfigs.get(agentId));
     const base = this.opts.baseContextFor(agentId);
     // The server-pushed RuntimeConfig (from agent:start) takes precedence over
     // any baseContextFor default; the resume sessionId likewise prefers the

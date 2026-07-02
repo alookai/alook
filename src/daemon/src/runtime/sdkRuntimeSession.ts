@@ -1,7 +1,7 @@
 /**
  * SdkRuntimeSession — the in-process counterpart to ChildProcessRuntimeSession.
  *
- * `kimi-sdk` and `pi` don't spawn a child process; they run the agent in-process
+ * `pi` doesn't spawn a child process; it runs the agent in-process
  * via a vendor SDK. They share this thin EventEmitter wrapper: the driver wires
  * the SDK's event callback to `emitEvent`, and `prompt`/`steer`/`abort`/`dispose`
  * are delegated to the SDK session. The daemon consumes the same `runtime_event`

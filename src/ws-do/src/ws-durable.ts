@@ -6,13 +6,69 @@ import {
   COMMUNITY_MACHINE_HEARTBEAT_MS,
   COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
 } from "@alook/shared"
+import type { CommunityMachineRuntime } from "@alook/shared"
+
+/** Per-entry id validator — defense-in-depth, not an allow-list. */
+const RUNTIME_ID_RE = /^[A-Za-z0-9._@/-]+$/
+const RUNTIME_ID_MAX = 64
+const RUNTIME_VERSION_MAX = 64
+const RUNTIME_LIST_CAP = 64
+
+/**
+ * Normalize the daemon-reported runtime list into the persisted shape.
+ *
+ * Both `runtimeReport` (id+version) and the legacy `runtimes: string[]` go
+ * through the SAME per-entry validator. Output is deduped by id (first wins)
+ * and capped at RUNTIME_LIST_CAP entries.
+ */
+export function parseRuntimes(ready: Record<string, unknown>): CommunityMachineRuntime[] {
+  let candidates: Array<{ id?: unknown; version?: unknown }> = []
+  if (Array.isArray(ready.runtimeReport)) {
+    candidates = ready.runtimeReport as Array<{ id?: unknown; version?: unknown }>
+  } else if (Array.isArray(ready.runtimes)) {
+    candidates = (ready.runtimes as unknown[]).map((id) => ({ id }))
+  } else {
+    return []
+  }
+  const seen = new Set<string>()
+  const out: CommunityMachineRuntime[] = []
+  for (const entry of candidates) {
+    if (!entry || typeof entry !== "object") continue
+    const id = (entry as { id?: unknown }).id
+    if (typeof id !== "string") continue
+    if (id.length < 1 || id.length > RUNTIME_ID_MAX) continue
+    if (!RUNTIME_ID_RE.test(id)) continue
+    if (seen.has(id)) continue
+    seen.add(id)
+    const entryVersion = (entry as { version?: unknown }).version
+    const runtime: CommunityMachineRuntime = { id }
+    if (typeof entryVersion === "string" && entryVersion.length <= RUNTIME_VERSION_MAX) {
+      runtime.version = entryVersion
+    }
+    out.push(runtime)
+    if (out.length >= RUNTIME_LIST_CAP) break
+  }
+  return out
+}
+
+/** Order-normalized JSON for comparing two runtime lists. */
+function canonicalRuntimes(list: CommunityMachineRuntime[]): string {
+  const sorted = [...list].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  return JSON.stringify(sorted.map((r) => (r.version === undefined ? { id: r.id } : { id: r.id, version: r.version })))
+}
 
 const log = createLogger({ service: "ws-do" })
 
 type ConnectionState =
   | { type: "user"; userId: string; authenticated: boolean }
   | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }
-  | { type: "community-machine"; tokenId: string; userId: string; authenticated: boolean }
+  | {
+      type: "community-machine"
+      credentialId: string
+      machineId: string
+      userId: string
+      authenticated: boolean
+    }
 
 export class WebSocketDurableObject extends DurableObject<Env> {
   /**
@@ -76,10 +132,12 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       return new Response("Expected WebSocket", { status: 426 })
     }
 
-    // Community-machine connections carry their auth token in `?token=`.
-    const machineToken = url.searchParams.get("token")
-    if (machineToken) {
-      return this.acceptCommunityMachine(request, machineToken)
+    // Community-machine connections carry `Authorization: Bearer cmk_...`.
+    // The router-level index.ts has already validated the credential and
+    // routed to this DO by machineId; we re-validate here as the authority.
+    const authHeader = request.headers.get("Authorization")
+    if (authHeader?.startsWith("Bearer cmk_")) {
+      return this.acceptCommunityMachine(authHeader.slice(7).trim())
     }
 
     const pair = new WebSocketPair()
@@ -96,49 +154,35 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     return new Response(null, { status: 101, webSocket: client })
   }
 
-  private async acceptCommunityMachine(_request: Request, tokenId: string): Promise<Response> {
+  private async acceptCommunityMachine(credentialId: string): Promise<Response> {
     const pair = new WebSocketPair()
     const [client, server] = Object.values(pair)
     this.ctx.acceptWebSocket(server)
 
-    // Validate token. Pending → claim; active → reuse; anything else → reject.
+    // Re-validate the credential authoritatively. The router did an
+    // optimistic lookup to name the DO; the DO is the source of truth.
     const db = createDb(this.env.DB)
-    let authResult: { tokenId: string; userId: string } | null = null
+    let auth: { credentialId: string; userId: string; machineId: string } | null = null
     try {
-      const existing = await queries.communityMachine.findTokenById(db, tokenId)
-      if (!existing) {
-        this.rejectCommunityMachine(server, "unknown token")
-        return new Response(null, { status: 101, webSocket: client })
-      }
-      if (existing.status === "pending") {
-        try {
-          authResult = await queries.communityMachine.claimPairingToken(db, tokenId)
-        } catch {
-          this.rejectCommunityMachine(server, "token claim failed")
-          return new Response(null, { status: 101, webSocket: client })
-        }
-      } else if (existing.status === "active") {
-        authResult = { tokenId: existing.tokenId, userId: existing.userId }
-      } else {
-        this.rejectCommunityMachine(server, "token revoked/expired")
-        return new Response(null, { status: 101, webSocket: client })
-      }
+      auth = await queries.communityMachine.findActiveCredentialByBearer(db, credentialId)
     } catch (err) {
       log.warn("community machine auth lookup failed", { err: String(err) })
-      this.rejectCommunityMachine(server, "auth lookup failed")
+    }
+    if (!auth) {
+      this.rejectCommunityMachine(server, "credential revoked or unknown")
       return new Response(null, { status: 101, webSocket: client })
     }
 
     server.serializeAttachment({
       type: "community-machine",
-      tokenId: authResult.tokenId,
-      userId: authResult.userId,
+      credentialId: auth.credentialId,
+      machineId: auth.machineId,
+      userId: auth.userId,
       authenticated: true,
     } as ConnectionState)
 
-    // Note: do NOT setWebSocketAutoResponse — the new daemon uses WS-protocol
-    // pings, which CF runtime answers transparently. Auto-response is only for
-    // text-frame "ping"/"pong" used by the legacy CLI daemon path.
+    // Note: do NOT setWebSocketAutoResponse — the daemon uses WS-protocol
+    // pings, which CF runtime answers transparently.
 
     // Schedule heartbeat alarm for last_seen_at refresh.
     await this.scheduleHeartbeatAlarm()
@@ -307,16 +351,12 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       }
     }
     if (state?.type === "community-machine" && state.authenticated) {
-      log.info("community machine websocket closed", { tokenId: state.tokenId, userId: state.userId })
+      log.info("community machine websocket closed", { machineId: state.machineId, userId: state.userId })
       // Update last_seen_at on close (best-effort) so the alarm path can
       // compute "stale enough to declare offline" against a real timestamp.
       try {
         const db = createDb(this.env.DB)
-        await queries.communityMachine.touchMachineHeartbeat(
-          db,
-          state.userId,
-          queries.communityMachine.machineUuidFromTokenId(state.tokenId)
-        )
+        await queries.communityMachine.touchMachineHeartbeat(db, state.userId, state.machineId)
       } catch { /* ok */ }
       // Arm an offline-detection alarm exactly OFFLINE_THRESHOLD_MS out.
       // Overwrite any earlier (heartbeat) alarm — once the WS closes, the
@@ -339,11 +379,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         const s = ws.deserializeAttachment() as ConnectionState
         if (s?.type === "community-machine" && s.authenticated) {
           try {
-            await queries.communityMachine.touchMachineHeartbeat(
-              db,
-              s.userId,
-              queries.communityMachine.machineUuidFromTokenId(s.tokenId)
-            )
+            await queries.communityMachine.touchMachineHeartbeat(db, s.userId, s.machineId)
           } catch { /* ok */ }
         }
       }
@@ -354,7 +390,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     // No live community-machine WS — emit offline events for any of OUR
     // matching machine rows whose last_seen_at is stale; otherwise reschedule
     // a wakeup at the exact moment the row becomes stale.
-    const stored = await this.ctx.storage.get<{ tokenId: string; userId: string; machineId: string }>(
+    const stored = await this.ctx.storage.get<{ credentialId: string; userId: string; machineId: string }>(
       "community-machine-handle"
     )
     if (!stored) return
@@ -386,7 +422,13 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   }
 
   private async handleCommunityMachineMessage(
-    state: { type: "community-machine"; tokenId: string; userId: string; authenticated: boolean },
+    state: {
+      type: "community-machine"
+      credentialId: string
+      machineId: string
+      userId: string
+      authenticated: boolean
+    },
     parsed: unknown
   ): Promise<void> {
     const msg = parsed as { type?: string; ready?: Record<string, unknown> }
@@ -397,31 +439,50 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     const arch = typeof ready.arch === "string" ? ready.arch : ""
     const daemonVersion = typeof ready.daemonVersion === "string" ? ready.daemonVersion : ""
     const osRelease = typeof ready.osRelease === "string" ? ready.osRelease : ""
+    const availableRuntimes = parseRuntimes(ready)
 
     const db = createDb(this.env.DB)
-    const { machine, priorLastSeenAt } = await queries.communityMachine.upsertMachineForUser(
+    const result = await queries.communityMachine.upsertMachineByMachineId(
       db,
       state.userId,
-      state.tokenId,
-      { hostname, platform, arch, daemonVersion, osRelease }
+      state.machineId,
+      { hostname, platform, arch, daemonVersion, osRelease, availableRuntimes }
     )
-    await queries.communityMachine.touchTokenLastUsed(db, state.tokenId)
+    if (!result) {
+      // The machine row was deleted (or race) between credential validation
+      // and this update — bail. The row will not be re-created here; the
+      // daemon will be evicted on the next credential lookup via cascade.
+      log.warn("community machine row missing on ready", { machineId: state.machineId })
+      return
+    }
+    const { machine, priorLastSeenAt, priorAvailableRuntimes } = result
 
     const summary = queries.communityMachine.toSummary(machine)
     // Persist a small handle so alarm() (which has no WS to read state from)
     // can find the right machine row.
     await this.ctx.storage.put("community-machine-handle", {
-      tokenId: state.tokenId,
+      credentialId: state.credentialId,
       userId: state.userId,
       machineId: machine.id,
     })
 
-    // First-time pair: broadcast created. Reconnect from stale: online transition.
-    if (!priorLastSeenAt) {
+    // NOTE: `community:machine.created` is emitted by the /activate route,
+    // not here — activation is the single source of the create event and
+    // carries the pairing token the client needs to reconcile its pending
+    // state. Here we only handle status transitions and runtime drift.
+    //
+    // First-pair /activate inserts with `lastSeenAt: null` (so the created
+    // event shows status:"offline" until the WS lands). The first `ready`
+    // frame therefore has `priorLastSeenAt === null` — treat that as
+    // "was offline" so the online transition fires. Runtime drift is
+    // skipped on the first-ready path because `machine.created` already
+    // carried the runtime list.
+    if (priorLastSeenAt === null) {
       await this.notifyUserDO(state.userId, {
-        type: "community:machine.created",
-        machine: summary,
-        tokenId: state.tokenId,
+        type: "community:machine.status",
+        machineId: machine.id,
+        status: "online",
+        lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
       }).catch(() => {})
     } else {
       const priorMs = Date.parse(priorLastSeenAt)
@@ -434,6 +495,15 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           machineId: machine.id,
           status: "online",
           lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
+        }).catch(() => {})
+      }
+
+      const priorCanonical = canonicalRuntimes(priorAvailableRuntimes ?? [])
+      const nextCanonical = canonicalRuntimes(availableRuntimes)
+      if (priorCanonical !== nextCanonical) {
+        await this.notifyUserDO(state.userId, {
+          type: "community:machine.updated",
+          machine: summary,
         }).catch(() => {})
       }
     }

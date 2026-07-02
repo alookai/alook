@@ -41,8 +41,19 @@ export interface WsControlChannelOpts {
   /** Auth headers (e.g. Authorization, X-Agent-Id) — host-supplied. */
   headers?: Record<string, string>;
   webSocketFactory: WebSocketFactory;
-  /** Backoff schedule. */
-  reconnect?: { baseMs?: number; maxMs?: number; maxAttempts?: number };
+  /**
+   * Backoff schedule. `authFailStreakThreshold` treats N consecutive HTTP-401
+   * upgrade failures as an implicit `AUTH_REJECTED` — used when the server
+   * has revoked the credential while the daemon was disconnected (so no
+   * frame can reach the daemon over a socket that never opens). Defaults
+   * to 3.
+   */
+  reconnect?: {
+    baseMs?: number;
+    maxMs?: number;
+    maxAttempts?: number;
+    authFailStreakThreshold?: number;
+  };
   /** Heartbeat: ping every `pingIntervalMs`, declare dead after `pongTimeoutMs`. */
   heartbeat?: { pingIntervalMs?: number; pongTimeoutMs?: number };
   /** Called when the server explicitly rejects our machine key — no reconnect will follow. */
@@ -68,6 +79,21 @@ export class WsControlChannel implements HostControlChannel {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pongDeadline = 0;
   private resyncProvider: ResyncProvider | null = null;
+  /**
+   * Consecutive HTTP-401 upgrade failures. Reset by any `open` event. When
+   * the count reaches `reconnect.authFailStreakThreshold`, we treat it as
+   * an implicit `AUTH_REJECTED` — the server revoked our credential while
+   * we were disconnected, so retrying is pointless.
+   */
+  private authFailStreak = 0;
+  /**
+   * HTTP status observed on the currently-connecting socket via the
+   * `unexpected-response` event, if any. Consumed and cleared inside
+   * `onSocketClosed`.
+   */
+  private lastUpgradeStatus: number | null = null;
+  /** True once the socket emitted `open`. Reset on each `openSocket`. */
+  private sawOpen = false;
   /**
    * Acks enqueued before the socket is open. Acks (not ready/session) are the
    * only frames worth buffering across a brief gap — ready/session are instead
@@ -155,10 +181,14 @@ export class WsControlChannel implements HostControlChannel {
 
   private openSocket(): void {
     this.statusValue = this.attempt === 0 ? "connecting" : "reconnecting";
+    this.sawOpen = false;
+    this.lastUpgradeStatus = null;
     const ws = this.opts.webSocketFactory(this.opts.url, this.opts.headers ?? {});
     this.ws = ws;
 
     ws.on("open", () => {
+      this.sawOpen = true;
+      this.authFailStreak = 0;
       this.statusValue = "open";
       this.startHeartbeat();
       this.resyncOnConnect();
@@ -167,6 +197,15 @@ export class WsControlChannel implements HostControlChannel {
     ws.on("pong", () => {
       this.attempt = 0;
       this.pongDeadline = this.now() + (this.opts.heartbeat?.pongTimeoutMs ?? 30_000);
+    });
+    // The `ws` npm package fires `unexpected-response` when the HTTP upgrade
+    // handshake returns a non-101 status. Capture the status so we can tell
+    // 401-revoked-credential apart from network failures in `onSocketClosed`.
+    ws.on("unexpected-response", (_req: unknown, res: unknown) => {
+      const status = (res as { statusCode?: number })?.statusCode;
+      if (typeof status === "number") {
+        this.lastUpgradeStatus = status;
+      }
     });
     ws.on("close", () => this.onSocketClosed());
     // Errors surface via the socket's own close; a host factory may also log.
@@ -203,6 +242,19 @@ export class WsControlChannel implements HostControlChannel {
       this.statusValue = "closed";
       return;
     }
+    // Detect "server revoked our credential while we were disconnected".
+    // A 401 on the HTTP upgrade means the current cmk_ is no longer good.
+    // After N in a row we treat it as if AUTH_REJECTED came over a frame.
+    if (!this.sawOpen && this.lastUpgradeStatus === 401) {
+      this.authFailStreak += 1;
+      const threshold = this.opts.reconnect?.authFailStreakThreshold ?? 3;
+      if (this.authFailStreak >= threshold) {
+        this.authRejected = true;
+        this.statusValue = "closed";
+        this.opts.onAuthRejected?.();
+        return;
+      }
+    }
     this.scheduleReconnect();
   }
 
@@ -217,8 +269,11 @@ export class WsControlChannel implements HostControlChannel {
     this.attempt += 1;
     const delayMs = Math.min(max, base * 2 ** (this.attempt - 1));
     this.statusValue = "reconnecting";
-    const t = setTimeout(() => this.openSocket(), delayMs);
-    t.unref?.();
+    // NOTE: do NOT `t.unref()` — this timer is what keeps the daemon alive
+    // while it's waiting to reconnect. Unrefing it here caused the daemon
+    // to silently exit(0) when the server dropped the socket (no other
+    // refed handles once the WS handle was gone).
+    setTimeout(() => this.openSocket(), delayMs);
   }
 
   private startHeartbeat(): void {

@@ -332,6 +332,14 @@ export type CommunityPresenceUpdate = {
 
 // ── Machine events ────────────────────────────────────────────────────────────
 
+/**
+ * One CLI runtime detected on a community-paired machine.
+ * Canonical schema + type live in `./schemas.ts`; re-exported here for
+ * historical import paths.
+ */
+export type { CommunityMachineRuntime } from "./schemas"
+import type { CommunityMachineRuntime } from "./schemas"
+
 export type CommunityMachineSummary = {
   id: string
   hostname: string
@@ -342,6 +350,18 @@ export type CommunityMachineSummary = {
   daemonVersion: string
   lastSeenAt: string | null
   status: "online" | "offline"
+  /** Agent CLIs detected on the host — always present, possibly empty. */
+  availableRuntimes: CommunityMachineRuntime[]
+  /**
+   * Last runtime error reported by the daemon. Optional overlay; undefined
+   * means "no known error." Optimistically cleared when the DO forwards a
+   * subsequent `agent:start` frame to the daemon.
+   */
+  lastRuntimeError?: {
+    requested: string
+    available: string[]
+    at: string
+  }
   createdAt: string
   updatedAt: string
 }
@@ -357,6 +377,11 @@ export type CommunityMachineStatus = {
   machineId: string
   status: "online" | "offline"
   lastSeenAt: string
+}
+
+export type CommunityMachineUpdated = {
+  type: "community:machine.updated"
+  machine: CommunityMachineSummary
 }
 
 export type CommunityMachineRemoved = {
@@ -400,6 +425,7 @@ export type CommunityWsEvent =
   | CommunityMentionCreate
   | CommunityMachineCreated
   | CommunityMachineStatus
+  | CommunityMachineUpdated
   | CommunityMachineRemoved
 
 /** Type guard: is this a community WS event? */

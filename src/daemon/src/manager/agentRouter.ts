@@ -24,6 +24,8 @@ export interface AgentRouterOpts {
   channel: HostControlChannel;
   /** Runtime ids this host can launch (reported in the ready handshake). */
   runtimes: string[];
+  /** Rich runtime descriptors (id + version). When provided, included in the ready frame. */
+  runtimeReport?: Array<{ id: string; version?: string }>;
   hostname?: string;
   os?: string;
   arch?: string;
@@ -63,7 +65,7 @@ export class AgentRouter {
   }
 
   private buildReady(): HostReady {
-    return {
+    const ready: HostReady = {
       runtimes: this.opts.runtimes,
       runningAgents: [...this.running],
       hostname: this.opts.hostname,
@@ -72,6 +74,10 @@ export class AgentRouter {
       osRelease: this.opts.osRelease,
       daemonVersion: this.opts.daemonVersion,
     };
+    if (this.opts.runtimeReport !== undefined) {
+      ready.runtimeReport = this.opts.runtimeReport;
+    }
+    return ready;
   }
 
   private async onCommand(cmd: HostCommand): Promise<void> {

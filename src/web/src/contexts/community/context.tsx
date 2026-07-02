@@ -55,7 +55,7 @@ import type {
   MentionType,
 } from "@alook/shared"
 import { isServerOwner, TYPING_INDICATOR_TIMEOUT_MS } from "@alook/shared"
-import type { CommunityMachineSummary, CommunityMachineCreated, CommunityMachineStatus, CommunityMachineRemoved } from "@alook/shared"
+import type { CommunityMachineSummary, CommunityMachineCreated, CommunityMachineStatus, CommunityMachineUpdated, CommunityMachineRemoved } from "@alook/shared"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -784,7 +784,7 @@ export function CommunityProvider({
       fetchMentions()
       fetchForYou()
     }, [fetchMentions, fetchForYou]),
-    onMachine: useCallback((event: CommunityMachineCreated | CommunityMachineStatus | CommunityMachineRemoved) => {
+    onMachine: useCallback((event: CommunityMachineCreated | CommunityMachineStatus | CommunityMachineUpdated | CommunityMachineRemoved) => {
       if (event.type === "community:machine.created") {
         setMachines((prev) => {
           const idx = prev.findIndex((m) => m.id === event.machine.id)
@@ -804,6 +804,16 @@ export function CommunityProvider({
               : m
           )
         )
+        return
+      }
+      if (event.type === "community:machine.updated") {
+        setMachines((prev) => {
+          const idx = prev.findIndex((m) => m.id === event.machine.id)
+          if (idx === -1) return [event.machine, ...prev]
+          const next = prev.slice()
+          next[idx] = event.machine
+          return next
+        })
         return
       }
       if (event.type === "community:machine.removed") {

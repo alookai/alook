@@ -12,6 +12,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu"
 import { timeAgo } from "@/lib/time"
+import { MachineRuntimes } from "./machine-runtimes"
 
 export function MachineCard({
   machine,
@@ -60,6 +61,7 @@ export function MachineCard({
               {[machine.platform, machine.arch].filter(Boolean).join(" · ")}
               {machine.daemonVersion ? ` · v${machine.daemonVersion}` : ""}
             </span>
+            <MachineRuntimes runtimes={machine.availableRuntimes ?? []} />
             <Tooltip>
               <TooltipTrigger
                 render={

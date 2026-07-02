@@ -37,7 +37,7 @@ export type ModeConfig = { kind: "default" | "fast" };
 
 export interface RuntimeConfig {
   version: number;
-  /** "claude" | "codex" | "gemini" | "kimi" | "kimi-sdk" | "pi" | "copilot" | "cursor" | "opencode" | "antigravity" | "mock" */
+  /** "claude" | "codex" | "gemini" | "kimi" | "pi" | "copilot" | "cursor" | "opencode" | "antigravity" | "mock" */
   runtime: string;
   model: ModelConfig;
   mode: ModeConfig;

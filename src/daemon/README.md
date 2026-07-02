@@ -42,7 +42,7 @@ the daemon:
 
 - `ChildProcessRuntimeSession` (`src/runtime/runtimeSession.ts`) for CLI runtimes.
 - `SdkRuntimeSession` (`src/runtime/sdkRuntimeSession.ts`) for in-process SDK
-  runtimes (kimi-sdk, pi).
+  runtimes (pi).
 
 Because everything downstream consumes the same `ParsedEvent` stream and the
 same `Driver` capability flags, the rest of the daemon is transport-agnostic.
@@ -53,11 +53,11 @@ same `Driver` capability flags, the rest of the daemon is transport-agnostic.
 
 When a message arrives, what happens depends on the runtime's lifecycle:
 
-### Persistent runtimes (claude, codex, kimi, kimi-sdk, pi)
+### Persistent runtimes (claude, codex, kimi, pi)
 One long-lived process spans many turns. A new message is **written onto the
 still-open input channel** — no restart. This is "steering."
 
-- **`direct`** (codex, kimi, kimi-sdk, pi): write immediately; the runtime
+- **`direct`** (codex, kimi, pi): write immediately; the runtime
   tolerates injection any time.
 - **`gated`** (claude): a raw write mid-stream could collide with an active
   signed thinking block, so writes are **held until a safe boundary**. Two state
@@ -92,8 +92,7 @@ concrete message and terminates the process on turn end.
 |---|---|---|---|---|---|
 | **claude** | persistent | child process, stream-json NDJSON | `gated` | `{type:"user",…}` line on stdin | stream-json |
 | **codex** | persistent | child process, JSON-RPC 2.0 (`app-server --listen stdio://`) | `direct` (`turn/steer`) | `initialize` → `thread/start`/`resume` | JSON-RPC notifications |
-| **kimi** (legacy) | persistent | child process, JSON-RPC "wire" | `direct` (`steer`) | `initialize` → `prompt` | JSON-RPC events |
-| **kimi-sdk** | persistent | in-process SDK (`@botiverse/kimi-code-sdk`) | `direct` | `session.prompt()` | SDK event callback |
+| **kimi** | persistent | child process, JSON-RPC "wire" | `direct` (`steer`) | `initialize` → `prompt` | JSON-RPC events |
 | **pi** | persistent | in-process SDK (`@earendil-works/pi-coding-agent`), multi-provider | `direct` | `session.prompt()` | SDK event callback |
 | **gemini** | per-turn | child process, stream-json | none | prompt on stdin, then close | stream-json |
 | **copilot** | per-turn | child process, JSON | none | prompt as `-p` arg | JSON events |
@@ -122,8 +121,7 @@ src/
     claudeEventNormalizer.ts     #   stream-json → ParsedEvent
     codex.ts / codexEventNormalizer.ts / codexTelemetrySidecar.ts
     gemini.ts  copilot.ts  cursor.ts  opencode.ts  antigravity.ts
-    kimi.ts                      # legacy child-process Kimi
-    kimiSdk.ts                   # in-process Kimi SDK
+    kimi.ts                      # child-process Kimi (JSON-RPC wire)
     pi.ts                        # in-process Pi SDK (multi-provider)
   runtime/
     runtimeSession.ts            # ChildProcessRuntimeSession + descriptor

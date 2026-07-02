@@ -1,69 +1,125 @@
-import { and, eq, gt, desc } from "drizzle-orm";
+import { and, eq, gt, desc, isNull } from "drizzle-orm";
 import {
   communityMachineToken,
   communityMachine,
+  communityMachineCredential,
+  communityAgentRunnerKey,
 } from "../../community-machine-schema";
 import type { Database } from "../../index";
 import {
   COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
   COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS,
 } from "../../../constants";
-import type { CommunityMachineSummary } from "../../../community-ws-events";
+import type {
+  CommunityMachineRuntime,
+  CommunityMachineSummary,
+} from "../../../community-ws-events";
+import { isUniqueConstraintError } from "../../../utils/db-errors";
 
 // ---------------------------------------------------------------------------
-// Token <-> machine_uuid derivation
-//   token id   :  "cmt_<nanoid>"
-//   machine_uuid: "cmu_<nanoid>"
+// Credential hashing
 // ---------------------------------------------------------------------------
 
-const TOKEN_PREFIX = "cmt_";
-const MACHINE_UUID_PREFIX = "cmu_";
+const CREDENTIAL_PREFIX = "cmk_";
+const RUNNER_KEY_PREFIX = "crk_";
 
-export function machineUuidFromTokenId(tokenId: string): string {
-  if (!tokenId.startsWith(TOKEN_PREFIX)) {
-    throw new Error(`expected ${TOKEN_PREFIX} prefix on token id: ${tokenId}`);
-  }
-  return MACHINE_UUID_PREFIX + tokenId.slice(TOKEN_PREFIX.length);
+/**
+ * SHA-256 of the bearer, returned as lowercase hex (64 chars).
+ *
+ * The server stores this hash and never the plaintext bearer; the plaintext
+ * only exists on the wire (Authorization header) and on the daemon's local
+ * disk (credential.json). No KDF: the bearer is nanoid(32) ≈ 190 bits of
+ * entropy, so a hash suffices for lookup — brute-force resistance from the
+ * bearer itself.
+ */
+export async function hashCredential(bearer: string): Promise<string> {
+  const bytes = new TextEncoder().encode(bearer);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const arr = Array.from(new Uint8Array(digest));
+  return arr.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export function tokenIdFromMachineUuid(machineUuid: string): string {
-  if (!machineUuid.startsWith(MACHINE_UUID_PREFIX)) {
-    throw new Error(`expected ${MACHINE_UUID_PREFIX} prefix on machine_uuid: ${machineUuid}`);
-  }
-  return TOKEN_PREFIX + machineUuid.slice(MACHINE_UUID_PREFIX.length);
+/**
+ * DO name suffix (first 32 hex chars of the credential hash = 128 bits).
+ * Router uses this to name the Durable Object without a D1 lookup; the DO
+ * still validates the full 64-hex hash on first accept.
+ */
+export function doNameFromHash(hash: string): string {
+  return hash.slice(0, 32);
 }
 
 // ---------------------------------------------------------------------------
 // Token helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Mint a fresh pending pairing token for a user (first pair) or bind it to
+ * an existing machine (reconnect). Fails if the user already has a pending
+ * token — the partial unique index enforces the invariant at the DB level,
+ * so surface it as a `PendingTokenAlreadyExistsError` to the caller.
+ *
+ * `machineId` — when set, /activate will treat this as a reconnect and reuse
+ * the existing machine row. When null, /activate creates a fresh row.
+ */
 export async function createPairingToken(
   db: Database,
-  userId: string
+  userId: string,
+  opts: { machineId?: string | null } = {}
 ): Promise<{ tokenId: string; expiresAt: string }> {
-  // Auto-revoke any prior pending tokens for the same user — keeps one active
-  // pending row at a time and prevents orphaned-pending accumulation.
-  await db
-    .update(communityMachineToken)
-    .set({ status: "revoked" })
+  const expiresAt = new Date(Date.now() + COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS).toISOString();
+  try {
+    const rows = await db
+      .insert(communityMachineToken)
+      .values({
+        userId,
+        machineId: opts.machineId ?? null,
+        status: "pending",
+        expiresAt,
+      })
+      .returning();
+    const row = rows[0]!;
+    return { tokenId: row.id, expiresAt: row.expiresAt };
+  } catch (err) {
+    if (isUniqueConstraintError(err)) {
+      throw new PendingTokenAlreadyExistsError();
+    }
+    throw err;
+  }
+}
+
+/**
+ * Reconnect flow — mint a new pending token bound to an existing machine
+ * so /activate reuses the machine row instead of creating a new one.
+ *
+ * Preconditions: caller must have already verified the machine belongs to
+ * the user; this function checks again to fail closed.
+ */
+export async function createReconnectPairingToken(
+  db: Database,
+  userId: string,
+  machineId: string
+): Promise<{ tokenId: string; expiresAt: string }> {
+  const owned = await db
+    .select({ id: communityMachine.id })
+    .from(communityMachine)
     .where(
       and(
-        eq(communityMachineToken.userId, userId),
-        eq(communityMachineToken.status, "pending")
+        eq(communityMachine.userId, userId),
+        eq(communityMachine.id, machineId)
       )
-    );
+    )
+    .limit(1);
+  if (owned.length === 0) {
+    throw new Error("createReconnectPairingToken: machine not owned by user");
+  }
+  return createPairingToken(db, userId, { machineId });
+}
 
-  const expiresAt = new Date(Date.now() + COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS).toISOString();
-  const rows = await db
-    .insert(communityMachineToken)
-    .values({
-      userId,
-      status: "pending",
-      expiresAt,
-    })
-    .returning();
-  const row = rows[0]!;
-  return { tokenId: row.id, expiresAt: row.expiresAt };
+export class PendingTokenAlreadyExistsError extends Error {
+  constructor() {
+    super("A pending pairing token already exists for this user");
+    this.name = "PendingTokenAlreadyExistsError";
+  }
 }
 
 /**
@@ -116,6 +172,7 @@ export async function findTokenById(
 ): Promise<{
   tokenId: string;
   userId: string;
+  machineId: string | null;
   status: string;
   expiresAt: string;
 } | null> {
@@ -126,7 +183,13 @@ export async function findTokenById(
     .limit(1);
   if (rows.length === 0) return null;
   const r = rows[0]!;
-  return { tokenId: r.id, userId: r.userId, status: r.status, expiresAt: r.expiresAt };
+  return {
+    tokenId: r.id,
+    userId: r.userId,
+    machineId: r.machineId ?? null,
+    status: r.status,
+    expiresAt: r.expiresAt,
+  };
 }
 
 export async function touchTokenLastUsed(
@@ -146,52 +209,6 @@ export async function revokeToken(db: Database, tokenId: string): Promise<void> 
     .where(eq(communityMachineToken.id, tokenId));
 }
 
-/**
- * Mint a fresh pending pairing token for an existing machine row and rotate
- * the row's machine_uuid to match. The old token is revoked. Used by the
- * reconnect flow: the daemon re-pairs with the new token and ends up bound to
- * the same machine record (preserving hostname/platform history).
- */
-export async function rotatePairingTokenForMachine(
-  db: Database,
-  userId: string,
-  machineId: string
-): Promise<{ tokenId: string; expiresAt: string; oldTokenId: string } | null> {
-  const existing = await db
-    .select()
-    .from(communityMachine)
-    .where(
-      and(
-        eq(communityMachine.userId, userId),
-        eq(communityMachine.id, machineId)
-      )
-    )
-    .limit(1);
-  if (existing.length === 0) return null;
-  const prior = existing[0]!;
-  const oldTokenId = tokenIdFromMachineUuid(prior.machineUuid);
-
-  await db
-    .update(communityMachineToken)
-    .set({ status: "revoked" })
-    .where(eq(communityMachineToken.id, oldTokenId));
-
-  const expiresAt = new Date(Date.now() + COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS).toISOString();
-  const rows = await db
-    .insert(communityMachineToken)
-    .values({ userId, status: "pending", expiresAt })
-    .returning();
-  const newTokenId = rows[0]!.id;
-  const newMachineUuid = machineUuidFromTokenId(newTokenId);
-
-  await db
-    .update(communityMachine)
-    .set({ machineUuid: newMachineUuid, updatedAt: new Date().toISOString() })
-    .where(eq(communityMachine.id, prior.id));
-
-  return { tokenId: newTokenId, expiresAt, oldTokenId };
-}
-
 // ---------------------------------------------------------------------------
 // Machine helpers
 // ---------------------------------------------------------------------------
@@ -203,12 +220,13 @@ export interface MachineMetadataInput {
   osRelease?: string;
   daemonVersion?: string;
   metadata?: string | null;
+  /** Agent CLIs detected on the host. Pass `undefined` to leave unchanged. */
+  availableRuntimes?: CommunityMachineRuntime[];
 }
 
 export interface MachineRow {
   id: string;
   userId: string;
-  machineUuid: string;
   displayName: string;
   hostname: string;
   platform: string;
@@ -216,55 +234,42 @@ export interface MachineRow {
   osRelease: string;
   daemonVersion: string;
   metadata: string | null;
+  availableRuntimes: CommunityMachineRuntime[];
   lastSeenAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export async function upsertMachineForUser(
+/**
+ * Upsert-by-machine-id — the runtime path used by every `ready` frame and
+ * every /activate reconnect. First-pair /activate calls `insertMachineRow`
+ * instead (below) so the machine.id is minted by the insert.
+ */
+export async function upsertMachineByMachineId(
   db: Database,
   userId: string,
-  tokenId: string,
+  machineId: string,
   meta: MachineMetadataInput
-): Promise<{ machine: MachineRow; priorLastSeenAt: string | null }> {
-  const machineUuid = machineUuidFromTokenId(tokenId);
-  const nowIso = new Date().toISOString();
+): Promise<{
+  machine: MachineRow;
+  priorLastSeenAt: string | null;
+  priorAvailableRuntimes: CommunityMachineRuntime[];
+} | null> {
   const existing = await db
     .select()
     .from(communityMachine)
     .where(
       and(
         eq(communityMachine.userId, userId),
-        eq(communityMachine.machineUuid, machineUuid)
+        eq(communityMachine.id, machineId)
       )
     )
     .limit(1);
-
-  if (existing.length === 0) {
-    const hostname = meta.hostname ?? "";
-    const rows = await db
-      .insert(communityMachine)
-      .values({
-        userId,
-        machineUuid,
-        displayName: hostname,
-        hostname,
-        platform: meta.platform ?? "",
-        arch: meta.arch ?? "",
-        osRelease: meta.osRelease ?? "",
-        daemonVersion: meta.daemonVersion ?? "",
-        metadata: meta.metadata ?? null,
-        lastSeenAt: nowIso,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      })
-      .returning();
-    return { machine: rows[0] as MachineRow, priorLastSeenAt: null };
-  }
+  if (existing.length === 0) return null;
 
   const prior = existing[0]!;
   const hostname = meta.hostname ?? prior.hostname;
-  // v1 has no rename path — display_name tracks hostname.
+  const nowIso = new Date().toISOString();
   const rows = await db
     .update(communityMachine)
     .set({
@@ -275,18 +280,64 @@ export async function upsertMachineForUser(
       osRelease: meta.osRelease ?? prior.osRelease,
       daemonVersion: meta.daemonVersion ?? prior.daemonVersion,
       metadata: meta.metadata !== undefined ? meta.metadata : prior.metadata,
+      availableRuntimes:
+        meta.availableRuntimes !== undefined
+          ? meta.availableRuntimes
+          : prior.availableRuntimes,
       lastSeenAt: nowIso,
       updatedAt: nowIso,
     })
     .where(eq(communityMachine.id, prior.id))
     .returning();
-  return { machine: rows[0] as MachineRow, priorLastSeenAt: prior.lastSeenAt };
+  return {
+    machine: rows[0] as MachineRow,
+    priorLastSeenAt: prior.lastSeenAt,
+    priorAvailableRuntimes: prior.availableRuntimes,
+  };
 }
 
+/**
+ * Insert a brand-new community_machine row and return it. Used by /activate
+ * when the pairing token isn't bound to an existing machine.
+ */
+async function insertMachineRow(
+  db: Database,
+  userId: string,
+  meta: MachineMetadataInput
+): Promise<MachineRow> {
+  const hostname = meta.hostname ?? "";
+  const nowIso = new Date().toISOString();
+  const rows = await db
+    .insert(communityMachine)
+    .values({
+      userId,
+      displayName: hostname,
+      hostname,
+      platform: meta.platform ?? "",
+      arch: meta.arch ?? "",
+      osRelease: meta.osRelease ?? "",
+      daemonVersion: meta.daemonVersion ?? "",
+      metadata: meta.metadata ?? null,
+      availableRuntimes: meta.availableRuntimes ?? [],
+      // `lastSeenAt` stays null until the daemon's WS `ready` frame lands.
+      // Setting it to `nowIso` here would flash a green "online" chip for
+      // ~90s even if the daemon dies between HTTP activate and WS connect.
+      lastSeenAt: null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    })
+    .returning();
+  return rows[0] as MachineRow;
+}
+
+/**
+ * Bump `last_seen_at` for a paired machine. Scopes by `machineId` (the
+ * primary key), matching the Bearer-credential dial path.
+ */
 export async function touchMachineHeartbeat(
   db: Database,
   userId: string,
-  machineUuid: string
+  machineId: string
 ): Promise<{ lastSeenAt: string; priorLastSeenAt: string | null } | null> {
   const existing = await db
     .select({ id: communityMachine.id, lastSeenAt: communityMachine.lastSeenAt })
@@ -294,7 +345,7 @@ export async function touchMachineHeartbeat(
     .where(
       and(
         eq(communityMachine.userId, userId),
-        eq(communityMachine.machineUuid, machineUuid)
+        eq(communityMachine.id, machineId)
       )
     )
     .limit(1);
@@ -307,6 +358,345 @@ export async function touchMachineHeartbeat(
     .where(eq(communityMachine.id, prior.id));
   return { lastSeenAt: nowIso, priorLastSeenAt: prior.lastSeenAt };
 }
+
+// ---------------------------------------------------------------------------
+// Credential helpers — long-lived `cmk_` tokens the daemon dials with.
+// ---------------------------------------------------------------------------
+
+export interface ActivateMachineCredentialResult {
+  credential: string;
+  machineId: string;
+  userId: string;
+}
+
+/**
+ * Atomically exchange a pending pairing token for a long-lived credential.
+ *
+ * D1 has no interactive transactions, so operations are ordered so a
+ * mid-way failure leaves recoverable state:
+ *   1. verify token is pending + unexpired.
+ *   2. atomically flip pending → revoked (racing activates get zero rows).
+ *   3. resolve the machine row: reconnect (token.machineId set) reuses the
+ *      existing row and revokes prior credentials; first-pair inserts a new
+ *      row.
+ *   4. insert a new community_machine_credential row, storing sha256(cmk_)
+ *      and its first-32-hex do_name prefix. The plaintext `cmk_` is
+ *      returned to the caller and never persisted.
+ *
+ * On any post-flip failure, the token is rolled back to `pending` so the
+ * user can retry without regenerating.
+ */
+export async function activateMachineCredential(
+  db: Database,
+  tokenId: string,
+  meta: MachineMetadataInput
+): Promise<ActivateMachineCredentialResult> {
+  const nowIso = new Date().toISOString();
+
+  const tokenRows = await db
+    .select({
+      id: communityMachineToken.id,
+      userId: communityMachineToken.userId,
+      machineId: communityMachineToken.machineId,
+      status: communityMachineToken.status,
+      expiresAt: communityMachineToken.expiresAt,
+    })
+    .from(communityMachineToken)
+    .where(eq(communityMachineToken.id, tokenId))
+    .limit(1);
+  if (tokenRows.length === 0) {
+    throw new ActivateCredentialError("unknown", "unknown token");
+  }
+  const tok = tokenRows[0]!;
+  if (tok.status === "revoked") {
+    throw new ActivateCredentialError("revoked", "token already revoked");
+  }
+  if (tok.status === "active") {
+    throw new ActivateCredentialError("already_active", "token already activated");
+  }
+  if (tok.expiresAt <= nowIso) {
+    throw new ActivateCredentialError("expired", "token expired");
+  }
+
+  const flipped = await db
+    .update(communityMachineToken)
+    .set({ status: "revoked", lastUsedAt: nowIso })
+    .where(
+      and(
+        eq(communityMachineToken.id, tokenId),
+        eq(communityMachineToken.status, "pending")
+      )
+    )
+    .returning({ id: communityMachineToken.id });
+  if (flipped.length === 0) {
+    throw new ActivateCredentialError("already_active", "token no longer claimable");
+  }
+
+  try {
+    let machine: MachineRow;
+    if (tok.machineId) {
+      const existing = await upsertMachineByMachineId(db, tok.userId, tok.machineId, meta);
+      if (!existing) {
+        // Machine was deleted between mint and activate. Don't roll the
+        // token back to `pending` — that would loop the daemon forever and
+        // the pending-token unique index blocks the user from minting a
+        // fresh pair token for 15 min. Leave it `revoked` and surface a
+        // terminal error so the user re-pairs from the UI.
+        throw new ReconnectMachineMissingError();
+      }
+      // Reconnect — revoke every prior credential for this machine so the old
+      // daemon dial fails on next upgrade. The new credential inserted below
+      // becomes the sole valid one.
+      await db
+        .update(communityMachineCredential)
+        .set({ revokedAt: nowIso })
+        .where(
+          and(
+            eq(communityMachineCredential.machineId, tok.machineId),
+            isNull(communityMachineCredential.revokedAt)
+          )
+        );
+      machine = existing.machine;
+    } else {
+      machine = await insertMachineRow(db, tok.userId, meta);
+    }
+
+    // Mint the plaintext bearer, hash it, store the row, return the plaintext.
+    const { nanoid } = await import("nanoid");
+    const bearer = CREDENTIAL_PREFIX + nanoid(32);
+    const credentialHash = await hashCredential(bearer);
+    const doName = doNameFromHash(credentialHash);
+    await db.insert(communityMachineCredential).values({
+      userId: tok.userId,
+      machineId: machine.id,
+      credentialHash,
+      doName,
+      createdAt: nowIso,
+    });
+
+    return { credential: bearer, machineId: machine.id, userId: tok.userId };
+  } catch (err) {
+    // Terminal errors (machine deleted mid-reconnect) leave the token
+    // revoked so the user can mint a new one immediately. Everything else
+    // rolls the token back to `pending` so the caller can retry.
+    if (err instanceof ReconnectMachineMissingError) {
+      throw new ActivateCredentialError("unknown", err.message);
+    }
+    await db
+      .update(communityMachineToken)
+      .set({ status: "pending", lastUsedAt: null })
+      .where(eq(communityMachineToken.id, tokenId));
+    throw err;
+  }
+}
+
+class ReconnectMachineMissingError extends Error {
+  constructor() {
+    super("reconnect token references missing machine");
+    this.name = "ReconnectMachineMissingError";
+  }
+}
+
+export type ActivateCredentialErrorKind =
+  | "unknown"
+  | "expired"
+  | "revoked"
+  | "already_active";
+
+export class ActivateCredentialError extends Error {
+  constructor(public readonly kind: ActivateCredentialErrorKind, message: string) {
+    super(message);
+    this.name = "ActivateCredentialError";
+  }
+}
+
+/**
+ * Look up a credential by its sha256 hash (full 64 hex chars). Returns
+ * null if unknown or revoked. Bumps `last_used_at` on hit (best-effort).
+ */
+export async function findCredentialByHash(
+  db: Database,
+  hash: string
+): Promise<{
+  credentialId: string;
+  userId: string;
+  machineId: string;
+  credentialHash: string;
+  doName: string;
+} | null> {
+  const rows = await db
+    .select({
+      id: communityMachineCredential.id,
+      userId: communityMachineCredential.userId,
+      machineId: communityMachineCredential.machineId,
+      credentialHash: communityMachineCredential.credentialHash,
+      doName: communityMachineCredential.doName,
+    })
+    .from(communityMachineCredential)
+    .where(
+      and(
+        eq(communityMachineCredential.credentialHash, hash),
+        isNull(communityMachineCredential.revokedAt)
+      )
+    )
+    .limit(1);
+  if (rows.length === 0) return null;
+  const nowIso = new Date().toISOString();
+  await db
+    .update(communityMachineCredential)
+    .set({ lastUsedAt: nowIso })
+    .where(eq(communityMachineCredential.id, rows[0]!.id));
+  return {
+    credentialId: rows[0]!.id,
+    userId: rows[0]!.userId,
+    machineId: rows[0]!.machineId,
+    credentialHash: rows[0]!.credentialHash,
+    doName: rows[0]!.doName,
+  };
+}
+
+/**
+ * Convenience: verify a plaintext bearer by hashing it and looking up.
+ * Callers should prefer `findCredentialByHash` when the hash is already
+ * on hand (router path).
+ */
+export async function findActiveCredentialByBearer(
+  db: Database,
+  bearer: string
+): Promise<{
+  credentialId: string;
+  userId: string;
+  machineId: string;
+  credentialHash: string;
+  doName: string;
+} | null> {
+  if (!bearer.startsWith(CREDENTIAL_PREFIX)) return null;
+  const hash = await hashCredential(bearer);
+  return findCredentialByHash(db, hash);
+}
+
+/** Soft-revoke a single credential by opaque id. */
+export async function revokeCredential(
+  db: Database,
+  credentialId: string
+): Promise<void> {
+  await db
+    .update(communityMachineCredential)
+    .set({ revokedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(communityMachineCredential.id, credentialId),
+        isNull(communityMachineCredential.revokedAt)
+      )
+    );
+}
+
+/**
+ * Soft-revoke every active credential for a machine. The DO is keyed by
+ * `machineId` now, so the caller can force-close by machineId alone —
+ * no need to return per-credential DO names.
+ */
+export async function revokeCredentialsForMachine(
+  db: Database,
+  userId: string,
+  machineId: string
+): Promise<void> {
+  await db
+    .update(communityMachineCredential)
+    .set({ revokedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(communityMachineCredential.userId, userId),
+        eq(communityMachineCredential.machineId, machineId),
+        isNull(communityMachineCredential.revokedAt)
+      )
+    );
+}
+
+/**
+ * Mint a per-agent runner key.
+ *
+ * Idempotency caveat: because the server only stores sha256(bearer), a
+ * prior plaintext bearer for (machineId, agentId) can't be handed back on
+ * a repeat call. Instead this function hard-deletes any prior row for the
+ * scope and inserts a fresh bearer — so each call yields a usable
+ * plaintext. Callers that had a stale bearer cached will need to re-cache.
+ */
+export async function mintAgentRunnerKey(
+  db: Database,
+  { userId, machineId, agentId }: { userId: string; machineId: string; agentId: string }
+): Promise<{ runnerKey: string; existed: boolean }> {
+  const existing = await db
+    .select({ id: communityAgentRunnerKey.id })
+    .from(communityAgentRunnerKey)
+    .where(
+      and(
+        eq(communityAgentRunnerKey.machineId, machineId),
+        eq(communityAgentRunnerKey.agentId, agentId),
+        isNull(communityAgentRunnerKey.revokedAt)
+      )
+    )
+    .limit(1);
+  if (existing.length > 0) {
+    // Row exists but plaintext is unrecoverable — hard-delete so we can
+    // insert a fresh bearer without hitting the UNIQUE do_name index.
+    // No audit loss worth preserving: runner keys are ephemeral in v1 and
+    // scoped to (machineId, agentId).
+    await db
+      .delete(communityAgentRunnerKey)
+      .where(eq(communityAgentRunnerKey.id, existing[0]!.id));
+  }
+
+  const { nanoid } = await import("nanoid");
+  const bearer = RUNNER_KEY_PREFIX + nanoid(32);
+  const runnerKeyHash = await hashCredential(bearer);
+  const doName = doNameFromHash(runnerKeyHash);
+  await db.insert(communityAgentRunnerKey).values({
+    userId,
+    machineId,
+    agentId,
+    runnerKeyHash,
+    doName,
+    createdAt: new Date().toISOString(),
+  });
+  return { runnerKey: bearer, existed: existing.length > 0 };
+}
+
+export async function findActiveAgentRunnerKeyByBearer(
+  db: Database,
+  bearer: string
+): Promise<{
+  userId: string;
+  machineId: string;
+  agentId: string;
+  runnerKeyHash: string;
+  doName: string;
+} | null> {
+  if (!bearer.startsWith(RUNNER_KEY_PREFIX)) return null;
+  const hash = await hashCredential(bearer);
+  const rows = await db
+    .select({
+      userId: communityAgentRunnerKey.userId,
+      machineId: communityAgentRunnerKey.machineId,
+      agentId: communityAgentRunnerKey.agentId,
+      runnerKeyHash: communityAgentRunnerKey.runnerKeyHash,
+      doName: communityAgentRunnerKey.doName,
+    })
+    .from(communityAgentRunnerKey)
+    .where(
+      and(
+        eq(communityAgentRunnerKey.runnerKeyHash, hash),
+        isNull(communityAgentRunnerKey.revokedAt)
+      )
+    )
+    .limit(1);
+  if (rows.length === 0) return null;
+  return rows[0]!;
+}
+
+// ---------------------------------------------------------------------------
+// Machine listing / delete
+// ---------------------------------------------------------------------------
 
 export async function getMachineByIdForUser(
   db: Database,
@@ -335,7 +725,7 @@ export async function listMachinesForUser(
     .from(communityMachine)
     .where(eq(communityMachine.userId, userId))
     .orderBy(desc(communityMachine.updatedAt));
-  return rows.map(toSummary);
+  return rows.map((r) => toSummary(r as MachineRow));
 }
 
 export async function deleteMachineForUser(
@@ -366,6 +756,7 @@ export function toSummary(row: MachineRow): CommunityMachineSummary {
     daemonVersion: row.daemonVersion,
     lastSeenAt: row.lastSeenAt,
     status: computeStatus(row.lastSeenAt),
+    availableRuntimes: row.availableRuntimes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

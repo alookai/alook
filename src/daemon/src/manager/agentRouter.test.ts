@@ -25,18 +25,21 @@ function fakeManager() {
 function fakeChannel() {
   let handler: ((c: HostCommand) => void | Promise<void>) | null = null;
   const acks: string[] = [];
+  const readys: Array<Parameters<HostControlChannel["reportReady"]>[0]> = [];
   const ch: HostControlChannel = {
     onCommand(cb) {
       handler = cb;
     },
-    async reportReady() {},
+    async reportReady(ready) {
+      readys.push(ready);
+    },
     async reportAgentSession() {},
     async reportDeliverAck(info) {
       acks.push(info.deliveryId);
     },
     onResync() {},
   };
-  return { ch, acks, fire: (c: HostCommand) => handler?.(c) };
+  return { ch, acks, readys, fire: (c: HostCommand) => handler?.(c) };
 }
 
 describe("AgentRouter — at-least-once dedup", () => {
@@ -72,5 +75,38 @@ describe("AgentRouter — at-least-once dedup", () => {
     });
     expect(delivers).toEqual([{ agentId: "a1", text: "wake" }]);
     expect(acks).toEqual(["dlv_w"]);
+  });
+});
+
+describe("AgentRouter — buildReady runtimeReport", () => {
+  it("emits runtimeReport when provided", async () => {
+    const { mgr } = fakeManager();
+    const { ch, readys } = fakeChannel();
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimes: ["claude", "codex"],
+      runtimeReport: [
+        { id: "claude", version: "1.0.42" },
+        { id: "codex", version: "0.8.1" },
+      ],
+    });
+    await router.start();
+    expect(readys[0]).toMatchObject({
+      runtimes: ["claude", "codex"],
+      runtimeReport: [
+        { id: "claude", version: "1.0.42" },
+        { id: "codex", version: "0.8.1" },
+      ],
+    });
+  });
+
+  it("omits runtimeReport when not provided", async () => {
+    const { mgr } = fakeManager();
+    const { ch, readys } = fakeChannel();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimes: ["claude"] });
+    await router.start();
+    expect(readys[0]).toMatchObject({ runtimes: ["claude"] });
+    expect("runtimeReport" in readys[0]).toBe(false);
   });
 });

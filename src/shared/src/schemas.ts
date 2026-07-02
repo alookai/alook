@@ -811,6 +811,41 @@ export type CreateThreadRequest = z.infer<typeof CreateThreadRequestSchema>;
 // Community machines
 // ---------------------------------------------------------------------------
 
+// Runtime id charset: alnum + `._@/-`. Length capped at 64 to match the
+// on-wire, on-disk, and DB expectations. Version optional, length-capped.
+export const COMMUNITY_RUNTIME_ID_MAX = 64;
+export const COMMUNITY_RUNTIME_VERSION_MAX = 64;
+export const COMMUNITY_RUNTIME_LIST_MAX = 64;
+const RUNTIME_ID_RE = /^[A-Za-z0-9._@/-]+$/;
+
+export const CommunityMachineRuntimeSchema = z.object({
+  id: z
+    .string()
+    .min(1)
+    .max(COMMUNITY_RUNTIME_ID_MAX)
+    .regex(RUNTIME_ID_RE, "invalid runtime id charset"),
+  version: z.string().max(COMMUNITY_RUNTIME_VERSION_MAX).optional(),
+});
+export type CommunityMachineRuntime = z.infer<typeof CommunityMachineRuntimeSchema>;
+
+/**
+ * List of runtimes, capped and deduped-by-id (first-wins). Callers should
+ * pass this through the transform to canonicalize wire input.
+ */
+export const CommunityMachineRuntimeListSchema = z
+  .array(CommunityMachineRuntimeSchema)
+  .max(COMMUNITY_RUNTIME_LIST_MAX)
+  .transform((list) => {
+    const seen = new Set<string>();
+    const out: z.infer<typeof CommunityMachineRuntimeSchema>[] = [];
+    for (const r of list) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push(r);
+    }
+    return out;
+  });
+
 export const CommunityMachineSummarySchema = z.object({
   id: z.string(),
   hostname: z.string(),
@@ -821,12 +856,47 @@ export const CommunityMachineSummarySchema = z.object({
   daemonVersion: z.string(),
   lastSeenAt: z.string().nullable(),
   status: z.enum(["online", "offline"]),
+  availableRuntimes: z.array(CommunityMachineRuntimeSchema).default([]),
+  /**
+   * Last runtime error reported by the daemon (optimistically cleared on
+   * subsequent `agent:start` forward). Optional so pre-error summaries
+   * omit the field entirely — undefined == "no known error."
+   */
+  lastRuntimeError: z
+    .object({
+      requested: z.string(),
+      available: z.array(z.string()),
+      at: z.string(),
+    })
+    .optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 
+/**
+ * `HostReady` message — the daemon's post-connect state dump. `runtimes`
+ * (the legacy string-only list) is intentionally rejected here; daemons
+ * must send `runtimeReport`. Old daemons are pushed off by the
+ * `MIN_CLI_VERSION` gate on the next reconnect.
+ */
+export const HostReadyMessageSchema = z.object({
+  type: z.literal("ready"),
+  runtimeReport: CommunityMachineRuntimeListSchema,
+  runningAgents: z.array(z.string()).default([]),
+  hostname: z.string().optional(),
+  platform: z.string().optional(),
+  arch: z.string().optional(),
+  osRelease: z.string().optional(),
+  daemonVersion: z.string().optional(),
+});
+export type HostReadyMessage = z.infer<typeof HostReadyMessageSchema>;
+
+/**
+ * Retained for the /activate HTTP body only — the daemon includes an
+ * optional runtime report in the initial activation request.
+ */
 export const CommunityDaemonReadySchema = z.object({
-  runtimes: z.array(z.string()).default([]),
+  runtimeReport: CommunityMachineRuntimeListSchema.optional(),
   runningAgents: z.array(z.string()).default([]),
   hostname: z.string().optional(),
   os: z.string().optional(),
@@ -836,8 +906,54 @@ export const CommunityDaemonReadySchema = z.object({
 });
 export type CommunityDaemonReady = z.infer<typeof CommunityDaemonReadySchema>;
 
+/**
+ * `session.error` frame — daemon → server. Currently used by the
+ * agent router when a runtime isn't available on the host.
+ */
+export const SessionErrorFrameSchema = z.object({
+  type: z.literal("session.error"),
+  code: z.enum(["runtime_not_available"]),
+  agentId: z.string().optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
+});
+export type SessionErrorFrame = z.infer<typeof SessionErrorFrameSchema>;
+
 export const CommunityPairTokenResponseSchema = z.object({
   tokenId: z.string(),
   expiresAt: z.string(),
 });
 export type CommunityPairTokenResponse = z.infer<typeof CommunityPairTokenResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Community daemon (Bearer machineKey) — activate + enroll-agent contracts
+// Both request/response shapes are shared source-of-truth between the daemon
+// (src/daemon/**) and the server (src/web/**). Keep in sync.
+// ---------------------------------------------------------------------------
+
+export const CommunityDaemonActivateRequestSchema = z.object({
+  hostname: z.string(),
+  platform: z.string(),
+  arch: z.string(),
+  osRelease: z.string().optional(),
+  daemonVersion: z.string().optional(),
+  runtimeReport: CommunityMachineRuntimeListSchema.optional(),
+});
+export type CommunityDaemonActivateRequest = z.infer<typeof CommunityDaemonActivateRequestSchema>;
+
+export const CommunityDaemonActivateResponseSchema = z.object({
+  credential: z.string(),
+  machineId: z.string(),
+  expiresAt: z.string().nullable(),
+});
+export type CommunityDaemonActivateResponse = z.infer<typeof CommunityDaemonActivateResponseSchema>;
+
+export const CommunityDaemonEnrollAgentRequestSchema = z.object({
+  agentId: z.string().min(1).max(128),
+});
+export type CommunityDaemonEnrollAgentRequest = z.infer<typeof CommunityDaemonEnrollAgentRequestSchema>;
+
+export const CommunityDaemonEnrollAgentResponseSchema = z.object({
+  runnerKey: z.string(),
+  expiresAt: z.string().nullable(),
+});
+export type CommunityDaemonEnrollAgentResponse = z.infer<typeof CommunityDaemonEnrollAgentResponseSchema>;

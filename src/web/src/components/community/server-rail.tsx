@@ -97,8 +97,8 @@ export const ServerRail = memo(function ServerRail({
             onClick={onHome}
             className="grid size-10 shrink-0 place-items-center rounded-[20px] transition-all duration-150 hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
-            <img src="/alook.svg" alt="Alook" className="size-8 dark:hidden" />
-            <img src="/alook-dark.svg" alt="Alook" className="hidden size-8 dark:block" />
+            <img src="/alook.svg" alt="Alook" draggable={false} className="size-8 select-none dark:hidden" />
+            <img src="/alook-dark.svg" alt="Alook" draggable={false} className="hidden size-8 select-none dark:block" />
           </button>
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={8}>Direct Messages</TooltipContent>

@@ -109,6 +109,27 @@ function GeminiLogo({ className }: { className: string }) {
   );
 }
 
+function AntigravityLogo({ className }: { className: string }) {
+  // Inverted-triangle "falling-up" arrow inside a soft ring — a single-color
+  // glyph that reads as "anti-gravity" without literal planetary kitsch.
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className={className}>
+      <path d="M8 1.25a6.75 6.75 0 1 0 0 13.5 6.75 6.75 0 0 0 0-13.5Zm0 1.5a5.25 5.25 0 1 1 0 10.5 5.25 5.25 0 0 1 0-10.5Z" />
+      <path d="M8 4.5a.75.75 0 0 1 .75.75v3.69l1.22-1.22a.75.75 0 1 1 1.06 1.06l-2.5 2.5a.75.75 0 0 1-1.06 0l-2.5-2.5a.75.75 0 1 1 1.06-1.06l1.22 1.22V5.25A.75.75 0 0 1 8 4.5Z" transform="rotate(180 8 8)" />
+    </svg>
+  );
+}
+
+function KimiLogo({ className }: { className: string }) {
+  // A simple "K" mark — single-color glyph for the Kimi runtime.
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className={className}>
+      <path d="M3.25 2.25a.75.75 0 0 1 .75.75v4.16l4.61-4.69a.75.75 0 0 1 1.07 1.05L6.05 7.21l3.95 5.39a.75.75 0 1 1-1.21.89L5.18 8.5 4 9.7V13a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75Z" />
+      <circle cx="12.5" cy="3.5" r="1" />
+    </svg>
+  );
+}
+
 export function ProviderLogo({
   provider,
   className = "h-4 w-4",
@@ -135,6 +156,10 @@ export function ProviderLogo({
       return <CursorLogo className={className} />;
     case "gemini":
       return <GeminiLogo className={className} />;
+    case "antigravity":
+      return <AntigravityLogo className={className} />;
+    case "kimi":
+      return <KimiLogo className={className} />;
     default:
       return <Monitor className={className} />;
   }

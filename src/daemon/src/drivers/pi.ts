@@ -1,16 +1,32 @@
 /**
  * Pi driver — in-process, multi-provider SDK runtime (@earendil-works/pi-coding-agent).
  *
- * Like kimi-sdk, Pi runs in-process (no child process, no stdin). It is
+ * Pi runs in-process (no child process, no stdin). It is
  * multi-provider: model ids look like `provider/id` and resolve through an
  * auth/settings registry (Google / OpenAI / OpenRouter). Sessions persist as
  * JSONL; a custom bash tool is injected so shell calls inherit the CLI-transport
  * env. Steering is `direct` (guarded by `session.isStreaming`).
  */
+import { createRequire } from "module";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { SdkRuntimeSession, type SdkSessionHandle } from "../runtime/sdkRuntimeSession.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
+
+/**
+ * Read the bundled Pi SDK's package version. Optional — the SDK isn't a hard
+ * dep of the daemon, so we return undefined when it isn't installed on the
+ * host, and the runtime chip renders without a version.
+ */
+function readPiSdkVersion(): string | undefined {
+  try {
+    const req = createRequire(import.meta.url);
+    const pkg = req("@earendil-works/pi-coding-agent/package.json") as { version?: string };
+    return pkg.version;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Map a Pi SDK event to zero or more normalized events. */
 export function mapPiSdkEventToParsedEvents(event: any, sessionId: string, state: { sawTextDelta: boolean }): ParsedEvent[] {
@@ -65,7 +81,7 @@ export class PiDriver implements Driver {
   private sessionId: string | null = null;
 
   probe() {
-    return { available: true }; // bundled SDK
+    return { available: true, version: readPiSdkVersion() };
   }
 
   spawn(): Promise<SpawnResult> {

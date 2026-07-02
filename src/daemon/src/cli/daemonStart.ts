@@ -14,7 +14,7 @@ import { WebSocket } from "ws";
 import { createRequire } from "module";
 import { createDaemon } from "../daemon/createDaemon.js";
 import { getDriver } from "../drivers/index.js";
-import { resolveAlookCliPathWithFallback, getAvailableRuntimes } from "../discovery.js";
+import { resolveAlookCliPathWithFallback, detectRuntimes, type RuntimeInfo } from "../discovery.js";
 import { createLogger } from "../logger.js";
 
 const requireFromHere = createRequire(import.meta.url);
@@ -193,10 +193,69 @@ export interface DaemonStartOpts {
   baseDir?: string;
 }
 
+/**
+ * Path to the persisted `cmk_` credential for a given pairing key hash.
+ * We derive by `keyHash(originalCliKey)` so the file survives the in-memory
+ * replacement of `cmt_` → `cmk_` on first activate.
+ */
+function credentialFilePath(baseDir: string, cliKey: string): string {
+  return path.join(daemonsDir(baseDir), `${keyHash(cliKey)}.credential.json`);
+}
+
+function readCredentialFile(filePath: string): { credential: string } | null {
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const content = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (typeof content.credential === "string" && content.credential.startsWith("cmk_")) {
+      return { credential: content.credential };
+    }
+  } catch { /* malformed */ }
+  return null;
+}
+
+function writeCredentialFile(filePath: string, credential: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify({ credential }), { mode: 0o600 });
+}
+
+/**
+ * Exchange a pending `cmt_` pairing token for a long-lived `cmk_` credential
+ * via POST /api/community/daemon/activate. On success returns the credential;
+ * on failure surfaces the server's error message.
+ */
+async function activatePairingToken(
+  serverUrl: string,
+  tokenId: string,
+  hostname: string,
+  platform: string,
+  arch: string,
+  osRelease: string,
+  daemonVersion: string,
+  runtimeReport: Array<{ id: string; version?: string }>,
+): Promise<string> {
+  const res = await fetch(`${serverUrl}/api/community/daemon/activate`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${tokenId}`,
+    },
+    body: JSON.stringify({ hostname, platform, arch, osRelease, daemonVersion, runtimeReport }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { credential?: string; error?: string };
+  if (!res.ok || !json.credential) {
+    throw new Error(json.error ?? `activate failed (${res.status})`);
+  }
+  return json.credential;
+}
+
 export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
   const serverUrl = opts.serverUrl || process.env.ALOOK_SERVER_URL;
   const wsUrl = opts.wsUrl || process.env.ALOOK_SERVER_WS_URL;
 
+  if (!serverUrl) {
+    log.error("Server URL required — pass --server-url or set ALOOK_SERVER_URL");
+    process.exit(2);
+  }
   if (!wsUrl) {
     log.error("WebSocket URL required — pass --ws-url or set ALOOK_SERVER_WS_URL");
     process.exit(2);
@@ -204,32 +263,74 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
 
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
   const pf = acquireLock(baseDir, opts.machineKey);
+  const credPath = credentialFilePath(baseDir, opts.machineKey);
 
-  // Auto-discover agent CLI path (fallback: process.argv[1])
   const agentCliPath = resolveAlookCliPathWithFallback() ?? process.argv[1];
-  log.info(`agent CLI: ${agentCliPath}`);
 
-  // Auto-detect available runtimes — only required in alook mode (with a
-  // server-url + data plane). Community mode can run with zero runtimes.
-  let availableRuntimes: string[] = [];
-  if (serverUrl) {
-    availableRuntimes = await getAvailableRuntimes();
-    if (availableRuntimes.length === 0) {
-      log.error("no runtimes detected — install at least one (claude, codex, gemini, etc.)");
-      process.exit(2);
+  // Detect installed agent CLIs. The list is reported to the server on
+  // `ready` so the machine card can show a chip per CLI (with version).
+  const availableRuntimes: RuntimeInfo[] = (await detectRuntimes()).filter((r) => r.available);
+  const runtimeIds = availableRuntimes.map((r) => r.id);
+  log.info(
+    runtimeIds.length === 0
+      ? "no agent CLIs detected"
+      : `detected agent CLIs: ${runtimeIds.join(", ")}`
+  );
+
+  const runtimeReport = availableRuntimes.map((r) => ({ id: r.id, version: r.version }));
+
+  // Resolve the actual credential the daemon will dial with. Order:
+  //   1. `credential.json` on disk (previously-persisted cmk_) — use it.
+  //   2. --machine-key starts with `cmk_` — persist + use.
+  //   3. --machine-key starts with `cmt_` — POST /activate, persist + use.
+  //   4. else → exit(2) "invalid machine key format".
+  let dialingCredential: string;
+  const persisted = readCredentialFile(credPath);
+  if (persisted) {
+    dialingCredential = persisted.credential;
+    log.info("using persisted daemon credential");
+  } else if (opts.machineKey.startsWith("cmk_")) {
+    dialingCredential = opts.machineKey;
+    writeCredentialFile(credPath, dialingCredential);
+    log.info("saved provided daemon credential to disk");
+  } else if (opts.machineKey.startsWith("cmt_")) {
+    log.info("activating pairing token…");
+    try {
+      dialingCredential = await activatePairingToken(
+        serverUrl,
+        opts.machineKey,
+        os.hostname(),
+        process.platform,
+        process.arch,
+        os.release(),
+        readDaemonVersion(),
+        runtimeReport,
+      );
+      writeCredentialFile(credPath, dialingCredential);
+      log.info("pairing token activated — credential persisted");
+    } catch (err) {
+      log.error(`activation failed: ${err instanceof Error ? err.message : String(err)}`);
+      releaseLock(pf);
+      process.exit(1);
     }
-    log.info(`detected runtimes: ${availableRuntimes.join(", ")}`);
   } else {
-    log.info("community mode — skipping runtime detection");
+    log.error("invalid machine key format — expected `cmt_` (pairing token) or `cmk_` (credential)");
+    releaseLock(pf);
+    process.exit(2);
   }
 
   const daemon = await createDaemon({
-    machineKey: opts.machineKey,
+    machineKey: dialingCredential,
     serverUrl,
     serverWsUrl: wsUrl,
     webSocketFactory: (url, headers) => new WebSocket(url, { headers }),
-    runtimes: availableRuntimes,
-    driverFor: () => getDriver(availableRuntimes[0] ?? "mock"),
+    runtimes: runtimeIds,
+    runtimeReport,
+    // Pick the driver for the runtime the agent actually asked for (server
+    // pushes it on `agent:start`). Fall back to the first detected runtime,
+    // then "mock" for tests / edge cases.
+    driverFor: (_agentId, runtimeConfig) =>
+      getDriver(runtimeConfig?.runtime ?? runtimeIds[0] ?? "mock"),
     capabilities: CAPABILITIES,
     agentCliPath,
     workingDirectoryBase: baseDir,
@@ -245,12 +346,12 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     },
   });
 
-  log.info(`daemon up — ${daemon.proxyUrl ? `proxy at ${daemon.proxyUrl}, ` : ""}dialing ${wsUrl}`);
+  log.info(`daemon up — proxy at ${daemon.proxyUrl}, dialing ${wsUrl}`);
 
   const readyTimer = setInterval(() => {
     if (daemon.isOpen()) {
       clearInterval(readyTimer);
-      log.info("control plane OPEN — routing to real Claude agents");
+      log.info("control plane OPEN");
     }
   }, 200);
   readyTimer.unref?.();

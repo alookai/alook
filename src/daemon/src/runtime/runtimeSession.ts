@@ -6,7 +6,7 @@
  * driver supplies the runtime-specific behavior; this class is the uniform
  * plumbing (start / send / stop / event fan-out) the daemon talks to.
  *
- * In-process SDK drivers (kimi-sdk, pi) do NOT use this — they return their own
+ * In-process SDK drivers (pi) do NOT use this — they return their own
  * EventEmitter-based session from `createSession` and throw from `spawn`.
  */
 import { EventEmitter } from "events";

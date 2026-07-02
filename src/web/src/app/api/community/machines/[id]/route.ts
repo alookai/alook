@@ -16,14 +16,13 @@ export const DELETE = withAuth(async (_req, ctx) => {
   const machine = await queries.communityMachine.getMachineByIdForUser(db, ctx.userId, id)
   if (!machine) return writeError("machine not found", 404)
 
-  // 1. Revoke the token so future reconnects are rejected.
-  const tokenId = queries.communityMachine.tokenIdFromMachineUuid(machine.machineUuid)
-  await queries.communityMachine.revokeToken(db, tokenId)
+  // 1. Revoke every active daemon credential for this machine (idempotent).
+  await queries.communityMachine.revokeCredentialsForMachine(db, ctx.userId, id)
 
-  // 2. Force-close any live WS connection on the DO.
-  await forceCloseCommunityMachine(ctx.env, tokenId)
+  // 2. Force-close any live WS connection on the DO (keyed by machineId).
+  await forceCloseCommunityMachine(ctx.env, id)
 
-  // 3. Delete the row.
+  // 3. Delete the row. Credential + runner-key rows cascade.
   await queries.communityMachine.deleteMachineForUser(db, ctx.userId, id)
 
   // 4. Tell the owner's other tabs the machine is gone.

@@ -2,24 +2,34 @@ import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError, writeJSON } from "@/lib/middleware/helpers"
-import { forceCloseCommunityMachine } from "@/lib/community/machine-disconnect"
 
+// Reconnect: mint a new pending pairing token bound to the existing
+// machineId. No `cmk_` rotation happens here — the daemon runs
+// `alook daemon start --machine-key <new cmt_>`, and /activate reuses the
+// same machine row while inserting a fresh credential and revoking the
+// prior one (which force-closes the live DO).
 export const POST = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const id = ctx.params?.id as string
   if (!id) return writeError("machine id is required", 400)
 
-  const rotated = await queries.communityMachine.rotatePairingTokenForMachine(
-    db,
-    ctx.userId,
-    id
-  )
-  if (!rotated) return writeError("machine not found", 404)
-
-  // Boot any daemon still holding the old token so the user-visible state
-  // matches the rotation. The new pending token won't be accepted until the
-  // daemon redials with it.
-  await forceCloseCommunityMachine(ctx.env, rotated.oldTokenId)
-
-  return writeJSON({ tokenId: rotated.tokenId, expiresAt: rotated.expiresAt })
+  try {
+    const token = await queries.communityMachine.createReconnectPairingToken(
+      db,
+      ctx.userId,
+      id
+    )
+    return writeJSON({ tokenId: token.tokenId, expiresAt: token.expiresAt })
+  } catch (err) {
+    if (err instanceof queries.communityMachine.PendingTokenAlreadyExistsError) {
+      return writeError(
+        "You already have an unused pairing token — cancel it first",
+        409
+      )
+    }
+    if (err instanceof Error && /not owned by user/.test(err.message)) {
+      return writeError("machine not found", 404)
+    }
+    throw err
+  }
 })

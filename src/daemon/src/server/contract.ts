@@ -360,6 +360,12 @@ export type HostCommand =
 export interface HostReady {
   /** Runtime ids available on this machine (e.g. ["claude","codex","mock"]). */
   runtimes: string[];
+  /**
+   * Rich runtime descriptors (id + version). Optional for back-compat — old
+   * daemons emit only `runtimes`; the server falls back to id-only when this
+   * field is absent.
+   */
+  runtimeReport?: Array<{ id: string; version?: string }>;
   /** Agents currently running on this host. */
   runningAgents: AgentId[];
   hostname?: string;
@@ -410,7 +416,10 @@ export interface AgentSessionReport {
  * side; a server-accepted socket simply never emits/needs them.
  */
 export interface WebSocketLike {
-  on(event: "open" | "close" | "error" | "message" | "pong", cb: (...args: any[]) => void): void;
+  on(
+    event: "open" | "close" | "error" | "message" | "pong" | "unexpected-response",
+    cb: (...args: any[]) => void
+  ): void;
   send(data: string): void;
   close(): void;
   ping?(): void;

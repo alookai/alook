@@ -18,6 +18,8 @@ import { apiFetch } from "@/lib/api/client"
 
 const COMMUNITY_WS_URL =
   process.env.NEXT_PUBLIC_COMMUNITY_DAEMON_WS_URL || "ws://localhost:8789"
+const COMMUNITY_SERVER_URL =
+  process.env.NEXT_PUBLIC_COMMUNITY_SERVER_URL || "http://localhost:3000"
 
 export type PairMachineSheetMode =
   | { kind: "pair" }
@@ -81,7 +83,7 @@ export function PairMachineSheet({
   }, [openKey, generate, setPendingTokenId])
 
   const command = pendingTokenId
-    ? `npx @alook/daemon daemon start --machine-key ${pendingTokenId} --ws-url ${COMMUNITY_WS_URL}`
+    ? `npx @alook/daemon daemon start --machine-key ${pendingTokenId} --server-url ${COMMUNITY_SERVER_URL} --ws-url ${COMMUNITY_WS_URL}`
     : ""
 
   const copyCommand = useCallback(async () => {

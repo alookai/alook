@@ -32,44 +32,40 @@ const fakeDriver: Driver = {
   status: vi.fn(),
 } as unknown as Driver;
 
-describe("createDaemon — community mode (no server-url)", () => {
-  it("appends ?token=<machineKey> to the WS URL when serverUrl is absent", async () => {
+function factory(sockets: FakeSocket[]) {
+  return (url: string, headers: Record<string, string>) => {
+    const s = new FakeSocket(url, headers);
+    sockets.push(s);
+    return s;
+  };
+}
+
+describe("createDaemon", () => {
+  it("dials the WS control plane with Authorization: Bearer <machineKey>", async () => {
     const sockets: FakeSocket[] = [];
-    const factory = (url: string, headers: Record<string, string>) => {
-      const s = new FakeSocket(url, headers);
-      sockets.push(s);
-      return s;
-    };
     const daemon = await createDaemon({
-      machineKey: "cmt_abc123",
-      serverWsUrl: "ws://example/community-daemon",
-      webSocketFactory: factory as any,
+      machineKey: "cmk_abc123",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://example/control",
+      webSocketFactory: factory(sockets) as any,
       runtimes: [],
       driverFor: () => fakeDriver,
       capabilities: [],
-      hostname: "my-mac",
-      os: "darwin",
-      arch: "arm64",
-      daemonVersion: "0.0.1",
     });
     expect(sockets.length).toBe(1);
-    expect(sockets[0].url).toBe("ws://example/community-daemon?token=cmt_abc123");
-    // No Authorization header in community mode (token is in URL).
-    expect(sockets[0].headers).toEqual({});
+    // No URL-token path anymore — the credential travels only in the header.
+    expect(sockets[0].url).toBe("ws://example/control");
+    expect(sockets[0].headers.Authorization).toBe("Bearer cmk_abc123");
     await daemon.stop();
   });
 
   it("includes hostname/os/arch/daemonVersion in the ready frame", async () => {
     const sockets: FakeSocket[] = [];
-    const factory = (url: string, headers: Record<string, string>) => {
-      const s = new FakeSocket(url, headers);
-      sockets.push(s);
-      return s;
-    };
     const daemon = await createDaemon({
-      machineKey: "cmt_zzz",
+      machineKey: "cmk_zzz",
+      serverUrl: "http://localhost:9999",
       serverWsUrl: "ws://x",
-      webSocketFactory: factory as any,
+      webSocketFactory: factory(sockets) as any,
       runtimes: [],
       driverFor: () => fakeDriver,
       capabilities: [],
@@ -94,46 +90,18 @@ describe("createDaemon — community mode (no server-url)", () => {
     await daemon.stop();
   });
 
-  it("returns an empty proxyUrl when there's no credential proxy", async () => {
+  it("exposes a non-empty credential proxy URL (proxy is always started)", async () => {
     const sockets: FakeSocket[] = [];
-    const factory = (url: string, headers: Record<string, string>) => {
-      const s = new FakeSocket(url, headers);
-      sockets.push(s);
-      return s;
-    };
     const daemon = await createDaemon({
-      machineKey: "cmt_x",
+      machineKey: "cmk_x",
+      serverUrl: "http://localhost:9999",
       serverWsUrl: "ws://x",
-      webSocketFactory: factory as any,
+      webSocketFactory: factory(sockets) as any,
       runtimes: [],
       driverFor: () => fakeDriver,
       capabilities: [],
     });
-    expect(daemon.proxyUrl).toBe("");
-    await daemon.stop();
-  });
-});
-
-describe("createDaemon — alook mode (with server-url)", () => {
-  it("uses Authorization header and does NOT append ?token=", async () => {
-    const sockets: FakeSocket[] = [];
-    const factory = (url: string, headers: Record<string, string>) => {
-      const s = new FakeSocket(url, headers);
-      sockets.push(s);
-      return s;
-    };
-    // serverUrl present but no real fetch — the channel.connect() must not need it.
-    const daemon = await createDaemon({
-      machineKey: "al_key",
-      serverUrl: "http://localhost:9999",
-      serverWsUrl: "ws://example/control",
-      webSocketFactory: factory as any,
-      runtimes: ["mock"],
-      driverFor: () => fakeDriver,
-      capabilities: [],
-    });
-    expect(sockets[0].url).toBe("ws://example/control");
-    expect(sockets[0].headers.Authorization).toBe("Bearer al_key");
+    expect(daemon.proxyUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+/);
     await daemon.stop();
   });
 });

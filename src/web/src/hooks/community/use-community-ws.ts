@@ -36,6 +36,7 @@ import type {
   CommunityMentionCreate,
   CommunityMachineCreated,
   CommunityMachineStatus,
+  CommunityMachineUpdated,
   CommunityMachineRemoved,
 } from "@alook/shared"
 import { isCommunityEvent, TYPING_INDICATOR_TIMEOUT_MS } from "@alook/shared"
@@ -65,7 +66,7 @@ export type CommunityWsCallbacks = {
   onServer?: (event: CommunityServerUpdate | CommunityServerDelete) => void
   onCategory?: (event: CommunityCategoryCreate | CommunityCategoryUpdate | CommunityCategoryDelete | CommunityCategoryReorder) => void
   onMention?: (event: CommunityMentionCreate) => void
-  onMachine?: (event: CommunityMachineCreated | CommunityMachineStatus | CommunityMachineRemoved) => void
+  onMachine?: (event: CommunityMachineCreated | CommunityMachineStatus | CommunityMachineUpdated | CommunityMachineRemoved) => void
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -208,6 +209,7 @@ export function useCommunityWs(callbacks: CommunityWsCallbacks) {
       // ── Machines (always delivered to the owning user) ───────────────
       case "community:machine.created":
       case "community:machine.status":
+      case "community:machine.updated":
       case "community:machine.removed":
         cbs.onMachine?.(event)
         break

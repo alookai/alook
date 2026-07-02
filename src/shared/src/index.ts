@@ -219,9 +219,20 @@ export {
   RecruitAgentRequestSchema,
   CreateThreadRequestSchema,
   DaemonPushMessageSchema,
+  CommunityMachineRuntimeSchema,
+  CommunityMachineRuntimeListSchema,
   CommunityMachineSummarySchema,
   CommunityDaemonReadySchema,
   CommunityPairTokenResponseSchema,
+  CommunityDaemonActivateRequestSchema,
+  CommunityDaemonActivateResponseSchema,
+  CommunityDaemonEnrollAgentRequestSchema,
+  CommunityDaemonEnrollAgentResponseSchema,
+  HostReadyMessageSchema,
+  SessionErrorFrameSchema,
+  COMMUNITY_RUNTIME_ID_MAX,
+  COMMUNITY_RUNTIME_VERSION_MAX,
+  COMMUNITY_RUNTIME_LIST_MAX,
 } from "./schemas";
 
 export type {
@@ -275,9 +286,15 @@ export type {
   DaemonPushMessageType,
   CommunityDaemonReady,
   CommunityPairTokenResponse,
+  CommunityDaemonActivateRequest,
+  CommunityDaemonActivateResponse,
+  CommunityDaemonEnrollAgentRequest,
+  CommunityDaemonEnrollAgentResponse,
+  HostReadyMessage,
+  SessionErrorFrame,
 } from "./schemas";
 
-export type { CommunityMachineSummary } from "./community-ws-events";
+export type { CommunityMachineSummary, CommunityMachineRuntime } from "./community-ws-events";
 
 // Community WS events
 export type {
@@ -314,6 +331,7 @@ export type {
   CommunityMentionCreate,
   CommunityMachineCreated,
   CommunityMachineStatus,
+  CommunityMachineUpdated,
   CommunityMachineRemoved,
   CommunityWsEvent,
 } from "./community-ws-events";
