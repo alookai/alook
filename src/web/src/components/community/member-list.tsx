@@ -55,7 +55,7 @@ export function MemberList({ members, loading, myRole, onOpenProfile, onSetRole,
       onConfirm={() => { if (kickTarget) onKick?.(kickTarget); setKickTarget(null) }}
     />
     <aside className="flex h-full flex-col overflow-y-auto thin-scrollbar bg-background">
-      <div className="px-3 py-5">
+      <div className="px-4 py-5">
         {groupMembers(members).map((group) => (
           <div key={group.label} className="mb-5">
             <h3 className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -124,7 +124,7 @@ function MemberListSkeleton() {
   ]
   return (
     <aside className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="px-3 py-5">
+      <div className="px-4 py-5">
         {groups.map((g, i) => (
           <div key={i} className="mb-5">
             <Skeleton className="mb-2 ml-1 h-3 rounded" style={{ width: g.width }} />

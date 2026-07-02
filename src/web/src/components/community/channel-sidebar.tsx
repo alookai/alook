@@ -109,10 +109,10 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
       {!noHeader && (
-        <header className="flex h-12 items-center border-b border-border/40 px-4">
+        <header className="flex h-12 items-center border-b border-border/40 px-2.5">
           {serverName && onOpenSettings ? (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+              <DropdownMenuTrigger className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                 <span className="truncate text-lg font-semibold">{serverName}</span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
@@ -232,7 +232,7 @@ function ChannelSidebarSkeleton({ noHeader }: { noHeader?: boolean }) {
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
       {!noHeader && (
-        <header className="flex h-12 items-center border-b border-border/40 px-4">
+        <header className="flex h-12 items-center border-b border-border/40 px-2.5">
           <Skeleton className="h-5 w-32 rounded" />
         </header>
       )}

@@ -28,7 +28,7 @@ function ForYouTab({ events, loading, onOpenEvent, onDismissEvent }: {
   onDismissEvent?: (eventKey: string) => void
 }) {
   return (
-    <div className="h-full overflow-y-auto thin-scrollbar p-2">
+    <div className="h-full overflow-y-auto thin-scrollbar p-3">
       {loading && events.length === 0 && <InboxRowsSkeleton />}
       {!loading && events.length === 0 && <EmptyState icon={Inbox} label="Nothing for you right now" />}
       {events.map((e) => (
@@ -78,7 +78,7 @@ function UnreadsTab({ servers, loading, onOpenChannel }: {
   onOpenChannel?: (serverId: string, channelId: string) => void
 }) {
   return (
-    <div className="h-full overflow-y-auto thin-scrollbar p-2">
+    <div className="h-full overflow-y-auto thin-scrollbar p-3">
       {loading && servers.length === 0 && <InboxUnreadsSkeleton />}
       {!loading && servers.length === 0 && <EmptyState icon={Inbox} label="Caught up" />}
       {servers.map((s) => (
@@ -111,7 +111,7 @@ function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention }: {
   onDeleteMention?: (id: string) => void
 }) {
   return (
-    <div className="h-full overflow-y-auto thin-scrollbar p-2">
+    <div className="h-full overflow-y-auto thin-scrollbar p-3">
       {loading && mentions.length === 0 && <InboxRowsSkeleton />}
       {!loading && mentions.length === 0 && <EmptyState icon={Inbox} label="No mentions" />}
       {mentions.map((mn) => (
@@ -171,7 +171,7 @@ export function InboxPopover({
   const hasAnything = forYou.length > 0 || unreads.length > 0 || mentions.length > 0
   return (
     <Tabs defaultValue="foryou" className="flex h-[28rem] flex-col">
-      <div className="flex items-center gap-2 px-4 pt-4">
+      <div className="flex items-center gap-2 px-3 pt-4">
         <Inbox className="size-5" />
         <h2 className="flex-1 text-lg font-semibold">Inbox</h2>
         {onMarkAllRead && (
@@ -184,7 +184,7 @@ export function InboxPopover({
           </button>
         )}
       </div>
-      <TabsList variant="line" className="mt-3 w-full border-b border-border px-2">
+      <TabsList variant="line" className="mt-3 w-full border-b border-border px-3">
         <TabsTrigger value="foryou">
           <span className="inline-flex items-center gap-1.5">
             For You

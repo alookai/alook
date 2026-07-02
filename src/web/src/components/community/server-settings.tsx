@@ -94,7 +94,7 @@ export function ServerSettings({
 
       {/* settings body */}
       <div className="flex min-w-0 flex-1 flex-col bg-background">
-        <header className="flex h-12 shrink-0 items-center border-b border-border px-4">
+        <header className="flex h-12 shrink-0 items-center border-b border-border px-5">
           <h1 className="flex-1 text-lg font-semibold capitalize">{section === "audit" ? "Audit Log" : section}</h1>
           <button onClick={onClose} className="flex flex-col items-center text-muted-foreground hover:text-foreground" aria-label="Close settings">
             <span className="grid size-8 place-items-center rounded-full border border-current"><X className="size-4" /></span>

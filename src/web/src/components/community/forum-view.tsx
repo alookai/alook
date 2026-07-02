@@ -63,7 +63,7 @@ export function ForumView({
 
       {/* filter bar — tag chips on the left, forum actions on the right.
           Manage mode swaps the chips for delete/add-tag controls. */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-2.5">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {!managing && (
             <Badge variant={tag === "All" ? "default" : "secondary"} className="shrink-0 cursor-pointer" render={<button onClick={() => setTag("All")} />}>All</Badge>
@@ -187,7 +187,7 @@ function ForumListSkeleton() {
 export function ForumViewSkeleton() {
   return (
     <>
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2.5">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-2.5">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <Skeleton className="h-5 w-10 rounded-4xl" />
           <Skeleton className="h-5 w-16 rounded-4xl" />

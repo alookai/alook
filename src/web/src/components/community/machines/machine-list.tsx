@@ -93,7 +93,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
   }, [ctx])
 
   const backBar = onBack ? (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
       <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back">
         <ChevronLeft className="size-5" />
       </Button>
