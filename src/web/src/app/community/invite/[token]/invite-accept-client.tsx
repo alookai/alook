@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch } from "@/lib/api/client"
+import { useCommunity } from "@/contexts/community/context"
 
 type InviteInfo = {
   serverName: string
@@ -20,6 +21,7 @@ type InviteInfo = {
  */
 export function InviteAcceptClient({ token }: { token: string }) {
   const router = useRouter()
+  const { refreshServers } = useCommunity()
   const [info, setInfo] = useState<InviteInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [joining, setJoining] = useState(false)
@@ -47,6 +49,9 @@ export function InviteAcceptClient({ token }: { token: string }) {
         method: "POST",
       })
       toast("Joined server")
+      // Refresh the server list before navigating so the rail shows the newly
+      // joined server on arrival instead of the user having to refresh.
+      await refreshServers()
       router.push(`/community/channels/${result.serverId}`)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Couldn't join the server — try the invite again"

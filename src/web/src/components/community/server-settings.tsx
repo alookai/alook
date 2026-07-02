@@ -207,7 +207,7 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCreateInvite, onC
         <div key={iv.code} className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-3">
           <Link2 className="size-5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <div className="truncate font-mono text-sm">/community/invite/{iv.code}</div>
+            <div className="truncate font-mono text-sm">{iv.code}</div>
             <div className="text-xs text-muted-foreground" suppressHydrationWarning>by {iv.by} · {iv.uses}{iv.maxUses ? ` / ${iv.maxUses}` : ""} uses · {iv.expiresAt ? `expires ${formatRelativeTime(iv.expiresAt)}` : "never expires"}</div>
           </div>
           <Button variant="secondary" size="sm" onClick={() => onCopyInvite?.(iv.code)}>Copy</Button>

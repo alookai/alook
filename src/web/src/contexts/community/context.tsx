@@ -211,7 +211,7 @@ export type CommunityContextValue = {
 
   // Navigation
   setCurrentServerId: (id: string | null) => void
-  refreshServers: () => void
+  refreshServers: () => Promise<void>
   refreshMembers: () => void
   refreshFriends: () => void
   refreshDms: () => void
