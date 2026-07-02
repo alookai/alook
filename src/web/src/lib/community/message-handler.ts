@@ -143,12 +143,22 @@ export async function createCommunityMessage(params: {
     throw new Error("message not found after insert")
   }
 
-  // Reply preview + reply mention target.
-  let replyTo: { id: string; authorName: string; text: string } | undefined
+  // Reply preview + reply mention target. Scope-check the target so a
+  // caller can't attach a preview of a message from a different DM/channel
+  // just by passing its id, and mirror the GET-side { deleted: true } shape
+  // so WS and refresh render identically when the target is missing.
+  let replyTo:
+    | { id: string; authorName: string; text: string; deleted?: boolean }
+    | undefined
   const replyTargets = new Set<string>()
   if (row.replyToId) {
     const replyMsg = await queries.communityMessage.getMessage(db, row.replyToId)
-    if (replyMsg) {
+    const inScope = replyMsg
+      ? target.kind === "dm"
+        ? replyMsg.dmConversationId === target.dmId
+        : replyMsg.channelId === target.channelId
+      : false
+    if (replyMsg && inScope) {
       replyTo = {
         id: replyMsg.id,
         authorName: replyMsg.authorName ?? "Unknown",
@@ -157,6 +167,8 @@ export async function createCommunityMessage(params: {
       if (replyMsg.authorId && replyMsg.authorId !== authorId) {
         replyTargets.add(replyMsg.authorId)
       }
+    } else {
+      replyTo = { id: row.replyToId, authorName: "Unknown", text: "", deleted: true }
     }
   }
 
@@ -272,7 +284,7 @@ export async function createCommunityMessage(params: {
 function buildMessagePayload(
   row: FullMessageRow,
   attachments: CreatedAttachment[],
-  replyTo: { id: string; authorName: string; text: string } | undefined,
+  replyTo: { id: string; authorName: string; text: string; deleted?: boolean } | undefined,
   kind: MessageTarget["kind"],
 ) {
   const base = {
@@ -299,7 +311,7 @@ function buildMessagePayload(
     return {
       ...base,
       mentionType: row.mentionType as MentionType | null | undefined,
-      replyToId: row.replyToId,
+      replyTo,
       embeds: row.embeds ? JSON.parse(row.embeds) : undefined,
     }
   }

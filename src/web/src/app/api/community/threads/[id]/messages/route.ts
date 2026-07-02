@@ -99,6 +99,5 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   })
   if (!result.ok) return writeError(result.error, result.status)
 
-  // Existing thread client consumes `result.id` (bare row), not `{ message }`.
-  return writeJSON(result.row, 201)
+  return writeJSON({ message: result.row }, 201)
 })

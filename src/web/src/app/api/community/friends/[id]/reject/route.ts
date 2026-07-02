@@ -14,14 +14,21 @@ export const POST = withAuth(async (_req, ctx) => {
 
   const friendship = await queries.communityFriendship.getFriendship(db, id)
   if (!friendship) return writeError("friendship not found", 404)
-  if (friendship.addresseeId !== ctx.userId) {
-    return writeError("only the addressee can reject a friend request", 403)
+  // Either side of a pending request can tear it down: the addressee is
+  // rejecting, the requester is cancelling their own outgoing request. The
+  // DB query is atomic on `status = 'pending'` so we can't accidentally
+  // delete an accepted friendship here.
+  if (friendship.requesterId !== ctx.userId && friendship.addresseeId !== ctx.userId) {
+    return writeError("not a participant in this friend request", 403)
   }
 
   const deleted = await queries.communityFriendship.rejectRequest(db, id)
   if (!deleted) return writeError("request is not pending", 400)
 
-  broadcastToUser(friendship.requesterId, {
+  const otherUserId = friendship.requesterId === ctx.userId
+    ? friendship.addresseeId
+    : friendship.requesterId
+  broadcastToUser(otherUserId, {
     type: WS_EVENTS.FRIEND_REJECT,
     friendshipId: id,
   } as never).catch(() => {})

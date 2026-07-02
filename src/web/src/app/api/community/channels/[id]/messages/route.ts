@@ -43,12 +43,18 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const reactionsByMessage = groupReactions(allReactions, ctx.userId)
 
-  // Resolve replyTo references
+  // Resolve replyTo references. Scope-check the target against this channel
+  // so a client can't leak previews of messages from other channels/DMs just
+  // by referencing their id.
   const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
   const replyMessages = replyToIds.length > 0
     ? await Promise.all(replyToIds.map((id) => queries.communityMessage.getMessage(db, id)))
     : []
-  const replyMap = new Map(replyMessages.filter(Boolean).map((m) => [m!.id, m!]))
+  const replyMap = new Map(
+    replyMessages
+      .filter((m): m is NonNullable<typeof m> => !!m && m.channelId === channelId)
+      .map((m) => [m.id, m]),
+  )
 
   // Resolve threads (child channels with parentMessageId matching these messages)
   const childChannels = await queries.communityChannel.listChildChannels(db, channelId)

@@ -21,7 +21,7 @@ export const GET = withAuth(async (_req, ctx) => {
   const targetServerIds = await queries.communityMember.listMemberServerIds(db, id)
 
   const viewerSet = new Set(viewerServerIds)
-  const mutualServerIds = targetServerIds.filter((sid) => viewerSet.has(sid))
+  const mutualServers = targetServerIds.filter((sid) => viewerSet.has(sid)).length
 
   return writeJSON({
     id: targetUser.id,
@@ -30,6 +30,6 @@ export const GET = withAuth(async (_req, ctx) => {
     image: targetUser.image,
     aboutMe: profile?.aboutMe ?? "",
     bannerColor: profile?.bannerColor ?? null,
-    mutualServerIds,
+    mutualServers,
   })
 })

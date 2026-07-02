@@ -33,6 +33,7 @@ export const GET = async (_req: NextRequest, { params }: { params: Promise<{ tok
   return writeJSON({
     serverName: server.name,
     serverIcon: server.icon,
+    serverDescription: server.description ?? "",
     memberCount: members.length,
   })
 }
