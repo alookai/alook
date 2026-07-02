@@ -5,6 +5,6 @@ import { useEffect } from "react"
 
 export default function CommunityIndex() {
   const router = useRouter()
-  useEffect(() => { router.replace("/community/channels/@me") }, [router])
+  useEffect(() => { router.replace("/community/me") }, [router])
   return null
 }

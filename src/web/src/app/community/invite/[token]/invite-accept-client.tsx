@@ -79,7 +79,7 @@ export function InviteAcceptClient({ token }: { token: string }) {
           <Button
             className="mt-6"
             variant="secondary"
-            onClick={() => router.push("/community/channels/@me")}
+            onClick={() => router.push("/community/me")}
           >
             Back to community
           </Button>

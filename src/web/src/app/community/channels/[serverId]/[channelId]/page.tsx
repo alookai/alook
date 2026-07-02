@@ -7,8 +7,6 @@ import { apiFetch } from "@/lib/api/client"
 import { useCommunity } from "@/contexts/community/context"
 import { useBreakpoint } from "@/components/community/use-breakpoint"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channel-header"
-import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
-import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
 import { Composer, ComposerSkeleton } from "@/components/community/composer"
 import { ForumView, ForumViewSkeleton } from "@/components/community/forum-view"
@@ -21,10 +19,9 @@ import type { MentionType } from "@alook/shared"
 /**
  * /community/channels/:serverId/:channelId
  *
- * - If serverId === "@me": DM conversation view
- * - If server + forum channel: ForumView
- * - If server + text channel: MessageList + Composer + right panels
- * - Thread takeover when a thread is opened
+ * - Forum channel: ForumView
+ * - Text channel: MessageList + Composer + right panels
+ * - Thread / forum-post opened via URL: child-channel view (breadcrumb + list)
  */
 // Thin wrapper that re-keys the actual view on channelId. The page component
 // would otherwise stay mounted across channel switches (Next.js dynamic
@@ -42,7 +39,6 @@ function ChannelView() {
   const params = useParams<{ serverId: string; channelId: string }>()
   const router = useRouter()
   const serverId = decodeURIComponent(params.serverId)
-  const isAtMe = serverId === "@me"
   const channelId = params.channelId
   const bp = useBreakpoint()
   const ctx = useCommunity()
@@ -85,7 +81,7 @@ function ChannelView() {
     if (!q.trim()) { setSearchResults([]); return }
     try {
       const params = new URLSearchParams({ q })
-      if (!isAtMe && params) params.set("channelId", channelId)
+      if (params) params.set("channelId", channelId)
       const data = await apiFetch<{ results: Array<{ message: { id: string; content: string; authorId: string; createdAt: string }; author: { name: string; image: string | null } }> }>(`/api/community/search?${params}`)
       setSearchResults(data.results.map((r) => ({
         id: r.message.id,
@@ -95,25 +91,21 @@ function ChannelView() {
         createdAt: r.message.createdAt,
       })))
     } catch { setSearchResults([]) }
-  }, [isAtMe, channelId])
+  }, [channelId])
 
   // Determine channel type from server categories
   const channelInServer = useMemo(() => {
-    if (isAtMe) return null
     const allChannels = ctx.currentServer?.categories?.flatMap((c) => c.channels) ?? []
     return allChannels.find((ch) => ch.id === channelId) ?? null
-  }, [isAtMe, ctx.currentServer, channelId])
+  }, [ctx.currentServer, channelId])
 
   const isForum = channelInServer?.type === "forum"
-  // If channelId is not in server categories and not @me, it's a child channel (post/thread opened via URL)
-  const isChildChannel = !isAtMe && !channelInServer && !!ctx.currentServer?.categories
+  // If channelId is not in server categories, it's a child channel (post / thread opened via URL)
+  const isChildChannel = !channelInServer && !!ctx.currentServer?.categories
 
   // Find the channel name
   const channelName = useMemo(() => {
     if (localName) return localName
-    if (isAtMe) {
-      return ctx.dms.find((d) => d.id === channelId)?.name ?? "DM"
-    }
     if (channelInServer) return channelInServer.name
     // Child channel — use meta from context
     if (ctx.currentChannelMeta?.name) return ctx.currentChannelMeta.name
@@ -122,10 +114,7 @@ function ChannelView() {
     const thread = ctx.threads.find((t) => t.id === channelId)
     if (thread) return thread.name
     return "channel"
-  }, [localName, isAtMe, channelInServer, ctx.dms, ctx.forumPosts, ctx.threads, ctx.currentChannelMeta, channelId])
-
-  // DM object
-  const dm = isAtMe ? ctx.dms.find((d) => d.id === channelId) ?? null : null
+  }, [localName, channelInServer, ctx.forumPosts, ctx.threads, ctx.currentChannelMeta, channelId])
 
   // Pinned message ids
   const pinnedIds = useMemo(() => new Set(ctx.pinned.map((p) => p.id)), [ctx.pinned])
@@ -211,36 +200,9 @@ function ChannelView() {
     setReplyTo(null)
   }
 
-  // DM endpoint ignores mentionType (no roster to fan out to), so the third
-  // arg is accepted to match the Composer signature and dropped. Replies are
-  // supported — the backend persists `replyToId` for DMs too.
-  const sendDmMsg = async (markdown: string, attachments?: File[]) => {
-    if (!markdown && !attachments?.length) return
-    if (!channelId) return
-
-    // Upload files first if any
-    let uploadedAttachments: { url: string; filename: string; contentType: string; size: number }[] = []
-    if (attachments?.length) {
-      const results = await Promise.all(
-        attachments.map((f) => ctx.uploadFile({ dmId: channelId }, f))
-      )
-      uploadedAttachments = results.filter(Boolean) as typeof uploadedAttachments
-    }
-
-    ctx.sendDmMessage(channelId, markdown || "", {
-      replyToId: replyTo?.id,
-      attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
-    })
-    setReplyTo(null)
-  }
-
   // ── Send typing ─────────────────────────────────────────────────────────
   const handleTyping = () => {
-    if (isAtMe) {
-      ctx.sendTyping({ dmConversationId: channelId })
-    } else {
-      ctx.sendTyping({ channelId })
-    }
+    ctx.sendTyping({ channelId })
   }
 
   // ── Create thread from dialog ───────────────────────────────────────────
@@ -295,17 +257,16 @@ function ChannelView() {
   // server detail is already loaded so no other branch would trip.
   // Child channels (thread / forum post) additionally wait on the meta fetch
   // so the breadcrumb shows the new parent name instead of the previous one.
-  const isPotentialChild = !isAtMe && !channelInServer && !!ctx.currentServer?.categories
+  const isPotentialChild = !channelInServer && !!ctx.currentServer?.categories
   // Forum body has no message list — its skeleton lifts when forumPosts arrive.
-  // Text/DM channels lift when messages arrive. Gating a forum on messagesLoading
+  // Text channels lift when messages arrive. Gating a forum on messagesLoading
   // alone made the header flash to real for one frame between "context syncs
   // channelId" and "forum fetch flips forumPostsLoading true".
   const bodyLoading = isForum ? ctx.forumPostsLoading : ctx.messagesLoading
   const channelHydrated =
     ctx.currentChannelId === channelId &&
     !bodyLoading &&
-    (!isPotentialChild || ctx.currentChannelMeta !== null) &&
-    (!isAtMe || !ctx.dmsLoading)
+    (!isPotentialChild || ctx.currentChannelMeta !== null)
   if (!channelHydrated) {
     // Forum has no message list / composer — use a filter-bar + card skeleton
     // so the shell doesn't briefly show a chat-shaped placeholder before the
@@ -323,70 +284,10 @@ function ChannelView() {
     }
     return (
       <>
-        {isAtMe
-          ? <DmHeaderSkeleton onBack={bp === "mobile" ? goBack : undefined} />
-          : <ChannelHeaderSkeleton onBack={bp === "mobile" ? goBack : undefined} />}
+        <ChannelHeaderSkeleton onBack={bp === "mobile" ? goBack : undefined} />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <MessageList channel="" messages={[]} loading={true} onOpenThread={() => {}} hero={isAtMe ? <></> : undefined} />
+          <MessageList channel="" messages={[]} loading={true} onOpenThread={() => {}} />
           <ComposerSkeleton />
-        </main>
-      </>
-    )
-  }
-
-  // ── DM view ─────────────────────────────────────────────────────────────
-  if (isAtMe && !dm) {
-    return (
-      <div className="flex flex-1 items-center justify-center text-muted-foreground">
-        <span className="text-sm">Conversation not found</span>
-      </div>
-    )
-  }
-  if (isAtMe && dm) {
-    const dmBlocked = ctx.blocked.some((b) => (b.userId ?? b.id) === dm.userId)
-    return (
-      <>
-        <DmHeader
-          dm={dm}
-          onBack={bp === "mobile" ? goBack : undefined}
-        />
-        <main className="flex min-h-0 flex-1 flex-col">
-          <MessageList
-            channel={dm.name}
-            messages={ctx.messages}
-            loading={ctx.messagesLoading}
-            typingUsers={ctx.typingUsers.map((id) => ctx.friends.find((f) => f.userId === id)?.name ?? id)}
-            onOpenThread={() => {}}
-            onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
-            onReact={dmBlocked ? undefined : messageActions.onReact}
-            onCopy={messageActions.onCopy}
-            onRetry={dmBlocked ? undefined : messageActions.onRetry}
-            onOpenProfile={openProfile}
-            resolveUserName={resolveUserName}
-            scrollToMessageId={scrollToMessageId}
-            hero={
-              <>
-                <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={68} /></div>
-                <h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p>
-              </>
-            }
-          />
-          {dmBlocked ? (
-            <div className="flex h-14 shrink-0 items-center justify-center border-t border-border/40 px-4 text-sm text-muted-foreground">
-              You have blocked this user. Unblock to send messages.
-            </div>
-          ) : (
-            <Composer
-              channel={dm.name}
-              context="dm"
-              members={ctx.friends}
-              onSend={sendDmMsg}
-              onTyping={handleTyping}
-              replyingTo={replyTo?.authorName}
-              onCancelReply={() => setReplyTo(null)}
-            />
-          )}
         </main>
       </>
     )
