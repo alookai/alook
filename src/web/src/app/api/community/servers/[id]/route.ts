@@ -12,6 +12,7 @@ import {
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
 import { requireServerAdmin, requireServerMember } from "@/lib/community/permissions"
+import { serverIconUrl } from "@/lib/community/storage"
 
 export const GET = withAuth(async (_req, ctx) => {
   const serverId = ctx.params?.id
@@ -51,7 +52,7 @@ export const GET = withAuth(async (_req, ctx) => {
     id: server.id,
     name: server.name,
     description: server.description ?? "",
-    icon: server.icon,
+    icon: serverIconUrl(server),
     ownerId: server.ownerId,
     categories: categoriesWithChannels,
   })
@@ -113,7 +114,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     type: WS_EVENTS.SERVER_UPDATE,
     serverId,
     changes,
-  }, { excludeUserId: ctx.userId }).catch(() => {})
+  }, { excludeUserId: ctx.userId })
 
   return writeJSON(updated)
 })

@@ -91,8 +91,24 @@ export async function useInvite(
       role: "member",
     })
     .returning();
+  const insertedMember = memberRows[0]!;
 
-  return { invite, member: memberRows[0]! };
+  // Join the joined-user row so WS listeners can render name/avatar without
+  // waiting for the next /members refetch.
+  const userRows = await db
+    .select({ name: user.name, image: user.image })
+    .from(user)
+    .where(eq(user.id, userId));
+  const userRow = userRows[0];
+
+  return {
+    invite,
+    member: {
+      ...insertedMember,
+      userName: userRow?.name ?? "",
+      userImage: userRow?.image ?? null,
+    },
+  };
 }
 
 export async function listServerInvites(db: Database, serverId: string) {

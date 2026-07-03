@@ -44,6 +44,7 @@ export async function createUser(
   db: Database,
   data: { name: string; email: string }
 ) {
+  if (!data.name.trim()) throw new Error("user.name cannot be empty");
   const rows = await db
     .insert(user)
     .values({ name: data.name, email: data.email })
@@ -51,14 +52,23 @@ export async function createUser(
   return rows[0]!;
 }
 
+/** omit a field to leave it unchanged; pass image: null to explicitly clear it. */
 export async function updateUser(
   db: Database,
   id: string,
-  data: { name: string; image: string | null }
+  data: { name?: string; image?: string | null }
 ) {
+  if (data.name !== undefined && !data.name.trim()) {
+    throw new Error("user.name cannot be empty");
+  }
+  const set: { name?: string; image?: string | null; updatedAt: string } = {
+    updatedAt: new Date().toISOString(),
+  };
+  if (data.name !== undefined) set.name = data.name;
+  if (data.image !== undefined) set.image = data.image;
   const rows = await db
     .update(user)
-    .set({ name: data.name, image: data.image, updatedAt: new Date().toISOString() })
+    .set(set)
     .where(eq(user.id, id))
     .returning();
   return rows[0] ?? null;

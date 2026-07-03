@@ -10,6 +10,7 @@ const mockGetChannel = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
 const mockListMembers = vi.fn()
+const mockListMemberUserIds = vi.fn()
 const mockCreateMentions = vi.fn()
 const mockCreateAttachment = vi.fn()
 
@@ -33,6 +34,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMember: {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
+        listMemberUserIds: (...a: unknown[]) => mockListMemberUserIds(...a),
       },
       communityMention: {
         createMentions: (...a: unknown[]) => mockCreateMentions(...a),
@@ -106,6 +108,7 @@ describe("POST /api/community/threads/[id]/messages", () => {
       createdAt: "2026-06-30T01:00:00.000Z",
     })
     mockListMembers.mockResolvedValue([])
+    mockListMemberUserIds.mockResolvedValue([])
     mockFanOutToChannel.mockResolvedValue(undefined)
   })
 

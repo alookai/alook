@@ -11,6 +11,7 @@ import {
 } from "@alook/shared"
 import type { CommunityInviteCreate } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { logAudit } from "@/lib/community/audit"
 import { requireServerAdmin, requireServerMember } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (_req, ctx) => {
@@ -86,7 +87,7 @@ export const POST = withAuth(async (req, ctx) => {
     expiresAt: body.expiresAt,
   })
 
-  await queries.communityAuditLog.logAction(db, {
+  logAudit(db, {
     serverId,
     actorId: ctx.userId,
     action: "invite_create",
@@ -107,7 +108,7 @@ export const POST = withAuth(async (req, ctx) => {
     },
   }
 
-  fanOutToServerMembers(serverId, event, { excludeUserId: ctx.userId }).catch(() => {})
+  fanOutToServerMembers(serverId, event, { excludeUserId: ctx.userId })
 
   return writeJSON({ invite }, 201)
 })

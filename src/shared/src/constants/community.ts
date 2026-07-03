@@ -60,8 +60,9 @@ export const MESSAGE_PREVIEW_LENGTH = 120
 export const DEFAULT_INBOX_PAGE_SIZE = 100
 export const MAX_INBOX_PAGE_SIZE = 200
 
-// Presence
-export const PRESENCE_MEMBER_CAP = 200
+// Presence — bounding factor is now the ws-do worker's subrequest budget
+// (the web route only issues a single bulk request per poll).
+export const PRESENCE_MEMBER_CAP = 500
 
 // Banner color — accepts hex (#RRGGBB / #RGB) only
 export const BANNER_COLOR_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/

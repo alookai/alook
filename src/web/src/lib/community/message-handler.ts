@@ -11,6 +11,7 @@ import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { fanOutToChannel, fanOutToDM } from "./fanout"
 import { broadcastToUser } from "../broadcast"
+import { avatarInitial } from "./avatar"
 
 export type MessageTarget =
   | { kind: "channel"; channelId: string; serverId: string }
@@ -152,6 +153,7 @@ export async function createCommunityMessage(params: {
     | undefined
   const replyTargets = new Set<string>()
   if (row.replyToId) {
+    // single-id path — see `dm/[id]/messages/route.ts` / `channels/[id]/messages/route.ts` for the batched N-id path
     const replyMsg = await queries.communityMessage.getMessage(db, row.replyToId)
     const inScope = replyMsg
       ? target.kind === "dm"
@@ -161,7 +163,7 @@ export async function createCommunityMessage(params: {
     if (replyMsg && inScope) {
       replyTo = {
         id: replyMsg.id,
-        authorName: replyMsg.authorName ?? "Unknown",
+        authorName: replyMsg.authorName,
         text: (replyMsg.content ?? "").slice(0, MESSAGE_PREVIEW_LENGTH),
       }
       if (replyMsg.authorId && replyMsg.authorId !== authorId) {
@@ -174,20 +176,33 @@ export async function createCommunityMessage(params: {
 
   // Mention extraction is channel/thread only — DMs have no member roster
   // and no @-anyone semantics.
+  //
+  // Split the query by need: broadcast wants userIds only; @-candidate
+  // extraction wants (userId, userName) tuples. When both branches fire we
+  // still issue a single `listMembers` call — it's a superset of userIds,
+  // never double-query.
   const mentionTargets = new Set<string>()
   if (target.kind !== "dm") {
-    const members = await queries.communityMember.listMembers(db, target.serverId)
-    if (mentionType === "everyone" || mentionType === "here") {
-      for (const m of members) {
-        if (m.userId !== authorId) mentionTargets.add(m.userId)
+    const hasAtMention = typeof row.content === "string" && row.content.includes("@")
+    if (hasAtMention) {
+      const members = await queries.communityMember.listMembers(db, target.serverId)
+      if (mentionType === "everyone" || mentionType === "here") {
+        for (const m of members) {
+          if (m.userId !== authorId) mentionTargets.add(m.userId)
+        }
       }
-    }
-    if (row.content) {
-      const candidates = members
-        .filter((m) => m.userId !== authorId && m.userName)
-        .map((m) => ({ userId: m.userId, name: m.userName as string }))
-      for (const id of extractMentionedUserIds(row.content, candidates)) {
-        mentionTargets.add(id)
+      if (row.content) {
+        const candidates = members
+          .filter((m) => m.userId !== authorId && m.userName)
+          .map((m) => ({ userId: m.userId, name: m.userName as string }))
+        for (const id of extractMentionedUserIds(row.content, candidates)) {
+          mentionTargets.add(id)
+        }
+      }
+    } else if (mentionType === "everyone" || mentionType === "here") {
+      const userIds = await queries.communityMember.listMemberUserIds(db, target.serverId)
+      for (const uid of userIds) {
+        if (uid !== authorId) mentionTargets.add(uid)
       }
     }
   }
@@ -212,7 +227,7 @@ export async function createCommunityMessage(params: {
     })
   }
   if (liveMentions.length > 0 || liveReplies.length > 0) {
-    const authorName = row.authorName ?? "Unknown"
+    const authorName = row.authorName
     const channelIdForBroadcast =
       target.kind === "dm" ? undefined : target.channelId
     for (const userId of [...liveMentions, ...liveReplies]) {
@@ -222,7 +237,7 @@ export async function createCommunityMessage(params: {
         messageId: row.id,
         ...(channelIdForBroadcast ? { channelId: channelIdForBroadcast } : {}),
         authorName,
-      } as never).catch(() => {})
+      }).catch(() => {})
     }
   }
 
@@ -244,7 +259,7 @@ export async function createCommunityMessage(params: {
       type: WS_EVENTS.DM_NEW_MESSAGE,
       dmConversationId: target.dmId,
       message: messagePayload,
-    } as never).catch(() => {})
+    }).catch(() => {})
   } else {
     fanOutToChannel(
       target.channelId,
@@ -272,7 +287,7 @@ export async function createCommunityMessage(params: {
             lastMessageAt:
               updated?.lastMessageAt ?? new Date().toISOString(),
           },
-        } as never,
+        },
         { excludeUserId: authorId },
       ).catch(() => {})
     }
@@ -290,9 +305,8 @@ function buildMessagePayload(
   const base = {
     id: row.id,
     authorId: row.authorId,
-    authorName: row.authorName ?? (kind === "dm" ? "Unknown" : ""),
-    authorAvatar:
-      row.authorImage ?? (row.authorName ?? "?").charAt(0).toUpperCase(),
+    authorName: row.authorName,
+    authorAvatar: row.authorImage ?? avatarInitial(row.authorName),
     content: row.content,
     type: (row.type as "default" | "system" | "thread_created") ?? "default",
     createdAt: row.createdAt,
@@ -312,12 +326,15 @@ function buildMessagePayload(
       ...base,
       mentionType: row.mentionType as MentionType | null | undefined,
       replyTo,
-      embeds: row.embeds ? JSON.parse(row.embeds) : undefined,
+      // Row.embeds is already parsed by the query layer (unknown). The WS
+      // schema expects unknown[] — narrow to array-or-undefined here rather
+      // than widen the schema.
+      embeds: Array.isArray(row.embeds) ? row.embeds : undefined,
     }
   }
-  if (kind === "thread") {
-    return base
-  }
+  // Both `channel` and `thread` (forum posts + inline threads) carry the same
+  // reply / mention semantics on the wire — WS listeners in a thread need
+  // replyTo so a reply renders as a reply immediately, not only after refetch.
   return {
     ...base,
     mentionType: row.mentionType as MentionType | null,

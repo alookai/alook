@@ -52,6 +52,7 @@ export const GET = async (
     if (!check.ok) return writeError(check.error, check.status)
   } else if (kind === "dm") {
     if (!id) return writeError("not found", 404)
+    // Block check is inherited from `requireDMParticipant` — do not re-inline.
     const check = await requireDMParticipant(db, id, userId)
     if (!check.ok) return writeError(check.error, check.status)
   } else if (kind === "server-icon") {

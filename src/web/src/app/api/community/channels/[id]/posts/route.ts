@@ -10,6 +10,8 @@ import {
   WS_EVENTS,
 } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
+import { requireChannelMember } from "@/lib/community/permissions"
+import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -17,8 +19,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
-  if (!channel) return writeError("forbidden", 403)
+  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const channel = auth.value
 
   if (channel.type !== "forum") {
     return writeError("channel is not a forum", 400)
@@ -32,15 +35,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   })
 
   if (tag) {
-    childChannels = childChannels.filter((ch) => {
-      if (!ch.forumTags) return false
-      try {
-        const tags: string[] = JSON.parse(ch.forumTags)
-        return tags.includes(tag)
-      } catch {
-        return false
-      }
-    })
+    childChannels = childChannels.filter((ch) => ch.tags.includes(tag))
   }
 
   // Batch-fetch all creators in one query
@@ -57,11 +52,10 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const posts = childChannels.map((t) => {
     const creator = t.creatorId ? creatorMap.get(t.creatorId) : null
-    const authorName = creator?.name ?? "Unknown"
-    const authorAvatar = creator?.image ?? (creator?.name ?? "?").charAt(0).toUpperCase()
+    // creator can be null if the user was deleted (channel.creatorId has ON DELETE SET NULL).
+    const authorName = creator ? creator.name : ""
+    const authorAvatar = creator?.image ?? avatarInitial(authorName)
     const preview = (previewMap.get(t.id) ?? "").slice(0, MESSAGE_PREVIEW_LENGTH)
-    let parsedTags: string[] = []
-    try { parsedTags = t.forumTags ? JSON.parse(t.forumTags) : [] } catch { /* */ }
     return {
       id: t.id,
       name: t.name,
@@ -69,7 +63,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       lastMessageAt: t.lastMessageAt ?? t.createdAt,
       parent: { authorName, text: preview },
       authorAvatar,
-      tags: parsedTags,
+      tags: t.tags ?? [],
       preview,
     }
   })
@@ -83,8 +77,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannelForMember(db, channelId, ctx.userId)
-  if (!channel) return writeError("forbidden", 403)
+  const auth = await requireChannelMember(db, channelId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const channel = auth.value
 
   if (channel.type !== "forum") {
     return writeError("channel is not a forum", 400)
@@ -111,14 +106,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError(`content must be ≤ ${MAX_MESSAGE_CONTENT_LENGTH} characters`, 400)
   }
 
-  // Validate tags against channel's forumTags if present
-  if (body.tags && body.tags.length > 0 && channel.forumTags) {
-    let allowedTags: string[]
-    try {
-      allowedTags = JSON.parse(channel.forumTags as string)
-    } catch {
-      allowedTags = []
-    }
+  // Validate tags against channel's tags if present
+  if (body.tags && body.tags.length > 0) {
+    const allowedTags = channel.tags ?? []
     if (allowedTags.length > 0) {
       const invalid = body.tags.filter((t) => !allowedTags.includes(t))
       if (invalid.length > 0) {
@@ -152,8 +142,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   // Resolve author info for response
   const creator = await queries.user.getUser(db, ctx.userId)
-  const authorName = creator?.name ?? "Unknown"
-  const authorAvatar = creator?.image ?? (creator?.name ?? "?").charAt(0).toUpperCase()
+  const authorName = creator ? creator.name : ""
+  const authorAvatar = creator?.image ?? avatarInitial(authorName)
 
   fanOutToChannel(channelId, {
     type: WS_EVENTS.CHILD_CHANNEL_CREATE,
@@ -165,7 +155,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       creatorId: ctx.userId,
       createdAt: postChannel.createdAt,
     },
-  }).catch(() => {})
+  })
 
   return writeJSON({
     post: {

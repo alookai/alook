@@ -13,8 +13,6 @@ import { fanOutToChannel, fanOutToDM } from "@/lib/community/fanout"
 import {
   requireChannelMember,
   requireDMParticipant,
-  requireNotBlocked,
-  otherDmParticipant,
 } from "@/lib/community/permissions"
 
 type AccessOk = { ok: true; channelId?: string; dmConversationId?: string }
@@ -41,9 +39,6 @@ async function authorizeReaction(
   if (message.dmConversationId) {
     const check = await requireDMParticipant(db, message.dmConversationId, userId)
     if (!check.ok) return check
-    const other = otherDmParticipant(check.value, userId)
-    const block = await requireNotBlocked(db, userId, other)
-    if (!block.ok) return block
     return { ok: true, dmConversationId: message.dmConversationId }
   }
   return { ok: false, status: 404, error: "message not found" }
@@ -85,9 +80,9 @@ export const PUT = withAuth(async (_req: NextRequest, ctx) => {
   }
 
   if (access.channelId) {
-    fanOutToChannel(access.channelId, event, { excludeUserId: ctx.userId }).catch(() => {})
+    fanOutToChannel(access.channelId, event, { excludeUserId: ctx.userId })
   } else if (access.dmConversationId) {
-    fanOutToDM(access.dmConversationId, event, { excludeUserId: ctx.userId }).catch(() => {})
+    fanOutToDM(access.dmConversationId, event, { excludeUserId: ctx.userId })
   }
 
   return writeJSON(reaction)
@@ -120,9 +115,9 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   }
 
   if (access.channelId) {
-    fanOutToChannel(access.channelId, event, { excludeUserId: ctx.userId }).catch(() => {})
+    fanOutToChannel(access.channelId, event, { excludeUserId: ctx.userId })
   } else if (access.dmConversationId) {
-    fanOutToDM(access.dmConversationId, event, { excludeUserId: ctx.userId }).catch(() => {})
+    fanOutToDM(access.dmConversationId, event, { excludeUserId: ctx.userId })
   }
 
   return new Response(null, { status: 204 })

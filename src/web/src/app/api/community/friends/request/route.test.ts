@@ -77,6 +77,37 @@ describe("POST /api/community/friends/request", () => {
     )
   })
 
+  it("friend.request payload is the projected shape (no blockerId / updatedAt)", async () => {
+    // Simulate the full DB row, including columns the client should not see.
+    sendRequest.mockResolvedValue({
+      kind: "created",
+      friendship: {
+        id: "f1",
+        requesterId: "u1",
+        addresseeId: "u2",
+        status: "pending",
+        createdAt: "2026-07-02T00:00:00.000Z",
+        blockerId: null,
+        updatedAt: "2026-07-02T00:00:00.000Z",
+      },
+    })
+    await POST(postReq({ userId: "u2" }), {} as never)
+    const call = broadcastToUser.mock.calls.find(
+      (c) => (c[1] as { type: string }).type === "community:friend.request",
+    )
+    expect(call).toBeDefined()
+    const payload = call![1] as { friendship: Record<string, unknown> }
+    expect(payload.friendship).toEqual({
+      id: "f1",
+      requesterId: "u1",
+      addresseeId: "u2",
+      status: "pending",
+      createdAt: "2026-07-02T00:00:00.000Z",
+    })
+    expect(payload.friendship).not.toHaveProperty("blockerId")
+    expect(payload.friendship).not.toHaveProperty("updatedAt")
+  })
+
   it("auto-accepts when the reverse-direction request already exists (200 + friend.accept)", async () => {
     // The query layer reports it promoted an existing reverse pending row.
     sendRequest.mockResolvedValue({

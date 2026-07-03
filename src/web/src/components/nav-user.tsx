@@ -29,7 +29,7 @@ export function NavUser() {
   if (!mounted || isPending || !user)
     return <Skeleton className="size-10 rounded-xl" />;
 
-  const firstLetter = (user.name || user.email || "?").charAt(0).toUpperCase();
+  const firstLetter = (user.name || "?").charAt(0).toUpperCase();
 
   return (
     <DropdownMenu>
@@ -37,7 +37,7 @@ export function NavUser() {
         render={
           <button
             type="button"
-            title={user.name ?? user.email ?? "Account"}
+            title={user.name}
             className="flex items-center justify-center size-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors duration-200 cursor-pointer"
           />
         }
@@ -58,7 +58,7 @@ export function NavUser() {
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">
-                  {user.name ?? "User"}
+                  {user.name}
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
                   {user.email}

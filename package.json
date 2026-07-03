@@ -35,10 +35,11 @@
     "deploy:email": "cd src/email-worker && npx wrangler deploy",
     "db:migrate:remote": "pnpm --filter @alook/web exec wrangler d1 migrations apply alook-app --remote",
     "bump": "node scripts/bump-version.mjs",
+    "typegrep:ws": "node scripts/lint-ws-events.mjs",
     "prepare": "simple-git-hooks"
   },
   "simple-git-hooks": {
-    "pre-commit": "pnpm typecheck && pnpm lint && pnpm test"
+    "pre-commit": "pnpm typecheck && pnpm lint && pnpm test && pnpm typegrep:ws"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.9",

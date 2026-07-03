@@ -10,10 +10,12 @@ import {
   WS_EVENTS,
 } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { serverIconUrl } from "@/lib/community/storage"
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
-  const servers = await queries.communityServer.listUserServers(db, ctx.userId)
+  const rows = await queries.communityServer.listUserServers(db, ctx.userId)
+  const servers = rows.map((row) => ({ ...row, icon: serverIconUrl(row) }))
   return writeJSON({ servers })
 })
 
@@ -46,28 +48,24 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     description = body.description
   }
 
-  const server = await queries.communityServer.createServer(db, {
+  const { server, ownerMember } = await queries.communityServer.createServer(db, {
     name,
     description,
     ownerId: ctx.userId,
   })
 
-  const members = await queries.communityMember.listMembers(db, server.id)
-  const ownerMember = members.find((m) => m.userId === ctx.userId)
-
-  if (ownerMember) {
-    fanOutToServerMembers(server.id, {
-      type: WS_EVENTS.MEMBER_JOIN,
-      serverId: server.id,
-      member: {
-        id: ownerMember.id,
-        userId: ctx.userId,
-        name: ownerMember.userName ?? ctx.email,
-        role: ROLES.OWNER,
-        joinedAt: ownerMember.joinedAt,
-      },
-    }).catch(() => {})
-  }
+  fanOutToServerMembers(server.id, {
+    type: WS_EVENTS.MEMBER_JOIN,
+    serverId: server.id,
+    member: {
+      id: ownerMember.id,
+      userId: ctx.userId,
+      name: ownerMember.userName,
+      avatar: ownerMember.userImage ?? undefined,
+      role: ROLES.OWNER,
+      joinedAt: ownerMember.joinedAt,
+    },
+  })
 
   return writeJSON({ server }, 201)
 })

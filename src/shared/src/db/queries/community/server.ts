@@ -1,16 +1,26 @@
-import { eq, and, asc, inArray } from "drizzle-orm";
+import { eq, and, asc, inArray, or, like, isNull } from "drizzle-orm";
 import {
   communityServer,
   communityCategory,
   communityChannel,
   communityServerMember,
 } from "../../community-schema";
+import { user } from "../../schema";
 import type { Database } from "../../index";
 
 export async function createServer(
   db: Database,
   data: { name: string; description?: string; ownerId: string }
-) {
+): Promise<{
+  server: typeof communityServer.$inferSelect;
+  ownerMember: {
+    id: string;
+    userId: string;
+    joinedAt: string;
+    userName: string;
+    userImage: string | null;
+  };
+}> {
   const [server] = await db
     .insert(communityServer)
     .values({
@@ -37,14 +47,41 @@ export async function createServer(
     position: 0,
   });
 
-  await db.insert(communityServerMember).values({
-    serverId: server!.id,
-    userId: data.ownerId,
-    role: "owner",
-    railOrder: 0,
-  });
+  const [memberRow] = await db
+    .insert(communityServerMember)
+    .values({
+      serverId: server!.id,
+      userId: data.ownerId,
+      role: "owner",
+      railOrder: 0,
+    })
+    .returning({
+      id: communityServerMember.id,
+      userId: communityServerMember.userId,
+      joinedAt: communityServerMember.joinedAt,
+    });
 
-  return server!;
+  // Fetch the owner's display name + avatar directly instead of re-listing
+  // members — a freshly-created server has exactly one member row, so a
+  // scoped select is honest about intent and avoids `.find` disambiguation
+  // in the caller.
+  const [userRow] = await db
+    .select({ name: user.name, image: user.image })
+    .from(user)
+    .where(eq(user.id, data.ownerId));
+
+  return {
+    server: server!,
+    ownerMember: {
+      id: memberRow!.id,
+      userId: memberRow!.userId,
+      joinedAt: memberRow!.joinedAt,
+      // user.name is kept non-empty by the Better-Auth create.before hook
+      // and the createUser/updateUser guards — the `?? ""` is defensive.
+      userName: userRow?.name ?? "",
+      userImage: userRow?.image ?? null,
+    },
+  };
 }
 
 export async function getServer(db: Database, serverId: string) {
@@ -103,4 +140,30 @@ export async function listUserServers(db: Database, userId: string) {
 export async function getServersByIds(db: Database, serverIds: string[]) {
   if (serverIds.length === 0) return [];
   return db.select().from(communityServer).where(inArray(communityServer.id, serverIds));
+}
+
+// Backfill support: list rows whose icon column still holds the legacy URL
+// format (or is NULL). Consumed by the one-shot migration script that pins
+// each row to its canonical R2 key.
+export async function listServersNeedingIconBackfill(db: Database) {
+  return db
+    .select({ id: communityServer.id, icon: communityServer.icon })
+    .from(communityServer)
+    .where(
+      or(
+        isNull(communityServer.icon),
+        like(communityServer.icon, "/api/community/%"),
+      ),
+    );
+}
+
+export async function setServerIcon(
+  db: Database,
+  serverId: string,
+  icon: string | null,
+) {
+  await db
+    .update(communityServer)
+    .set({ icon })
+    .where(eq(communityServer.id, serverId));
 }

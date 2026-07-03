@@ -15,6 +15,10 @@ export function CommunityPanelSheet({
   kind,
   members,
   membersLoading,
+  membersLoadingMore,
+  membersHasMore,
+  onLoadMoreMembers,
+  onSearchMembers,
   pinned,
   pinnedLoading,
   searchResults,
@@ -34,6 +38,10 @@ export function CommunityPanelSheet({
   kind: Exclude<RightPanel, null>
   members: Member[]
   membersLoading?: boolean
+  membersLoadingMore?: boolean
+  membersHasMore?: boolean
+  onLoadMoreMembers?: () => void
+  onSearchMembers?: (q: string) => void
   pinned: Msg[]
   pinnedLoading?: boolean
   searchResults: Msg[]
@@ -68,6 +76,10 @@ export function CommunityPanelSheet({
           kind={kind}
           members={members}
           membersLoading={membersLoading}
+          membersLoadingMore={membersLoadingMore}
+          membersHasMore={membersHasMore}
+          onLoadMoreMembers={onLoadMoreMembers}
+          onSearchMembers={onSearchMembers}
           pinned={pinned}
           pinnedLoading={pinnedLoading}
           searchResults={searchResults}

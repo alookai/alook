@@ -7,7 +7,8 @@ import {
   MAX_MEMBERS_PAGE_SIZE,
 } from "@alook/shared"
 import { requireServerMember } from "@/lib/community/permissions"
-import { parseBoundedInt } from "@/lib/community/messages"
+import { parseBoundedInt, parseMemberCursor, buildMemberPaginatedResponse } from "@/lib/community/messages"
+import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (req, ctx) => {
   const serverId = ctx.params?.id
@@ -23,20 +24,37 @@ export const GET = withAuth(async (req, ctx) => {
     DEFAULT_MEMBERS_PAGE_SIZE,
     MAX_MEMBERS_PAGE_SIZE,
   )
+  const cursor = parseMemberCursor(url.searchParams.get("cursor"))
 
-  // Paginate in memory until the query module gains cursor support — the
-  // shared `listMembers` already scopes by serverId, so this is safe but not
-  // ideal for very large servers (>10k members). Tracking work to push the
-  // limit into Drizzle as a follow-up.
-  const rows = (await queries.communityMember.listMembers(db, serverId)).slice(0, limit)
-  const members = rows.map((r) => ({
-    id: r.id,
-    userId: r.userId,
-    name: r.nickname ?? r.userName ?? r.userEmail ?? "Unknown",
-    avatar: r.userImage ?? (r.userName ?? "?").charAt(0).toUpperCase(),
-    status: (r.userId === ctx.userId ? "online" : "offline") as "online" | "offline",
-    sub: "",
-    role: r.role ?? "member",
-  }))
-  return writeJSON({ members, limit })
+  // Fetch page + total in parallel — total is returned in the envelope so the
+  // settings tab (SettingsMembers) can show the real member count without a
+  // second round-trip to /members/count.
+  const [page, total] = await Promise.all([
+    queries.communityMember.listMembersPaginated(db, serverId, { cursor, limit }),
+    queries.communityMember.countMembers(db, serverId),
+  ])
+
+  // Build the cursor string from the raw page rows (which carry joinedAt)
+  // BEFORE stripping down to the display shape — the Member type on the
+  // client has no joinedAt field and shouldn't gain one.
+  const envelope = buildMemberPaginatedResponse(page.members, page.hasMore)
+
+  const members = envelope.members.map((r) => {
+    // user.name is notNull().default("") in the DB (#20). The query's declared
+    // return type carries string|null for legacy reasons; fall back to "" so
+    // the display shape stays a plain string. avatarInitial handles the
+    // empty case.
+    const display = r.nickname ?? r.userName ?? ""
+    return {
+      id: r.id,
+      userId: r.userId,
+      name: display,
+      avatar: r.userImage ?? avatarInitial(display),
+      status: (r.userId === ctx.userId ? "online" : "offline") as "online" | "offline",
+      sub: "",
+      role: r.role ?? "member",
+    }
+  })
+
+  return writeJSON({ members, hasMore: envelope.hasMore, cursor: envelope.cursor, limit, total })
 })

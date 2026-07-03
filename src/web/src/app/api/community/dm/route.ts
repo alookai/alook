@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { requireNotBlocked } from "@/lib/community/permissions"
+import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -11,8 +12,8 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const conversations = rows.map((r) => ({
     id: r.id,
     userId: r.otherUserId,
-    name: r.otherUserName ?? r.otherUserEmail ?? "Unknown",
-    avatar: r.otherUserImage ?? (r.otherUserName ?? "?").charAt(0).toUpperCase(),
+    name: r.otherUserName,
+    avatar: r.otherUserImage ?? avatarInitial(r.otherUserName),
     status: "offline" as const,
     preview: "",
   }))

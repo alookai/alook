@@ -49,6 +49,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     return writeJSON({ results })
   }
 
+  // Block check is inherited from `requireDMParticipant` — do not re-inline.
   const auth = await requireDMParticipant(db, dmConversationId!, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
   const results = await queries.communitySearch.searchMessages(db, {

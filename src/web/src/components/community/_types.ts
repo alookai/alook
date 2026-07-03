@@ -61,7 +61,7 @@ export type Channel = {
   unread: boolean
   muted?: boolean
   type?: ChannelType
-  forumTags?: string | null
+  tags?: string[]
   creatorId?: string | null
 }
 

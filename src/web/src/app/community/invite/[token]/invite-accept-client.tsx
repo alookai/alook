@@ -11,7 +11,6 @@ import { useCommunity } from "@/contexts/community/context"
 type InviteInfo = {
   serverName: string
   serverIcon: string | null
-  serverDescription: string
   memberCount: number
 }
 
@@ -110,9 +109,6 @@ export function InviteAcceptClient({ token }: { token: string }) {
         {/* Server info */}
         <p className="text-xs uppercase tracking-wide text-muted-foreground">You&apos;re invited to join</p>
         <h1 className="mt-1 text-2xl font-semibold">{info?.serverName}</h1>
-        {info?.serverDescription && (
-          <p className="mt-2 text-sm text-muted-foreground">{info.serverDescription}</p>
-        )}
         {info?.memberCount != null && (
           <p className="mt-2 text-xs text-muted-foreground">
             {info.memberCount} {info.memberCount === 1 ? "member" : "members"}

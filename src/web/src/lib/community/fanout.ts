@@ -7,6 +7,9 @@
  *
  * Uses the same `broadcastToUser` function that existing code uses,
  * ensuring consistent service-binding -> HTTP fallback behavior.
+ *
+ * Contract: these helpers absorb all failures internally and never reject.
+ * Routes call them as fire-and-forget statements without `.catch()`.
  */
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
@@ -22,8 +25,7 @@ type BroadcastableEvent = CommunityWsEvent & { type: string }
  * Resolves all member user IDs for a server.
  */
 async function getServerMemberUserIds(db: ReturnType<typeof createDb>, serverId: string): Promise<string[]> {
-  const members = await queries.communityMember.listMembers(db, serverId)
-  return members.map((m) => m.userId)
+  return queries.communityMember.listMemberUserIds(db, serverId)
 }
 
 /**
@@ -46,10 +48,18 @@ export async function fanOutToChannel(
   event: BroadcastableEvent,
   opts?: { excludeUserId?: string }
 ): Promise<void> {
-  const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
-  const userIds = await getChannelRecipientUserIds(db, channelId)
-  await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+  try {
+    const { env } = getCloudflareContext()
+    const db = createDb((env as Env).DB)
+    const userIds = await getChannelRecipientUserIds(db, channelId)
+    await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+  } catch (err) {
+    log.warn("fanout_to_channel_failed", {
+      eventType: event.type,
+      targetId: channelId,
+      err: String(err),
+    })
+  }
 }
 
 /**
@@ -60,15 +70,23 @@ export async function fanOutToDM(
   event: BroadcastableEvent,
   opts?: { excludeUserId?: string }
 ): Promise<void> {
-  const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
-  const dm = await queries.communityDm.getDM(db, dmConversationId)
-  if (!dm) {
-    log.warn("fanOutToDM: DM conversation not found", { dmConversationId })
-    return
+  try {
+    const { env } = getCloudflareContext()
+    const db = createDb((env as Env).DB)
+    const dm = await queries.communityDm.getDM(db, dmConversationId)
+    if (!dm) {
+      log.warn("fanOutToDM: DM conversation not found", { dmConversationId })
+      return
+    }
+    const userIds = [dm.user1Id, dm.user2Id].filter(Boolean) as string[]
+    await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+  } catch (err) {
+    log.warn("fanout_to_dm_failed", {
+      eventType: event.type,
+      targetId: dmConversationId,
+      err: String(err),
+    })
   }
-  const userIds = [dm.user1Id, dm.user2Id].filter(Boolean) as string[]
-  await broadcastToRecipients(userIds, event, opts?.excludeUserId)
 }
 
 
@@ -80,10 +98,37 @@ export async function fanOutToServerMembers(
   event: BroadcastableEvent,
   opts?: { excludeUserId?: string }
 ): Promise<void> {
-  const { env } = getCloudflareContext()
-  const db = createDb((env as Env).DB)
-  const userIds = await getServerMemberUserIds(db, serverId)
-  await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+  try {
+    const { env } = getCloudflareContext()
+    const db = createDb((env as Env).DB)
+    const userIds = await getServerMemberUserIds(db, serverId)
+    await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+  } catch (err) {
+    log.warn("fanout_to_server_members_failed", {
+      eventType: event.type,
+      targetId: serverId,
+      err: String(err),
+    })
+  }
+}
+
+/**
+ * Safe wrapper around `broadcastToUser` for community routes: never rejects,
+ * logs on failure. Non-community callers keep the direct throwing contract.
+ */
+export async function broadcastToUserSafe(
+  userId: string,
+  event: BroadcastableEvent,
+): Promise<void> {
+  try {
+    await broadcastToUser(userId, event)
+  } catch (err) {
+    log.warn("broadcast_to_user_failed", {
+      eventType: event.type,
+      targetId: userId,
+      err: String(err),
+    })
+  }
 }
 
 /**

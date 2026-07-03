@@ -6,6 +6,7 @@ import { queries, isUniqueConstraintError, WS_EVENTS } from "@alook/shared"
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember, requireServerAdmin } from "@/lib/community/permissions"
 import { logAudit } from "@/lib/community/audit"
+import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -18,8 +19,8 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   const rows = await queries.communityPin.listPins(db, channelId)
   const pins = rows.map((r) => ({
     id: r.message.id,
-    authorName: r.author.name ?? r.author.email ?? "Unknown",
-    authorAvatar: r.author.image ?? (r.author.name ?? "?").charAt(0).toUpperCase(),
+    authorName: r.author.name,
+    authorAvatar: r.author.image ?? avatarInitial(r.author.name),
     content: r.message.content,
     createdAt: r.message.createdAt,
   }))
@@ -69,7 +70,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     type: WS_EVENTS.PIN_ADD,
     channelId,
     messageId: body.messageId,
-  }, { excludeUserId: ctx.userId }).catch(() => {})
+  }, { excludeUserId: ctx.userId })
 
   logAudit(db, {
     serverId: channel.serverId,

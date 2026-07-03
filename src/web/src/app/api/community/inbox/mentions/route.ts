@@ -7,6 +7,7 @@ import {
   MAX_INBOX_PAGE_SIZE,
 } from "@alook/shared"
 import { parseBoundedInt } from "@/lib/community/messages"
+import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -35,14 +36,16 @@ export const GET = withAuth(async (req, ctx) => {
     const srv = ch ? serverMap.get(ch.serverId) : undefined
     return {
       id: row.mention.id,
-      server: srv?.name ?? "Unknown",
+      // srv/ch fall back to "Unknown" only when the underlying row was deleted
+      // between mention insert and this read — unrelated to user-name integrity.
+      server: srv ? srv.name : "Unknown",
       serverId: ch?.serverId,
-      channel: ch?.name ?? "Unknown",
+      channel: ch ? ch.name : "Unknown",
       channelId: row.message.channelId,
       m: {
         id: row.message.id,
-        authorName: row.author.name ?? row.author.email ?? "Unknown",
-        authorAvatar: row.author.image ?? (row.author.name ?? "?").charAt(0).toUpperCase(),
+        authorName: row.author.name,
+        authorAvatar: row.author.image ?? avatarInitial(row.author.name),
         content: row.message.content,
         createdAt: row.message.createdAt,
       },

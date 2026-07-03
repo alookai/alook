@@ -24,31 +24,61 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     type: "thread",
   })
 
-  // Resolve parent message or creator for each thread
-  const threads = await Promise.all(
-    childChannels.map(async (t) => {
-      let parent = { authorName: "", text: "" }
-      if (t.parentMessageId) {
-        const msg = await queries.communityMessage.getMessage(db, t.parentMessageId)
-        if (msg) {
-          parent = { authorName: msg.authorName ?? msg.authorEmail ?? "Unknown", text: (msg.content ?? "").slice(0, 100) }
-        }
-      } else if (t.creatorId) {
-        const creator = await queries.user.getUser(db, t.creatorId)
-        if (creator) parent = { authorName: creator.name ?? "Unknown", text: "" }
-        const msgs = await queries.communityMessage.listMessages(db, { channelId: t.id, limit: 1 })
-        if (msgs.length > 0) parent = { ...parent, text: (msgs[0].content ?? "").slice(0, 100) }
-      }
-      return {
-        id: t.id,
-        name: t.name,
-        kind: t.type,
-        messageCount: t.messageCount ?? 0,
-        lastMessageAt: t.lastMessageAt ?? t.createdAt,
-        parent,
-      }
-    })
+  // Collect id sets up front so we can resolve parent-message / creator /
+  // first-message previews in three parallel batches instead of 1+2N calls.
+  const parentIds = [
+    ...new Set(childChannels.filter((r) => r.parentMessageId).map((r) => r.parentMessageId!)),
+  ]
+  const creatorIds = [
+    ...new Set(
+      childChannels
+        .filter((r) => !r.parentMessageId && r.creatorId)
+        .map((r) => r.creatorId!),
+    ),
+  ]
+  const firstMessageChannelIds = [
+    ...new Set(childChannels.filter((r) => !r.parentMessageId).map((r) => r.id)),
+  ]
+
+  const [parentMessages, creators, firstMessages] = await Promise.all([
+    queries.communityMessage.getMessagesByIds(db, parentIds),
+    queries.user.getUsersByIds(db, creatorIds),
+    queries.communityMessage.getFirstMessageByChannelIds(db, firstMessageChannelIds),
+  ])
+
+  const parentMessageMap = new Map(parentMessages.map((m) => [m.id, m]))
+  const creatorMap = new Map(creators.map((u) => [u.id, u]))
+  const firstMessageMap = new Map(
+    firstMessages.map((m) => [m.channelId as string, m.content]),
   )
+
+  const threads = childChannels.map((t) => {
+    let parent = { authorName: "", text: "" }
+    if (t.parentMessageId) {
+      const msg = parentMessageMap.get(t.parentMessageId)
+      if (msg) {
+        parent = {
+          authorName: msg.authorName,
+          text: (msg.content ?? "").slice(0, 100),
+        }
+      }
+    } else if (t.creatorId) {
+      const creator = creatorMap.get(t.creatorId)
+      if (creator) parent = { authorName: creator.name, text: "" }
+      const firstText = firstMessageMap.get(t.id)
+      if (firstText !== undefined) {
+        parent = { ...parent, text: (firstText ?? "").slice(0, 100) }
+      }
+    }
+    return {
+      id: t.id,
+      name: t.name,
+      kind: t.type,
+      messageCount: t.messageCount ?? 0,
+      lastMessageAt: t.lastMessageAt ?? t.createdAt,
+      parent,
+    }
+  })
 
   return writeJSON({ threads })
 })

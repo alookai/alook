@@ -3,11 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
-import {
-  requireDMParticipant,
-  requireNotBlocked,
-  otherDmParticipant,
-} from "@/lib/community/permissions"
+import { requireDMParticipant } from "@/lib/community/permissions"
 
 export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id
@@ -16,11 +12,6 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const auth = await requireDMParticipant(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
-
-  // A blocked party can't update read state — that would leak online activity.
-  const other = otherDmParticipant(auth.value, ctx.userId)
-  const block = await requireNotBlocked(db, ctx.userId, other)
-  if (!block.ok) return writeError(block.error, block.status)
 
   let body: { lastReadMessageId?: string } = {}
   try {

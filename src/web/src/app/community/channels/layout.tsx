@@ -174,6 +174,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
           serverIcon={ctx.currentServer?.icon ?? null}
           members={ctx.members}
           membersLoading={ctx.membersLoading}
+          membersLoadingMore={ctx.membersLoadingMore}
+          membersHasMore={ctx.membersHasMore}
+          membersTotal={ctx.membersTotal}
+          onLoadMoreMembers={ctx.loadMoreMembers}
+          onSearchMembers={ctx.searchMembers}
           invites={ctx.invites}
           invitesLoading={ctx.invitesLoading}
           auditLog={ctx.auditLog}

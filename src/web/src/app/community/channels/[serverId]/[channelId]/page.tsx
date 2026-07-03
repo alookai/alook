@@ -227,6 +227,10 @@ function ChannelView() {
     onOpenThread: enterThread,
     members: ctx.members,
     membersLoading: ctx.membersLoading,
+    membersLoadingMore: ctx.membersLoadingMore,
+    membersHasMore: ctx.membersHasMore,
+    onLoadMoreMembers: ctx.loadMoreMembers,
+    onSearchMembers: ctx.searchMembers,
     pinned: ctx.pinned,
     pinnedLoading: ctx.pinnedLoading,
     searchResults,
@@ -364,8 +368,7 @@ function ChannelView() {
   if (isForum) {
     const allChannels = ctx.currentServer?.categories.flatMap((c) => c.channels) ?? []
     const forumChannel = allChannels.find((ch) => ch.id === channelId)
-    let forumTags: string[] = []
-    try { forumTags = forumChannel?.forumTags ? JSON.parse(forumChannel.forumTags) : [] } catch { /* malformed JSON */ }
+    const forumTags: string[] = forumChannel?.tags ?? []
     const canManage = canManageServer(myRole)
     return (
       <>

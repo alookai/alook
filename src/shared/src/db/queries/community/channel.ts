@@ -1,6 +1,58 @@
 import { eq, and, asc, desc, isNull, max, inArray } from "drizzle-orm";
-import { communityChannel, communityServerMember } from "../../community-schema";
+import {
+  communityChannel,
+  communityServerMember,
+} from "../../community-schema";
 import type { Database } from "../../index";
+import { createLogger } from "../../../logger";
+
+// Module-level logger — one tag per shared query module.
+const log = createLogger({ service: "community-queries" });
+
+// TEXT column at rest → string[] at the boundary. Null/empty is a clean read
+// (empty tag set); a parse throw or non-array shape signals bit-rot.
+function safeParseForumTags(raw: string | null, channelId: string): string[] {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    log.warn("forum_tags_parse_failed", { channelId, err });
+    return [];
+  }
+  if (!Array.isArray(parsed)) {
+    log.warn("forum_tags_not_array", { channelId });
+    return [];
+  }
+  return parsed as string[];
+}
+
+// Column selection shared by every read query — keeps `forumTags` off the wire
+// (renamed to `tags`) and hands each caller the same row shape.
+const CHANNEL_COLUMNS = {
+  id: communityChannel.id,
+  serverId: communityChannel.serverId,
+  categoryId: communityChannel.categoryId,
+  name: communityChannel.name,
+  type: communityChannel.type,
+  topic: communityChannel.topic,
+  position: communityChannel.position,
+  forumTags: communityChannel.forumTags,
+  parentChannelId: communityChannel.parentChannelId,
+  creatorId: communityChannel.creatorId,
+  messageCount: communityChannel.messageCount,
+  archived: communityChannel.archived,
+  parentMessageId: communityChannel.parentMessageId,
+  lastMessageAt: communityChannel.lastMessageAt,
+  createdAt: communityChannel.createdAt,
+} as const;
+
+function mapChannelRow<
+  T extends { id: string; forumTags: string | null },
+>(row: T): Omit<T, "forumTags"> & { tags: string[] } {
+  const { forumTags, ...rest } = row;
+  return { ...rest, tags: safeParseForumTags(forumTags, row.id) };
+}
 
 export async function createChannel(
   db: Database,
@@ -33,31 +85,16 @@ export async function createChannel(
 
 export async function getChannel(db: Database, channelId: string) {
   const rows = await db
-    .select()
+    .select(CHANNEL_COLUMNS)
     .from(communityChannel)
     .where(eq(communityChannel.id, channelId));
-  return rows[0] ?? null;
+  const row = rows[0];
+  return row ? mapChannelRow(row) : null;
 }
 
 export async function getChannelForMember(db: Database, channelId: string, userId: string) {
   const rows = await db
-    .select({
-      id: communityChannel.id,
-      serverId: communityChannel.serverId,
-      categoryId: communityChannel.categoryId,
-      name: communityChannel.name,
-      type: communityChannel.type,
-      topic: communityChannel.topic,
-      position: communityChannel.position,
-      forumTags: communityChannel.forumTags,
-      parentChannelId: communityChannel.parentChannelId,
-      creatorId: communityChannel.creatorId,
-      messageCount: communityChannel.messageCount,
-      archived: communityChannel.archived,
-      parentMessageId: communityChannel.parentMessageId,
-      lastMessageAt: communityChannel.lastMessageAt,
-      createdAt: communityChannel.createdAt,
-    })
+    .select(CHANNEL_COLUMNS)
     .from(communityChannel)
     .innerJoin(
       communityServerMember,
@@ -67,7 +104,8 @@ export async function getChannelForMember(db: Database, channelId: string, userI
       )
     )
     .where(eq(communityChannel.id, channelId));
-  return rows[0] ?? null;
+  const row = rows[0];
+  return row ? mapChannelRow(row) : null;
 }
 
 export async function updateChannel(
@@ -100,11 +138,12 @@ export async function deleteChannel(db: Database, channelId: string) {
 }
 
 export async function listServerChannels(db: Database, serverId: string) {
-  return db
-    .select()
+  const rows = await db
+    .select(CHANNEL_COLUMNS)
     .from(communityChannel)
     .where(and(eq(communityChannel.serverId, serverId), isNull(communityChannel.parentChannelId)))
     .orderBy(asc(communityChannel.position));
+  return rows.map(mapChannelRow);
 }
 
 export async function listChildChannels(
@@ -119,11 +158,12 @@ export async function listChildChannels(
   if (opts?.type) {
     conditions.push(eq(communityChannel.type, opts.type));
   }
-  return db
-    .select()
+  const rows = await db
+    .select(CHANNEL_COLUMNS)
     .from(communityChannel)
     .where(and(...conditions))
     .orderBy(desc(communityChannel.lastMessageAt));
+  return rows.map(mapChannelRow);
 }
 
 export async function reorderChannels(
@@ -160,5 +200,9 @@ export async function getServersLastActivity(
 
 export async function getChannelsByIds(db: Database, channelIds: string[]) {
   if (channelIds.length === 0) return [];
-  return db.select().from(communityChannel).where(inArray(communityChannel.id, channelIds));
+  const rows = await db
+    .select(CHANNEL_COLUMNS)
+    .from(communityChannel)
+    .where(inArray(communityChannel.id, channelIds));
+  return rows.map(mapChannelRow);
 }

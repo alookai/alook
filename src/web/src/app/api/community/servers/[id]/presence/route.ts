@@ -15,30 +15,37 @@ export const GET = withAuth(async (_req, ctx) => {
 
   // Cap the fan-out: a 10k-member server would otherwise spawn 10k Worker
   // subrequests and time out. Client paginates if it needs more.
-  const members = await queries.communityMember.listMembers(db, serverId)
-  const truncated = members.length > PRESENCE_MEMBER_CAP
-  const userIds = members.slice(0, PRESENCE_MEMBER_CAP).map((m) => m.userId)
+  const allUserIds = await queries.communityMember.listMemberUserIds(db, serverId)
+  const truncated = allUserIds.length > PRESENCE_MEMBER_CAP
+  const userIds = allUserIds.slice(0, PRESENCE_MEMBER_CAP)
 
-  const online: string[] = []
-  await Promise.allSettled(
-    userIds.map(async (userId) => {
-      try {
-        let resp: Response
-        try {
-          const { env } = getCloudflareContext()
-          resp = await (env as Env).WS_DO_WORKER.fetch(`http://internal/presence/user/${userId}`)
-        } catch {
-          const wsDoUrl = (ctx.env as unknown as Record<string, unknown>).DEV_WS_DO_URL as string | undefined
-          const base = wsDoUrl || DEV_WS_DO_URL
-          resp = await fetch(`${base}/presence/user/${userId}`)
-        }
-        if (resp.ok) {
-          const data = await resp.json() as { online: boolean }
-          if (data.online) online.push(userId)
-        }
-      } catch { /* skip */ }
-    }),
-  )
+  // Single subrequest — the ws-do worker fans out to each member's DO
+  // internally, keeping the web-worker subrequest budget constant.
+  const body = JSON.stringify({ ids: userIds })
+  let online: string[] = []
+  try {
+    let resp: Response
+    try {
+      const { env } = getCloudflareContext()
+      resp = await (env as Env).WS_DO_WORKER.fetch("http://internal/presence/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      })
+    } catch {
+      const wsDoUrl = (ctx.env as unknown as Record<string, unknown>).DEV_WS_DO_URL as string | undefined
+      const base = wsDoUrl || DEV_WS_DO_URL
+      resp = await fetch(`${base}/presence/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      })
+    }
+    if (resp.ok) {
+      const data = await resp.json() as { online: string[] }
+      online = Array.isArray(data.online) ? data.online : []
+    }
+  } catch { /* skip */ }
 
   return writeJSON({ online, truncated, limit: PRESENCE_MEMBER_CAP })
 })

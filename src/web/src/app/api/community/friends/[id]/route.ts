@@ -3,7 +3,7 @@ import { queries, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
-import { broadcastToUser } from "@/lib/broadcast"
+import { broadcastToUserSafe } from "@/lib/community/fanout"
 
 export const DELETE = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -32,10 +32,10 @@ export const DELETE = withAuth(async (_req, ctx) => {
     ? friendship.addresseeId
     : friendship.requesterId
 
-  broadcastToUser(otherUserId, {
+  broadcastToUserSafe(otherUserId, {
     type: WS_EVENTS.FRIEND_REMOVE,
     friendshipId: id,
-  } as never).catch(() => {})
+  })
 
   return new NextResponse(null, { status: 204 })
 })

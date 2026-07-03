@@ -15,6 +15,16 @@ export function parseCursor(cursorParam: string | null): { createdAt: string; id
   return undefined
 }
 
+// Parse a member cursor from query params (format: "joinedAt|id"). Members
+// paginate on the `joinedAt` timestamp — a sibling of `parseCursor` above
+// with a different keying field, kept separate so both stay narrowly typed.
+export function parseMemberCursor(cursorParam: string | null): { joinedAt: string; id: string } | undefined {
+  if (!cursorParam) return undefined
+  const [joinedAt, id] = cursorParam.split("|")
+  if (joinedAt && id) return { joinedAt, id }
+  return undefined
+}
+
 // Parse page size from query params with bounds
 export function parsePageSize(limitParam: string | null): number {
   if (!limitParam) return DEFAULT_MESSAGE_PAGE_SIZE
@@ -45,6 +55,21 @@ export function buildPaginatedResponse<T extends { createdAt: string; id: string
     ? `${items[items.length - 1].createdAt}|${items[items.length - 1].id}`
     : undefined
   return { items, hasMore, cursor }
+}
+
+// Build a paginated member response — same shape as buildPaginatedResponse but
+// the cursor is keyed on `joinedAt`. The shared query returns `hasMore` + a
+// typed `{ joinedAt, id }` cursor already; this helper encodes that as the
+// URL-transport string. Callers pass the raw rows plus a pre-computed
+// hasMore/cursor from the query (so the "sliced +1" logic doesn't run twice).
+export function buildMemberPaginatedResponse<T extends { joinedAt: string; id: string }>(
+  members: T[],
+  hasMore: boolean,
+): { members: T[]; hasMore: boolean; cursor: string | undefined } {
+  const cursor = hasMore && members.length > 0
+    ? `${members[members.length - 1].joinedAt}|${members[members.length - 1].id}`
+    : undefined
+  return { members, hasMore, cursor }
 }
 
 // Group raw attachment rows by messageId into display format

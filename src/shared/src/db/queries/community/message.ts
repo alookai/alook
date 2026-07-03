@@ -6,8 +6,26 @@ import {
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import { createLogger } from "../../../logger";
 
 const DEFAULT_LIMIT = 50;
+
+// Module-level logger so every parse failure lands on the same service tag.
+// Shared with any consumer of these queries; the alternative (plumbing a
+// logger down through 30+ call sites) buys nothing here.
+const log = createLogger({ service: "community-queries" });
+
+// TEXT column at rest → JSON at the boundary. Isolating the parse here keeps
+// storage-format concerns out of every route.
+function safeParseEmbeds(raw: string | null, messageId: string): unknown | undefined {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    log.warn("embeds_parse_failed", { messageId, err });
+    return undefined;
+  }
+}
 
 export async function createMessage(
   db: Database,
@@ -115,7 +133,7 @@ export async function listMessages(
     .orderBy(desc(communityMessage.createdAt), desc(communityMessage.id))
     .limit(limit);
 
-  return rows;
+  return rows.map((r) => ({ ...r, embeds: safeParseEmbeds(r.embeds, r.id) }));
 }
 
 export async function getFirstMessageByChannelIds(db: Database, channelIds: string[]) {
@@ -175,5 +193,34 @@ export async function getMessage(db: Database, messageId: string) {
     .from(communityMessage)
     .innerJoin(user, eq(communityMessage.authorId, user.id))
     .where(eq(communityMessage.id, messageId));
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  return { ...row, embeds: safeParseEmbeds(row.embeds, row.id) };
+}
+
+// No ordering guarantee — callers build a Map<id, row> and hydrate by id.
+// Unknown ids silently drop out via the natural WHERE id IN (...) semantics.
+export async function getMessagesByIds(db: Database, ids: string[]) {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({
+      id: communityMessage.id,
+      authorId: communityMessage.authorId,
+      content: communityMessage.content,
+      type: communityMessage.type,
+      mentionType: communityMessage.mentionType,
+      replyToId: communityMessage.replyToId,
+      embeds: communityMessage.embeds,
+      flags: communityMessage.flags,
+      createdAt: communityMessage.createdAt,
+      channelId: communityMessage.channelId,
+      dmConversationId: communityMessage.dmConversationId,
+      authorName: user.name,
+      authorEmail: user.email,
+      authorImage: user.image,
+    })
+    .from(communityMessage)
+    .innerJoin(user, eq(communityMessage.authorId, user.id))
+    .where(inArray(communityMessage.id, ids));
+  return rows.map((r) => ({ ...r, embeds: safeParseEmbeds(r.embeds, r.id) }));
 }

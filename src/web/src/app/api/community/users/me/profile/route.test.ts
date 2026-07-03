@@ -74,7 +74,6 @@ describe("GET /api/community/users/me/profile", () => {
 describe("PATCH /api/community/users/me/profile", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getUser.mockResolvedValue({ id: "u1", image: null })
     updateUser.mockResolvedValue(undefined)
     updateProfile.mockImplementation(async (_db, _u, data) => ({
       aboutMe: data.aboutMe ?? null,
@@ -137,6 +136,13 @@ describe("PATCH /api/community/users/me/profile", () => {
     expect(res.status).toBe(400)
     expect(updateProfile).not.toHaveBeenCalled()
     expect(updateUser).not.toHaveBeenCalled()
+  })
+
+  it("rename path calls updateUser with { name } only and does not read the user", async () => {
+    const res = await PATCH(patchReq({ name: "New" }), {} as never)
+    expect(res.status).toBe(200)
+    expect(updateUser).toHaveBeenCalledWith({}, "u1", { name: "New" })
+    expect(getUser).not.toHaveBeenCalled()
   })
 
   it("returns shape consistent with GET (no userId leak)", async () => {

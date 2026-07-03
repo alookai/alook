@@ -4,12 +4,9 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries, MESSAGE_PREVIEW_LENGTH } from "@alook/shared"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
-import {
-  requireDMParticipant,
-  requireNotBlocked,
-  otherDmParticipant,
-} from "@/lib/community/permissions"
+import { requireDMParticipant } from "@/lib/community/permissions"
 import { createCommunityMessage } from "@/lib/community/message-handler"
+import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id
@@ -18,11 +15,6 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const auth = await requireDMParticipant(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
-
-  // A blocked relationship hides historical messages from the blocked party.
-  const other = otherDmParticipant(auth.value, ctx.userId)
-  const block = await requireNotBlocked(db, ctx.userId, other)
-  if (!block.ok) return writeError(block.error, block.status)
 
   const cursor = parseCursor(req.nextUrl.searchParams.get("cursor"))
   const pageSize = parsePageSize(req.nextUrl.searchParams.get("limit"))
@@ -54,11 +46,11 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   // DMs/channels just by referencing their id.
   const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
   const replyMessages = replyToIds.length > 0
-    ? await Promise.all(replyToIds.map((id) => queries.communityMessage.getMessage(db, id)))
+    ? await queries.communityMessage.getMessagesByIds(db, replyToIds)
     : []
   const replyMap = new Map(
     replyMessages
-      .filter((m): m is NonNullable<typeof m> => !!m && m.dmConversationId === dmId)
+      .filter((m) => m.dmConversationId === dmId)
       .map((m) => [m.id, m]),
   )
 
@@ -67,18 +59,18 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     return {
       id: r.id,
       authorId: r.authorId,
-      authorName: r.authorName ?? r.authorEmail ?? "Unknown",
-      authorAvatar: r.authorImage ?? (r.authorName ?? "?").charAt(0).toUpperCase(),
+      authorName: r.authorName,
+      authorAvatar: r.authorImage ?? avatarInitial(r.authorName),
       content: r.content,
       type: r.type === "system" ? "system" as const : undefined,
       mentionType: r.mentionType,
       replyTo: reply
-        ? { id: reply.id, authorName: reply.authorName ?? "Unknown", text: (reply.content ?? "").slice(0, MESSAGE_PREVIEW_LENGTH) }
+        ? { id: reply.id, authorName: reply.authorName, text: (reply.content ?? "").slice(0, MESSAGE_PREVIEW_LENGTH) }
         : r.replyToId
           ? { id: r.replyToId, authorName: "Unknown", text: "", deleted: true }
           : undefined,
       createdAt: r.createdAt,
-      embeds: r.embeds ? JSON.parse(r.embeds) : undefined,
+      embeds: r.embeds,
       attachments: attachmentsByMessage[r.id]?.length ? attachmentsByMessage[r.id] : undefined,
       reactions: reactionsByMessage[r.id]?.length ? reactionsByMessage[r.id] : undefined,
     }
@@ -95,10 +87,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const auth = await requireDMParticipant(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const otherUserId = otherDmParticipant(auth.value, ctx.userId)
-  const block = await requireNotBlocked(db, ctx.userId, otherUserId)
-  if (!block.ok) return writeError(block.error, block.status)
-
   let body: unknown
   try {
     body = await req.json()
@@ -109,7 +97,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const result = await createCommunityMessage({
     db,
     authorId: ctx.userId,
-    target: { kind: "dm", dmId, otherUserId },
+    target: { kind: "dm", dmId, otherUserId: auth.value.otherUserId },
     body: body as Record<string, unknown>,
   })
   if (!result.ok) return writeError(result.error, result.status)

@@ -36,8 +36,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     if (trimmed.length > MAX_PROFILE_NAME_LENGTH) {
       return writeError(`name must be ≤ ${MAX_PROFILE_NAME_LENGTH} characters`, 400)
     }
-    const existing = await queries.user.getUser(db, ctx.userId)
-    await queries.user.updateUser(db, ctx.userId, { name: trimmed, image: existing?.image ?? null })
+    await queries.user.updateUser(db, ctx.userId, { name: trimmed })
   }
 
   const data: { aboutMe?: string; bannerColor?: string | null } = {}

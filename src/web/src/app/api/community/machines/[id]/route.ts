@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server"
-import { queries } from "@alook/shared"
+import { queries, WS_EVENTS } from "@alook/shared"
 import type { CommunityWsEvent } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
-import { broadcastToUser } from "@/lib/broadcast"
+import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { forceCloseCommunityMachine } from "@/lib/community/machine-disconnect"
 
 export const DELETE = withAuth(async (_req, ctx) => {
@@ -26,8 +26,8 @@ export const DELETE = withAuth(async (_req, ctx) => {
   await queries.communityMachine.deleteMachineForUser(db, ctx.userId, id)
 
   // 4. Tell the owner's other tabs the machine is gone.
-  const event: CommunityWsEvent = { type: "community:machine.removed", machineId: id }
-  broadcastToUser(ctx.userId, event).catch(() => {})
+  const event: CommunityWsEvent = { type: WS_EVENTS.MACHINE_REMOVED, machineId: id }
+  broadcastToUserSafe(ctx.userId, event)
 
   return new NextResponse(null, { status: 204 })
 })

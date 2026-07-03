@@ -58,6 +58,12 @@ describe("POST /api/community/users/[userId]/block", () => {
     const types = broadcastToUser.mock.calls.map((c) => (c[1] as { type: string }).type)
     expect(types).toContain("community:friend.block")
     expect(types).not.toContain("community:friend.remove")
+    const blockCall = broadcastToUser.mock.calls.find(
+      (c) => (c[1] as { type: string }).type === "community:friend.block",
+    )
+    expect(blockCall).toBeDefined()
+    expect(blockCall![0]).toBe("u2")
+    expect(blockCall![1]).toEqual({ type: "community:friend.block", userId: "u1" })
   })
 
   it("blocking an existing friend also broadcasts friend.remove with the prior friendship id", async () => {
@@ -71,7 +77,11 @@ describe("POST /api/community/users/[userId]/block", () => {
       (c) => (c[1] as { type: string }).type === "community:friend.remove",
     )
     expect(removeCall).toBeDefined()
-    expect((removeCall![1] as { friendshipId: string }).friendshipId).toBe("f_OLD")
+    expect(removeCall![0]).toBe("u2")
+    expect(removeCall![1]).toEqual({
+      type: "community:friend.remove",
+      friendshipId: "f_OLD",
+    })
   })
 
   it("400 when blocking yourself", async () => {

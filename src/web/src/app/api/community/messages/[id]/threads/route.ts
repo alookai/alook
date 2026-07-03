@@ -66,7 +66,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       createdAt: childChannel.createdAt,
     },
     parentMessageId: messageId,
-  } as never, { excludeUserId: ctx.userId }).catch(() => {})
+  }, { excludeUserId: ctx.userId })
 
   return writeJSON(childChannel, 201)
 })

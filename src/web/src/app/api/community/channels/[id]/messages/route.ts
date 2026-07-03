@@ -6,6 +6,7 @@ import { queries, MESSAGE_PREVIEW_LENGTH } from "@alook/shared"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
 import { requireChannelMember } from "@/lib/community/permissions"
 import { createCommunityMessage } from "@/lib/community/message-handler"
+import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -48,11 +49,11 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   // by referencing their id.
   const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
   const replyMessages = replyToIds.length > 0
-    ? await Promise.all(replyToIds.map((id) => queries.communityMessage.getMessage(db, id)))
+    ? await queries.communityMessage.getMessagesByIds(db, replyToIds)
     : []
   const replyMap = new Map(
     replyMessages
-      .filter((m): m is NonNullable<typeof m> => !!m && m.channelId === channelId)
+      .filter((m) => m.channelId === channelId)
       .map((m) => [m.id, m]),
   )
 
@@ -68,14 +69,14 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
     return {
       id: r.id,
       authorId: r.authorId,
-      authorName: r.authorName ?? r.authorEmail ?? "Unknown",
-      authorAvatar: r.authorImage ?? (r.authorName ?? "?").charAt(0).toUpperCase(),
+      authorName: r.authorName,
+      authorAvatar: r.authorImage ?? avatarInitial(r.authorName),
       content: r.content,
       type: r.type === "system" ? "system" as const : undefined,
       mentionType: r.mentionType,
-      replyTo: reply ? { id: reply.id, authorName: reply.authorName ?? "Unknown", text: (reply.content ?? "").slice(0, MESSAGE_PREVIEW_LENGTH) } : r.replyToId ? { id: r.replyToId, authorName: "Unknown", text: "", deleted: true } : undefined,
+      replyTo: reply ? { id: reply.id, authorName: reply.authorName, text: (reply.content ?? "").slice(0, MESSAGE_PREVIEW_LENGTH) } : r.replyToId ? { id: r.replyToId, authorName: "Unknown", text: "", deleted: true } : undefined,
       createdAt: r.createdAt,
-      embeds: r.embeds ? JSON.parse(r.embeds) : undefined,
+      embeds: r.embeds,
       attachments: attachmentsByMessage[r.id]?.length ? attachmentsByMessage[r.id] : undefined,
       reactions: reactionsByMessage[r.id]?.length ? reactionsByMessage[r.id] : undefined,
       thread: threadChannel ? { id: threadChannel.id, name: threadChannel.name, messageCount: threadChannel.messageCount ?? 0 } : undefined,

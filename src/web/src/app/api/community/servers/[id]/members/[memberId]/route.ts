@@ -42,6 +42,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
 
   // Scope to the target server's members so cross-server memberId can never
   // be modified through this endpoint.
+  // Keep `listMembers` here pending #9 — role check needs the full row (role/userName) for downstream ownership + audit.
   const members = await queries.communityMember.listMembers(db, serverId)
   const target = members.find((m) => m.id === memberId)
   if (!target) return writeError("member not found", 404)
@@ -67,7 +68,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     serverId,
     memberId,
     changes: { role: body.role },
-  }).catch(() => {})
+  })
 
   return writeJSON(updated)
 })
@@ -87,6 +88,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
     return writeError("cannot kick yourself, use leave instead", 400)
   }
 
+  // Keep `listMembers` here pending #9 — kick needs the full row (role/userId) for owner-check + broadcast payload.
   const members = await queries.communityMember.listMembers(db, serverId)
   const target = members.find((m) => m.id === memberId)
   if (!target) return writeError("member not found", 404)
@@ -115,7 +117,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
     type: WS_EVENTS.MEMBER_LEAVE,
     serverId,
     userId: target.userId,
-  }).catch(() => {})
+  })
 
   return new Response(null, { status: 204 })
 })

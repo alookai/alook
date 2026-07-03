@@ -2,10 +2,11 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries } from "@alook/shared"
+import { queries, MESSAGE_PREVIEW_LENGTH } from "@alook/shared"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
 import { requireChannelMember } from "@/lib/community/permissions"
 import { createCommunityMessage } from "@/lib/community/message-handler"
+import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -41,18 +42,40 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const reactionsByMessage = groupReactions(allReactions, ctx.userId)
 
-  const messages = items.map((r) => ({
-    id: r.id,
-    authorId: r.authorId,
-    authorName: r.authorName ?? r.authorEmail ?? "Unknown",
-    authorAvatar: r.authorImage ?? (r.authorName ?? "?").charAt(0).toUpperCase(),
-    content: r.content,
-    type: r.type === "system" ? "system" as const : undefined,
-    createdAt: r.createdAt,
-    embeds: r.embeds ? JSON.parse(r.embeds) : undefined,
-    attachments: attachmentsByMessage[r.id]?.length ? attachmentsByMessage[r.id] : undefined,
-    reactions: reactionsByMessage[r.id]?.length ? reactionsByMessage[r.id] : undefined,
-  }))
+  // Resolve replyTo references. Scope-check the target against this
+  // channel so a caller can't leak previews of messages from other
+  // channels/DMs just by referencing their id.
+  const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
+  const replyMessages = replyToIds.length > 0
+    ? await queries.communityMessage.getMessagesByIds(db, replyToIds)
+    : []
+  const replyMap = new Map(
+    replyMessages
+      .filter((m) => m.channelId === channelId)
+      .map((m) => [m.id, m]),
+  )
+
+  const messages = items.map((r) => {
+    const reply = r.replyToId ? replyMap.get(r.replyToId) : null
+    return {
+      id: r.id,
+      authorId: r.authorId,
+      authorName: r.authorName,
+      authorAvatar: r.authorImage ?? avatarInitial(r.authorName),
+      content: r.content,
+      type: r.type === "system" ? "system" as const : undefined,
+      mentionType: r.mentionType,
+      replyTo: reply
+        ? { id: reply.id, authorName: reply.authorName, text: (reply.content ?? "").slice(0, MESSAGE_PREVIEW_LENGTH) }
+        : r.replyToId
+          ? { id: r.replyToId, authorName: "Unknown", text: "", deleted: true }
+          : undefined,
+      createdAt: r.createdAt,
+      embeds: r.embeds,
+      attachments: attachmentsByMessage[r.id]?.length ? attachmentsByMessage[r.id] : undefined,
+      reactions: reactionsByMessage[r.id]?.length ? reactionsByMessage[r.id] : undefined,
+    }
+  })
 
   return writeJSON({ messages: messages.reverse(), hasMore, cursor: nextCursor })
 })

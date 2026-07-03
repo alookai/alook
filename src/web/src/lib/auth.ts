@@ -79,6 +79,13 @@ export function createAuth(env: Env) {
     databaseHooks: {
       user: {
         create: {
+          before: async (user) => {
+            const trimmed = (user.name ?? "").trim()
+            if (trimmed) return { data: user }
+            const fallback = user.email?.split("@")[0]?.trim()
+            if (!fallback) return { data: user }
+            return { data: { ...user, name: fallback } }
+          },
           after: async (user, ctx) => {
             if (!ctx) return
             const path = ctx.request?.url ? new URL(ctx.request.url).pathname : ""

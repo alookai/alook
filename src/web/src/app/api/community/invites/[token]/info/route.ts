@@ -1,18 +1,17 @@
-import { NextRequest } from "next/server"
-import { getCloudflareContext } from "@opennextjs/cloudflare"
+import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
+import { serverIconUrl } from "@/lib/community/storage"
 
-// Public — anyone with the token can preview the server. This mirrors
-// Discord/Slack-style invite link unfurls. We deliberately do NOT include
-// any sensitive metadata (description, audit, member list) here.
-export const GET = async (_req: NextRequest, { params }: { params: Promise<{ token: string }> }) => {
-  const { token } = await params
+// Requires a logged-in caller: invite unfurls used to be public but that
+// leaked server metadata to anyone with a token. `withAuth` gates it; the
+// invite token remains the accept-side capability.
+export const GET = withAuth(async (_req, ctx) => {
+  const token = ctx.params?.token
   if (!token) return writeError("missing token", 400)
 
-  const { env } = await getCloudflareContext({ async: true })
-  const db = getDb(env.DB)
+  const db = getDb(ctx.env.DB)
 
   const invite = await queries.communityInvite.getInviteByToken(db, token)
   if (!invite) return writeError("invite not found or expired", 404)
@@ -28,12 +27,11 @@ export const GET = async (_req: NextRequest, { params }: { params: Promise<{ tok
   const server = await queries.communityServer.getServer(db, invite.serverId)
   if (!server) return writeError("server not found", 404)
 
-  const members = await queries.communityMember.listMembers(db, invite.serverId)
+  const memberCount = await queries.communityMember.countMembers(db, invite.serverId)
 
   return writeJSON({
     serverName: server.name,
-    serverIcon: server.icon,
-    serverDescription: server.description ?? "",
-    memberCount: members.length,
+    serverIcon: serverIconUrl(server),
+    memberCount,
   })
-}
+})

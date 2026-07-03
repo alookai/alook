@@ -41,7 +41,8 @@ export const POST = withAuth(async (_req, ctx) => {
     member: {
       id: result.member.id,
       userId: result.member.userId,
-      name: result.member.nickname ?? result.member.userId,
+      name: result.member.nickname ?? result.member.userName,
+      avatar: result.member.userImage ?? undefined,
       role: result.member.role ?? ROLES.MEMBER,
       joinedAt: result.member.joinedAt,
     },
@@ -51,7 +52,7 @@ export const POST = withAuth(async (_req, ctx) => {
     result.invite.serverId,
     memberEvent,
     { excludeUserId: ctx.userId },
-  ).catch(() => {})
+  )
 
   return writeJSON({ member: result.member, serverId: result.invite.serverId })
 })

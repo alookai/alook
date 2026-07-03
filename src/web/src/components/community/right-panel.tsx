@@ -14,13 +14,18 @@ import type { RightPanel, Member, Role, Msg, Thread, OpenProfile } from "./_type
 // Always wraps the active section in PanelShell — the surrounding Sheet provides the
 // outer frame and its own close button, so we don't need a panel-level close affordance.
 export function RightPanelContent({
-  kind, members, membersLoading, pinned, pinnedLoading, searchResults, searchQuery,
+  kind, members, membersLoading, membersLoadingMore, membersHasMore, onLoadMoreMembers, onSearchMembers,
+  pinned, pinnedLoading, searchResults, searchQuery,
   threads, threadsLoading, showSearchInput = true, onOpenThread, onOpenProfile,
   onSetRole, onKickMember, myRole, onJumpToMessage, onSearch,
 }: {
   kind: Exclude<RightPanel, null>
   members: Member[]
   membersLoading?: boolean
+  membersLoadingMore?: boolean
+  membersHasMore?: boolean
+  onLoadMoreMembers?: () => void
+  onSearchMembers?: (q: string) => void
   pinned: Msg[]
   pinnedLoading?: boolean
   searchResults: Msg[]
@@ -39,7 +44,18 @@ export function RightPanelContent({
   if (kind === "members")
     return (
       <PanelShell icon={Users} title="Members" bodyClassName="p-0">
-        <MemberList members={members} loading={membersLoading} myRole={myRole} onOpenProfile={onOpenProfile} onSetRole={onSetRole} onKick={onKickMember} />
+        <MemberList
+          members={members}
+          loading={membersLoading}
+          hasMore={membersHasMore}
+          loadingMore={membersLoadingMore}
+          onLoadMore={onLoadMoreMembers}
+          onSearch={onSearchMembers}
+          myRole={myRole}
+          onOpenProfile={onOpenProfile}
+          onSetRole={onSetRole}
+          onKick={onKickMember}
+        />
       </PanelShell>
     )
   if (kind === "pinned")

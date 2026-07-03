@@ -77,6 +77,11 @@ type AuthOptions = {
   databaseHooks?: {
     user?: {
       create?: {
+        before?: (user: {
+          name?: string
+          email?: string
+          [k: string]: unknown
+        }) => Promise<{ data: { name?: string; email?: string; [k: string]: unknown } }>
         after?: (user: unknown, ctx: unknown) => Promise<void>
       }
     }
@@ -300,5 +305,49 @@ describe("createAuth databaseHooks — user.create.after", () => {
     const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
     const afterHook = opts.databaseHooks!.user!.create!.after!
     await expect(afterHook({ id: "u5" }, null)).resolves.toBeUndefined()
+  })
+})
+
+describe("createAuth databaseHooks — user.create.before", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("coalesces empty name to email prefix", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const beforeHook = opts.databaseHooks!.user!.create!.before!
+    const result = await beforeHook({ id: "u1", name: "", email: "alice@example.com" })
+    expect(result.data.name).toBe("alice")
+    expect(result.data.email).toBe("alice@example.com")
+  })
+
+  it("no-op when name is non-empty", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const beforeHook = opts.databaseHooks!.user!.create!.before!
+    const input = { id: "u2", name: "Alice", email: "alice@example.com" }
+    const result = await beforeHook(input)
+    expect(result.data).toBe(input)
+    expect(result.data.name).toBe("Alice")
+  })
+
+  it("coalesces whitespace-only name to email prefix", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const beforeHook = opts.databaseHooks!.user!.create!.before!
+    const result = await beforeHook({ id: "u3", name: "   ", email: "bob@example.com" })
+    expect(result.data.name).toBe("bob")
+  })
+
+  it("coalesces null-ish name (GitHub OAuth with no profile name) to email prefix", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const beforeHook = opts.databaseHooks!.user!.create!.before!
+    // Better-Auth's GitHub adapter can pass through name as null / undefined
+    // when the provider profile has no display name set.
+    const result = await beforeHook({ id: "u4", email: "carol@example.com" } as {
+      name?: string
+      email?: string
+    })
+    expect(result.data.name).toBe("carol")
   })
 })

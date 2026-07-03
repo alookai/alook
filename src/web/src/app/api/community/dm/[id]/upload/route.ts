@@ -2,11 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import {
-  requireDMParticipant,
-  requireNotBlocked,
-  otherDmParticipant,
-} from "@/lib/community/permissions"
+import { requireDMParticipant } from "@/lib/community/permissions"
 import { handleAttachmentUpload } from "@/lib/community/upload"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -16,10 +12,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const auth = await requireDMParticipant(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
-
-  const otherId = otherDmParticipant(auth.value, ctx.userId)
-  const block = await requireNotBlocked(db, ctx.userId, otherId)
-  if (!block.ok) return writeError(block.error, block.status)
 
   const result = await handleAttachmentUpload(req, ctx.env, "dm", dmId)
   if (!result.ok) return result.response

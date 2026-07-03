@@ -1,8 +1,9 @@
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, isServerOwner } from "@alook/shared"
+import { queries, isServerOwner, WS_EVENTS } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { logAudit } from "@/lib/community/audit"
 
 export const POST = withAuth(async (_req, ctx) => {
   const serverId = ctx.params?.id
@@ -21,11 +22,19 @@ export const POST = withAuth(async (_req, ctx) => {
 
   await queries.communityMember.removeMember(db, member.id)
 
+  logAudit(db, {
+    serverId,
+    actorId: ctx.userId,
+    action: "member_leave",
+    targetType: "member",
+    targetId: member.id,
+  })
+
   fanOutToServerMembers(serverId, {
-    type: "community:member.leave",
+    type: WS_EVENTS.MEMBER_LEAVE,
     serverId,
     userId: ctx.userId,
-  }).catch(() => {})
+  })
 
   return new Response(null, { status: 204 })
 })

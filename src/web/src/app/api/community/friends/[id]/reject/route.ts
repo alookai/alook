@@ -2,7 +2,7 @@ import { queries, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { broadcastToUser } from "@/lib/broadcast"
+import { broadcastToUserSafe } from "@/lib/community/fanout"
 
 export const POST = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -28,10 +28,10 @@ export const POST = withAuth(async (_req, ctx) => {
   const otherUserId = friendship.requesterId === ctx.userId
     ? friendship.addresseeId
     : friendship.requesterId
-  broadcastToUser(otherUserId, {
+  broadcastToUserSafe(otherUserId, {
     type: WS_EVENTS.FRIEND_REJECT,
     friendshipId: id,
-  } as never).catch(() => {})
+  })
 
   return writeJSON({ ok: true })
 })

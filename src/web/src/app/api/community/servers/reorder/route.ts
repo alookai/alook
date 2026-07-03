@@ -28,9 +28,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     return writeError("not a member of all servers", 403)
   }
 
-  for (let i = 0; i < body.serverIds.length; i++) {
-    await queries.communityMember.updateRailOrder(db, body.serverIds[i]!, ctx.userId, i)
-  }
+  await queries.communityMember.bulkUpdateRailOrder(db, ctx.userId, body.serverIds)
 
   return writeJSON({ ok: true })
 })

@@ -14,6 +14,7 @@ import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
+import { useServerMembers } from "@/hooks/community/use-server-members"
 import type {
   Server,
   CommunityFolder,
@@ -51,11 +52,11 @@ import type {
   CommunityChildChannelCreate,
   CommunityChildChannelUpdate,
   ChannelType,
-  CommunityRole,
   MentionType,
 } from "@alook/shared"
 import { isServerOwner, TYPING_INDICATOR_TIMEOUT_MS } from "@alook/shared"
 import type { CommunityMachineSummary, CommunityMachineCreated, CommunityMachineStatus, CommunityMachineUpdated, CommunityMachineRemoved } from "@alook/shared"
+import { avatarInitial } from "@/lib/community/avatar"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -96,6 +97,12 @@ export type CommunityContextValue = {
   // Members
   members: Member[]
   membersLoading: boolean
+  membersLoadingMore: boolean
+  membersHasMore: boolean
+  membersTotal: number
+  membersIsSearching: boolean
+  loadMoreMembers: () => void
+  searchMembers: (q: string) => void
 
   // Friends
   friends: Friend[]
@@ -280,8 +287,11 @@ export function CommunityProvider({
   const [currentChannelMeta, setCurrentChannelMeta] = useState<{ name: string; parentChannelId: string | null } | null>(null)
 
   // ── Members ──────────────────────────────────────────────────────────────
-  const [members, setMembers] = useState<Member[]>([])
-  const [membersLoading, setMembersLoading] = useState(false)
+  // Owned by `useServerMembers` — paged state + search mode + WS event
+  // handling. Skip @me (DM home) since there's no server to fetch.
+  const membersHook = useServerMembers(currentServerId && currentServerId !== "@me" ? currentServerId : null)
+  const members = membersHook.members
+  const membersLoading = membersHook.loading
 
   // ── Friends ──────────────────────────────────────────────────────────────
   const [friends, setFriends] = useState<Friend[]>([])
@@ -388,7 +398,7 @@ export function CommunityProvider({
       const fresh = data.servers.map((s) => ({
         id: s.id,
         name: s.name,
-        initial: s.name.charAt(0).toUpperCase(),
+        initial: avatarInitial(s.name),
         active: false,
         unread: s.unread ?? false,
         mentions: s.mentions ?? 0,
@@ -426,19 +436,12 @@ export function CommunityProvider({
     }
   }, [])
 
-  const fetchMembers = useCallback(async () => {
-    const sid = currentServerIdRef.current
-    if (!sid || sid === "@me") return
-    setMembersLoading(true)
-    try {
-      const data = await apiFetch<{ members: Member[] }>(`/api/community/servers/${sid}/members`)
-      setMembers(data.members)
-    } catch {
-      setMembers([])
-    } finally {
-      setMembersLoading(false)
-    }
-  }, [])
+  // Compatibility alias for consumers that call `ctx.refreshMembers()` —
+  // delegates to the hook's `refresh` (re-fetches page 1 without clearing
+  // the visible list first, matching the previous behaviour).
+  const fetchMembers = useCallback(() => {
+    membersHook.refresh()
+  }, [membersHook])
 
   const fetchFriends = useCallback(async () => {
     setFriendsLoading(true)
@@ -476,7 +479,7 @@ export function CommunityProvider({
         id: f.id,
         name: f.name,
         position: f.position ?? 0,
-        servers: f.servers.map((s) => ({ id: s.id, name: s.name, initial: s.name.charAt(0).toUpperCase(), icon: s.icon ?? null })),
+        servers: f.servers.map((s) => ({ id: s.id, name: s.name, initial: avatarInitial(s.name), icon: s.icon ?? null })),
       })))
     } catch {
       // leave current state
@@ -606,7 +609,7 @@ export function CommunityProvider({
             id: msg.id,
             authorId: msg.authorId,
             authorName: msg.authorName,
-            authorAvatar: msg.authorAvatar || (msg.authorName ?? "?").charAt(0).toUpperCase(),
+            authorAvatar: msg.authorAvatar || avatarInitial(msg.authorName),
             content: msg.content,
             createdAt: msg.createdAt,
             type: msg.type === "system" ? "system" : undefined,
@@ -713,24 +716,11 @@ export function CommunityProvider({
       fetchFriends()
     }, [fetchFriends]),
     onMember: useCallback((event: CommunityMemberJoin | CommunityMemberLeave | CommunityMemberUpdate) => {
-      if (event.type === "community:member.join") {
-        setMembers((prev) => [
-          ...prev,
-          { id: event.member.id, userId: event.member.userId, name: event.member.name, avatar: event.member.avatar ?? event.member.name.charAt(0).toUpperCase(), status: "online", sub: "", role: event.member.role as CommunityRole },
-        ])
-      } else if (event.type === "community:member.leave") {
-        setMembers((prev) => prev.filter((m) => m.userId !== event.userId))
-      } else if (event.type === "community:member.update") {
-        setMembers((prev) => prev.map((m) => {
-          if (m.id !== event.memberId) return m
-          return {
-            ...m,
-            ...(event.changes.role ? { role: event.changes.role as CommunityRole } : {}),
-            ...(event.changes.nickname !== undefined ? { name: event.changes.nickname ?? m.name } : {}),
-          }
-        }))
-      }
-    }, []),
+      // Ignore events for other servers — the hook only holds the active
+      // server's members. Background servers are refreshed on next visit.
+      if (event.serverId !== currentServerIdRef.current) return
+      membersHook.handleMemberEvent(event)
+    }, [membersHook]),
     onServer: useCallback((event: CommunityServerUpdate | CommunityServerDelete) => {
       if (event.type === "community:server.update") {
         setServers((prev) => prev.map((s) => s.id !== event.serverId ? s : { ...s, name: event.changes.name ?? s.name }))
@@ -873,26 +863,19 @@ export function CommunityProvider({
   useEffect(() => {
     // Reset server-scoped state on every URL change so the in-flight fetches
     // never paint over the previous server's data. *Loading flags become the
-    // single source of truth for "data not yet here".
+    // single source of truth for "data not yet here". Member reset lives in
+    // `useServerMembers` — it fires its own effect when serverId changes.
     setCurrentServer(null)
-    setMembers([])
     setInvites([])
     setAuditLog([])
     setOnlineUserIds(new Set())
 
     if (!currentServerId || currentServerId === "@me") {
-      setMembersLoading(false)
       setInvitesLoading(false)
       setAuditLogLoading(false)
       return
     }
-    // Flip loading flags synchronously in the reset commit — `fetchMembers`
-    // runs after this effect, so without this hint the right panel would see
-    // `members=[] + membersLoading=false` for a frame and render the empty
-    // state instead of the skeleton.
-    setMembersLoading(true)
     fetchServerDetail(currentServerId)
-    fetchMembers()
     apiFetch<{ online: string[] }>(`/api/community/servers/${currentServerId}/presence`)
       .then((data) => setOnlineUserIds(new Set(data.online)))
       .catch(() => {})
@@ -1312,24 +1295,24 @@ export function CommunityProvider({
         method: "PATCH",
         body: JSON.stringify({ role }),
       })
-      setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role } : m)))
+      membersHook.applyRoleChange(memberId, role)
       toast(`Role updated`)
     } catch {
       toast("Failed to update role")
     }
-  }, [])
+  }, [membersHook])
 
   const kickMember = useCallback(async (memberId: string) => {
     const sid = currentServerIdRef.current
     if (!sid) return
     try {
       await apiFetch(`/api/community/servers/${sid}/members/${memberId}`, { method: "DELETE" })
-      setMembers((prev) => prev.filter((m) => m.id !== memberId))
+      membersHook.applyKick(memberId)
       toast("Member kicked")
     } catch {
       toast("Failed to kick member")
     }
-  }, [])
+  }, [membersHook])
 
   const createInvite = useCallback(async () => {
     const sid = currentServerIdRef.current
@@ -1368,7 +1351,7 @@ export function CommunityProvider({
         body: JSON.stringify({ name, description }),
       })
       setCurrentServer((prev) => prev ? { ...prev, name, description } : prev)
-      setServers((prev) => prev.map((s) => (s.id === sid ? { ...s, name, initial: name.charAt(0).toUpperCase() } : s)))
+      setServers((prev) => prev.map((s) => (s.id === sid ? { ...s, name, initial: avatarInitial(name) } : s)))
       toast("Server updated")
     } catch {
       toast("Failed to update server")
@@ -1787,6 +1770,12 @@ export function CommunityProvider({
       setCurrentChannelId,
       members: members.map((m) => ({ ...m, status: m.userId === currentUser.id || onlineUserIds.has(m.userId) ? "online" as const : "offline" as const })),
       membersLoading,
+      membersLoadingMore: membersHook.loadingMore,
+      membersHasMore: membersHook.hasMore,
+      membersTotal: membersHook.total,
+      membersIsSearching: membersHook.isSearching,
+      loadMoreMembers: membersHook.loadMore,
+      searchMembers: membersHook.searchMembers,
       friends: friends.map((f) => ({ ...f, status: onlineUserIds.has(f.userId ?? f.id) ? "online" as const : "offline" as const })),
       pending,
       blocked,
@@ -1889,7 +1878,7 @@ export function CommunityProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       currentUser, servers, serversLoading, currentServerId, currentServer, currentServerLoading,
-      currentChannelId, members, membersLoading, friends, pending, blocked, friendsLoading,
+      currentChannelId, members, membersLoading, membersHook, friends, pending, blocked, friendsLoading,
       dms, dmsLoading, messages, messagesLoading, hasMoreMessages, loadMoreMessages,
       threads, threadsLoading, forumPosts, forumPostsLoading, pinned, pinnedLoading,
       invites, invitesLoading, auditLog, auditLogLoading, forYouFeed, unreadFeed, mentions, inboxLoading, onlineUserIds, typingUsers, folders,

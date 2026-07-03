@@ -5,6 +5,7 @@ const r2Get = vi.fn()
 const getSession = vi.fn()
 const getChannelForMember = vi.fn()
 const getDM = vi.fn()
+const isBlocked = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({
@@ -32,6 +33,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityChannel: { getChannelForMember: (...a: unknown[]) => getChannelForMember(...a) },
       communityDm: { getDM: (...a: unknown[]) => getDM(...a) },
+      communityFriendship: { isBlocked: (...a: unknown[]) => isBlocked(...a) },
     },
   }
 })
@@ -58,6 +60,7 @@ describe("GET /api/community/media/[...key]", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getSession.mockResolvedValue({ user: { id: "u1" } })
+    isBlocked.mockResolvedValue(false)
     r2Get.mockResolvedValue({
       body: new ReadableStream(),
       httpMetadata: { contentType: "image/png" },
@@ -112,6 +115,25 @@ describe("GET /api/community/media/[...key]", () => {
     getDM.mockResolvedValue(null)
     const res = await call(["dm", "d1", "f1", "x.png"])
     expect(res.status).toBe(404)
+  })
+
+  it("returns 403 when the caller is blocked by the DM counterpart", async () => {
+    // Behaviour change: previously the DM branch skipped the block check and
+    // would happily serve the bytes. Folding the block into
+    // `requireDMParticipant` closes that gap.
+    getDM.mockResolvedValue({ id: "d1", user1Id: "u1", user2Id: "u2", lastMessageAt: null, createdAt: "" })
+    isBlocked.mockResolvedValue(true)
+    const res = await call(["dm", "d1", "f1", "x.png"])
+    expect(res.status).toBe(403)
+    expect(r2Get).not.toHaveBeenCalled()
+  })
+
+  it("serves a DM attachment when the caller participates and isn't blocked", async () => {
+    getDM.mockResolvedValue({ id: "d1", user1Id: "u1", user2Id: "u2", lastMessageAt: null, createdAt: "" })
+    isBlocked.mockResolvedValue(false)
+    const res = await call(["dm", "d1", "f1", "x.png"])
+    expect(res.status).toBe(200)
+    expect(r2Get).toHaveBeenCalledWith("dm/d1/f1/x.png")
   })
 
   it("serves a server-icon to any authenticated user (no membership check)", async () => {

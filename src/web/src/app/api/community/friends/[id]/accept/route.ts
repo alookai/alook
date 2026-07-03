@@ -2,7 +2,7 @@ import { queries, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { broadcastToUser } from "@/lib/broadcast"
+import { broadcastToUserSafe } from "@/lib/community/fanout"
 
 export const POST = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -23,10 +23,10 @@ export const POST = withAuth(async (_req, ctx) => {
   const updated = await queries.communityFriendship.acceptRequest(db, id)
   if (!updated) return writeError("request is not pending", 400)
 
-  broadcastToUser(friendship.requesterId, {
+  broadcastToUserSafe(friendship.requesterId, {
     type: WS_EVENTS.FRIEND_ACCEPT,
     friendshipId: id,
-  } as never).catch(() => {})
+  })
 
   return writeJSON(updated)
 })

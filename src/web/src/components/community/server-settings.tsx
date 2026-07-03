@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Settings, Users, Link2, Bell, ScrollText, Trash2, X, Shield } from "lucide-react"
+import { useVirtualizer } from "@tanstack/react-virtual"
+import { Settings, Users, Link2, Bell, ScrollText, Trash2, X, Shield, Search } from "lucide-react"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Button } from "@/components/ui/button"
 import { formatMessageTime, formatRelativeTime } from "./format-time"
@@ -26,7 +27,8 @@ function capitalize(s: string): string {
 // Full-screen server settings view. Data via props.
 export function ServerSettings({
   section, setSection, onClose, serverName, serverDescription, serverIcon,
-  members, membersLoading, invites, invitesLoading, auditLog, auditLogLoading, onOpenProfile,
+  members, membersLoading, membersLoadingMore, membersHasMore, membersTotal, onLoadMoreMembers, onSearchMembers,
+  invites, invitesLoading, auditLog, auditLogLoading, onOpenProfile,
   onKickMember, onSetRole, onRevokeInvite, onCreateInvite, onCopyInvite, onDeleteServer, onUploadIcon, onUpdateServer, notifLevel, onSetNotifLevel,
 }: {
   section: SettingsSection
@@ -37,6 +39,11 @@ export function ServerSettings({
   serverIcon?: string | null
   members: Member[]
   membersLoading?: boolean
+  membersLoadingMore?: boolean
+  membersHasMore?: boolean
+  membersTotal?: number
+  onLoadMoreMembers?: () => void
+  onSearchMembers?: (q: string) => void
   invites: InviteRow[]
   invitesLoading?: boolean
   auditLog: AuditEntry[]
@@ -102,7 +109,7 @@ export function ServerSettings({
         </header>
         <div className="flex-1 overflow-y-auto thin-scrollbar p-5">
           <TabsContent value="overview"><SettingsOverview serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} /></TabsContent>
-          <TabsContent value="members"><SettingsMembers members={members} loading={membersLoading} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></TabsContent>
+          <TabsContent value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></TabsContent>
           <TabsContent value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCreateInvite={onCreateInvite} onCopyInvite={onCopyInvite} /></TabsContent>
           <TabsContent value="notifications"><SettingsNotifications level={notifLevel ?? "Only @mentions"} onSetLevel={onSetNotifLevel} /></TabsContent>
           <TabsContent value="audit"><SettingsAudit auditLog={auditLog} loading={auditLogLoading} /></TabsContent>
@@ -144,47 +151,136 @@ function SettingsOverview({ serverName, serverDescription, serverIcon, onUploadI
   )
 }
 
-function SettingsMembers({ members, loading, onOpenProfile, onKickMember, onSetRole }: {
+// Row height for the virtualized settings list — matches the real card height
+// (border + padding + avatar + text). Slight over-estimation is fine; react-
+// virtual re-measures after mount.
+const SETTINGS_ROW_HEIGHT = 68
+
+function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoadMore, onSearch, onOpenProfile, onKickMember, onSetRole }: {
   members: Member[]
   loading?: boolean
+  loadingMore?: boolean
+  hasMore?: boolean
+  total?: number
+  onLoadMore?: () => void
+  onSearch?: (q: string) => void
   onOpenProfile?: OpenProfile
   onKickMember?: (name: string) => void
   onSetRole?: (name: string, role: Role) => void
 }) {
-  if (loading && members.length === 0) return <SettingsMembersSkeleton />
+  const [query, setQuery] = useState("")
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!onSearch) return
+    const t = setTimeout(() => onSearch(query), 200)
+    return () => clearTimeout(t)
+  }, [query, onSearch])
+
+  const rowVirtualizer = useVirtualizer({
+    count: members.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => SETTINGS_ROW_HEIGHT,
+    overscan: 8,
+  })
+
+  useEffect(() => {
+    if (!onLoadMore || !hasMore) return
+    const el = sentinelRef.current
+    const root = scrollRef.current
+    if (!el || !root) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !loadingMore) onLoadMore()
+        }
+      },
+      { root, rootMargin: "100px" },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [onLoadMore, hasMore, loadingMore])
+
+  if (loading && members.length === 0 && !query) return <SettingsMembersSkeleton />
+
+  // Prefer the paginated envelope's total when present — otherwise fall back
+  // to the loaded slice size. When searching, `total` still reflects the
+  // server-wide count so we suffix "matches" for clarity.
+  const shownCount = total ?? members.length
   return (
-    <div className="space-y-2">
-      <div className="mb-3 text-sm text-muted-foreground">{members.length} members</div>
-      {members.map((m) => (
-        <div key={m.name} className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-2.5">
-          <button onClick={(e) => onOpenProfile?.(m.name, e)} className="shrink-0">
-            <Avatar label={m.avatar} size={32} presence={m.status} />
-          </button>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[15px] font-medium">{m.name}</div>
-            <div className="text-xs text-muted-foreground">{capitalize(m.role)}</div>
-          </div>
-          {m.role === "owner" ? (
-            <Badge variant="secondary" className="gap-1"><Shield className="size-3.5" /> Owner</Badge>
-          ) : (
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={<button className={badgeVariants({ variant: "secondary" }) + " cursor-pointer gap-1"} />}
-              >
-                <Shield className="size-3.5" /> {capitalize(m.role)}
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-32">
-                {SETTABLE_ROLES.map((r) => (
-                  <DropdownMenuItem key={r} onClick={() => onSetRole?.(m.name, r)}>{capitalize(r)}</DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          {m.role !== "owner" && (
-            <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label="Kick member" onClick={() => onKickMember?.(m.name)}><Trash2 className="size-4" /></Button>
-          )}
+    <div className="flex h-full min-h-0 flex-col">
+      {onSearch && (
+        <div className="relative mb-3 shrink-0">
+          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="h-9 pl-8"
+            placeholder="Search members"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
         </div>
-      ))}
+      )}
+      <div className="mb-3 shrink-0 text-sm text-muted-foreground">
+        {query ? `${members.length} matches` : `${shownCount} members`}
+      </div>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
+        <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const m = members[virtualRow.index]
+            return (
+              <div
+                key={m.id}
+                role="listitem"
+                data-index={virtualRow.index}
+                ref={rowVirtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualRow.start}px)`,
+                  paddingBottom: 8,
+                }}
+              >
+                <div className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-2.5">
+                  <button onClick={(e) => onOpenProfile?.(m.name, e)} className="shrink-0">
+                    <Avatar label={m.avatar} size={32} presence={m.status} />
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[15px] font-medium">{m.name}</div>
+                    <div className="text-xs text-muted-foreground">{capitalize(m.role)}</div>
+                  </div>
+                  {m.role === "owner" ? (
+                    <Badge variant="secondary" className="gap-1"><Shield className="size-3.5" /> Owner</Badge>
+                  ) : (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={<button className={badgeVariants({ variant: "secondary" }) + " cursor-pointer gap-1"} />}
+                      >
+                        <Shield className="size-3.5" /> {capitalize(m.role)}
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-32">
+                        {SETTABLE_ROLES.map((r) => (
+                          <DropdownMenuItem key={r} onClick={() => onSetRole?.(m.name, r)}>{capitalize(r)}</DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                  {m.role !== "owner" && (
+                    <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label="Kick member" onClick={() => onKickMember?.(m.name)}><Trash2 className="size-4" /></Button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {hasMore && (
+          <div ref={sentinelRef} className="py-3 text-center text-xs text-muted-foreground">
+            {loadingMore ? "Loading…" : ""}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

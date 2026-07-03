@@ -3,7 +3,7 @@ import { queries, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { broadcastToUser } from "@/lib/broadcast"
+import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireNotBlocked } from "@/lib/community/permissions"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
@@ -50,17 +50,21 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       // Both sides had pending intents; promoting to accepted is the
       // right behaviour. Notify the other party as if they had accepted
       // an outbound request from us.
-      broadcastToUser(targetUserId, {
+      broadcastToUserSafe(targetUserId, {
         type: WS_EVENTS.FRIEND_ACCEPT,
         friendshipId: result.friendship.id,
-      } as never).catch(() => {})
+      })
       return writeJSON(result.friendship, 200)
     }
 
-    broadcastToUser(targetUserId, {
+    // Project explicitly: the DB row's `status` is `string`, but the
+    // wire type is the literal `"pending"`; the row also carries columns
+    // (`blockerId`, `updatedAt`) that clients don't need.
+    const { id, requesterId, addresseeId, createdAt } = result.friendship
+    broadcastToUserSafe(targetUserId, {
       type: WS_EVENTS.FRIEND_REQUEST,
-      friendship: result.friendship,
-    } as never).catch(() => {})
+      friendship: { id, requesterId, addresseeId, status: "pending" as const, createdAt },
+    })
     return writeJSON(result.friendship, 201)
   } catch (err: unknown) {
     if (err instanceof Error) {

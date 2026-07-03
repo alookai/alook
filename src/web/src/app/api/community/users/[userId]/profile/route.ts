@@ -26,7 +26,6 @@ export const GET = withAuth(async (_req, ctx) => {
   return writeJSON({
     id: targetUser.id,
     name: targetUser.name,
-    email: targetUser.email,
     image: targetUser.image,
     aboutMe: profile?.aboutMe ?? "",
     bannerColor: profile?.bannerColor ?? null,

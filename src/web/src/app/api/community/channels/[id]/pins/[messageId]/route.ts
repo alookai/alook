@@ -27,7 +27,7 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
     type: WS_EVENTS.PIN_REMOVE,
     channelId,
     messageId,
-  }, { excludeUserId: ctx.userId }).catch(() => {})
+  }, { excludeUserId: ctx.userId })
 
   logAudit(db, {
     serverId: channel.serverId,

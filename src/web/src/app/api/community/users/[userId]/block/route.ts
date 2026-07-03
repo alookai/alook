@@ -2,7 +2,7 @@ import { queries, WS_EVENTS } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { broadcastToUser } from "@/lib/broadcast"
+import { broadcastToUserSafe } from "@/lib/community/fanout"
 
 export const POST = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -19,18 +19,18 @@ export const POST = withAuth(async (_req, ctx) => {
     targetId,
   })
 
-  broadcastToUser(targetId, {
+  broadcastToUserSafe(targetId, {
     type: WS_EVENTS.FRIEND_BLOCK,
     userId: ctx.userId,
-  } as never).catch(() => {})
+  })
 
   // If blocking tore down an existing accepted friendship, tell the other
   // side so their friend list reflects it.
   if (result.removedFriendshipId) {
-    broadcastToUser(targetId, {
+    broadcastToUserSafe(targetId, {
       type: WS_EVENTS.FRIEND_REMOVE,
       friendshipId: result.removedFriendshipId,
-    } as never).catch(() => {})
+    })
   }
 
   return writeJSON(result.row)

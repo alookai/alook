@@ -37,6 +37,7 @@
     "@next/third-parties": "^16.2.9",
     "@opennextjs/cloudflare": "^1.19.11",
     "@streamdown/cjk": "^1.0.3",
+    "@tanstack/react-virtual": "^3.10.9",
     "@streamdown/math": "^1.0.2",
     "@streamdown/mermaid": "^1.0.2",
     "@tiptap/extension-image": "^3.27.1",
