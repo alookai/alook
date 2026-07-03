@@ -24,11 +24,11 @@ export const DmSidebar = memo(function DmSidebar({
   const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive)
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
-      <div className="flex-1 overflow-y-auto thin-scrollbar px-2.5 py-4">
+      <div className="flex-1 overflow-y-auto thin-scrollbar px-2 py-4">
         <button
           onClick={onShowFriends}
           className={[
-            "mb-1 flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-sm font-medium",
+            "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
             isFriendsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
           ].join(" ")}
         >
@@ -38,7 +38,7 @@ export const DmSidebar = memo(function DmSidebar({
           <button
             onClick={onShowMachines}
             className={[
-              "mb-2 flex h-9 w-full items-center gap-2.5 rounded-md px-2.5 text-sm font-medium",
+              "mb-2 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
               machinesActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
             ].join(" ")}
           >
@@ -46,7 +46,7 @@ export const DmSidebar = memo(function DmSidebar({
           </button>
         )}
         <div className="my-2 h-px bg-border" />
-        <div className="mb-2 px-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Direct Messages
         </div>
         {dms.length === 0 && (
@@ -60,7 +60,7 @@ export const DmSidebar = memo(function DmSidebar({
               key={d.id}
               onClick={() => onPickDm(d.id)}
               className={[
-                "flex w-full items-center gap-3 rounded-md px-2.5 py-2",
+                "flex w-full items-center gap-3 rounded-md px-2 py-2",
                 active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
               ].join(" ")}
             >
@@ -84,16 +84,16 @@ export const DmSidebar = memo(function DmSidebar({
 function DmSidebarSkeleton() {
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
-      <div className="flex-1 overflow-hidden px-2.5 py-4">
+      <div className="flex-1 overflow-hidden px-2 py-4">
         <Skeleton className="mb-2 h-9 w-full rounded-md" />
         <div className="my-2 h-px bg-border" />
-        <div className="mb-2 px-2.5">
+        <div className="mb-2 px-2">
           <Skeleton className="h-3 w-32 rounded" />
         </div>
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 rounded-md px-2.5 py-2">
+          <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
             <Skeleton className="size-8 shrink-0 rounded-full" />
-            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
               <Skeleton className="h-3.5 w-3/5 rounded" />
               <Skeleton className="h-3 w-4/5 rounded" />
             </div>

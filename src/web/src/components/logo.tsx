@@ -36,7 +36,7 @@ export function Logo({
       onClick={toggle}
       aria-label="Toggle theme"
       className={cn(
-        "flex items-center gap-1.5 cursor-pointer select-none transition-opacity hover:opacity-70",
+        "flex items-center gap-2 cursor-pointer select-none transition-opacity hover:opacity-70",
         className
       )}
     >

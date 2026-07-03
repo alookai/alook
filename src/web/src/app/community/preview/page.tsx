@@ -10,7 +10,7 @@
  * --sidebar for the server rail — is scoped locally below as --d-rail.
  *
  * Covers two things from the plan:
- *  #1 Two responsive stages — desktop (≥601) / mobile (≤600).
+ *  #1 Two responsive stages — desktop (≥640) / mobile (<640).
  *  #2 A wider feature showcase — markdown, mentions, system messages, threads,
  *     pinned / search / thread side panels, typing indicator.
  */
@@ -29,7 +29,7 @@ import {
   PROFILES, INVITES, AUDIT_LOG, MENTIONS, FOR_YOU_FEED, UNREAD_SERVERS, MOCK_FOLDERS,
 } from "./_mock"
 import type { RightPanel, MobileZone, View, SettingsSection, Msg, PendingRequest, BlockedUser, ForumPost, Profile, Thread, Role, DM } from "@/components/community/_types"
-import { useBreakpoint } from "@/components/community/use-breakpoint"
+import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelTree } from "@/components/community/use-channel-tree"
 import { ProfileCard } from "@/components/community/profile-card"
 import { ImageLightbox } from "@/components/community/image-lightbox"
@@ -454,7 +454,7 @@ export default function CommunityPreview() {
               {...profileProps}
               hero={
                 <>
-                  <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={68} /></div>
+                  <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={64} /></div>
                   <h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2>
                   <p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p>
                 </>

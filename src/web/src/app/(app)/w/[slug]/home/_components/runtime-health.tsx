@@ -101,7 +101,7 @@ export function RuntimeHealth({ runtimes, agents }: RuntimeHealthProps) {
                     <Tooltip>
                       <TooltipTrigger render={
                         <span>
-                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-amber-500 border-amber-500/30">
+                          <Badge variant="outline" className="text-[10px] px-2 py-0 text-amber-500 border-amber-500/30">
                             update
                           </Badge>
                         </span>
@@ -110,7 +110,7 @@ export function RuntimeHealth({ runtimes, agents }: RuntimeHealthProps) {
                     </Tooltip>
                   )}
                 </div>
-                <div className="text-muted-foreground mt-0.5">
+                <div className="text-muted-foreground mt-1">
                   {boundAgents.length > 0
                     ? boundAgents.map((a) => a.name).join(", ")
                     : "No agents"}

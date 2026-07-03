@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useCommunity } from "@/contexts/community/context"
-import { useBreakpoint } from "@/components/community/use-breakpoint"
+import { useBreakpoint } from "@/hooks/use-mobile"
 import { FriendsPage } from "@/components/community/friends-page"
 
 export default function MeFriendsPage() {

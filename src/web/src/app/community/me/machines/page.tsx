@@ -1,7 +1,7 @@
 "use client"
 
 import { MachineList } from "@/components/community/machines/machine-list"
-import { useBreakpoint } from "@/components/community/use-breakpoint"
+import { useBreakpoint } from "@/hooks/use-mobile"
 import { useCommunity } from "@/contexts/community/context"
 
 export default function MeMachinesPage() {

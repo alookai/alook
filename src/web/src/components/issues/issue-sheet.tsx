@@ -54,7 +54,7 @@ const MIN_WIDTH = 320;
 const MAX_WIDTH_RATIO = 0.8;
 
 const GHOST_CONTROL =
-  "h-7 border-0 bg-transparent px-1.5 text-xs text-foreground hover:bg-accent transition-colors -ml-1.5";
+  "h-7 border-0 bg-transparent px-2 text-xs text-foreground hover:bg-accent transition-colors -ml-2";
 
 
 const SELECTOR_STATUSES = ["todo", "in_progress", "review", "done"] as const;
@@ -86,7 +86,7 @@ function AgentIdentity({ agent, size = 24 }: { agent: Agent; size?: number }) {
   return (
     <div className="flex min-w-0 items-center gap-2">
       <AgentAvatar agent={agent} size={size} />
-      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <div className="truncate text-xs font-medium">{agent.name}</div>
         {email ? <div className="truncate text-[11px] text-muted-foreground">{email}</div> : null}
       </div>
@@ -150,7 +150,7 @@ function CommentRow({ comment, agents }: { comment: IssueComment; agents: Agent[
 
 function AttachmentList({ artifacts, workspaceId, onArtifactClick }: { artifacts: Artifact[]; workspaceId: string; onArtifactClick?: (artifact: Artifact) => void }) {
   if (artifacts.length === 0) return null;
-  const baseCls = "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent";
+  const baseCls = "flex items-center gap-2 rounded-md px-2 py-2 text-sm transition-colors hover:bg-accent";
   return (
     <div className="space-y-1">
       {artifacts.map((artifact) => {
@@ -425,7 +425,7 @@ export function IssueSheet({
             <div className="space-y-3">
               {timeline.map((item) => (
                 <div key={item.id} className="relative">
-                  <div className="absolute -left-4 top-2.5 size-2.5 rounded-full border-2 border-background bg-muted-foreground/40" />
+                  <div className="absolute -left-4 top-2 size-2.5 rounded-full border-2 border-background bg-muted-foreground/40" />
                   {item.kind === "event"
                     ? <MessageRow message={item.data} />
                     : <CommentRow comment={item.data} agents={agents} />}
@@ -439,11 +439,11 @@ export function IssueSheet({
                     return (
                       <div key={t.id} className="relative">
                         <div className={cn(
-                          "absolute -left-4 top-2.5 size-2.5 rounded-full border-2 border-background",
+                          "absolute -left-4 top-2 size-2.5 rounded-full border-2 border-background",
                           isRunning ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"
                         )} />
                         <div className={cn(
-                          "rounded-md border px-3 py-2.5",
+                          "rounded-md border px-3 py-2",
                           isRunning ? "border-emerald-500/30 bg-emerald-500/10" : "border-border/60 bg-muted/30"
                         )}>
                           <div className="flex items-center gap-2 text-xs">
@@ -459,8 +459,8 @@ export function IssueSheet({
                 }
                 return (
                   <div className="relative">
-                    <div className="absolute -left-4 top-2.5 size-2.5 rounded-full border-2 border-background bg-emerald-500 animate-pulse" />
-                    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5">
+                    <div className="absolute -left-4 top-2 size-2.5 rounded-full border-2 border-background bg-emerald-500 animate-pulse" />
+                    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
                       <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400">Working</div>
                     </div>
                   </div>
@@ -480,10 +480,10 @@ export function IssueSheet({
         placeholder="Leave a comment..."
         value={commentContent}
         onChange={(e) => setCommentContent(e.target.value)}
-        className="w-full resize-none bg-transparent px-3.5 py-2.5 text-sm leading-relaxed outline-none placeholder:text-muted-foreground field-sizing-content min-h-15 max-h-32 thin-scrollbar overflow-y-auto"
+        className="w-full resize-none bg-transparent px-4 py-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground field-sizing-content min-h-15 max-h-32 thin-scrollbar overflow-y-auto"
         onKeyDown={(e) => { if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); handleCommentSubmit(); } }}
       />
-      <div className="flex items-center justify-between px-2.5 pb-2 pt-0.5">
+      <div className="flex items-center justify-between px-2 pb-2 pt-0.5">
         <Kbd className="text-[11px] text-muted-foreground/50">⇧↵</Kbd>
         <Button
           size="icon-sm"
@@ -508,12 +508,12 @@ export function IssueSheet({
           placeholder={mode === "create" ? "New issue" : "Untitled"}
           autoFocus={mode === "create"}
           rows={1}
-          className="w-full rounded-none border-0 bg-transparent px-0 py-1 font-news text-2xl md:text-3xl font-medium leading-[1.2] tracking-tight shadow-none outline-none focus-visible:border-0 focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/40 placeholder:font-normal"
+          className="w-full rounded-none border-0 bg-transparent px-0 py-1 font-news text-2xl sm:text-3xl font-medium leading-[1.2] tracking-tight shadow-none outline-none focus-visible:border-0 focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/40 placeholder:font-normal"
         />
       </div>
 
       {/* Properties */}
-      <div className="shrink-0 space-y-1.5 px-2 sm:px-3 py-2">
+      <div className="shrink-0 space-y-2 px-2 sm:px-3 py-2">
         {/* Agent row */}
         <PropertyRow icon={<User className="size-3.5" />}>
           {mode === "create" || isTodoDraft ? (
@@ -523,7 +523,7 @@ export function IssueSheet({
                   <button
                     type="button"
                     disabled={submitting || dispatching}
-                    className={cn(GHOST_CONTROL, "flex items-center gap-1.5 rounded-md")}
+                    className={cn(GHOST_CONTROL, "flex items-center gap-2 rounded-md")}
                   />
                 }
               >
@@ -579,7 +579,7 @@ export function IssueSheet({
               onValueChange={(val) => { if (val) handleStatusChange(val); }}
               items={(isTodoDraft ? (["todo", "done"] as const) : SELECTOR_STATUSES).map((s) => ({ value: s, label: statusLabel(s) }))}
             >
-              <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-xs text-foreground hover:bg-accent transition-colors rounded-md">
+              <SelectTrigger className="h-7 w-auto border-none bg-transparent px-2 shadow-none text-xs text-foreground hover:bg-accent transition-colors rounded-md">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -670,7 +670,7 @@ export function IssueSheet({
         {/* Timeline floating panel — desktop only, detail mode only, not for todo drafts */}
         {mode === "detail" && !isTodoDraft && (
           <div className="hidden lg:flex absolute right-full top-0 bottom-0 mr-2 w-90 flex-col rounded-xl border bg-background shadow-lg overflow-hidden">
-            <div className="shrink-0 flex items-center border-b px-4 py-2.5">
+            <div className="shrink-0 flex items-center border-b px-4 py-2">
               <span className="text-xs font-medium text-muted-foreground">Activity</span>
             </div>
             <div ref={timelineRef} className="flex-1 min-h-0 overflow-y-auto thin-scrollbar px-4 py-4 space-y-3">
@@ -692,12 +692,12 @@ export function IssueSheet({
         <div className="flex flex-1 min-h-0 flex-col" onKeyDownCapture={onKeyDownCapture}>
           {/* Mobile tab switcher (detail mode only, below lg, not for todo drafts) */}
           {mode === "detail" && !isTodoDraft && (
-            <div className="shrink-0 flex items-center gap-1 border-b px-2 py-1.5 lg:hidden">
+            <div className="shrink-0 flex items-center gap-1 border-b px-2 py-2 lg:hidden">
               <button
                 type="button"
                 onClick={() => setMobileTab("issue")}
                 className={cn(
-                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  "rounded-md px-2 py-1 text-xs font-medium transition-colors",
                   mobileTab === "issue" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -707,7 +707,7 @@ export function IssueSheet({
                 type="button"
                 onClick={() => setMobileTab("activity")}
                 className={cn(
-                  "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  "rounded-md px-2 py-1 text-xs font-medium transition-colors",
                   mobileTab === "activity" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
                 )}
               >
@@ -756,7 +756,7 @@ export function IssueSheet({
                 onClick={handleCreate}
                 disabled={!title.trim() || submitting}
               >
-                {submitting && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
+                {submitting && <Loader2 className="mr-2 size-3.5 animate-spin" />}
                 <Kbd className="mr-1 hidden sm:inline-flex bg-background/20 text-inherit opacity-60">⇧ + ⏎</Kbd>
                 Create
               </Button>

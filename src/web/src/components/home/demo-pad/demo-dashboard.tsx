@@ -45,7 +45,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
     <div className={cn("flex h-full overflow-hidden dark", className)}>
       {/* Sidebar */}
       <div className="flex h-full w-11 flex-col items-center py-2 gap-1 border-r border-border/40 shrink-0">
-        <div className="mb-1.5">
+        <div className="mb-2">
           <Logo size="sm" iconOnly />
         </div>
         <div className="flex flex-col items-center gap-1 mb-1 pb-1.5 border-b border-border/30">
@@ -56,7 +56,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
             <Mail className="size-3" />
           </div>
         </div>
-        <div className="flex flex-col items-center gap-1.5 flex-1">
+        <div className="flex flex-col items-center gap-2 flex-1">
           {config.agents.map((a) => {
             const isActive = state.activeAgent === a.name.toLowerCase();
             return (
@@ -85,7 +85,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
             <span className="text-sm font-medium text-foreground">{agent.name}</span>
             <span className="text-xs text-muted-foreground">/ Chat</span>
           </div>
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center gap-1">
             <span className="inline-flex items-center rounded-lg text-xs h-6 px-2 text-foreground bg-muted">
               <MessageSquare className="size-3 mr-1" />
               Chat
@@ -113,7 +113,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
               }
 
               const isGroupStart = !prevIsAgent || !isAgent;
-              const spacing = i === 0 ? "" : isGroupStart ? "mt-4" : "mt-0.5";
+              const spacing = i === 0 ? "" : isGroupStart ? "mt-4" : "mt-1";
 
               return (
                 <div key={i} className={`animate-[fade-up_300ms_ease-out_both] ${spacing}`}>
@@ -152,7 +152,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
                       <MessageBubble variant="user" position="single">
                         <span className="text-sm">{step.text}</span>
                         {step.attachment && (
-                          <div className="flex items-center gap-1 mt-1.5 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-1">
+                          <div className="flex items-center gap-1 mt-2 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-1">
                             <FileText className="size-3 shrink-0" />
                             <span className="text-xs opacity-80">{step.attachment}</span>
                           </div>
@@ -190,7 +190,7 @@ export function DemoDashboard({ state, config, className }: { state: DashboardSt
           {state.isTyping && (
             <PresenceLine agentFirstName={agent.name} taskStatus="running" />
           )}
-          <div className="flex items-center gap-2 rounded-3xl border border-border/60 bg-muted/20 px-4 py-2.5">
+          <div className="flex items-center gap-2 rounded-3xl border border-border/60 bg-muted/20 px-4 py-2">
             <span className="flex-1 text-sm text-muted-foreground/50">Message {agent.name}...</span>
             <div className="size-6 rounded-full bg-primary flex items-center justify-center">
               <ArrowUp className="size-3.5 text-primary-foreground" />

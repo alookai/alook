@@ -23,7 +23,7 @@ function derivePresence(taskStatus: string | null | undefined): Presence {
 
 function TypingDots() {
   return (
-    <span className="inline-flex items-center gap-0.5" aria-hidden>
+    <span className="inline-flex items-center gap-1" aria-hidden>
       <span className="size-1 rounded-full bg-muted-foreground/60 motion-safe:animate-[typing-dot_1.2s_ease-in-out_infinite]" />
       <span className="size-1 rounded-full bg-muted-foreground/60 motion-safe:animate-[typing-dot_1.2s_ease-in-out_0.2s_infinite]" />
       <span className="size-1 rounded-full bg-muted-foreground/60 motion-safe:animate-[typing-dot_1.2s_ease-in-out_0.4s_infinite]" />
@@ -50,7 +50,7 @@ export function PresenceLine({
       <span
         key={presence}
         className={cn(
-          "inline-flex items-center gap-1.5 text-sm text-muted-foreground",
+          "inline-flex items-center gap-2 text-sm text-muted-foreground",
           presence !== "idle" && "motion-safe:animate-[fade-up_200ms_ease-out_both]",
         )}
       >

@@ -90,7 +90,7 @@ export function ServerSettings({
         <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{serverName}</div>
         <TabsList variant="line" className="h-auto w-full flex-col gap-1">
           {nav.map((n) => (
-            <TabsTrigger key={n.id} value={n.id} className="h-9 w-full justify-start gap-2.5">
+            <TabsTrigger key={n.id} value={n.id} className="h-9 w-full justify-start gap-2">
               <n.icon className="size-4" /> {n.label}
             </TabsTrigger>
           ))}
@@ -101,13 +101,13 @@ export function ServerSettings({
 
       {/* settings body */}
       <div className="flex min-w-0 flex-1 flex-col bg-background">
-        <header className="flex h-12 shrink-0 items-center border-b border-border px-5">
+        <header className="flex h-12 shrink-0 items-center border-b border-border px-4">
           <h1 className="flex-1 text-lg font-semibold capitalize">{section === "audit" ? "Audit Log" : section}</h1>
           <button onClick={onClose} className="flex flex-col items-center text-muted-foreground hover:text-foreground" aria-label="Close settings">
             <span className="grid size-8 place-items-center rounded-full border border-current"><X className="size-4" /></span>
           </button>
         </header>
-        <div className="flex-1 overflow-y-auto thin-scrollbar p-5">
+        <div className="flex-1 overflow-y-auto thin-scrollbar p-4">
           <TabsContent value="overview"><SettingsOverview serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} /></TabsContent>
           <TabsContent value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></TabsContent>
           <TabsContent value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCreateInvite={onCreateInvite} onCopyInvite={onCopyInvite} /></TabsContent>
@@ -132,7 +132,7 @@ function SettingsOverview({ serverName, serverDescription, serverIcon, onUploadI
   const [desc, setDesc] = useState(serverDescription ?? "")
   const save = () => onUpdateServer?.(name, desc)
   return (
-    <div className="max-w-xl space-y-5">
+    <div className="max-w-xl space-y-4">
       <div className="flex items-center gap-4">
         {serverIcon ? (
           <img src={serverIcon} alt="Server icon" className="size-20 rounded-2xl object-cover" />
@@ -212,7 +212,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
     <div className="flex h-full min-h-0 flex-col">
       {onSearch && (
         <div className="relative mb-3 shrink-0">
-          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="h-9 pl-8"
             placeholder="Search members"
@@ -243,7 +243,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
                   paddingBottom: 8,
                 }}
               >
-                <div className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-2.5">
+                <div className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-2">
                   <button onClick={(e) => onOpenProfile?.(m.name, e)} className="shrink-0">
                     <Avatar label={m.avatar} size={32} presence={m.status} />
                   </button>
@@ -295,12 +295,12 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCreateInvite, onC
   const [revokingCode, setRevokingCode] = useState<string | null>(null)
   if (loading && invites.length === 0) return <SettingsInvitesSkeleton />
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2">
       {invites.length === 0 && (
         <p className="text-sm text-muted-foreground">No active invites. Create one to let people join this server.</p>
       )}
       {invites.map((iv) => (
-        <div key={iv.code} className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-3">
+        <div key={iv.code} className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-3">
           <Link2 className="size-5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="truncate font-mono text-sm">{iv.code}</div>
@@ -330,13 +330,13 @@ function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLeve
     { value: "Nothing", label: "Muted", hint: "No notifications, no badges" },
   ]
   return (
-    <div className="max-w-md space-y-2.5">
+    <div className="max-w-md space-y-2">
       <div className="mb-3 text-sm text-muted-foreground">Default notifications for this server</div>
       {levels.map((l) => (
         <button
           key={l.value}
           onClick={() => onSetLevel?.(l.value)}
-          className="flex w-full items-center gap-3 rounded-md border border-border bg-card px-3.5 py-3 text-left hover:bg-accent"
+          className="flex w-full items-center gap-3 rounded-md border border-border bg-card px-4 py-3 text-left hover:bg-accent"
         >
           <span className={`grid size-4 shrink-0 place-items-center rounded-full border ${level === l.value ? "border-primary" : "border-muted-foreground"}`}>
             {level === l.value && <span className="size-2 rounded-full bg-primary" />}
@@ -354,12 +354,12 @@ function SettingsNotifications({ level, onSetLevel }: { level: string; onSetLeve
 function SettingsAudit({ auditLog, loading }: { auditLog: AuditEntry[]; loading?: boolean }) {
   if (loading && auditLog.length === 0) return <SettingsAuditSkeleton />
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {auditLog.length === 0 && (
         <p className="text-sm text-muted-foreground">No audit log entries yet. Admin actions will be recorded here.</p>
       )}
       {auditLog.map((e, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-md px-2.5 py-2.5 hover:bg-accent">
+        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
           <ScrollText className="size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1 text-sm">
             <span className="font-medium">{e.actor}</span>{" "}
@@ -380,9 +380,9 @@ function SettingsMembersSkeleton() {
     <div className="space-y-2">
       <Skeleton className="mb-3 h-4 w-24 rounded" />
       {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-2.5">
+        <div key={i} className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-2">
           <Skeleton className="size-8 shrink-0 rounded-full" />
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton className="h-4 w-2/5 rounded" />
             <Skeleton className="h-3 w-16 rounded" />
           </div>
@@ -396,11 +396,11 @@ function SettingsMembersSkeleton() {
 
 function SettingsInvitesSkeleton() {
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2">
       {Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-md border border-border bg-card px-3.5 py-3">
+        <div key={i} className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-3">
           <Skeleton className="size-5 shrink-0 rounded" />
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton className="h-4 w-1/2 rounded" />
             <Skeleton className="h-3 w-3/4 rounded" />
           </div>
@@ -414,9 +414,9 @@ function SettingsInvitesSkeleton() {
 
 function SettingsAuditSkeleton() {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3 rounded-md px-2.5 py-2.5">
+        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
           <Skeleton className="size-4 shrink-0 rounded" />
           <Skeleton className="h-4 flex-1 rounded" style={{ maxWidth: 360 + ((i * 37) % 80) }} />
           <Skeleton className="h-3 w-16 shrink-0 rounded" />

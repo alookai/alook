@@ -2,7 +2,7 @@
 
 This is the Alook design system. It is organized in layers: the **why** (context, principles), the **what** (foundations — color, type, spacing, elevation, shape, motion), the **how** (components, patterns), and the **words** (voice, do's & don'ts).
 
-Light and dark are both first-class, and the app adapts across three density tiers. Every token below resolves through CSS variables in `src/web/src/app/globals.css` — read values from there, never hard-code a hex or oklch in a component.
+Light and dark are both first-class, and the app adapts across two breakpoints — **desktop** and **mobile**. Every token below resolves through CSS variables in `src/web/src/app/globals.css` — read values from there, never hard-code a hex or oklch in a component.
 
 ## Design Context
 
@@ -94,11 +94,41 @@ Rules:
 
 Use a consistent three-step rhythm so spacing reads as intentional, not arbitrary:
 
-- **8px within a group** — between tightly related elements (label and its input, icon and its text).
-- **16px between groups** — between distinct clusters inside a section.
-- **32–40px between sections** — between major regions of a page.
+- **8px within a group** (`gap-2` / `space-y-2`) — between tightly related elements (label and its input, icon and its text).
+- **16px between groups** (`gap-4` / `space-y-4`) — between distinct clusters inside a section.
+- **32–40px between sections** (`gap-8` / `space-y-8`) — between major regions of a page.
 
 Whitespace is a feature, not wasted space (Principle 1). When a layout feels cramped, add space before you add structure. Reserve color and borders for when spacing alone can't carry the hierarchy.
+
+**No half-step exceptions.** If a control feels wrong at 8/16/32, adjust the *control's* internal padding or the *container's* structure — don't reach for `px-5` (20px) or `py-2.5` (10px) as a middle-ground escape hatch. The only axis of variation is the breakpoint (`desktop` / `mobile`).
+
+### Breakpoints
+
+Two stages, not three. The split lives at **`640px`** — Tailwind's default `sm` breakpoint. Everything `<640` is **mobile**, everything `≥640` is **desktop**. This maps directly to `useBreakpoint()` in `src/web/src/hooks/use-mobile.ts` — pages read the resolved value and switch layout, they don't rewrite the query. `useIsMobile()` is a boolean shortcut for the common case.
+
+| Stage | Range | Layout shape |
+| --- | --- | --- |
+| **Mobile** | `< 640px` | Single column with zone switching (`MobileZone = "nav" \| "messages"`). Back button in headers. Popovers may promote to sheets when they'd overflow. |
+| **Desktop** | `≥ 640px` | Multi-column shells — server rail + channel/DM sidebar + main (in community), or app sidebar + workspace (elsewhere). Hover surfaces reveal actions. No back button in headers. |
+
+Rules:
+- **Read the breakpoint, don't guess.** Use `useBreakpoint()` (string) or `useIsMobile()` (boolean) for any behavior that must branch by stage. Don't sprinkle raw `window.innerWidth` checks or ad-hoc `matchMedia` calls — they drift away from the shared boundary and re-mount without SSR safety.
+- **JS and CSS boundaries are the same 640px.** Use the hook for behavior (which zone to render, whether to show a back button); use Tailwind's `sm:` prefix for pure layout fit at the mobile ↔ desktop split. Both share the same 640px pivot so a mobile page never renders desktop CSS at the same width.
+- **`md:` is banned. `lg:` is allowed only for desktop-internal fit** — e.g. an issue sheet that can float a timeline panel beside its body once the viewport clears ~1024px, or a stats grid that reflows from 1 col to 2 cols when there's room. This is not a third tier; it's a content-fit fallback that happens *within* desktop. If the switch changes navigation or a user-visible zone, it belongs in the JS hook, not in `lg:`.
+- **Touch targets on mobile are non-negotiable.** Interactive elements ≥ 44×44px (`h-11`). On desktop the same control may collapse to `h-9`/`h-10`.
+- **Don't introduce a third stage.** If a design "needs a tablet mode," either the mobile layout should stretch gracefully or the desktop layout should reflow inside — not a new tier.
+
+### Dots & Indicators
+
+Three status-dot sizes, each for a distinct role. Don't mix them.
+
+| Size | Token | Role |
+| --- | --- | --- |
+| **6px** | `size-1.5` | Inline compact — inside a status pill, next to a tab label, or in a typing-dot animation. Small enough not to compete with adjacent text at `text-xs` / `text-[11px]`. |
+| **8px** | `size-2` | Standalone unread / selection dot — sits at the end of a row or inside a radio-like control. Reads clearly at `text-sm` line height. |
+| **10px** | `size-2.5` | Avatar presence badge — overlays the avatar corner and needs a `ring-background` halo to stay legible on any tint. |
+
+Pair every dot with an icon or label change too — never signal state by color alone (see Do's & Don'ts).
 
 ### Elevation & Depth
 

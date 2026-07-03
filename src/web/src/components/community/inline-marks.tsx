@@ -39,7 +39,7 @@ export function MentionPill({ children, everyone }: { children?: React.ReactNode
 // #channel pill — leading hash icon, strips a literal "#" from the label.
 export function ChannelPill({ children }: { children?: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-0.5 rounded-lg bg-accent px-1 font-medium text-foreground">
+    <span className="inline-flex items-center gap-1 rounded-lg bg-accent px-1 font-medium text-foreground">
       <ChannelIcon className="text-xs" />
       {String(children).replace(/^#/, "")}
     </span>

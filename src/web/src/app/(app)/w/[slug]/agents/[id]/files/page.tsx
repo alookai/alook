@@ -239,7 +239,7 @@ export default function AgentFilesPage() {
   // --- Shared UI ---
 
   const pathBar = (
-    <div className="flex items-center gap-1.5 px-4 py-2 border-b border-border/50 text-xs text-muted-foreground shrink-0 min-w-0">
+    <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50 text-xs text-muted-foreground shrink-0 min-w-0">
       <Tooltip>
         <TooltipTrigger render={<button
           onClick={handleCopyPath}
@@ -266,7 +266,7 @@ export default function AgentFilesPage() {
       ) : rootNodes.length === 0 ? (
         <div className="p-4 text-sm text-muted-foreground">Empty directory</div>
       ) : (
-        <div className="py-0.5">
+        <div className="py-1">
           {rootNodes.map((node) => (
             <TreeNodeRow
               key={node.entry.path}
@@ -299,12 +299,12 @@ export default function AgentFilesPage() {
           )}
           <span className="text-xs font-medium truncate">{selectedFileName}</span>
         </div>
-        <div className="flex items-center gap-0.5 shrink-0 ml-2">
+        <div className="flex items-center gap-1 shrink-0 ml-2">
           {isMarkdown && !fileBinary && !fileError && !fileLoading && (
             <>
               <button
                 onClick={() => setViewMode("raw")}
-                className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                className={`text-[10px] px-2 py-1 rounded transition-colors ${
                   viewMode === "raw" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -312,7 +312,7 @@ export default function AgentFilesPage() {
               </button>
               <button
                 onClick={() => setViewMode("preview")}
-                className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                className={`text-[10px] px-2 py-1 rounded transition-colors ${
                   viewMode === "preview" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
@@ -405,7 +405,7 @@ function TreeNodeRow({
       <>
         <button
           onClick={() => onToggleDir(entry.path, node)}
-          className="w-full flex items-center gap-1.5 py-1 text-sm hover:bg-muted/50 transition-colors text-left"
+          className="w-full flex items-center gap-2 py-1 text-sm hover:bg-muted/50 transition-colors text-left"
           style={{ paddingLeft }}
         >
           <ChevronRight
@@ -432,7 +432,7 @@ function TreeNodeRow({
           />
         ))}
         {node.expanded && node.children && node.children.length === 0 && (
-          <div className="text-[10px] text-muted-foreground/50 py-0.5" style={{ paddingLeft: paddingLeft + 24 }}>
+          <div className="text-[10px] text-muted-foreground/50 py-1" style={{ paddingLeft: paddingLeft + 24 }}>
             empty
           </div>
         )}
@@ -443,7 +443,7 @@ function TreeNodeRow({
   return (
     <button
       onClick={() => onSelectFile(entry.path)}
-      className={`w-full flex items-center gap-1.5 py-1 text-sm hover:bg-muted/50 transition-colors text-left ${
+      className={`w-full flex items-center gap-2 py-1 text-sm hover:bg-muted/50 transition-colors text-left ${
         selectedFile === entry.path ? "bg-muted text-foreground" : ""
       }`}
       style={{ paddingLeft: paddingLeft + 15 }}

@@ -466,5 +466,8 @@ export const WS_EVENTS = {
   INVITE_CREATE: "community:invite.create",
   MENTION_CREATE: "community:mention.create",
   PRESENCE_UPDATE: "community:presence.update",
+  MACHINE_CREATED: "community:machine.created",
+  MACHINE_STATUS: "community:machine.status",
+  MACHINE_UPDATED: "community:machine.updated",
   MACHINE_REMOVED: "community:machine.removed",
 } as const

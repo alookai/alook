@@ -70,7 +70,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
           <ChevronDown className={`size-3 shrink-0 transition-transform ${open ? "" : "-rotate-90"}`} />
         </ContextMenuTrigger>
         <ContextMenuContent className="w-48">
-          <div className="truncate px-2 py-1.5 text-xs font-semibold text-muted-foreground">{name}</div>
+          <div className="truncate px-2 py-2 text-xs font-semibold text-muted-foreground">{name}</div>
           {onAddChannel && <ContextMenuItem onClick={onAddChannel}><Plus className="size-4" /> Create channel</ContextMenuItem>}
           {onSettings && <ContextMenuItem onClick={onSettings}><Settings className="size-4" /> Category settings</ContextMenuItem>}
           {onDelete && (

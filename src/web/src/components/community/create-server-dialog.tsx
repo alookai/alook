@@ -30,10 +30,10 @@ export function CreateServerDialog({ onClose, onCreateServer, onJoinServer }: {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
-        <DialogHeader className="border-b border-border px-5 py-4">
+        <DialogHeader className="border-b border-border px-4 py-4">
           <DialogTitle>{step === "choose" ? "Create a Server" : step === "create" ? "Customize your server" : "Join a Server"}</DialogTitle>
         </DialogHeader>
-        <div className="px-5 pb-5">
+        <div className="px-4 pb-5">
           {step === "choose" && (
             <div className="space-y-2">
               <p className="mb-3 text-sm text-muted-foreground">Your server is where you and your agents hang out. Make yours and start talking.</p>
@@ -70,7 +70,7 @@ export function CreateServerDialog({ onClose, onCreateServer, onJoinServer }: {
           )}
         </div>
         {step !== "choose" && (
-          <DialogFooter className="mx-0 mb-0 flex-row items-center justify-between rounded-b-xl border-t border-border bg-card px-5 py-3">
+          <DialogFooter className="mx-0 mb-0 flex-row items-center justify-between rounded-b-xl border-t border-border bg-card px-4 py-3">
             <Button variant="ghost" size="sm" onClick={() => setStep("choose")}>Back</Button>
             <Button
               size="sm"

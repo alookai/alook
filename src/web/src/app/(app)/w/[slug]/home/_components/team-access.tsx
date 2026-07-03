@@ -40,7 +40,7 @@ export function TeamAccess({ overview }: TeamAccessProps) {
       <CardContent className="p-0">
         <div className="divide-y divide-border/50">
           {[...members].sort((a, b) => (a.role === "owner" ? -1 : b.role === "owner" ? 1 : 0)).map((m) => (
-            <div key={m.id} className="flex items-center gap-3 px-4 py-2.5">
+            <div key={m.id} className="flex items-center gap-3 px-4 py-2">
               {m.image ? (
                 <img
                   src={m.image}
@@ -64,7 +64,7 @@ export function TeamAccess({ overview }: TeamAccessProps) {
               </div>
               <Badge
                 variant={m.role === "owner" ? "default" : "secondary"}
-                className="text-[10px] px-1.5 py-0 shrink-0"
+                className="text-[10px] px-2 py-0 shrink-0"
               >
                 {m.role}
               </Badge>

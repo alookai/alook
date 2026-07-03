@@ -23,7 +23,7 @@ function AppearanceSettings() {
   const active = mounted ? theme ?? "system" : undefined
 
   return (
-    <div className="max-w-xl space-y-5">
+    <div className="max-w-xl space-y-4">
       <Field label="Theme">
         <div className="grid grid-cols-3 gap-2">
           {THEME_OPTIONS.map(({ value, label, icon: Icon }) => {
@@ -96,7 +96,7 @@ export function UserSettings({ onClose, userName, aboutMe, onSave, onLogout }: {
     >
       <nav className="flex w-60 shrink-0 flex-col gap-2 overflow-y-auto thin-scrollbar border-r border-border p-3" style={{ background: "var(--d-rail)" }}>
         <div className="px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">User Settings</div>
-        <TabsList variant="line" className="h-auto w-full flex-col gap-0.5">
+        <TabsList variant="line" className="h-auto w-full flex-col gap-1">
           <TabsTrigger value="profile" className="h-8 w-full justify-start gap-2">
             <User className="size-4" /> My Profile
           </TabsTrigger>
@@ -111,15 +111,15 @@ export function UserSettings({ onClose, userName, aboutMe, onSave, onLogout }: {
       </nav>
 
       <div className="flex min-w-0 flex-1 flex-col bg-background">
-        <header className="flex h-12 shrink-0 items-center border-b border-border px-5">
+        <header className="flex h-12 shrink-0 items-center border-b border-border px-4">
           <h1 className="flex-1 text-lg font-semibold">{tab === "appearance" ? "Appearance" : "My Profile"}</h1>
           <button onClick={onClose} className="flex flex-col items-center text-muted-foreground hover:text-foreground" aria-label="Close settings">
             <span className="grid size-8 place-items-center rounded-full border border-current"><X className="size-4" /></span>
           </button>
         </header>
-        <div className="flex-1 overflow-y-auto thin-scrollbar p-5">
+        <div className="flex-1 overflow-y-auto thin-scrollbar p-4">
           <TabsContent value="profile">
-            <div className="max-w-xl space-y-5">
+            <div className="max-w-xl space-y-4">
               <Field label={<span>Display Name {saving && <span className="ml-2 text-xs text-muted-foreground">Saving...</span>}</span>}>
                 <Input value={name} onChange={(e) => handleNameChange(e.target.value)} />
               </Field>

@@ -38,7 +38,7 @@ export function RailFolder({
               {...attributes}
               {...listeners}
               className={[
-                "grid size-10 cursor-pointer touch-none grid-cols-2 gap-0.5 p-1.5 transition-all duration-150 active:cursor-grabbing",
+                "grid size-10 cursor-pointer touch-none grid-cols-2 gap-1 p-2 transition-all duration-150 active:cursor-grabbing",
                 open ? "rounded-xl bg-primary/15" : "rounded-[18px] bg-accent hover:rounded-xl hover:bg-primary/20",
               ].join(" ")}
             >

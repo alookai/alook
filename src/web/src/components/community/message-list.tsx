@@ -166,7 +166,7 @@ function MessageListSkeleton({ dm = false }: { dm?: boolean }) {
           <div className="mb-6">
             {dm ? (
               <>
-                <Skeleton className="mb-3 size-17 rounded-full" />
+                <Skeleton className="mb-3 size-16 rounded-full" />
                 <Skeleton className="h-7 w-48 rounded" />
                 <Skeleton className="mt-2 h-3.5 w-72 rounded" />
               </>
@@ -181,8 +181,8 @@ function MessageListSkeleton({ dm = false }: { dm?: boolean }) {
           <div className="flex flex-col gap-3">
             {clusters.map((lines, i) => (
               <div key={i} className="flex gap-3 pt-1.5">
-                <Skeleton className="size-9 shrink-0 rounded-full" />
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <Skeleton className="size-10 shrink-0 rounded-full" />
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
                   <div className="flex items-center gap-2">
                     <Skeleton className="h-4 w-24 rounded" />
                     <Skeleton className="h-3 w-14 rounded" />

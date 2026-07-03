@@ -159,7 +159,7 @@ export function Composer({ channel, context, members, onSend, onCreateThread, on
           {pendingFiles.map((file, i) => {
             const isImage = file.type.startsWith("image/")
             return (
-              <div key={i} className="group relative flex items-center gap-2 rounded border border-border bg-background px-3 py-1.5 text-xs">
+              <div key={i} className="group relative flex items-center gap-2 rounded border border-border bg-background px-3 py-2 text-xs">
                 {isImage ? <ImageIcon className="size-3.5 text-muted-foreground" /> : <FileIcon className="size-3.5 text-muted-foreground" />}
                 <span className="max-w-30 truncate text-foreground">{file.name}</span>
                 <button
@@ -184,7 +184,7 @@ export function Composer({ channel, context, members, onSend, onCreateThread, on
           onChange={handleFileSelect}
           className="hidden"
         />
-        <div className="chat-composer relative px-13 py-3">
+        <div className="chat-composer relative px-12 py-3">
           <EditorContent editor={editor} className="max-h-40 overflow-y-auto thin-scrollbar text-base chat-input-line-height outline-none" />
         </div>
         {/* Attach button — fixed bottom-left */}
@@ -216,7 +216,7 @@ export function Composer({ channel, context, members, onSend, onCreateThread, on
 export function ComposerSkeleton() {
   return (
     <div className="relative px-3 pb-3 pt-0">
-      <div className="relative rounded-xl bg-muted px-13 py-3 shadow-(--e1) ring-1 ring-border/40">
+      <div className="relative rounded-xl bg-muted px-12 py-3 shadow-(--e1) ring-1 ring-border/40">
         <Skeleton className="h-5 w-2/5 rounded" />
         <Skeleton className="absolute left-2 bottom-2 size-8 rounded-full" />
         <Skeleton className="absolute right-2 bottom-2 size-8 rounded-full" />
@@ -292,7 +292,7 @@ function MentionRow({ item, selected, showMembersHeader, onSelect }: {
         role="option"
         aria-selected={selected}
         className={[
-          "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors",
+          "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
           selected ? "bg-accent" : "hover:bg-accent/50",
         ].join(" ")}
         onMouseDown={(e) => {

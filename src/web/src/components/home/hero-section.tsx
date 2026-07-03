@@ -78,7 +78,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
 
       <div className="hero-content relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center px-4 sm:px-6 py-8 max-h-full">
         {/* Brand */}
-        <div className="hero-brand mb-6 flex shrink-0 items-center gap-1.5" style={{ opacity: 0 }}>
+        <div className="hero-brand mb-6 flex shrink-0 items-center gap-2" style={{ opacity: 0 }}>
           <Image src="/alook.svg" alt="Alook" width={32} height={32} />
           <span
             className="text-2xl tracking-tight"
@@ -150,7 +150,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         >
           {/* Floating badge label */}
           <span
-            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap overflow-hidden text-ellipsis px-2 py-0.5 text-[10px] sm:text-xs"
+            className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap overflow-hidden text-ellipsis px-2 py-1 text-[10px] sm:text-xs"
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--landing-text-muted)",
@@ -161,7 +161,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           </span>
           {/* Content box */}
           <div
-            className="flex w-full items-center gap-2 rounded px-3 py-2.5 pt-3 text-xs sm:text-sm"
+            className="flex w-full items-center gap-2 rounded px-3 py-2 pt-3 text-xs sm:text-sm"
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--landing-text)",
@@ -221,12 +221,12 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         </div> */}
 
         {/* Community links */}
-        <div className="hero-providers mt-5 shrink-0 flex items-center justify-center gap-4" style={{ opacity: 0 }}>
+        <div className="hero-providers mt-4 shrink-0 flex items-center justify-center gap-4" style={{ opacity: 0 }}>
           <a
             href="https://github.com/alookai/alook"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center p-1.5 transition-opacity hover:opacity-70"
+            className="flex items-center justify-center p-2 transition-opacity hover:opacity-70"
             style={{ color: "var(--landing-text)" }}
             aria-label="GitHub"
           >
@@ -238,7 +238,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             href="https://discord.alook.ai"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center p-1.5 transition-opacity hover:opacity-70"
+            className="flex items-center justify-center p-2 transition-opacity hover:opacity-70"
             style={{ color: "var(--landing-text)" }}
             aria-label="Discord"
           >
@@ -250,7 +250,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             href="https://x.com/alook_ai"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center p-1.5 transition-opacity hover:opacity-70"
+            className="flex items-center justify-center p-2 transition-opacity hover:opacity-70"
             style={{ color: "var(--landing-text)" }}
             aria-label="Follow us on X"
           >
@@ -264,7 +264,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div ref={ctaRef} className="mt-8 shrink-0 flex flex-nowrap items-center justify-center gap-3" style={{ opacity: 0 }}>
           {/* <a
             href="https://github.com/alookai/alook"
-            className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
+            className="inline-flex items-center gap-2 px-6 py-2 text-sm transition-all duration-200 hover:opacity-80"
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--landing-bg)",
@@ -281,7 +281,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             <a
               href="/workspaces?auto"
               onClick={() => trackLandingCtaClicked({ cta_name: "open_app" })}
-              className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
+              className="inline-flex items-center gap-2 px-6 py-2 text-sm transition-all duration-200 hover:opacity-80"
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-bg)",
@@ -300,7 +300,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
             <a
               href="/sign-in"
               onClick={() => trackLandingCtaClicked({ cta_name: "get_started" })}
-              className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
+              className="inline-flex items-center gap-2 px-6 py-2 text-sm transition-all duration-200 hover:opacity-80"
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-bg)",
@@ -319,7 +319,7 @@ export function HeroSection({ isLoggedIn }: { isLoggedIn: boolean }) {
           <Link
             href="/templates"
             onClick={() => trackLandingCtaClicked({ cta_name: "templates" })}
-            className="inline-flex items-center gap-2 px-6 py-2.5 text-sm transition-all duration-200 hover:opacity-80"
+            className="inline-flex items-center gap-2 px-6 py-2 text-sm transition-all duration-200 hover:opacity-80"
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--landing-text)",

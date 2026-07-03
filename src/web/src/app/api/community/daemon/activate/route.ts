@@ -4,6 +4,7 @@ import {
   queries,
   createLogger,
   CommunityDaemonActivateRequestSchema,
+  WS_EVENTS,
   type CommunityDaemonActivateResponse,
   type CommunityMachineCreated,
 } from "@alook/shared"
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (machine) {
       const summary = queries.communityMachine.toSummary(machine)
       const event: CommunityMachineCreated = {
-        type: "community:machine.created",
+        type: WS_EVENTS.MACHINE_CREATED,
         machine: summary,
         tokenId,
       }

@@ -49,18 +49,18 @@ function TaskRow({
     <a
       href={href}
       onClick={handleClick}
-      className="flex items-center gap-2.5 px-3 py-2 hover:bg-accent/50 transition-colors cursor-pointer rounded-md"
+      className="flex items-center gap-2 px-3 py-2 hover:bg-accent/50 transition-colors cursor-pointer rounded-md"
     >
       <div className="relative shrink-0">
         <AgentAvatar name={task.agent?.name} avatarUrl={task.agent?.avatarUrl} size={24} />
         <span
-          className={`absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-2 ring-background ${
+          className={`absolute -bottom-1 -right-1 size-2 rounded-full ring-2 ring-background ${
             isRunning ? "bg-primary animate-pulse" : "bg-muted-foreground/40"
           }`}
         />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5 leading-tight">
+        <div className="flex items-center gap-2 leading-tight">
           <span className="text-sm font-medium truncate">
             {task.agent?.name ?? "Unknown"}
           </span>
@@ -110,7 +110,7 @@ export function ActiveTasksFloat() {
       <button
         type="button"
         onClick={() => setExpanded(true)}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-background/90 backdrop-blur-sm ring-1 ring-foreground/8 shadow-sm text-xs font-medium text-muted-foreground hover:text-foreground transition-colors animate-[fade-up_300ms_ease-out_both]"
+        className="flex items-center gap-2 px-2 py-1 rounded-full bg-background/90 backdrop-blur-sm ring-1 ring-foreground/8 shadow-sm text-xs font-medium text-muted-foreground hover:text-foreground transition-colors animate-[fade-up_300ms_ease-out_both]"
       >
         <span className="size-1.5 rounded-full bg-primary animate-pulse" />
         {taskCount} active
@@ -148,7 +148,7 @@ export function ActiveTasksFloat() {
         {taskCount > 8 && (
           <Link
             href={`/w/${slug}/traces?status=active`}
-            className="block text-xs text-muted-foreground hover:text-foreground text-center py-1.5 transition-colors"
+            className="block text-xs text-muted-foreground hover:text-foreground text-center py-2 transition-colors"
           >
             View all {taskCount} tasks
           </Link>

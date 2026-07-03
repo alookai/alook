@@ -134,7 +134,7 @@ export function ArtifactContentRenderer({ artifact, workspaceId }: ArtifactConte
       <a
         href={getArtifactUrl(artifact.id, workspaceId, true)}
         download={artifact.filename}
-        className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
+        className="inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground transition-colors"
       >
         <Download className="size-3.5" />
         Download

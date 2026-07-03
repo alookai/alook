@@ -144,7 +144,7 @@ function ActivityRow({ task, slug, agentId, workspaceId, onRetry }: { task: Acti
           <TooltipContent>{new Date(task.created_at).toLocaleString()}</TooltipContent>
         </Tooltip>
       </div>
-      <div className="flex items-center gap-1.5 mt-1 ml-5.5">
+      <div className="flex items-center gap-2 mt-1 ml-6">
         <StatusDot status={task.status} />
         <span className="text-xs text-muted-foreground">
           {STATUS_LABELS[task.status] ?? task.status}
@@ -192,7 +192,7 @@ function SkeletonRow({ promptWidth }: { promptWidth: string }) {
         <Skeleton className={`h-3.5 rounded`} style={{ width: promptWidth }} />
         <Skeleton className="h-2.5 w-10 rounded shrink-0 ml-auto" />
       </div>
-      <div className="flex items-center gap-1.5 mt-1 ml-5.5">
+      <div className="flex items-center gap-2 mt-1 ml-6">
         <Skeleton className="h-2.5 w-20 rounded-full" />
         <Skeleton className="h-2.5 w-8 rounded" />
       </div>
@@ -316,7 +316,7 @@ export default function AgentActivityPage() {
   return (
     <>
       {/* Filter bar */}
-      <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2.5">
+      <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2">
         <Select value={statusFilter} onValueChange={(v) => updateFilter("status", v ?? "")}>
           <SelectTrigger className="w-35 border-none bg-transparent shadow-none text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
             <SelectValue placeholder="Status: All" />

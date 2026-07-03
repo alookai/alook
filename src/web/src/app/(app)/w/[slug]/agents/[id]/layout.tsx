@@ -61,7 +61,7 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
   return (
     <>
       {/* Top navbar */}
-      <div className="flex items-center justify-between border-b border-border/50 px-4 md:px-5 py-2.5">
+      <div className="flex items-center justify-between border-b border-border/50 px-4 py-2">
         <div className="flex items-center gap-2 min-w-0">
           {agent ? (
             <AgentStatusBadge
@@ -93,7 +93,7 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
           </span>
         </div>
         {agent ? (
-          <div className="flex items-center gap-0.5 shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
             {editing ? (
               <Button
                 variant="ghost"
@@ -107,7 +107,7 @@ export default function AgentDetailLayout({ children }: { children: ReactNode })
             ) : (
               <>
                 {/* Desktop: inline buttons */}
-                <div className="hidden sm:flex items-center gap-0.5">
+                <div className="hidden sm:flex items-center gap-1">
                   <Link
                     href={`/w/${slug}/agents/${agentId}`}
                     className={`group inline-flex items-center rounded-lg text-xs h-7 px-2 transition-all ${

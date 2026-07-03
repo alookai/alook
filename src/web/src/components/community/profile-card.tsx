@@ -6,7 +6,8 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Avatar } from "./avatar"
-import type { Profile, Breakpoint } from "./_types"
+import type { Profile } from "./_types"
+import type { Breakpoint } from "@/hooks/use-mobile"
 
 // Deterministic, on-brand banner gradient. Hue is constrained to the warm band
 // (60–80 per DESIGN.md) and chroma kept low so two profiles always read as the
@@ -52,7 +53,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf }: {
           </div>
           <Badge variant="secondary" className="mb-1 h-6 gap-1"><Shield className="size-3.5" /> {data.role}</Badge>
         </div>
-        <div className="rounded-lg bg-card p-3.5">
+        <div className="rounded-lg bg-card p-4">
           <div className="text-lg font-semibold">{data.name}</div>
           <Separator className="my-2" />
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">About</div>

@@ -27,15 +27,15 @@ export function NewThreadDialog({ channel, open, onClose, onCreate }: {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
-        <DialogHeader className="border-b border-border px-5 py-4">
+        <DialogHeader className="border-b border-border px-4 py-4">
           <DialogTitle className="flex items-center gap-2">
             <MessagesSquare className="size-5 text-muted-foreground" />
             New Thread
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 px-5 pb-5">
+        <div className="space-y-4 px-4 pb-5">
           <label className="block">
-            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Thread Name</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Thread Name</div>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -45,7 +45,7 @@ export function NewThreadDialog({ channel, open, onClose, onCreate }: {
             />
           </label>
           <label className="block">
-            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">First Message</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">First Message</div>
             <div className="flex min-h-14 items-center gap-3 rounded-lg bg-secondary px-4 py-3">
               <input
                 value={message}
@@ -62,7 +62,7 @@ export function NewThreadDialog({ channel, open, onClose, onCreate }: {
             </div>
           </label>
         </div>
-        <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-5 py-3">
+        <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-4 py-3">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" onClick={submit} disabled={!name.trim()}>Create Thread</Button>
         </DialogFooter>

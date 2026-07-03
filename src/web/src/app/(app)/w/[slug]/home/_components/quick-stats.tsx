@@ -33,7 +33,7 @@ function StatCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-1">
             <p className="text-2xl font-semibold leading-none tracking-tight">{value}</p>
-            {sub && <Badge variant="secondary" className="text-[10px] px-1.5 h-4 font-normal">{sub}</Badge>}
+            {sub && <Badge variant="secondary" className="text-[10px] px-2 h-4 font-normal">{sub}</Badge>}
           </div>
           <p className="mt-1 text-xs text-muted-foreground truncate">{label}</p>
         </div>
@@ -57,7 +57,7 @@ export function QuickStatsRow({ agents, runtimes, activeTaskCounts, overview }: 
   }).length;
 
   return (
-    <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+    <div className="grid gap-3 grid-cols-2 sm:grid-cols-6">
       <StatCard
         icon={Monitor}
         label="Machines"

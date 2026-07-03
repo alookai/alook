@@ -447,7 +447,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
 
       {/* Custom floating toolbar */}
       <div
-        className="absolute bottom-4 left-4 z-40 bg-background/80 backdrop-blur-sm rounded-lg ring-1 ring-foreground/5 p-1 flex gap-0.5 animate-[fade-up_300ms_ease-out_both]"
+        className="absolute bottom-4 left-4 z-40 bg-background/80 backdrop-blur-sm rounded-lg ring-1 ring-foreground/5 p-1 flex gap-1 animate-[fade-up_300ms_ease-out_both]"
         style={{ animationDelay: "200ms" }}
       >
         <button
@@ -472,7 +472,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
           <Maximize2 className="size-4" />
         </button>
 
-        <div className="w-px h-5 bg-foreground/10 mx-0.5 self-center" />
+        <div className="w-px h-5 bg-foreground/10 mx-1 self-center" />
 
         <Popover>
           <Tooltip>
@@ -502,7 +502,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
                 key={type}
                 type="button"
                 className={cn(
-                  "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors",
+                  "w-full flex items-center gap-2 px-2 py-2 rounded-md text-sm transition-colors",
                   layoutType === type
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
@@ -520,7 +520,7 @@ function AgentCanvas({ onAgentClick }: { onAgentClick?: (agent: Agent) => void }
 
       {/* No-links hint */}
       {showHint && (
-        <div className="absolute bottom-14 left-4 z-40 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm rounded-md px-3 py-1.5 ring-1 ring-foreground/5">
+        <div className="absolute bottom-14 left-4 z-40 text-xs text-muted-foreground bg-background/80 backdrop-blur-sm rounded-md px-3 py-2 ring-1 ring-foreground/5">
           Drag between agent handles to create relationships.
         </div>
       )}
@@ -593,7 +593,7 @@ function MobileAgentList({ onAgentClick }: { onAgentClick?: (agent: Agent) => vo
               key={agent.id}
               role="button"
               tabIndex={0}
-              className="flex items-center gap-3 w-full rounded-xl px-3 py-2.5 hover:bg-accent/50 active:bg-accent/70 transition-colors cursor-pointer text-left"
+              className="flex items-center gap-3 w-full rounded-xl px-3 py-2 hover:bg-accent/50 active:bg-accent/70 transition-colors cursor-pointer text-left"
               onClick={() => handleClick(agent)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
@@ -661,19 +661,19 @@ function ConnectComputerCard({ workspaceId }: { workspaceId: string }) {
   };
 
   return (
-    <div className="rounded-xl bg-muted/40 p-5 space-y-3">
+    <div className="rounded-xl bg-muted/40 p-4 space-y-3">
       <h3 className="text-sm font-semibold">Connect a computer</h3>
       <p className="text-xs text-muted-foreground">
         Run this command in your terminal to link your machine.
       </p>
       {loading ? (
-        <div className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground animate-pulse">
+        <div className="rounded-md bg-muted p-2 font-mono text-xs text-muted-foreground animate-pulse">
           Generating token...
         </div>
       ) : (
         <>
           <div
-            className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors break-all"
+            className="rounded-md bg-muted p-2 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors break-all"
             onClick={copy}
           >
             {command}

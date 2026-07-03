@@ -37,7 +37,7 @@ export default function CreateAgentPage() {
 
   return (
     <>
-      <div className="flex items-center gap-2 border-b border-border/50 px-3 md:px-5 py-2.5">
+      <div className="flex items-center gap-2 border-b border-border/50 px-3 sm:px-4 py-2">
         <h1 className="text-sm font-medium">Create Agent</h1>
         <Tooltip>
           <TooltipTrigger

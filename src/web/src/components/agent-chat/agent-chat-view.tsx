@@ -667,14 +667,14 @@ export function AgentChatView({
   if (messagesLoading) {
     return (
       <>
-        <div className="flex-1 overflow-y-auto px-3 md:px-5">
+        <div className="flex-1 overflow-y-auto px-3 sm:px-4">
           <div className="mx-auto max-w-3xl py-6 space-y-6 motion-safe:animate-[fade-up_200ms_ease-out_both]">
             {/* Agent cluster — top [avatar][name] header, bubbles stacked below
                 in the gutter (mirrors AgentRow's Slack/Discord layout). */}
             <div className="flex justify-start items-start gap-2">
               <Skeleton className="size-7.5 shrink-0 rounded-md" />
               <div className="flex flex-col items-start gap-1 max-w-[86%]">
-                <Skeleton className="h-3 w-20 rounded mb-0.5" />
+                <Skeleton className="h-3 w-20 rounded mb-1" />
                 <Skeleton className="h-9 w-64 rounded-[1.05rem]" />
                 <Skeleton className="h-9 w-48 rounded-[1.05rem]" />
               </div>
@@ -688,7 +688,7 @@ export function AgentChatView({
             <div className="flex justify-start items-start gap-2">
               <Skeleton className="size-7.5 shrink-0 rounded-md" />
               <div className="flex flex-col items-start gap-1 max-w-[86%]">
-                <Skeleton className="h-3 w-20 rounded mb-0.5" />
+                <Skeleton className="h-3 w-20 rounded mb-1" />
                 <Skeleton className="h-9 w-56 rounded-[1.05rem]" />
               </div>
             </div>
@@ -697,7 +697,7 @@ export function AgentChatView({
         {/* Presence line + input — mirror the real layout exactly so nothing
             shifts on load: presence row (h-5 + mb-2) above, then the composer
             row of [overflow button][pill][symmetric spacer]. */}
-        <div data-keyboard-offset className="relative z-10 px-3 md:px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-6">
+        <div data-keyboard-offset className="relative z-10 px-3 sm:px-4 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-6">
           <div className="mx-auto max-w-3xl">
             <div className="h-5 px-1 mb-2 flex items-center">
               <Skeleton className="h-3.5 w-28 rounded" />
@@ -742,7 +742,7 @@ export function AgentChatView({
       {/* Messages */}
       <div className="relative flex-1 min-h-0">
         <div
-          className="h-full overflow-y-auto overflow-x-hidden px-3 md:px-5 thin-scrollbar"
+          className="h-full overflow-y-auto overflow-x-hidden px-3 sm:px-4 thin-scrollbar"
           ref={scrollRef}
           onScroll={handleScroll}
           onClick={(e) => {
@@ -836,8 +836,8 @@ export function AgentChatView({
               const pos = groupPositions[idx];
               const isGroupStart =
                 pos === "first" || pos === "solo" || pos === null;
-              // mt-6 between clusters, mt-1.5 between grouped bubbles within a cluster.
-              const spacing = idx === 0 ? "" : isGroupStart ? "mt-6" : "mt-1.5";
+              // mt-6 between clusters, mt-2 between grouped bubbles within a cluster.
+              const spacing = idx === 0 ? "" : isGroupStart ? "mt-6" : "mt-2";
 
               if (item.kind === "nap") {
                 return (
@@ -946,7 +946,7 @@ export function AgentChatView({
       </div>
 
       {/* Input */}
-      <div data-keyboard-offset className="relative z-10 px-3 md:px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] md:pb-6">
+      <div data-keyboard-offset className="relative z-10 px-3 sm:px-4 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:pb-6">
         <div className="mx-auto max-w-3xl relative">
           {/* Social presence line — "{Name} is typing…" while this conversation
               has a live task (dispatched / queued / running), else nothing. */}
@@ -965,7 +965,7 @@ export function AgentChatView({
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      className="shrink-0 self-end mb-2.5 size-8 rounded-full text-muted-foreground/60 hover:text-foreground transition-colors duration-200"
+                      className="shrink-0 self-end mb-2 size-8 rounded-full text-muted-foreground/60 hover:text-foreground transition-colors duration-200"
                     />
                   }
                 >
@@ -974,7 +974,7 @@ export function AgentChatView({
                 <PopoverContent
                   side="top"
                   align="start"
-                  className="w-auto p-1.5 flex flex-col gap-0.5"
+                  className="w-auto p-2 flex flex-col gap-1"
                 >
                   <Tooltip>
                     <TooltipTrigger
@@ -1083,13 +1083,13 @@ export function AgentChatView({
                 </div>
               )}
               {slashCommand.activeSkill && (
-                <div className="flex items-center gap-2 px-3.5 pt-2.5 pb-1 border-b border-border/50">
+                <div className="flex items-center gap-2 px-4 pt-2.5 pb-1 border-b border-border/50">
                   <div className="flex-1 min-w-0 flex items-center gap-2">
                     <span className="shrink-0 text-xs font-medium text-primary">
                       /{slashCommand.activeSkill.name}
                     </span>
                     {slashCommand.activeSkill.isGlobal && (
-                      <span className="text-[10px] font-medium text-muted-foreground bg-muted rounded px-1 py-0.5">
+                      <span className="text-[10px] font-medium text-muted-foreground bg-muted rounded px-1 py-1">
                         Global
                       </span>
                     )}
@@ -1100,16 +1100,16 @@ export function AgentChatView({
                   <button
                     type="button"
                     onClick={slashCommand.clearActiveSkill}
-                    className="shrink-0 p-0.5 rounded-sm hover:bg-muted-foreground/20 transition-colors text-muted-foreground"
+                    className="shrink-0 p-1 rounded-sm hover:bg-muted-foreground/20 transition-colors text-muted-foreground"
                   >
                     <X className="size-3.5" />
                   </button>
                 </div>
               )}
               {quotedMessage && (
-                <div className="flex items-center gap-2 px-3.5 pt-2.5 pb-1 border-b border-border/50">
+                <div className="flex items-center gap-2 px-4 pt-2.5 pb-1 border-b border-border/50">
                   <div className="flex-1 min-w-0 flex items-start gap-2">
-                    <MessageSquareQuote className="size-3.5 shrink-0 mt-0.5 text-muted-foreground" />
+                    <MessageSquareQuote className="size-3.5 shrink-0 mt-1 text-muted-foreground" />
                     <p className="text-xs text-muted-foreground truncate max-w-50">
                       {quotedMessage.excerpt}
                     </p>
@@ -1117,7 +1117,7 @@ export function AgentChatView({
                   <button
                     type="button"
                     onClick={() => setQuotedMessage(null)}
-                    className="shrink-0 p-0.5 rounded-sm hover:bg-muted-foreground/20 transition-colors text-muted-foreground"
+                    className="shrink-0 p-1 rounded-sm hover:bg-muted-foreground/20 transition-colors text-muted-foreground"
                   >
                     <X className="size-3.5" />
                   </button>
@@ -1135,9 +1135,9 @@ export function AgentChatView({
                 const images = pendingFiles.map((pf, i) => ({ pf, i })).filter(({ pf }) => pf.thumbnailUrl);
                 const others = pendingFiles.map((pf, i) => ({ pf, i })).filter(({ pf }) => !pf.thumbnailUrl);
                 return (
-                  <div className="px-3.5 pt-3 pb-0.5 space-y-1.5">
+                  <div className="px-4 pt-3 pb-0.5 space-y-2">
                     {images.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-wrap gap-2">
                         {images.map(({ pf, i }) => (
                           <div key={`${pf.file.name}-${i}`} className="relative group">
                             <button
@@ -1157,7 +1157,7 @@ export function AgentChatView({
                             <button
                               type="button"
                               onClick={() => removePendingFile(i)}
-                              className="absolute -top-1.5 -right-1.5 size-4 rounded-full bg-muted-foreground text-background flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              className="absolute -top-2 -right-2 size-4 rounded-full bg-muted-foreground text-background flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                             >
                               <X className="size-2.5" />
                             </button>
@@ -1166,11 +1166,11 @@ export function AgentChatView({
                       </div>
                     )}
                     {others.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-wrap gap-2">
                         {others.map(({ pf, i }) => (
                           <span
                             key={`${pf.file.name}-${i}`}
-                            className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
+                            className="inline-flex items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
                           >
                             <FileText className="size-3 shrink-0" />
                             <span className="truncate max-w-30">{pf.file.name}</span>
@@ -1180,7 +1180,7 @@ export function AgentChatView({
                             <button
                               type="button"
                               onClick={() => removePendingFile(i)}
-                              className="ml-0.5 rounded-sm p-0.5 hover:bg-muted-foreground/20 transition-colors"
+                              className="ml-1 rounded-sm p-1 hover:bg-muted-foreground/20 transition-colors"
                             >
                               <X className="size-3" />
                             </button>

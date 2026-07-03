@@ -22,7 +22,7 @@ function FriendSection({ title, count, emptyLabel, children }: {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</div>
-      {count === 0 ? <EmptyState icon={Users} label={emptyLabel} /> : <div className="flex flex-col gap-0.5">{children}</div>}
+      {count === 0 ? <EmptyState icon={Users} label={emptyLabel} /> : <div className="flex flex-col gap-1">{children}</div>}
     </div>
   )
 }
@@ -112,7 +112,7 @@ export function FriendsPage({
 
   return (
     <Tabs defaultValue="online" className="min-h-0 flex-1">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-5">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-4">
         {onBack && (
           <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
         )}
@@ -124,9 +124,9 @@ export function FriendsPage({
         </TabsList>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-5">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto thin-scrollbar p-4">
         {/* add-friend bar (shared across tabs) */}
-        <div className="mb-5">
+        <div className="mb-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add a friend</div>
           <div className="relative mt-2">
             <div className="relative flex items-center gap-2">
@@ -179,14 +179,14 @@ export function FriendsPage({
           ) : (
           <FriendSection title={`Pending — ${pending.length}`} count={pending.length} emptyLabel="No pending requests. When someone adds you, it'll show up here.">
             {pending.map((p) => (
-              <div key={p.id} className="flex items-center gap-3 rounded-md px-2.5 py-2.5 hover:bg-accent">
+              <div key={p.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
                 <Avatar label={p.avatar} size={32} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{p.name}</div>
                   <div className="text-xs text-muted-foreground">{p.kind === "incoming" ? "Incoming request" : "Outgoing request"}</div>
                 </div>
                 {p.kind === "incoming" ? (
-                  <div className="flex gap-1.5">
+                  <div className="flex gap-2">
                     <Button variant="secondary" size="icon-sm" onClick={() => onAccept?.(p.id)} className="rounded-full text-status-online" aria-label="Accept"><Check className="size-4" /></Button>
                     <Button variant="secondary" size="icon-sm" onClick={() => onReject?.(p.id)} className="rounded-full text-destructive" aria-label="Reject"><X className="size-4" /></Button>
                   </div>
@@ -207,7 +207,7 @@ export function FriendsPage({
           ) : (
           <FriendSection title={`Blocked — ${blocked.length}`} count={blocked.length} emptyLabel="You haven't blocked anyone.">
             {blocked.map((b) => (
-              <div key={b.id} className="flex items-center gap-3 rounded-md px-2.5 py-2.5 hover:bg-accent">
+              <div key={b.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
                 <Avatar label={b.avatar} size={32} dim />
                 <div className="min-w-0 flex-1 truncate text-sm font-medium">{b.name}</div>
                 <Button variant="secondary" size="sm" onClick={() => onUnblock?.(b.userId ?? b.id)}>Unblock</Button>
@@ -226,16 +226,16 @@ export function FriendsPage({
 // the friend-row footprint and back.
 function FriendRowsSkeleton({ withActions = false }: { withActions?: boolean }) {
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="flex flex-col gap-1">
       {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2">
           <Skeleton className="size-8 shrink-0 rounded-full" />
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton className="h-3.5 w-2/5 rounded" />
             <Skeleton className="h-3 w-3/5 rounded" />
           </div>
           {withActions ? (
-            <div className="flex gap-1.5">
+            <div className="flex gap-2">
               <Skeleton className="size-8 shrink-0 rounded-full" />
               <Skeleton className="size-8 shrink-0 rounded-full" />
             </div>

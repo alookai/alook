@@ -4,7 +4,7 @@ import type React from "react"
 export function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <label className="block">
-      <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
       {children}
     </label>
   )

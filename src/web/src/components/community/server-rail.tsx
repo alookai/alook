@@ -86,7 +86,7 @@ export const ServerRail = memo(function ServerRail({
   }, [folders])
 
   return (
-    <nav aria-label="Server navigation" className="flex w-14 shrink-0 flex-col items-center gap-1.5 pt-1 pb-2 overflow-y-auto overflow-x-clip thin-scrollbar" style={bottomInset ? { paddingBottom: bottomInset } : undefined}>
+    <nav aria-label="Server navigation" className="flex w-14 shrink-0 flex-col items-center gap-2 pt-1 pb-2 overflow-y-auto overflow-x-clip thin-scrollbar" style={bottomInset ? { paddingBottom: bottomInset } : undefined}>
       <Tooltip>
         <TooltipTrigger render={<div className="group relative flex w-full justify-center" />}>
           <span className={[
@@ -199,7 +199,7 @@ export const ServerRail = memo(function ServerRail({
               const folder = folderById.get(fId)
               if (!folder) return null
               return (
-                <div className="grid size-10 grid-cols-2 gap-0.5 rounded-xl bg-accent p-1.5 shadow-(--e2)">
+                <div className="grid size-10 grid-cols-2 gap-1 rounded-xl bg-accent p-2 shadow-(--e2)">
                   {Array.from({ length: 4 }).map((_, idx) => {
                     const s = folder.servers[idx]
                     return s ? (

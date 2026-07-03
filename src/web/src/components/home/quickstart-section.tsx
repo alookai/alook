@@ -116,7 +116,7 @@ export function QuickstartSection() {
       {/* CTA terminal */}
       <div className="relative mx-auto mt-10 max-w-md">
         <div
-          className="rounded-lg border px-5 py-4"
+          className="rounded-lg border px-4 py-4"
           style={{
             borderColor: "oklch(0.75 0.18 80 / 20%)",
             backgroundColor: "oklch(0.12 0.01 55)",

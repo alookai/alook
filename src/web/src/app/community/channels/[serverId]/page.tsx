@@ -41,7 +41,7 @@ export default function ServerDefaultPage() {
   return (
     <>
       <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-3">
-        <Skeleton className="size-4.5 rounded" />
+        <Skeleton className="size-4 rounded" />
         <Skeleton className="h-4 w-40 rounded" />
         <div className="ml-auto flex items-center gap-2">
           <Skeleton className="size-7 rounded-md" />

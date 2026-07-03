@@ -58,7 +58,7 @@ export function ChannelHeader({
       aria-label={label}
       className={`text-muted-foreground hover:text-foreground ${rightPanel === k ? "bg-accent text-foreground" : ""}`}
     >
-      <Icon className="size-4.5" />
+      <Icon className="size-4" />
     </Button>
   )
   return (
@@ -123,7 +123,7 @@ function ChannelOverflowMenu({
           />
         }
       >
-        <MoreHorizontal className="size-4.5" />
+        <MoreHorizontal className="size-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         {showThreads && (
@@ -173,7 +173,7 @@ function ChannelNotifDropdown({ level, onSetLevel }: {
       <DropdownMenuTrigger
         render={<Button variant="ghost" size="icon-sm" className={`text-muted-foreground hover:text-foreground ${isMuted ? "text-destructive" : ""}`} aria-label="Channel notifications" />}
       >
-        {isMuted ? <BellOff className="size-4.5" /> : <Bell className="size-4.5" />}
+        {isMuted ? <BellOff className="size-4" /> : <Bell className="size-4" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuItem onClick={() => onSetLevel?.(isMuted ? "Use Server Default" : "Nothing")}>
@@ -214,12 +214,12 @@ function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name:
       {open && (
         <Dialog open onOpenChange={(o) => { if (!o) setOpen(false) }}>
           <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
-            <DialogHeader className="border-b border-border px-5 py-4">
+            <DialogHeader className="border-b border-border px-4 py-4">
               <DialogTitle>Rename Thread</DialogTitle>
             </DialogHeader>
-            <div className="px-5 pb-5 pt-4">
+            <div className="px-4 pb-5 pt-4">
               <label className="block">
-                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</div>
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</div>
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
@@ -230,7 +230,7 @@ function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name:
                 />
               </label>
             </div>
-            <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-5 py-3">
+            <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-4 py-3">
               <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
               <Button size="sm" onClick={save} disabled={!draft.trim()}>Save</Button>
             </DialogFooter>

@@ -132,9 +132,9 @@ export function RuntimeVersionGate() {
                     <div className="text-sm font-medium truncate">
                       {rt.device_info || daemonId.slice(0, 12)}
                     </div>
-                    <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                    <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
                       <span>v{cliVersion || "unknown"}</span>
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-amber-500 border-amber-500/30">
+                      <Badge variant="outline" className="text-[10px] px-2 py-0 text-amber-500 border-amber-500/30">
                         requires v{minVersion}
                       </Badge>
                     </div>
@@ -155,8 +155,8 @@ export function RuntimeVersionGate() {
         </div>
 
         {showManualHint && (
-          <div className="mt-3 rounded-md bg-muted/50 border border-dashed p-2.5 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5 font-medium text-foreground mb-1">
+          <div className="mt-3 rounded-md bg-muted/50 border border-dashed p-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 font-medium text-foreground mb-1">
               <Terminal className="size-3" />
               Update taking too long?
             </div>

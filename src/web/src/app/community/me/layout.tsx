@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { usePathname, useRouter, useParams } from "next/navigation"
 import { useCommunity } from "@/contexts/community/context"
-import { useBreakpoint } from "@/components/community/use-breakpoint"
+import { useBreakpoint } from "@/hooks/use-mobile"
 import { ShellFrame } from "@/components/community/shell-frame"
 import { DmSidebar } from "@/components/community/dm-sidebar"
 import type { MobileZone } from "@/components/community/_types"

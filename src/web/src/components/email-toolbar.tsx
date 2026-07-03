@@ -73,7 +73,7 @@ function ToolbarButton({
 }
 
 function ToolbarDivider() {
-  return <div className="w-px h-4 bg-border/60 mx-0.5 shrink-0" />;
+  return <div className="w-px h-4 bg-border/60 mx-1 shrink-0" />;
 }
 
 export function EmailToolbar({ editor }: EmailToolbarProps) {
@@ -140,7 +140,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
   };
 
   return (
-    <div className="flex items-center gap-0.5 px-3 py-1 overflow-x-auto">
+    <div className="flex items-center gap-1 px-3 py-1 overflow-x-auto">
       {/* Inline formatting */}
       <ToolbarButton
         title="Bold"

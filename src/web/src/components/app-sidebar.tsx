@@ -325,7 +325,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
           setSelectionMode(true);
         }}
       >
-        <Folder className="size-3.5 mr-1.5" />
+        <Folder className="size-3.5 mr-2" />
         Create group
       </ContextMenuItem>
       {folders.length > 0 && (
@@ -343,7 +343,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                 key={f.id}
                 onClick={() => addToFolder(f.id, agentId)}
               >
-                <ArrowRightToLine className="size-3.5 mr-1.5" />
+                <ArrowRightToLine className="size-3.5 mr-2" />
                 Move to {label}{folderAgents.length > 2 ? "…" : ""}
               </ContextMenuItem>
             );
@@ -382,7 +382,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
     : null;
 
   return (
-    <nav className={cn("flex h-full w-14 flex-col items-center pt-1 pb-2 gap-0.5", wiggling && "relative z-10")}>
+    <nav className={cn("flex h-full w-14 flex-col items-center pt-1 pb-2 gap-1", wiggling && "relative z-10")}>
       {/* Top — logo */}
       <div className="pb-1.5 mb-1">
         <div
@@ -394,7 +394,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       </div>
 
       {/* Main navigation */}
-      <div className="flex flex-col items-center gap-1.5 pb-1.5 border-b border-border/50 mb-1">
+      <div className="flex flex-col items-center gap-2 pb-1.5 border-b border-border/50 mb-1">
         <Tooltip>
           <TooltipTrigger render={
             <button
@@ -453,7 +453,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
       </div>
 
       {/* Agent avatars */}
-      <div className={cn("flex flex-1 w-full flex-col items-center gap-1.5 py-1 scrollbar-none", wiggling ? "overflow-visible" : "overflow-y-auto")}>
+      <div className={cn("flex flex-1 w-full flex-col items-center gap-2 py-1 scrollbar-none", wiggling ? "overflow-visible" : "overflow-y-auto")}>
         {loading ? (
           <Skeleton className="size-10 rounded-xl" />
         ) : (
@@ -509,7 +509,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                         </ContextMenuTrigger>
                         <ContextMenuContent>
                           <ContextMenuItem onClick={() => dissolveFolder(folder.id)}>
-                            <Ungroup className="size-3.5 mr-1.5" />
+                            <Ungroup className="size-3.5 mr-2" />
                             Ungroup agents
                           </ContextMenuItem>
                         </ContextMenuContent>
@@ -535,7 +535,7 @@ export function AppSidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
                           {renderAgentButton(agent, pinned.length + i)}
                         </div>
                         {isSelected && (
-                          <span className="absolute -top-0.5 -right-0.5 size-3 rounded-full bg-primary ring-2 ring-background" />
+                          <span className="absolute -top-1 -right-1 size-3 rounded-full bg-primary ring-2 ring-background" />
                         )}
                       </div>
                     );

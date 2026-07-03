@@ -83,7 +83,7 @@ export function CalendarDatePicker({
       <PopoverTrigger
         aria-label={ariaLabel}
         className={cn(
-          "flex h-7 items-center gap-1.5 rounded-md border border-input bg-transparent px-2 text-xs outline-none transition-colors",
+          "flex h-7 items-center gap-2 rounded-md border border-input bg-transparent px-2 text-xs outline-none transition-colors",
           "hover:bg-accent hover:text-foreground",
           "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
           value ? "text-foreground" : "text-muted-foreground",
@@ -133,7 +133,7 @@ export function CalendarDatePicker({
           ))}
         </div>
 
-        <div className="grid grid-cols-7 gap-0.5">
+        <div className="grid grid-cols-7 gap-1">
           {cells.map((cell, i) => {
             const isToday = sameDay(today, cell.date);
             const isSelected = value ? sameDay(value, cell.date) : false;

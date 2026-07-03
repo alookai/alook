@@ -86,7 +86,7 @@ export function ConnectMachineSteps({
           : "Run this in your terminal to link your machine."}
       </p>
       {generatingToken ? (
-        <div className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground animate-pulse">
+        <div className="rounded-md bg-muted p-2 font-mono text-xs text-muted-foreground animate-pulse">
           Generating token...
         </div>
       ) : generatedToken ? (
@@ -111,7 +111,7 @@ export function ConnectMachineSteps({
                 <TooltipTrigger
                   render={
                     <div
-                      className="rounded-md bg-muted p-2.5 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors break-all"
+                      className="rounded-md bg-muted p-2 font-mono text-xs text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors break-all"
                       onClick={copyRegister}
                     />
                   }

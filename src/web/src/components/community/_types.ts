@@ -17,7 +17,6 @@ import type { ChannelType, CommunityRole } from "@alook/shared"
 export type Presence = "online" | "offline"
 
 export type RightPanel = "members" | "pinned" | "search" | "threads" | null
-export type Breakpoint = "desktop" | "mobile"
 export type MobileZone = "nav" | "messages"
 export type View = "server" | "dm" | "settings"
 export type SettingsSection =

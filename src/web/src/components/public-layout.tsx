@@ -34,11 +34,11 @@ export function PublicLayout({
   return (
     <div className="min-h-dvh flex flex-col bg-background text-foreground">
       <nav className="sticky top-0 z-50 bg-background/90 backdrop-blur-sm border-b border-border/40">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-2.5">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-2">
           {leftSlot ? (
-            <div className="flex items-center gap-1.5">{leftSlot}</div>
+            <div className="flex items-center gap-2">{leftSlot}</div>
           ) : (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <Link href="/" className="flex items-center gap-1">
                 <Image src="/alook.svg" alt="Alook" width={22} height={22} />
                 <span
@@ -80,7 +80,7 @@ export function PublicLayout({
 
       {footer === "rich" && (
         <footer className="border-t border-border px-6 py-12">
-          <div className={`mx-auto flex ${maxWClass} flex-col items-center justify-between gap-6 md:flex-row`}>
+          <div className={`mx-auto flex ${maxWClass} flex-col items-center justify-between gap-6 sm:flex-row`}>
             <div className="flex items-center gap-4">
               <Link href="/" className="flex items-center gap-1">
                 <Image src="/alook.svg" alt="Alook" width={20} height={20} />

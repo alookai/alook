@@ -17,7 +17,7 @@ export function DemoWindow({
         className,
       )}
     >
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border/40 bg-muted/30 shrink-0">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border/40 bg-muted/30 shrink-0">
         <span className="size-2.5 rounded-full bg-red-400/80" />
         <span className="size-2.5 rounded-full bg-yellow-400/80" />
         <span className="size-2.5 rounded-full bg-green-400/80" />

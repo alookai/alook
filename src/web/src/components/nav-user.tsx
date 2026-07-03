@@ -52,7 +52,7 @@ export function NavUser() {
       >
         <DropdownMenuGroup>
           <DropdownMenuLabel className="p-0 font-normal">
-            <div className="flex items-center gap-2 px-2 py-1.5 text-left text-sm">
+            <div className="flex items-center gap-2 px-2 py-2 text-left text-sm">
               <div className="flex items-center justify-center size-7 rounded-full bg-primary text-primary-foreground text-xs font-medium shrink-0">
                 {firstLetter}
               </div>

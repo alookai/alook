@@ -63,7 +63,7 @@ export function ForumView({
 
       {/* filter bar — tag chips on the left, forum actions on the right.
           Manage mode swaps the chips for delete/add-tag controls. */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-2.5">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           {!managing && (
             <Badge variant={tag === "All" ? "default" : "secondary"} className="shrink-0 cursor-pointer" render={<button onClick={() => setTag("All")} />}>All</Badge>
@@ -107,14 +107,14 @@ export function ForumView({
               aria-label="Manage tags"
               className={`text-muted-foreground hover:text-foreground ${managing ? "bg-accent text-foreground" : ""}`}
             >
-              <Tags className="size-4.5" />
+              <Tags className="size-4" />
             </Button>
           )}
           <Button size="sm" onClick={() => setComposing(true)}><Plus className="size-4" /> New Post</Button>
         </div>
       </div>
 
-      <main className="flex-1 overflow-y-auto thin-scrollbar p-5">
+      <main className="flex-1 overflow-y-auto thin-scrollbar p-4">
         {loading && posts.length === 0 ? (
           <ForumListSkeleton />
         ) : filtered.length === 0 ? (
@@ -125,7 +125,7 @@ export function ForumView({
               <button
                 key={p.id}
                 onClick={() => onOpenPost(p.id)}
-                className="flex flex-col gap-2.5 rounded-lg border border-border bg-card p-5 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
+                className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
               >
                 <div className="flex items-center gap-2">
                   <Avatar label={p.authorAvatar} size={24} />
@@ -159,13 +159,13 @@ function ForumListSkeleton() {
   return (
     <div className="flex flex-col gap-3">
       {Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="flex flex-col gap-2.5 rounded-lg border border-border bg-card p-5">
+        <div key={i} className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
           <div className="flex items-center gap-2">
             <Skeleton className="size-6 shrink-0 rounded-full" />
             <Skeleton className="h-3 w-40 rounded" />
           </div>
           <Skeleton className="h-4 w-2/3 rounded" />
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Skeleton className="h-3 w-full rounded" />
             <Skeleton className="h-3 w-5/6 rounded" />
           </div>
@@ -187,19 +187,19 @@ function ForumListSkeleton() {
 export function ForumViewSkeleton() {
   return (
     <>
-      <div className="flex shrink-0 items-center gap-2 border-b border-border px-5 py-2.5">
+      <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <Skeleton className="h-5 w-10 rounded-4xl" />
-          <Skeleton className="h-5 w-16 rounded-4xl" />
-          <Skeleton className="h-5 w-14 rounded-4xl" />
-          <Skeleton className="h-5 w-20 rounded-4xl" />
+          <Skeleton className="h-5 w-10 rounded-full" />
+          <Skeleton className="h-5 w-16 rounded-full" />
+          <Skeleton className="h-5 w-14 rounded-full" />
+          <Skeleton className="h-5 w-20 rounded-full" />
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <Skeleton className="size-7 rounded-md" />
           <Skeleton className="h-8 w-25 rounded-md" />
         </div>
       </div>
-      <main className="flex-1 overflow-y-auto thin-scrollbar p-5">
+      <main className="flex-1 overflow-y-auto thin-scrollbar p-4">
         <ForumListSkeleton />
       </main>
     </>

@@ -64,7 +64,7 @@ export function InviteAcceptClient({ token }: { token: string }) {
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-(--e2)">
           <Skeleton className="mx-auto size-20 rounded-full" />
-          <Skeleton className="mx-auto mt-5 h-3 w-32 rounded" />
+          <Skeleton className="mx-auto mt-4 h-3 w-32 rounded" />
           <Skeleton className="mx-auto mt-3 h-5 w-48 rounded" />
           <Skeleton className="mx-auto mt-2 h-3 w-24 rounded" />
           <Skeleton className="mt-6 h-9 w-full rounded-md" />

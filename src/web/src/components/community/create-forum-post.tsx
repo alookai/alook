@@ -51,7 +51,7 @@ export function CreateForumPost({ tags, onCancel, onPost }: {
 
       {/* tag chips */}
       {tags.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
+        <div className="flex flex-wrap items-center gap-2 px-3 pb-2">
           {tags.map((t) => (
             <Badge
               key={t}

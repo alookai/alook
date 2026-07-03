@@ -28,7 +28,7 @@ export function MessageCluster({
       <div className={cn(GUTTER_W, "shrink-0")} aria-hidden={!isClusterHead}>
         {isClusterHead && avatar}
       </div>
-      <div className="min-w-0 max-w-[86%] flex flex-col items-start gap-0.5">
+      <div className="min-w-0 max-w-[86%] flex flex-col items-start gap-1">
         {isClusterHead && (
           <span className="text-[0.85rem] font-semibold text-foreground leading-[1.15] pt-0.5 mb-1">
             {name}

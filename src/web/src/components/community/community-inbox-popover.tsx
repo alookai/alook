@@ -42,20 +42,20 @@ function ForYouTab({ events, loading, onOpenEvent, onDismissEvent }: {
               <Avatar label={e.authorAvatar || "?"} size={36} />
             )}
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 <KindIcon kind={e.kind} />
                 <div className="truncate text-sm">{kindLabel(e)}</div>
               </div>
               <div className="truncate text-xs text-muted-foreground">
                 in <span className="font-medium">{e.serverName}</span> · #{e.channelName}
               </div>
-              {e.preview && <div className="mt-0.5 truncate text-sm text-muted-foreground">{e.preview}</div>}
-              <div className="mt-0.5 text-xs text-muted-foreground" suppressHydrationWarning>{formatRelativeTime(e.createdAt)}</div>
+              {e.preview && <div className="mt-1 truncate text-sm text-muted-foreground">{e.preview}</div>}
+              <div className="mt-1 text-xs text-muted-foreground" suppressHydrationWarning>{formatRelativeTime(e.createdAt)}</div>
             </div>
           </button>
           {onDismissEvent && (
             <DropdownMenu>
-              <DropdownMenuTrigger render={<button className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
+              <DropdownMenuTrigger render={<button className="mt-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
                 <MoreHorizontal className="size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" sideOffset={4} className="w-36">
@@ -88,7 +88,7 @@ function UnreadsTab({ servers, loading, onOpenChannel }: {
             <button
               key={c.channelId}
               onClick={() => onOpenChannel?.(s.serverId, c.channelId)}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
             >
               <Hash className="size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1 truncate">{c.channelName}</span>
@@ -128,7 +128,7 @@ function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention }: {
           </button>
           {onDeleteMention && (
             <DropdownMenu>
-              <DropdownMenuTrigger render={<button className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
+              <DropdownMenuTrigger render={<button className="mt-1 grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100" aria-label="More" />}>
                 <MoreHorizontal className="size-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" sideOffset={4} className="w-36">
@@ -186,19 +186,19 @@ export function InboxPopover({
       </div>
       <TabsList variant="line" className="mt-3 w-full border-b border-border px-3">
         <TabsTrigger value="foryou">
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-2">
             For You
             {forYou.length > 0 && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
         </TabsTrigger>
         <TabsTrigger value="unreads">
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-2">
             Unreads
             {unreads.length > 0 && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
         </TabsTrigger>
         <TabsTrigger value="mentions">
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-2">
             Mentions
             {mentions.length > 0 && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
@@ -227,7 +227,7 @@ function InboxRowsSkeleton() {
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="flex items-start gap-3 rounded-md p-2">
           <Skeleton className="size-9 shrink-0 rounded-full" />
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton className="h-3.5 w-2/5 rounded" />
             <Skeleton className="h-3 w-3/4 rounded" />
             <Skeleton className="h-3 w-1/4 rounded" />
@@ -248,7 +248,7 @@ function InboxUnreadsSkeleton() {
             <Skeleton className="h-3 w-24 rounded" />
           </div>
           {Array.from({ length: 3 }).map((_, ri) => (
-            <div key={ri} className="flex items-center gap-2 rounded-md px-2 py-1.5">
+            <div key={ri} className="flex items-center gap-2 rounded-md px-2 py-2">
               <Skeleton className="size-4 shrink-0 rounded" />
               <Skeleton className="h-3.5 flex-1 rounded" style={{ maxWidth: 140 + ((ri * 23) % 60) }} />
             </div>

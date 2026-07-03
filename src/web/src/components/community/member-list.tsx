@@ -157,7 +157,7 @@ export function MemberList({
           </div>
         )}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">
-          <div className="px-4 py-5">
+          <div className="px-4 py-4">
             <div
               style={{ height: rowVirtualizer.getTotalSize(), position: "relative", width: "100%" }}
             >
@@ -276,9 +276,9 @@ function MemberListSkeleton() {
   ]
   return (
     <aside className="flex h-full flex-col overflow-hidden bg-background">
-      <div className="px-4 py-5">
+      <div className="px-4 py-4">
         {groups.map((g, i) => (
-          <div key={i} className="mb-5">
+          <div key={i} className="mb-4">
             <Skeleton className="mb-2 ml-1 h-3 rounded" style={{ width: g.width }} />
             <div className="space-y-1">
               {Array.from({ length: g.rows }).map((_, j) => (

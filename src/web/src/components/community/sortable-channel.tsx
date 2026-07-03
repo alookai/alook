@@ -46,9 +46,9 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
       {showLine && <DropLine side={lineSide} />}
       <span className="grid size-5 shrink-0 place-items-center opacity-70">
         {ch.type === "forum" ? (
-          <ListChevronsUpDown className="size-4.5" />
+          <ListChevronsUpDown className="size-4" />
         ) : (
-          <ChannelIcon className="h-4.5" />
+          <ChannelIcon className="size-4" />
         )}
       </span>
       <span className="truncate font-semibold">{ch.name}</span>
@@ -64,7 +64,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
       <ContextMenu>
         <ContextMenuTrigger render={row} />
         <ContextMenuContent className="w-48">
-          <div className="truncate px-2 py-1.5 text-xs font-semibold text-muted-foreground">/{ch.name}</div>
+          <div className="truncate px-2 py-2 text-xs font-semibold text-muted-foreground">/{ch.name}</div>
           {onEdit && <ContextMenuItem onClick={onEdit}><Pencil className="size-4" /> Edit channel</ContextMenuItem>}
           {onDelete && (
             <>

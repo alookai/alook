@@ -177,12 +177,12 @@ export default function AgentMeetingsPage() {
               <div
                 key={meeting.id}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg border border-border/50 px-3 py-2.5 transition-colors",
+                  "flex items-center gap-3 rounded-lg border border-border/50 px-3 py-2 transition-colors",
                   meeting.status === "pending" && !meeting.is_whitelisted && "opacity-60",
                 )}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
+                  <div className="flex items-center gap-2 mb-1">
                     <span className="text-sm font-medium truncate">
                       {meeting.title || "Untitled Meeting"}
                     </span>

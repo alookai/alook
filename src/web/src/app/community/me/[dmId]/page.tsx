@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams } from "next/navigation"
 import { toast } from "sonner"
 import { useCommunity } from "@/contexts/community/context"
-import { useBreakpoint } from "@/components/community/use-breakpoint"
+import { useBreakpoint } from "@/hooks/use-mobile"
 import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
 import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
@@ -129,7 +129,7 @@ function DmView() {
           resolveUserName={resolveUserName}
           hero={
             <>
-              <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={68} /></div>
+              <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={64} /></div>
               <h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2>
               <p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p>
             </>

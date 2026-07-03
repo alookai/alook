@@ -103,7 +103,7 @@ export function CalendarAgenda({
           today.getMonth() === g.day.getMonth() &&
           today.getDate() === g.day.getDate();
         return (
-          <div key={dateKey(g.day)} className="flex flex-col gap-1.5">
+          <div key={dateKey(g.day)} className="flex flex-col gap-2">
             <h3
               className={cn(
                 "sticky top-0 z-10 py-1 text-[11px] font-medium text-muted-foreground",
@@ -112,7 +112,7 @@ export function CalendarAgenda({
             >
               {formatDay(g.day)}
               {isToday && (
-                <span className="ml-2 rounded-full bg-foreground text-background px-1.5 py-0.5 text-[10px]">
+                <span className="ml-2 rounded-full bg-foreground text-background px-2 py-1 text-[10px]">
                   Today
                 </span>
               )}
@@ -130,7 +130,7 @@ export function CalendarAgenda({
                     </span>
                     <span
                       className={cn(
-                        "shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium",
+                        "shrink-0 rounded-sm px-2 py-1 text-[10px] font-medium",
                         agentColor(ev.agent_id)
                       )}
                     >
@@ -143,7 +143,7 @@ export function CalendarAgenda({
                       </span>
                     )}
                     {ev.collapsed_count != null && ev.collapsed_count > 1 && (
-                      <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      <span className="shrink-0 rounded-full bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
                         &times; {ev.collapsed_count} today
                       </span>
                     )}

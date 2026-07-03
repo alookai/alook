@@ -43,7 +43,7 @@ export function MessageBubble({
   return (
     <div
       className={cn(
-        "px-3 py-1.5 text-base",
+        "px-3 py-2 text-base",
         radius,
         colors,
         className,

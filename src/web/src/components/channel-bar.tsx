@@ -79,7 +79,7 @@ export function ChannelBar() {
 
   if (loading) {
     return (
-      <div className="h-8 flex items-center gap-1.5 px-2 mb-1 shrink-0">
+      <div className="h-8 flex items-center gap-2 px-2 mb-1 shrink-0">
         <div className="h-5 w-14 rounded-md bg-muted animate-pulse" />
         <div className="h-5 w-12 rounded-md bg-muted animate-pulse" />
         <div className="h-5 w-16 rounded-md bg-muted animate-pulse" />
@@ -88,7 +88,7 @@ export function ChannelBar() {
   }
 
   return (
-    <div className="h-8 flex items-center gap-1.5 px-4 md:px-5 mb-1 min-w-0 overflow-x-auto thin-scrollbar shrink-0">
+    <div className="h-8 flex items-center gap-2 px-4 mb-1 min-w-0 overflow-x-auto thin-scrollbar shrink-0">
       {defaultChannel && (
         <ChannelPill
           id={defaultChannel.id}
@@ -265,7 +265,7 @@ function ChannelPill({
   const isDefault = name === "default";
 
   const pillClasses = cn(
-    "h-5 px-1.5 rounded-md text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer select-none transition-colors duration-200 shrink-0",
+    "h-5 px-2 rounded-md text-[11px] font-medium inline-flex items-center gap-1 cursor-pointer select-none transition-colors duration-200 shrink-0",
     "active:translate-y-px focus-visible:ring-2 focus-visible:ring-ring/50 outline-none",
     active
       ? "bg-secondary text-foreground shadow-sm ring-1 ring-foreground/5"
@@ -372,7 +372,7 @@ function CreateInput({
         onBlur={() => { if (!savedRef.current) onCancel(); }}
         disabled={loading}
         placeholder="name..."
-        className="h-5 w-24 px-1.5 rounded-md text-[11px] bg-transparent border border-input focus:border-ring focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground/50 outline-none shrink-0 disabled:opacity-50"
+        className="h-5 w-24 px-2 rounded-md text-[11px] bg-transparent border border-input focus:border-ring focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground/50 outline-none shrink-0 disabled:opacity-50"
       />
       {loading && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
     </span>
@@ -425,7 +425,7 @@ function RenameInput({
       }}
       onBlur={() => { if (readyRef.current && !savedRef.current) onCancel(); }}
       disabled={loading}
-      className="h-5 w-24 px-1.5 rounded-md text-[11px] bg-transparent border border-input focus:border-ring focus:ring-2 focus:ring-ring/50 outline-none shrink-0 disabled:opacity-50"
+      className="h-5 w-24 px-2 rounded-md text-[11px] bg-transparent border border-input focus:border-ring focus:ring-2 focus:ring-ring/50 outline-none shrink-0 disabled:opacity-50"
     />
   );
 }

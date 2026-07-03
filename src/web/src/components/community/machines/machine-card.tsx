@@ -42,7 +42,7 @@ export function MachineCard({
               </span>
               <span
                 className={[
-                  "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-medium",
+                  "inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium",
                   isOnline
                     ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                     : "bg-muted text-muted-foreground",

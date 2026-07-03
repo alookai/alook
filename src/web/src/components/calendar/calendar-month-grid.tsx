@@ -158,7 +158,7 @@ export function CalendarMonthGrid({
               size="sm"
               onClick={onJumpToToday}
               disabled={todayDisabled}
-              className="h-7 px-2.5 text-xs"
+              className="h-7 px-2 text-xs"
             >
               Today
             </Button>
@@ -268,7 +268,7 @@ export function CalendarMonthGrid({
                             onSelectEvent(ev);
                           }
                         }}
-                        className="flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-[9px] sm:text-[10px] font-medium text-foreground/85 hover:bg-accent/60 transition-colors cursor-pointer"
+                        className="flex items-center gap-2 rounded-sm px-1 py-1 text-[9px] sm:text-[10px] font-medium text-foreground/85 hover:bg-accent/60 transition-colors cursor-pointer"
                         title={`${isRecurring ? "Recurring · " : ""}${ev.title}${
                           agentNameById.get(ev.agent_id)
                             ? ` — ${agentNameById.get(ev.agent_id)}`

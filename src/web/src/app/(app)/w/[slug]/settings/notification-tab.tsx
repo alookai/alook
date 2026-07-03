@@ -71,7 +71,7 @@ export function NotificationTab() {
         <h2 className="text-sm font-medium">Browser Notifications</h2>
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               <p className="text-sm">Enable notifications</p>
               <p className="text-xs text-muted-foreground">
                 Get notified when tasks finish while the tab is in the background

@@ -55,14 +55,14 @@ export function AgentPreviewCard({
           );
         })()}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <p className="text-sm font-medium truncate max-w-35">{agent.name}</p>
             {email && (
               <span className="text-xs text-muted-foreground truncate">{email}</span>
             )}
           </div>
           {isOnline !== undefined && (
-            <div className="pointer-events-none mt-0.5">
+            <div className="pointer-events-none mt-1">
               <AgentStatusBadge
                 isOnline={isOnline}
                 taskCount={activeTaskCount ?? 0}
@@ -76,8 +76,8 @@ export function AgentPreviewCard({
   }
 
   return (
-    <div className="flex flex-col gap-1.5 p-1">
-      <div className="flex items-center gap-1.5">
+    <div className="flex flex-col gap-2 p-1">
+      <div className="flex items-center gap-2">
         <p className="text-sm font-medium truncate">{agent.name}</p>
         <span className="flex-1" />
         {isOnline !== undefined && (
@@ -96,7 +96,7 @@ export function AgentPreviewCard({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); handleCopy(); }}
-            className="shrink-0 p-0.5 rounded-sm text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
+            className="shrink-0 p-1 rounded-sm text-muted-foreground/60 hover:text-foreground transition-colors cursor-pointer"
           >
             {copied ? (
               <Check className="size-3 text-green-500" />

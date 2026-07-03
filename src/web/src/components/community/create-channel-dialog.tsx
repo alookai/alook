@@ -36,14 +36,14 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="w-105 max-w-[calc(100vw-2rem)] p-0">
-        <DialogHeader className="border-b border-border px-5 py-4">
+        <DialogHeader className="border-b border-border px-4 py-4">
           <DialogTitle>{editing ? "Edit Channel" : "Create Channel"}</DialogTitle>
           <p className="text-sm text-muted-foreground">{category ? `in ${category}` : "top level"}</p>
         </DialogHeader>
-        <div className="space-y-4 px-5 pb-5">
+        <div className="space-y-4 px-4 pb-5">
           {!editing && (
           <div>
-            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channel Type</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channel Type</div>
             <div className="space-y-2">
               {options.map((o) => (
                 <button
@@ -68,7 +68,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
           </div>
           )}
           <label className="block">
-            <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channel Name</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Channel Name</div>
             <div className="relative">
               {type === "forum"
                 ? <ListChevronsUpDown className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -83,7 +83,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
             </div>
           </label>
         </div>
-        <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-5 py-3">
+        <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-4 py-3">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" onClick={submit} disabled={!name.trim()}>{editing ? "Save" : "Create Channel"}</Button>
         </DialogFooter>

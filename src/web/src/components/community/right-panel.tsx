@@ -76,7 +76,7 @@ export function RightPanelContent({
                 {m.authorAvatar ?? m.authorName?.charAt(0) ?? "?"}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-1.5">
+                <div className="flex items-baseline gap-2">
                   <span className="text-sm font-medium">{m.authorName}</span>
                   {m.createdAt && <span className="text-xs text-muted-foreground">{formatRelativeTime(m.createdAt)}</span>}
                 </div>
@@ -103,13 +103,13 @@ export function RightPanelContent({
             onClick={() => onOpenThread(t.id)}
             className="flex w-full items-start gap-3 rounded-md border border-border bg-card p-3 text-left hover:bg-accent"
           >
-            <MessagesSquare className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <MessagesSquare className="mt-1 size-4 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">{t.name}</div>
               <div className="truncate text-xs text-muted-foreground">
                 <span className="font-medium text-foreground/80">{t.parent.authorName}</span> {t.parent.text}
               </div>
-              <div className="mt-0.5 text-xs text-muted-foreground" suppressHydrationWarning>{t.messageCount} messages · {formatRelativeTime(t.lastMessageAt)}</div>
+              <div className="mt-1 text-xs text-muted-foreground" suppressHydrationWarning>{t.messageCount} messages · {formatRelativeTime(t.lastMessageAt)}</div>
             </div>
           </button>
         ))}
@@ -124,12 +124,12 @@ export function RightPanelContent({
 // real row heights so the panel body doesn't reflow when data lands.
 function PinnedListSkeleton() {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {Array.from({ length: 3 }).map((_, i) => (
         <div key={i} className="flex gap-2 rounded-md px-2 py-2">
           <Skeleton className="size-6 shrink-0 rounded-full" />
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <div className="flex items-baseline gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div className="flex items-baseline gap-2">
               <Skeleton className="h-3 w-20 rounded" />
               <Skeleton className="h-3 w-10 rounded" />
             </div>
@@ -146,8 +146,8 @@ function ThreadListSkeleton() {
     <div className="space-y-2">
       {Array.from({ length: 3 }).map((_, i) => (
         <div key={i} className="flex items-start gap-3 rounded-md border border-border bg-card p-3">
-          <Skeleton className="mt-0.5 size-4 shrink-0 rounded" />
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <Skeleton className="mt-1 size-4 shrink-0 rounded" />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
             <Skeleton className="h-3.5 w-3/5 rounded" />
             <Skeleton className="h-3 w-11/12 rounded" />
             <Skeleton className="h-3 w-2/5 rounded" />
@@ -167,7 +167,7 @@ function SearchPanel({ searchResults, initialQuery, showSearchInput, onOpenProfi
     <PanelShell icon={Search} title="Search">
       {showSearchInput && (
         <div className="relative mb-3">
-          <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="h-9 pl-8"
             placeholder="Search messages"

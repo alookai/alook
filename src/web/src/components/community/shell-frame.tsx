@@ -8,7 +8,7 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { AppSurface } from "@/components/ui/app-surface"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useCommunity } from "@/contexts/community/context"
-import { useBreakpoint } from "./use-breakpoint"
+import { useBreakpoint } from "@/hooks/use-mobile"
 import { Shell } from "./shell"
 import { ServerRail } from "./server-rail"
 import { UserBar } from "./user-bar"

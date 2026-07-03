@@ -109,10 +109,10 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
       {!noHeader && (
-        <header className="flex h-12 items-center border-b border-border/40 px-2.5">
+        <header className="flex h-12 items-center border-b border-border/40 px-2">
           {serverName && onOpenSettings ? (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+              <DropdownMenuTrigger className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                 <span className="truncate text-lg font-semibold">{serverName}</span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
@@ -132,14 +132,14 @@ export const ChannelSidebar = memo(function ChannelSidebar({
       {/* right-click anywhere in the list (incl. empty space) → create channel / category */}
       <ContextMenu>
         <ContextMenuTrigger
-          render={<div className="flex-1 overflow-y-auto thin-scrollbar px-2.5 py-4" />}
+          render={<div className="flex-1 overflow-y-auto thin-scrollbar px-2 py-4" />}
         >
           {/* one DndContext spans everything: categories sort among themselves, channels across categories */}
           <DndContext id="d-channels" sensors={sensors} collisionDetection={closestCenter} onDragOver={onDragOver} onDragEnd={onDragEnd}>
             {/* uncategorized channels (empty-name category) render bare at the top — no header */}
             {noneCatId && order[noneCatId]?.length > 0 && (
               <SortableContext items={order[noneCatId].map((c) => c.id)} strategy={verticalListSortingStrategy}>
-                <div className="mb-5 space-y-0.5">
+                <div className="mb-4 space-y-1">
                   {order[noneCatId].map((ch) => (
                     <SortableChannel
                       key={ch.id}
@@ -167,7 +167,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
                   isPrivate={catPrivate[id]}
                 >
                   <SortableContext items={(order[id] ?? []).map((c) => c.id)} strategy={verticalListSortingStrategy}>
-                    <div className="mt-1 min-h-2 space-y-0.5">
+                    <div className="mt-1 min-h-2 space-y-1">
                       {(order[id] ?? []).map((ch) => (
                         <SortableChannel
                           key={ch.id}
@@ -232,17 +232,17 @@ function ChannelSidebarSkeleton({ noHeader }: { noHeader?: boolean }) {
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
       {!noHeader && (
-        <header className="flex h-12 items-center border-b border-border/40 px-2.5">
+        <header className="flex h-12 items-center border-b border-border/40 px-2">
           <Skeleton className="h-5 w-32 rounded" />
         </header>
       )}
-      <div className="flex-1 overflow-hidden px-2.5 py-4">
-        <div className="mb-5 space-y-1">
+      <div className="flex-1 overflow-hidden px-2 py-4">
+        <div className="mb-4 space-y-1">
           <Skeleton className="h-7 w-full rounded-md" />
           <Skeleton className="h-7 w-11/12 rounded-md" />
         </div>
         {[40, 32].map((w, i) => (
-          <div key={i} className="mb-5">
+          <div key={i} className="mb-4">
             <div className="mb-2 flex items-center gap-1 px-1">
               <Skeleton className="h-3 rounded" style={{ width: w }} />
             </div>

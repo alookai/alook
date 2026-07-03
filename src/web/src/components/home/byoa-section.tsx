@@ -32,7 +32,7 @@ function AgentCard({ agent }: { agent: Agent }) {
       className="byoa-card crt-panel-outer"
       style={{ opacity: dimmed ? 0.55 : 1 }}
     >
-      <div className="crt-panel-inner px-5 py-4">
+      <div className="crt-panel-inner px-4 py-4">
           <div className="flex items-center gap-3">
             <div
               className="flex shrink-0 items-center justify-center rounded"
@@ -78,7 +78,7 @@ function AgentCard({ agent }: { agent: Agent }) {
                 )}
               </div>
               <div
-                className="mt-0.5 text-[11px] leading-relaxed"
+                className="mt-1 text-[11px] leading-relaxed"
                 style={{
                   fontFamily: "var(--font-crt)",
                   color: "var(--landing-phosphor)",

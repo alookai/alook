@@ -108,7 +108,7 @@ function TraceRow({ trace, slug }: { trace: TraceListItem; slug: string }) {
               <TooltipContent>{new Date(trace.started_at).toLocaleString()}</TooltipContent>
             </Tooltip>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             {trace.root_agent?.name && (
               <>
                 <span className="text-xs font-medium text-muted-foreground">{trace.root_agent.name}</span>
@@ -152,7 +152,7 @@ function SkeletonRow({ promptWidth }: { promptWidth: string }) {
         <Skeleton className="h-3.5 rounded" style={{ width: promptWidth }} />
         <Skeleton className="h-2.5 w-10 rounded shrink-0 ml-auto" />
       </div>
-      <div className="flex items-center gap-1.5 mt-1 ml-5.5">
+      <div className="flex items-center gap-2 mt-1 ml-6">
         <Skeleton className="h-2.5 w-20 rounded-full" />
         <Skeleton className="h-2.5 w-8 rounded" />
       </div>
@@ -272,10 +272,10 @@ export default function TracesPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5 gap-3">
+      <div className="flex items-center justify-between border-b border-border/50 px-3 sm:px-4 py-2 gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <h1 className="text-sm font-medium">Traces</h1>
-          <p className="text-xs text-muted-foreground hidden md:block">
+          <p className="text-xs text-muted-foreground hidden sm:block">
             Execution traces across your agents.
           </p>
         </div>
@@ -320,7 +320,7 @@ export default function TracesPage() {
             <SelectItem value="">Agent: All</SelectItem>
             {agents.map((a) => (
               <SelectItem key={a.id} value={a.id}>
-                <span className="flex items-center gap-1.5">
+                <span className="flex items-center gap-2">
                   <AgentAvatar name={a.name} avatarUrl={a.avatar_url} />
                   {a.name}
                 </span>

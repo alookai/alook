@@ -39,7 +39,7 @@ export function RuntimeErrorBlock({
   return (
     <div className="rounded-md border border-destructive/30 bg-destructive/5 p-2 max-w-full overflow-hidden">
       <div className="flex items-center gap-2">
-        <p className="flex items-center gap-1.5 text-sm font-semibold text-destructive min-w-0">
+        <p className="flex items-center gap-2 text-sm font-semibold text-destructive min-w-0">
           <AlertCircle className="size-3.5 shrink-0" />
           <span>Error from {runtimeDisplayName(provider)}</span>
         </p>
@@ -55,8 +55,8 @@ export function RuntimeErrorBlock({
           </button>
         )}
       </div>
-      <p className="mt-1.5 text-sm text-destructive/90 wrap-anywhere whitespace-pre-wrap">{message}</p>
-      <p className="mt-1.5 text-xs text-muted-foreground">
+      <p className="mt-2 text-sm text-destructive/90 wrap-anywhere whitespace-pre-wrap">{message}</p>
+      <p className="mt-2 text-xs text-muted-foreground">
         This came from the agent runtime on your machine, not from Alook.
       </p>
     </div>

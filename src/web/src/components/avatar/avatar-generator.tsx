@@ -79,7 +79,7 @@ function Cycler<K extends string>({
         <button
           type="button"
           onClick={() => go(1)}
-          className="border-2 border-primary rounded-lg p-0.5"
+          className="border-2 border-primary rounded-lg p-1"
         >
           {renderThumb(value)}
         </button>
@@ -203,7 +203,7 @@ export function AvatarGenerator({ config, onChange, layout = "vertical", mobile 
       <button
         type="button"
         onClick={() => onChange(randomConfig())}
-        className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background hover:bg-foreground/80 transition-colors"
+        className="inline-flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/80 transition-colors"
       >
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <rect x="2" y="2" width="20" height="20" rx="3" />

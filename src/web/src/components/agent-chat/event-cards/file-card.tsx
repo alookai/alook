@@ -35,8 +35,8 @@ export function FileCard({
       disabled={!onClick}
       className="card-grain w-104 max-w-full overflow-hidden rounded-(--radius) border border-(--border) bg-(--paper) text-left grid grid-cols-[44px_1fr] cursor-pointer [transition:translate_.2s_cubic-bezier(.2,.8,.2,1),box-shadow_.2s_ease] hover:-translate-y-0.5 [box-shadow:var(--e1)] hover:[box-shadow:var(--e2)]"
     >
-      <span className="flex flex-col items-center justify-center border-r border-(--border) bg-[oklch(from_var(--tf)_l_c_h/0.08)] gap-0.5 p-2">
-        <span className="flex flex-col gap-0.5 w-4.5">
+      <span className="flex flex-col items-center justify-center border-r border-(--border) bg-[oklch(from_var(--tf)_l_c_h/0.08)] gap-1 p-2">
+        <span className="flex flex-col gap-1 w-4.5">
           <i className="h-[1.5px] rounded-sm bg-(--tf) opacity-[0.28] w-full" />
           <i className="h-[1.5px] rounded-sm bg-(--tf) opacity-[0.28] w-[78%]" />
           <i className="h-[1.5px] rounded-sm bg-(--tf) opacity-[0.28] w-[55%]" />
@@ -45,13 +45,13 @@ export function FileCard({
           {ext}
         </span>
       </span>
-      <span className="p-3 min-w-0 flex flex-col justify-center gap-0.5">
-        <span className="flex items-center gap-1.5 min-w-0">
+      <span className="p-3 min-w-0 flex flex-col justify-center gap-1">
+        <span className="flex items-center gap-2 min-w-0">
           <span className="text-[0.9rem] font-semibold tracking-[-0.01em] truncate">
             {filename}
           </span>
           {hasDuplicates && version != null && (
-            <span className="shrink-0 text-xs text-(--muted-foreground) bg-(--muted) rounded-full px-1.5 py-0.5 font-normal">
+            <span className="shrink-0 text-xs text-(--muted-foreground) bg-(--muted) rounded-full px-2 py-1 font-normal">
               v{version}
             </span>
           )}
