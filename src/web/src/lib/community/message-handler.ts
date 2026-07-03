@@ -4,14 +4,13 @@ import {
   isMentionType,
   MAX_MESSAGE_CONTENT_LENGTH,
   MAX_ATTACHMENTS_PER_MESSAGE,
-  MESSAGE_PREVIEW_LENGTH,
   WS_EVENTS,
 } from "@alook/shared"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { fanOutToChannel, fanOutToDM } from "./fanout"
 import { broadcastToUser } from "../broadcast"
-import { avatarInitial } from "./avatar"
+import { mapMessageForWs } from "./message-payload"
 
 export type MessageTarget =
   | { kind: "channel"; channelId: string; serverId: string }
@@ -144,13 +143,11 @@ export async function createCommunityMessage(params: {
     throw new Error("message not found after insert")
   }
 
-  // Reply preview + reply mention target. Scope-check the target so a
-  // caller can't attach a preview of a message from a different DM/channel
-  // just by passing its id, and mirror the GET-side { deleted: true } shape
-  // so WS and refresh render identically when the target is missing.
-  let replyTo:
-    | { id: string; authorName: string; text: string; deleted?: boolean }
-    | undefined
+  // Reply target for mention broadcasts. Scope-check against the current
+  // target so a caller can't attach a preview of a message from a different
+  // DM/channel by passing its id. The payload-side reply preview is built
+  // from the same scope-checked map by `mapMessageForWs` below.
+  const replyMap = new Map<string, { id: string; authorName: string; content: string | null }>()
   const replyTargets = new Set<string>()
   if (row.replyToId) {
     // single-id path — see `dm/[id]/messages/route.ts` / `channels/[id]/messages/route.ts` for the batched N-id path
@@ -161,16 +158,14 @@ export async function createCommunityMessage(params: {
         : replyMsg.channelId === target.channelId
       : false
     if (replyMsg && inScope) {
-      replyTo = {
+      replyMap.set(replyMsg.id, {
         id: replyMsg.id,
         authorName: replyMsg.authorName,
-        text: (replyMsg.content ?? "").slice(0, MESSAGE_PREVIEW_LENGTH),
-      }
+        content: replyMsg.content,
+      })
       if (replyMsg.authorId && replyMsg.authorId !== authorId) {
         replyTargets.add(replyMsg.authorId)
       }
-    } else {
-      replyTo = { id: row.replyToId, authorName: "Unknown", text: "", deleted: true }
     }
   }
 
@@ -242,7 +237,16 @@ export async function createCommunityMessage(params: {
   }
 
   // Fan-out + per-kind side effects (DM peer ping, parent CHILD_CHANNEL_UPDATE).
-  const messagePayload = buildMessagePayload(row, attachments, replyTo, target.kind)
+  const messagePayload = mapMessageForWs(row, {
+    replyMap,
+    attachments: attachments.map((a) => ({
+      id: a.id,
+      filename: a.filename,
+      url: a.url,
+      contentType: a.contentType ?? undefined,
+      size: a.size ?? undefined,
+    })),
+  })
 
   if (target.kind === "dm") {
     fanOutToDM(
@@ -294,50 +298,4 @@ export async function createCommunityMessage(params: {
   }
 
   return { ok: true, row, attachments }
-}
-
-function buildMessagePayload(
-  row: FullMessageRow,
-  attachments: CreatedAttachment[],
-  replyTo: { id: string; authorName: string; text: string; deleted?: boolean } | undefined,
-  kind: MessageTarget["kind"],
-) {
-  const base = {
-    id: row.id,
-    authorId: row.authorId,
-    authorName: row.authorName,
-    authorAvatar: row.authorImage ?? avatarInitial(row.authorName),
-    content: row.content,
-    type: (row.type as "default" | "system" | "thread_created") ?? "default",
-    createdAt: row.createdAt,
-    attachments:
-      attachments.length > 0
-        ? attachments.map((att) => ({
-            id: att.id,
-            filename: att.filename,
-            url: att.url,
-            contentType: att.contentType ?? undefined,
-            size: att.size ?? undefined,
-          }))
-        : undefined,
-  }
-  if (kind === "dm") {
-    return {
-      ...base,
-      mentionType: row.mentionType as MentionType | null | undefined,
-      replyTo,
-      // Row.embeds is already parsed by the query layer (unknown). The WS
-      // schema expects unknown[] — narrow to array-or-undefined here rather
-      // than widen the schema.
-      embeds: Array.isArray(row.embeds) ? row.embeds : undefined,
-    }
-  }
-  // Both `channel` and `thread` (forum posts + inline threads) carry the same
-  // reply / mention semantics on the wire — WS listeners in a thread need
-  // replyTo so a reply renders as a reply immediately, not only after refetch.
-  return {
-    ...base,
-    mentionType: row.mentionType as MentionType | null,
-    replyTo,
-  }
 }

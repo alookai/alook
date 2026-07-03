@@ -2,11 +2,11 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, MESSAGE_PREVIEW_LENGTH } from "@alook/shared"
+import { queries } from "@alook/shared"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
 import { requireDMParticipant } from "@/lib/community/permissions"
 import { createCommunityMessage } from "@/lib/community/message-handler"
-import { avatarInitial } from "@/lib/community/avatar"
+import { mapMessageForApi } from "@/lib/community/message-payload"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id
@@ -54,27 +54,9 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       .map((m) => [m.id, m]),
   )
 
-  const messages = items.map((r) => {
-    const reply = r.replyToId ? replyMap.get(r.replyToId) : null
-    return {
-      id: r.id,
-      authorId: r.authorId,
-      authorName: r.authorName,
-      authorAvatar: r.authorImage ?? avatarInitial(r.authorName),
-      content: r.content,
-      type: r.type === "system" ? "system" as const : undefined,
-      mentionType: r.mentionType,
-      replyTo: reply
-        ? { id: reply.id, authorName: reply.authorName, text: (reply.content ?? "").slice(0, MESSAGE_PREVIEW_LENGTH) }
-        : r.replyToId
-          ? { id: r.replyToId, authorName: "Unknown", text: "", deleted: true }
-          : undefined,
-      createdAt: r.createdAt,
-      embeds: r.embeds,
-      attachments: attachmentsByMessage[r.id]?.length ? attachmentsByMessage[r.id] : undefined,
-      reactions: reactionsByMessage[r.id]?.length ? reactionsByMessage[r.id] : undefined,
-    }
-  })
+  const messages = items.map((r) =>
+    mapMessageForApi(r, { replyMap, attachmentsByMessage, reactionsByMessage }),
+  )
 
   return writeJSON({ messages: messages.reverse(), hasMore, cursor: nextCursor })
 })
