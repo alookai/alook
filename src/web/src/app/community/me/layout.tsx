@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
 import { usePathname, useRouter, useParams } from "next/navigation"
-import { useCommunity } from "@/contexts/community/context"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ShellFrame } from "@/components/community/shell-frame"
 import { DmSidebar } from "@/components/community/dm-sidebar"
 import type { MobileZone } from "@/components/community/_types"
+import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
+import { useDms } from "@/hooks/community/use-dms"
+import { useFriends } from "@/hooks/community/use-friends"
+import { useMarkDmRead } from "@/hooks/community/mutations"
+import { useOnlineUserIds } from "@/stores/community/ws"
 
 // DM-side layout. The DM subtree has no server settings, no channel sidebar,
 // and no `[serverId]` param — everything is scoped to the current user.
@@ -15,11 +19,28 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const bp = useBreakpoint()
   const pathname = usePathname()
   const params = useParams<{ dmId?: string }>()
-  const ctx = useCommunity()
+  const { dms: rawDms, isLoading: dmsLoading } = useDms()
+  const onlineUserIds = useOnlineUserIds()
+  const dms = useMemo(
+    () =>
+      rawDms.map((d) => ({
+        ...d,
+        status: onlineUserIds.has(d.userId)
+          ? ("online" as const)
+          : ("offline" as const),
+      })),
+    [rawDms, onlineUserIds],
+  )
+  const { blocked } = useFriends()
+  const currentChannelId = useCurrentChannelId()
+  const markDmRead = useMarkDmRead()
 
+  // Clear the active server when entering the DM home. `currentServerId ===
+  // null` is the canonical "no server focused" state — no need for a "@me"
+  // sentinel string.
   useEffect(() => {
-    ctx.setCurrentServerId("@me")
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    useCommunityStore.getState().setCurrentServerId(null)
+  }, [])
 
   const hasDm = !!params.dmId
   const machinesActive = pathname === "/community/me/machines"
@@ -28,22 +49,22 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const [mobileZone, setMobileZone] = useState<MobileZone>(() => (hasDm ? "messages" : "nav"))
 
   const enterDm = useCallback((id: string) => {
-    ctx.markDmRead(id)
+    markDmRead.mutate({ dmId: id })
     router.push(`/community/me/${id}`)
     if (bp === "mobile") setMobileZone("messages")
-  }, [ctx.markDmRead, router, bp])
+  }, [markDmRead, router, bp])
 
   const onShowFriends = useCallback(() => {
-    ctx.setCurrentChannelId(null)
+    useCommunityStore.getState().setCurrentChannelId(null)
     router.push("/community/me")
     if (bp === "mobile") setMobileZone("messages")
-  }, [ctx.setCurrentChannelId, router, bp])
+  }, [router, bp])
 
   const onShowMachines = useCallback(() => {
-    ctx.setCurrentChannelId(null)
+    useCommunityStore.getState().setCurrentChannelId(null)
     router.push("/community/me/machines")
     if (bp === "mobile") setMobileZone("messages")
-  }, [ctx.setCurrentChannelId, router, bp])
+  }, [router, bp])
 
   const goHome = useCallback(() => {
     setMobileZone("nav")
@@ -51,21 +72,24 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   }, [router])
   const goServer = useCallback(() => { setMobileZone("nav") }, [])
 
-  const blockedUserIds = useMemo(() => new Set(ctx.blocked.map((b) => b.userId ?? b.id)), [ctx.blocked])
+  const blockedUserIds = useMemo(
+    () => new Set(blocked.map((b) => b.userId ?? b.id)),
+    [blocked],
+  )
 
   const sidebar = useCallback(() => (
     <DmSidebar
-      dms={ctx.dms ?? []}
-      activeDm={ctx.currentChannelId}
+      dms={dms}
+      activeDm={currentChannelId}
       blockedUserIds={blockedUserIds}
-      loading={ctx.dmsLoading}
+      loading={dmsLoading}
       onPickDm={enterDm}
       onShowFriends={onShowFriends}
       onShowMachines={onShowMachines}
       friendsActive={friendsActive}
       machinesActive={machinesActive}
     />
-  ), [ctx.dms, ctx.currentChannelId, ctx.dmsLoading, blockedUserIds, enterDm, onShowFriends, onShowMachines, friendsActive, machinesActive])
+  ), [dms, currentChannelId, dmsLoading, blockedUserIds, enterDm, onShowFriends, onShowMachines, friendsActive, machinesActive])
 
   return (
     <ShellFrame

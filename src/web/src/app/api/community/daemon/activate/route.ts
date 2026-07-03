@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getCloudflareContext } from "@opennextjs/cloudflare"
 import {
   queries,
   createLogger,
@@ -10,6 +9,7 @@ import {
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { broadcastToUser } from "@/lib/broadcast"
+import { withCommunityPairingToken } from "@/lib/middleware/community-pairing-token"
 
 const log = createLogger({ service: "community/daemon/activate" })
 
@@ -21,15 +21,8 @@ const log = createLogger({ service: "community/daemon/activate" })
  * token so it can't be re-used. See plans/remove-community-mode.md
  * "Contract 1" for the wire spec.
  */
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  const authHeader = req.headers.get("Authorization")
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return NextResponse.json({ error: "missing Authorization header" }, { status: 401 })
-  }
-  const tokenId = authHeader.slice(7).trim()
-  if (!tokenId.startsWith("cmt_")) {
-    return NextResponse.json({ error: "invalid pairing token" }, { status: 401 })
-  }
+export const POST = withCommunityPairingToken(async (req, ctx) => {
+  const tokenId = ctx.rawTokenId
 
   let raw: unknown
   try {
@@ -45,9 +38,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     )
   }
 
-  const { env } = await getCloudflareContext({ async: true })
-  const cloudflareEnv = env as Env
-  const db = getDb(cloudflareEnv.DB)
+  const db = getDb(ctx.env.DB)
 
   try {
     // Map wire field `runtimeReport` → persisted `availableRuntimes` so the
@@ -106,4 +97,4 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     log.error("activate failed", { err: err instanceof Error ? err.message : String(err) })
     return NextResponse.json({ error: "activate failed" }, { status: 500 })
   }
-}
+})

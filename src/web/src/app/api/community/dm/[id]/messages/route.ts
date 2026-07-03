@@ -27,27 +27,29 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
 
+  // All three follow-up fetches depend only on `items` — no cross-dependency —
+  // so run them concurrently to collapse 3 sequential D1 round-trips into one
+  // wall-clock hop.
   const messageIds = items.map((m) => m.id)
-  const allAttachments = messageIds.length > 0
-    ? await queries.communityAttachment.listByMessageIds(db, messageIds)
-    : []
+  const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
+
+  const [allAttachments, allReactions, replyMessages] = await Promise.all([
+    messageIds.length > 0
+      ? queries.communityAttachment.listByMessageIds(db, messageIds)
+      : Promise.resolve([]),
+    messageIds.length > 0
+      ? queries.communityReaction.listReactionsByMessageIds(db, messageIds, ctx.userId)
+      : Promise.resolve([]),
+    replyToIds.length > 0
+      ? queries.communityMessage.getMessagesByIds(db, replyToIds)
+      : Promise.resolve([]),
+  ])
 
   const attachmentsByMessage = groupAttachments(allAttachments)
-
-  const allReactions = messageIds.length > 0
-    ? await queries.communityReaction.listReactionsByMessageIds(db, messageIds, ctx.userId)
-    : []
-
   const reactionsByMessage = groupReactions(allReactions, ctx.userId)
 
-  // Resolve replyTo references so the client can render the reply preview
-  // inline — same shape channels/threads produce. Scope-check the target
-  // against this DM so a client can't leak previews of messages from other
-  // DMs/channels just by referencing their id.
-  const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
-  const replyMessages = replyToIds.length > 0
-    ? await queries.communityMessage.getMessagesByIds(db, replyToIds)
-    : []
+  // Scope-check reply targets against this DM so a client can't leak previews
+  // of messages from other DMs/channels just by referencing their id.
   const replyMap = new Map(
     replyMessages
       .filter((m) => m.dmConversationId === dmId)

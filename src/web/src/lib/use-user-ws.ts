@@ -8,7 +8,18 @@ const WS_DO_PORT_DEFAULT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || 8789
 const WS_RECONNECT_INIT = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_DELAY_MS) || 1000
 const WS_RECONNECT_MAX = Number(process.env.NEXT_PUBLIC_WS_RECONNECT_MAX_DELAY_MS) || 30_000
 
-export function useUserWs(onMessage: (msg: WsMessage) => void, options?: { onReconnect?: () => void }): { send: (msg: object) => void } {
+/**
+ * Incoming WS message shape delivered to the `onMessage` handler.
+ *
+ * This is the intersection of the discriminated `WsMessage` union with an
+ * index signature — the union preserves narrowing (`switch (msg.type)` on
+ * concrete callers), while the index signature lets consumers that need to
+ * inspect fields dynamically (e.g. the community WS router that uses
+ * `isCommunityEvent`) accept the same value without an `as any` cast.
+ */
+export type WsMessageIncoming = WsMessage & { [key: string]: unknown }
+
+export function useUserWs(onMessage: (msg: WsMessageIncoming) => void, options?: { onReconnect?: () => void }): { send: (msg: object) => void } {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectDelay = useRef(WS_RECONNECT_INIT)
   const onMessageRef = useRef(onMessage)
@@ -102,7 +113,7 @@ export function useUserWs(onMessage: (msg: WsMessage) => void, options?: { onRec
           ws.send(JSON.stringify({ type: "check_daemon_status" }))
           return
         }
-        onMessageRef.current(msg as WsMessage)
+        onMessageRef.current(msg as WsMessageIncoming)
       } catch {}
     }
 

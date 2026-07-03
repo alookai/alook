@@ -248,6 +248,39 @@ export async function getMember(db: Database, serverId: string, userId: string) 
   return rows[0] ?? null;
 }
 
+// Scope-first single-member lookup. `WHERE id = ? AND server_id = ?` — cross
+// server memberIds never resolve, so callers don't need to post-check
+// ownership. Return shape mirrors `listMembers` (joined against `user` so
+// downstream broadcasts/audit calls have `userName` etc without a second
+// round-trip).
+export async function getMemberById(
+  db: Database,
+  memberId: string,
+  opts: { serverId: string }
+) {
+  const rows = await db
+    .select({
+      id: communityServerMember.id,
+      serverId: communityServerMember.serverId,
+      userId: communityServerMember.userId,
+      role: communityServerMember.role,
+      nickname: communityServerMember.nickname,
+      joinedAt: communityServerMember.joinedAt,
+      userName: user.name,
+      userEmail: user.email,
+      userImage: user.image,
+    })
+    .from(communityServerMember)
+    .innerJoin(user, eq(communityServerMember.userId, user.id))
+    .where(
+      and(
+        eq(communityServerMember.id, memberId),
+        eq(communityServerMember.serverId, opts.serverId)
+      )
+    );
+  return rows[0] ?? null;
+}
+
 export async function getMemberships(db: Database, userId: string, serverIds: string[]) {
   if (serverIds.length === 0) return [];
   return db

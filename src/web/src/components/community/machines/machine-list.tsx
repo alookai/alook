@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { toast } from "sonner"
 import { ChevronLeft, Monitor } from "lucide-react"
+import { useQueryClient } from "@tanstack/react-query"
 import type { CommunityMachineSummary } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,41 +19,41 @@ import {
 import { apiFetch } from "@/lib/api/client"
 import { MachineCard } from "./machine-card"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
-import { useCommunity } from "@/contexts/community/context"
+import { useMachines, type MachinesResponse } from "@/hooks/community/use-machines"
+import { useCommunityStore, usePendingMachineTokenId } from "@/stores/community"
+import { communityKeys } from "@/lib/query-keys"
 
 export function MachineList({ onBack }: { onBack?: () => void } = {}) {
-  const ctx = useCommunity()
+  const queryClient = useQueryClient()
+  const { machines, isLoading: machinesLoading } = useMachines()
+  const pendingMachineTokenId = usePendingMachineTokenId()
   const [pairOpen, setPairOpen] = useState(false)
   const [pairMode, setPairMode] = useState<PairMachineSheetMode>({ kind: "pair" })
   const [pendingTokenId, setPendingTokenId] = useState<string | null>(null)
   const [connectedHostname, setConnectedHostname] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<CommunityMachineSummary | null>(null)
 
-  useEffect(() => {
-    ctx.loadMachines()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
   // When the WS layer announces a machine for our pending token, flip the sheet.
   useEffect(() => {
     if (!pendingTokenId) return
-    const justConnected = ctx.machines.find(
+    const justConnected = machines.find(
       (m) =>
         m.lastSeenAt &&
         m.status === "online" &&
-        ctx.pendingMachineTokenId === pendingTokenId
+        pendingMachineTokenId === pendingTokenId
     )
     if (justConnected && !connectedHostname) {
       setConnectedHostname(justConnected.hostname || "machine")
     }
-  }, [ctx.machines, ctx.pendingMachineTokenId, pendingTokenId, connectedHostname])
+  }, [machines, pendingMachineTokenId, pendingTokenId, connectedHostname])
 
   const openPair = useCallback(() => {
     setPairMode({ kind: "pair" })
     setPendingTokenId(null)
     setConnectedHostname(null)
-    ctx.setPendingMachineTokenId(null)
+    useCommunityStore.getState().setPendingMachineTokenId(null)
     setPairOpen(true)
-  }, [ctx])
+  }, [])
 
   const openReconnect = useCallback((machine: CommunityMachineSummary) => {
     setPairMode({
@@ -62,18 +63,18 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     })
     setPendingTokenId(null)
     setConnectedHostname(null)
-    ctx.setPendingMachineTokenId(null)
+    useCommunityStore.getState().setPendingMachineTokenId(null)
     setPairOpen(true)
-  }, [ctx])
+  }, [])
 
   const closePair = useCallback((open: boolean) => {
     setPairOpen(open)
     if (!open) {
       setPendingTokenId(null)
       setConnectedHostname(null)
-      ctx.setPendingMachineTokenId(null)
+      useCommunityStore.getState().setPendingMachineTokenId(null)
     }
-  }, [ctx])
+  }, [])
 
   const onConfirmDelete = useCallback(async () => {
     if (!confirmDelete) return
@@ -81,16 +82,23 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     setConfirmDelete(null)
     try {
       await apiFetch(`/api/community/machines/${id}`, { method: "DELETE" })
-      ctx.removeMachineLocal(id)
+      // Optimistically drop the row from the machines cache. WS
+      // `machine.removed` fans out and reconciles, but the same-tab actor
+      // should see it disappear immediately.
+      queryClient.setQueryData<MachinesResponse | undefined>(
+        communityKeys.machines(),
+        (prev) =>
+          prev ? { ...prev, machines: prev.machines.filter((m) => m.id !== id) } : prev,
+      )
     } catch {
       toast.error("Couldn't delete the machine")
     }
-  }, [confirmDelete, ctx])
+  }, [confirmDelete, queryClient])
 
   const handleSetPendingTokenId = useCallback((tokenId: string | null) => {
     setPendingTokenId(tokenId)
-    ctx.setPendingMachineTokenId(tokenId)
-  }, [ctx])
+    useCommunityStore.getState().setPendingMachineTokenId(tokenId)
+  }, [])
 
   const backBar = onBack ? (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
@@ -101,7 +109,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     </header>
   ) : null
 
-  if (ctx.machinesLoading) {
+  if (machinesLoading) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
@@ -114,7 +122,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     )
   }
 
-  if (ctx.machines.length === 0) {
+  if (machines.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         {backBar}
@@ -157,7 +165,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
           <Button onClick={openPair}>Connect a machine</Button>
         </header>
         <div className="flex flex-col gap-3">
-          {ctx.machines.map((m) => (
+          {machines.map((m) => (
             <MachineCard
               key={m.id}
               machine={m}

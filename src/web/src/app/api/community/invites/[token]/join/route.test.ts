@@ -127,4 +127,28 @@ describe("POST /api/community/invites/[token]/join", () => {
     expect(res.status).toBe(400)
     expect(mockFanOut).not.toHaveBeenCalled()
   })
+
+  it("returns 400 when the UNIQUE error is wrapped as .cause (DrizzleQueryError)", async () => {
+    // The previous substring hack matched "UNIQUE"/"unique" on the outer
+    // message only. isUniqueConstraintError walks the cause chain; this
+    // regression test guards that behaviour.
+    const wrapped = new Error("failed query: insert into community_member")
+    ;(wrapped as { cause?: unknown }).cause = new Error(
+      "UNIQUE constraint failed: community_member.user_id",
+    )
+    mockUseInvite.mockRejectedValue(wrapped)
+    const res = await callPOST("tok_abc")
+    expect(res.status).toBe(400)
+    expect(mockFanOut).not.toHaveBeenCalled()
+  })
+
+  it("returns 400 when the driver reports SQLITE_CONSTRAINT_UNIQUE via .code", async () => {
+    // Only reachable via the helper — the old substring hack would rethrow.
+    const codeErr = new Error("constraint violation")
+    ;(codeErr as { code?: string }).code = "SQLITE_CONSTRAINT_UNIQUE"
+    mockUseInvite.mockRejectedValue(codeErr)
+    const res = await callPOST("tok_abc")
+    expect(res.status).toBe(400)
+    expect(mockFanOut).not.toHaveBeenCalled()
+  })
 })

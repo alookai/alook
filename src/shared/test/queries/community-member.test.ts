@@ -246,6 +246,53 @@ describe("searchMembers", () => {
   });
 });
 
+describe("getMemberById", () => {
+  function createMock(rows: any[]) {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.innerJoin = vi.fn(() => chain);
+    chain.where = vi.fn(() => Promise.resolve(rows));
+    return chain;
+  }
+
+  it("returns the row when memberId is scoped to the given serverId", async () => {
+    const row = buildMember(1);
+    const db = createMock([row]);
+    const result = await memberQueries.getMemberById(db, "mem_1", { serverId: "srv_1" });
+    expect(result).toEqual(row);
+    // Scope-first: `.where(and(eq(id, ...), eq(serverId, ...)))` — a single
+    // clause with both bounds. No listMembers-style fetch-and-filter.
+    expect(db.where).toHaveBeenCalledTimes(1);
+    expect(db.innerJoin).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns null when memberId belongs to a different server (scope wins)", async () => {
+    // Simulated DB behaviour: `WHERE id = mem_1 AND server_id = srv_2` finds
+    // nothing because mem_1 lives on srv_1. Proves scoping happens in SQL,
+    // not in JS post-filtering.
+    const db = createMock([]);
+    const result = await memberQueries.getMemberById(db, "mem_1", { serverId: "srv_2" });
+    expect(result).toBeNull();
+  });
+
+  it("returns null when memberId does not exist at all", async () => {
+    const db = createMock([]);
+    const result = await memberQueries.getMemberById(db, "mem_missing", { serverId: "srv_1" });
+    expect(result).toBeNull();
+  });
+
+  it("returned row includes role, userName, userId — the fields both PATCH/DELETE call sites read", async () => {
+    const row = buildMember(2);
+    const db = createMock([row]);
+    const result = await memberQueries.getMemberById(db, "mem_2", { serverId: "srv_1" });
+    expect(result).not.toBeNull();
+    expect(result!.role).toBe("member");
+    expect(result!.userName).toBe("User 2");
+    expect(result!.userId).toBe("u_2");
+  });
+});
+
 describe("bulkUpdateRailOrder", () => {
   function createBatchMock() {
     const chain: any = {};

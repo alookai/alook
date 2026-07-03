@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import * as inboxQueries from "../../src/db/queries/community/inbox";
 
 // These tests pin the shape of the public API; SQL behavior is covered by
@@ -20,6 +20,40 @@ describe("community/inbox exports", () => {
   });
   it("exports listDismissals", () => {
     expect(typeof inboxQueries.listDismissals).toBe("function");
+  });
+});
+
+describe("dismissForYouForChannelBuilder", () => {
+  function createInsertBuilderMock() {
+    const chain: any = {};
+    chain.insert = vi.fn(() => chain);
+    chain.values = vi.fn(() => chain);
+    chain.onConflictDoNothing = vi.fn(() => ({ __builder: "insert-dismissal" }));
+    return chain;
+  }
+
+  it("exports the builder function", () => {
+    expect(typeof inboxQueries.dismissForYouForChannelBuilder).toBe("function");
+  });
+
+  it("returns a builder synchronously (usable in db.batch)", () => {
+    const db = createInsertBuilderMock();
+    const result = inboxQueries.dismissForYouForChannelBuilder(db, "u_1", "c_1");
+    expect(result).toBeDefined();
+    expect(result).not.toBeInstanceOf(Promise);
+    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(db.onConflictDoNothing).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the thread:<channelId> event key shape", () => {
+    const db = createInsertBuilderMock();
+    inboxQueries.dismissForYouForChannelBuilder(db, "u_1", "c_1");
+    const valuesArg = db.values.mock.calls[0][0];
+    expect(valuesArg).toMatchObject({
+      userId: "u_1",
+      eventKey: "thread:c_1",
+    });
+    expect(typeof valuesArg.dismissedAt).toBe("string");
   });
 });
 

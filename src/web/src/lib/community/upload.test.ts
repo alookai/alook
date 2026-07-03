@@ -6,10 +6,19 @@ vi.mock("@/lib/middleware/helpers", () => {
   return {
     writeError: (message: string, status: number) =>
       NextResponse.json({ error: message }, { status }),
+    writeJSON: (data: unknown, status = 200) =>
+      NextResponse.json(data, { status }),
   }
 })
 
-import { handleAttachmentUpload, handleServerIconUpload } from "./upload"
+const mockGetDb = vi.fn(() => ({ __db: true }))
+vi.mock("@/lib/db", () => ({ getDb: (...a: unknown[]) => mockGetDb(...a) }))
+
+import {
+  handleAttachmentUpload,
+  handleServerIconUpload,
+  runAttachmentUpload,
+} from "./upload"
 import { MAX_ATTACHMENT_SIZE_BYTES, MAX_SERVER_ICON_SIZE_BYTES } from "@alook/shared"
 
 function envWithR2(put: ReturnType<typeof vi.fn>) {
@@ -48,6 +57,10 @@ function reqWithFile(file: unknown | null): NextRequest {
  * A File-shaped object with an overridable `size`. Real `File.size` is
  * derived from the underlying byte length and ignores `Object.defineProperty`,
  * so we hand-build the object instead of allocating real bytes.
+ *
+ * The upload helper streams the body to R2 via `file.stream()` — that path
+ * must be exercised, so we return a real `ReadableStream` (empty is fine;
+ * the mocked `put` never reads it).
  */
 function fakeFile(name: string, type: string, size: number) {
   return {
@@ -55,6 +68,7 @@ function fakeFile(name: string, type: string, size: number) {
     type,
     size,
     arrayBuffer: async () => new ArrayBuffer(0),
+    stream: () => new ReadableStream(),
   }
 }
 
@@ -72,6 +86,19 @@ describe("handleAttachmentUpload", () => {
     expect(res.contentType).toBe("image/png")
     expect(res.size).toBe(10)
     expect(put).toHaveBeenCalledOnce()
+  })
+
+  it("streams the body to R2 (never a buffered ArrayBuffer)", async () => {
+    // 25 MB attachment cap × 128 MB worker RAM means we must not
+    // `await file.arrayBuffer()` before `put`. Assert the value handed
+    // to R2 is a ReadableStream so a regression to buffering is caught.
+    const put = vi.fn().mockResolvedValue(undefined)
+    const file = fakeFile("hi.png", "image/png", 10)
+    await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1")
+    expect(put).toHaveBeenCalledOnce()
+    const [, body] = put.mock.calls[0]
+    expect(body).toBeInstanceOf(ReadableStream)
+    expect(body).not.toBeInstanceOf(ArrayBuffer)
   })
 
   it("rejects when no file part is present (400)", async () => {
@@ -132,6 +159,16 @@ describe("handleServerIconUpload", () => {
     expect(res.key).toMatch(/^server-icon\/s1\/[0-9a-f-]+$/)
   })
 
+  it("streams the icon body to R2 (never a buffered ArrayBuffer)", async () => {
+    const put = vi.fn().mockResolvedValue(undefined)
+    const file = fakeFile("icon.png", "image/png", 10)
+    await handleServerIconUpload(reqWithFile(file), envWithR2(put), "s1")
+    expect(put).toHaveBeenCalledOnce()
+    const [, body] = put.mock.calls[0]
+    expect(body).toBeInstanceOf(ReadableStream)
+    expect(body).not.toBeInstanceOf(ArrayBuffer)
+  })
+
   it("rejects oversize icons with 413", async () => {
     const put = vi.fn()
     const file = fakeFile("icon.png", "image/png", MAX_SERVER_ICON_SIZE_BYTES + 1)
@@ -156,5 +193,121 @@ describe("handleServerIconUpload", () => {
     expect(res.ok).toBe(false)
     if (res.ok) return
     expect(res.response.status).toBe(400)
+  })
+})
+
+describe("runAttachmentUpload", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  function ctxWith(env: Env, params: Record<string, string> | undefined) {
+    return {
+      env,
+      userId: "u1",
+      email: "u@t.com",
+      params,
+    }
+  }
+
+  it("returns 400 when the route id param is missing", async () => {
+    const put = vi.fn()
+    const perm = vi.fn()
+    const res = await runAttachmentUpload(
+      reqWithFile(fakeFile("hi.png", "image/png", 10)),
+      ctxWith(envWithR2(put), undefined),
+      "channel",
+      perm as never,
+    )
+    expect(res.status).toBe(400)
+    expect(perm).not.toHaveBeenCalled()
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it("forwards permission-check failures with the reported status + error", async () => {
+    const put = vi.fn()
+    const perm = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      error: "forbidden",
+    })
+    const res = await runAttachmentUpload(
+      reqWithFile(fakeFile("hi.png", "image/png", 10)),
+      ctxWith(envWithR2(put), { id: "c1" }),
+      "channel",
+      perm as never,
+    )
+    expect(res.status).toBe(403)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toBe("forbidden")
+    expect(put).not.toHaveBeenCalled()
+  })
+
+  it("hands off to handleAttachmentUpload with the resolved kind + id, returns the URL", async () => {
+    // Happy path — permission passes, streaming upload succeeds, response
+    // shape mirrors what the three route files used to build inline.
+    const put = vi.fn().mockResolvedValue(undefined)
+    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "c1" } })
+    const res = await runAttachmentUpload(
+      reqWithFile(fakeFile("hi.png", "image/png", 10)),
+      ctxWith(envWithR2(put), { id: "c1" }),
+      "channel",
+      perm as never,
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      url: string
+      filename: string
+      contentType: string
+      size: number
+    }
+    expect(body.filename).toBe("hi.png")
+    expect(body.contentType).toBe("image/png")
+    expect(body.size).toBe(10)
+    expect(body.url).toMatch(/^\/api\/community\/media\/channel\/c1\/[0-9a-f-]+\/hi\.png$/)
+    expect(put).toHaveBeenCalledOnce()
+    // Streaming rule applies here too — the shared helper must not buffer.
+    const [key, streamed] = put.mock.calls[0]
+    expect(key).toMatch(/^channel\/c1\//)
+    expect(streamed).toBeInstanceOf(ReadableStream)
+  })
+
+  it("routes 'dm' kind through the dm/ R2 prefix", async () => {
+    const put = vi.fn().mockResolvedValue(undefined)
+    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "d1" } })
+    const res = await runAttachmentUpload(
+      reqWithFile(fakeFile("hi.png", "image/png", 10)),
+      ctxWith(envWithR2(put), { id: "d1" }),
+      "dm",
+      perm as never,
+    )
+    expect(res.status).toBe(200)
+    const [key] = put.mock.calls[0]
+    expect(key).toMatch(/^dm\/d1\//)
+  })
+
+  it("routes 'thread' kind through the thread/ R2 prefix", async () => {
+    const put = vi.fn().mockResolvedValue(undefined)
+    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "t1" } })
+    const res = await runAttachmentUpload(
+      reqWithFile(fakeFile("hi.png", "image/png", 10)),
+      ctxWith(envWithR2(put), { id: "t1" }),
+      "thread",
+      perm as never,
+    )
+    expect(res.status).toBe(200)
+    const [key] = put.mock.calls[0]
+    expect(key).toMatch(/^thread\/t1\//)
+  })
+
+  it("forwards handleAttachmentUpload errors (e.g. oversize) unchanged", async () => {
+    const put = vi.fn()
+    const perm = vi.fn().mockResolvedValue({ ok: true, value: { id: "c1" } })
+    const res = await runAttachmentUpload(
+      reqWithFile(fakeFile("big.png", "image/png", MAX_ATTACHMENT_SIZE_BYTES + 1)),
+      ctxWith(envWithR2(put), { id: "c1" }),
+      "channel",
+      perm as never,
+    )
+    expect(res.status).toBe(413)
+    expect(put).not.toHaveBeenCalled()
   })
 })

@@ -5,7 +5,11 @@ import {
   ALLOWED_ATTACHMENT_MIME_PREFIXES,
   ALLOWED_ICON_MIME_TYPES,
 } from "@alook/shared"
-import { writeError } from "@/lib/middleware/helpers"
+import type { Database } from "@alook/shared"
+import { writeError, writeJSON } from "@/lib/middleware/helpers"
+import { getDb } from "@/lib/db"
+import type { AuthContext } from "@/lib/middleware/auth"
+import type { Result } from "./permissions"
 import { buildMediaKey, buildServerIconKey } from "./storage"
 
 export type UploadOk = {
@@ -49,6 +53,12 @@ async function readFile(req: NextRequest): Promise<File | UploadErr> {
  * Enforces `MAX_ATTACHMENT_SIZE_BYTES` and `ALLOWED_ATTACHMENT_MIME_PREFIXES`.
  * Returns the R2 key + a `/api/community/media/<key>` URL that the auth-gated
  * media route can serve.
+ *
+ * The body is streamed straight to R2 (`file.stream()`) rather than buffered
+ * into a full `ArrayBuffer` first — the 25 MB attachment cap on a 128 MB
+ * worker means concurrent uploads would otherwise risk OOM. Size and
+ * content-type are validated against the `File` object before the put, so we
+ * don't need the buffered bytes for those checks.
  */
 export async function handleAttachmentUpload(
   req: NextRequest,
@@ -76,7 +86,7 @@ export async function handleAttachmentUpload(
   const fileId = crypto.randomUUID()
   const key = buildMediaKey(kind, targetId, fileId, file.name)
 
-  await env.COMMUNITY_MEDIA.put(key, await file.arrayBuffer(), {
+  await env.COMMUNITY_MEDIA.put(key, file.stream(), {
     httpMetadata: { contentType: file.type },
   })
 
@@ -92,7 +102,8 @@ export async function handleAttachmentUpload(
 }
 
 /**
- * Validate + upload a server icon. Smaller cap, image-only.
+ * Validate + upload a server icon. Smaller cap, image-only. Same streaming
+ * rationale as `handleAttachmentUpload`.
  */
 export async function handleServerIconUpload(
   req: NextRequest,
@@ -119,7 +130,7 @@ export async function handleServerIconUpload(
   const fileId = crypto.randomUUID()
   const key = buildServerIconKey(serverId, fileId)
 
-  await env.COMMUNITY_MEDIA.put(key, await file.arrayBuffer(), {
+  await env.COMMUNITY_MEDIA.put(key, file.stream(), {
     httpMetadata: { contentType: file.type },
   })
 
@@ -132,4 +143,39 @@ export async function handleServerIconUpload(
     contentType: file.type,
     size: file.size,
   }
+}
+
+/**
+ * Route body shared by the three attachment-upload endpoints
+ * (`channels/[id]/upload`, `dm/[id]/upload`, `threads/[id]/upload`). Parses
+ * the `id` param, runs the caller-supplied permission check, then hands off
+ * to `handleAttachmentUpload`. Keeping the three route files thin also keeps
+ * their URLs distinct — we deliberately did not collapse to a single route.
+ */
+export async function runAttachmentUpload(
+  req: NextRequest,
+  ctx: AuthContext & { params?: Record<string, string> },
+  kind: AttachmentKind,
+  permissionCheck: (db: Database, id: string, userId: string) => Promise<Result<unknown>>,
+): Promise<NextResponse> {
+  const id = ctx.params?.id
+  if (!id) {
+    const label =
+      kind === "channel" ? "channel id" : kind === "dm" ? "dm id" : "id"
+    return writeError(`missing ${label}`, 400)
+  }
+
+  const db = getDb(ctx.env.DB)
+  const auth = await permissionCheck(db, id, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+
+  const result = await handleAttachmentUpload(req, ctx.env, kind, id)
+  if (!result.ok) return result.response
+
+  return writeJSON({
+    url: result.url,
+    filename: result.filename,
+    contentType: result.contentType,
+    size: result.size,
+  })
 }

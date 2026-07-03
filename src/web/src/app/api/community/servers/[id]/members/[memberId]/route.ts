@@ -42,9 +42,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
 
   // Scope to the target server's members so cross-server memberId can never
   // be modified through this endpoint.
-  // Keep `listMembers` here pending #9 — role check needs the full row (role/userName) for downstream ownership + audit.
-  const members = await queries.communityMember.listMembers(db, serverId)
-  const target = members.find((m) => m.id === memberId)
+  const target = await queries.communityMember.getMemberById(db, memberId, { serverId })
   if (!target) return writeError("member not found", 404)
 
   if (isServerOwner(target.role) && !isServerOwner(caller.role)) {
@@ -88,9 +86,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
     return writeError("cannot kick yourself, use leave instead", 400)
   }
 
-  // Keep `listMembers` here pending #9 — kick needs the full row (role/userId) for owner-check + broadcast payload.
-  const members = await queries.communityMember.listMembers(db, serverId)
-  const target = members.find((m) => m.id === memberId)
+  const target = await queries.communityMember.getMemberById(db, memberId, { serverId })
   if (!target) return writeError("member not found", 404)
 
   if (isServerOwner(target.role)) {

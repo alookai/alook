@@ -1,7 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useInfiniteQuery,
+  useQueryClient,
+  type InfiniteData,
+} from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
+import { communityKeys } from "@/lib/query-keys"
 import type { Member } from "@/components/community/_types"
 import type {
   CommunityMemberJoin,
@@ -63,7 +69,9 @@ export function applyUpdateEvent(prev: Member[], event: CommunityMemberUpdate): 
   })
 }
 
-type MembersEnvelope = {
+// ── Envelope + query-fn shapes ──────────────────────────────────────────────
+
+export type MembersEnvelope = {
   members: Member[]
   hasMore: boolean
   cursor?: string
@@ -75,6 +83,123 @@ type SearchEnvelope = {
   members: Member[]
   limit: number
 }
+
+// Exported so the tests can drive the query function against a mocked
+// apiFetch without going through React.
+export const membersPageQueryFn =
+  (serverId: string) =>
+  async ({ pageParam }: { pageParam: string | null | undefined }): Promise<MembersEnvelope> => {
+    const params = new URLSearchParams()
+    if (pageParam) params.set("cursor", pageParam)
+    const url = `/api/community/servers/${serverId}/members${params.toString() ? `?${params}` : ""}`
+    return apiFetch<MembersEnvelope>(url)
+  }
+
+// ── Cache mutation helpers (also used by the WS handler in Step 3) ──────────
+
+type MembersPageCache = InfiniteData<MembersEnvelope>
+
+/**
+ * Append a joiner to the last cached page, but only if the last page is
+ * already loaded (`hasMore` on the last page is false). Otherwise the
+ * intervening pages haven't been fetched yet and the joiner would appear as
+ * a stale duplicate once they arrive.
+ *
+ * Returns the same reference when nothing changes so React-Query bails out
+ * of a re-render on identical data.
+ */
+// `total` should read the same across every cached page — it's a per-server
+// count, not a per-page tally. The routes populate it identically on each
+// paged fetch. Any patch that adds/removes a member must therefore bump the
+// count on every page, otherwise the derived total (which reads a single
+// page) skews when a leaver lived on a non-last page.
+function withNormalizedTotal(
+  pages: MembersEnvelope[],
+  delta: number,
+): MembersEnvelope[] {
+  if (delta === 0) return pages
+  return pages.map((p) => ({ ...p, total: Math.max(0, p.total + delta) }))
+}
+
+export function patchCacheJoin(
+  cache: MembersPageCache | undefined,
+  event: CommunityMemberJoin,
+): MembersPageCache | undefined {
+  if (!cache) return cache
+  const lastIdx = cache.pages.length - 1
+  const lastPage = cache.pages[lastIdx]
+  if (!lastPage) return cache
+  const hasMore = lastPage.hasMore
+  if (hasMore) return cache
+  // De-dupe across every page.
+  for (const p of cache.pages) {
+    if (p.members.some((m) => m.userId === event.member.userId)) return cache
+  }
+  const appended = applyJoinEvent(lastPage.members, event, false)
+  if (appended === lastPage.members) return cache
+  const nextPages = [...cache.pages]
+  nextPages[lastIdx] = { ...lastPage, members: appended }
+  return { ...cache, pages: withNormalizedTotal(nextPages, +1) }
+}
+
+export function patchCacheLeave(
+  cache: MembersPageCache | undefined,
+  event: CommunityMemberLeave,
+): MembersPageCache | undefined {
+  if (!cache) return cache
+  let removed = false
+  const nextPages = cache.pages.map((p) => {
+    const filtered = p.members.filter((m) => m.userId !== event.userId)
+    if (filtered.length === p.members.length) return p
+    removed = true
+    return { ...p, members: filtered }
+  })
+  if (!removed) return cache
+  return { ...cache, pages: withNormalizedTotal(nextPages, -1) }
+}
+
+export function patchCacheUpdate(
+  cache: MembersPageCache | undefined,
+  event: CommunityMemberUpdate,
+): MembersPageCache | undefined {
+  if (!cache) return cache
+  const nextPages = cache.pages.map((p) => ({
+    ...p,
+    members: applyUpdateEvent(p.members, event),
+  }))
+  return { ...cache, pages: nextPages }
+}
+
+export function patchCacheKick(
+  cache: MembersPageCache | undefined,
+  memberId: string,
+): MembersPageCache | undefined {
+  if (!cache) return cache
+  let removed = false
+  const nextPages = cache.pages.map((p) => {
+    const filtered = p.members.filter((m) => m.id !== memberId)
+    if (filtered.length === p.members.length) return p
+    removed = true
+    return { ...p, members: filtered }
+  })
+  if (!removed) return cache
+  return { ...cache, pages: withNormalizedTotal(nextPages, -1) }
+}
+
+export function patchCacheRole(
+  cache: MembersPageCache | undefined,
+  memberId: string,
+  role: CommunityRole,
+): MembersPageCache | undefined {
+  if (!cache) return cache
+  const nextPages = cache.pages.map((p) => ({
+    ...p,
+    members: p.members.map((m) => (m.id === memberId ? { ...m, role } : m)),
+  }))
+  return { ...cache, pages: nextPages }
+}
+
+// ── Public hook API ─────────────────────────────────────────────────────────
 
 export type UseServerMembers = {
   members: Member[]
@@ -99,236 +224,200 @@ export type UseServerMembers = {
  * Paginated + virtualized-friendly member state for a single community server.
  *
  * Two view modes:
- * - "paged": append-only stream driven by `loadMore()` + cursor.
- * - "search": flat result set from /members/search, hides pagination.
+ * - "paged": pages live in the TanStack Query cache keyed under
+ *   `communityKeys.members(serverId)`. `loadMore()` calls `fetchNextPage`.
+ * - "search": bypasses the cache — search results live in local state
+ *   because the search endpoint is a different route with its own semantics
+ *   (no pagination, no cursor) and we don't want to blow away cursor state
+ *   when the user starts typing.
  *
- * WS events (`handleMemberEvent`) only mutate the paged view — the server-side
- * cursor & fixtures never change under a live search, and switching modes is
- * cheap (empty `q` restores the paged pages/cursor as they were).
+ * WS events flow through `handleMemberEvent`, which patches the cache
+ * directly via `queryClient.setQueryData`. Callers of `applyRoleChange` /
+ * `applyKick` do the same for optimistic mutations. Search-view state is
+ * patched in parallel so the visible list stays consistent while the user
+ * is searching.
  */
 export function useServerMembers(serverId: string | null): UseServerMembers {
-  const [pages, setPages] = useState<Member[]>([])
-  const [cursor, setCursor] = useState<string | null>(null)
-  const [hasMore, setHasMore] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [total, setTotal] = useState(0)
+  const enabled = !!serverId
+  // `communityKeys.members(...)` returns a fresh tuple per call, so every
+  // `useCallback` below that lists `queryKey` in its deps would churn each
+  // render without this memo — cascading a fresh identity into every
+  // consumer's dep array. Keep it pinned to the serverId axis.
+  const queryKey = useMemo(
+    () => communityKeys.members(serverId ?? "__none__"),
+    [serverId],
+  )
+  const queryClient = useQueryClient()
+
+  const infinite = useInfiniteQuery<
+    MembersEnvelope,
+    Error,
+    MembersPageCache,
+    typeof queryKey,
+    string | null | undefined
+  >({
+    queryKey,
+    // TS satisfies both branches; the `enabled` gate below prevents the
+    // disabled query from ever calling this function.
+    queryFn: enabled
+      ? membersPageQueryFn(serverId!)
+      : (() => Promise.reject(new Error("disabled"))),
+    initialPageParam: null,
+    getNextPageParam: (last) => (last.hasMore ? (last.cursor ?? null) : undefined),
+    enabled,
+  })
+
+  // ── Search state ────────────────────────────────────────────────────────
   const [searchResults, setSearchResults] = useState<Member[] | null>(null)
-
-  // Refs so callbacks can read the latest state without re-binding — the
-  // context wires `handleMemberEvent` into `useCommunityWs`, which memoises
-  // its callbacks; stale closures over `pages` here would drop events.
-  const cursorRef = useRef<string | null>(null)
-  cursorRef.current = cursor
-  const hasMoreRef = useRef(false)
-  hasMoreRef.current = hasMore
-  const loadingMoreRef = useRef(false)
-  loadingMoreRef.current = loadingMore
-  const serverIdRef = useRef<string | null>(serverId)
-  serverIdRef.current = serverId
-
-  // Debounce timer for search; the ref survives re-renders so a cancel from
-  // the effect below actually clears the pending call.
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Monotonic sequence so out-of-order responses drop old results silently.
   const searchSeq = useRef(0)
 
-  const fetchPage = useCallback(async (opts: { cursor?: string | null }) => {
-    const sid = serverIdRef.current
-    if (!sid || sid === "@me") return
-    const params = new URLSearchParams()
-    if (opts.cursor) params.set("cursor", opts.cursor)
-    const url = `/api/community/servers/${sid}/members${params.toString() ? `?${params}` : ""}`
-    return apiFetch<MembersEnvelope>(url)
-  }, [])
+  // ── Derived paged state ─────────────────────────────────────────────────
+  const pagedMembers = useMemo<Member[]>(() => {
+    if (!infinite.data) return []
+    return infinite.data.pages.flatMap((p) => p.members)
+  }, [infinite.data])
 
-  const loadFirstPage = useCallback(async () => {
-    const sid = serverIdRef.current
-    if (!sid || sid === "@me") {
-      setLoading(false)
-      return
-    }
-    setLoading(true)
-    try {
-      const data = await fetchPage({ cursor: null })
-      if (!data) return
-      // Guard against a serverId flip that happened while this request was
-      // in flight — otherwise we'd paint the wrong server's members.
-      if (serverIdRef.current !== sid) return
-      setPages(data.members)
-      setCursor(data.cursor ?? null)
-      setHasMore(data.hasMore)
-      setTotal(data.total)
-    } catch {
-      if (serverIdRef.current === sid) {
-        setPages([])
-        setCursor(null)
-        setHasMore(false)
-        setTotal(0)
-      }
-    } finally {
-      if (serverIdRef.current === sid) setLoading(false)
-    }
-  }, [fetchPage])
+  const lastPage = infinite.data?.pages[infinite.data.pages.length - 1]
+  const hasMore = lastPage?.hasMore ?? false
+  const total = lastPage?.total ?? 0
 
-  const loadMore = useCallback(async () => {
-    if (loadingMoreRef.current) return
-    if (!hasMoreRef.current) return
-    if (!cursorRef.current) return
-    const sid = serverIdRef.current
-    if (!sid || sid === "@me") return
-    setLoadingMore(true)
-    try {
-      const data = await fetchPage({ cursor: cursorRef.current })
-      if (!data) return
-      if (serverIdRef.current !== sid) return
-      setPages((prev) => [...prev, ...data.members])
-      setCursor(data.cursor ?? null)
-      setHasMore(data.hasMore)
-      setTotal(data.total)
-    } catch {
-      // Leave state — the sentinel effect will re-trigger loadMore on the
-      // next scroll if the retry succeeds. Silent failure is intentional
-      // (matches messages pagination behaviour).
-    } finally {
-      if (serverIdRef.current === sid) setLoadingMore(false)
-    }
-  }, [fetchPage])
+  // ── Actions ─────────────────────────────────────────────────────────────
+  const loadMore = useCallback(() => {
+    if (!infinite.hasNextPage) return
+    if (infinite.isFetchingNextPage) return
+    void infinite.fetchNextPage()
+  }, [infinite])
 
   const reset = useCallback(() => {
-    setPages([])
-    setCursor(null)
-    setHasMore(false)
-    setTotal(0)
     setSearchResults(null)
-    // Cancel any in-flight debounced search so it doesn't paint stale results.
     if (searchTimer.current) {
       clearTimeout(searchTimer.current)
       searchTimer.current = null
     }
     searchSeq.current += 1
-  }, [])
+    if (enabled) {
+      queryClient.removeQueries({ queryKey })
+    }
+  }, [enabled, queryClient, queryKey])
 
-  // Fetch page 1 whenever the serverId changes. `reset()` runs first via the
-  // context (before serverId flips), and we then hydrate.
+  const refresh = useCallback(() => {
+    if (!enabled) return
+    void queryClient.invalidateQueries({ queryKey })
+  }, [enabled, queryClient, queryKey])
+
+  // When the serverId flips, drop the search overlay (pages are keyed by
+  // serverId so they don't need explicit teardown — TanStack Query GC's them
+  // and enable=false stops any in-flight fetch).
   useEffect(() => {
-    if (!serverId || serverId === "@me") {
-      setPages([])
-      setCursor(null)
-      setHasMore(false)
-      setTotal(0)
-      setSearchResults(null)
-      setLoading(false)
-      return
-    }
-    // Reset in-hook first, then load. `reset()` also cancels any debounced
-    // search from the previous server.
-    setPages([])
-    setCursor(null)
-    setHasMore(false)
-    setTotal(0)
     setSearchResults(null)
     if (searchTimer.current) {
       clearTimeout(searchTimer.current)
       searchTimer.current = null
     }
     searchSeq.current += 1
-    loadFirstPage()
-  }, [serverId, loadFirstPage])
+  }, [serverId])
 
   const handleMemberEvent = useCallback(
     (event: CommunityMemberJoin | CommunityMemberLeave | CommunityMemberUpdate) => {
-      // Event's `serverId` is filtered by the context caller (matches active
-      // server). Left permissive here to keep the hook standalone.
+      if (!enabled) return
       if (event.type === "community:member.join") {
-        // Members are ordered by joinedAt ASC — a new joiner's joinedAt is
-        // server-assigned and larger than every existing row, so it sorts to
-        // the *tail*. Only append when we already hold the last page
-        // (`!hasMore`); otherwise the joiner would appear as a duplicate once
-        // the intervening pages load. The user will see them on scroll.
-        if (hasMoreRef.current) return
-        let appended = false
-        setPages((prev) => {
-          const next = applyJoinEvent(prev, event, false)
-          if (next !== prev) appended = true
-          return next
-        })
-        if (appended) setTotal((t) => t + 1)
+        queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
+          patchCacheJoin(cache, event),
+        )
         return
       }
       if (event.type === "community:member.leave") {
-        let removed = false
-        setPages((prev) => {
-          const next = applyLeaveEvent(prev, event)
-          if (next.length !== prev.length) removed = true
-          return next
-        })
-        if (removed) setTotal((t) => Math.max(0, t - 1))
+        queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
+          patchCacheLeave(cache, event),
+        )
+        // Keep the search overlay consistent so the visible list matches.
+        setSearchResults((prev) =>
+          prev === null ? null : prev.filter((m) => m.userId !== event.userId),
+        )
         return
       }
-      // member.update: patch role/nickname in place.
-      setPages((prev) => applyUpdateEvent(prev, event))
+      // member.update
+      queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
+        patchCacheUpdate(cache, event),
+      )
+      setSearchResults((prev) =>
+        prev === null
+          ? null
+          : applyUpdateEvent(prev, event),
+      )
     },
-    [],
+    [enabled, queryClient, queryKey],
   )
 
-  const runSearch = useCallback(async (q: string, seq: number) => {
-    const sid = serverIdRef.current
-    if (!sid || sid === "@me") return
-    try {
-      const params = new URLSearchParams({ q })
-      const data = await apiFetch<SearchEnvelope>(`/api/community/servers/${sid}/members/search?${params}`)
-      // Guard against out-of-order responses.
-      if (searchSeq.current !== seq) return
-      if (serverIdRef.current !== sid) return
-      setSearchResults(data.members)
-    } catch {
-      if (searchSeq.current === seq && serverIdRef.current === sid) {
-        setSearchResults([])
+  const runSearch = useCallback(
+    async (q: string, seq: number) => {
+      if (!enabled) return
+      try {
+        const params = new URLSearchParams({ q })
+        const data = await apiFetch<SearchEnvelope>(
+          `/api/community/servers/${serverId}/members/search?${params}`,
+        )
+        // Guard against out-of-order responses.
+        if (searchSeq.current !== seq) return
+        setSearchResults(data.members)
+      } catch {
+        if (searchSeq.current === seq) setSearchResults([])
       }
-    }
-  }, [])
+    },
+    [enabled, serverId],
+  )
 
-  const searchMembers = useCallback((q: string) => {
-    const trimmed = q.trim()
-    if (searchTimer.current) {
-      clearTimeout(searchTimer.current)
-      searchTimer.current = null
-    }
-    searchSeq.current += 1
-    if (trimmed.length === 0) {
-      // Empty query — drop back to paged view. Pages/cursor are untouched.
-      setSearchResults(null)
-      return
-    }
-    const seq = searchSeq.current
-    searchTimer.current = setTimeout(() => {
-      searchTimer.current = null
-      void runSearch(trimmed, seq)
-    }, SEARCH_DEBOUNCE_MS)
-  }, [runSearch])
+  const searchMembers = useCallback(
+    (q: string) => {
+      const trimmed = q.trim()
+      if (searchTimer.current) {
+        clearTimeout(searchTimer.current)
+        searchTimer.current = null
+      }
+      searchSeq.current += 1
+      if (trimmed.length === 0) {
+        setSearchResults(null)
+        return
+      }
+      const seq = searchSeq.current
+      searchTimer.current = setTimeout(() => {
+        searchTimer.current = null
+        void runSearch(trimmed, seq)
+      }, SEARCH_DEBOUNCE_MS)
+    },
+    [runSearch],
+  )
 
-  const applyRoleChange = useCallback((memberId: string, role: CommunityRole) => {
-    setPages((prev) => prev.map((m) => (m.id === memberId ? { ...m, role } : m)))
-    setSearchResults((prev) =>
-      prev === null ? null : prev.map((m) => (m.id === memberId ? { ...m, role } : m)),
-    )
-  }, [])
+  const applyRoleChange = useCallback(
+    (memberId: string, role: CommunityRole) => {
+      if (!enabled) return
+      queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
+        patchCacheRole(cache, memberId, role),
+      )
+      setSearchResults((prev) =>
+        prev === null ? null : prev.map((m) => (m.id === memberId ? { ...m, role } : m)),
+      )
+    },
+    [enabled, queryClient, queryKey],
+  )
 
-  const applyKick = useCallback((memberId: string) => {
-    let removed = false
-    setPages((prev) => {
-      const next = prev.filter((m) => m.id !== memberId)
-      if (next.length !== prev.length) removed = true
-      return next
-    })
-    setSearchResults((prev) =>
-      prev === null ? null : prev.filter((m) => m.id !== memberId),
-    )
-    if (removed) setTotal((t) => Math.max(0, t - 1))
-  }, [])
+  const applyKick = useCallback(
+    (memberId: string) => {
+      if (!enabled) return
+      queryClient.setQueryData<MembersPageCache | undefined>(queryKey, (cache) =>
+        patchCacheKick(cache, memberId),
+      )
+      setSearchResults((prev) =>
+        prev === null ? null : prev.filter((m) => m.id !== memberId),
+      )
+    },
+    [enabled, queryClient, queryKey],
+  )
 
-  // Cleanup any pending debounce on unmount so a late fire doesn't call
-  // setState on a torn-down component.
+  // Cleanup pending debounce on unmount so a late fire doesn't paint torn
+  // state.
   useEffect(() => {
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current)
@@ -336,15 +425,15 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
   }, [])
 
   return {
-    members: searchResults ?? pages,
-    loading,
-    loadingMore,
+    members: searchResults ?? pagedMembers,
+    loading: infinite.isPending && enabled,
+    loadingMore: infinite.isFetchingNextPage,
     hasMore,
     total,
     isSearching: searchResults !== null,
     loadMore,
     reset,
-    refresh: loadFirstPage,
+    refresh,
     handleMemberEvent,
     searchMembers,
     applyRoleChange,

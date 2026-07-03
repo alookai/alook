@@ -1,4 +1,4 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import {
   communityReadState,
   communityChannel,
@@ -23,6 +23,43 @@ function buildTargetFilter(data: {
   }
 
   return and(...conditions)!;
+}
+
+/**
+ * Batch-friendly builder for marking a **channel** read. Returns a builder
+ * (not a Promise) so it can be composed into `db.batch([...])`. Uses SQLite's
+ * `ON CONFLICT ... DO UPDATE` against the partial unique index
+ * `idx_read_state_user_channel` so the upsert is a single statement.
+ *
+ * Unlike `markRead`, this only handles the channel case — DM reads are a
+ * single-write route and don't need batching (see plan #12).
+ */
+export function markChannelReadBuilder(
+  db: Database,
+  data: {
+    userId: string;
+    channelId: string;
+    lastReadAt: string;
+    lastReadMessageId?: string;
+  }
+) {
+  return db
+    .insert(communityReadState)
+    .values({
+      userId: data.userId,
+      channelId: data.channelId,
+      dmConversationId: null,
+      lastReadAt: data.lastReadAt,
+      lastReadMessageId: data.lastReadMessageId ?? null,
+    })
+    .onConflictDoUpdate({
+      target: [communityReadState.userId, communityReadState.channelId],
+      targetWhere: sql`${communityReadState.channelId} IS NOT NULL`,
+      set: {
+        lastReadAt: data.lastReadAt,
+        lastReadMessageId: data.lastReadMessageId ?? null,
+      },
+    });
 }
 
 export async function markRead(

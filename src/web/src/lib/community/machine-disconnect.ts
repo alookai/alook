@@ -1,4 +1,5 @@
-import { DEV_WS_DO_URL, createLogger } from "@alook/shared"
+import { createLogger } from "@alook/shared"
+import { wsDoFetch } from "@/lib/broadcast"
 
 const log = createLogger({ service: "community-machine-disconnect" })
 
@@ -12,18 +13,10 @@ const log = createLogger({ service: "community-machine-disconnect" })
 export async function forceCloseCommunityMachine(env: Env, machineId: string): Promise<void> {
   const path = `/community-machine/${encodeURIComponent(machineId)}/force-close`
   try {
-    const res = await env.WS_DO_WORKER.fetch(`http://internal${path}`, { method: "POST" })
+    const res = await wsDoFetch(env, path, { method: "POST" }, { label: machineId })
     if (!res.ok) {
       log.warn("force-close non-ok", { status: res.status, machineId })
     }
-    return
-  } catch {
-    // service binding unavailable — fall through
-  }
-  const wsDoUrl = (env as unknown as Record<string, unknown>).DEV_WS_DO_URL as string | undefined
-  const fallback = wsDoUrl || DEV_WS_DO_URL
-  try {
-    await fetch(`${fallback}${path}`, { method: "POST" })
   } catch (err) {
     log.warn("force-close fetch failed", { err: String(err), machineId })
   }

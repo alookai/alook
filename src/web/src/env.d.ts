@@ -24,6 +24,7 @@ declare namespace Cloudflare {
     MIN_CLI_VERSION?: string
     DEVICE_CLIENT_IDS?: string
     NODE_ENV?: string
+    DEV_WS_DO_URL?: string
   }
 }
 

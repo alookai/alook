@@ -215,4 +215,35 @@ describe("GET /api/community/dm/[id]/messages", () => {
     const [, ids] = mockGetMessagesByIds.mock.calls[0]
     expect(ids.sort()).toEqual(["r-in-scope", "r-in-scope", "r-missing", "r-out-of-scope"].sort())
   })
+
+  it("runs attachment, reaction, and reply-target fetches in parallel", async () => {
+    // The 3 follow-up fetches have no cross-dependency; they must run
+    // concurrently (Promise.all), not sequentially. Prove it by observing
+    // in-flight count — all 3 must be dispatched before any resolves.
+    mockIsBlocked.mockResolvedValue(false)
+    mockListMessages.mockResolvedValue([
+      { id: "m-1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "hi", type: "default", mentionType: null, replyToId: "r-1", dmConversationId: "d1", embeds: null, createdAt: "t1" },
+    ])
+
+    let inFlight = 0
+    let maxInFlight = 0
+    async function tracked<T>(value: T): Promise<T> {
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise((r) => setTimeout(r, 15))
+      inFlight--
+      return value
+    }
+    mockListByMessageIds.mockImplementation(() => tracked([]))
+    mockListReactionsByMessageIds.mockImplementation(() => tracked([]))
+    mockGetMessagesByIds.mockImplementation(() => tracked([]))
+
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(200)
+
+    expect(maxInFlight).toBe(3)
+    expect(mockListByMessageIds).toHaveBeenCalledTimes(1)
+    expect(mockListReactionsByMessageIds).toHaveBeenCalledTimes(1)
+    expect(mockGetMessagesByIds).toHaveBeenCalledTimes(1)
+  })
 })

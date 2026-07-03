@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
-import { useCommunity } from "@/contexts/community/context"
+import { communityKeys } from "@/lib/query-keys"
 
 type InviteInfo = {
   serverName: string
@@ -20,7 +21,7 @@ type InviteInfo = {
  */
 export function InviteAcceptClient({ token }: { token: string }) {
   const router = useRouter()
-  const { refreshServers } = useCommunity()
+  const queryClient = useQueryClient()
   const [info, setInfo] = useState<InviteInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [joining, setJoining] = useState(false)
@@ -50,7 +51,7 @@ export function InviteAcceptClient({ token }: { token: string }) {
       toast("Joined server")
       // Refresh the server list before navigating so the rail shows the newly
       // joined server on arrival instead of the user having to refresh.
-      await refreshServers()
+      await queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
       router.push(`/community/channels/${result.serverId}`)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Couldn't join the server — try the invite again"

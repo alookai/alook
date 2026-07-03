@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db"
 import { queries, isServerOwner, WS_EVENTS } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
+import { requireServerMember } from "@/lib/community/permissions"
 
 export const POST = withAuth(async (_req, ctx) => {
   const serverId = ctx.params?.id
@@ -12,8 +13,9 @@ export const POST = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
 
   // Verify user is a member
-  const member = await queries.communityMember.getMember(db, serverId, ctx.userId)
-  if (!member) return writeError("not a member of this server", 403)
+  const auth = await requireServerMember(db, serverId, ctx.userId)
+  if (!auth.ok) return writeError(auth.error, auth.status)
+  const member = auth.value
 
   // Owner cannot leave (must delete server instead)
   if (isServerOwner(member.role)) {

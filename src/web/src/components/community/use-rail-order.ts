@@ -37,7 +37,9 @@ export function useRailOrder(
     const inFolder = new Set(folders.flatMap((f) => f.servers.map((s) => s.id)))
     folderServerSet.current = inFolder
     const serverItems = railServerIds.filter((id) => !inFolder.has(id))
-    const folderItems = folders.sort((a, b) => a.position - b.position).map((f) => folderId(f.id))
+    // Copy before sort — `folders` may be a frozen fallback while the query
+    // is loading; mutating it in place would throw.
+    const folderItems = [...folders].sort((a, b) => a.position - b.position).map((f) => folderId(f.id))
     return [...serverItems, ...folderItems]
   }, [railServerIds, folders])
 

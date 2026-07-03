@@ -92,6 +92,38 @@ export async function markChannelMentionsRead(db: Database, userId: string, chan
     .where(inArray(communityMention.id, mentionIds.map((r) => r.id)));
 }
 
+/**
+ * Batch-friendly builder version of `markChannelMentionsRead`. Collapses the
+ * two-step "select-ids-then-update" into a single UPDATE with a correlated
+ * subquery, so it can be composed into `db.batch([...])`.
+ *
+ * Note: this always fires the UPDATE — even when there are no matching rows,
+ * the statement is a no-op. That's fine for a batch; the batch cost is one
+ * round-trip regardless.
+ */
+export function markChannelMentionsReadBuilder(
+  db: Database,
+  userId: string,
+  channelId: string
+) {
+  const matchingMentionIds = db
+    .select({ id: communityMention.id })
+    .from(communityMention)
+    .innerJoin(communityMessage, eq(communityMention.messageId, communityMessage.id))
+    .where(
+      and(
+        eq(communityMention.userId, userId),
+        eq(communityMention.read, 0),
+        eq(communityMessage.channelId, channelId)
+      )
+    );
+
+  return db
+    .update(communityMention)
+    .set({ read: 1 })
+    .where(inArray(communityMention.id, matchingMentionIds));
+}
+
 export async function deleteMention(db: Database, userId: string, mentionId: string) {
   const rows = await db
     .delete(communityMention)

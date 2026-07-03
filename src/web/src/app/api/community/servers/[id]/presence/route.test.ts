@@ -1,13 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest"
 import { NextRequest } from "next/server"
+import fs from "node:fs"
+import path from "node:path"
 
 const mockWsDoWorkerFetch = vi.fn<(...args: unknown[]) => Promise<Response>>()
-
-vi.mock("@opennextjs/cloudflare", () => ({
-  getCloudflareContext: vi.fn(() => ({
-    env: { DB: {}, WS_DO_WORKER: { fetch: (...a: unknown[]) => mockWsDoWorkerFetch(...a) } },
-  })),
-}))
 
 const mockListMemberUserIds = vi.fn()
 const mockGetMember = vi.fn()
@@ -31,7 +27,11 @@ vi.mock("@alook/shared", async () => {
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
+    const env = {
+      DB: {},
+      WS_DO_WORKER: { fetch: (...a: unknown[]) => mockWsDoWorkerFetch(...a) },
+    }
+    return handler(req, { env, userId: "u1", email: "u@t.com", params })
   }),
 }))
 
@@ -43,8 +43,8 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-// Stub global fetch — presence route falls through to fetch(...) when the
-// WS_DO_WORKER binding isn't available in the test env.
+// Stub global fetch — the wsDoFetch helper falls through to fetch(...) when
+// the WS_DO_WORKER binding throws.
 const originalFetch = globalThis.fetch
 beforeEach(() => {
   vi.clearAllMocks()
@@ -97,7 +97,7 @@ describe("GET /api/community/servers/[id]/presence", () => {
   })
 
   it.each([1, 50, PRESENCE_MEMBER_CAP])(
-    "issues exactly one WS_DO_WORKER.fetch call regardless of member count (%i members)",
+    "service-binding path: issues exactly one WS_DO_WORKER.fetch call regardless of member count (%i members)",
     async (n) => {
       mockGetMember.mockResolvedValue({ id: "m1", userId: "u1", serverId: "s1", role: "member" })
       const ids = Array.from({ length: n }, (_, i) => `u${i}`)
@@ -109,6 +109,8 @@ describe("GET /api/community/servers/[id]/presence", () => {
       const res = await GET(getReq(), ctx)
       expect(res.status).toBe(200)
       expect(mockWsDoWorkerFetch).toHaveBeenCalledTimes(1)
+      // Global fetch fallback should NOT fire when binding succeeds.
+      expect(mockFetch).not.toHaveBeenCalled()
       const [url, init] = mockWsDoWorkerFetch.mock.calls[0] as [string, RequestInit]
       expect(url).toBe("http://internal/presence/users")
       expect(init.method).toBe("POST")
@@ -116,7 +118,7 @@ describe("GET /api/community/servers/[id]/presence", () => {
     }
   )
 
-  it("falls back to fetch(base+/presence/users) exactly once when WS_DO_WORKER.fetch throws", async () => {
+  it("HTTP fallback fires when WS_DO_WORKER.fetch throws (binding unavailable)", async () => {
     mockGetMember.mockResolvedValue({ id: "m1", userId: "u1", serverId: "s1", role: "member" })
     mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
     mockWsDoWorkerFetch.mockRejectedValue(new Error("binding missing"))
@@ -133,6 +135,43 @@ describe("GET /api/community/servers/[id]/presence", () => {
     expect(url).toMatch(/\/presence\/users$/)
     expect(init.method).toBe("POST")
     expect(JSON.parse(init.body as string)).toEqual({ ids: ["u1", "u2"] })
+  })
+
+  it("HTTP fallback fires when WS_DO_WORKER.fetch returns non-OK (5xx)", async () => {
+    // Regression: pre-refactor, a 5xx from the binding also fell through to
+    // the HTTP fallback. Keep that behaviour so a degraded binding doesn't
+    // silently drop presence lookups.
+    mockGetMember.mockResolvedValue({ id: "m1", userId: "u1", serverId: "s1", role: "member" })
+    mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
+    mockWsDoWorkerFetch.mockResolvedValue(new Response("boom", { status: 500 }))
+    mockFetch.mockResolvedValue(
+      new Response(JSON.stringify({ online: ["u2"] }), { status: 200 })
+    )
+
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(200)
+    const body = await res.json() as { online: string[] }
+    expect(body.online).toEqual(["u2"])
+    expect(mockWsDoWorkerFetch).toHaveBeenCalledTimes(1)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit]
+    expect(url).toMatch(/\/presence\/users$/)
+    expect(init.method).toBe("POST")
+    expect(JSON.parse(init.body as string)).toEqual({ ids: ["u1", "u2"] })
+  })
+
+  // Guard: the route must go through the shared `wsDoFetch` helper — never
+  // reinvent the "try binding → catch → HTTP fallback" ladder inline. If a
+  // future edit re-adds a direct WS_DO_WORKER.fetch or DEV_WS_DO_URL, this
+  // fails so the review catches the drift.
+  it("goes through the new helper (single wsDoFetch import, no ad-hoc fallback)", () => {
+    const routeSrc = fs.readFileSync(
+      path.resolve(__dirname, "route.ts"),
+      "utf8",
+    )
+    expect(routeSrc).toMatch(/wsDoFetch/)
+    expect(routeSrc).not.toMatch(/WS_DO_WORKER/)
+    expect(routeSrc).not.toMatch(/DEV_WS_DO_URL/)
   })
 })
 

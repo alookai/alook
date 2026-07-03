@@ -1,7 +1,7 @@
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, ROLES, WS_EVENTS } from "@alook/shared"
+import { queries, ROLES, WS_EVENTS, isUniqueConstraintError } from "@alook/shared"
 import type { CommunityMemberJoin } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
@@ -16,8 +16,7 @@ export const POST = withAuth(async (_req, ctx) => {
   try {
     result = await queries.communityInvite.useInvite(db, token, ctx.userId)
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err)
-    if (message.includes("UNIQUE") || message.includes("unique")) {
+    if (isUniqueConstraintError(err)) {
       return writeError("Already a member", 400)
     }
     throw err

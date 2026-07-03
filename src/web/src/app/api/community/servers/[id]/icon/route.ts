@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server"
+import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
@@ -49,9 +50,18 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!updated) return writeError("server not found", 404)
 
   if (previousKey && previousKey !== iconKey && previousKey.startsWith("server-icon/")) {
-    ctx.env.COMMUNITY_MEDIA.delete(previousKey).catch((err) =>
+    // Wrap in waitUntil so the CF runtime explicitly extends the worker
+    // lifetime past the response for the R2 delete to complete.
+    const deletePromise = ctx.env.COMMUNITY_MEDIA.delete(previousKey).catch((err) =>
       log.warn("server_icon_delete_failed", { err, serverId, previousKey }),
     )
+    try {
+      const { ctx: cfCtx } = await getCloudflareContext({ async: true })
+      cfCtx.waitUntil(deletePromise)
+    } catch {
+      // Not in a CF context (tests / non-worker runtime) — the promise still
+      // runs on its own; the fire-and-forget behaviour matches the prior code.
+    }
   }
 
   return writeJSON({ url: serverIconUrl({ id: serverId, icon: iconKey }) })

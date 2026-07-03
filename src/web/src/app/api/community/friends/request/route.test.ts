@@ -140,6 +140,30 @@ describe("POST /api/community/friends/request", () => {
     expect(res.status).toBe(409)
   })
 
+  it("returns 409 when the UNIQUE error is wrapped as .cause (DrizzleQueryError shape)", async () => {
+    // The real driver error hides behind DrizzleQueryError.cause on 0.44+.
+    // isUniqueConstraintError walks the cause chain; the previous substring
+    // hack manually concatenated `err.cause.message` — this test guards that
+    // the helper preserves that behaviour.
+    const wrapped = new Error("failed query: insert into community_friendship")
+    ;(wrapped as { cause?: unknown }).cause = new Error(
+      "UNIQUE constraint failed: community_friendship.requester_id",
+    )
+    sendRequest.mockRejectedValue(wrapped)
+    const res = await POST(postReq({ userId: "u2" }), {} as never)
+    expect(res.status).toBe(409)
+  })
+
+  it("returns 409 when the driver reports SQLITE_CONSTRAINT_UNIQUE via .code", async () => {
+    // Only reachable through the helper — the old substring hack would have
+    // rethrown this because "UNIQUE" is not in the message.
+    const codeErr = new Error("constraint violation")
+    ;(codeErr as { code?: string }).code = "SQLITE_CONSTRAINT_UNIQUE"
+    sendRequest.mockRejectedValue(codeErr)
+    const res = await POST(postReq({ userId: "u2" }), {} as never)
+    expect(res.status).toBe(409)
+  })
+
   it("returns 400 when the target equals the caller", async () => {
     const res = await POST(postReq({ userId: "u1" }), {} as never)
     expect(res.status).toBe(400)

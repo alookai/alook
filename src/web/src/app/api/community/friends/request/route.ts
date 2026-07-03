@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { queries, WS_EVENTS } from "@alook/shared"
+import { queries, WS_EVENTS, isUniqueConstraintError } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -71,10 +71,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       if (err.message === "blocked") return writeError("blocked", 403)
       if (err.message === "already friends") return writeError("already friends", 409)
     }
-    const full = err instanceof Error
-      ? err.message + (err.cause instanceof Error ? " " + err.cause.message : "")
-      : String(err)
-    if (full.includes("UNIQUE constraint")) {
+    if (isUniqueConstraintError(err)) {
       return writeError("friend request already sent", 409)
     }
     throw err

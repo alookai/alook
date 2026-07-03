@@ -6,6 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetChannelForMember = vi.fn()
+const mockGetChannel = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetMessagesByIds = vi.fn()
@@ -30,6 +31,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
+        getChannel: (...a: unknown[]) => mockGetChannel(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
       },
       communityMessage: {
@@ -80,7 +82,7 @@ vi.mock("@/lib/middleware/helpers", () => {
 })
 
 import { POST, GET } from "./route"
-import { MAX_MESSAGE_CONTENT_LENGTH, MAX_ATTACHMENTS_PER_MESSAGE } from "@alook/shared"
+import { MAX_MESSAGE_CONTENT_LENGTH, MAX_ATTACHMENTS_PER_MESSAGE, WS_EVENTS } from "@alook/shared"
 
 function postReq(body: unknown) {
   return new NextRequest("http://localhost/api/community/channels/c1/messages", {
@@ -207,6 +209,61 @@ describe("POST /api/community/channels/[id]/messages", () => {
     expect(mockListMembers).not.toHaveBeenCalled()
     expect(mockListMemberUserIds).not.toHaveBeenCalled()
   })
+
+  it("fans CHILD_CHANNEL_UPDATE to the parent when POSTing to a thread channel", async () => {
+    // A channel row with a non-null parentChannelId is a thread. Server-side
+    // detection replaced the client-side branch: the client always POSTs to
+    // /channels/{id}, and this route must recognize the thread and fan out
+    // CHILD_CHANNEL_UPDATE so the parent's thread indicator ticks. Before the
+    // consolidation, this fan-out lived only in /threads/{id}/messages, so a
+    // fast user could beat the client's meta fetch and silently skip it.
+    mockGetChannelForMember.mockResolvedValue({
+      id: "c1",
+      serverId: "s1",
+      parentChannelId: "c-parent",
+    })
+    mockGetChannel.mockResolvedValue({
+      id: "c1",
+      serverId: "s1",
+      parentChannelId: "c-parent",
+      messageCount: 7,
+      lastMessageAt: "2026-06-30T01:00:00.000Z",
+    })
+
+    const res = await POST(postReq({ content: "in-thread" }), ctx)
+    expect(res.status).toBe(201)
+
+    const childUpdateCall = mockFanOutToChannel.mock.calls.find(
+      (c) => c[1]?.type === WS_EVENTS.CHILD_CHANNEL_UPDATE,
+    )
+    expect(childUpdateCall).toBeTruthy()
+    expect(childUpdateCall![0]).toBe("c-parent")
+    expect(childUpdateCall![1].parentChannelId).toBe("c-parent")
+    expect(childUpdateCall![1].channelId).toBe("c1")
+    expect(childUpdateCall![1].changes.messageCount).toBe(7)
+  })
+
+  it("does NOT fan CHILD_CHANNEL_UPDATE for a top-level channel (regression)", async () => {
+    // Regression: parentChannelId=null must stay the plain-channel path. Only
+    // MESSAGE_CREATE should fan out; CHILD_CHANNEL_UPDATE would misdirect the
+    // parent-indicator UI for a channel with no parent.
+    mockGetChannelForMember.mockResolvedValue({
+      id: "c1",
+      serverId: "s1",
+      parentChannelId: null,
+    })
+
+    const res = await POST(postReq({ content: "top-level" }), ctx)
+    expect(res.status).toBe(201)
+
+    const childUpdateCall = mockFanOutToChannel.mock.calls.find(
+      (c) => c[1]?.type === WS_EVENTS.CHILD_CHANNEL_UPDATE,
+    )
+    expect(childUpdateCall).toBeUndefined()
+    // getChannel is only invoked in the thread branch to read messageCount /
+    // lastMessageAt for the CHILD_CHANNEL_UPDATE payload — must not fire here.
+    expect(mockGetChannel).not.toHaveBeenCalled()
+  })
 })
 
 describe("GET /api/community/channels/[id]/messages", () => {
@@ -281,6 +338,41 @@ describe("GET /api/community/channels/[id]/messages", () => {
     expect(body.messages[0]?.authorName).not.toBe("Unknown")
     expect(body.messages[0]?.authorName).not.toContain("@")
     expect(body.messages[0]?.authorAvatar).toBe("A")
+  })
+
+  it("runs attachment, reaction, reply-target, and child-channel fetches in parallel", async () => {
+    // The 4 follow-up fetches have no cross-dependency; they must run
+    // concurrently (Promise.all), not sequentially. We prove concurrency by
+    // observing the in-flight count of the mocked queries: if any two are
+    // running at the same time, the max concurrency is >= 2.
+    mockListMessages.mockResolvedValue([
+      { id: "m-1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "hi", type: "default", mentionType: null, replyToId: "r-1", channelId: "c1", embeds: null, createdAt: "t1" },
+    ])
+
+    let inFlight = 0
+    let maxInFlight = 0
+    async function tracked<T>(value: T): Promise<T> {
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise((r) => setTimeout(r, 15))
+      inFlight--
+      return value
+    }
+    mockListByMessageIds.mockImplementation(() => tracked([]))
+    mockListReactionsByMessageIds.mockImplementation(() => tracked([]))
+    mockGetMessagesByIds.mockImplementation(() => tracked([]))
+    mockListChildChannels.mockImplementation(() => tracked([]))
+
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(200)
+
+    // All 4 fetches must have been kicked off before any resolves — proving
+    // Promise.all, not sequential await.
+    expect(maxInFlight).toBe(4)
+    expect(mockListByMessageIds).toHaveBeenCalledTimes(1)
+    expect(mockListReactionsByMessageIds).toHaveBeenCalledTimes(1)
+    expect(mockGetMessagesByIds).toHaveBeenCalledTimes(1)
+    expect(mockListChildChannels).toHaveBeenCalledTimes(1)
   })
 
   it("passes parsed embeds through to the response body verbatim", async () => {

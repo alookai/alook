@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
-import { useCommunity } from "@/contexts/community/context"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { MessageList } from "@/components/community/message-list"
@@ -12,9 +11,45 @@ import { Composer, ComposerSkeleton } from "@/components/community/composer"
 import { ForumView, ForumViewSkeleton } from "@/components/community/forum-view"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
+import { ThreadOpener } from "@/components/community/thread-opener"
 import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
 import type { MentionType } from "@alook/shared"
+import {
+  useCommunityStore,
+  useCurrentChannelId,
+  useCurrentChannelMeta,
+  useUiHandlers,
+} from "@/stores/community"
+import { useCurrentUser } from "@/contexts/community/current-user"
+import { useServer } from "@/hooks/community/use-servers"
+import { useServerMembers } from "@/hooks/community/use-server-members"
+import { useMessages } from "@/hooks/community/use-messages"
+import {
+  useThreads,
+  useForumPosts,
+  usePins,
+} from "@/hooks/community/use-channel-panels"
+import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
+import { useFriends } from "@/hooks/community/use-friends"
+import { useOnlineUserIds } from "@/stores/community/ws"
+import {
+  useSendMessage,
+  useToggleReactionApi,
+  usePinMessage,
+  useUnpinMessage,
+  useCreateThread,
+  useCreateForumPost,
+  useSetMemberRole,
+  useKickMember,
+  useSetChannelNotif,
+  useUploadFile,
+} from "@/hooks/community/mutations"
+import {
+  communityWsSubscribe,
+  communityWsUnsubscribe,
+  communityWsSendTyping,
+} from "@/hooks/community/use-community-ws"
 
 /**
  * /community/channels/:serverId/:channelId
@@ -23,12 +58,6 @@ import type { MentionType } from "@alook/shared"
  * - Text channel: MessageList + Composer + right panels
  * - Thread / forum-post opened via URL: child-channel view (breadcrumb + list)
  */
-// Thin wrapper that re-keys the actual view on channelId. The page component
-// would otherwise stay mounted across channel switches (Next.js dynamic
-// segment reuses the same component instance), leaving local state — replyTo,
-// pendingFiles, the TipTap editor doc, the rightPanel toggle — visible for a
-// frame until the post-render reset effects fire. A keyed remount is
-// synchronous: the previous channel's view tears down before the next paints.
 export default function ChannelPage() {
   const params = useParams<{ serverId: string; channelId: string }>()
   const key = `${params.serverId}/${params.channelId}`
@@ -41,17 +70,100 @@ function ChannelView() {
   const serverId = decodeURIComponent(params.serverId)
   const channelId = params.channelId
   const bp = useBreakpoint()
-  const ctx = useCommunity()
+  const currentUser = useCurrentUser()
+  const uiHandlers = useUiHandlers()
+  const currentChannelId = useCurrentChannelId()
+  const currentChannelMeta = useCurrentChannelMeta()
 
-  const goBack = useCallback(() => {
-    ctx.goBackMobile()
-  }, [ctx])
+  const { server: currentServer } = useServer(serverId)
+  const membersHook = useServerMembers(serverId)
+  const onlineUserIds = useOnlineUserIds()
+  // Members enriched with presence — used by the message list's typingUsers
+  // resolution and the panel roster to render the correct dot.
+  const members = useMemo(
+    () =>
+      membersHook.members.map((m) => ({
+        ...m,
+        status: m.userId === currentUser.id || onlineUserIds.has(m.userId)
+          ? ("online" as const)
+          : ("offline" as const),
+      })),
+    [membersHook.members, onlineUserIds, currentUser.id],
+  )
+  const { friends: rawFriends } = useFriends()
+  const friends = useMemo(
+    () =>
+      rawFriends.map((f) => ({
+        ...f,
+        status: onlineUserIds.has(f.userId ?? f.id)
+          ? ("online" as const)
+          : ("offline" as const),
+      })),
+    [rawFriends, onlineUserIds],
+  )
+  // Type-gate the forum-posts fetch: only forum channels have a valid
+  // /posts endpoint; text channels return 400. Compute the flag BEFORE the
+  // hook call so `useForumPosts` can stay disabled for non-forum channels.
+  const channelInServer = useMemo(() => {
+    const allChannels = currentServer?.categories?.flatMap((c) => c.channels) ?? []
+    return allChannels.find((ch) => ch.id === channelId) ?? null
+  }, [currentServer, channelId])
+  const isForum = channelInServer?.type === "forum"
+  const isChildChannel = !channelInServer && !!currentServer?.categories
+
+  const messagesQuery = useMessages(channelId)
+  const { messages, isLoading: messagesLoading } = messagesQuery
+  const { threads, isLoading: threadsLoading } = useThreads(channelId)
+  const { posts: forumPosts, isLoading: forumPostsLoading } = useForumPosts(channelId, isForum)
+  const { pins: pinned, isLoading: pinnedLoading } = usePins(channelId)
+  const notifs = useNotificationSettings()
+  const channelNotif = notifs.channel
+  const typingUsers = useCommunityStore((s) => s.typingUsers)
+
+  // Mutations
+  const sendMessageMut = useSendMessage()
+  const toggleReactionApi = useToggleReactionApi()
+  const pinMessageMut = usePinMessage()
+  const unpinMessageMut = useUnpinMessage()
+  const createThreadMut = useCreateThread()
+  const createForumPostMut = useCreateForumPost()
+  const setMemberRoleMut = useSetMemberRole()
+  const kickMemberMut = useKickMember()
+  const setChannelNotifMut = useSetChannelNotif()
+  const uploadFileMut = useUploadFile()
+
+  const goBack = useCallback(() => { uiHandlers.goBackMobile?.() }, [uiHandlers])
 
   // Set the current channel from URL params
   useEffect(() => {
-    ctx.setCurrentChannelId(channelId)
-    return () => { ctx.setCurrentChannelId(null) }
-  }, [channelId]) // eslint-disable-line react-hooks/exhaustive-deps
+    useCommunityStore.getState().setCurrentChannelId(channelId)
+    return () => { useCommunityStore.getState().setCurrentChannelId(null) }
+  }, [channelId])
+
+  // ── Subscribe + fetch child-channel meta ──────────────────────────────────
+  useEffect(() => {
+    if (!channelId) return
+    communityWsSubscribe({ channelId })
+    // Child channel — fetch meta so the breadcrumb shows the new parent name
+    if (isChildChannel) {
+      apiFetch<{ id: string; name: string; parentChannelId: string | null; parentMessageId: string | null }>(`/api/community/threads/${channelId}`)
+        .then((data) =>
+          useCommunityStore
+            .getState()
+            .setCurrentChannelMeta({
+              name: data.name,
+              parentChannelId: data.parentChannelId,
+              parentMessageId: data.parentMessageId,
+            }),
+        )
+        .catch(() => useCommunityStore.getState().setCurrentChannelMeta(null))
+    } else {
+      useCommunityStore.getState().setCurrentChannelMeta(null)
+    }
+    return () => {
+      communityWsUnsubscribe()
+    }
+  }, [channelId, isChildChannel])
 
   // ── Local UI state ──────────────────────────────────────────────────────
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
@@ -62,10 +174,7 @@ function ChannelView() {
   const [searchResults, setSearchResults] = useState<Msg[]>([])
   const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null)
 
-  // Channel switch — reset every piece of UI state scoped to the previous
-  // channel. Without this the page component stays mounted across channel
-  // changes (Next.js dynamic segment), so a stale replyTo would attach a new
-  // send to a message id from the previous channel.
+  // Channel switch — reset every piece of UI state scoped to the previous channel.
   useEffect(() => {
     setReplyTo(null)
     setRightPanel(null)
@@ -93,33 +202,21 @@ function ChannelView() {
     } catch { setSearchResults([]) }
   }, [channelId])
 
-  // Determine channel type from server categories
-  const channelInServer = useMemo(() => {
-    const allChannels = ctx.currentServer?.categories?.flatMap((c) => c.channels) ?? []
-    return allChannels.find((ch) => ch.id === channelId) ?? null
-  }, [ctx.currentServer, channelId])
-
-  const isForum = channelInServer?.type === "forum"
-  // If channelId is not in server categories, it's a child channel (post / thread opened via URL)
-  const isChildChannel = !channelInServer && !!ctx.currentServer?.categories
-
   // Find the channel name
   const channelName = useMemo(() => {
     if (localName) return localName
     if (channelInServer) return channelInServer.name
-    // Child channel — use meta from context
-    if (ctx.currentChannelMeta?.name) return ctx.currentChannelMeta.name
-    const post = ctx.forumPosts.find((p) => p.id === channelId)
+    if (currentChannelMeta?.name) return currentChannelMeta.name
+    const post = forumPosts.find((p) => p.id === channelId)
     if (post) return post.name
-    const thread = ctx.threads.find((t) => t.id === channelId)
+    const thread = threads.find((t) => t.id === channelId)
     if (thread) return thread.name
     return "channel"
-  }, [localName, channelInServer, ctx.forumPosts, ctx.threads, ctx.currentChannelMeta, channelId])
+  }, [localName, channelInServer, forumPosts, threads, currentChannelMeta, channelId])
 
   // Pinned message ids
-  const pinnedIds = useMemo(() => new Set(ctx.pinned.map((p) => p.id)), [ctx.pinned])
+  const pinnedIds = useMemo(() => new Set(pinned.map((p) => p.id)), [pinned])
 
-  // ── Panel toggle ────────────────────────────────────────────────────────
   const togglePanel = (k: Exclude<RightPanel, null>) =>
     setRightPanel((p) => (p === k ? null : k))
 
@@ -128,40 +225,73 @@ function ChannelView() {
     apiFetch(`/api/community/threads/${id}/read`, { method: "PUT" }).catch(() => {})
   }
 
-  // ── Profile card ────────────────────────────────────────────────────────
   const openProfile: OpenProfile = (name, e) => {
-    ctx.openProfile(name, e)
+    uiHandlers.openProfile?.(name, e)
   }
 
   // ── Message actions ─────────────────────────────────────────────────────
+  const doSend = useCallback(
+    (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
+      return sendMessageMut.mutateAsync({
+        channelId,
+        content,
+        replyToId: opts?.replyToId,
+        mentionType: opts?.mentionType,
+        attachments: opts?.attachments,
+        author: {
+          id: currentUser.id,
+          name: currentUser.name,
+          avatar: currentUser.avatar,
+        },
+      })
+    },
+    [sendMessageMut, channelId, currentUser.id, currentUser.name, currentUser.avatar],
+  )
+
   const messageActions = {
-    onToggleReaction: ctx.toggleReaction,
-    onReact: ctx.toggleReaction,
+    onToggleReaction: (id: string, emoji: string) =>
+      toggleReactionApi({ channelId, messageId: id, emoji, userId: currentUser.id }),
+    onReact: (id: string, emoji: string) =>
+      toggleReactionApi({ channelId, messageId: id, emoji, userId: currentUser.id }),
     onReply: (id: string) => {
-      const m = ctx.messages.find((x) => x.id === id)
+      const m = messages.find((x) => x.id === id)
       if (m) setReplyTo({ id: m.id, authorName: m.authorName ?? "", text: m.content ?? "" })
     },
     onPin: (id: string) => {
       const isPinned = pinnedIds.has(id)
-      if (isPinned) ctx.unpinMessage(id)
-      else { ctx.pinMessage(id); setRightPanel("pinned") }
+      if (isPinned) {
+        unpinMessageMut.mutate({ channelId, messageId: id }, {
+          onSuccess: () => toast("Message unpinned"),
+          onError: () => toast("Failed to unpin message"),
+        })
+      } else {
+        pinMessageMut.mutate({ channelId, messageId: id }, {
+          onSuccess: () => toast("Message pinned"),
+          onError: () => toast("Failed to pin message"),
+        })
+        setRightPanel("pinned")
+      }
     },
     onCreateThread: async (id: string) => {
-      const m = ctx.messages.find((x) => x.id === id)
+      const m = messages.find((x) => x.id === id)
       const name = (m?.content ?? channelName).split(/\s+/).slice(0, 6).join(" ").slice(0, 60) || channelName
-      const threadId = await ctx.createThread(id, name)
-      if (threadId) router.push(`/community/channels/${params.serverId}/${threadId}`)
+      try {
+        const data = await createThreadMut.mutateAsync({ channelId, messageId: id, name })
+        router.push(`/community/channels/${params.serverId}/${data.id}`)
+      } catch {
+        toast("Failed to create thread")
+      }
     },
     onCopy: (id: string) => {
-      const m = ctx.messages.find((x) => x.id === id)
+      const m = messages.find((x) => x.id === id)
       if (m?.content) { navigator.clipboard?.writeText(m.content); toast("Copied to clipboard") }
     },
     onRetry: (id: string) => {
-      const m = ctx.messages.find((x) => x.id === id)
-      if (m?.content) ctx.sendMessage(m.content)
+      const m = messages.find((x) => x.id === id)
+      if (m?.content) void doSend(m.content)
     },
     onPreviewImage: (url: string) => {
-      ctx.previewImage(url)
+      uiHandlers.previewImage?.(url)
     },
     onDownloadFile: (url: string) => {
       const a = document.createElement("a")
@@ -171,28 +301,28 @@ function ChannelView() {
     },
   }
 
-  // Thread/child-channel: strip actions that don't apply inside a thread
   const threadActions = { ...messageActions, onCreateThread: undefined }
 
   const resolveUserName = useCallback((userId: string) => {
-    const m = ctx.members.find((x) => x.userId === userId)
+    const m = members.find((x) => x.userId === userId)
     return m?.name ?? userId
-  }, [ctx.members])
+  }, [members])
 
   // ── Send messages ───────────────────────────────────────────────────────
   const sendMessage = async (markdown: string, attachments?: File[], mentionType?: MentionType) => {
     if (!markdown && !attachments?.length) return
 
-    // Upload files first if any
     let uploadedAttachments: { url: string; filename: string; contentType: string; size: number }[] = []
     if (attachments?.length) {
       const results = await Promise.all(
-        attachments.map((f) => ctx.uploadFile({ channelId }, f))
+        attachments.map((f) =>
+          uploadFileMut.mutateAsync({ target: { channelId }, file: f }).catch(() => null),
+        ),
       )
       uploadedAttachments = results.filter(Boolean) as typeof uploadedAttachments
     }
 
-    ctx.sendMessage(markdown || "", {
+    void doSend(markdown || "", {
       replyToId: replyTo?.id,
       mentionType,
       attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
@@ -200,52 +330,66 @@ function ChannelView() {
     setReplyTo(null)
   }
 
-  // ── Send typing ─────────────────────────────────────────────────────────
   const handleTyping = () => {
-    ctx.sendTyping({ channelId })
+    communityWsSendTyping({ channelId })
   }
 
-  // ── Create thread from dialog ───────────────────────────────────────────
   const createThreadFromDialog = async (name: string, firstMessage?: string) => {
     setCreatingThread(false)
     if (firstMessage) {
-      const msgId = await ctx.sendMessage(firstMessage)
-      if (msgId) await ctx.createThread(msgId, name)
+      try {
+        const result = await doSend(firstMessage)
+        if (result?.message?.id) {
+          await createThreadMut.mutateAsync({ channelId, messageId: result.message.id, name })
+        }
+      } catch {
+        toast("Failed to create thread")
+      }
     } else {
       toast("Create a thread by clicking 'Create Thread' on any message")
     }
   }
 
-  // ── Forum posts ─────────────────────────────────────────────────────────
   const createForumPost = (post: { name: string; content: string; tags: string[] }) => {
-    ctx.createForumPost(channelId, post)
+    createForumPostMut.mutate({ channelId, ...post }, {
+      onError: () => toast("Failed to create post"),
+    })
   }
 
-  // ── Panel props ─────────────────────────────────────────────────────────
-  const myRole = ctx.members.find((m) => m.userId === ctx.currentUser.id)?.role
+  const myRole = members.find((m) => m.userId === currentUser.id)?.role
   const panelProps = {
     onOpenThread: enterThread,
-    members: ctx.members,
-    membersLoading: ctx.membersLoading,
-    membersLoadingMore: ctx.membersLoadingMore,
-    membersHasMore: ctx.membersHasMore,
-    onLoadMoreMembers: ctx.loadMoreMembers,
-    onSearchMembers: ctx.searchMembers,
-    pinned: ctx.pinned,
-    pinnedLoading: ctx.pinnedLoading,
+    members,
+    membersLoading: membersHook.loading,
+    membersLoadingMore: membersHook.loadingMore,
+    membersHasMore: membersHook.hasMore,
+    onLoadMoreMembers: membersHook.loadMore,
+    onSearchMembers: membersHook.searchMembers,
+    pinned,
+    pinnedLoading,
     searchResults,
-    threads: ctx.threads,
-    threadsLoading: ctx.threadsLoading,
+    threads,
+    threadsLoading,
     searchQuery,
     myRole,
     onSearch: doSearch,
     onSetRole: (name: string, role: Role) => {
-      const m = ctx.members.find((x) => x.name === name)
-      if (m) ctx.setMemberRole(m.id, role)
+      const m = members.find((x) => x.name === name)
+      if (m) {
+        setMemberRoleMut.mutate({ serverId, memberId: m.id, role }, {
+          onSuccess: () => toast("Role updated"),
+          onError: () => toast("Failed to update role"),
+        })
+      }
     },
     onKickMember: (name: string) => {
-      const m = ctx.members.find((x) => x.name === name)
-      if (m) ctx.kickMember(m.id)
+      const m = members.find((x) => x.name === name)
+      if (m) {
+        kickMemberMut.mutate({ serverId, memberId: m.id }, {
+          onSuccess: () => toast("Member kicked"),
+          onError: () => toast("Failed to kick member"),
+        })
+      }
     },
     onJumpToMessage: (id: string) => {
       setScrollToMessageId(id)
@@ -253,29 +397,13 @@ function ChannelView() {
     },
   }
 
-  // Top-level loading gate. The context tracks the active channel id via its
-  // own effect, which fires AFTER the URL-driven render commits. Between those
-  // two ticks `ctx.currentChannelId` still points at the previous channel and
-  // `ctx.messages` is its history. Render the channel shell skeleton until
-  // they line up — this also catches the same-server c1 → c2 case where the
-  // server detail is already loaded so no other branch would trip.
-  // Child channels (thread / forum post) additionally wait on the meta fetch
-  // so the breadcrumb shows the new parent name instead of the previous one.
-  const isPotentialChild = !channelInServer && !!ctx.currentServer?.categories
-  // Forum body has no message list — its skeleton lifts when forumPosts arrive.
-  // Text channels lift when messages arrive. Gating a forum on messagesLoading
-  // alone made the header flash to real for one frame between "context syncs
-  // channelId" and "forum fetch flips forumPostsLoading true".
-  const bodyLoading = isForum ? ctx.forumPostsLoading : ctx.messagesLoading
+  const isPotentialChild = !channelInServer && !!currentServer?.categories
+  const bodyLoading = isForum ? forumPostsLoading : messagesLoading
   const channelHydrated =
-    ctx.currentChannelId === channelId &&
+    currentChannelId === channelId &&
     !bodyLoading &&
-    (!isPotentialChild || ctx.currentChannelMeta !== null)
+    (!isPotentialChild || currentChannelMeta !== null)
   if (!channelHydrated) {
-    // Forum has no message list / composer — use a filter-bar + card skeleton
-    // so the shell doesn't briefly show a chat-shaped placeholder before the
-    // forum view mounts. Falls through to the chat shell when the channel type
-    // isn't known yet.
     if (isForum) {
       return (
         <>
@@ -299,10 +427,24 @@ function ChannelView() {
 
   // ── Child channel view (forum post / thread opened via URL) ─────────────
   if (isChildChannel) {
-    const parentId = ctx.currentChannelMeta?.parentChannelId
-    const allChannels = ctx.currentServer?.categories?.flatMap((c) => c.channels) ?? []
+    const parentId = currentChannelMeta?.parentChannelId
+    const parentMessageId = currentChannelMeta?.parentMessageId ?? null
+    const allChannels = currentServer?.categories?.flatMap((c) => c.channels) ?? []
     const parentChannel = parentId ? allChannels.find((ch) => ch.id === parentId) : null
     const parentName = parentChannel?.name ?? "channel"
+    const opener = parentMessageId ? (
+      <ThreadOpener
+        parentMessageId={parentMessageId}
+        onOpenProfile={openProfile}
+        onPreviewImage={(url) => uiHandlers.previewImage?.(url)}
+        onDownloadFile={(url) => {
+          const a = document.createElement("a")
+          a.href = url
+          a.download = url.split("/").pop() ?? "file"
+          a.click()
+        }}
+      />
+    ) : undefined
     return (
       <>
         <ChannelHeader
@@ -311,7 +453,7 @@ function ChannelView() {
           rightPanel={rightPanel}
           onToggle={togglePanel}
           onBack={bp === "mobile" ? () => router.back() : undefined}
-          server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
+          server={bp === "mobile" && currentServer ? { name: currentServer.name, icon: currentServer.icon } : undefined}
           tools={{ threads: false }}
           breadcrumb={{
             label: channelName,
@@ -330,20 +472,21 @@ function ChannelView() {
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MessageList
             channel={channelName}
-            messages={ctx.messages}
-            loading={ctx.messagesLoading}
+            messages={messages}
+            loading={messagesLoading}
             pinnedIds={pinnedIds}
-            typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
+            typingUsers={typingUsers.map((id) => members.find((m) => m.userId === id)?.name ?? id)}
             onOpenThread={() => {}}
             {...threadActions}
             onOpenProfile={openProfile}
             resolveUserName={resolveUserName}
             scrollToMessageId={scrollToMessageId}
+            hero={opener}
           />
           <Composer
             channel={channelName}
             context="thread"
-            members={ctx.friends}
+            members={friends}
             onSend={sendMessage}
             onTyping={handleTyping}
             replyingTo={replyTo?.authorName}
@@ -366,7 +509,7 @@ function ChannelView() {
 
   // ── Forum view ──────────────────────────────────────────────────────────
   if (isForum) {
-    const allChannels = ctx.currentServer?.categories.flatMap((c) => c.channels) ?? []
+    const allChannels = currentServer?.categories.flatMap((c) => c.channels) ?? []
     const forumChannel = allChannels.find((ch) => ch.id === channelId)
     const forumTags: string[] = forumChannel?.tags ?? []
     const canManage = canManageServer(myRole)
@@ -377,17 +520,17 @@ function ChannelView() {
           forum
           rightPanel={rightPanel}
           onToggle={togglePanel}
-          notifLevel={(ctx.channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
-          onSetNotifLevel={(l) => ctx.setChannelNotif(channelId, l)}
+          notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
+          onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l })}
           onBack={bp === "mobile" ? goBack : undefined}
-          server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
+          server={bp === "mobile" && currentServer ? { name: currentServer.name, icon: currentServer.icon } : undefined}
           tools={{ threads: false, pinned: false }}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <ForumView
-            posts={ctx.forumPosts}
+            posts={forumPosts}
             tags={forumTags}
-            loading={ctx.forumPostsLoading}
+            loading={forumPostsLoading}
             onOpenPost={enterThread}
             onCreatePost={createForumPost}
             canManageTags={canManage}
@@ -420,18 +563,18 @@ function ChannelView() {
         channel={channelName}
         rightPanel={rightPanel}
         onToggle={togglePanel}
-        notifLevel={(ctx.channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
-        onSetNotifLevel={(l) => ctx.setChannelNotif(channelId, l)}
+        notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
+        onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l })}
         onBack={bp === "mobile" ? goBack : undefined}
-        server={bp === "mobile" && ctx.currentServer ? { name: ctx.currentServer.name, icon: ctx.currentServer.icon } : undefined}
+        server={bp === "mobile" && currentServer ? { name: currentServer.name, icon: currentServer.icon } : undefined}
       />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <MessageList
           channel={channelName}
-          messages={ctx.messages}
-          loading={ctx.messagesLoading}
+          messages={messages}
+          loading={messagesLoading}
           pinnedIds={pinnedIds}
-          typingUsers={ctx.typingUsers.map((id) => ctx.members.find((m) => m.userId === id)?.name ?? id)}
+          typingUsers={typingUsers.map((id) => members.find((m) => m.userId === id)?.name ?? id)}
           onOpenThread={enterThread}
           {...messageActions}
           onOpenProfile={openProfile}
@@ -441,7 +584,7 @@ function ChannelView() {
         <Composer
           channel={channelName}
           context="channel"
-          members={ctx.friends}
+          members={friends}
           onSend={sendMessage}
           onCreateThread={() => setCreatingThread(true)}
           onTyping={handleTyping}

@@ -3,13 +3,32 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams } from "next/navigation"
 import { toast } from "sonner"
-import { useCommunity } from "@/contexts/community/context"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
 import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
 import { Composer, ComposerSkeleton } from "@/components/community/composer"
 import type { OpenProfile } from "@/components/community/_types"
+import {
+  useCommunityStore,
+  useCurrentChannelId,
+  useUiHandlers,
+} from "@/stores/community"
+import { useOnlineUserIds } from "@/stores/community/ws"
+import { useDms } from "@/hooks/community/use-dms"
+import { useFriends } from "@/hooks/community/use-friends"
+import { useDmMessages } from "@/hooks/community/use-messages"
+import {
+  useSendDmMessage,
+  useToggleReactionApi,
+  useUploadFile,
+} from "@/hooks/community/mutations"
+import { useCurrentUser } from "@/contexts/community/current-user"
+import {
+  communityWsSubscribe,
+  communityWsUnsubscribe,
+  communityWsSendTyping,
+} from "@/hooks/community/use-community-ws"
 
 // Thin re-mount wrapper — same reason as the server-side channel view: the
 // dynamic segment reuses the same component instance across DM switches, so
@@ -23,14 +42,44 @@ function DmView() {
   const params = useParams<{ dmId: string }>()
   const dmId = params.dmId
   const bp = useBreakpoint()
-  const ctx = useCommunity()
+  const currentUser = useCurrentUser()
+  const currentChannelId = useCurrentChannelId()
+  const uiHandlers = useUiHandlers()
 
-  const goBack = useCallback(() => { ctx.goBackMobile() }, [ctx])
+  const { dms, isLoading: dmsLoading } = useDms()
+  const { friends: rawFriends, blocked } = useFriends()
+  const onlineUserIds = useOnlineUserIds()
+  // Enrich with presence — the Composer @-picker uses `f.status` to render
+  // the avatar presence dot; without this enrichment every avatar shows offline.
+  const friends = useMemo(
+    () =>
+      rawFriends.map((f) => ({
+        ...f,
+        status: onlineUserIds.has(f.userId ?? f.id)
+          ? ("online" as const)
+          : ("offline" as const),
+      })),
+    [rawFriends, onlineUserIds],
+  )
+  const {
+    messages,
+    isLoading: messagesLoading,
+  } = useDmMessages(dmId)
+  const typingUsers = useCommunityStore((s) => s.typingUsers)
+  const sendDmMessage = useSendDmMessage()
+  const toggleReaction = useToggleReactionApi()
+  const uploadFile = useUploadFile()
+
+  const goBack = useCallback(() => { uiHandlers.goBackMobile?.() }, [uiHandlers])
 
   useEffect(() => {
-    ctx.setCurrentChannelId(dmId)
-    return () => { ctx.setCurrentChannelId(null) }
-  }, [dmId]) // eslint-disable-line react-hooks/exhaustive-deps
+    useCommunityStore.getState().setCurrentChannelId(dmId)
+    communityWsSubscribe({ dmConversationId: dmId })
+    return () => {
+      useCommunityStore.getState().setCurrentChannelId(null)
+      communityWsUnsubscribe()
+    }
+  }, [dmId])
 
   const [replyTo, setReplyTo] = useState<{ id: string; authorName: string; text: string } | null>(null)
 
@@ -38,27 +87,50 @@ function DmView() {
     setReplyTo(null)
   }, [dmId])
 
-  const dm = ctx.dms.find((d) => d.id === dmId) ?? null
+  const dm = useMemo(() => {
+    const raw = dms.find((d) => d.id === dmId) ?? null
+    if (!raw) return null
+    return {
+      ...raw,
+      status: onlineUserIds.has(raw.userId)
+        ? ("online" as const)
+        : ("offline" as const),
+    }
+  }, [dms, dmId, onlineUserIds])
 
-  const openProfile: OpenProfile = (name, e) => { ctx.openProfile(name, e) }
+  const openProfile: OpenProfile = (name, e) => {
+    uiHandlers.openProfile?.(name, e)
+  }
 
   const resolveUserName = useCallback((userId: string) => {
-    const m = ctx.members.find((x) => x.userId === userId)
-    return m?.name ?? userId
-  }, [ctx.members])
+    const f = friends.find((x) => x.userId === userId)
+    return f?.name ?? userId
+  }, [friends])
 
   const messageActions = useMemo(() => ({
-    onToggleReaction: ctx.toggleReaction,
-    onReact: ctx.toggleReaction,
+    onToggleReaction: (id: string, emoji: string) =>
+      toggleReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
+    onReact: (id: string, emoji: string) =>
+      toggleReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
     onCopy: (id: string) => {
-      const m = ctx.messages.find((x) => x.id === id)
+      const m = messages.find((x) => x.id === id)
       if (m?.content) { navigator.clipboard?.writeText(m.content); toast("Copied to clipboard") }
     },
     onRetry: (id: string) => {
-      const m = ctx.messages.find((x) => x.id === id)
-      if (m?.content) ctx.sendMessage(m.content)
+      const m = messages.find((x) => x.id === id)
+      if (m?.content) {
+        sendDmMessage.mutate({
+          dmId,
+          content: m.content,
+          author: {
+            id: currentUser.id,
+            name: currentUser.name,
+            avatar: currentUser.avatar,
+          },
+        })
+      }
     },
-  }), [ctx.toggleReaction, ctx.messages, ctx.sendMessage])
+  }), [toggleReaction, dmId, currentUser.id, currentUser.name, currentUser.avatar, messages, sendDmMessage])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.
@@ -68,27 +140,36 @@ function DmView() {
     let uploadedAttachments: { url: string; filename: string; contentType: string; size: number }[] = []
     if (attachments?.length) {
       const results = await Promise.all(
-        attachments.map((f) => ctx.uploadFile({ dmId }, f))
+        attachments.map((f) =>
+          uploadFile.mutateAsync({ target: { dmId }, file: f }).catch(() => null),
+        ),
       )
       uploadedAttachments = results.filter(Boolean) as typeof uploadedAttachments
     }
-    ctx.sendDmMessage(dmId, markdown || "", {
+    sendDmMessage.mutate({
+      dmId,
+      content: markdown || "",
       replyToId: replyTo?.id,
       attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+      author: {
+        id: currentUser.id,
+        name: currentUser.name,
+        avatar: currentUser.avatar,
+      },
     })
     setReplyTo(null)
   }
 
-  const handleTyping = () => { ctx.sendTyping({ dmConversationId: dmId }) }
+  const handleTyping = () => { communityWsSendTyping({ dmConversationId: dmId }) }
 
-  // Wait for context to catch up to the URL and for messages to load. See
-  // the server-side channel page for the same rationale — the context's
+  // Wait for query to catch up to the URL and for messages to load. See
+  // the server-side channel page for the same rationale — the store's
   // channelId sync runs after this render commits, so gate on the two
   // lining up before showing real content.
   const channelHydrated =
-    ctx.currentChannelId === dmId &&
-    !ctx.messagesLoading &&
-    !ctx.dmsLoading
+    currentChannelId === dmId &&
+    !messagesLoading &&
+    !dmsLoading
   if (!channelHydrated) {
     return (
       <>
@@ -109,7 +190,7 @@ function DmView() {
     )
   }
 
-  const dmBlocked = ctx.blocked.some((b) => (b.userId ?? b.id) === dm.userId)
+  const dmBlocked = blocked.some((b) => (b.userId ?? b.id) === dm.userId)
 
   return (
     <>
@@ -117,9 +198,9 @@ function DmView() {
       <main className="flex min-h-0 flex-1 flex-col">
         <MessageList
           channel={dm.name}
-          messages={ctx.messages}
-          loading={ctx.messagesLoading}
-          typingUsers={ctx.typingUsers.map((id) => ctx.friends.find((f) => f.userId === id)?.name ?? id)}
+          messages={messages}
+          loading={messagesLoading}
+          typingUsers={typingUsers.map((id) => friends.find((f) => f.userId === id)?.name ?? id)}
           onOpenThread={() => {}}
           onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
           onReact={dmBlocked ? undefined : messageActions.onReact}
@@ -143,7 +224,7 @@ function DmView() {
           <Composer
             channel={dm.name}
             context="dm"
-            members={ctx.friends}
+            members={friends}
             onSend={sendDmMsg}
             onTyping={handleTyping}
             replyingTo={replyTo?.authorName}

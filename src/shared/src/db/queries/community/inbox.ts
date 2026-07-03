@@ -357,3 +357,26 @@ export async function dismissForYouForChannel(
 ): Promise<void> {
   await dismissEvents(db, userId, [`thread:${channelId}`]);
 }
+
+/**
+ * Batch-friendly builder variant of {@link dismissForYouForChannel}. Returns
+ * the INSERT builder directly so it can be composed into `db.batch([...])`.
+ * The `ON CONFLICT DO NOTHING` target matches the `uq_inbox_dismissal_user_event`
+ * unique index (userId, eventKey).
+ */
+export function dismissForYouForChannelBuilder(
+  db: Database,
+  userId: string,
+  channelId: string
+) {
+  return db
+    .insert(communityInboxDismissal)
+    .values({
+      userId,
+      eventKey: `thread:${channelId}`,
+      dismissedAt: new Date().toISOString(),
+    })
+    .onConflictDoNothing({
+      target: [communityInboxDismissal.userId, communityInboxDismissal.eventKey],
+    });
+}

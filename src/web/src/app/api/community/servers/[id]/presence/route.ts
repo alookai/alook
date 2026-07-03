@@ -1,9 +1,9 @@
-import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, DEV_WS_DO_URL, PRESENCE_MEMBER_CAP } from "@alook/shared"
+import { queries, PRESENCE_MEMBER_CAP } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { requireServerMember } from "@/lib/community/permissions"
+import { wsDoFetch } from "@/lib/broadcast"
 
 export const GET = withAuth(async (_req, ctx) => {
   const serverId = ctx.params?.id
@@ -24,23 +24,11 @@ export const GET = withAuth(async (_req, ctx) => {
   const body = JSON.stringify({ ids: userIds })
   let online: string[] = []
   try {
-    let resp: Response
-    try {
-      const { env } = getCloudflareContext()
-      resp = await (env as Env).WS_DO_WORKER.fetch("http://internal/presence/users", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-      })
-    } catch {
-      const wsDoUrl = (ctx.env as unknown as Record<string, unknown>).DEV_WS_DO_URL as string | undefined
-      const base = wsDoUrl || DEV_WS_DO_URL
-      resp = await fetch(`${base}/presence/users`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-      })
-    }
+    const resp = await wsDoFetch(ctx.env, "/presence/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    }, { label: serverId })
     if (resp.ok) {
       const data = await resp.json() as { online: string[] }
       online = Array.isArray(data.online) ? data.online : []

@@ -10,6 +10,7 @@ const mediaGet = vi.fn()
 const mediaDelete = vi.fn()
 const mediaList = vi.fn()
 const mediaPut = vi.fn()
+const mockWaitUntil = vi.fn<(promise: Promise<unknown>) => void>()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(async () => ({
@@ -22,6 +23,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
         list: (...a: unknown[]) => mediaList(...a),
       },
     },
+    ctx: { waitUntil: (p: Promise<unknown>) => mockWaitUntil(p) },
   })),
 }))
 
@@ -184,6 +186,31 @@ describe("POST /api/community/servers/[id]/icon", () => {
 
     expect(mediaDelete).toHaveBeenCalledTimes(1)
     expect(mediaDelete).toHaveBeenCalledWith("server-icon/s1/old")
+  })
+
+  it("wraps the previous R2 key delete in ctx.waitUntil", async () => {
+    mockGetServer.mockResolvedValueOnce({ id: "s1", icon: "server-icon/s1/old" })
+
+    const res = await POST(postReq(), ctx())
+    expect(res.status).toBe(200)
+
+    // The delete must be handed to waitUntil so the CF runtime keeps the
+    // isolate alive past the response — otherwise the R2 delete can be killed
+    // mid-flight.
+    expect(mockWaitUntil).toHaveBeenCalledTimes(1)
+    const promise = mockWaitUntil.mock.calls[0][0]
+    expect(promise).toBeInstanceOf(Promise)
+    await expect(promise).resolves.toBeUndefined()
+    expect(mediaDelete).toHaveBeenCalledWith("server-icon/s1/old")
+  })
+
+  it("does not call waitUntil when there is no previous key to delete", async () => {
+    mockGetServer.mockResolvedValueOnce({ id: "s1", icon: null })
+
+    const res = await POST(postReq(), ctx())
+    expect(res.status).toBe(200)
+    expect(mockWaitUntil).not.toHaveBeenCalled()
+    expect(mediaDelete).not.toHaveBeenCalled()
   })
 
   it("does not delete legacy URL-shaped previous values", async () => {

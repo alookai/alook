@@ -2,9 +2,9 @@
 
 import { useEffect } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { useCommunity } from "@/contexts/community/context"
 import { MessageList } from "@/components/community/message-list"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useServer } from "@/hooks/community/use-servers"
 
 /**
  * /community/channels/:serverId
@@ -16,20 +16,20 @@ import { Skeleton } from "@/components/ui/skeleton"
 export default function ServerDefaultPage() {
   const params = useParams<{ serverId: string }>()
   const router = useRouter()
-  const ctx = useCommunity()
   const serverId = decodeURIComponent(params.serverId)
+  const { server: currentServer } = useServer(serverId)
 
   useEffect(() => {
-    if (!ctx.currentServer) return
-    const allChannels = ctx.currentServer.categories.flatMap((cat) => cat.channels)
+    if (!currentServer) return
+    const allChannels = currentServer.categories.flatMap((cat) => cat.channels)
     const first = allChannels[0]
     if (first) {
       router.replace(`/community/channels/${serverId}/${first.id}`)
     }
-  }, [ctx.currentServer, serverId, router])
+  }, [currentServer, serverId, router])
 
-  const allChannels = ctx.currentServer?.categories.flatMap((cat) => cat.channels) ?? []
-  if (ctx.currentServer && allChannels.length === 0) {
+  const allChannels = currentServer?.categories.flatMap((cat) => cat.channels) ?? []
+  if (currentServer && allChannels.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
         <span className="text-sm">No channels yet</span>

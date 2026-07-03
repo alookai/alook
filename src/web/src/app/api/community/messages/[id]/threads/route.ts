@@ -49,11 +49,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     creatorId: ctx.userId,
   })
 
-  await queries.communityMessage.createMessage(db, {
-    authorId: message.authorId,
-    content: message.content ?? "",
-    channelId: childChannel.id,
-  })
+  // Note: we intentionally do NOT clone the parent message into the new thread
+  // channel. The `parentMessageId` pointer above is the single source of truth
+  // for the opener — the thread page fetches the parent live via
+  // GET /api/community/messages/[id] and renders it as a pinned block at the
+  // top of the message list. Cloning would drift the moment the original is
+  // edited, and it never carried attachments / reactions / mentions in the
+  // first place.
 
   fanOutToChannel(message.channelId, {
     type: WS_EVENTS.CHILD_CHANNEL_CREATE,

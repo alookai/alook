@@ -2,10 +2,14 @@
 
 import { MachineList } from "@/components/community/machines/machine-list"
 import { useBreakpoint } from "@/hooks/use-mobile"
-import { useCommunity } from "@/contexts/community/context"
+import { useUiHandlers } from "@/stores/community"
 
 export default function MeMachinesPage() {
   const bp = useBreakpoint()
-  const ctx = useCommunity()
-  return <MachineList onBack={bp === "mobile" ? () => ctx.goBackMobile() : undefined} />
+  const uiHandlers = useUiHandlers()
+  return (
+    <MachineList
+      onBack={bp === "mobile" ? () => uiHandlers.goBackMobile?.() : undefined}
+    />
+  )
 }

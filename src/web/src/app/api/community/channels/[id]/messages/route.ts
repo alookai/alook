@@ -29,28 +29,30 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
 
-  // Fetch attachments for all messages
+  // All four follow-up fetches depend only on `items` / `channelId` — no
+  // cross-dependency — so run them concurrently to collapse 4 sequential D1
+  // round-trips into one wall-clock hop.
   const messageIds = items.map((m) => m.id)
-  const allAttachments = messageIds.length > 0
-    ? await queries.communityAttachment.listByMessageIds(db, messageIds)
-    : []
+  const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
+
+  const [allAttachments, allReactions, replyMessages, childChannels] = await Promise.all([
+    messageIds.length > 0
+      ? queries.communityAttachment.listByMessageIds(db, messageIds)
+      : Promise.resolve([]),
+    messageIds.length > 0
+      ? queries.communityReaction.listReactionsByMessageIds(db, messageIds, ctx.userId)
+      : Promise.resolve([]),
+    replyToIds.length > 0
+      ? queries.communityMessage.getMessagesByIds(db, replyToIds)
+      : Promise.resolve([]),
+    queries.communityChannel.listChildChannels(db, channelId),
+  ])
 
   const attachmentsByMessage = groupAttachments(allAttachments)
-
-  // Fetch reactions for all messages
-  const allReactions = messageIds.length > 0
-    ? await queries.communityReaction.listReactionsByMessageIds(db, messageIds, ctx.userId)
-    : []
-
   const reactionsByMessage = groupReactions(allReactions, ctx.userId)
 
-  // Resolve replyTo references. Scope-check the target against this channel
-  // so a client can't leak previews of messages from other channels/DMs just
-  // by referencing their id.
-  const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
-  const replyMessages = replyToIds.length > 0
-    ? await queries.communityMessage.getMessagesByIds(db, replyToIds)
-    : []
+  // Scope-check reply targets against this channel so a client can't leak
+  // previews of messages from other channels/DMs just by referencing their id.
   const replyMap = new Map(
     replyMessages
       .filter((m) => m.channelId === channelId)
@@ -58,7 +60,6 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   )
 
   // Resolve threads (child channels with parentMessageId matching these messages)
-  const childChannels = await queries.communityChannel.listChildChannels(db, channelId)
   const threadByMessageId = new Map(
     childChannels
       .filter((c) => c.parentMessageId)
@@ -89,10 +90,28 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("invalid request body", 400)
   }
 
+  // Thread channels (child channels with a parentChannelId) need to fire
+  // CHILD_CHANNEL_UPDATE on the parent so its thread indicator ticks. Detect
+  // that server-side from the channel row — clients always POST here, never
+  // to a separate thread endpoint, which avoided a UI race where a fast user
+  // could type before the client-side channel-meta fetch resolved.
+  const target = channel.parentChannelId
+    ? {
+        kind: "thread" as const,
+        channelId,
+        parentChannelId: channel.parentChannelId,
+        serverId: channel.serverId,
+      }
+    : {
+        kind: "channel" as const,
+        channelId,
+        serverId: channel.serverId,
+      }
+
   const result = await createCommunityMessage({
     db,
     authorId: ctx.userId,
-    target: { kind: "channel", channelId, serverId: channel.serverId },
+    target,
     body: body as Record<string, unknown>,
   })
   if (!result.ok) return writeError(result.error, result.status)
