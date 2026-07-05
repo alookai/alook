@@ -12,7 +12,7 @@ export function isCommandAvailable(cmd: string): boolean {
 
 export function detectRuntimes(): { type: string; version: string }[] {
   const found: { type: string; version: string }[] = [];
-  for (const type of ["claude", "codex", "opencode"]) {
+  for (const type of ["claude", "codex", "hermes", "opencode"]) {
     if (isCommandAvailable(type)) {
       let version = "";
       try {

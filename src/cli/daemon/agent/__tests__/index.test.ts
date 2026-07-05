@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createBackend } from "../index.js";
 import { ClaudeBackend } from "../claude.js";
 import { CodexBackend } from "../codex.js";
+import { HermesBackend } from "../hermes.js";
 import { OpenCodeBackend } from "../opencode.js";
 
 describe("createBackend", () => {
@@ -21,6 +22,12 @@ describe("createBackend", () => {
     const backend = createBackend("opencode", "/usr/bin/opencode");
     expect(backend).toBeInstanceOf(OpenCodeBackend);
     expect(backend.name).toBe("opencode");
+  });
+
+  it('returns HermesBackend for "hermes"', () => {
+    const backend = createBackend("hermes", "/usr/bin/hermes");
+    expect(backend).toBeInstanceOf(HermesBackend);
+    expect(backend.name).toBe("hermes");
   });
 
   it("throws for unknown provider", () => {
