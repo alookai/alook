@@ -37,14 +37,51 @@ export function firstExistingPath(candidates: string[]): string | null {
   return null;
 }
 
-export function readCommandVersion(command: string, args: string[] = [], deps: ProbeDeps = {}): string | null {
+export type VersionProbeResult =
+  | { ok: true; version: string }
+  | { ok: false; error: string };
+
+/**
+ * Actually spawn `<command> --version` and read stdout. Returns `ok: true`
+ * only when the child exits 0 AND emits a non-empty first line. A spawn
+ * error (ENOENT — vendored binary missing) or a non-zero exit produces
+ * `ok: false` with the error code, which callers surface as `status:
+ * "unhealthy"` on the driver's `probe()` result.
+ *
+ * This is deliberately stricter than "does the command resolve on PATH":
+ * npm packages sometimes ship a JS wrapper whose `which` succeeds but whose
+ * vendored native binary is broken. Requiring `--version` to actually run
+ * catches that class of failure at startup instead of at first spawn.
+ */
+export function probeCommandVersion(
+  command: string,
+  args: string[] = [],
+  deps: ProbeDeps = {}
+): VersionProbeResult {
   void deps;
   try {
     const out = execFileSync(command, [...args, "--version"], { encoding: "utf8", timeout: 5000 });
-    return out.split("\n")[0]?.trim() || null;
-  } catch {
-    return null;
+    const line = out.split("\n")[0]?.trim();
+    if (!line) return { ok: false, error: "empty_version_output" };
+    return { ok: true, version: line };
+  } catch (err) {
+    const code =
+      (err as NodeJS.ErrnoException | undefined)?.code ??
+      (err as { code?: string } | undefined)?.code ??
+      "version_probe_failed";
+    return { ok: false, error: String(code) };
   }
+}
+
+/**
+ * @deprecated Use `probeCommandVersion` instead — it returns explicit
+ * success/failure so callers can distinguish "binary not runnable" from
+ * "binary runs but has no version output" and report `status: "unhealthy"`.
+ * Retained as a thin shim for a couple of legacy call sites during rollout.
+ */
+export function readCommandVersion(command: string, args: string[] = [], deps: ProbeDeps = {}): string | null {
+  const r = probeCommandVersion(command, args, deps);
+  return r.ok ? r.version : null;
 }
 
 export function resolveHomePath(relativePath: string, deps: ProbeDeps = {}): string {
@@ -92,7 +129,22 @@ export function resolveClaudeCommand(deps: ProbeDeps = {}): string | null {
 
 export function probeClaude(deps: ProbeDeps = {}): ProbeResult {
   const command = resolveClaudeCommand(deps);
-  if (!command) return { available: false };
-  const version = readCommandVersion(command, [], deps);
-  return version ? { available: true, version } : { available: true };
+  if (!command) return { status: "unhealthy", lastError: "not_on_path" };
+  const r = probeCommandVersion(command, [], deps);
+  if (!r.ok) return { status: "unhealthy", lastError: r.error };
+  return { status: "healthy", version: r.version };
+}
+
+/**
+ * Shared probe for CLI-shaped runtimes: resolve on PATH, then spawn `--version`.
+ * Every non-Pi driver's `probe()` is a call to this. Kept as a small helper
+ * rather than living inline so a future change to probe semantics is one edit,
+ * not eight.
+ */
+export function probeCliRuntime(binary: string, deps: ProbeDeps = {}): ProbeResult {
+  const command = resolveCommandOnPath(binary, deps);
+  if (!command) return { status: "unhealthy", lastError: "not_on_path" };
+  const r = probeCommandVersion(command, [], deps);
+  if (!r.ok) return { status: "unhealthy", lastError: r.error };
+  return { status: "healthy", version: r.version };
 }

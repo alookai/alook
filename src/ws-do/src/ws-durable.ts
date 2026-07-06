@@ -10,10 +10,22 @@ import {
 } from "@alook/shared"
 import type { CommunityMachineRuntime, CommunityMachineSummary } from "@alook/shared"
 
-/** Order-normalized JSON for comparing two runtime lists. */
+/**
+ * Order-normalized JSON for comparing two runtime lists. Includes `status`
+ * and `lastError` in the canonical form so a runtime flipping healthy →
+ * unhealthy (with the same id + version) still trips the diff and fans out
+ * `community:machine.updated`. See plans/community-machine-presence-fix.md.
+ */
 function canonicalRuntimes(list: CommunityMachineRuntime[]): string {
   const sorted = [...list].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  return JSON.stringify(sorted.map((r) => (r.version === undefined ? { id: r.id } : { id: r.id, version: r.version })))
+  return JSON.stringify(
+    sorted.map((r) => ({
+      id: r.id,
+      ...(r.version !== undefined ? { version: r.version } : {}),
+      status: r.status ?? "healthy",
+      ...(r.lastError !== undefined ? { lastError: r.lastError } : {}),
+    }))
+  )
 }
 
 const log = createLogger({ service: "ws-do" })
@@ -400,46 +412,103 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     }
     if (state?.type === "community-machine" && state.authenticated) {
       log.info("community machine websocket closed", { machineId: state.machineId, userId: state.userId })
-      // Update last_seen_at on close (best-effort) so the alarm path can
-      // compute "stale enough to declare offline" against a real timestamp.
+      // Presence source of truth: the WS connection. On close, flip the row
+      // status='online' → 'offline' scoped by the credential hash the DO owns.
+      // The scope guard ensures a rotated-credential reconnect (which lands
+      // on a DIFFERENT DO instance) is not clobbered by this DO's late close.
+      //
+      // See plans/community-machine-presence-fix.md for the full model.
+      const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
+      if (!identity) {
+        // No identity means we never fully accepted this connection (auth
+        // failed before we cached it) OR the DO was already cleaned up. No
+        // recoverable work for the alarm path here — HANDLE_KEY is written
+        // alongside IDENTITY_KEY, so if identity is gone the alarm has
+        // nothing to act on. Drop and return.
+        return
+      }
       try {
         const db = createDb(this.env.DB)
-        await queries.communityMachine.touchMachineHeartbeat(db, state.userId, state.machineId)
-      } catch { /* ok */ }
-      // Arm an offline-detection alarm exactly OFFLINE_THRESHOLD_MS out.
-      // Overwrite any earlier (heartbeat) alarm — once the WS closes, the
-      // heartbeat path has nothing to do, so the offline alarm wins.
-      await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS)
+        const flipped = await queries.communityMachine.markMachineOffline(db, {
+          userId: identity.userId,
+          machineId: identity.machineId,
+          credentialHash: identity.credentialHash,
+        })
+        if (flipped) {
+          // Real transition — broadcast + clean up storage. Alarm no longer needed.
+          await this.notifyUserDO(identity.userId, {
+            type: "community:machine.status",
+            machineId: identity.machineId,
+            status: "offline",
+            lastSeenAt: flipped.lastSeenAt ?? new Date().toISOString(),
+          }).catch(() => {})
+          await this.ctx.storage.deleteAlarm()
+          await this.ctx.storage.delete(HANDLE_KEY)
+          await this.ctx.storage.delete(IDENTITY_KEY)
+        } else {
+          // No transition happened: row is already offline OR the credential
+          // was revoked (rotation → another DO owns this machine now). Leave
+          // storage alone; the alarm safety net catches any edge cases.
+          await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS)
+        }
+      } catch (err) {
+        log.warn("markMachineOffline failed on webSocketClose", { err: String(err) })
+        // D1 error — leave the alarm armed so the safety-net path can retry.
+        await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS)
+      }
     }
   }
 
   async alarm(): Promise<void> {
     const sockets = this.ctx.getWebSockets()
-    const hasMachine = sockets.some((ws) => {
+    const liveMachines: Array<{ userId: string; machineId: string }> = []
+    for (const ws of sockets) {
       const s = ws.deserializeAttachment() as ConnectionState
-      return s?.type === "community-machine" && s.authenticated
-    })
+      if (s?.type === "community-machine" && s.authenticated) {
+        liveMachines.push({ userId: s.userId, machineId: s.machineId })
+      }
+    }
 
-    if (hasMachine) {
-      // Connection still live — refresh last_seen_at then reschedule.
+    if (liveMachines.length > 0) {
+      // Connection still live — refresh last_seen_at, then defense-in-depth:
+      // opportunistically flip status='offline' → 'online' if the row is
+      // stale-offline (e.g. hibernated across a deploy). Broadcast only on a
+      // real transition; the steady state (status already online) is a no-op.
       const db = createDb(this.env.DB)
-      for (const ws of sockets) {
-        const s = ws.deserializeAttachment() as ConnectionState
-        if (s?.type === "community-machine" && s.authenticated) {
+      const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
+      for (const m of liveMachines) {
+        try {
+          await queries.communityMachine.touchMachineHeartbeat(db, m.userId, m.machineId)
+        } catch { /* ok */ }
+        if (identity && identity.userId === m.userId && identity.machineId === m.machineId) {
           try {
-            await queries.communityMachine.touchMachineHeartbeat(db, s.userId, s.machineId)
-          } catch { /* ok */ }
+            const backfilled = await queries.communityMachine.markMachineOnlineIfOffline(db, {
+              userId: identity.userId,
+              machineId: identity.machineId,
+              credentialHash: identity.credentialHash,
+            })
+            if (backfilled) {
+              await this.notifyUserDO(identity.userId, {
+                type: "community:machine.status",
+                machineId: identity.machineId,
+                status: "online",
+                lastSeenAt: backfilled.lastSeenAt ?? new Date().toISOString(),
+              }).catch(() => {})
+            }
+          } catch (err) {
+            log.warn("markMachineOnlineIfOffline (alarm live-WS) failed", { err: String(err) })
+          }
         }
       }
       await this.ctx.storage.setAlarm(Date.now() + COMMUNITY_MACHINE_HEARTBEAT_MS)
       return
     }
 
-    // No live community-machine WS — emit offline events for any of OUR
-    // matching machine rows whose last_seen_at is stale; otherwise reschedule
-    // a wakeup at the exact moment the row becomes stale.
+    // No live community-machine WS — flip the row to offline if it's stale,
+    // otherwise reschedule the alarm to the exact moment the row goes stale.
     const stored = await this.ctx.storage.get<CommunityMachineHandle>(HANDLE_KEY)
     if (!stored) return
+    const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
     const db = createDb(this.env.DB)
     const machine = await queries.communityMachine.getMachineByIdForUser(
       db,
@@ -449,18 +518,51 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     if (!machine) {
       // Row was deleted — drop the handle so we don't keep waking up forever.
       await this.ctx.storage.delete(HANDLE_KEY)
+      await this.ctx.storage.delete(IDENTITY_KEY)
       return
     }
     const lastSeen = machine.lastSeenAt ? Date.parse(machine.lastSeenAt) : 0
     const elapsed = Date.now() - lastSeen
     if (elapsed >= COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS) {
-      const nowIso = new Date().toISOString()
-      await this.notifyUserDO(stored.userId, {
-        type: "community:machine.status",
-        machineId: stored.machineId,
-        status: "offline",
-        lastSeenAt: machine.lastSeenAt ?? nowIso,
-      }).catch(() => {})
+      // Stale enough — flip status='online' → 'offline' via the credential-scoped
+      // query, broadcast only on real transition. If no identity is cached (e.g.
+      // storage was wiped mid-lifecycle), fall back to a plain broadcast so the
+      // UI still surfaces the transition even if the DB write skipped.
+      if (identity) {
+        try {
+          const flipped = await queries.communityMachine.markMachineOffline(db, {
+            userId: identity.userId,
+            machineId: identity.machineId,
+            credentialHash: identity.credentialHash,
+          })
+          if (flipped) {
+            await this.notifyUserDO(stored.userId, {
+              type: "community:machine.status",
+              machineId: stored.machineId,
+              status: "offline",
+              lastSeenAt: flipped.lastSeenAt ?? new Date().toISOString(),
+            }).catch(() => {})
+          }
+        } catch (err) {
+          log.warn("markMachineOffline (alarm stale-flip) failed", { err: String(err) })
+        }
+      } else {
+        // Identity was wiped mid-lifecycle but HANDLE_KEY still points at a
+        // real row that is now stale. We can't run the credential-scoped
+        // UPDATE, but the UI should still see the offline transition —
+        // otherwise the machine chip stays green until reload. Broadcast
+        // using the row's own lastSeenAt.
+        await this.notifyUserDO(stored.userId, {
+          type: "community:machine.status",
+          machineId: stored.machineId,
+          status: "offline",
+          lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
+        }).catch(() => {})
+      }
+      // In either branch, this DO's presence lifecycle is done. Drop storage
+      // so a future connection on the same DO name starts clean.
+      await this.ctx.storage.delete(HANDLE_KEY)
+      await this.ctx.storage.delete(IDENTITY_KEY)
       return
     }
     // Not stale yet — wake up again precisely when it will be.
@@ -558,7 +660,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       log.warn("community machine row missing on ready", { machineId: identity.machineId })
       return
     }
-    const { machine, priorLastSeenAt, priorAvailableRuntimes } = result
+    const { machine, priorAvailableRuntimes, priorStatus } = result
 
     const summary = await this.summaryWithOverlay(machine)
     // Refresh the offline-detection handle in case metadata changed. Handle
@@ -573,42 +675,31 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     // carries the pairing token the client needs to reconcile its pending
     // state. Here we only handle status transitions and runtime drift.
     //
-    // First-pair /activate inserts with `lastSeenAt: null` (so the created
-    // event shows status:"offline" until the WS lands). The first `ready`
-    // frame therefore has `priorLastSeenAt === null` — treat that as
-    // "was offline" so the online transition fires. Runtime drift is
-    // skipped on the first-ready path because `machine.created` already
-    // carried the runtime list.
-    if (priorLastSeenAt === null) {
+    // Broadcast the online transition ONLY when the row actually flipped
+    // offline → online. `priorStatus` is the pre-upsert column value returned
+    // by upsertMachineByMachineId; the upsert unconditionally sets
+    // status='online', so `priorStatus !== 'online'` is the exact transition.
+    if (priorStatus !== "online") {
       await this.notifyUserDO(identity.userId, {
         type: "community:machine.status",
         machineId: machine.id,
         status: "online",
         lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
       }).catch(() => {})
-    } else {
-      const priorMs = Date.parse(priorLastSeenAt)
-      const wasOffline = Number.isNaN(priorMs)
-        ? true
-        : Date.now() - priorMs >= COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS
-      if (wasOffline) {
-        await this.notifyUserDO(identity.userId, {
-          type: "community:machine.status",
-          machineId: machine.id,
-          status: "online",
-          lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
-        }).catch(() => {})
-      }
-
-      const priorCanonical = canonicalRuntimes(priorAvailableRuntimes ?? [])
-      const nextCanonical = canonicalRuntimes(availableRuntimes)
-      if (priorCanonical !== nextCanonical) {
-        await this.notifyUserDO(identity.userId, {
-          type: "community:machine.updated",
-          machine: summary,
-        }).catch(() => {})
-      }
     }
+
+    // Runtime-drift diff. Canonicalized form now includes status/lastError
+    // so a runtime flipping healthy → unhealthy on subsequent ready frames
+    // (e.g. ENOENT hit at spawn time) fans out `community:machine.updated`.
+    const priorCanonical = canonicalRuntimes(priorAvailableRuntimes ?? [])
+    const nextCanonical = canonicalRuntimes(availableRuntimes)
+    if (priorCanonical !== nextCanonical) {
+      await this.notifyUserDO(identity.userId, {
+        type: "community:machine.updated",
+        machine: summary,
+      }).catch(() => {})
+    }
+
     await this.scheduleHeartbeatAlarm()
   }
 

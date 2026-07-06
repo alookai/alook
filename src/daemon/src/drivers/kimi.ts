@@ -10,7 +10,7 @@ import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
-import { resolveCommandOnPath, readCommandVersion } from "./probe.js";
+import { resolveCommandOnPath, probeCliRuntime } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 
 function parseToolArguments(args: unknown): unknown {
@@ -39,10 +39,7 @@ export class KimiDriver implements Driver {
   private promptRequestId = randomUUID();
 
   probe() {
-    const command = resolveCommandOnPath("kimi");
-    if (!command) return { available: false };
-    const version = readCommandVersion(command);
-    return version ? { available: true, version } : { available: true };
+    return probeCliRuntime("kimi");
   }
 
   async spawn(ctx: LaunchContext): Promise<SpawnResult> {

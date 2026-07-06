@@ -8,10 +8,7 @@ import {
 } from "../../community-machine-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
-import {
-  COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
-  COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS,
-} from "../../../constants";
+import { COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS } from "../../../constants";
 import type {
   CommunityMachineRuntime,
   CommunityMachineSummary,
@@ -232,6 +229,8 @@ export interface MachineRow {
   daemonVersion: string;
   metadata: string | null;
   availableRuntimes: CommunityMachineRuntime[];
+  /** Source of truth for machine presence — written by WsDurableObject. */
+  status: "online" | "offline";
   lastSeenAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -251,6 +250,7 @@ export async function upsertMachineByMachineId(
   machine: MachineRow;
   priorLastSeenAt: string | null;
   priorAvailableRuntimes: CommunityMachineRuntime[];
+  priorStatus: "online" | "offline";
 } | null> {
   const existing = await db
     .select()
@@ -281,6 +281,10 @@ export async function upsertMachineByMachineId(
         meta.availableRuntimes !== undefined
           ? meta.availableRuntimes
           : prior.availableRuntimes,
+      // The daemon just sent a `ready` frame — we KNOW there is a live WS,
+      // so flip status to online unconditionally. The DO gates its
+      // `community:machine.status online` broadcast on `priorStatus !== 'online'`.
+      status: "online",
       lastSeenAt: nowIso,
       updatedAt: nowIso,
     })
@@ -290,6 +294,7 @@ export async function upsertMachineByMachineId(
     machine: rows[0] as MachineRow,
     priorLastSeenAt: prior.lastSeenAt,
     priorAvailableRuntimes: prior.availableRuntimes,
+    priorStatus: (prior.status as "online" | "offline") ?? "offline",
   };
 }
 
@@ -840,16 +845,65 @@ export function toSummary(row: MachineRow): CommunityMachineSummary {
     osRelease: row.osRelease,
     daemonVersion: row.daemonVersion,
     lastSeenAt: row.lastSeenAt,
-    status: computeStatus(row.lastSeenAt),
+    status: (row.status as "online" | "offline") ?? "offline",
     availableRuntimes: row.availableRuntimes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
 }
 
-export function computeStatus(lastSeenAt: string | null): "online" | "offline" {
-  if (!lastSeenAt) return "offline";
-  const ms = Date.parse(lastSeenAt);
-  if (Number.isNaN(ms)) return "offline";
-  return Date.now() - ms < COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS ? "online" : "offline";
+/**
+ * Flip a machine `online → offline` on WS close, scoped by the credential
+ * hash that owns the closing connection. If the credential has been revoked
+ * (rotation happened and a new DO instance is now authoritative), the guard
+ * subquery trips and this is a no-op — the old DO's late close cannot clobber
+ * the freshly-online row written by the new DO. Also a no-op when the row is
+ * already offline (idempotent close handler) or belongs to a different user.
+ */
+export async function markMachineOffline(
+  db: Database,
+  args: { userId: string; machineId: string; credentialHash: string }
+): Promise<MachineRow | null> {
+  const nowIso = new Date().toISOString();
+  const rows = await db
+    .update(communityMachine)
+    .set({ status: "offline", lastSeenAt: nowIso, updatedAt: nowIso })
+    .where(
+      and(
+        eq(communityMachine.userId, args.userId),
+        eq(communityMachine.id, args.machineId),
+        eq(communityMachine.status, "online"),
+        sql`EXISTS (SELECT 1 FROM ${communityMachineCredential} c WHERE c.machine_id = ${communityMachine.id} AND c.credential_hash = ${args.credentialHash} AND c.revoked_at IS NULL)`
+      )
+    )
+    .returning();
+  return rows.length ? (rows[0] as MachineRow) : null;
+}
+
+/**
+ * Safety-net used by the DO's alarm live-WS branch. If we observe a live
+ * community-machine socket for a machine whose row is stale-offline (e.g.
+ * hibernated across a deploy where the daemon never re-emitted `ready`),
+ * flip it back online so /community reflects reality. Same credential-hash
+ * scope as `markMachineOffline` so a revoked-credential DO can't clobber
+ * the new DO's state.
+ */
+export async function markMachineOnlineIfOffline(
+  db: Database,
+  args: { userId: string; machineId: string; credentialHash: string }
+): Promise<MachineRow | null> {
+  const nowIso = new Date().toISOString();
+  const rows = await db
+    .update(communityMachine)
+    .set({ status: "online", lastSeenAt: nowIso, updatedAt: nowIso })
+    .where(
+      and(
+        eq(communityMachine.userId, args.userId),
+        eq(communityMachine.id, args.machineId),
+        eq(communityMachine.status, "offline"),
+        sql`EXISTS (SELECT 1 FROM ${communityMachineCredential} c WHERE c.machine_id = ${communityMachine.id} AND c.credential_hash = ${args.credentialHash} AND c.revoked_at IS NULL)`
+      )
+    )
+    .returning();
+  return rows.length ? (rows[0] as MachineRow) : null;
 }

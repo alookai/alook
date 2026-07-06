@@ -86,6 +86,22 @@ export interface ManagerRuntimeOpts {
    * one-shot instruction like "Use `alook inbox pull` to read your messages."
    */
   wakePromptFooter?: string;
+  /**
+   * Notified when a spawn fails BEFORE the runtime emits its handshake
+   * `runtime_event` (pre-establishment error). Typically wired to
+   * `AgentRouter.markRuntimeUnhealthy` so /community reflects the broken
+   * runtime; see plans/community-machine-presence-fix.md.
+   *
+   * `reason` is a short code like `"ENOENT"` or `"pre_handshake_exit"`.
+   */
+  onRuntimeSpawnFailed?: (runtimeId: string, reason: string) => void;
+  /**
+   * Notified once per session when it emits its first post-handshake
+   * `runtime_event`. Typically wired to `AgentRouter.markRuntimeHealthy` so
+   * a runtime that was flagged unhealthy self-heals after the user fixes
+   * their install (or after a genuine transient failure).
+   */
+  onRuntimeSessionEstablished?: (runtimeId: string) => void;
 }
 
 /**
@@ -123,9 +139,29 @@ export class AgentProcessManager {
   /** agentId → live runtime sessionId (learned from session_init), for resync. */
   private readonly liveSessions = new Map<string, string>();
   private readonly opts: Required<
-    Omit<ManagerRuntimeOpts, "sessionFactory" | "now" | "credentialProxy" | "onAgentSession" | "timeline" | "wakePromptFooter">
+    Omit<
+      ManagerRuntimeOpts,
+      | "sessionFactory"
+      | "now"
+      | "credentialProxy"
+      | "onAgentSession"
+      | "timeline"
+      | "wakePromptFooter"
+      | "onRuntimeSpawnFailed"
+      | "onRuntimeSessionEstablished"
+    >
   > &
-    Pick<ManagerRuntimeOpts, "sessionFactory" | "now" | "credentialProxy" | "onAgentSession" | "timeline" | "wakePromptFooter">;
+    Pick<
+      ManagerRuntimeOpts,
+      | "sessionFactory"
+      | "now"
+      | "credentialProxy"
+      | "onAgentSession"
+      | "timeline"
+      | "wakePromptFooter"
+      | "onRuntimeSpawnFailed"
+      | "onRuntimeSessionEstablished"
+    >;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private readonly now: () => number;
 
@@ -280,18 +316,72 @@ export class AgentProcessManager {
 
     this.sessions.set(agentId, session);
 
+    // Per-session flags.
+    //   - hasEstablished: has this session ever emitted its handshake
+    //     `runtime_event`? Once true, `error`/`exit` are session-level and
+    //     don't invalidate the runtime.
+    //   - hasReportedSpawnFailure: guards against multiple pre-establishment
+    //     paths reporting the SAME failure (child_process emits both `error`
+    //     and `exit` on ENOENT, plus `session.start().catch`). Only the FIRST
+    //     path to see the failure gets to name the reason — subsequent paths
+    //     no-op instead of clobbering a specific `ENOENT` with generic
+    //     `pre_handshake_exit`.
+    const state = { hasEstablished: false, hasReportedSpawnFailure: false };
+    const reportSpawnFailure = (reason: string) => {
+      if (state.hasEstablished || state.hasReportedSpawnFailure) return;
+      state.hasReportedSpawnFailure = true;
+      this.opts.onRuntimeSpawnFailed?.(driver.id, reason);
+    };
+
     // Timeline entries are opened on the DATA plane (the agent's inbox pull),
     // not here — the manager only annotates the agent's latest row.
-    session.on("runtime_event", (e: unknown) => this.onRuntimeEvent(agentId, e));
+    session.on("runtime_event", (e: unknown) => {
+      if (!state.hasEstablished) {
+        state.hasEstablished = true;
+      }
+      // Fire on every runtime_event — the router's idempotence check on
+      // `markRuntimeHealthy` (status already healthy + no lastError) collapses
+      // this to nothing on the wire. Firing unconditionally avoids the trap
+      // where session A established, session B failed and flipped the runtime
+      // unhealthy, and A's ongoing runtime_events never heal it back.
+      this.opts.onRuntimeSessionEstablished?.(driver.id);
+      this.onRuntimeEvent(agentId, e);
+    });
+    // Child-process `error` (ENOENT etc.) — Node EE emits this before or in
+    // parallel with `exit`. Without this subscriber the raw `error` would
+    // become an unhandled EE emit.
+    session.on("error", (...args: unknown[]) => {
+      const err = args[0] as (NodeJS.ErrnoException & { code?: string }) | undefined;
+      const code = err?.code ?? "spawn_error";
+      reportSpawnFailure(String(code));
+    });
     session.on("exit", () => {
+      // A session that exits without ever emitting `runtime_event` is
+      // treated as a pre-handshake failure too — covers runtimes whose
+      // wrapper binary exits non-zero without a Node-level `error` event.
+      // Guarded by `hasReportedSpawnFailure` so an ENOENT (already reported
+      // via `error`) doesn't get overwritten with generic `pre_handshake_exit`.
+      reportSpawnFailure("pre_handshake_exit");
       this.sessions.delete(agentId);
       this.liveSessions.delete(agentId);
       this.dispatch({ type: "exit", agentId });
     });
 
-    void Promise.resolve(session.start({ text: prompt, sessionId: ctx.config.sessionId })).then(() => {
-      this.dispatch({ type: "spawned", agentId, nowMs: this.now() });
-    });
+    void Promise.resolve(session.start({ text: prompt, sessionId: ctx.config.sessionId }))
+      .then(() => {
+        this.dispatch({ type: "spawned", agentId, nowMs: this.now() });
+      })
+      .catch((err: unknown) => {
+        // Synchronous throws inside driver.spawn() (e.g. child_process.spawn
+        // throwing ENOENT before returning a subprocess) reach us here.
+        // Same guard: whichever path saw the failure first names the reason.
+        const code =
+          (err as { code?: string } | undefined)?.code ??
+          "spawn_threw";
+        reportSpawnFailure(String(code));
+        this.sessions.delete(agentId);
+        this.dispatch({ type: "exit", agentId });
+      });
   }
 
   private onRuntimeEvent(agentId: string, e: unknown): void {

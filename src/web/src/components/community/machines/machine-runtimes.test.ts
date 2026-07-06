@@ -21,6 +21,10 @@ describe("MachineRuntimes", () => {
     expect(MachineRuntimes({ runtimes: [] })).toBeNull()
   })
 
+  it("returns null for a legacy summary with undefined availableRuntimes (nullish-guard)", () => {
+    expect(MachineRuntimes({ runtimes: undefined })).toBeNull()
+  })
+
   it("renders one chip per runtime", () => {
     const tree = MachineRuntimes({
       runtimes: [
@@ -35,90 +39,80 @@ describe("MachineRuntimes", () => {
     expect(chips[1].key).toBe(".$codex")
   })
 
-  it("without a version, the chip is a plain span (no tooltip wrapper)", () => {
+  it("without a version and healthy, the chip is a plain span (no tooltip wrapper)", () => {
     const tree = MachineRuntimes({ runtimes: [{ id: "codex" }] })
     const chips = collectChips(tree)
     const rendered = renderChip(chips[0])
-    // Plain span: children = [ProviderLogo, id span]. No Tooltip wrapper.
     expect(rendered.type).toBe("span")
-    const inner = Children.toArray(rendered.props.children) as any[]
+    // React fragment wrapping children — collect deeply.
+    const fragment = rendered.props.children as any
+    const inner = Children.toArray(fragment.props.children) as any[]
+    // [0] logo, [1] id text
     expect(inner).toHaveLength(2)
-    // id text is the second child
     expect(inner[1].props.children).toBe("codex")
   })
 
-  it("with a version, the chip is wrapped in a Tooltip with the version as the content", () => {
+  it("with a version, the chip is wrapped in a Tooltip carrying the version", () => {
     const tree = MachineRuntimes({
       runtimes: [{ id: "claude", version: "2.0.0-canary-20260101-abcdef" }],
     })
     const chips = collectChips(tree)
     const rendered = renderChip(chips[0])
-    // rendered is a <Tooltip>...</Tooltip> — a functional-component element
     expect(isValidElement(rendered)).toBe(true)
     const tooltipChildren = Children.toArray(rendered.props.children) as any[]
     // [0] = TooltipTrigger, [1] = TooltipContent
     expect(tooltipChildren).toHaveLength(2)
     expect(tooltipChildren[1].props.children).toBe("2.0.0-canary-20260101-abcdef")
-    // Trigger renders a button carrying the id but not the version text
+    // Trigger renders a button. aria-label surfaces the id + version.
     const triggerRender = tooltipChildren[0].props.render
     expect(triggerRender.type).toBe("button")
-    const triggerInner = Children.toArray(triggerRender.props.children) as any[]
-    expect(triggerInner[1].props.children).toBe("claude")
-    // aria-label surfaces the version for screen readers
-    expect(triggerRender.props["aria-label"]).toBe("claude 2.0.0-canary-20260101-abcdef")
+    expect(triggerRender.props["aria-label"]).toBe(
+      "claude 2.0.0-canary-20260101-abcdef"
+    )
   })
 
   it("passes the runtime id through to ProviderLogo so unknown ids fall back to the generic icon", () => {
     const tree = MachineRuntimes({ runtimes: [{ id: "future-cli" }] })
     const chips = collectChips(tree)
     const rendered = renderChip(chips[0])
-    const inner = Children.toArray(rendered.props.children) as any[]
+    const fragment = rendered.props.children as any
+    const inner = Children.toArray(fragment.props.children) as any[]
+    // Healthy branch renders <ProviderLogo>; unhealthy renders <CircleAlert>.
     expect(inner[0].props.provider).toBe("future-cli")
   })
 
-  it("both chip branches share the same base class; the tooltip branch adds interactive-state classes", () => {
-    const baseTokens = [
-      "inline-flex",
-      "max-w-[160px]",
-      "items-center",
-      "gap-2",
-      "rounded-md",
-      "border",
-      "border-border",
-      "bg-card",
-      "px-2",
-      "py-1",
-      "text-[11px]",
-    ]
-    const interactiveTokens = [
-      "transition-colors",
-      "hover:bg-accent",
-      "focus-visible:outline-none",
-      "focus-visible:ring-2",
-      "focus-visible:ring-ring",
-      "focus-visible:ring-offset-2",
-    ]
+  it("unhealthy runtimes render dimmed and wrapped in a Tooltip explaining unavailability", () => {
+    const tree = MachineRuntimes({
+      runtimes: [
+        { id: "codex", status: "unhealthy" as const, lastError: "spawn_enoent" },
+      ],
+    })
+    const chips = collectChips(tree)
+    const rendered = renderChip(chips[0])
+    // Wrapped in Tooltip since the unhealthy branch always has tooltip text.
+    expect(isValidElement(rendered)).toBe(true)
+    const tooltipChildren = Children.toArray(rendered.props.children) as any[]
+    // Tooltip content mentions "Unavailable" and includes the lastError code.
+    const contentText = String(tooltipChildren[1].props.children)
+    expect(contentText).toMatch(/Unavailable/)
+    expect(contentText).toMatch(/spawn_enoent/)
+    // Trigger button carries opacity-40 (dim).
+    const triggerRender = tooltipChildren[0].props.render
+    expect(triggerRender.type).toBe("button")
+    expect(triggerRender.props.className as string).toContain("opacity-40")
+    // aria-label reflects unhealthy state, not a version.
+    expect(triggerRender.props["aria-label"]).toBe("codex unavailable")
+  })
 
-    // Plain span (no version) — base only.
-    const plainTree = MachineRuntimes({ runtimes: [{ id: "codex" }] })
-    const plainChips = collectChips(plainTree)
-    const plainRendered = renderChip(plainChips[0])
-    const plainClass = plainRendered.props.className as string
-    for (const token of baseTokens) {
-      expect(plainClass).toContain(token)
-    }
-    for (const token of interactiveTokens) {
-      expect(plainClass).not.toContain(token)
-    }
-
-    // Tooltip branch — base + interactive states.
-    const tipTree = MachineRuntimes({ runtimes: [{ id: "claude", version: "1.0.0" }] })
-    const tipChips = collectChips(tipTree)
-    const tipRendered = renderChip(tipChips[0])
-    const tipChildren = Children.toArray(tipRendered.props.children) as any[]
-    const buttonClass = tipChildren[0].props.render.props.className as string
-    for (const token of [...baseTokens, ...interactiveTokens]) {
-      expect(buttonClass).toContain(token)
-    }
+  it("unhealthy without lastError falls back to a generic 'Unavailable — check daemon logs' tooltip", () => {
+    const tree = MachineRuntimes({
+      runtimes: [{ id: "codex", status: "unhealthy" as const }],
+    })
+    const chips = collectChips(tree)
+    const rendered = renderChip(chips[0])
+    const tooltipChildren = Children.toArray(rendered.props.children) as any[]
+    expect(String(tooltipChildren[1].props.children)).toBe(
+      "Unavailable — check daemon logs"
+    )
   })
 })

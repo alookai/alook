@@ -13,7 +13,7 @@ import { spawn } from "child_process";
 import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { CodexEventNormalizer } from "./codexEventNormalizer.js";
-import { resolveCommandOnPath, readCommandVersion, resolveSpawnSpec } from "./probe.js";
+import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveCodexHomeRootFromEnv } from "./codexHome.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 
@@ -72,10 +72,11 @@ export class CodexDriver implements Driver {
   }
 
   probe() {
-    const command = resolveCommandOnPath("codex");
-    if (!command) return { available: false };
-    const version = readCommandVersion(command);
-    return version ? { available: true, version } : { available: true };
+    // probeCliRuntime spawns `--version` — a missing vendored binary (npm
+    // package resolves but the aarch64 blob is absent) fails there even
+    // though resolveCommandOnPath returned a JS wrapper. See
+    // plans/community-machine-presence-fix.md.
+    return probeCliRuntime("codex");
   }
 
   async spawn(ctx: LaunchContext): Promise<SpawnResult> {

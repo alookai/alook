@@ -195,6 +195,20 @@ export class WsControlChannel implements HostControlChannel {
     this.sendFrame({ type: "ready", ...ready });
   }
 
+  /**
+   * On-demand ready-frame resend. Same envelope as `reportReady` — matches
+   * `HostReadyMessageSchema` on the server side. Used by `AgentRouter` to
+   * push updated runtime-health without waiting for a reconnect. When the
+   * socket isn't open, `sendFrame` no-ops and the next `resyncOnConnect`
+   * emits the live snapshot instead.
+   *
+   * Sync (not async): the caller — health-mutation coalescer — schedules
+   * this on a microtask boundary and does not await it.
+   */
+  sendReady(ready: HostReady): void {
+    this.sendFrame({ type: "ready", ...ready });
+  }
+
   async reportAgentSession(info: { agentId: AgentId; sessionId: string; launchId: string }): Promise<void> {
     this.sendFrame({ type: "agent_session", ...info });
   }

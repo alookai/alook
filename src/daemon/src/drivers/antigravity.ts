@@ -10,7 +10,7 @@ import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
-import { resolveCommandOnPath, readCommandVersion } from "./probe.js";
+import { resolveCommandOnPath, probeCliRuntime } from "./probe.js";
 
 const ERROR_LINE_PATTERNS: RegExp[] = [/^error[:\s]/i, /\bfatal\b/i, /\bpanic\b/i, /unable to/i];
 
@@ -44,10 +44,7 @@ export class AntigravityDriver implements Driver {
   private sentInit = false;
 
   probe() {
-    const command = resolveCommandOnPath("agy");
-    if (!command) return { available: false };
-    const version = readCommandVersion(command);
-    return version ? { available: true, version } : { available: true };
+    return probeCliRuntime("agy");
   }
 
   async spawn(ctx: LaunchContext): Promise<SpawnResult> {

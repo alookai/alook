@@ -10,7 +10,7 @@
 import { spawn } from "child_process";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
-import { resolveCommandOnPath, readCommandVersion, resolveSpawnSpec } from "./probe.js";
+import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 
 export function buildGeminiArgs(config: LaunchConfig): string[] {
@@ -47,10 +47,7 @@ export class GeminiDriver implements Driver {
   private sessionId: string | null = null;
 
   probe() {
-    const command = resolveCommandOnPath("gemini");
-    if (!command) return { available: false };
-    const version = readCommandVersion(command);
-    return version ? { available: true, version } : { available: true };
+    return probeCliRuntime("gemini");
   }
 
   async spawn(ctx: LaunchContext): Promise<SpawnResult> {

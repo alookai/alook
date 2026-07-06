@@ -28,19 +28,28 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError("BOT_LIMIT_REACHED", 409)
   }
 
-  // Machine must be owned by caller AND runtime must be in its availableRuntimes.
+  // Machine must be owned by caller AND runtime must be in its availableRuntimes
+  // AND currently healthy. Unhealthy runtimes (e.g. broken binary caught by
+  // spawn ENOENT and marked by the daemon) are rejected here so a UX picker
+  // race doesn't create a bot bound to something that will always fail.
   const machine = await queries.communityBot.getMachineForOwner(
     db,
     body.machineId,
     ctx.userId,
   )
   if (!machine) return writeError("machine not found", 404)
-  // getMachineForOwner canonicalizes `availableRuntimes` to `{ id, version? }[]`
-  // and drops empty ids, so we can trust the shape here.
-  const runtimeIds = machine.availableRuntimes.map((r) => r.id)
-  if (!runtimeIds.includes(body.runtime)) {
+  // getMachineForOwner canonicalizes `availableRuntimes` to include status/lastError
+  // via the shared schema, so we can consult status here directly.
+  const runtime = machine.availableRuntimes.find((r) => r.id === body.runtime)
+  if (!runtime) {
     return writeError(
       `runtime ${body.runtime} not available on this machine`,
+      400,
+    )
+  }
+  if (runtime.status === "unhealthy") {
+    return writeError(
+      `runtime ${body.runtime} is currently unavailable on this machine — check the daemon logs`,
       400,
     )
   }

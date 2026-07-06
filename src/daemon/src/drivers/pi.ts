@@ -81,7 +81,14 @@ export class PiDriver implements Driver {
   private sessionId: string | null = null;
 
   probe() {
-    return { available: true, version: readPiSdkVersion() };
+    const version = readPiSdkVersion();
+    if (!version) {
+      // The Pi SDK is a native runtime — no CLI to spawn. If the npm module
+      // isn't require-able, treat the runtime as unhealthy so /community
+      // reflects reality and the bot picker filters it out.
+      return { status: "unhealthy" as const, lastError: "sdk_not_installed" };
+    }
+    return { status: "healthy" as const, version };
   }
 
   spawn(): Promise<SpawnResult> {

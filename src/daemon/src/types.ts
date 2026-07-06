@@ -252,6 +252,9 @@ export interface Driver {
 }
 
 export interface ProbeResult {
-  available: boolean;
+  /** Explicit health signal reported by the daemon. */
+  status: "healthy" | "unhealthy";
   version?: string;
+  /** Short reason code when unhealthy — e.g. "version_probe_failed". */
+  lastError?: string;
 }

@@ -16,7 +16,8 @@ describe("community/machine exports", () => {
     expect(typeof q.listMachinesForUser).toBe("function");
     expect(typeof q.deleteMachineForUser).toBe("function");
     expect(typeof q.toSummary).toBe("function");
-    expect(typeof q.computeStatus).toBe("function");
+    expect(typeof q.markMachineOffline).toBe("function");
+    expect(typeof q.markMachineOnlineIfOffline).toBe("function");
     expect(typeof q.activateMachineCredential).toBe("function");
     expect(typeof q.hashCredential).toBe("function");
     expect(typeof q.doNameFromHash).toBe("function");
@@ -63,20 +64,8 @@ describe("doNameFromHash", () => {
   });
 });
 
-describe("computeStatus", () => {
-  it("returns offline when lastSeenAt is null", () => {
-    expect(q.computeStatus(null)).toBe("offline");
-  });
-  it("returns online when lastSeenAt is recent", () => {
-    expect(q.computeStatus(new Date(Date.now() - 1_000).toISOString())).toBe("online");
-  });
-  it("returns offline when lastSeenAt is older than the threshold", () => {
-    expect(q.computeStatus(new Date(Date.now() - 5 * 60_000).toISOString())).toBe("offline");
-  });
-});
-
 describe("toSummary", () => {
-  it("maps a row into the wire shape with derived status", () => {
+  it("returns row.status verbatim (source of truth is the column)", () => {
     const now = new Date().toISOString();
     const s = q.toSummary({
       id: "cm_x",
@@ -89,6 +78,7 @@ describe("toSummary", () => {
       daemonVersion: "0.1.0",
       metadata: null,
       availableRuntimes: [],
+      status: "online",
       lastSeenAt: now,
       createdAt: now,
       updatedAt: now,
@@ -97,6 +87,27 @@ describe("toSummary", () => {
     expect(s.hostname).toBe("host");
     expect(s.status).toBe("online");
     expect(s.availableRuntimes).toEqual([]);
+  });
+  it("returns offline verbatim when the column says so, even with a fresh lastSeenAt", () => {
+    const now = new Date().toISOString();
+    const s = q.toSummary({
+      id: "cm_x",
+      userId: "u_1",
+      displayName: "host",
+      hostname: "host",
+      platform: "darwin",
+      arch: "arm64",
+      osRelease: "23.6.0",
+      daemonVersion: "0.1.0",
+      metadata: null,
+      availableRuntimes: [],
+      status: "offline",
+      // Deliberately recent lastSeenAt — status is no longer derived from it.
+      lastSeenAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    expect(s.status).toBe("offline");
   });
   it("passes through availableRuntimes when populated", () => {
     const now = new Date().toISOString();
@@ -111,11 +122,75 @@ describe("toSummary", () => {
       daemonVersion: "0.1.0",
       metadata: null,
       availableRuntimes: [{ id: "claude", version: "1.0.0" }],
+      status: "online",
       lastSeenAt: now,
       createdAt: now,
       updatedAt: now,
     });
     expect(s.availableRuntimes).toEqual([{ id: "claude", version: "1.0.0" }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// markMachineOffline / markMachineOnlineIfOffline
+// ---------------------------------------------------------------------------
+
+function makeUpdateChain(returningRows: unknown[]) {
+  const chain: any = {};
+  chain.update = vi.fn(() => chain);
+  chain.set = vi.fn(() => chain);
+  chain.where = vi.fn(() => chain);
+  chain.returning = vi.fn(() => Promise.resolve(returningRows));
+  return chain;
+}
+
+describe("markMachineOffline", () => {
+  it("flips status='online' → 'offline' when the row matches + credential is active (returns updated row)", async () => {
+    const flipped = { id: "cm_1", userId: "u_1", status: "offline", lastSeenAt: "now" };
+    const chain = makeUpdateChain([flipped]);
+    const out = await q.markMachineOffline(chain, {
+      userId: "u_1",
+      machineId: "cm_1",
+      credentialHash: "abc",
+    });
+    expect(out).toEqual(flipped);
+    expect(chain.set).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "offline" })
+    );
+  });
+  it("returns null when the row is already offline / credential revoked / wrong user (guarded UPDATE returned zero rows)", async () => {
+    const chain = makeUpdateChain([]);
+    const out = await q.markMachineOffline(chain, {
+      userId: "u_1",
+      machineId: "cm_1",
+      credentialHash: "revoked",
+    });
+    expect(out).toBeNull();
+  });
+});
+
+describe("markMachineOnlineIfOffline", () => {
+  it("flips offline → online when guarded row + credential are active", async () => {
+    const flipped = { id: "cm_1", userId: "u_1", status: "online", lastSeenAt: "now" };
+    const chain = makeUpdateChain([flipped]);
+    const out = await q.markMachineOnlineIfOffline(chain, {
+      userId: "u_1",
+      machineId: "cm_1",
+      credentialHash: "abc",
+    });
+    expect(out).toEqual(flipped);
+    expect(chain.set).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "online" })
+    );
+  });
+  it("returns null when the row is already online or credential revoked", async () => {
+    const chain = makeUpdateChain([]);
+    const out = await q.markMachineOnlineIfOffline(chain, {
+      userId: "u_1",
+      machineId: "cm_1",
+      credentialHash: "abc",
+    });
+    expect(out).toBeNull();
   });
 });
 
@@ -303,6 +378,7 @@ describe("upsertMachineByMachineId", () => {
     daemonVersion: "0.1.0",
     metadata: null,
     availableRuntimes: [{ id: "claude" }],
+    status: "offline" as const,
     lastSeenAt: "earlier",
     createdAt: "earlier",
     updatedAt: "earlier",
@@ -354,6 +430,50 @@ describe("upsertMachineByMachineId", () => {
     expect(chain.set).toHaveBeenCalledWith(
       expect.objectContaining({ availableRuntimes: [{ id: "claude" }] })
     );
+  });
+
+  it("writes status='online' on every ready-frame upsert (the DO gates broadcast on priorStatus)", async () => {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([priorRow]));
+    chain.update = vi.fn(() => chain);
+    chain.set = vi.fn(() => chain);
+    chain.returning = vi.fn(() =>
+      Promise.resolve([{ ...priorRow, status: "online", lastSeenAt: "now" }])
+    );
+    await q.upsertMachineByMachineId(chain, "u_1", "cm_1", { hostname: "host2" });
+    expect(chain.set).toHaveBeenCalledWith(expect.objectContaining({ status: "online" }));
+  });
+
+  it("returns priorStatus='offline' when the row was offline before the upsert", async () => {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([priorRow]));
+    chain.update = vi.fn(() => chain);
+    chain.set = vi.fn(() => chain);
+    chain.returning = vi.fn(() =>
+      Promise.resolve([{ ...priorRow, status: "online", lastSeenAt: "now" }])
+    );
+    const res = await q.upsertMachineByMachineId(chain, "u_1", "cm_1", {});
+    expect(res?.priorStatus).toBe("offline");
+  });
+
+  it("returns priorStatus='online' when the row was already online (repeat ready-frame)", async () => {
+    const onlinePrior = { ...priorRow, status: "online" as const };
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([onlinePrior]));
+    chain.update = vi.fn(() => chain);
+    chain.set = vi.fn(() => chain);
+    chain.returning = vi.fn(() => Promise.resolve([onlinePrior]));
+    const res = await q.upsertMachineByMachineId(chain, "u_1", "cm_1", {});
+    expect(res?.priorStatus).toBe("online");
   });
 });
 

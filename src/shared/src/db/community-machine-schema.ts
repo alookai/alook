@@ -58,6 +58,10 @@ export const communityMachine = sqliteTable(
       .$type<CommunityMachineRuntime[]>()
       .notNull()
       .default([]),
+    // status is the source of truth for machine presence — written by the
+    // WsDurableObject on accept / webSocketClose / alarm. Not derived from
+    // last_seen_at anymore (see plans/community-machine-presence-fix.md).
+    status: text("status").notNull().default("offline"),
     lastSeenAt: text("last_seen_at"),
     createdAt: text("created_at")
       .notNull()
@@ -69,6 +73,7 @@ export const communityMachine = sqliteTable(
   (t) => [
     index("idx_community_machine_user_last_seen").on(t.userId, t.lastSeenAt),
     index("idx_community_machine_user_updated").on(t.userId, t.updatedAt),
+    index("idx_community_machine_user_status").on(t.userId, t.status),
   ]
 );
 

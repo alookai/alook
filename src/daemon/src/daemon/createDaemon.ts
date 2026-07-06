@@ -25,7 +25,7 @@ import { homedir } from "os";
 import { WsControlChannel } from "../server/wsControlChannel.js";
 import { CredentialBroker, startCredentialProxy } from "../credentials/index.js";
 import { AgentProcessManager, AgentRouter } from "../manager/index.js";
-import { UnknownBotError, BotEnrollFailedError } from "../manager/agentRouter.js";
+import { UnknownBotError, BotEnrollFailedError, UnknownRuntimeError } from "../manager/agentRouter.js";
 import { createTimelineRecorder } from "../timeline/index.js";
 import { resolveAlookCliPathWithFallback } from "../discovery.js";
 import type { Driver, LaunchContext } from "../types.js";
@@ -48,8 +48,14 @@ export interface CreateDaemonOptions {
   serverWsUrl: string;
   /** Builds the real `ws` client (injected so this module has no hard ws dep). */
   webSocketFactory: DaemonWebSocketFactory;
-  /** Runtime descriptors (id + optional version) advertised on the ready frame. */
-  runtimeReport: Array<{ id: string; version?: string }>;
+  /** Runtime descriptors advertised on the ready frame. Must include unhealthy runtimes too. */
+  runtimeReport: Array<{
+    id: string;
+    version?: string;
+    status?: "healthy" | "unhealthy";
+    lastError?: string;
+    lastErrorAt?: string;
+  }>;
   /**
    * Per-agent runtime driver. `runtimeConfig` (server-pushed on
    * `agent:start`) is passed so callers can dispatch on the actual runtime
@@ -227,8 +233,32 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     }
   }
 
+  // Router is wired below. Held in a mutable cell so `driverFor` — which
+  // needs to consult live runtime-health — and the manager's session-lifecycle
+  // callbacks can reach it after construction. Both closures resolve `router!`
+  // lazily; router.start() runs at the bottom of createDaemon before any
+  // command dispatch, so runtime code always sees a populated cell.
+  let router: AgentRouter | null = null;
+
   const manager = new AgentProcessManager({
-    driverFor: opts.driverFor,
+    // Wrap the caller's driverFor to short-circuit dispatch to a known-unhealthy
+    // runtime. If the router flags the runtime as unhealthy we throw
+    // UnknownRuntimeError with the healthy-only id list — the existing catch
+    // in agentRouter.onCommand produces bot_runtime_missing + runtime_not_available
+    // frames, matching the "runtime not installed" path.
+    driverFor: (agentId, runtimeConfig) => {
+      const requested = runtimeConfig?.runtime;
+      if (requested && router && !router.isRuntimeHealthy(requested)) {
+        throw new UnknownRuntimeError(requested, router.healthyRuntimeIds());
+      }
+      return opts.driverFor(agentId, runtimeConfig);
+    },
+    onRuntimeSpawnFailed: (runtimeId, reason) => {
+      router?.markRuntimeUnhealthy(runtimeId, reason);
+    },
+    onRuntimeSessionEstablished: (runtimeId) => {
+      router?.markRuntimeHealthy(runtimeId);
+    },
     baseContextFor: (agentId: string) => {
       const runnerKey = enrolledKeys.get(agentId);
       if (!runnerKey) throw new Error(`agent ${agentId} not enrolled yet — enroll before deliver`);
@@ -254,7 +284,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   });
   manager.start();
 
-  const router = new AgentRouter({
+  router = new AgentRouter({
     manager,
     channel,
     runtimeReport: opts.runtimeReport,
@@ -302,7 +332,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   });
 
   channel.connect();
-  await router.start();
+  await router!.start();
 
   return {
     isOpen: () => channel.status === "open",

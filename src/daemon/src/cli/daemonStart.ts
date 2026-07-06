@@ -262,7 +262,7 @@ async function activatePairingToken(
   arch: string,
   osRelease: string,
   daemonVersion: string,
-  runtimeReport: Array<{ id: string; version?: string }>,
+  runtimeReport: Array<{ id: string; version?: string; status?: "healthy" | "unhealthy"; lastError?: string; lastErrorAt?: string }>,
 ): Promise<{ credential: string; machineId: string }> {
   const res = await fetch(`${serverUrl}/api/community/daemon/activate`, {
     method: "POST",
@@ -303,15 +303,29 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
 
   // Detect installed agent CLIs. The list is reported to the server on
   // `ready` so the machine card can show a chip per CLI (with version).
-  const availableRuntimes: RuntimeInfo[] = (await detectRuntimes()).filter((r) => r.available);
-  const runtimeIds = availableRuntimes.map((r) => r.id);
+  // We report EVERY runtime we know about (healthy AND unhealthy) so the
+  // /community machine card can surface broken installs, not just missing
+  // ones. Filtering to healthy-only happens on the reader side (bot picker,
+  // server-side bots-POST validator).
+  const runtimeDetections: RuntimeInfo[] = await detectRuntimes();
+  const healthyRuntimeIds = runtimeDetections.filter((r) => r.status === "healthy").map((r) => r.id);
   log.info(
-    runtimeIds.length === 0
+    healthyRuntimeIds.length === 0
       ? "no agent CLIs detected"
-      : `detected agent CLIs: ${runtimeIds.join(", ")}`
+      : `detected agent CLIs: ${healthyRuntimeIds.join(", ")}`
   );
+  const unhealthyIds = runtimeDetections
+    .filter((r) => r.status === "unhealthy")
+    .map((r) => `${r.id}(${r.lastError ?? "unknown"})`);
+  if (unhealthyIds.length > 0) log.info(`unhealthy runtimes: ${unhealthyIds.join(", ")}`);
 
-  const runtimeReport = availableRuntimes.map((r) => ({ id: r.id, version: r.version }));
+  const runtimeReport = runtimeDetections.map((r) => ({
+    id: r.id,
+    version: r.version,
+    status: r.status,
+    lastError: r.lastError,
+    lastErrorAt: r.lastErrorAt,
+  }));
 
   // Resolve the actual credential the daemon will dial with. Ordering:
   //   1. --machine-key starts with `cmt_` — POST /activate, get {cmk_, machineId},
@@ -378,13 +392,21 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     // forwards to the server as a `session.error{code:"runtime_not_available"}`
     // so the machine card surfaces the mismatch instead of silently launching
     // a different runtime.
+    // driverFor throws UnknownRuntimeError for a runtime the daemon does not
+    // know about at all. The router additionally short-circuits dispatch when
+    // a KNOWN runtime is currently unhealthy — see AgentRouter wiring in
+    // createDaemon. Both throws land in the same catch block in agentRouter
+    // and surface as bot_runtime_missing + runtime_not_available.
     driverFor: (_agentId, runtimeConfig) => {
       const requested = runtimeConfig?.runtime;
-      const installed = runtimeIds as string[];
-      if (!requested || !installed.includes(requested)) {
-        throw new UnknownRuntimeError(requested, installed);
+      const known: string[] = runtimeReport.map((r) => r.id);
+      if (!requested || !known.includes(requested)) {
+        throw new UnknownRuntimeError(requested, healthyRuntimeIds);
       }
-      return getDriver(requested);
+      // `known` is derived from listRuntimeIds() via detectRuntimes(), so
+      // `requested` (checked to be in `known` above) is guaranteed to be a
+      // valid RuntimeId — cast to satisfy the typed factory map.
+      return getDriver(requested as Parameters<typeof getDriver>[0]);
     },
     capabilities: CAPABILITIES,
     agentCliPath,

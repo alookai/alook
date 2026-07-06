@@ -20,6 +20,7 @@ export function createMockCtx() {
     put: vi.fn(async (key: string, value: unknown) => { store.set(key, value) }),
     delete: vi.fn(async (key: string) => { store.delete(key) }),
     setAlarm: vi.fn(async (t: number) => { alarm = t }),
+    deleteAlarm: vi.fn(async () => { alarm = null }),
     getAlarm: vi.fn(async () => alarm),
   }
 

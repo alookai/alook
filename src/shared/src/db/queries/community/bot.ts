@@ -682,7 +682,16 @@ export async function getMachineForOwner(
   db: Database,
   machineId: string,
   ownerId: string
-): Promise<{ id: string; availableRuntimes: Array<{ id: string; version?: string }> } | null> {
+): Promise<{
+  id: string;
+  availableRuntimes: Array<{
+    id: string;
+    version?: string;
+    status?: "healthy" | "unhealthy";
+    lastError?: string;
+    lastErrorAt?: string;
+  }>;
+} | null> {
   const rows = await db
     .select({
       id: communityMachine.id,
@@ -694,19 +703,36 @@ export async function getMachineForOwner(
   const r = rows[0];
   if (!r) return null;
   // Normalize: legacy rows store `string[]`, current rows store
-  // `{id, version?}[]`. Drop empty ids so the route's `.includes()` check
-  // can't be fooled by a `""` entry.
+  // `{id, version?, status?, lastError?, lastErrorAt?}[]`. Drop empty ids so
+  // the route's `.includes()` / `.find()` checks can't be fooled by `""`.
   const raw = (r.availableRuntimes ?? []) as Array<unknown>;
-  const normalized: Array<{ id: string; version?: string }> = [];
+  const normalized: Array<{
+    id: string;
+    version?: string;
+    status?: "healthy" | "unhealthy";
+    lastError?: string;
+    lastErrorAt?: string;
+  }> = [];
   for (const entry of raw) {
     if (typeof entry === "string") {
       if (entry.length > 0) normalized.push({ id: entry });
     } else if (entry && typeof entry === "object") {
-      const obj = entry as { id?: unknown; version?: unknown };
+      const obj = entry as {
+        id?: unknown;
+        version?: unknown;
+        status?: unknown;
+        lastError?: unknown;
+        lastErrorAt?: unknown;
+      };
       if (typeof obj.id === "string" && obj.id.length > 0) {
+        const status =
+          obj.status === "unhealthy" ? "unhealthy" : obj.status === "healthy" ? "healthy" : undefined;
         normalized.push({
           id: obj.id,
           ...(typeof obj.version === "string" ? { version: obj.version } : {}),
+          ...(status ? { status } : {}),
+          ...(typeof obj.lastError === "string" ? { lastError: obj.lastError } : {}),
+          ...(typeof obj.lastErrorAt === "string" ? { lastErrorAt: obj.lastErrorAt } : {}),
         });
       }
     }

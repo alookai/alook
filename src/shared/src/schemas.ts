@@ -818,6 +818,12 @@ export const COMMUNITY_RUNTIME_VERSION_MAX = 64;
 export const COMMUNITY_RUNTIME_LIST_MAX = 64;
 const RUNTIME_ID_RE = /^[A-Za-z0-9._@/-]+$/;
 
+// Per-runtime health, reported by the daemon. `status` defaults to "healthy"
+// so an older daemon that ships {id, version} still parses; `.catch("healthy")`
+// additionally absorbs null / unknown-enum future values (e.g. "degraded") so
+// a schema mismatch never poisons the whole ready frame. Fail-open is correct
+// for a per-runtime signal — mistakenly rendering an unhealthy runtime as
+// healthy is preferable to dropping every runtime a bad daemon sends.
 export const CommunityMachineRuntimeSchema = z.object({
   id: z
     .string()
@@ -825,6 +831,9 @@ export const CommunityMachineRuntimeSchema = z.object({
     .max(COMMUNITY_RUNTIME_ID_MAX)
     .regex(RUNTIME_ID_RE, "invalid runtime id charset"),
   version: z.string().max(COMMUNITY_RUNTIME_VERSION_MAX).optional(),
+  status: z.enum(["healthy", "unhealthy"]).catch("healthy").default("healthy"),
+  lastError: z.string().max(128).optional(),
+  lastErrorAt: z.string().optional(),
 });
 export type CommunityMachineRuntime = z.infer<typeof CommunityMachineRuntimeSchema>;
 

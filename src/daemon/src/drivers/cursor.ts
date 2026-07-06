@@ -8,7 +8,7 @@
 import { spawn } from "child_process";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
-import { resolveCommandOnPath, readCommandVersion } from "./probe.js";
+import { resolveCommandOnPath, probeCliRuntime } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
 
 export class CursorDriver implements Driver {
@@ -31,10 +31,7 @@ export class CursorDriver implements Driver {
   private sessionId: string | null = null;
 
   probe() {
-    const command = resolveCommandOnPath("cursor-agent");
-    if (!command) return { available: false };
-    const version = readCommandVersion(command);
-    return version ? { available: true, version } : { available: true };
+    return probeCliRuntime("cursor-agent");
   }
 
   async spawn(ctx: LaunchContext): Promise<SpawnResult> {

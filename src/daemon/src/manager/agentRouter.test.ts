@@ -145,3 +145,148 @@ describe("AgentRouter — buildReady runtimeReport", () => {
     expect(readys[0]).toMatchObject({ runtimeReport: [{ id: "claude" }] });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Runtime health — mutable map, coalesced sendReady, short-circuit dispatch
+// ---------------------------------------------------------------------------
+
+function fakeChannelWithSendReady() {
+  const base = fakeChannel();
+  const readyResends: Array<Parameters<HostControlChannel["reportReady"]>[0]> = [];
+  (base.ch as HostControlChannel).sendReady = (ready) => {
+    readyResends.push(ready);
+  };
+  return { ...base, readyResends };
+}
+
+describe("AgentRouter — runtime health map", () => {
+  it("seeds the map from constructor runtimeReport with defaulted status='healthy'", () => {
+    const { mgr } = fakeManager();
+    const { ch } = fakeChannel();
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "codex" }, { id: "claude", version: "1.0.0" }],
+    });
+    expect(router.isRuntimeHealthy("codex")).toBe(true);
+    expect(router.isRuntimeHealthy("claude")).toBe(true);
+    expect(router.healthyRuntimeIds()).toEqual(["codex", "claude"]);
+  });
+
+  it("markRuntimeUnhealthy flips the map entry AND schedules exactly one sendReady per tick", () => {
+    const { mgr } = fakeManager();
+    const { ch, readyResends } = fakeChannelWithSendReady();
+    const scheduled: Array<() => void> = [];
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "codex" }, { id: "claude" }],
+      scheduleReadyResend: (fn) => {
+        scheduled.push(fn);
+      },
+    });
+    // 3 mutations in the same tick — different ids AND repeat id.
+    router.markRuntimeUnhealthy("codex", "ENOENT");
+    router.markRuntimeUnhealthy("claude", "ENOENT");
+    router.markRuntimeUnhealthy("codex", "ENOENT"); // repeat — idempotent, no new resend
+    // Coalescer scheduled exactly ONE resend regardless of how many mutations fired.
+    expect(scheduled).toHaveLength(1);
+    // Flush the pending microtask.
+    scheduled[0]!();
+    expect(readyResends).toHaveLength(1);
+    const emitted = readyResends[0]!.runtimeReport;
+    expect(emitted.find((r) => r.id === "codex")?.status).toBe("unhealthy");
+    expect(emitted.find((r) => r.id === "codex")?.lastError).toBe("ENOENT");
+    expect(emitted.find((r) => r.id === "claude")?.status).toBe("unhealthy");
+    // After the flush, the next mutation batches again.
+    router.markRuntimeUnhealthy("codex", "different_reason");
+    expect(scheduled).toHaveLength(2);
+  });
+
+  it("markRuntimeHealthy clears lastError/lastErrorAt when flipping back", () => {
+    const { mgr } = fakeManager();
+    const { ch, readyResends } = fakeChannelWithSendReady();
+    let flush: (() => void) | null = null;
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "codex" }],
+      scheduleReadyResend: (fn) => {
+        flush = fn;
+      },
+    });
+    router.markRuntimeUnhealthy("codex", "ENOENT");
+    flush!();
+    router.markRuntimeHealthy("codex");
+    flush!();
+    const emitted = readyResends[1]!.runtimeReport;
+    const codex = emitted.find((r) => r.id === "codex");
+    expect(codex?.status).toBe("healthy");
+    expect(codex?.lastError).toBeUndefined();
+    expect(codex?.lastErrorAt).toBeUndefined();
+  });
+
+  it("silently no-ops on unknown ids — no map insertion, no scheduled resend", () => {
+    const { mgr } = fakeManager();
+    const { ch } = fakeChannel();
+    const scheduled: Array<() => void> = [];
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "codex" }],
+      scheduleReadyResend: (fn) => scheduled.push(fn),
+    });
+    router.markRuntimeUnhealthy("does-not-exist", "ENOENT");
+    router.markRuntimeHealthy("does-not-exist");
+    expect(scheduled).toHaveLength(0);
+    expect(router.isRuntimeHealthy("does-not-exist")).toBe(false);
+    // "codex" untouched.
+    expect(router.isRuntimeHealthy("codex")).toBe(true);
+  });
+
+  it("healthyRuntimeIds filters out unhealthy runtimes; buildReady still ships the FULL list (unhealthy included) for the wire", () => {
+    const { mgr } = fakeManager();
+    const { ch } = fakeChannel();
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "codex" }, { id: "claude" }, { id: "gemini" }],
+      scheduleReadyResend: (fn) => fn(),
+    });
+    router.markRuntimeUnhealthy("gemini", "ENOENT");
+    expect(router.healthyRuntimeIds()).toEqual(["codex", "claude"]);
+    // buildReady MUST include all three so the DO/canonical-diff sees the
+    // unhealthy transition. A future "clean up the wire" refactor that strips
+    // unhealthy entries would silently regress the /community picker gating.
+    const ready = router.buildReady();
+    expect(ready.runtimeReport.map((r) => r.id)).toEqual([
+      "codex",
+      "claude",
+      "gemini",
+    ]);
+    const gemini = ready.runtimeReport.find((r) => r.id === "gemini");
+    expect(gemini?.status).toBe("unhealthy");
+    expect(gemini?.lastError).toBe("ENOENT");
+    expect(typeof gemini?.lastErrorAt).toBe("string");
+  });
+
+  it("survives a disconnected channel — health mutations don't throw when sendReady is absent", () => {
+    const { mgr } = fakeManager();
+    const chWithoutSendReady: HostControlChannel = {
+      onCommand() {},
+      async reportReady() {},
+      async reportAgentSession() {},
+      async reportDeliverAck() {},
+    };
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: chWithoutSendReady,
+      runtimeReport: [{ id: "codex" }],
+      scheduleReadyResend: (fn) => fn(),
+    });
+    // Should not throw — sendReady is optional on the channel interface.
+    expect(() => router.markRuntimeUnhealthy("codex", "ENOENT")).not.toThrow();
+    // Map still mutated for the next resyncOnConnect to pick up.
+    expect(router.isRuntimeHealthy("codex")).toBe(false);
+  });
+});

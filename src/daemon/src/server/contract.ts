@@ -377,13 +377,30 @@ export type HostCommand =
       botId: AgentId;
     };
 
+/**
+ * Runtime descriptor carried by every `ready` frame. `status` defaults to
+ * "healthy" on the wire schema (see CommunityMachineRuntimeSchema) so an
+ * older daemon that only sends {id, version} still parses; a newer daemon
+ * carries per-runtime health so /community can flag broken runtimes without
+ * a machine-level offline signal.
+ */
+export interface HostReadyRuntime {
+  id: string;
+  version?: string;
+  status?: "healthy" | "unhealthy";
+  lastError?: string;
+  lastErrorAt?: string;
+}
+
 /** What the host reports to the server on connect (the registration handshake). */
 export interface HostReady {
   /**
-   * Runtime descriptors (id + optional version). Legacy `runtimes: string[]`
-   * has been dropped from the wire — `MIN_CLI_VERSION` gates old daemons off.
+   * Runtime descriptors. Legacy `runtimes: string[]` has been dropped from
+   * the wire — `MIN_CLI_VERSION` gates old daemons off. The daemon MUST ship
+   * every runtime it knows about (healthy AND unhealthy) — filtering is a
+   * reader-side concern (server-side bot-create validator, client picker).
    */
-  runtimeReport: Array<{ id: string; version?: string }>;
+  runtimeReport: HostReadyRuntime[];
   /** Agents currently running on this host. */
   runningAgents: AgentId[];
   hostname?: string;
@@ -415,6 +432,13 @@ export interface HostControlChannel {
   onCommand(cb: (cmd: HostCommand) => void | Promise<void>): void;
   /** Announce this host + its agents to the server (on connect AND on reconnect). */
   reportReady(ready: HostReady): Promise<void>;
+  /**
+   * On-demand resend of the current `ready` snapshot. Used by AgentRouter's
+   * runtime-health mutations to push an updated report without waiting for a
+   * reconnect. No-ops when the socket isn't open — the next resyncOnConnect
+   * emits the live snapshot anyway. Optional so LocalControlChannel can omit.
+   */
+  sendReady?(ready: HostReady): void;
   /** Report an agent's runtime session id (after it starts / resumes). */
   reportAgentSession(info: { agentId: AgentId; sessionId: string; launchId: string }): Promise<void>;
   /**

@@ -86,30 +86,45 @@ export function resolveAlookCliPathWithFallback(primary?: string | null): string
 
 export interface RuntimeInfo {
   id: RuntimeId;
-  available: boolean;
+  status: "healthy" | "unhealthy";
   version?: string;
+  /** Short reason code when unhealthy — e.g. "version_probe_failed", "ENOENT". */
+  lastError?: string;
+  /** ISO-8601 timestamp of the last transition to unhealthy. */
+  lastErrorAt?: string;
 }
 
 /**
  * Probe all registered drivers and return which runtimes are available.
- * Mirrors raft's `detectRuntimes()` — called at daemon startup to report
- * capabilities to the server.
+ * Mirrors raft's `detectRuntimes()` — called ONCE at daemon startup to report
+ * capabilities to the server. Runtime health after startup is mutated live
+ * by `AgentRouter.markRuntimeUnhealthy` / `markRuntimeHealthy` — see
+ * plans/community-machine-presence-fix.md.
  */
 export async function detectRuntimes(): Promise<RuntimeInfo[]> {
   const ids = listRuntimeIds();
   const results: RuntimeInfo[] = [];
+  const nowIso = new Date().toISOString();
 
   for (const id of ids) {
     try {
       const driver = getDriver(id);
       const probe: ProbeResult = await driver.probe();
+      const healthy = probe.status === "healthy";
       results.push({
         id,
-        available: probe.available,
+        status: healthy ? "healthy" : "unhealthy",
         version: probe.version,
+        lastError: healthy ? undefined : probe.lastError ?? "probe_failed",
+        lastErrorAt: healthy ? undefined : nowIso,
       });
-    } catch {
-      results.push({ id, available: false });
+    } catch (err) {
+      results.push({
+        id,
+        status: "unhealthy",
+        lastError: (err as { code?: string } | undefined)?.code ?? "probe_threw",
+        lastErrorAt: nowIso,
+      });
     }
   }
 
@@ -121,5 +136,5 @@ export async function detectRuntimes(): Promise<RuntimeInfo[]> {
  */
 export async function getAvailableRuntimes(): Promise<RuntimeId[]> {
   const all = await detectRuntimes();
-  return all.filter((r) => r.available).map((r) => r.id);
+  return all.filter((r) => r.status === "healthy").map((r) => r.id);
 }

@@ -73,8 +73,9 @@ describe("detectRuntimes", () => {
     expect(runtimes.length).toBeGreaterThan(0);
     for (const r of runtimes) {
       expect(r).toHaveProperty("id");
-      expect(r).toHaveProperty("available");
-      expect(typeof r.available).toBe("boolean");
+      expect(r).toHaveProperty("status");
+      // status is always set — either "healthy" or "unhealthy".
+      expect(r.status === "healthy" || r.status === "unhealthy").toBe(true);
     }
   });
 
@@ -82,6 +83,18 @@ describe("detectRuntimes", () => {
     const runtimes = await detectRuntimes();
     const claude = runtimes.find((r) => r.id === "claude");
     expect(claude).toBeDefined();
+  });
+
+  it("carries lastError + lastErrorAt on unhealthy entries so /community can surface the reason", async () => {
+    const runtimes = await detectRuntimes();
+    for (const r of runtimes) {
+      if (r.status === "unhealthy") {
+        expect(typeof r.lastError).toBe("string");
+        expect(typeof r.lastErrorAt).toBe("string");
+        // ISO-8601 sanity.
+        expect(() => new Date(r.lastErrorAt!).toISOString()).not.toThrow();
+      }
+    }
   });
 });
 

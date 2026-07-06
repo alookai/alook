@@ -74,8 +74,19 @@ export function CreateBotDialog({
 
   const selectedMachine = machines.find((m) => m.id === machineId)
   const runtimeOptions = useMemo(() => {
+    // Nullish guard — a legacy CommunityMachineSummary cached client-side may
+    // still be missing availableRuntimes. `filter` on undefined would throw.
     const rt = selectedMachine?.availableRuntimes ?? []
-    return rt.map((r) => (typeof r === "string" ? r : (r as { id: string }).id))
+    return rt
+      // Only offer healthy runtimes for binding. The server-side /api/community/bots
+      // POST validator ALSO enforces `status === 'healthy'` — this filter is UX
+      // only. Older summaries that predate the widening default `status` to
+      // "healthy" via Zod, so they still show through.
+      .filter((r) => {
+        if (typeof r === "string") return true
+        return (r as { status?: string }).status !== "unhealthy"
+      })
+      .map((r) => (typeof r === "string" ? r : (r as { id: string }).id))
   }, [selectedMachine])
 
   // Randomize name + avatar on client mount (not during SSR — Math.random would
@@ -240,7 +251,9 @@ export function CreateBotDialog({
               <SelectContent className="p-1">
                 {runtimeOptions.length === 0 && selectedMachine && (
                   <div className="px-2 py-4 text-center text-xs text-muted-foreground">
-                    This machine has no runtimes installed.
+                    {(selectedMachine.availableRuntimes ?? []).length === 0
+                      ? "This machine has no runtimes installed."
+                      : "No healthy runtimes available on this machine."}
                   </div>
                 )}
                 {runtimeOptions.map((r) => (

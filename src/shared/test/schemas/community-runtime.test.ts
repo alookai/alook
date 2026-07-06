@@ -9,16 +9,48 @@ import {
 } from "../../src/schemas";
 
 describe("CommunityMachineRuntimeSchema", () => {
-  it("accepts a plain id", () => {
+  it("accepts a plain id and defaults status to 'healthy' (wire back-compat for older daemons)", () => {
     expect(CommunityMachineRuntimeSchema.parse({ id: "claude" })).toEqual({
       id: "claude",
+      status: "healthy",
     });
   });
 
-  it("accepts id + version", () => {
+  it("accepts id + version + defaulted status", () => {
     expect(
       CommunityMachineRuntimeSchema.parse({ id: "claude", version: "1.0.0" })
-    ).toEqual({ id: "claude", version: "1.0.0" });
+    ).toEqual({ id: "claude", version: "1.0.0", status: "healthy" });
+  });
+
+  it("accepts explicit unhealthy + lastError", () => {
+    expect(
+      CommunityMachineRuntimeSchema.parse({
+        id: "codex",
+        status: "unhealthy",
+        lastError: "version_probe_failed",
+        lastErrorAt: "2026-07-06T00:00:00.000Z",
+      })
+    ).toEqual({
+      id: "codex",
+      status: "unhealthy",
+      lastError: "version_probe_failed",
+      lastErrorAt: "2026-07-06T00:00:00.000Z",
+    });
+  });
+
+  it("catches null status and folds it to 'healthy' — fail-open so a bad daemon doesn't poison the whole ready frame", () => {
+    // .catch("healthy") on the enum absorbs null / unknown values that would
+    // otherwise fail the enum literal check.
+    const parsed = CommunityMachineRuntimeSchema.parse({ id: "codex", status: null as unknown as "healthy" });
+    expect(parsed.status).toBe("healthy");
+  });
+
+  it("catches an unknown-enum future value ('degraded') and folds it to 'healthy'", () => {
+    const parsed = CommunityMachineRuntimeSchema.parse({
+      id: "codex",
+      status: "degraded" as unknown as "healthy",
+    });
+    expect(parsed.status).toBe("healthy");
   });
 
   it("rejects an empty id", () => {
@@ -40,7 +72,7 @@ describe("CommunityMachineRuntimeSchema", () => {
 
   it("accepts the full charset — alnum + `._@/-`", () => {
     for (const id of ["a", "A", "0", ".", "_", "@", "/", "-", "a.b_C@d/e-1"]) {
-      expect(CommunityMachineRuntimeSchema.parse({ id })).toEqual({ id });
+      expect(CommunityMachineRuntimeSchema.parse({ id })).toEqual({ id, status: "healthy" });
     }
   });
 });
@@ -52,7 +84,10 @@ describe("CommunityMachineRuntimeListSchema", () => {
       { id: "codex" },
       { id: "claude", version: "2" },
     ]);
-    expect(out).toEqual([{ id: "claude", version: "1" }, { id: "codex" }]);
+    expect(out).toEqual([
+      { id: "claude", version: "1", status: "healthy" },
+      { id: "codex", status: "healthy" },
+    ]);
   });
 
   it("rejects lists larger than the cap", () => {
@@ -86,7 +121,9 @@ describe("HostReadyMessageSchema", () => {
       osRelease: "23.6.0",
       daemonVersion: "0.1.0",
     });
-    expect(parsed.runtimeReport).toEqual([{ id: "claude", version: "1.0.0" }]);
+    expect(parsed.runtimeReport).toEqual([
+      { id: "claude", version: "1.0.0", status: "healthy" },
+    ]);
     expect(parsed.runningAgents).toEqual(["agent_a"]);
   });
 
@@ -123,7 +160,7 @@ describe("HostReadyMessageSchema", () => {
       runtimeReport: [{ id: "claude" }, { id: "claude" }],
       runningAgents: [],
     });
-    expect(parsed.runtimeReport).toEqual([{ id: "claude" }]);
+    expect(parsed.runtimeReport).toEqual([{ id: "claude", status: "healthy" }]);
   });
 });
 
