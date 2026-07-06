@@ -33,7 +33,6 @@ import {
   usePins,
 } from "@/hooks/community/use-channel-panels"
 import { useNotificationSettings } from "@/hooks/community/use-notification-settings"
-import { useFriends } from "@/hooks/community/use-friends"
 import { useOnlineUserIds } from "@/stores/community/ws"
 import {
   useSendMessage,
@@ -92,16 +91,12 @@ function ChannelView() {
       })),
     [membersHook.members, onlineUserIds, currentUser.id],
   )
-  const { friends: rawFriends } = useFriends()
-  const friends = useMemo(
-    () =>
-      rawFriends.map((f) => ({
-        ...f,
-        status: onlineUserIds.has(f.userId ?? f.id)
-          ? ("online" as const)
-          : ("offline" as const),
-      })),
-    [rawFriends, onlineUserIds],
+  // Roster passed to the @-mention popover — filters the viewer out.
+  // `members` (above) still includes the viewer for the roster / typing lookup;
+  // only the composer needs to drop self, since you can't @-mention yourself.
+  const composerMembers = useMemo(
+    () => members.filter((m) => m.userId !== currentUser.id),
+    [members, currentUser.id],
   )
   // Type-gate the forum-posts fetch: only forum channels have a valid
   // /posts endpoint; text channels return 400. Compute the flag BEFORE the
@@ -514,7 +509,8 @@ function ChannelView() {
           <Composer
             channel={channelName}
             context="thread"
-            members={friends}
+            members={composerMembers}
+            onSearchMembers={membersHook.searchMembers}
             onSend={sendMessage}
             onTyping={handleTyping}
             replyingTo={replyTo?.authorName}
@@ -614,7 +610,8 @@ function ChannelView() {
         <Composer
           channel={channelName}
           context="channel"
-          members={friends}
+          members={composerMembers}
+          onSearchMembers={membersHook.searchMembers}
           onSend={sendMessage}
           onCreateThread={() => setCreatingThread(true)}
           onTyping={handleTyping}

@@ -10,12 +10,13 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { EmojiPickerPopover } from "./emoji-picker"
-import type { Friend } from "./_types"
+import type { Member } from "./_types"
 import type { MentionType } from "@alook/shared"
 import {
   buildCommunityMentionExtension,
   detectMentionType,
   EMPTY_MENTION_STATE,
+  rankMentionItems,
   type MentionContext,
   type MentionItem,
   type MentionPopupState,
@@ -26,10 +27,15 @@ import {
 // Enter sends, Shift+Enter adds a newline; while the mention popover is open
 // Enter/Tab/Arrow keys drive selection instead. @everyone / @here are virtual
 // candidates in channel + thread contexts (hidden in DM).
-export function Composer({ channel, context, members, onSend, onCreateThread, onTyping, replyingTo, onCancelReply }: {
+export function Composer({ channel, context, members, onSearchMembers, onSend, onCreateThread, onTyping, replyingTo, onCancelReply }: {
   channel: string
   context: MentionContext
-  members: Friend[]
+  members: Member[]
+  // Fire-and-forget hook the composer calls with the current @-query on every
+  // suggestion tick. Wired to `useServerMembers.searchMembers`, which debounces
+  // and hits `/servers/:id/members/search`. Undefined for surfaces that don't
+  // have a server roster (DM composer).
+  onSearchMembers?: (query: string) => void
   onSend?: (markdown: string, attachments?: File[], mentionType?: MentionType) => void
   onCreateThread?: () => void
   onTyping?: () => void
@@ -50,8 +56,14 @@ export function Composer({ channel, context, members, onSend, onCreateThread, on
   // rebuilding the editor (which would reset its state).
   const membersRef = useRef(members)
   const contextRef = useRef(context)
+  const onSearchMembersRef = useRef(onSearchMembers)
+  // The most recent @-query the suggestion plugin passed us. Kept so the
+  // re-rank effect below (fired when `members` changes while the popup is
+  // open) can rank against the query the user actually sees.
+  const queryRef = useRef<string>("")
   useEffect(() => { membersRef.current = members }, [members])
   useEffect(() => { contextRef.current = context }, [context])
+  useEffect(() => { onSearchMembersRef.current = onSearchMembers }, [onSearchMembers])
 
   const fireTyping = () => {
     if (!onTyping || typingTimer.current) return
@@ -66,8 +78,35 @@ export function Composer({ channel, context, members, onSend, onCreateThread, on
       contextRef,
       popupRef: mentionPopupRef,
       setPopup: setMentionPopup,
+      onSearchMembersRef,
+      queryRef,
     }),
   )
+
+  // Re-rank + push a new popup state whenever `members` changes AND the popup
+  // is open. Without this, tiptap's `suggestion.items` only fires on
+  // caret/query updates — so remote-arrival changes to `members` (e.g. a
+  // `useServerMembers.searchMembers` response landing) wouldn't reach the
+  // popup until the user typed another character.
+  //
+  // Guard: bail unless the recomputed items differ from what's already
+  // visible. React batches state updates through `Object.is`, but the popup
+  // object identity always changes here (we rebuild it), so an unconditional
+  // `setPopup` would fire on every `members` render — an infinite loop risk
+  // if a downstream effect touches `members`.
+  useEffect(() => {
+    const cur = mentionPopupRef.current
+    // Popup closed → nothing to reconcile.
+    if (!cur.command) return
+    const next = rankMentionItems(members, context, queryRef.current)
+    if (itemsEqual(cur.items, next)) return
+    // Preserve selectedIndex if it's still valid; otherwise reset to 0.
+    setMentionPopup({
+      ...cur,
+      items: next,
+      selectedIndex: cur.selectedIndex < next.length ? cur.selectedIndex : 0,
+    })
+  }, [members, context])
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -223,6 +262,26 @@ export function ComposerSkeleton() {
       </div>
     </div>
   )
+}
+
+// Structural equality on the popup's `items` array — used by the "members
+// changed while popup is open" effect to skip no-op updates. Two lists are
+// equal iff they have identical (kind,id,label) at each index; that's enough
+// to catch the ranking-preserving cases (avatar/status flips get an update
+// because the row visually differs). Guards against setPopup churn that
+// would otherwise re-fire the effect via React's render loop.
+function itemsEqual(a: MentionItem[], b: MentionItem[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (x.kind !== y.kind || x.id !== y.id || x.label !== y.label) return false
+    if (x.kind === "member" && y.kind === "member") {
+      if (x.avatar !== y.avatar || x.status !== y.status) return false
+    }
+  }
+  return true
 }
 
 // Portal-rendered popup. Anchored above the caret via clientRect() from

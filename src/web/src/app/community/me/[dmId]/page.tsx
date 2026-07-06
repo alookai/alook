@@ -224,7 +224,10 @@ function DmView() {
           <Composer
             channel={dm.name}
             context="dm"
-            members={friends}
+            // DM context short-circuits `rankMentionItems` to `[]` — no popup,
+            // no candidate pool needed. Passing [] keeps the Member[] typing
+            // honest without shimming friends into a member shape.
+            members={[]}
             onSend={sendDmMsg}
             onTyping={handleTyping}
             replyingTo={replyTo?.authorName}

@@ -28,7 +28,7 @@ import {
   THREADS, THREAD_MESSAGES, FORUM_POSTS, FORUM_TAGS, MEMBERS, FRIENDS, PENDING, BLOCKED, DMS, DM_MESSAGES,
   PROFILES, INVITES, AUDIT_LOG, MENTIONS, FOR_YOU_FEED, UNREAD_SERVERS, MOCK_FOLDERS,
 } from "./_mock"
-import type { RightPanel, MobileZone, View, SettingsSection, Msg, PendingRequest, BlockedUser, ForumPost, Profile, Thread, Role, DM } from "@/components/community/_types"
+import type { RightPanel, MobileZone, View, SettingsSection, Msg, PendingRequest, BlockedUser, ForumPost, Profile, Thread, Role, DM, Member } from "@/components/community/_types"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelTree } from "@/components/community/use-channel-tree"
 import { ProfileCard } from "@/components/community/profile-card"
@@ -168,6 +168,16 @@ export default function CommunityPreview() {
 
   const togglePanel = (k: Exclude<RightPanel, null>) =>
     setRightPanel((p) => (p === k ? null : k))
+
+  // Preview @-mention candidate pool. In the live app the composer's roster
+  // is the enriched server `members` array (`Member[]`). This mock reshapes
+  // `friendList` (a `Friend[]`) into `Member[]` by tacking on the two fields
+  // that `Member` adds — a `role` and the (unused-by-popup) `userId` echoing
+  // `id`. Keeps the preview visually identical without polluting `_mock.ts`.
+  const composerMembers = useMemo<Member[]>(
+    () => friendList.map((f) => ({ ...f, userId: f.userId ?? f.id, role: "member" as const })),
+    [friendList],
+  )
 
   // the active channel object (for forum detection) and the open thread/post.
   const activeChannelObj = Object.values(channelTree.order).flat().find((ch) => ch.id === activeChannel)
@@ -437,7 +447,7 @@ export default function CommunityPreview() {
               onOpenThread={() => {}}
               {...profileProps}
             />
-            <Composer channel={openThread.name} context="thread" members={friendList} onSend={sendThreadMessage} />
+            <Composer channel={openThread.name} context="thread" members={composerMembers} onSend={sendThreadMessage} />
           </main>
         </>
       )
@@ -460,7 +470,7 @@ export default function CommunityPreview() {
                 </>
               }
             />
-            <Composer channel={dm.name} context="dm" members={friendList} onSend={sendDmMessage} />
+            <Composer channel={dm.name} context="dm" members={[]} onSend={sendDmMessage} />
           </main>
         </>
       ) : (
@@ -506,7 +516,7 @@ export default function CommunityPreview() {
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MessageList channel={activeChannel} messages={messages} pinnedIds={pinnedIds} newDividerBefore={NEW_DIVIDER_BEFORE} typingUsers={["Lindsay"]} onOpenThread={enterThread} {...messageActions} {...profileProps} />
-          <Composer channel={activeChannel} context="channel" members={friendList} onSend={sendMessage} onCreateThread={() => setCreatingThread(true)} replyingTo={replyTo?.authorName} onCancelReply={() => setReplyTo(null)} />
+          <Composer channel={activeChannel} context="channel" members={composerMembers} onSend={sendMessage} onCreateThread={() => setCreatingThread(true)} replyingTo={replyTo?.authorName} onCancelReply={() => setReplyTo(null)} />
         </main>
       </>
     )

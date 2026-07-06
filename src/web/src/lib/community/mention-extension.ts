@@ -1,6 +1,6 @@
 import Mention from "@tiptap/extension-mention"
 import { MENTION_TYPES, type MentionType } from "@alook/shared"
-import type { Friend } from "@/components/community/_types"
+import type { Member } from "@/components/community/_types"
 
 export type MentionContext = "channel" | "thread" | "dm"
 
@@ -24,7 +24,7 @@ const MENTION_LIMIT = 8
 // (message-handler.ts) explicitly skips mention extraction for DMs anyway, so
 // the popover would be pure noise. Capped at MENTION_LIMIT.
 export function rankMentionItems(
-  members: Friend[],
+  members: Member[],
   context: MentionContext,
   query: string,
 ): MentionItem[] {
@@ -35,14 +35,14 @@ export function rankMentionItems(
 
   const sw: MentionItem[] = []
   const inc: MentionItem[] = []
-  for (const f of members) {
-    const name = f.name.toLowerCase()
+  for (const m of members) {
+    const name = m.name.toLowerCase()
     const item: MentionItem = {
       kind: "member",
-      id: f.id,
-      label: f.name,
-      avatar: f.avatar,
-      status: f.status,
+      id: m.id,
+      label: m.name,
+      avatar: m.avatar,
+      status: m.status,
     }
     if (!q || name.startsWith(q)) sw.push(item)
     else if (name.includes(q)) inc.push(item)
@@ -85,22 +85,35 @@ type SuggestionProps = {
  * the mention.
  */
 export function buildCommunityMentionExtension(opts: {
-  membersRef: { current: Friend[] }
+  membersRef: { current: Member[] }
   contextRef: { current: MentionContext }
   popupRef: { current: MentionPopupState }
   setPopup: (
     next: MentionPopupState | ((cur: MentionPopupState) => MentionPopupState),
   ) => void
+  // Optional. Fired (fire-and-forget) with the current query each time the
+  // suggestion popup asks for items — the Composer wires this to
+  // `useServerMembers.searchMembers` so large-server searches can hit the
+  // remote endpoint instead of being capped at the first eagerly-loaded page.
+  onSearchMembersRef?: { current: ((q: string) => void) | undefined }
+  // Optional. Kept in sync with the Composer's `queryRef` so the current
+  // query can be re-used by the re-rank effect when `members` changes while
+  // the popup is open. Assignment here (not by the popup consumer) keeps the
+  // two paths in agreement.
+  queryRef?: { current: string }
 }) {
-  const { membersRef, contextRef, popupRef, setPopup } = opts
+  const { membersRef, contextRef, popupRef, setPopup, onSearchMembersRef, queryRef } = opts
 
   return Mention.configure({
     HTMLAttributes: { class: "mention-highlight" },
     renderText: ({ node }) => `@${node.attrs.label ?? node.attrs.id}`,
     suggestion: {
       char: "@",
-      items: ({ query }: { query: string }) =>
-        rankMentionItems(membersRef.current, contextRef.current, query),
+      items: ({ query }: { query: string }) => {
+        if (queryRef) queryRef.current = query
+        onSearchMembersRef?.current?.(query)
+        return rankMentionItems(membersRef.current, contextRef.current, query)
+      },
       render: () => ({
         onStart: (props: SuggestionProps) => {
           setPopup({
