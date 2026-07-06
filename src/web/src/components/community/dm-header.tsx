@@ -14,7 +14,14 @@ export function DmHeader({ dm, onBack }: {
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
       <Avatar label={dm.avatar} size={24} presence={dm.status} />
-      <h1 className="truncate text-base font-medium">{dm.name}</h1>
+      <h1 className="min-w-0 truncate text-base font-medium">
+        {dm.name}
+        {dm.discriminator && (
+          <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
+            #{dm.discriminator}
+          </span>
+        )}
+      </h1>
     </header>
   )
 }

@@ -54,7 +54,14 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf }: {
           <Badge variant="secondary" className="mb-1 h-6 gap-1"><Shield className="size-3.5" /> {data.role}</Badge>
         </div>
         <div className="rounded-lg bg-card p-4">
-          <div className="text-lg font-semibold">{data.name}</div>
+          <div className="text-lg font-semibold">
+            {data.name}
+            {data.discriminator && (
+              <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
+                #{data.discriminator}
+              </span>
+            )}
+          </div>
           <Separator className="my-2" />
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">About</div>
           <p className="mt-1 text-sm text-muted-foreground">{data.about || "No bio yet."}</p>

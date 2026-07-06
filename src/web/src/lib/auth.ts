@@ -1,11 +1,13 @@
 import { betterAuth } from "better-auth"
 import { emailOTP, deviceAuthorization, bearer } from "better-auth/plugins"
+import { nanoid } from "nanoid"
 import {
   createLogger,
   DEV_EMAIL_WORKER_URL,
   resolveMode,
   queries,
   COMMUNITY_BOT_EMAIL_DOMAIN,
+  computeDiscriminator,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { getOtpSubject, renderOtpEmail } from "./email-templates"
@@ -98,11 +100,14 @@ export function createAuth(env: Env) {
             ) {
               return false as unknown as { data: typeof user }
             }
+            // Mint the id here so we can seed `discriminator` (an FNV-1a hash
+            // of the id) in the same INSERT — the schema default of "0000"
+            // otherwise sticks and a backfill has to catch it.
+            const id = (user as { id?: string }).id ?? nanoid()
+            const discriminator = computeDiscriminator(id)
             const trimmed = (user.name ?? "").trim()
-            if (trimmed) return { data: user }
-            const fallback = user.email?.split("@")[0]?.trim()
-            if (!fallback) return { data: user }
-            return { data: { ...user, name: fallback } }
+            const name = trimmed || user.email?.split("@")[0]?.trim() || user.name
+            return { data: { ...user, id, name, discriminator } }
           },
           after: async (user, ctx) => {
             if (!ctx) return

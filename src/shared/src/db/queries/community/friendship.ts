@@ -249,6 +249,7 @@ export async function listFriends(db: Database, userId: string) {
       friendName: user.name,
       friendEmail: user.email,
       friendImage: user.image,
+      friendDiscriminator: user.discriminator,
     })
     .from(communityFriendship)
     .innerJoin(user, eq(user.id, communityFriendship.addresseeId))
@@ -267,6 +268,7 @@ export async function listFriends(db: Database, userId: string) {
       friendName: user.name,
       friendEmail: user.email,
       friendImage: user.image,
+      friendDiscriminator: user.discriminator,
     })
     .from(communityFriendship)
     .innerJoin(user, eq(user.id, communityFriendship.requesterId))
@@ -289,6 +291,7 @@ export async function listFriends(db: Database, userId: string) {
       botName: user.name,
       botEmail: user.email,
       botImage: user.image,
+      botDiscriminator: user.discriminator,
     })
     .from(user)
     .where(
@@ -304,6 +307,7 @@ export async function listFriends(db: Database, userId: string) {
     friendName: b.botName,
     friendEmail: b.botEmail,
     friendImage: b.botImage,
+    friendDiscriminator: b.botDiscriminator,
   }));
 
   return [...asRequester, ...asAddressee, ...ownBotRows];

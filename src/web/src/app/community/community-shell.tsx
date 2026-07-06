@@ -67,9 +67,13 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   // the session, but the free-text "about me" lives on the community profile
   // row. Fetch it once so the settings dialog opens pre-filled.
   useEffect(() => {
-    apiFetch<{ aboutMe: string }>("/api/community/users/me/profile")
+    apiFetch<{ aboutMe: string; discriminator: string }>("/api/community/users/me/profile")
       .then((data) =>
-        setCurrentUser((u) => ({ ...u, aboutMe: data.aboutMe })),
+        setCurrentUser((u) => ({
+          ...u,
+          aboutMe: data.aboutMe,
+          discriminator: data.discriminator,
+        })),
       )
       .catch(() => {})
   }, [setCurrentUser])

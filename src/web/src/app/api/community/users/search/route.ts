@@ -7,6 +7,7 @@ import {
   MIN_SEARCH_LENGTH,
   MAX_SEARCH_LENGTH,
   DEFAULT_USER_SEARCH_LIMIT,
+  parseNameAndTag,
 } from "@alook/shared"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
@@ -22,12 +23,27 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   }
 
   const db = getDb(ctx.env.DB)
-  const users = await queries.user.searchUsersByName(db, q, {
-    excludeUserId: ctx.userId,
-    limit: DEFAULT_USER_SEARCH_LIMIT,
-  })
+
+  // `ada#0042` → exact (name, discriminator) match so users can disambiguate
+  // two people with the same name. Anything else falls back to LIKE-substring.
+  const tagged = parseNameAndTag(q)
+  const users = tagged
+    ? await queries.user.searchUsersByName(db, tagged.name, {
+        excludeUserId: ctx.userId,
+        discriminator: tagged.discriminator,
+        limit: DEFAULT_USER_SEARCH_LIMIT,
+      })
+    : await queries.user.searchUsersByName(db, q, {
+        excludeUserId: ctx.userId,
+        limit: DEFAULT_USER_SEARCH_LIMIT,
+      })
 
   return writeJSON({
-    users: users.map((u) => ({ id: u.id, name: u.name, image: u.image })),
+    users: users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      image: u.image,
+      discriminator: u.discriminator,
+    })),
   })
 })

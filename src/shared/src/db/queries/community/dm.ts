@@ -43,6 +43,7 @@ export async function listDMs(db: Database, userId: string) {
       otherUserName: user.name,
       otherUserEmail: user.email,
       otherUserImage: user.image,
+      otherUserDiscriminator: user.discriminator,
       lastMessageAt: communityDmConversation.lastMessageAt,
       createdAt: communityDmConversation.createdAt,
     })
@@ -60,6 +61,7 @@ export async function listDMs(db: Database, userId: string) {
       otherUserName: user.name,
       otherUserEmail: user.email,
       otherUserImage: user.image,
+      otherUserDiscriminator: user.discriminator,
       lastMessageAt: communityDmConversation.lastMessageAt,
       createdAt: communityDmConversation.createdAt,
     })

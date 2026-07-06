@@ -152,6 +152,9 @@ export type Friend = {
   id: string
   userId?: string
   name: string
+  // 4-digit discriminator (`"0042"`). Optional so mock/older payloads that
+  // predate the column keep type-checking; live payloads always include it.
+  discriminator?: string
   avatar: string
   status: Presence
   sub: string
@@ -173,6 +176,8 @@ export type DM = {
   id: string // nanoid
   userId: string
   name: string
+  // 4-digit discriminator (`"0042"`). Optional for the same reason as Friend.
+  discriminator?: string
   avatar: string
   status: Presence
   preview: string
@@ -182,6 +187,9 @@ export type DM = {
 // ── Profile ──────────────────────────────────────────────────────────────────
 export type Profile = {
   name: string
+  // 4-digit discriminator hash of user.id (`"0042"`) — undefined while the
+  // profile fetch is in flight. See computeDiscriminator in @alook/shared.
+  discriminator?: string
   avatar: string
   role: string
   about: string

@@ -32,6 +32,7 @@ export const user = sqliteTable(
     isBot: integer("isBot", { mode: "boolean" }).notNull().default(false),
     ownerUserId: text("ownerUserId"),
     deletedAt: text("deletedAt"),
+    discriminator: text("discriminator").notNull().default("0000"),
   },
   (t) => [index("idx_user_ownerUserId_isBot").on(t.ownerUserId, t.isBot)]
 );

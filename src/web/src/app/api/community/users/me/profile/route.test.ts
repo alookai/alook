@@ -55,19 +55,29 @@ function patchReq(body: unknown) {
 }
 
 describe("GET /api/community/users/me/profile", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getUser.mockResolvedValue({ id: "u1", discriminator: "4242" })
+  })
 
   it("returns defaults when no profile row exists", async () => {
     getProfile.mockResolvedValue(null)
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/profile"), {} as never)
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ aboutMe: "", bannerColor: null })
+    expect(await res.json()).toEqual({ aboutMe: "", bannerColor: null, discriminator: "4242" })
   })
 
   it("returns the stored profile fields when they exist", async () => {
     getProfile.mockResolvedValue({ aboutMe: "hi", bannerColor: "#aabbcc" })
     const res = await GET(new NextRequest("http://localhost/api/community/users/me/profile"), {} as never)
-    expect(await res.json()).toEqual({ aboutMe: "hi", bannerColor: "#aabbcc" })
+    expect(await res.json()).toEqual({ aboutMe: "hi", bannerColor: "#aabbcc", discriminator: "4242" })
+  })
+
+  it("falls back to \"0000\" when the user row is missing", async () => {
+    getProfile.mockResolvedValue(null)
+    getUser.mockResolvedValue(null)
+    const res = await GET(new NextRequest("http://localhost/api/community/users/me/profile"), {} as never)
+    expect(await res.json()).toEqual({ aboutMe: "", bannerColor: null, discriminator: "0000" })
   })
 })
 

@@ -251,11 +251,11 @@ export const MEMBERS: Member[] = [
 ]
 
 export const FRIENDS: Friend[] = [
-  { id: "u_gus", name: "Gus", avatar: "Gu", status: "online", sub: "Playing with agents" },
-  { id: "u_lindsay", name: "Lindsay", avatar: "L", status: "online", sub: "Online" },
-  { id: "u_tomy", name: "lucky tomy", avatar: "t", status: "online", sub: "AI engineer" },
-  { id: "u_azzo", name: "Azzo", avatar: "A", status: "offline", sub: "Offline" },
-  { id: "u_reece", name: "Reece", avatar: "R", status: "offline", sub: "Offline" },
+  { id: "u_gus", name: "Gus", discriminator: "1337", avatar: "Gu", status: "online", sub: "Playing with agents" },
+  { id: "u_lindsay", name: "Lindsay", discriminator: "0007", avatar: "L", status: "online", sub: "Online" },
+  { id: "u_tomy", name: "lucky tomy", discriminator: "2718", avatar: "t", status: "online", sub: "AI engineer" },
+  { id: "u_azzo", name: "Azzo", discriminator: "4404", avatar: "A", status: "offline", sub: "Offline" },
+  { id: "u_reece", name: "Reece", discriminator: "8080", avatar: "R", status: "offline", sub: "Offline" },
 ]
 
 export const PENDING: PendingRequest[] = [
@@ -269,15 +269,15 @@ export const BLOCKED: BlockedUser[] = [
 
 export const DMS: DM[] = [
   {
-    id: "dm_lindsay", userId: "u_lindsay", name: "Lindsay", avatar: "L", status: "online",
+    id: "dm_lindsay", userId: "u_lindsay", name: "Lindsay", discriminator: "0007", avatar: "L", status: "online",
     preview: "shipping that preset 🚀", unread: true,
   },
   {
-    id: "dm_gus", userId: "u_gus", name: "Gus", avatar: "Gu", status: "online",
+    id: "dm_gus", userId: "u_gus", name: "Gus", discriminator: "1337", avatar: "Gu", status: "online",
     preview: "the email-per-agent thing is wild",
   },
   {
-    id: "dm_tomy", userId: "u_tomy", name: "lucky tomy", avatar: "t", status: "offline",
+    id: "dm_tomy", userId: "u_tomy", name: "lucky tomy", discriminator: "2718", avatar: "t", status: "offline",
     preview: "wrangler deploy and you're set",
   },
 ]
@@ -298,9 +298,9 @@ export const DM_MESSAGES: Record<string, Msg[]> = {
 }
 
 export const PROFILES: Record<string, Profile> = {
-  Gener: { name: "Gener", avatar: "G", role: "Owner", about: "Building Alook. Coffee, agents, and warm gray UIs.", mutual: 3, tags: ["Owner"] },
-  Gus: { name: "Gus", avatar: "Gu", role: "Admin", about: "Tinkering with email-driven workflows.", mutual: 2, tags: ["Admin"] },
-  Lindsay: { name: "Lindsay", avatar: "L", role: "Admin", about: "Research lead. Ask me about presets.", mutual: 2, tags: ["Admin"] },
+  Gener: { name: "Gener", discriminator: "0042", avatar: "G", role: "Owner", about: "Building Alook. Coffee, agents, and warm gray UIs.", mutual: 3, tags: ["Owner"] },
+  Gus: { name: "Gus", discriminator: "1337", avatar: "Gu", role: "Admin", about: "Tinkering with email-driven workflows.", mutual: 2, tags: ["Admin"] },
+  Lindsay: { name: "Lindsay", discriminator: "0007", avatar: "L", role: "Admin", about: "Research lead. Ask me about presets.", mutual: 2, tags: ["Admin"] },
 }
 
 export const INVITES: InviteRow[] = [

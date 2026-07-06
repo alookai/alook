@@ -52,11 +52,15 @@ export function FriendsPage({
   const filteredFriends = useMemo(() => {
     const q = filter.trim().toLowerCase()
     if (!q) return friends
-    return friends.filter((f) => f.name.toLowerCase().includes(q) || (f.sub ?? "").toLowerCase().includes(q))
+    return friends.filter((f) =>
+      f.name.toLowerCase().includes(q)
+      || (f.sub ?? "").toLowerCase().includes(q)
+      || (f.discriminator ? `#${f.discriminator}`.includes(q) : false)
+    )
   }, [friends, filter])
 
   const [addValue, setAddValue] = useState("")
-  const [searchResults, setSearchResults] = useState<{ id: string; name: string; image: string | null }[]>([])
+  const [searchResults, setSearchResults] = useState<{ id: string; name: string; image: string | null; discriminator: string }[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
 
   useEffect(() => {
@@ -65,7 +69,7 @@ export function FriendsPage({
     if (!q) { setSearchResults([]); return }
     debounceRef.current = setTimeout(async () => {
       try {
-        const data = await apiFetch<{ users: { id: string; name: string; image: string | null }[] }>(`/api/community/users/search?q=${encodeURIComponent(q)}`)
+        const data = await apiFetch<{ users: { id: string; name: string; image: string | null; discriminator: string }[] }>(`/api/community/users/search?q=${encodeURIComponent(q)}`)
         setSearchResults(data.users)
       } catch { setSearchResults([]) }
     }, 300)
@@ -95,7 +99,14 @@ export function FriendsPage({
         >
           <Avatar label={f.avatar} size={32} presence={f.status} dim={f.status === "offline"} />
           <div className="min-w-0 flex-1">
-            <div className={`truncate text-sm font-medium ${f.status === "offline" ? "text-muted-foreground" : ""}`}>{f.name}</div>
+            <div className={`truncate text-sm font-medium ${f.status === "offline" ? "text-muted-foreground" : ""}`}>
+              {f.name}
+              {f.discriminator && (
+                <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
+                  #{f.discriminator}
+                </span>
+              )}
+            </div>
             <div className="truncate text-xs text-muted-foreground">{f.sub}</div>
           </div>
           <span className="grid size-8 place-items-center rounded-full bg-secondary text-muted-foreground"><MessagesSquare className="size-4" /></span>
@@ -207,7 +218,12 @@ export function FriendsPage({
                       className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-accent"
                     >
                       <Avatar label={u.image ?? u.name.charAt(0).toUpperCase()} size={28} />
-                      <span className="flex-1 truncate text-sm font-medium">{u.name}</span>
+                      <span className="flex-1 min-w-0 truncate text-sm font-medium">
+                        {u.name}
+                        <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
+                          #{u.discriminator}
+                        </span>
+                      </span>
                       <UserPlus className="size-4 shrink-0 text-muted-foreground" />
                     </button>
                   ))}

@@ -1,4 +1,4 @@
-import { eq, and, asc, inArray, or, like, isNull, sql, count } from "drizzle-orm";
+import { eq, and, asc, inArray, sql, count } from "drizzle-orm";
 import {
   communityServer,
   communityCategory,
@@ -171,21 +171,6 @@ export async function listUserServers(db: Database, userId: string) {
 export async function getServersByIds(db: Database, serverIds: string[]) {
   if (serverIds.length === 0) return [];
   return db.select().from(communityServer).where(inArray(communityServer.id, serverIds));
-}
-
-// Backfill support: list rows whose icon column still holds the legacy URL
-// format (or is NULL). Consumed by the one-shot migration script that pins
-// each row to its canonical R2 key.
-export async function listServersNeedingIconBackfill(db: Database) {
-  return db
-    .select({ id: communityServer.id, icon: communityServer.icon })
-    .from(communityServer)
-    .where(
-      or(
-        isNull(communityServer.icon),
-        like(communityServer.icon, "/api/community/%"),
-      ),
-    );
 }
 
 export async function setServerIcon(

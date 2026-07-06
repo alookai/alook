@@ -1,7 +1,9 @@
 import { eq, inArray, like, sql, and, ne, isNull } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { user } from "../schema";
 import type { Database } from "../index";
 import { escapeLikePattern } from "../../utils/sql-like";
+import { computeDiscriminator } from "../../lib/discriminator";
 
 // ─── Column projections ──────────────────────────────────────────────────────
 //
@@ -24,6 +26,7 @@ const publicUserColumns = {
   image: user.image,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
+  discriminator: user.discriminator,
 } as const;
 
 const internalUserColumns = {
@@ -41,6 +44,7 @@ export type PublicUser = {
   image: string | null;
   createdAt: string;
   updatedAt: string;
+  discriminator: string;
 };
 
 export type InternalUserFields = {
@@ -149,10 +153,23 @@ export async function getUserByNameCaseInsensitive(
 export async function searchUsersByName(
   db: Database,
   name: string,
-  opts?: { excludeUserId?: string; limit?: number; excludeDeleted?: boolean }
+  opts?: {
+    excludeUserId?: string;
+    limit?: number;
+    excludeDeleted?: boolean;
+    /** When set, filter to an exact name + discriminator match (`name#0042`). */
+    discriminator?: string;
+  }
 ): Promise<PublicUser[]> {
-  const pattern = `%${escapeLikePattern(name)}%`;
-  const conditions: any[] = [sql`${user.name} LIKE ${pattern} ESCAPE '\\'`];
+  const conditions: any[] = [];
+  if (opts?.discriminator !== undefined) {
+    // Exact match — used by the `name#0042` add-friend search path.
+    conditions.push(eq(user.name, name));
+    conditions.push(eq(user.discriminator, opts.discriminator));
+  } else {
+    const pattern = `%${escapeLikePattern(name)}%`;
+    conditions.push(sql`${user.name} LIKE ${pattern} ESCAPE '\\'`);
+  }
   if (opts?.excludeUserId) {
     conditions.push(ne(user.id, opts.excludeUserId));
   }
@@ -171,9 +188,17 @@ export async function createUser(
   data: { name: string; email: string }
 ): Promise<PublicUser> {
   if (!data.name.trim()) throw new Error("user.name cannot be empty");
+  // Generate the id up-front so the discriminator (an FNV-1a hash of the id)
+  // can be written in the same INSERT — no separate UPDATE round-trip.
+  const id = nanoid();
   const rows = await db
     .insert(user)
-    .values({ name: data.name, email: data.email })
+    .values({
+      id,
+      name: data.name,
+      email: data.email,
+      discriminator: computeDiscriminator(id),
+    })
     .returning(publicUserColumns);
   return rows[0] as PublicUser;
 }

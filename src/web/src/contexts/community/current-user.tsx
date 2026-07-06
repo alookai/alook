@@ -21,6 +21,9 @@ export type CurrentUser = {
   email: string
   avatar: string
   aboutMe?: string
+  // 4-digit discriminator (`"0042"`). Hydrated alongside `aboutMe` from
+  // /api/community/users/me/profile — see CommunityBootstrap.
+  discriminator?: string
 }
 
 type CurrentUserContextValue = {

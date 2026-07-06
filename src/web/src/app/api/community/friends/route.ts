@@ -14,6 +14,7 @@ export const GET = withAuth(async (_req, ctx) => {
     id: f.id,
     userId: f.friendUserId,
     name: f.friendName,
+    discriminator: f.friendDiscriminator,
     avatar: f.friendImage ?? avatarInitial(f.friendName),
     status: "offline" as const,
     sub: "",

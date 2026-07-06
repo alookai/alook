@@ -318,16 +318,18 @@ describe("createAuth databaseHooks — user.create.before", () => {
     const result = await beforeHook({ id: "u1", name: "", email: "alice@example.com" })
     expect(result.data.name).toBe("alice")
     expect(result.data.email).toBe("alice@example.com")
+    expect(result.data.discriminator).toMatch(/^\d{4}$/)
   })
 
-  it("no-op when name is non-empty", async () => {
+  it("keeps a non-empty name and always stamps a 4-digit discriminator", async () => {
     const createAuth = await loadCreateAuth()
     const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
     const beforeHook = opts.databaseHooks!.user!.create!.before!
     const input = { id: "u2", name: "Alice", email: "alice@example.com" }
     const result = await beforeHook(input)
-    expect(result.data).toBe(input)
     expect(result.data.name).toBe("Alice")
+    expect(result.data.email).toBe("alice@example.com")
+    expect(result.data.discriminator).toMatch(/^\d{4}$/)
   })
 
   it("coalesces whitespace-only name to email prefix", async () => {
@@ -349,5 +351,14 @@ describe("createAuth databaseHooks — user.create.before", () => {
       email?: string
     })
     expect(result.data.name).toBe("carol")
+  })
+
+  it("discriminator is deterministic on the provided id", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const beforeHook = opts.databaseHooks!.user!.create!.before!
+    const a = await beforeHook({ id: "u_fixed_id", name: "x", email: "x@example.com" })
+    const b = await beforeHook({ id: "u_fixed_id", name: "y", email: "y@example.com" })
+    expect(a.data.discriminator).toBe(b.data.discriminator)
   })
 })

@@ -13,6 +13,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
     id: r.id,
     userId: r.otherUserId,
     name: r.otherUserName,
+    discriminator: r.otherUserDiscriminator,
     avatar: r.otherUserImage ?? avatarInitial(r.otherUserName),
     status: "offline" as const,
     preview: "",

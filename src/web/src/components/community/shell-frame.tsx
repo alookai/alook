@@ -274,6 +274,7 @@ export function ShellFrame({
       if (isSelf) {
         const data: Profile = {
           name: currentUser.name,
+          discriminator: currentUser.discriminator,
           avatar: currentUser.avatar || currentUser.name.charAt(0).toUpperCase(),
           role: "You",
           about: currentUser.aboutMe ?? "",
@@ -290,6 +291,7 @@ export function ShellFrame({
       const displayRole = role.charAt(0).toUpperCase() + role.slice(1)
       const data: Profile = {
         name,
+        // discriminator is undefined until the /profile fetch below hydrates it.
         avatar: member?.avatar ?? name.charAt(0).toUpperCase(),
         role: displayRole,
         about,
@@ -299,7 +301,7 @@ export function ShellFrame({
       setProfile({ data, x: e.clientX, y: e.clientY })
       const userId = member && "userId" in member ? (member as { userId: string }).userId : member?.id
       if (userId) {
-        apiFetch<{ aboutMe?: string; mutualServers?: number }>(`/api/community/users/${userId}/profile`)
+        apiFetch<{ aboutMe?: string; mutualServers?: number; discriminator?: string }>(`/api/community/users/${userId}/profile`)
           .then((p) => {
             setProfile((prev) =>
               prev
@@ -309,6 +311,7 @@ export function ShellFrame({
                       ...prev.data,
                       about: p.aboutMe ?? prev.data.about,
                       mutual: p.mutualServers ?? 0,
+                      discriminator: p.discriminator ?? prev.data.discriminator,
                     },
                   }
                 : prev,
