@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { createAuth } from "@/lib/auth"
+import createMiddleware from "next-intl/middleware";
+import { routing } from "@/i18n/routing";
+
+const intlMiddleware = createMiddleware(routing);
 
 function isSafeRedirect(path: string): boolean {
   // Must be a relative path. Reject scheme-relative ("//evil.com") and
-  // backslash tricks ("/\evil.com") — the WHATWG URL parser treats "\" as "/",
+  // backslash tricks ("/\\evil.com") — the WHATWG URL parser treats "\\" as "/",
   // so both resolve to an external origin and would be an open redirect.
   return path.startsWith("/") && path[1] !== "/" && path[1] !== "\\"
 }
@@ -12,6 +16,10 @@ function isSafeRedirect(path: string): boolean {
 const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard"]
 
 export async function middleware(request: NextRequest) {
+  // Run i18n middleware first to normalize locale
+  const intlResponse = intlMiddleware(request);
+  if (intlResponse) return intlResponse;
+
   if (
     request.headers.get("x-forwarded-proto") === "http" &&
     !request.nextUrl.hostname.startsWith("localhost") &&

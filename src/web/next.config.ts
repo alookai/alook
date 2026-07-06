@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import createMDX from "@next/mdx";
+import createNextIntlPlugin from "next-intl/plugin";
+
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8"));
 
@@ -13,6 +16,8 @@ const nextConfig: NextConfig = {
 	// which breaks AsyncLocalStorage-based request state (dual module hazard).
 	// See: https://www.better-auth.com/docs/reference/faq#troubleshooting
 	serverExternalPackages: ["@better-auth/core"],
+	// Allow access from other devices on the local network during development
+	allowedDevOrigins: ["192.168.1.87", "192.168.1.87:15210"],
 	turbopack: {
 		root: path.resolve(__dirname, "../.."),
 	},
@@ -31,7 +36,7 @@ const withMDX = createMDX({
 	},
 });
 
-export default withMDX(nextConfig);
+export default withNextIntl(withMDX(nextConfig));
 
 // Enable calling `getCloudflareContext()` in `next dev`.
 // See https://opennext.js.org/cloudflare/bindings#local-access-to-bindings.

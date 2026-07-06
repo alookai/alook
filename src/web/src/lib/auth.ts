@@ -35,6 +35,11 @@ export function createAuth(env: Env) {
     baseURL: env.BETTER_AUTH_URL,
     database: env.DB,
     secret: env.BETTER_AUTH_SECRET,
+    trustedOrigins: [
+      env.BETTER_AUTH_URL,
+      "http://localhost:15210",
+      "http://127.0.0.1:15210",
+    ],
     // Signed session-data cookie lets getSession() validate without hitting D1.
     // Fixes first-login 401 for newly-registered users: the just-written user row
     // may not yet be visible on a D1 read-replica, but the signed cookie carries

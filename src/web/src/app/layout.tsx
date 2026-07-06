@@ -7,6 +7,9 @@ import {
   Literata,
 } from "next/font/google";
 import { GoogleTagManager } from "@next/third-parties/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getMessages } from "next-intl/server";
+import { routing } from "@/i18n/routing";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ToasterProvider } from "@/components/toaster-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -110,14 +113,17 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = routing.defaultLocale; // Default to 'en', overridden by middleware
+  const messages = await getMessages();
+
   return (
     <html
-      lang="en"
+      lang={locale}
       className={`${dmSans.variable} ${dmMono.variable} ${caveat.variable} ${vt323.variable} ${literata.variable} h-full antialiased`}
       suppressHydrationWarning
     >
@@ -135,48 +141,50 @@ export default function RootLayout({
       <body
         className="min-h-full flex flex-col"
       >
-        <MockNetworkBanner />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify([
-              {
-                "@context": "https://schema.org",
-                "@type": "WebApplication",
-                name: "Alook",
-                url: SITE_URL,
-                description:
-                  "Your AI agents, always on. Give them an email, let them work for you around the clock.",
-                applicationCategory: "DeveloperApplication",
-                operatingSystem: "All",
-                offers: {
-                  "@type": "Offer",
-                  price: "0",
-                  priceCurrency: "USD",
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <MockNetworkBanner />
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify([
+                {
+                  "@context": "https://schema.org",
+                  "@type": "WebApplication",
+                  name: "Alook",
+                  url: SITE_URL,
+                  description:
+                    "Your AI agents, always on. Give them an email, let them work for you around the clock.",
+                  applicationCategory: "DeveloperApplication",
+                  operatingSystem: "All",
+                  offers: {
+                    "@type": "Offer",
+                    price: "0",
+                    priceCurrency: "USD",
+                  },
                 },
-              },
-              {
-                "@context": "https://schema.org",
-                "@type": "Organization",
-                name: "Alook",
-                url: SITE_URL,
-                logo: `${SITE_URL}/alook.svg`,
-                contactPoint: {
-                  "@type": "ContactPoint",
-                  email: "support@alook.ai",
-                  contactType: "customer support",
+                {
+                  "@context": "https://schema.org",
+                  "@type": "Organization",
+                  name: "Alook",
+                  url: SITE_URL,
+                  logo: `${SITE_URL}/alook.svg`,
+                  contactPoint: {
+                    "@type": "ContactPoint",
+                    email: "support@alook.ai",
+                    contactType: "customer support",
+                  },
                 },
-              },
-            ]),
-          }}
-        />
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <TauriThemeSync />
-          <TooltipProvider>
-            {children}
-          </TooltipProvider>
-          <ToasterProvider />
-        </ThemeProvider>
+              ]),
+            }}
+          />
+          <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+            <TauriThemeSync />
+            <TooltipProvider>
+              {children}
+            </TooltipProvider>
+            <ToasterProvider />
+          </ThemeProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );
