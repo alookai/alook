@@ -17,6 +17,7 @@ type RawInvite = {
   uses: number
   expiresAt: string | null
   createdAt: string
+  creatorId: string | null
   creatorName: string | null
 }
 
@@ -36,6 +37,7 @@ export const invitesQueryFn = (serverId: string) => async (): Promise<InvitesRes
     maxUses: i.maxUses,
     expiresAt: i.expiresAt,
     by: i.creatorName ?? "Unknown",
+    creatorId: i.creatorId,
   }))
   return { invites }
 }

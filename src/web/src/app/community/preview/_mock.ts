@@ -304,8 +304,8 @@ export const PROFILES: Record<string, Profile> = {
 }
 
 export const INVITES: InviteRow[] = [
-  { code: "alook-x9f2", uses: 3, maxUses: null, expiresAt: "2026-07-02T12:00:00Z", by: "Gener" },
-  { code: "alook-team", uses: 12, maxUses: 50, expiresAt: null, by: "Lindsay" },
+  { code: "alook-x9f2", uses: 3, maxUses: null, expiresAt: "2026-07-02T12:00:00Z", by: "Gener", creatorId: "u_gener" },
+  { code: "alook-team", uses: 12, maxUses: 50, expiresAt: null, by: "Lindsay", creatorId: "u_lindsay" },
 ]
 
 export const AUDIT_LOG: AuditEntry[] = [

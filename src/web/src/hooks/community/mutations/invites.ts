@@ -1,5 +1,6 @@
 "use client"
 
+import { useCallback } from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
@@ -16,6 +17,7 @@ import type { InvitesResponse } from "@/hooks/community/use-server-panels"
 
 export type CreateInviteArgs = {
   serverId: string
+  creatorId: string
   creatorName: string
 }
 
@@ -38,35 +40,82 @@ export function useCreateInvite() {
       )
     },
     onSuccess: (data, args) => {
+      const fresh = {
+        code: data.invite.token,
+        uses: data.invite.uses,
+        maxUses: data.invite.maxUses,
+        expiresAt: data.invite.expiresAt,
+        by: args.creatorName,
+        creatorId: args.creatorId,
+      }
       queryClient.setQueryData<InvitesResponse | undefined>(
         communityKeys.invites(args.serverId),
         (prev) =>
           prev
-            ? {
-                ...prev,
-                invites: [
-                  {
-                    code: data.invite.token,
-                    uses: data.invite.uses,
-                    maxUses: data.invite.maxUses,
-                    expiresAt: data.invite.expiresAt,
-                    by: args.creatorName,
-                  },
-                  ...prev.invites,
-                ],
-              }
-            : { invites: [
-                {
-                  code: data.invite.token,
-                  uses: data.invite.uses,
-                  maxUses: data.invite.maxUses,
-                  expiresAt: data.invite.expiresAt,
-                  by: args.creatorName,
-                },
-              ] },
+            ? { ...prev, invites: [fresh, ...prev.invites] }
+            : { invites: [fresh] },
       )
     },
   })
+}
+
+// ── Resolve-or-create current invite ─────────────────────────────────────
+//
+// The share popover wants "a link the user can hand to a friend right now".
+// Creating one on every open would burn the 50-active-per-server cap in
+// short order (`route.ts:76-81`), so we reuse an existing valid invite
+// created by this user first and only mint a fresh one if the pool has
+// nothing usable.
+
+export type ResolveInviteResult = {
+  token: string
+  uses: number
+  maxUses: number | null
+  expiresAt: string | null
+}
+
+/**
+ * Returns a `resolve(currentUserId, currentUserName) → invite` handle.
+ *
+ * A hook (not a static function) so it reads the cached invite list and pipes
+ * the "we just created one" write into that same cache — the dialog can then
+ * close/reopen without re-fetching or re-minting. Only invites the current
+ * user created themselves are candidates for reuse; if none is still usable
+ * (unexpired, uses < maxUses), POST a new one via `useCreateInvite`.
+ */
+export function useResolveOrCreateInvite(serverId: string) {
+  const queryClient = useQueryClient()
+  const createMut = useCreateInvite()
+
+  return useCallback(
+    async (currentUserId: string, currentUserName: string): Promise<ResolveInviteResult> => {
+      const cache = queryClient.getQueryData<InvitesResponse>(
+        communityKeys.invites(serverId),
+      )
+      const nowIso = new Date().toISOString()
+      const reusable = cache?.invites.find((iv) => {
+        if (iv.creatorId !== currentUserId) return false
+        if (iv.expiresAt && iv.expiresAt <= nowIso) return false
+        if (iv.maxUses !== null && iv.uses >= iv.maxUses) return false
+        return true
+      })
+      if (reusable) {
+        return {
+          token: reusable.code,
+          uses: reusable.uses,
+          maxUses: reusable.maxUses,
+          expiresAt: reusable.expiresAt,
+        }
+      }
+      const { invite } = await createMut.mutateAsync({
+        serverId,
+        creatorId: currentUserId,
+        creatorName: currentUserName,
+      })
+      return invite
+    },
+    [serverId, queryClient, createMut],
+  )
 }
 
 // ── Revoke invite ─────────────────────────────────────────────────────────

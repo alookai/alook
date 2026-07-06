@@ -29,7 +29,7 @@ export function ServerSettings({
   section, setSection, onClose, serverName, serverDescription, serverIcon,
   members, membersLoading, membersLoadingMore, membersHasMore, membersTotal, onLoadMoreMembers, onSearchMembers,
   invites, invitesLoading, auditLog, auditLogLoading, onOpenProfile,
-  onKickMember, onSetRole, onRevokeInvite, onCreateInvite, onCopyInvite, onDeleteServer, onUploadIcon, onUpdateServer, notifLevel, onSetNotifLevel,
+  onKickMember, onSetRole, onRevokeInvite, onCopyInvite, onDeleteServer, onUploadIcon, onUpdateServer, notifLevel, onSetNotifLevel,
 }: {
   section: SettingsSection
   setSection: (s: SettingsSection) => void
@@ -52,7 +52,6 @@ export function ServerSettings({
   onKickMember?: (name: string) => void
   onSetRole?: (name: string, role: Role) => void
   onRevokeInvite?: (code: string) => void
-  onCreateInvite?: () => void
   onCopyInvite?: (code: string) => void
   onDeleteServer?: () => void
   onUploadIcon?: () => void
@@ -110,7 +109,7 @@ export function ServerSettings({
         <div className="flex-1 overflow-y-auto thin-scrollbar p-4">
           <TabsContent value="overview"><SettingsOverview serverName={serverName} serverDescription={serverDescription} serverIcon={serverIcon} onUploadIcon={onUploadIcon} onUpdateServer={onUpdateServer} /></TabsContent>
           <TabsContent value="members"><SettingsMembers members={members} loading={membersLoading} loadingMore={membersLoadingMore} hasMore={membersHasMore} total={membersTotal} onLoadMore={onLoadMoreMembers} onSearch={onSearchMembers} onOpenProfile={onOpenProfile} onKickMember={onKickMember} onSetRole={onSetRole} /></TabsContent>
-          <TabsContent value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCreateInvite={onCreateInvite} onCopyInvite={onCopyInvite} /></TabsContent>
+          <TabsContent value="invites"><SettingsInvites invites={invites} loading={invitesLoading} onRevokeInvite={onRevokeInvite} onCopyInvite={onCopyInvite} /></TabsContent>
           <TabsContent value="notifications"><SettingsNotifications level={notifLevel ?? "Only @mentions"} onSetLevel={onSetNotifLevel} /></TabsContent>
           <TabsContent value="audit"><SettingsAudit auditLog={auditLog} loading={auditLogLoading} /></TabsContent>
         </div>
@@ -285,11 +284,10 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
   )
 }
 
-function SettingsInvites({ invites, loading, onRevokeInvite, onCreateInvite, onCopyInvite }: {
+function SettingsInvites({ invites, loading, onRevokeInvite, onCopyInvite }: {
   invites: InviteRow[]
   loading?: boolean
   onRevokeInvite?: (code: string) => void
-  onCreateInvite?: () => void
   onCopyInvite?: (code: string) => void
 }) {
   const [revokingCode, setRevokingCode] = useState<string | null>(null)
@@ -297,7 +295,7 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCreateInvite, onC
   return (
     <div className="space-y-2">
       {invites.length === 0 && (
-        <p className="text-sm text-muted-foreground">No active invites. Create one to let people join this server.</p>
+        <p className="text-sm text-muted-foreground">No active invites — use the invite icon in the sidebar header to share this server.</p>
       )}
       {invites.map((iv) => (
         <div key={iv.code} className="flex items-center gap-3 rounded-md border border-border bg-card px-4 py-3">
@@ -310,7 +308,6 @@ function SettingsInvites({ invites, loading, onRevokeInvite, onCreateInvite, onC
           <Button variant="ghost" size="icon-sm" className="text-muted-foreground hover:text-destructive" aria-label="Revoke invite" onClick={() => setRevokingCode(iv.code)}><X className="size-4" /></Button>
         </div>
       ))}
-      <Button size="sm" className="mt-2" onClick={onCreateInvite}>Create invite</Button>
       <ConfirmDialog
         open={revokingCode !== null}
         onOpenChange={(o) => { if (!o) setRevokingCode(null) }}

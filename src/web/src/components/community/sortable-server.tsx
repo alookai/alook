@@ -9,7 +9,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import type { Server } from "./_types"
 
-export function SortableServer({ server, active, onClick, onLeave, onOpenSettings, onCreateFolder, groupTarget, inFolder, dragging: isDragActive }: { server: Server; active?: boolean; onClick: () => void; onLeave?: () => void; onOpenSettings?: () => void; onCreateFolder?: () => void; groupTarget?: boolean; inFolder?: boolean; dragging?: boolean }) {
+export function SortableServer({ server, active, onClick, onLeave, onOpenSettings, onOpenInvitePopover, onCreateFolder, groupTarget, inFolder, dragging: isDragActive }: { server: Server; active?: boolean; onClick: () => void; onLeave?: () => void; onOpenSettings?: () => void; onOpenInvitePopover?: () => void; onCreateFolder?: () => void; groupTarget?: boolean; inFolder?: boolean; dragging?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: server.id })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragActive ? 0.3 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging && !isDragActive
@@ -54,6 +54,7 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
             </ContextMenuTrigger>
             <ContextMenuContent className="w-52">
               <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">{server.name}</div>
+              {onOpenInvitePopover && <ContextMenuItem onClick={onOpenInvitePopover}>Invite to Server</ContextMenuItem>}
               {!inFolder && onCreateFolder && <ContextMenuItem onClick={onCreateFolder}>Create group</ContextMenuItem>}
               <ContextMenuItem onClick={onOpenSettings}>Server settings</ContextMenuItem>
               {!server.isOwner && !inFolder && (

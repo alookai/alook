@@ -192,7 +192,7 @@ export const communityServerInvite = sqliteTable("community_server_invite", {
   token: text("token")
     .unique()
     .notNull()
-    .$defaultFn(() => nanoid(32)),
+    .$defaultFn(() => nanoid(10)),
   maxUses: integer("max_uses"),
   uses: integer("uses").default(0),
   expiresAt: text("expires_at"),

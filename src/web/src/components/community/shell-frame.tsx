@@ -188,6 +188,12 @@ export function ShellFrame({
     },
     [router],
   )
+  const onRailOpenInvitePopover = useCallback(
+    (id?: string) => {
+      if (id) router.push(`/community/channels/${id}?invite=1`)
+    },
+    [router],
+  )
   const onRailUngroupFolder = useCallback(
     (fId: string) => {
       deleteFolder.mutate(
@@ -251,6 +257,7 @@ export function ShellFrame({
     onJoinServer: onRailJoinServer,
     onLeaveServer: onRailLeaveServer,
     onOpenSettings: onRailOpenSettings,
+    onOpenInvitePopover: onRailOpenInvitePopover,
     onUngroupFolder: onRailUngroupFolder,
     onReorderRail: onRailReorderRail,
     onReorderFolders: onRailReorderFolders,

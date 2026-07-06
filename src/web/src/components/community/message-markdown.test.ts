@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { escapeHtml, preprocessMarkdown } from "./message-markdown"
+import { escapeHtml, preprocessMarkdown, extractInviteTokens } from "./message-markdown"
 
 describe("escapeHtml", () => {
   it("neutralizes < and &, keeps > for blockquotes", () => {
@@ -42,6 +42,15 @@ describe("preprocessMarkdown", () => {
     expect(preprocessMarkdown("steps:\n> do it")).toBe("steps:\n\n> do it")
   })
 
+  it("leaves community invite URLs literal in the body (auto-link handles them)", () => {
+    // Preprocess no longer rewrites invite URLs — they stay as plain text so
+    // streamdown auto-links them; the card renders separately via
+    // extractInviteTokens.
+    expect(preprocessMarkdown("join /community/invite/abc123XYZ")).toBe(
+      "join /community/invite/abc123XYZ",
+    )
+  })
+
   it("handles a mix and round-trips stashed code unchanged", () => {
     const input = "Here's the **setup**:\n> Clone the repo\n`pnpm install`\nping @Gus in #dev"
     const out = preprocessMarkdown(input)
@@ -50,5 +59,37 @@ describe("preprocessMarkdown", () => {
     expect(out).toContain("`pnpm install`")
     expect(out).toContain("<mention>@Gus</mention>")
     expect(out).toContain("<channel>#dev</channel>")
+  })
+})
+
+describe("extractInviteTokens", () => {
+  it("extracts a bare-path token", () => {
+    expect(extractInviteTokens("join /community/invite/abc123XYZ")).toEqual(["abc123XYZ"])
+  })
+
+  it("extracts a full-origin URL token", () => {
+    expect(extractInviteTokens("https://alook.ai/community/invite/xY9k2vW7aQ")).toEqual([
+      "xY9k2vW7aQ",
+    ])
+  })
+
+  it("extracts tokens with underscore/dash (nanoid alphabet)", () => {
+    expect(extractInviteTokens("/community/invite/ab_cd-EF12")).toEqual(["ab_cd-EF12"])
+  })
+
+  it("dedupes repeated tokens in the same message", () => {
+    expect(
+      extractInviteTokens(
+        "/community/invite/abc123XYZ /community/invite/abc123XYZ /community/invite/other456",
+      ),
+    ).toEqual(["abc123XYZ", "other456"])
+  })
+
+  it("ignores tokens below the 6-char floor", () => {
+    expect(extractInviteTokens("/community/invite/abc")).toEqual([])
+  })
+
+  it("returns [] when the message has no invite URL", () => {
+    expect(extractInviteTokens("hello world")).toEqual([])
   })
 })

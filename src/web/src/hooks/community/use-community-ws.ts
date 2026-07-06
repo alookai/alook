@@ -610,6 +610,14 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
               (cache) => patchCacheUpdate(cache, event),
             )
           }
+          // Membership just changed → the invite dialog's "friends who aren't
+          // in this server" list is stale. Cheap invalidation because the
+          // query is disabled unless the dialog is actually open.
+          if (event.type !== "community:member.update") {
+            void queryClient.invalidateQueries({
+              queryKey: communityKeys.invitableFriends(event.serverId),
+            })
+          }
           cbs.onMember?.(event)
           return
         }

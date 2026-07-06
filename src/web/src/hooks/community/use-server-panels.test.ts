@@ -22,6 +22,7 @@ describe("useInvites / invitesQueryFn", () => {
           uses: 3,
           expiresAt: null,
           createdAt: "2026-07-03T00:00:00.000Z",
+          creatorId: "u_alice",
           creatorName: "Alice",
         },
       ],
@@ -35,6 +36,7 @@ describe("useInvites / invitesQueryFn", () => {
       maxUses: 10,
       expiresAt: null,
       by: "Alice",
+      creatorId: "u_alice",
     })
   })
 

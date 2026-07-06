@@ -1,7 +1,7 @@
 "use client"
 
 import { memo, useState } from "react"
-import { Settings, Users, Link2, Bell, ScrollText, ChevronDown } from "lucide-react"
+import { Settings, Users, Link2, Bell, ScrollText, ChevronDown, UserPlus } from "lucide-react"
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors,
 } from "@dnd-kit/core"
@@ -15,6 +15,7 @@ import { CreateChannelDialog } from "./create-channel-dialog"
 import { CreateCategoryDialog } from "./create-category-dialog"
 import { CategorySettingsDialog } from "./category-settings-dialog"
 import { catId, type ChannelTree } from "./use-channel-tree"
+import { InviteDialog } from "./invite-dialog"
 import type { Channel, SettingsSection } from "./_types"
 import type { ChannelType } from "@alook/shared"
 
@@ -35,6 +36,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   isAdmin = true, currentUserId, onBlockedCreate, mutedChannels, loading,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
   onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
+  serverId, invitePopoverOpen, onInvitePopoverOpenChange,
 }: {
   tree: ChannelTree
   serverName: string
@@ -55,6 +57,9 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   onRenameChannel?: (channelId: string, name: string) => void
   onReorderCategories?: (categoryIds: string[]) => void
   onReorderChannels?: (channelIds: string[]) => void
+  serverId?: string
+  invitePopoverOpen?: boolean
+  onInvitePopoverOpenChange?: (open: boolean) => void
 }) {
   const { collapsed, catOrder, order, catNames, catPrivate, catCreators, toggleCat, removeChannel, renameChannel, removeCategory, setCategoryPrivate, onDragOver, onDragEnd: treeDragEnd } = tree
   const onDragEnd = (e: Parameters<typeof treeDragEnd>[0]) => {
@@ -109,10 +114,10 @@ export const ChannelSidebar = memo(function ChannelSidebar({
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
       {!noHeader && (
-        <header className="flex h-12 items-center border-b border-border/40 px-2">
+        <header className="flex h-12 items-center gap-1 border-b border-border/40 px-2">
           {serverName && onOpenSettings ? (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+              <DropdownMenuTrigger className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                 <span className="truncate text-lg font-semibold">{serverName}</span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
@@ -125,7 +130,25 @@ export const ChannelSidebar = memo(function ChannelSidebar({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <span className="truncate text-lg font-semibold">{serverName || "\u00a0"}</span>
+            <span className="min-w-0 flex-1 truncate px-2 text-lg font-semibold">{serverName || "\u00a0"}</span>
+          )}
+          {serverId && onInvitePopoverOpenChange && (
+            <>
+              <button
+                onClick={() => onInvitePopoverOpenChange(true)}
+                className="ml-auto grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                aria-label="Invite to server"
+                title="Invite to server"
+              >
+                <UserPlus className="size-4" />
+              </button>
+              <InviteDialog
+                open={!!invitePopoverOpen}
+                onOpenChange={onInvitePopoverOpenChange}
+                serverId={serverId}
+                serverName={serverName}
+              />
+            </>
           )}
         </header>
       )}

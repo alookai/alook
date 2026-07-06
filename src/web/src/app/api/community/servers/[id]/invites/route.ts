@@ -12,7 +12,7 @@ import {
 import type { CommunityInviteCreate } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
-import { requireServerAdmin, requireServerMember } from "@/lib/community/permissions"
+import { requireServerMember } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (_req, ctx) => {
   const serverId = ctx.params?.id
@@ -32,8 +32,9 @@ export const POST = withAuth(async (req, ctx) => {
   if (!serverId) return writeError("server id is required", 400)
 
   const db = getDb(ctx.env.DB)
-  // Creating invites is admin-gated to prevent invite spam / unwanted growth.
-  const auth = await requireServerAdmin(db, serverId, ctx.userId)
+  // Any member can create an invite — Discord parity. Growth is bounded by
+  // MAX_ACTIVE_INVITES_PER_SERVER + expiry + maxUses, not by role.
+  const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   let body: { maxUses?: number; expiresAt?: string } = {}

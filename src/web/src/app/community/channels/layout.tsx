@@ -41,7 +41,6 @@ import {
   useSetServerNotifLevel,
   useSetMemberRole,
   useKickMember,
-  useCreateInvite,
   useRevokeInvite,
 } from "@/hooks/community/mutations"
 
@@ -73,7 +72,11 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // stays stable across presence ticks.
   const myMember = membersHook.members.find((m) => m.userId === currentUser.id)
   const isAdmin = canManageServer(myMember?.role)
-  const { invites, isLoading: invitesLoading } = useInvites(serverId, isAdmin)
+  // Fetch invites for every member (not just admins) — the invite popover on
+  // the sidebar header reuses cached invites to avoid burning the per-server
+  // active-invite cap. Non-admins can now create invites (Discord parity), so
+  // the cache is genuinely useful to them too.
+  const { invites, isLoading: invitesLoading } = useInvites(serverId, true)
   const { entries: auditLog, isLoading: auditLogLoading } = useAuditLog(serverId, isAdmin)
   const { online: initialOnline } = usePresence(serverId)
   const notifs = useNotificationSettings()
@@ -96,7 +99,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const setServerNotifMut = useSetServerNotifLevel()
   const setMemberRoleMut = useSetMemberRole()
   const kickMemberMut = useKickMember()
-  const createInviteMut = useCreateInvite()
   const revokeInviteMut = useRevokeInvite()
 
   useEffect(() => {
@@ -115,6 +117,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const [mobileZone, setMobileZone] = useState<MobileZone>(() => hasChannel ? "messages" : "nav")
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview")
+  const [invitePopoverOpen, setInvitePopoverOpen] = useState(false)
 
   // Close server-scoped dialogs when the user navigates to another server —
   // without this, settings for server A would remain open after switching
@@ -122,11 +125,16 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     setServerSettingsOpen(false)
     setSettingsSection("overview")
+    setInvitePopoverOpen(false)
   }, [serverId])
 
   useEffect(() => {
     if (searchParams.get("settings") === "1") {
       setServerSettingsOpen(true)
+      router.replace(`/community/channels/${serverId}`)
+    }
+    if (searchParams.get("invite") === "1") {
+      setInvitePopoverOpen(true)
       router.replace(`/community/channels/${serverId}`)
     }
   }, [searchParams, serverId, router])
@@ -230,6 +238,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     onUpdateCategory: onUpdateCategoryInSidebar,
     onReorderCategories: onReorderCategoriesInSidebar,
     onReorderChannels: onReorderChannelsInSidebar,
+    serverId,
+    invitePopoverOpen,
+    onInvitePopoverOpenChange: setInvitePopoverOpen,
   }), [
     channelTree, currentServer, currentChannelMeta?.parentChannelId,
     currentChannelId, isAdmin, currentUser.id, setActiveChannel,
@@ -237,6 +248,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel,
     onDeleteChannelInSidebar, onDeleteCategoryInSidebar, onUpdateCategoryInSidebar,
     onReorderCategoriesInSidebar, onReorderChannelsInSidebar,
+    serverId, invitePopoverOpen,
   ])
 
   const openProfile = (name: string, e: React.MouseEvent) => {
@@ -292,10 +304,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
           onRevokeInvite={(code) => revokeInviteMut.mutate({ serverId, code }, {
             onSuccess: () => toast("Invite revoked"),
             onError: () => toast("Failed to revoke invite"),
-          })}
-          onCreateInvite={() => createInviteMut.mutate({ serverId, creatorName: currentUser.name }, {
-            onSuccess: () => toast("Invite created"),
-            onError: () => toast("Failed to create invite"),
           })}
           onCopyInvite={(code) => { navigator.clipboard?.writeText(`${window.location.origin}/community/invite/${code}`); toast("Invite copied") }}
           onDeleteServer={async () => {

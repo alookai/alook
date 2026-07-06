@@ -6,6 +6,33 @@ import { Spoiler, MentionPill, ChannelPill } from "./inline-marks"
 const S0 = "\u{E000}"
 const S1 = "\u{E001}"
 
+// Match `/community/invite/<token>` — with or without an origin.
+// - token allows [A-Za-z0-9_-] (nanoid alphabet) and length 6..64 (short + old
+//   32-char tokens both fit)
+// - the URL matcher is applied AFTER code fences/spans are stashed, so links
+//   inside code stay literal
+export const INVITE_URL_RE = /(https?:\/\/[^\s/]+)?\/community\/invite\/([A-Za-z0-9_-]{6,64})/g
+
+/**
+ * Extract every invite token in a message body (Discord-parity: URL text
+ * stays as-is, cards render *below* the message). Returns the tokens in
+ * discovery order, deduped so a friend spamming the same link doesn't stack
+ * duplicate cards.
+ */
+export function extractInviteTokens(text: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  // A resettable non-global copy avoids inheriting `lastIndex` between calls.
+  const re = new RegExp(INVITE_URL_RE.source, "g")
+  for (const m of text.matchAll(re)) {
+    const token = m[2]
+    if (!token || seen.has(token)) continue
+    seen.add(token)
+    out.push(token)
+  }
+  return out
+}
+
 // Neutralize only `<` (and `&`) so user text can't inject our custom tags or raw HTML.
 // `>` is left intact so markdown blockquote syntax (`> quote`) still works — a lone `>`
 // with no matching `<` can't form a tag.
@@ -38,7 +65,11 @@ export function preprocessMarkdown(text: string): string {
   return out.replace(new RegExp(`${S0}(\\d+)${S1}`, "g"), (_m, i) => stash[Number(i)])
 }
 
-export const MD_ALLOWED_TAGS = { spoiler: [], mention: ["data-everyone"], channel: [] }
+export const MD_ALLOWED_TAGS = {
+  spoiler: [],
+  mention: ["data-everyone"],
+  channel: [],
+}
 export const MD_LITERAL_TAGS = ["spoiler", "mention", "channel"]
 
 export const MD_COMPONENTS = {

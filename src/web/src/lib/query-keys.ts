@@ -30,6 +30,13 @@ export const communityKeys = {
     [...communityKeys.server(serverId), "audit-log"] as const,
   invites: (serverId: string) =>
     [...communityKeys.server(serverId), "invites"] as const,
+  invitableFriends: (serverId: string) =>
+    [...communityKeys.server(serverId), "invitable-friends"] as const,
+  // Server metadata fetched for an inline invite card (token → serverName /
+  // icon / memberCount). Not scoped under a server since the token is what we
+  // have — the id/serverId only comes back with the response.
+  inviteInfo: (token: string) =>
+    [...communityKeys.all, "invite-info", token] as const,
 
   // ── Channel-scoped resources ────────────────────────────────────────────
   // Message list roots are keyed by channelId so paginated pages nest under

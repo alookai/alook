@@ -196,6 +196,7 @@ export type InviteRow = {
   maxUses: number | null // null = unlimited
   expiresAt: string | null // ISO timestamp or null = never
   by: string
+  creatorId: string | null
 }
 
 

@@ -19,7 +19,7 @@ import type { Server, CommunityFolder, MobileZone, View } from "./_types"
 export const ServerRail = memo(function ServerRail({
   servers, folders, activeServerId: activeServerIdProp, serversLoading, setMobileZone, view, bottomInset,
   onHome, onServer, onServerNavigate, onCreateServer, onJoinServer, onLeaveServer,
-  onOpenSettings, onUngroupFolder, onReorderRail, onReorderFolders, onFolderItemsChange, onDragCreateFolder,
+  onOpenSettings, onOpenInvitePopover, onUngroupFolder, onReorderRail, onReorderFolders, onFolderItemsChange, onDragCreateFolder,
 }: {
   servers: Server[]
   folders: CommunityFolder[]
@@ -35,6 +35,7 @@ export const ServerRail = memo(function ServerRail({
   onJoinServer?: (invite: string) => void
   onLeaveServer?: (id: string) => void
   onOpenSettings?: (serverId: string) => void
+  onOpenInvitePopover?: (serverId: string) => void
   onUngroupFolder?: (folderId: string) => void
   onReorderRail?: (serverIds: string[]) => void
   onReorderFolders?: (folderIds: string[]) => void
@@ -179,6 +180,7 @@ export const ServerRail = memo(function ServerRail({
                         onClick={() => pickServer(id)}
                         onLeave={() => onLeaveServer?.(id)}
                         onOpenSettings={() => onOpenSettings?.(id)}
+                        onOpenInvitePopover={onOpenInvitePopover ? () => onOpenInvitePopover(id) : undefined}
                         onCreateFolder={folders.length < 10 ? () => onDragCreateFolder?.(id, id) : undefined}
                         groupTarget={groupTarget === id}
                         dragging={dragActiveId === id}

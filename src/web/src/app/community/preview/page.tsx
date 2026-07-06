@@ -359,7 +359,6 @@ export default function CommunityPreview() {
     onKickMember: kickMember,
     onSetRole: setMemberRole,
     onRevokeInvite: (code: string) => { setInvites((p) => p.filter((iv) => iv.code !== code)); toast("Invite revoked") },
-    onCreateInvite: () => { const code = Math.random().toString(36).slice(2, 8); setInvites((p) => [{ code, by: "Gener", uses: 0, maxUses: null, expiresAt: new Date(Date.now() + 7 * 86400_000).toISOString() }, ...p]); toast("Invite created") },
     onCopyInvite: (code: string) => { navigator.clipboard?.writeText(`/community/invite/${code}`); toast("Invite copied") },
     onDeleteServer: () => { toast("Server deleted"); goHome() },
     onUploadIcon: () => toast("Upload a server icon"),
