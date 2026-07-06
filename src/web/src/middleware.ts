@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { createAuth } from "@/lib/auth"
-import createMiddleware from "next-intl/middleware";
-import { routing } from "@/i18n/routing";
-
-const intlMiddleware = createMiddleware(routing);
 
 function isSafeRedirect(path: string): boolean {
   // Must be a relative path. Reject scheme-relative ("//evil.com") and
@@ -16,9 +12,7 @@ function isSafeRedirect(path: string): boolean {
 const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard"]
 
 export async function middleware(request: NextRequest) {
-  // Run i18n middleware first to normalize locale
-  const intlResponse = intlMiddleware(request);
-  if (intlResponse) return intlResponse;
+  const { pathname } = request.nextUrl;
 
   if (
     request.headers.get("x-forwarded-proto") === "http" &&
@@ -30,7 +24,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(httpsUrl, 301)
   }
 
-  const { pathname } = request.nextUrl
   const needsAuth = AUTH_REQUIRED_PREFIXES.some((p) => pathname.startsWith(p))
 
   if (needsAuth) {

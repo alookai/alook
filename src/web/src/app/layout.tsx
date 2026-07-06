@@ -8,8 +8,6 @@ import {
 } from "next/font/google";
 import { GoogleTagManager } from "@next/third-parties/google";
 import { NextIntlClientProvider } from "next-intl";
-import { getMessages } from "next-intl/server";
-import { routing } from "@/i18n/routing";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ToasterProvider } from "@/components/toaster-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -118,8 +116,9 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const locale = routing.defaultLocale; // Default to 'en', overridden by middleware
-  const messages = await getMessages();
+  const locale = "en"; // Default locale — set via cookie/URL in future update
+  const msgLocale = locale;
+  const messages = (await import(`../../messages/${msgLocale}.json`)).default;
 
   return (
     <html

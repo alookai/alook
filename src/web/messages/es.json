@@ -89,7 +89,8 @@
     "close": "Cerrar",
     "online": "En línea",
     "offline": "Desconectado",
-    "idle": "Inactivo"
+    "idle": "Inactivo",
+    "agent": "Agente Local"
   },
   "dashboard": {
     "workspaces": "Espacios de trabajo",

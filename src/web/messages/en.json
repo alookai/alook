@@ -89,7 +89,8 @@
     "close": "Close",
     "online": "Online",
     "offline": "Offline",
-    "idle": "Idle"
+    "idle": "Idle",
+    "agent": "Local Agent"
   },
   "dashboard": {
     "workspaces": "Workspaces",
