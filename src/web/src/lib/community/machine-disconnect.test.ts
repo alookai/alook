@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from "vitest"
 import fs from "node:fs"
 import path from "node:path"
-import { forceCloseCommunityMachine } from "./machine-disconnect"
+import { forceCloseCommunityMachineByDoName } from "./machine-disconnect"
 
 const originalFetch = globalThis.fetch
 const mockFetch = vi.fn<(...args: unknown[]) => Promise<Response>>()
@@ -15,27 +15,27 @@ afterAll(() => {
   globalThis.fetch = originalFetch
 })
 
-describe("forceCloseCommunityMachine", () => {
+describe("forceCloseCommunityMachineByDoName", () => {
   it("service-binding path: posts /community-machine/<id>/force-close via WS_DO_WORKER", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ closed: 1 }), { status: 200 })
     )
     const env = { WS_DO_WORKER: { fetch: fetchMock } } as unknown as Env
-    await forceCloseCommunityMachine(env, "cmt_abc")
+    await forceCloseCommunityMachineByDoName(env, "a1b2c3d4e5f6")
     expect(fetchMock).toHaveBeenCalledTimes(1)
     // HTTP fallback must not fire when binding succeeds.
     expect(mockFetch).not.toHaveBeenCalled()
     const [url, init] = fetchMock.mock.calls[0]
-    expect(String(url)).toBe("http://internal/community-machine/cmt_abc/force-close")
+    expect(String(url)).toBe("http://internal/community-machine/a1b2c3d4e5f6/force-close")
     expect((init as RequestInit)?.method).toBe("POST")
   })
 
   it("url-encodes the machine id segment", async () => {
     const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }))
     const env = { WS_DO_WORKER: { fetch: fetchMock } } as unknown as Env
-    await forceCloseCommunityMachine(env, "cmt_with/slash")
+    await forceCloseCommunityMachineByDoName(env, "a1b2/with-slash")
     expect(String(fetchMock.mock.calls[0][0])).toBe(
-      "http://internal/community-machine/cmt_with%2Fslash/force-close"
+      "http://internal/community-machine/a1b2%2Fwith-slash/force-close"
     )
   })
 
@@ -48,11 +48,11 @@ describe("forceCloseCommunityMachine", () => {
       WS_DO_WORKER: { fetch: bindingFetch },
       DEV_WS_DO_URL: "http://dev-ws:8789",
     } as unknown as Env
-    await forceCloseCommunityMachine(env, "cmt_abc")
+    await forceCloseCommunityMachineByDoName(env, "a1b2c3d4e5f6")
     expect(bindingFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).toHaveBeenCalledTimes(1)
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit]
-    expect(String(url)).toBe("http://dev-ws:8789/community-machine/cmt_abc/force-close")
+    expect(String(url)).toBe("http://dev-ws:8789/community-machine/a1b2c3d4e5f6/force-close")
     expect(init.method).toBe("POST")
   })
 
@@ -66,11 +66,11 @@ describe("forceCloseCommunityMachine", () => {
       WS_DO_WORKER: { fetch: bindingFetch },
       DEV_WS_DO_URL: "http://dev-ws:8789",
     } as unknown as Env
-    await forceCloseCommunityMachine(env, "cmt_abc")
+    await forceCloseCommunityMachineByDoName(env, "a1b2c3d4e5f6")
     expect(bindingFetch).toHaveBeenCalledTimes(1)
     expect(mockFetch).toHaveBeenCalledTimes(1)
     const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit]
-    expect(String(url)).toBe("http://dev-ws:8789/community-machine/cmt_abc/force-close")
+    expect(String(url)).toBe("http://dev-ws:8789/community-machine/a1b2c3d4e5f6/force-close")
     expect(init.method).toBe("POST")
   })
 
@@ -80,7 +80,7 @@ describe("forceCloseCommunityMachine", () => {
     })
     mockFetch.mockRejectedValue(new Error("network down"))
     const env = { WS_DO_WORKER: { fetch: bindingFetch } } as unknown as Env
-    await expect(forceCloseCommunityMachine(env, "cmt_abc")).resolves.toBeUndefined()
+    await expect(forceCloseCommunityMachineByDoName(env, "a1b2c3d4e5f6")).resolves.toBeUndefined()
   })
 
   // Guard: the module must delegate to the shared `wsDoFetch` helper.

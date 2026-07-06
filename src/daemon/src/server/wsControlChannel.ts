@@ -28,6 +28,7 @@ import type {
   HostReady,
   AgentId,
   AgentSessionReport,
+  SessionErrorFrame,
   WebSocketLike,
   WebSocketFactory,
 } from "./contract.js";
@@ -41,31 +42,37 @@ export interface WsControlChannelOpts {
   /** Auth headers (e.g. Authorization, X-Agent-Id) — host-supplied. */
   headers?: Record<string, string>;
   webSocketFactory: WebSocketFactory;
-  /**
-   * Backoff schedule. `authFailStreakThreshold` treats N consecutive HTTP-401
-   * upgrade failures as an implicit `AUTH_REJECTED` — used when the server
-   * has revoked the credential while the daemon was disconnected (so no
-   * frame can reach the daemon over a socket that never opens). Defaults
-   * to 3.
-   */
+  /** Exponential-backoff reconnect schedule. */
   reconnect?: {
     baseMs?: number;
     maxMs?: number;
     maxAttempts?: number;
-    authFailStreakThreshold?: number;
   };
   /** Heartbeat: ping every `pingIntervalMs`, declare dead after `pongTimeoutMs`. */
   heartbeat?: { pingIntervalMs?: number; pongTimeoutMs?: number };
-  /** Called when the server explicitly rejects our machine key — no reconnect will follow. */
+  /**
+   * Called when the server explicitly rejects our machine key via an
+   * `AUTH_REJECTED` frame — the SOLE terminal-revocation signal. HTTP 401s
+   * on upgrade are treated as transient (network flake between us and CF
+   * before D1 is reachable, for instance) and reconnect with backoff.
+   */
   onAuthRejected?: () => void;
   now?: () => number;
 }
 
-/** Outbound (host → server) control frames. */
+/**
+ * Outbound (host → server) control frames.
+ *
+ * `ready` is spread FLAT into the frame (not nested under a `ready` key) so
+ * the shape matches `HostReadyMessageSchema` in @alook/shared — the server
+ * (community DO) validates frames against that schema, so any nesting drop
+ * would silently be discarded.
+ */
 type OutboundFrame =
-  | { type: "ready"; ready: HostReady }
+  | ({ type: "ready" } & HostReady)
   | { type: "agent_session"; agentId: AgentId; sessionId: string; launchId: string }
-  | { type: "agent_deliver_ack"; agentId: AgentId; deliveryId: string };
+  | { type: "agent_deliver_ack"; agentId: AgentId; deliveryId: string }
+  | SessionErrorFrame;
 
 type ResyncProvider = () => { ready: HostReady; sessions: AgentSessionReport[] };
 
@@ -79,21 +86,6 @@ export class WsControlChannel implements HostControlChannel {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pongDeadline = 0;
   private resyncProvider: ResyncProvider | null = null;
-  /**
-   * Consecutive HTTP-401 upgrade failures. Reset by any `open` event. When
-   * the count reaches `reconnect.authFailStreakThreshold`, we treat it as
-   * an implicit `AUTH_REJECTED` — the server revoked our credential while
-   * we were disconnected, so retrying is pointless.
-   */
-  private authFailStreak = 0;
-  /**
-   * HTTP status observed on the currently-connecting socket via the
-   * `unexpected-response` event, if any. Consumed and cleared inside
-   * `onSocketClosed`.
-   */
-  private lastUpgradeStatus: number | null = null;
-  /** True once the socket emitted `open`. Reset on each `openSocket`. */
-  private sawOpen = false;
   /**
    * Acks enqueued before the socket is open. Acks (not ready/session) are the
    * only frames worth buffering across a brief gap — ready/session are instead
@@ -134,7 +126,7 @@ export class WsControlChannel implements HostControlChannel {
   }
 
   async reportReady(ready: HostReady): Promise<void> {
-    this.sendFrame({ type: "ready", ready });
+    this.sendFrame({ type: "ready", ...ready });
   }
 
   async reportAgentSession(info: { agentId: AgentId; sessionId: string; launchId: string }): Promise<void> {
@@ -148,6 +140,13 @@ export class WsControlChannel implements HostControlChannel {
       return;
     }
     this.ws.send(JSON.stringify({ type: "agent_deliver_ack", ...info }));
+  }
+
+  async reportSessionError(frame: SessionErrorFrame): Promise<void> {
+    // `session.error` is a point-in-time report; dropping if not open matches
+    // the ready/agent_session policy — the server won't have addressed the
+    // launch anyway, so the daemon just no-ops until reconnect.
+    this.sendFrame(frame);
   }
 
   /* ---- transport ------------------------------------------------- */
@@ -169,7 +168,7 @@ export class WsControlChannel implements HostControlChannel {
   private resyncOnConnect(): void {
     if (this.resyncProvider) {
       const { ready, sessions } = this.resyncProvider();
-      this.sendFrame({ type: "ready", ready });
+      this.sendFrame({ type: "ready", ...ready });
       for (const s of sessions) this.sendFrame({ type: "agent_session", ...s });
     }
     if (this.pendingAcks.length && this.ws && this.statusValue === "open") {
@@ -181,14 +180,10 @@ export class WsControlChannel implements HostControlChannel {
 
   private openSocket(): void {
     this.statusValue = this.attempt === 0 ? "connecting" : "reconnecting";
-    this.sawOpen = false;
-    this.lastUpgradeStatus = null;
     const ws = this.opts.webSocketFactory(this.opts.url, this.opts.headers ?? {});
     this.ws = ws;
 
     ws.on("open", () => {
-      this.sawOpen = true;
-      this.authFailStreak = 0;
       this.statusValue = "open";
       this.startHeartbeat();
       this.resyncOnConnect();
@@ -197,15 +192,6 @@ export class WsControlChannel implements HostControlChannel {
     ws.on("pong", () => {
       this.attempt = 0;
       this.pongDeadline = this.now() + (this.opts.heartbeat?.pongTimeoutMs ?? 30_000);
-    });
-    // The `ws` npm package fires `unexpected-response` when the HTTP upgrade
-    // handshake returns a non-101 status. Capture the status so we can tell
-    // 401-revoked-credential apart from network failures in `onSocketClosed`.
-    ws.on("unexpected-response", (_req: unknown, res: unknown) => {
-      const status = (res as { statusCode?: number })?.statusCode;
-      if (typeof status === "number") {
-        this.lastUpgradeStatus = status;
-      }
     });
     ws.on("close", () => this.onSocketClosed());
     // Errors surface via the socket's own close; a host factory may also log.
@@ -242,19 +228,9 @@ export class WsControlChannel implements HostControlChannel {
       this.statusValue = "closed";
       return;
     }
-    // Detect "server revoked our credential while we were disconnected".
-    // A 401 on the HTTP upgrade means the current cmk_ is no longer good.
-    // After N in a row we treat it as if AUTH_REJECTED came over a frame.
-    if (!this.sawOpen && this.lastUpgradeStatus === 401) {
-      this.authFailStreak += 1;
-      const threshold = this.opts.reconnect?.authFailStreakThreshold ?? 3;
-      if (this.authFailStreak >= threshold) {
-        this.authRejected = true;
-        this.statusValue = "closed";
-        this.opts.onAuthRejected?.();
-        return;
-      }
-    }
+    // HTTP 401 on upgrade → transient. Only an inbound `AUTH_REJECTED` frame
+    // (see onMessage) sets `authRejected`; anything else keeps retrying with
+    // exponential backoff so daemons behind flaky edges survive.
     this.scheduleReconnect();
   }
 

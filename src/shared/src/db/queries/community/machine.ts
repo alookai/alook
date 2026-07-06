@@ -592,16 +592,16 @@ export async function revokeCredential(
 }
 
 /**
- * Soft-revoke every active credential for a machine. The DO is keyed by
- * `machineId` now, so the caller can force-close by machineId alone —
- * no need to return per-credential DO names.
+ * Soft-revoke every active credential for a machine. Returns the DO-name
+ * suffixes of the revoked credentials so the caller can force-close each
+ * live WS Durable Object (the DO is keyed by `sha256(bearer).slice(0,32)`).
  */
 export async function revokeCredentialsForMachine(
   db: Database,
   userId: string,
   machineId: string
-): Promise<void> {
-  await db
+): Promise<{ doNames: string[] }> {
+  const rows = await db
     .update(communityMachineCredential)
     .set({ revokedAt: new Date().toISOString() })
     .where(
@@ -610,7 +610,9 @@ export async function revokeCredentialsForMachine(
         eq(communityMachineCredential.machineId, machineId),
         isNull(communityMachineCredential.revokedAt)
       )
-    );
+    )
+    .returning({ doName: communityMachineCredential.doName });
+  return { doNames: rows.map((r) => r.doName) };
 }
 
 /**

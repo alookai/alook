@@ -61,7 +61,7 @@ export function MachineCard({
               {[machine.platform, machine.arch].filter(Boolean).join(" · ")}
               {machine.daemonVersion ? ` · v${machine.daemonVersion}` : ""}
             </span>
-            <MachineRuntimes runtimes={machine.availableRuntimes ?? []} />
+            <MachineRuntimes runtimes={machine.availableRuntimes} />
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -74,6 +74,17 @@ export function MachineCard({
                 {machine.lastSeenAt ?? "—"}
               </TooltipContent>
             </Tooltip>
+            {machine.lastRuntimeError && (
+              <div className="mt-2 rounded-md border border-destructive/20 bg-destructive/5 p-2 text-xs text-destructive">
+                <span className="font-medium">Runtime not available</span>
+                <span className="ml-1 text-destructive/80">
+                  — requested {machine.lastRuntimeError.requested || "runtime"}, installed:{" "}
+                  {machine.lastRuntimeError.available.length > 0
+                    ? machine.lastRuntimeError.available.join(", ")
+                    : "none"}
+                </span>
+              </div>
+            )}
           </div>
         </div>
         <DropdownMenu>

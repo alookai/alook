@@ -5,7 +5,7 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeError } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
-import { forceCloseCommunityMachine } from "@/lib/community/machine-disconnect"
+import { forceCloseCommunityMachinesByDoNames } from "@/lib/community/machine-disconnect"
 
 export const DELETE = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -17,10 +17,17 @@ export const DELETE = withAuth(async (_req, ctx) => {
   if (!machine) return writeError("machine not found", 404)
 
   // 1. Revoke every active daemon credential for this machine (idempotent).
-  await queries.communityMachine.revokeCredentialsForMachine(db, ctx.userId, id)
+  //    Returns the DO-name suffixes so we can hit each live WS in step 2.
+  const { doNames } = await queries.communityMachine.revokeCredentialsForMachine(
+    db,
+    ctx.userId,
+    id
+  )
 
-  // 2. Force-close any live WS connection on the DO (keyed by machineId).
-  await forceCloseCommunityMachine(ctx.env, id)
+  // 2. Force-close every live WS Durable Object for those credentials.
+  //    The DO is keyed by `sha256(bearer).slice(0,32)`, so a machine that
+  //    rotated credentials has one DO per historical bearer.
+  await forceCloseCommunityMachinesByDoNames(ctx.env, doNames)
 
   // 3. Delete the row. Credential + runner-key rows cascade.
   await queries.communityMachine.deleteMachineForUser(db, ctx.userId, id)

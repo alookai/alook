@@ -358,21 +358,30 @@ export type HostCommand =
 
 /** What the host reports to the server on connect (the registration handshake). */
 export interface HostReady {
-  /** Runtime ids available on this machine (e.g. ["claude","codex","mock"]). */
-  runtimes: string[];
   /**
-   * Rich runtime descriptors (id + version). Optional for back-compat — old
-   * daemons emit only `runtimes`; the server falls back to id-only when this
-   * field is absent.
+   * Runtime descriptors (id + optional version). Legacy `runtimes: string[]`
+   * has been dropped from the wire — `MIN_CLI_VERSION` gates old daemons off.
    */
-  runtimeReport?: Array<{ id: string; version?: string }>;
+  runtimeReport: Array<{ id: string; version?: string }>;
   /** Agents currently running on this host. */
   runningAgents: AgentId[];
   hostname?: string;
-  os?: string;
+  /** `process.platform` value (darwin/linux/win32). Named `platform` to match the shared wire schema. */
+  platform?: string;
   arch?: string;
   osRelease?: string;
   daemonVersion?: string;
+}
+
+/**
+ * `session.error` frame — daemon → server. Currently used by the daemon's
+ * agent router when a runtime isn't available on the host.
+ */
+export interface SessionErrorFrame {
+  type: "session.error";
+  code: "runtime_not_available";
+  agentId?: AgentId;
+  payload?: Record<string, unknown>;
 }
 
 /**
@@ -389,6 +398,13 @@ export interface HostControlChannel {
   reportAgentSession(info: { agentId: AgentId; sessionId: string; launchId: string }): Promise<void>;
   /** Acknowledge an at-least-once delivery so the server stops redelivering it. */
   reportDeliverAck(info: { agentId: AgentId; deliveryId: string }): Promise<void>;
+  /**
+   * Report a `session.error` upward. Used by `AgentRouter` when a driver
+   * can't fulfil an `agent:start` (e.g. runtime not installed) — the server
+   * routes the frame through the machine DO which stashes it as an overlay
+   * on the machine summary so the web card renders it inline.
+   */
+  reportSessionError?(frame: SessionErrorFrame): Promise<void>;
   /**
    * Register a resync provider invoked on every (re)connect: it returns the
    * host's current `ready` snapshot + live agent sessions, which the channel

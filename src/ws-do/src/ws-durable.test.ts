@@ -67,6 +67,24 @@ const mockGetMachineTokenByToken = vi.fn()
 const mockGetLatestTokenForUser = vi.fn()
 const mockGetRuntimeIdsByDaemon = vi.fn()
 const mockCreateDb = vi.fn().mockReturnValue({})
+const mockHashCredential = vi.fn(async (bearer: string) => `hash:${bearer}`)
+const mockFindCredentialByHash = vi.fn()
+const mockGetMachineByIdForUser = vi.fn()
+const mockUpsertMachineByMachineId = vi.fn()
+const mockToSummary = vi.fn((row: any) => ({
+  id: row.id,
+  hostname: row.hostname ?? "",
+  displayName: row.displayName ?? row.hostname ?? "",
+  platform: row.platform ?? "",
+  arch: row.arch ?? "",
+  osRelease: row.osRelease ?? "",
+  daemonVersion: row.daemonVersion ?? "",
+  lastSeenAt: row.lastSeenAt ?? null,
+  status: row.lastSeenAt ? "online" : "offline",
+  availableRuntimes: row.availableRuntimes ?? [],
+  createdAt: row.createdAt ?? "",
+  updatedAt: row.updatedAt ?? "",
+}))
 
 vi.mock("@alook/shared", () => {
   const noopLogger = {
@@ -76,9 +94,55 @@ vi.mock("@alook/shared", () => {
     error: () => {},
     child: () => noopLogger,
   }
+  // Bare-minimum safeParse stubs — the DO only calls `.safeParse(msg)` and
+  // reads `.success` / `.data`. Enough to route the test frames correctly
+  // without pulling in zod (which isn't a direct dep of @alook/ws-do).
+  const SessionErrorFrameSchema = {
+    safeParse(v: unknown) {
+      const m = v as { type?: unknown; code?: unknown; agentId?: unknown; payload?: unknown }
+      if (m?.type !== "session.error" || m?.code !== "runtime_not_available") {
+        return { success: false } as const
+      }
+      return {
+        success: true as const,
+        data: {
+          type: "session.error" as const,
+          code: "runtime_not_available" as const,
+          agentId: typeof m.agentId === "string" ? (m.agentId as string) : undefined,
+          payload: (m.payload as Record<string, unknown> | undefined) ?? undefined,
+        },
+      }
+    },
+  }
+  // Mirror the shared HostReadyMessageSchema: the daemon's ready frame must be
+  // FLAT (fields at top level), not wrapped in a `ready` key. A wrapped frame
+  // is rejected — regression guard against the wire-shape mismatch we hit
+  // when the daemon sent `{type:"ready", ready:{...}}` while the DO expected
+  // flat top-level fields.
+  const HostReadyMessageSchema = {
+    safeParse(v: unknown) {
+      const m = v as { type?: unknown; runtimeReport?: unknown; runningAgents?: unknown }
+      if (m?.type !== "ready") return { success: false } as const
+      if (!Array.isArray(m?.runtimeReport)) return { success: false } as const
+      const data: Record<string, unknown> = {
+        type: "ready",
+        runtimeReport: m.runtimeReport,
+        runningAgents: Array.isArray(m.runningAgents) ? m.runningAgents : [],
+      }
+      for (const k of ["hostname", "platform", "arch", "osRelease", "daemonVersion"]) {
+        const val = (m as Record<string, unknown>)[k]
+        if (typeof val === "string") data[k] = val
+      }
+      return { success: true as const, data }
+    },
+  }
   return {
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
+    COMMUNITY_MACHINE_HEARTBEAT_MS: 60_000,
+    COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS: 120_000,
+    SessionErrorFrameSchema,
+    HostReadyMessageSchema,
     queries: {
       session: { getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token) },
       machineToken: {
@@ -86,6 +150,13 @@ vi.mock("@alook/shared", () => {
         getLatestTokenForUser: (...a: any[]) => mockGetLatestTokenForUser(...a),
       },
       runtime: { getRuntimeIdsByDaemon: (...a: any[]) => mockGetRuntimeIdsByDaemon(...a) },
+      communityMachine: {
+        hashCredential: (bearer: string) => mockHashCredential(bearer),
+        findCredentialByHash: (...a: any[]) => mockFindCredentialByHash(...a),
+        getMachineByIdForUser: (...a: any[]) => mockGetMachineByIdForUser(...a),
+        upsertMachineByMachineId: (...a: any[]) => mockUpsertMachineByMachineId(...a),
+        toSummary: (row: any) => mockToSummary(row),
+      },
     },
   }
 })
@@ -97,7 +168,7 @@ const mockStubFetch = vi.fn().mockResolvedValue(new (globalThis.Response as any)
 const mockCheckAliveFetch = vi.fn().mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ alive: true })))
 
 function createDO() {
-  const { ctx, getWebSockets } = createMockCtx()
+  const { ctx, getWebSockets, storage, store } = createMockCtx()
   const stubGet = vi.fn().mockReturnValue({ fetch: mockStubFetch })
   const env = {
     DB: {} as D1Database,
@@ -107,7 +178,7 @@ function createDO() {
     } as unknown as DurableObjectNamespace,
   }
   const durable = new WebSocketDurableObject(ctx, env)
-  return { durable, ctx, getWebSockets, env, stubGet }
+  return { durable, ctx, getWebSockets, env, stubGet, storage, store }
 }
 
 describe("WebSocketDurableObject", () => {
@@ -460,6 +531,197 @@ describe("WebSocketDurableObject", () => {
       await durable.webSocketError(ws as any, new Error("boom"))
 
       expect(ws.close).toHaveBeenCalledWith(1011, "Internal error")
+    })
+  })
+
+  describe("community-machine — session.error overlay + optimistic clear", () => {
+    beforeEach(() => {
+      mockFindCredentialByHash.mockReset()
+      mockGetMachineByIdForUser.mockReset()
+      mockStubFetch.mockClear()
+    })
+
+    it("stashes lastRuntimeError overlay + fans out on session.error{runtime_not_available}", async () => {
+      const { durable, store } = createDO()
+      // Prime cached identity as if accept already ran.
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetMachineByIdForUser.mockResolvedValue({
+        id: "cm_1",
+        hostname: "host",
+        availableRuntimes: [{ id: "codex" }],
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({
+        type: "session.error",
+        code: "runtime_not_available",
+        agentId: "a1",
+        payload: { requested: "gemini", available: ["codex"] },
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      const overlay = store.get("community-machine-runtime-error") as
+        | { requested: string; available: string[]; at: string }
+        | undefined
+      expect(overlay).toBeDefined()
+      expect(overlay?.requested).toBe("gemini")
+      expect(overlay?.available).toEqual(["codex"])
+
+      // Fan-out went to the user DO with the overlay attached.
+      expect(mockStubFetch).toHaveBeenCalled()
+      const call = mockStubFetch.mock.calls.find((c: any[]) =>
+        (c[0] as Request).url.endsWith("/broadcast")
+      )
+      const body = JSON.parse(await (call![0] as Request).clone().text()) as {
+        type: string
+        machine: { lastRuntimeError?: { requested: string; available: string[] } }
+      }
+      expect(body.type).toBe("community:machine.updated")
+      expect(body.machine.lastRuntimeError).toMatchObject({
+        requested: "gemini",
+        available: ["codex"],
+      })
+    })
+
+    it("forceClose closes attachments and clears identity+overlay", async () => {
+      const { durable, ctx, store, getWebSockets } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+      store.set("community-machine-runtime-error", {
+        requested: "gemini",
+        available: [],
+        at: "2026-07-06T00:00:00.000Z",
+      })
+      mockGetMachineByIdForUser.mockResolvedValue({
+        id: "cm_1",
+        hostname: "host",
+        availableRuntimes: [],
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+      getWebSockets.mockReturnValue([ws])
+
+      const req = new Request("http://internal/force-close", { method: "POST" })
+      const res = await durable.fetch(req)
+      expect(res.status).toBe(200)
+      expect(ws.send).toHaveBeenCalled()
+      expect(ws.close).toHaveBeenCalledWith(1008, "Revoked")
+
+      // Cached identity + handle + overlay all cleared.
+      expect(store.get("community-machine-identity")).toBeUndefined()
+      expect(store.get("community-machine-handle")).toBeUndefined()
+      expect(store.get("community-machine-runtime-error")).toBeUndefined()
+    })
+  })
+
+  describe("community-machine — ready frame wire shape", () => {
+    beforeEach(() => {
+      mockUpsertMachineByMachineId.mockReset()
+      mockStubFetch.mockClear()
+    })
+
+    // Regression guard: the daemon (WsControlChannel.reportReady) spreads
+    // HostReady fields at the TOP LEVEL of the frame. If it ever regresses to
+    // wrapping them under `ready:{...}`, the DO would silently drop every
+    // ready and `last_seen_at` would never refresh. This test drives the exact
+    // shape the daemon emits.
+    it("accepts a flat daemon-shaped ready frame and calls upsertMachineByMachineId", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockUpsertMachineByMachineId.mockResolvedValue({
+        machine: { id: "cm_1", hostname: "host", availableRuntimes: [{ id: "claude" }], lastSeenAt: "2026-07-06T00:00:00.000Z" },
+        priorLastSeenAt: "2026-07-05T00:00:00.000Z",
+        priorAvailableRuntimes: [{ id: "claude" }],
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      // The wire frame the daemon actually sends — see WsControlChannel.reportReady.
+      const frame = JSON.stringify({
+        type: "ready",
+        runtimeReport: [{ id: "claude", version: "1.0.0" }],
+        runningAgents: [],
+        hostname: "my-mac",
+        platform: "darwin",
+        arch: "arm64",
+        osRelease: "23.0.0",
+        daemonVersion: "0.1.0",
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockUpsertMachineByMachineId).toHaveBeenCalledTimes(1)
+      const [, userId, machineId, meta] = mockUpsertMachineByMachineId.mock.calls[0]
+      expect(userId).toBe("u_1")
+      expect(machineId).toBe("cm_1")
+      expect(meta).toMatchObject({
+        hostname: "my-mac",
+        platform: "darwin",
+        arch: "arm64",
+        osRelease: "23.0.0",
+        daemonVersion: "0.1.0",
+        availableRuntimes: [{ id: "claude", version: "1.0.0" }],
+      })
+    })
+
+    it("silently drops a wrapped `{ready:{...}}` frame (legacy shape — regression guard)", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      // The (broken) wrapped shape — schema rejects → DO drops → no DB write.
+      const frame = JSON.stringify({
+        type: "ready",
+        ready: {
+          runtimeReport: [{ id: "claude" }],
+          runningAgents: [],
+          hostname: "my-mac",
+        },
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockUpsertMachineByMachineId).not.toHaveBeenCalled()
     })
   })
 })

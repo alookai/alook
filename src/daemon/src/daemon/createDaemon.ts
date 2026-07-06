@@ -43,10 +43,8 @@ export interface CreateDaemonOptions {
   serverWsUrl: string;
   /** Builds the real `ws` client (injected so this module has no hard ws dep). */
   webSocketFactory: DaemonWebSocketFactory;
-  /** Runtimes this daemon advertises to the server (injected — not hardcoded). */
-  runtimes: string[];
-  /** Rich runtime descriptors (id + version). Optional — when present, sent in the ready frame. */
-  runtimeReport?: Array<{ id: string; version?: string }>;
+  /** Runtime descriptors (id + optional version) advertised on the ready frame. */
+  runtimeReport: Array<{ id: string; version?: string }>;
   /**
    * Per-agent runtime driver. `runtimeConfig` (server-pushed on
    * `agent:start`) is passed so callers can dispatch on the actual runtime
@@ -68,7 +66,7 @@ export interface CreateDaemonOptions {
   onAuthRejected?: () => void;
   /** Optional machine metadata surfaced in the ready frame. */
   hostname?: string;
-  os?: string;
+  platform?: string;
   arch?: string;
   osRelease?: string;
   daemonVersion?: string;
@@ -95,7 +93,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
 
   const timeline = createTimelineRecorder({
     timelineDirFor: (agentId) => `${workdirFor(agentId)}/.context_timeline`,
-    providerFor: () => opts.runtimes[0] ?? null,
+    providerFor: () => opts.runtimeReport[0]?.id ?? null,
   });
 
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
@@ -150,10 +148,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   const router = new AgentRouter({
     manager,
     channel,
-    runtimes: opts.runtimes,
     runtimeReport: opts.runtimeReport,
     hostname: opts.hostname,
-    os: opts.os,
+    platform: opts.platform,
     arch: opts.arch,
     osRelease: opts.osRelease,
     daemonVersion: opts.daemonVersion,

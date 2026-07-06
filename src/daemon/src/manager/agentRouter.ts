@@ -15,19 +15,32 @@
  * supplies a resync snapshot so the server recovers this host's state after a
  * dropped control connection.
  */
-import type { HostCommand, HostControlChannel, HostReady, Message, AgentSessionReport } from "../server/contract.js";
+import type { HostCommand, HostControlChannel, HostReady, Message, AgentSessionReport, SessionErrorFrame } from "../server/contract.js";
 import { parseSeq } from "../server/contract.js";
 import type { AgentProcessManager } from "./managerRuntime.js";
+
+/**
+ * Thrown by a `driverFor` implementation when the server asked for a runtime
+ * that isn't available on this host. Caught by `AgentRouter` and forwarded
+ * to the server as a `session.error{code:"runtime_not_available"}` frame so
+ * the web-side machine card can surface the mismatch inline.
+ */
+export class UnknownRuntimeError extends Error {
+  constructor(public readonly requested: string | undefined, public readonly available: string[]) {
+    super(
+      `Runtime not available on this host: ${requested ?? "<unspecified>"} — installed: ${available.join(", ") || "(none)"}`
+    );
+    this.name = "UnknownRuntimeError";
+  }
+}
 
 export interface AgentRouterOpts {
   manager: AgentProcessManager;
   channel: HostControlChannel;
-  /** Runtime ids this host can launch (reported in the ready handshake). */
-  runtimes: string[];
-  /** Rich runtime descriptors (id + version). When provided, included in the ready frame. */
-  runtimeReport?: Array<{ id: string; version?: string }>;
+  /** Runtime descriptors (id + optional version) reported in the ready handshake. */
+  runtimeReport: Array<{ id: string; version?: string }>;
   hostname?: string;
-  os?: string;
+  platform?: string;
   arch?: string;
   osRelease?: string;
   daemonVersion?: string;
@@ -65,30 +78,46 @@ export class AgentRouter {
   }
 
   private buildReady(): HostReady {
-    const ready: HostReady = {
-      runtimes: this.opts.runtimes,
+    return {
+      runtimeReport: this.opts.runtimeReport,
       runningAgents: [...this.running],
       hostname: this.opts.hostname,
-      os: this.opts.os,
+      platform: this.opts.platform,
       arch: this.opts.arch,
       osRelease: this.opts.osRelease,
       daemonVersion: this.opts.daemonVersion,
     };
-    if (this.opts.runtimeReport !== undefined) {
-      ready.runtimeReport = this.opts.runtimeReport;
-    }
-    return ready;
   }
 
   private async onCommand(cmd: HostCommand): Promise<void> {
     switch (cmd.type) {
       case "agent:start":
-        await this.opts.onBeforeAgent?.(cmd.agentId);
-        this.opts.manager.register(cmd.agentId, {
-          runtimeConfig: cmd.config,
-          sessionId: cmd.sessionId,
-          launchId: cmd.launchId,
-        });
+        try {
+          await this.opts.onBeforeAgent?.(cmd.agentId);
+          this.opts.manager.register(cmd.agentId, {
+            runtimeConfig: cmd.config,
+            sessionId: cmd.sessionId,
+            launchId: cmd.launchId,
+          });
+        } catch (err) {
+          if (err instanceof UnknownRuntimeError) {
+            // Forward a structured session.error so the server / machine DO
+            // can render "runtime not available" on the card instead of
+            // crashing the launch lifecycle.
+            const frame: SessionErrorFrame = {
+              type: "session.error",
+              code: "runtime_not_available",
+              agentId: cmd.agentId,
+              payload: {
+                requested: err.requested ?? null,
+                available: err.available,
+              },
+            };
+            await this.opts.channel.reportSessionError?.(frame);
+            return;
+          }
+          throw err;
+        }
         this.running.add(cmd.agentId);
         if (cmd.wakeMessage) this.deliver(cmd.agentId, cmd.wakeMessage, cmd.deliveryId);
         break;

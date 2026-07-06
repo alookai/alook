@@ -9,7 +9,7 @@
  *
  * Frames (symmetric with `WsControlChannel`):
  *   - server → host:  the JSON `HostCommand` (`agent:start` / `agent:deliver` / `agent:stop`)
- *   - host → server:  `{ type:"ready", ready }` | `{ type:"agent_session", … }`
+ *   - host → server:  `{ type:"ready", …HostReady }` | `{ type:"agent_session", … }`
  *
  * The server's command sink (`MockServer.attachHost`) is bridged to the connected
  * socket: every command the server computes is serialized and sent down the wire.
@@ -42,9 +42,9 @@ export interface WebSocketServerLike {
   close(cb?: () => void): void;
 }
 
-/** Inbound (host → server) control frames. */
+/** Inbound (host → server) control frames. `ready` fields are spread flat — see `WsControlChannel`. */
 type InboundFrame =
-  | { type: "ready"; ready: HostReady }
+  | ({ type: "ready" } & HostReady)
   | { type: "agent_session"; agentId: AgentId; sessionId: string; launchId: string }
   | { type: "agent_deliver_ack"; agentId: AgentId; deliveryId: string };
 
@@ -141,7 +141,7 @@ export class WsControlServer {
       // (Re)connect handshake: REPLACE the running set with what the host reports
       // (idempotent refresh, not additive — a reconnect after a crash may report
       // fewer agents), then re-push any still-unacked deliveries to the host.
-      this.opts.server.resetRunningAgents(frame.ready.runningAgents);
+      this.opts.server.resetRunningAgents(frame.runningAgents);
       this.opts.server.redeliverUnacked();
     } else if (frame.type === "agent_session") {
       this.opts.onAgentSession?.({

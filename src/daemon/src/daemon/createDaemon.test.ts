@@ -48,7 +48,7 @@ describe("createDaemon", () => {
       serverUrl: "http://localhost:9999",
       serverWsUrl: "ws://example/control",
       webSocketFactory: factory(sockets) as any,
-      runtimes: [],
+      runtimeReport: [],
       driverFor: () => fakeDriver,
       capabilities: [],
     });
@@ -66,11 +66,11 @@ describe("createDaemon", () => {
       serverUrl: "http://localhost:9999",
       serverWsUrl: "ws://x",
       webSocketFactory: factory(sockets) as any,
-      runtimes: [],
+      runtimeReport: [],
       driverFor: () => fakeDriver,
       capabilities: [],
       hostname: "my-mac",
-      os: "darwin",
+      platform: "darwin",
       arch: "arm64",
       daemonVersion: "1.2.3",
       osRelease: "23.0.0",
@@ -80,9 +80,12 @@ describe("createDaemon", () => {
       .map((s) => JSON.parse(s))
       .find((f: any) => f.type === "ready");
     expect(ready).toBeDefined();
-    expect(ready.ready).toMatchObject({
+    // Fields are spread FLAT into the frame so it validates against
+    // HostReadyMessageSchema in @alook/shared (see WsControlChannel).
+    expect(ready).toMatchObject({
+      type: "ready",
       hostname: "my-mac",
-      os: "darwin",
+      platform: "darwin",
       arch: "arm64",
       daemonVersion: "1.2.3",
       osRelease: "23.0.0",
@@ -97,7 +100,7 @@ describe("createDaemon", () => {
       serverUrl: "http://localhost:9999",
       serverWsUrl: "ws://x",
       webSocketFactory: factory(sockets) as any,
-      runtimes: [],
+      runtimeReport: [],
       driverFor: () => fakeDriver,
       capabilities: [],
     });

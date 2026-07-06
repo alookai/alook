@@ -812,18 +812,22 @@ describe("findActiveAgentRunnerKeyByBearer", () => {
 // ---------------------------------------------------------------------------
 
 describe("revokeCredentialsForMachine", () => {
-  it("soft-revokes every active credential for the (userId, machineId) scope", async () => {
+  it("soft-revokes every active credential and returns the DO-name suffixes", async () => {
     const chain: any = {};
     chain.update = vi.fn(() => chain);
     chain.set = vi.fn(() => chain);
     let captured: unknown;
     chain.where = vi.fn((w: unknown) => {
       captured = w;
-      return Promise.resolve(undefined);
+      return chain;
     });
-    await q.revokeCredentialsForMachine(chain, "u_1", "cm_1");
+    chain.returning = vi.fn(() =>
+      Promise.resolve([{ doName: "aa".repeat(16) }, { doName: "bb".repeat(16) }])
+    );
+    const result = await q.revokeCredentialsForMachine(chain, "u_1", "cm_1");
     expect(chain.update).toHaveBeenCalledOnce();
     expect(chain.set).toHaveBeenCalledOnce();
     expect(captured).toBeDefined();
+    expect(result.doNames).toEqual(["aa".repeat(16), "bb".repeat(16)]);
   });
 });

@@ -6,7 +6,8 @@ vi.mock("./ws-durable", () => ({
   WebSocketDurableObject: class {},
 }))
 
-const mockFindActiveCredential = vi.fn()
+const mockHashCredential = vi.fn(async (bearer: string) => `sha256:${bearer}`)
+const mockDoNameFromHash = vi.fn((hash: string) => hash.slice(0, 32))
 
 vi.mock("@alook/shared", () => {
   const noopLogger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, child(){ return this } }
@@ -15,7 +16,8 @@ vi.mock("@alook/shared", () => {
     createLogger: () => noopLogger,
     queries: {
       communityMachine: {
-        findActiveCredentialByBearer: (...a: unknown[]) => mockFindActiveCredential(...a),
+        hashCredential: (bearer: string) => mockHashCredential(bearer),
+        doNameFromHash: (hash: string) => mockDoNameFromHash(hash),
       },
     },
   }
@@ -218,56 +220,55 @@ describe("ws-do router", () => {
 
   describe("community-machine Bearer auth", () => {
     beforeEach(() => {
-      mockFindActiveCredential.mockReset()
+      mockHashCredential.mockClear()
+      mockDoNameFromHash.mockClear()
     })
 
-    it("resolves credential to machineId and routes to community-machine:<machineId> DO", async () => {
-      mockFindActiveCredential.mockResolvedValue({
-        credentialId: "cmk_abc",
-        userId: "u_1",
-        machineId: "cm_xyz",
-      })
+    it("names DO from sha256(bearer).slice(0,32) with zero D1 reads", async () => {
+      mockHashCredential.mockResolvedValue("0".repeat(32) + "1".repeat(32))
+      mockDoNameFromHash.mockReturnValue("0".repeat(32))
       doMock.stubFetch.mockResolvedValue(new Response(null, { status: 200 }))
       const req = new Request("http://localhost/", {
         headers: { Upgrade: "websocket", Authorization: "Bearer cmk_abc" },
       })
       const res = await handler.fetch(req, env as any)
-      expect(mockFindActiveCredential).toHaveBeenCalledWith(expect.anything(), "cmk_abc")
-      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:cm_xyz")
-      // 200 comes back from our stubbed DO — the real path returns 101.
+      expect(mockHashCredential).toHaveBeenCalledWith("cmk_abc")
+      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:" + "0".repeat(32))
       expect(res.status).toBe(200)
     })
 
-    it("returns 401 when the credential is unknown or revoked", async () => {
-      mockFindActiveCredential.mockResolvedValue(null)
-      const req = new Request("http://localhost/", {
-        headers: { Upgrade: "websocket", Authorization: "Bearer cmk_bad" },
-      })
-      const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(401)
-      expect(doMock.get).not.toHaveBeenCalled()
-    })
-
-    it("returns 426 for legacy ?token=cmt_ requests (upgrade CLI)", async () => {
+    it("returns 400 for legacy ?token=cmt_ requests (no 426, no body)", async () => {
       const req = new Request("http://localhost/?token=cmt_legacy", {
         headers: { Upgrade: "websocket" },
       })
       const res = await handler.fetch(req, env as any)
-      expect(res.status).toBe(426)
-      const body = (await res.json()) as { error: string }
-      expect(body.error).toMatch(/upgrade the alook CLI/i)
+      // The 426 legacy branch was deleted; the request falls through to the
+      // "no userId" branch, which 400s.
+      expect(res.status).toBe(400)
       expect(doMock.get).not.toHaveBeenCalled()
+    })
+
+    it("routes missing Authorization without cmk_ to the default handler (no auth path)", async () => {
+      const req = new Request("http://localhost/", {
+        headers: { Upgrade: "websocket" },
+      })
+      const res = await handler.fetch(req, env as any)
+      // No userId → 400 (existing default). We assert we do NOT hit the
+      // credential-hash path or touch a DO under community-machine:*.
+      expect(mockHashCredential).not.toHaveBeenCalled()
+      expect(res.status).toBe(400)
     })
   })
 
   describe("force-close routing", () => {
-    it("keys the DO by machineId", async () => {
+    it("keys the DO by the do_name suffix", async () => {
       doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ closed: 1 })))
-      const req = new Request("http://localhost/community-machine/cm_abc/force-close", {
+      const doName = "a".repeat(32)
+      const req = new Request(`http://localhost/community-machine/${doName}/force-close`, {
         method: "POST",
       })
       await handler.fetch(req, env as any)
-      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:cm_abc")
+      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:" + doName)
     })
   })
 })

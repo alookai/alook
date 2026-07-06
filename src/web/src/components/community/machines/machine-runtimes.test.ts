@@ -75,4 +75,50 @@ describe("MachineRuntimes", () => {
     const inner = Children.toArray(rendered.props.children) as any[]
     expect(inner[0].props.provider).toBe("future-cli")
   })
+
+  it("both chip branches share the same base class; the tooltip branch adds interactive-state classes", () => {
+    const baseTokens = [
+      "inline-flex",
+      "max-w-[160px]",
+      "items-center",
+      "gap-2",
+      "rounded-md",
+      "border",
+      "border-border",
+      "bg-card",
+      "px-2",
+      "py-1",
+      "text-[11px]",
+    ]
+    const interactiveTokens = [
+      "transition-colors",
+      "hover:bg-accent",
+      "focus-visible:outline-none",
+      "focus-visible:ring-2",
+      "focus-visible:ring-ring",
+      "focus-visible:ring-offset-2",
+    ]
+
+    // Plain span (no version) — base only.
+    const plainTree = MachineRuntimes({ runtimes: [{ id: "codex" }] })
+    const plainChips = collectChips(plainTree)
+    const plainRendered = renderChip(plainChips[0])
+    const plainClass = plainRendered.props.className as string
+    for (const token of baseTokens) {
+      expect(plainClass).toContain(token)
+    }
+    for (const token of interactiveTokens) {
+      expect(plainClass).not.toContain(token)
+    }
+
+    // Tooltip branch — base + interactive states.
+    const tipTree = MachineRuntimes({ runtimes: [{ id: "claude", version: "1.0.0" }] })
+    const tipChips = collectChips(tipTree)
+    const tipRendered = renderChip(tipChips[0])
+    const tipChildren = Children.toArray(tipRendered.props.children) as any[]
+    const buttonClass = tipChildren[0].props.render.props.className as string
+    for (const token of [...baseTokens, ...interactiveTokens]) {
+      expect(buttonClass).toContain(token)
+    }
+  })
 })

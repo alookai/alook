@@ -16,6 +16,7 @@ import { createDaemon } from "../daemon/createDaemon.js";
 import { getDriver } from "../drivers/index.js";
 import { resolveAlookCliPathWithFallback, detectRuntimes, type RuntimeInfo } from "../discovery.js";
 import { createLogger } from "../logger.js";
+import { UnknownRuntimeError } from "../manager/agentRouter.js";
 
 const requireFromHere = createRequire(import.meta.url);
 function readDaemonVersion(): string {
@@ -194,34 +195,64 @@ export interface DaemonStartOpts {
 }
 
 /**
- * Path to the persisted `cmk_` credential for a given pairing key hash.
- * We derive by `keyHash(originalCliKey)` so the file survives the in-memory
- * replacement of `cmt_` → `cmk_` on first activate.
+ * Path to the persisted `cmk_` credential file for a paired machine.
+ * Derived from the server-supplied `machineId` (stable across credential
+ * rotates), so the file self-overwrites on reconnect and no orphaned 0600
+ * files accumulate on disk.
  */
-function credentialFilePath(baseDir: string, cliKey: string): string {
-  return path.join(daemonsDir(baseDir), `${keyHash(cliKey)}.credential.json`);
+export function credentialFilePathByMachineId(baseDir: string, machineId: string): string {
+  return path.join(daemonsDir(baseDir), `${machineId}.credential.json`);
 }
 
-function readCredentialFile(filePath: string): { credential: string } | null {
+/** Legacy accessor kept for the boot-time index scan; not used to write. */
+function credentialFilesDir(baseDir: string): string {
+  return daemonsDir(baseDir);
+}
+
+function readCredentialFile(filePath: string): { credential: string; machineId: string } | null {
   if (!fs.existsSync(filePath)) return null;
   try {
     const content = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (typeof content.credential === "string" && content.credential.startsWith("cmk_")) {
-      return { credential: content.credential };
+    if (
+      typeof content.credential === "string" &&
+      content.credential.startsWith("cmk_") &&
+      typeof content.machineId === "string"
+    ) {
+      return { credential: content.credential, machineId: content.machineId };
     }
   } catch { /* malformed */ }
   return null;
 }
 
-function writeCredentialFile(filePath: string, credential: string): void {
+function writeCredentialFile(filePath: string, credential: string, machineId: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify({ credential }), { mode: 0o600 });
+  fs.writeFileSync(filePath, JSON.stringify({ credential, machineId }), { mode: 0o600 });
+}
+
+/**
+ * Look through the daemons dir for a `<machineId>.credential.json` whose
+ * stored bearer matches. Used when the caller passes an already-issued
+ * `cmk_` so we can restore the paired `machineId` without a server call.
+ */
+function findExistingCredentialForBearer(
+  baseDir: string,
+  bearer: string
+): { credential: string; machineId: string } | null {
+  const dir = credentialFilesDir(baseDir);
+  if (!fs.existsSync(dir)) return null;
+  for (const file of fs.readdirSync(dir)) {
+    if (!file.endsWith(".credential.json")) continue;
+    const parsed = readCredentialFile(path.join(dir, file));
+    if (parsed && parsed.credential === bearer) return parsed;
+  }
+  return null;
 }
 
 /**
  * Exchange a pending `cmt_` pairing token for a long-lived `cmk_` credential
- * via POST /api/community/daemon/activate. On success returns the credential;
- * on failure surfaces the server's error message.
+ * via POST /api/community/daemon/activate. On success returns the credential
+ * and machineId (used to name the on-disk credential file); on failure
+ * surfaces the server's error message.
  */
 async function activatePairingToken(
   serverUrl: string,
@@ -232,7 +263,7 @@ async function activatePairingToken(
   osRelease: string,
   daemonVersion: string,
   runtimeReport: Array<{ id: string; version?: string }>,
-): Promise<string> {
+): Promise<{ credential: string; machineId: string }> {
   const res = await fetch(`${serverUrl}/api/community/daemon/activate`, {
     method: "POST",
     headers: {
@@ -241,11 +272,15 @@ async function activatePairingToken(
     },
     body: JSON.stringify({ hostname, platform, arch, osRelease, daemonVersion, runtimeReport }),
   });
-  const json = (await res.json().catch(() => ({}))) as { credential?: string; error?: string };
-  if (!res.ok || !json.credential) {
+  const json = (await res.json().catch(() => ({}))) as {
+    credential?: string;
+    machineId?: string;
+    error?: string;
+  };
+  if (!res.ok || !json.credential || !json.machineId) {
     throw new Error(json.error ?? `activate failed (${res.status})`);
   }
-  return json.credential;
+  return { credential: json.credential, machineId: json.machineId };
 }
 
 export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
@@ -263,7 +298,6 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
 
   const baseDir = opts.baseDir || process.env.ALOOK_DATA_DIR || DEFAULT_BASE_DIR;
   const pf = acquireLock(baseDir, opts.machineKey);
-  const credPath = credentialFilePath(baseDir, opts.machineKey);
 
   const agentCliPath = resolveAlookCliPathWithFallback() ?? process.argv[1];
 
@@ -279,24 +313,20 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
 
   const runtimeReport = availableRuntimes.map((r) => ({ id: r.id, version: r.version }));
 
-  // Resolve the actual credential the daemon will dial with. Order:
-  //   1. `credential.json` on disk (previously-persisted cmk_) — use it.
-  //   2. --machine-key starts with `cmk_` — persist + use.
-  //   3. --machine-key starts with `cmt_` — POST /activate, persist + use.
-  //   4. else → exit(2) "invalid machine key format".
+  // Resolve the actual credential the daemon will dial with. Ordering:
+  //   1. --machine-key starts with `cmt_` — POST /activate, get {cmk_, machineId},
+  //      write file at <daemonsDir>/<machineId>.credential.json.
+  //   2. --machine-key starts with `cmk_` — scan on-disk credential files for
+  //      one whose stored credential matches; if found, reuse. Otherwise this
+  //      is a fresh paste with no machineId to key the file on — dial with
+  //      the plaintext but skip persistence until the server confirms
+  //      identity on the next boot.
+  //   3. else → exit(2) "invalid machine key format".
   let dialingCredential: string;
-  const persisted = readCredentialFile(credPath);
-  if (persisted) {
-    dialingCredential = persisted.credential;
-    log.info("using persisted daemon credential");
-  } else if (opts.machineKey.startsWith("cmk_")) {
-    dialingCredential = opts.machineKey;
-    writeCredentialFile(credPath, dialingCredential);
-    log.info("saved provided daemon credential to disk");
-  } else if (opts.machineKey.startsWith("cmt_")) {
+  if (opts.machineKey.startsWith("cmt_")) {
     log.info("activating pairing token…");
     try {
-      dialingCredential = await activatePairingToken(
+      const activated = await activatePairingToken(
         serverUrl,
         opts.machineKey,
         os.hostname(),
@@ -306,12 +336,29 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
         readDaemonVersion(),
         runtimeReport,
       );
-      writeCredentialFile(credPath, dialingCredential);
+      dialingCredential = activated.credential;
+      writeCredentialFile(
+        credentialFilePathByMachineId(baseDir, activated.machineId),
+        dialingCredential,
+        activated.machineId
+      );
       log.info("pairing token activated — credential persisted");
     } catch (err) {
       log.error(`activation failed: ${err instanceof Error ? err.message : String(err)}`);
       releaseLock(pf);
       process.exit(1);
+    }
+  } else if (opts.machineKey.startsWith("cmk_")) {
+    const match = findExistingCredentialForBearer(baseDir, opts.machineKey);
+    if (match) {
+      dialingCredential = match.credential;
+      log.info("using persisted daemon credential");
+    } else {
+      // No file → dial with the pasted credential; if it works the server
+      // owns identity anyway. We don't persist since we can't derive the
+      // filename without machineId.
+      dialingCredential = opts.machineKey;
+      log.info("dialing with provided cmk_ (no on-disk record)");
     }
   } else {
     log.error("invalid machine key format — expected `cmt_` (pairing token) or `cmk_` (credential)");
@@ -324,18 +371,26 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     serverUrl,
     serverWsUrl: wsUrl,
     webSocketFactory: (url, headers) => new WebSocket(url, { headers }),
-    runtimes: runtimeIds,
     runtimeReport,
-    // Pick the driver for the runtime the agent actually asked for (server
-    // pushes it on `agent:start`). Fall back to the first detected runtime,
-    // then "mock" for tests / edge cases.
-    driverFor: (_agentId, runtimeConfig) =>
-      getDriver(runtimeConfig?.runtime ?? runtimeIds[0] ?? "mock"),
+    // Pick the driver for the runtime the agent actually asked for. The
+    // request is a hard requirement — if the runtime isn't detected on this
+    // host we throw `UnknownRuntimeError`, which `agentRouter` catches and
+    // forwards to the server as a `session.error{code:"runtime_not_available"}`
+    // so the machine card surfaces the mismatch instead of silently launching
+    // a different runtime.
+    driverFor: (_agentId, runtimeConfig) => {
+      const requested = runtimeConfig?.runtime;
+      const installed = runtimeIds as string[];
+      if (!requested || !installed.includes(requested)) {
+        throw new UnknownRuntimeError(requested, installed);
+      }
+      return getDriver(requested);
+    },
     capabilities: CAPABILITIES,
     agentCliPath,
     workingDirectoryBase: baseDir,
     hostname: os.hostname(),
-    os: process.platform,
+    platform: process.platform,
     arch: process.arch,
     osRelease: os.release(),
     daemonVersion: readDaemonVersion(),

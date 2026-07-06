@@ -47,15 +47,16 @@ function makeChannel() {
 describe("WsControlChannel — resync on (re)connect", () => {
   it("re-announces ready + live sessions on the new socket after a reconnect", async () => {
     const { ch, sockets } = makeChannel();
-    const ready: HostReady = { runtimes: ["mock"], runningAgents: ["a1"] };
+    const ready: HostReady = { runtimeReport: [{ id: "mock" }], runningAgents: ["a1"] };
     const sessions: AgentSessionReport[] = [{ agentId: "a1", sessionId: "s1", launchId: "l1" }];
     ch.onResync(() => ({ ready, sessions }));
 
     ch.connect();
     sockets[0].emit("open");
-    // First connect: ready + agent_session sent.
+    // First connect: ready + agent_session sent. `ready` fields are spread flat
+    // so the shape matches HostReadyMessageSchema in @alook/shared.
     let f = sockets[0].frames();
-    expect(f[0]).toMatchObject({ type: "ready", ready: { runningAgents: ["a1"] } });
+    expect(f[0]).toMatchObject({ type: "ready", runningAgents: ["a1"] });
     expect(f[1]).toMatchObject({ type: "agent_session", agentId: "a1", sessionId: "s1" });
 
     // Drop the socket → channel schedules a reconnect → new socket created.
@@ -73,11 +74,11 @@ describe("WsControlChannel — resync on (re)connect", () => {
   it("does NOT replay a stale ready/session if the resync provider's state changed", async () => {
     const { ch, sockets } = makeChannel();
     let running = ["a1"];
-    ch.onResync(() => ({ ready: { runtimes: ["mock"], runningAgents: running }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [{ id: "mock" }], runningAgents: running }, sessions: [] }));
 
     ch.connect();
     sockets[0].emit("open");
-    expect(sockets[0].frames()[0]).toMatchObject({ ready: { runningAgents: ["a1"] } });
+    expect(sockets[0].frames()[0]).toMatchObject({ type: "ready", runningAgents: ["a1"] });
 
     // Agent a1 went away before reconnect.
     running = [];
@@ -85,7 +86,7 @@ describe("WsControlChannel — resync on (re)connect", () => {
     await new Promise((r) => setTimeout(r, 10));
     sockets[1].emit("open");
     // Fresh snapshot (empty), not the stale ["a1"].
-    expect(sockets[1].frames()[0]).toMatchObject({ ready: { runningAgents: [] } });
+    expect(sockets[1].frames()[0]).toMatchObject({ type: "ready", runningAgents: [] });
   });
 });
 
@@ -103,7 +104,7 @@ describe("WsControlChannel — auth rejection", () => {
       reconnect: { baseMs: 1, maxMs: 1 },
       onAuthRejected: () => { authRejectedCalled = true; },
     });
-    ch.onResync(() => ({ ready: { runtimes: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
 
     ch.connect();
     sockets[0].emit("open");
@@ -129,7 +130,7 @@ describe("WsControlChannel — auth rejection", () => {
       },
       reconnect: { baseMs: 1, maxMs: 1 },
     });
-    ch.onResync(() => ({ ready: { runtimes: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
 
     ch.connect();
     sockets[0].emit("open");
@@ -146,7 +147,6 @@ describe("WsControlChannel — ready frame", () => {
   it("round-trips runtimeReport on the ready frame", async () => {
     const { ch, sockets } = makeChannel();
     const ready: HostReady = {
-      runtimes: ["claude"],
       runtimeReport: [{ id: "claude", version: "1.0.0" }],
       runningAgents: [],
     };
@@ -156,10 +156,7 @@ describe("WsControlChannel — ready frame", () => {
     const frames = sockets[0].frames();
     expect(frames[0]).toMatchObject({
       type: "ready",
-      ready: {
-        runtimes: ["claude"],
-        runtimeReport: [{ id: "claude", version: "1.0.0" }],
-      },
+      runtimeReport: [{ id: "claude", version: "1.0.0" }],
     });
   });
 });
@@ -167,7 +164,7 @@ describe("WsControlChannel — ready frame", () => {
 describe("WsControlChannel — deliver acks", () => {
   it("sends an ack when open", async () => {
     const { ch, sockets } = makeChannel();
-    ch.onResync(() => ({ ready: { runtimes: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
     ch.connect();
     sockets[0].emit("open");
     await ch.reportDeliverAck({ agentId: "a1", deliveryId: "dlv_1" });
@@ -176,7 +173,7 @@ describe("WsControlChannel — deliver acks", () => {
 
   it("buffers an ack issued before open and flushes it on connect", async () => {
     const { ch, sockets } = makeChannel();
-    ch.onResync(() => ({ ready: { runtimes: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
     ch.connect();
     // Ack before the socket opens — must be buffered, not lost.
     await ch.reportDeliverAck({ agentId: "a1", deliveryId: "dlv_early" });
@@ -186,8 +183,8 @@ describe("WsControlChannel — deliver acks", () => {
   });
 });
 
-describe("WsControlChannel — implicit AUTH_REJECTED from repeated 401s", () => {
-  it("fires onAuthRejected after N consecutive 401 upgrade failures with no `open`", async () => {
+describe("WsControlChannel — HTTP 401s are non-terminal", () => {
+  it("keeps reconnecting after 3+ consecutive 401 upgrade failures — no self-kill", async () => {
     const sockets: FakeSocket[] = [];
     let authRejectedCalls = 0;
     const ch = new WsControlChannel({
@@ -197,68 +194,49 @@ describe("WsControlChannel — implicit AUTH_REJECTED from repeated 401s", () =>
         sockets.push(s);
         return s;
       },
-      reconnect: { baseMs: 1, maxMs: 1, authFailStreakThreshold: 3 },
+      reconnect: { baseMs: 1, maxMs: 1 },
       onAuthRejected: () => { authRejectedCalls++; },
     });
-    ch.onResync(() => ({ ready: { runtimes: [], runningAgents: [] }, sessions: [] }));
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
 
     ch.connect();
-    // 1st fail
-    sockets[0].emit("unexpected-response", null, { statusCode: 401 });
+    // Simulate 3 consecutive 401-then-close cycles. The channel MUST keep
+    // reconnecting because AUTH_REJECTED is the only terminal signal now.
+    for (let i = 0; i < 3; i++) {
+      sockets[i].emit("close");
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(sockets.length).toBeGreaterThanOrEqual(4);
+    expect(authRejectedCalls).toBe(0);
+    expect(ch.status).not.toBe("closed");
+  });
+
+  it("does fire onAuthRejected when an AUTH_REJECTED FRAME arrives", async () => {
+    // Duplicated from the "auth rejection" suite as the counter-invariant to
+    // the test above: the frame remains the sole permanent-revoke authority.
+    const sockets: FakeSocket[] = [];
+    let authRejectedCalls = 0;
+    const ch = new WsControlChannel({
+      url: "ws://test",
+      webSocketFactory: () => {
+        const s = new FakeSocket();
+        sockets.push(s);
+        return s;
+      },
+      reconnect: { baseMs: 1, maxMs: 1 },
+      onAuthRejected: () => { authRejectedCalls++; },
+    });
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+
+    ch.connect();
+    sockets[0].emit("open");
+    sockets[0].emit("message", JSON.stringify({ type: "error", code: "AUTH_REJECTED" }));
     sockets[0].emit("close");
-    await new Promise((r) => setTimeout(r, 5));
-    // 2nd fail
-    expect(sockets.length).toBe(2);
-    sockets[1].emit("unexpected-response", null, { statusCode: 401 });
-    sockets[1].emit("close");
-    await new Promise((r) => setTimeout(r, 5));
-    // 3rd fail — should trip
-    expect(sockets.length).toBe(3);
-    sockets[2].emit("unexpected-response", null, { statusCode: 401 });
-    sockets[2].emit("close");
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 20));
 
     expect(authRejectedCalls).toBe(1);
     expect(ch.status).toBe("closed");
-    // No more sockets attempted after the trip.
-    expect(sockets.length).toBe(3);
-  });
-
-  it("resets the streak counter after a successful open", async () => {
-    const sockets: FakeSocket[] = [];
-    let authRejectedCalls = 0;
-    const ch = new WsControlChannel({
-      url: "ws://test",
-      webSocketFactory: () => {
-        const s = new FakeSocket();
-        sockets.push(s);
-        return s;
-      },
-      reconnect: { baseMs: 1, maxMs: 1, authFailStreakThreshold: 3 },
-      onAuthRejected: () => { authRejectedCalls++; },
-    });
-    ch.onResync(() => ({ ready: { runtimes: [], runningAgents: [] }, sessions: [] }));
-
-    ch.connect();
-    sockets[0].emit("unexpected-response", null, { statusCode: 401 });
-    sockets[0].emit("close");
-    await new Promise((r) => setTimeout(r, 5));
-    sockets[1].emit("unexpected-response", null, { statusCode: 401 });
-    sockets[1].emit("close");
-    await new Promise((r) => setTimeout(r, 5));
-
-    // Third attempt SUCCEEDS — resets the streak.
-    sockets[2].emit("open");
-    await new Promise((r) => setTimeout(r, 5));
-    // Drop → 4th attempt fails 401 — streak is fresh (1), not 3.
-    sockets[2].emit("close");
-    await new Promise((r) => setTimeout(r, 5));
-    sockets[3].emit("unexpected-response", null, { statusCode: 401 });
-    sockets[3].emit("close");
-    await new Promise((r) => setTimeout(r, 5));
-
-    expect(authRejectedCalls).toBe(0);
-    expect(ch.status).not.toBe("closed");
+    expect(sockets.length).toBe(1);
   });
 });
 
@@ -294,7 +272,7 @@ describe("WsControlChannel — reconnect timer keeps the event loop alive", () =
         },
         reconnect: { baseMs: 50, maxMs: 50 },
       });
-      ch.onResync(() => ({ ready: { runtimes: [], runningAgents: [] }, sessions: [] }));
+      ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
 
       ch.connect();
       sockets[0].emit("open");

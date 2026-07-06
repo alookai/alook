@@ -50,7 +50,7 @@ async function setup(): Promise<Harness> {
     onAgentSession: (info) => void channel.reportAgentSession(info),
   });
   manager.start();
-  const router = new AgentRouter({ manager, channel, runtimes: ["mock"] });
+  const router = new AgentRouter({ manager, channel, runtimeReport: [{ id: "mock" }] });
   channel.connect();
   await router.start();
   await waitFor(() => channel.status === "open", 3000);
