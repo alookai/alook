@@ -41,7 +41,6 @@ import {
   useDismissForYouEvent,
   useDeleteMention,
   useUpdateProfile,
-  flushPendingReads,
 } from "@/hooks/community/mutations"
 
 /**
@@ -392,9 +391,9 @@ export function ShellFrame({
           onLogout={async () => {
             // Clear community-local state (timers, subscription, presence)
             // before the auth cookie clears so no orphan timers fire after
-            // the user is gone. Also flush any pending mark-reads so the
-            // last-read pointer isn't stranded in the debounce window.
-            flushPendingReads()
+            // the user is gone. `useCommunityStore.reset()` also flushes any
+            // pending mark-reads so the last-read pointer isn't stranded in
+            // the debounce window — covers every sign-out path uniformly.
             useCommunityStore.getState().reset()
             useCommunityWsStore.getState().reset()
             await signOut()

@@ -24,22 +24,72 @@ export async function wsDoFetch(
   init: RequestInit,
   opts?: { label?: string; type?: string },
 ): Promise<Response> {
+  // Try service binding first.
+  const binding = env.WS_DO_WORKER
+  let bindingAttempted = false
+  if (binding) {
+    bindingAttempted = true
+    try {
+      const res = await binding.fetch(`http://internal${path}`, init)
+      if (res.ok) return res
+      // 4xx = client error — don't retry; fallback will return the same status.
+      if (res.status >= 400 && res.status < 500) {
+        log.warn("broadcast service-binding non-ok (client-error)", {
+          label: opts?.label,
+          type: opts?.type,
+          path,
+          status: res.status,
+        })
+        return res
+      }
+      // 5xx — fall through to HTTP fallback so the message isn't silently dropped.
+      log.warn("broadcast service-binding non-ok", {
+        label: opts?.label,
+        type: opts?.type,
+        path,
+        status: res.status,
+      })
+    } catch (err) {
+      log.warn("broadcast service-binding threw, falling back", {
+        label: opts?.label,
+        type: opts?.type,
+        path,
+        err: String(err),
+      })
+    }
+  }
+
+  // HTTP fallback.
+  const base = env.DEV_WS_DO_URL || DEV_WS_DO_URL
   try {
-    const res = await env.WS_DO_WORKER.fetch(`http://internal${path}`, init)
-    if (res.ok) return res
-    log.warn("broadcast service-binding non-ok", {
+    const res = await fetch(`${base}${path}`, init)
+    if (!res.ok) {
+      log.error("broadcast HTTP fallback non-ok", {
+        label: opts?.label,
+        type: opts?.type,
+        path,
+        status: res.status,
+        url: base,
+      })
+    } else if (bindingAttempted) {
+      // Only meaningful when the fallback rescued a failed binding call.
+      log.info("broadcast HTTP fallback recovered", {
+        label: opts?.label,
+        type: opts?.type,
+        path,
+      })
+    }
+    return res
+  } catch (err) {
+    log.error("broadcast HTTP fallback threw", {
       label: opts?.label,
       type: opts?.type,
       path,
-      status: res.status,
+      url: base,
+      err: String(err),
     })
-    // fall through to HTTP fallback so a 5xx from the binding doesn't
-    // silently drop the message.
-  } catch {
-    // Service binding unavailable — fall through to HTTP
+    throw err
   }
-  const base = env.DEV_WS_DO_URL || DEV_WS_DO_URL
-  return fetch(`${base}${path}`, init)
 }
 
 async function doSend(

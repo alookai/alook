@@ -1,29 +1,13 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { MessagesSquare, FileText, Download } from "lucide-react"
-import { apiFetch } from "@/lib/api/client"
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
 import { formatMessageTime } from "./format-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { avatarInitial } from "@/lib/community/avatar"
-import type { Msg, OpenProfile } from "./_types"
-
-// API shape returned by GET /api/community/messages/[id]. Mirrors the
-// per-message payload from the channel/DM list endpoints.
-type OpenerPayload = {
-  id: string
-  authorId: string
-  authorName: string
-  authorAvatar: string
-  content: string
-  type?: "system"
-  createdAt: string
-  attachments?: Msg["attachments"]
-  embeds?: Msg["embeds"]
-  reactions?: Msg["reactions"]
-}
+import { useMessage } from "@/hooks/community/use-message"
+import type { OpenProfile } from "./_types"
 
 // Thread opener block — the parent message the thread was created from,
 // rendered pinned at the top of the thread's message list. Distinct from
@@ -47,29 +31,11 @@ export function ThreadOpener({
   onPreviewImage?: (url: string) => void
   onDownloadFile?: (url: string) => void
 }) {
-  const [msg, setMsg] = useState<OpenerPayload | null>(null)
-  const [state, setState] = useState<"loading" | "ready" | "error">("loading")
+  const { message: msg, isLoading, isError } = useMessage(parentMessageId)
 
-  useEffect(() => {
-    let cancelled = false
-    setState("loading")
-    setMsg(null)
-    apiFetch<OpenerPayload>(`/api/community/messages/${parentMessageId}`)
-      .then((data) => {
-        if (cancelled) return
-        setMsg(data)
-        setState("ready")
-      })
-      .catch(() => {
-        if (cancelled) return
-        setState("error")
-      })
-    return () => { cancelled = true }
-  }, [parentMessageId])
+  if (isLoading) return <ThreadOpenerSkeleton />
 
-  if (state === "loading") return <ThreadOpenerSkeleton />
-
-  if (state === "error" || !msg) {
+  if (isError || !msg) {
     // The parent lives in the outer channel; if it was deleted (or the caller
     // lost access) we don't fail the thread view — just render a minimal
     // placeholder so the opener slot doesn't collapse the layout.

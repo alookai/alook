@@ -56,6 +56,7 @@ import type { Msg, Attachment } from "@/components/community/_types"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { MachinesResponse } from "@/hooks/community/use-machines"
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
+import { useMarkChannelRead } from "@/hooks/community/mutations/messages"
 
 /**
  * Community WebSocket handler.
@@ -238,6 +239,11 @@ export type UseCommunityWsOptions = CommunityWsCallbacks & {
 // open a second WebSocket per consumer). Cleared on unmount.
 let activeSend: ((msg: object) => void) | null = null
 
+/** Testing hook — clears the module-scoped `activeSend` binding. */
+export function _resetActiveSend_forTesting() {
+  activeSend = null
+}
+
 /**
  * Subscribe to a channel/thread/DM. Free helper so any component can update
  * the focused subscription without holding a reference to `useCommunityWs`.
@@ -280,6 +286,17 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
   viewerUserIdRef.current = options?.viewerUserId ?? null
   const callbacksRef = useRef<CommunityWsCallbacks>(options ?? {})
   callbacksRef.current = options ?? {}
+
+  // Auto-mark-read for messages that arrive in the currently-focused channel
+  // (#6). Held in a ref so the WS handler `useCallback` doesn't need to
+  // rebind on every render of the underlying mutation — the debounce in
+  // `useMarkChannelRead` (500ms per channelId) already collapses bursts, so
+  // this only adds one call per burst per focused channel.
+  const markChannelRead = useMarkChannelRead()
+  const markReadRef = useRef(markChannelRead.mutate)
+  useEffect(() => {
+    markReadRef.current = markChannelRead.mutate
+  }, [markChannelRead.mutate])
 
   // Debounced inbox invalidation. Grouping repeated invalidations into one
   // refetch cycle keeps the popover from re-rendering on every message tick.
@@ -334,6 +351,20 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           if (event.message.authorId !== viewerId) {
             scheduleInboxInvalidate()
           }
+
+          // 3) Auto-mark-read for messages that land in the currently focused
+          //    channel — only channels (not DMs) and only for messages not
+          //    authored by the viewer. Mirrors the debounce in
+          //    `useMarkChannelRead` (500ms per channelId) so a burst collapses
+          //    into a single PUT.
+          if (
+            event.channelId &&
+            event.channelId === sub.channelId &&
+            event.message.authorId !== viewerId
+          ) {
+            markReadRef.current({ channelId: event.channelId })
+          }
+
           // Legacy callback fanout — cache patches above are authoritative.
           cbs.onAnyMessage?.(event)
           if (matchesFocus(event)) cbs.onMessage?.(event)
@@ -374,9 +405,11 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           const viewerId = viewerUserIdRef.current
           if (viewerId && userId === viewerId) return
           // Focus check: only surface typing for the currently-viewed target.
-          if (event.channelId && event.channelId !== sub.channelId) return
+          // A DM-only typing.start (no channelId) must NOT fire while the
+          // viewer is focused on a channel — `matchesFocus` handles both axes.
+          if (!matchesFocus(event)) return
           applyTypingIndicator(userId)
-          if (matchesFocus(event)) cbs.onTyping?.(event)
+          cbs.onTyping?.(event)
           return
         }
 
@@ -412,7 +445,11 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
                               thread: {
                                 id: event.channel.id,
                                 name: event.channel.name,
-                                messageCount: 1,
+                                // #4: a freshly-created child channel has no
+                                // messages yet — `1` was a false claim that
+                                // the create event carried the first message
+                                // (it doesn't; the message arrives separately).
+                                messageCount: 0,
                               },
                             }
                           : m,
@@ -477,7 +514,13 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
                       ...prev,
                       name: event.changes.name ?? prev.name,
                       description: event.changes.description ?? prev.description,
-                      icon: event.changes.icon ?? prev.icon,
+                      // #8: icon can be explicitly cleared (null). `??` treats
+                      // null the same as undefined, which would keep the old
+                      // icon after a removal — check `undefined` explicitly.
+                      icon:
+                        event.changes.icon !== undefined
+                          ? event.changes.icon
+                          : prev.icon,
                     }
                   : prev,
             )
@@ -502,6 +545,14 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           } else {
             void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
             queryClient.removeQueries({ queryKey: communityKeys.server(event.serverId) })
+            // #10: if the deleted server is the one the viewer is looking at,
+            // the store pointers now dangle — reset them so the UI drops back
+            // to a safe default instead of rendering a ghost server/channel.
+            const store = useCommunityStore.getState()
+            if (store.currentServerId === event.serverId) {
+              store.setCurrentServerId(null)
+              store.setCurrentChannelId(null)
+            }
           }
           cbs.onServer?.(event)
           return
@@ -516,6 +567,25 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         case "community:category.update":
         case "community:category.delete":
         case "community:category.reorder": {
+          // #3: on channel.delete, evict every channel-scoped cache before
+          // invalidating the server. Without this the messages/pins/threads/
+          // forum-posts caches for the dead channel linger forever — a
+          // subsequent same-id revive (rare, but the server can reuse ids)
+          // would surface stale rows.
+          if (event.type === "community:channel.delete") {
+            queryClient.removeQueries({
+              queryKey: communityKeys.channelMessages(event.channelId),
+            })
+            queryClient.removeQueries({
+              queryKey: communityKeys.pins(event.channelId),
+            })
+            queryClient.removeQueries({
+              queryKey: communityKeys.threads(event.channelId),
+            })
+            queryClient.removeQueries({
+              queryKey: communityKeys.forumPosts(event.channelId),
+            })
+          }
           if ("serverId" in event) {
             void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
           }
@@ -678,6 +748,18 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
   // matches the "mount at tree root" contract; if a second call site invoked
   // the hook, the last one would win. Cleared on unmount.
   useEffect(() => {
+    // #15: warn if a second hook instance has mounted while another is still
+    // active. Two live subscribers would each publish their own `send` into
+    // this module slot — the second mount overwrites the first, and the
+    // first's cleanup then clears the slot mid-flight (see the `activeSend
+    // === send` check below). Whoever added the second mount site should
+    // co-locate them under a single root-level `useCommunityWs()` call.
+    if (activeSend !== null && activeSend !== send) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        "[useCommunityWs] Multiple instances detected — mount this hook once at the tree root.",
+      )
+    }
     activeSend = send
     return () => {
       if (activeSend === send) activeSend = null

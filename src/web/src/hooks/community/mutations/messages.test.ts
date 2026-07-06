@@ -420,7 +420,11 @@ describe("useUnpinMessage — rollback", () => {
 // ── useCreateThread ───────────────────────────────────────────────────────
 
 describe("useCreateThread — patches parent message + invalidates threads", () => {
-  it("adds thread indicator to the parent message", async () => {
+  it("adds thread indicator to the parent message with messageCount: 0", async () => {
+    // Regression: previously patched messageCount=1 on the assumption that
+    // the parent message was cloned into the thread. #6 removed the
+    // parent-clone, so new threads start empty. `messageCount` MUST be 0
+    // to avoid the UI showing "1 reply" on an empty thread.
     capturedQc.setQueryData(communityKeys.channelMessages("ch_parent"), {
       pages: [{ messages: [{ id: "m_p" }], hasMore: false }],
       pageParams: [null],
@@ -430,9 +434,9 @@ describe("useCreateThread — patches parent message + invalidates threads", () 
     mod.useCreateThread()
     await runMutation({ channelId: "ch_parent", messageId: "m_p", name: "Discussion" })
     const cache = capturedQc.getQueryData<{
-      pages: { messages: { id: string; thread?: { id: string; name: string } }[] }[]
+      pages: { messages: { id: string; thread?: { id: string; name: string; messageCount: number } }[] }[]
     }>(communityKeys.channelMessages("ch_parent"))
-    expect(cache?.pages[0].messages[0].thread).toEqual({ id: "thr_1", name: "Discussion", messageCount: 1 })
+    expect(cache?.pages[0].messages[0].thread).toEqual({ id: "thr_1", name: "Discussion", messageCount: 0 })
   })
 })
 
@@ -486,6 +490,78 @@ describe("useMarkChannelRead — #13 debounced read stampede", () => {
       vi.useRealTimers()
     }
   })
+
+  it("mutationFn resolves synchronously — never hangs when flushed or re-invoked", async () => {
+    // Regression: the old implementation wrapped setTimeout inside the
+    // mutation Promise. A same-channel re-invoke cleared the timer, which
+    // meant the resolve() was unreachable and the Promise hung forever.
+    // The new design decouples the debounce from mutationFn — the returned
+    // Promise resolves immediately, and the debounced work fires
+    // independently via `scheduleMarkRead`'s onDone.
+    vi.useFakeTimers()
+    try {
+      apiFetchMock.mockResolvedValue(undefined)
+      const mod = await loadMod()
+      mod._resetPendingReads_forTesting()
+      mod.useMarkChannelRead()
+      const cfg = capturedConfig!
+      // Fire the mutation, then flush before the debounce window closes.
+      const first = cfg.mutationFn!({ channelId: "ch_1" }) as Promise<void>
+      // Same-channel re-invoke — old bug would strand the first Promise.
+      const second = cfg.mutationFn!({ channelId: "ch_1" }) as Promise<void>
+      mod.flushPendingReads()
+      // Both Promises must have resolved (not thrown, not hung).
+      await expect(first).resolves.toBeUndefined()
+      await expect(second).resolves.toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("onDone (inbox invalidate) fires exactly once per PUT — even under flush", async () => {
+    // Real timers here — we need Promise microtasks to drain naturally
+    // after `apiFetch` resolves, so `onDone` (invalidateQueries) runs.
+    apiFetchMock.mockResolvedValue(undefined)
+    const mod = await loadMod()
+    mod._resetPendingReads_forTesting()
+    mod.useMarkChannelRead()
+    const cfg = capturedConfig!
+    const spy = vi.spyOn(capturedQc, "invalidateQueries")
+    // One mutation, then flush. `fire()` runs apiFetch → onDone chain.
+    void cfg.mutationFn!({ channelId: "ch_1" })
+    mod.flushPendingReads()
+    // Drain microtasks — the `.then(onDone)` after apiFetch resolves.
+    await Promise.resolve()
+    await Promise.resolve()
+    const inboxInvalidates = spy.mock.calls.filter((c) => {
+      const key = c[0]?.queryKey as unknown[] | undefined
+      return Array.isArray(key) && key.length === 2 && key[0] === "community" && key[1] === "inbox"
+    })
+    expect(inboxInvalidates).toHaveLength(1)
+  })
+
+  it("same-channel re-invoke within window collapses to a single PUT — old scheduling is subsumed", async () => {
+    // Regression companion to the Promise-hang bug: verify the debounce
+    // behavior itself still holds. A rapid burst on the same channel must
+    // collapse to ONE PUT, and the pending map must not leak entries.
+    vi.useFakeTimers()
+    try {
+      apiFetchMock.mockResolvedValue(undefined)
+      const mod = await loadMod()
+      mod._resetPendingReads_forTesting()
+      mod.useMarkChannelRead()
+      const cfg = capturedConfig!
+      void cfg.mutationFn!({ channelId: "ch_1" })
+      void cfg.mutationFn!({ channelId: "ch_1" })
+      void cfg.mutationFn!({ channelId: "ch_1" })
+      expect(apiFetchMock).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(500)
+      const puts = apiFetchMock.mock.calls.filter((c) => (c[1] as { method?: string })?.method === "PUT")
+      expect(puts).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 // ── useMarkDmRead — rollback ──────────────────────────────────────────────
@@ -503,6 +579,76 @@ describe("useMarkDmRead — rollback", () => {
       communityKeys.dms(),
     )
     expect(cache?.conversations[0].unread).toBe(true)
+  })
+})
+
+// ── useMarkAllInboxRead — eventKeys captured pre-clear ───────────────────
+
+describe("useMarkAllInboxRead — captures eventKeys BEFORE optimistic clear", () => {
+  // Regression: the old implementation read the for-you cache inside
+  // `mutationFn`, which runs AFTER `onMutate` per TanStack ordering. Since
+  // `onMutate` wiped the cache to `{ events: [] }`, `mutationFn` always saw
+  // an empty list and skipped the dismiss POST. The fix uses a ref
+  // populated in `onMutate`.
+  it("dismisses each for-you eventKey with a POST containing the pre-clear keys", async () => {
+    capturedQc.setQueryData(communityKeys.inboxForYou(), {
+      events: [
+        { eventKey: "mention:m_1" },
+        { eventKey: "reply:r_2" },
+        { eventKey: "reaction:x_3" },
+      ],
+    })
+    capturedQc.setQueryData(communityKeys.inboxUnreads(), { servers: [] })
+    capturedQc.setQueryData(communityKeys.inboxMentions(), { mentions: [] })
+    apiFetchMock.mockResolvedValue(undefined)
+    const mod = await loadMod()
+    mod.useMarkAllInboxRead()
+    await runMutation<void>(undefined as unknown as void)
+    // Three POSTs — mentions read-all, unreads read-all, foryou dismiss.
+    const posts = apiFetchMock.mock.calls.filter(
+      (c) => (c[1] as { method?: string })?.method === "POST",
+    )
+    expect(posts).toHaveLength(3)
+    const dismiss = posts.find((c) => (c[0] as string).endsWith("/foryou/dismiss"))
+    expect(dismiss).toBeDefined()
+    const body = JSON.parse((dismiss![1] as { body: string }).body)
+    expect(body).toEqual({ eventKeys: ["mention:m_1", "reply:r_2", "reaction:x_3"] })
+  })
+
+  it("skips the dismiss POST when there are no for-you events", async () => {
+    capturedQc.setQueryData(communityKeys.inboxForYou(), { events: [] })
+    apiFetchMock.mockResolvedValue(undefined)
+    const mod = await loadMod()
+    mod.useMarkAllInboxRead()
+    await runMutation<void>(undefined as unknown as void)
+    const dismissCalls = apiFetchMock.mock.calls.filter((c) =>
+      (c[0] as string).endsWith("/foryou/dismiss"),
+    )
+    expect(dismissCalls).toHaveLength(0)
+    // Mentions + unreads read-all still fire.
+    const posts = apiFetchMock.mock.calls.filter(
+      (c) => (c[1] as { method?: string })?.method === "POST",
+    )
+    expect(posts).toHaveLength(2)
+  })
+
+  it("still clears all three inbox caches optimistically", async () => {
+    capturedQc.setQueryData(communityKeys.inboxForYou(), {
+      events: [{ eventKey: "mention:m_1" }],
+    })
+    capturedQc.setQueryData(communityKeys.inboxUnreads(), {
+      servers: [{ serverId: "s_1", serverName: "s", channels: [{ channelId: "ch_1" }] }],
+    })
+    capturedQc.setQueryData(communityKeys.inboxMentions(), {
+      mentions: [{ id: "men_1" }],
+    })
+    apiFetchMock.mockResolvedValue(undefined)
+    const mod = await loadMod()
+    mod.useMarkAllInboxRead()
+    await runMutation<void>(undefined as unknown as void)
+    expect(capturedQc.getQueryData(communityKeys.inboxForYou())).toEqual({ events: [] })
+    expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toEqual({ servers: [] })
+    expect(capturedQc.getQueryData(communityKeys.inboxMentions())).toEqual({ mentions: [] })
   })
 })
 

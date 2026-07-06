@@ -1,10 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useCommunityStore } from "./index"
 
+// Mock the mark-reads flush so we can assert `reset()` invokes it without
+// the real implementation firing HTTP requests. `vi.mock` is hoisted above
+// regular `const` declarations, so we stash the spy in `vi.hoisted(...)`
+// which the hoisted mock factory can safely reference.
+const { flushPendingReadsSpy } = vi.hoisted(() => ({
+  flushPendingReadsSpy: vi.fn(),
+}))
+vi.mock("@/hooks/community/mutations/messages", () => ({
+  flushPendingReads: flushPendingReadsSpy,
+}))
+
 // Each test starts from a clean slate — otherwise Zustand's module-scoped
-// store would leak state (and lingering timers) between cases.
-beforeEach(() => {
+// store would leak state (and lingering timers) between cases. `reset()`
+// schedules a dynamic-imported flush via a microtask; wait until the spy
+// fires before clearing it — otherwise the pending callback would bleed
+// into the next test's count.
+beforeEach(async () => {
   useCommunityStore.getState().reset()
+  await vi.waitFor(() => expect(flushPendingReadsSpy).toHaveBeenCalled())
+  flushPendingReadsSpy.mockClear()
 })
 
 describe("useCommunityStore", () => {
@@ -104,6 +120,14 @@ describe("useCommunityStore", () => {
     // previewImage stays even though we only passed openProfile.
     expect(useCommunityStore.getState().uiHandlers.previewImage).toBe(previewImage)
     expect(useCommunityStore.getState().uiHandlers.openProfile).toBe(openProfile)
+  })
+
+  it("reset flushes pending mark-reads before wiping state", async () => {
+    // `reset()` uses a dynamic import to avoid a circular dependency with
+    // `mutations/messages`. The `import()` resolves asynchronously — poll
+    // via `vi.waitFor` instead of assuming a fixed microtask count.
+    useCommunityStore.getState().reset()
+    await vi.waitFor(() => expect(flushPendingReadsSpy).toHaveBeenCalledTimes(1))
   })
 
   it("reset clears every field including timer maps", () => {

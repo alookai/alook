@@ -180,6 +180,15 @@ export const useCommunityStore = create<CommunityStoreState>((set, get) => ({
     set({ uiHandlers: { ...get().uiHandlers, ...handlers } }),
 
   reset: () => {
+    // Flush any pending mark-channel-read PUTs before we wipe local state so
+    // the last-read pointer isn't stranded in the 500ms debounce window
+    // (sign-out, hard-reset, tab close). Dynamic import avoids a circular
+    // dependency: `mutations/messages.ts` already imports this store, so a
+    // static import here would form a cycle. Fire-and-forget is fine — the
+    // PUTs go out under the still-live auth cookie.
+    void import("@/hooks/community/mutations/messages").then((m) =>
+      m.flushPendingReads(),
+    )
     // Fire-and-forget: clear every outstanding timer so nothing lingers past
     // sign-out or a hard-reset.
     const { typingTimers, reactionTimers } = get()

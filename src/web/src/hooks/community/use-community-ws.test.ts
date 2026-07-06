@@ -18,10 +18,14 @@ import type {
   CommunityMentionCreate,
   CommunityDmNewMessage,
   CommunityServerUpdate,
+  CommunityServerDelete,
   CommunityChannelCreate,
+  CommunityChannelDelete,
   CommunityChildChannelCreate,
+  CommunityChildChannelUpdate,
   CommunityPinAdd,
   CommunityFriendRequest,
+  CommunityTypingStart,
 } from "@alook/shared"
 import { communityKeys } from "@/lib/query-keys"
 
@@ -31,6 +35,8 @@ let refCounter = 0
 let stateCounter = 0
 let callbackMemo: Map<string, { fn: Function; deps: unknown[] }> = new Map()
 let callbackCounter = 0
+// Captured effect callbacks — tests can flush them via `flushEffects()`.
+let pendingEffects: Array<() => void> = []
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => {
@@ -48,8 +54,16 @@ vi.mock("react", () => ({
     callbackMemo.set(id, { fn, deps })
     return fn
   },
-  useEffect: (_fn: () => void, _deps: unknown[]) => {},
+  useEffect: (fn: () => void, _deps: unknown[]) => {
+    pendingEffects.push(fn)
+  },
 }))
+
+function flushEffects() {
+  const effects = pendingEffects
+  pendingEffects = []
+  for (const fn of effects) fn()
+}
 
 // Shared QueryClient instance the hook resolves via useQueryClient.
 let capturedQueryClient: QueryClient
@@ -61,13 +75,28 @@ vi.mock("@tanstack/react-query", async () => {
   }
 })
 
-// Capture the callback passed into useUserWs so tests can drive it.
+// Capture the callback passed into useUserWs so tests can drive it. The
+// `send` binding is stable across re-mounts within one test so the module-
+// level `activeSend` guard in `useCommunityWs` sees the same identity — a
+// fresh spy per mount would trip the double-mount detector on every remount.
 let capturedOnMessage: ((msg: unknown) => void) | null = null
+let stableSend: ReturnType<typeof vi.fn> = vi.fn()
 vi.mock("@/lib/use-user-ws", () => ({
   useUserWs: (onMessage: (msg: unknown) => void) => {
     capturedOnMessage = onMessage
-    return { send: vi.fn() }
+    return { send: stableSend }
   },
+}))
+
+// Mock useMarkChannelRead so the hook body doesn't run through a real
+// `useMutation` under the trimmed react shim. Tests can inspect / reset the
+// spy between runs. `flushPendingReads` is a noop stand-in — the community
+// store's `reset()` dynamically imports this module and expects the export
+// to exist.
+const markReadMutate = vi.fn()
+vi.mock("@/hooks/community/mutations/messages", () => ({
+  useMarkChannelRead: () => ({ mutate: markReadMutate }),
+  flushPendingReads: () => {},
 }))
 
 function resetHarness() {
@@ -76,8 +105,11 @@ function resetHarness() {
   stateCounter = 0
   callbackMemo = new Map()
   callbackCounter = 0
+  pendingEffects = []
   capturedOnMessage = null
   capturedQueryClient = new QueryClient()
+  stableSend = vi.fn()
+  markReadMutate.mockClear()
 }
 
 async function mountHook(options?: { viewerUserId?: string | null } & Record<string, unknown>) {
@@ -91,6 +123,8 @@ async function resetStore() {
   useCommunityStore.getState().reset()
   const { useCommunityWsStore } = await import("@/stores/community/ws")
   useCommunityWsStore.getState().reset()
+  const mod = await import("./use-community-ws")
+  mod._resetActiveSend_forTesting()
 }
 
 beforeEach(async () => {
@@ -547,5 +581,339 @@ describe("useCommunityWs — non-community events bail", () => {
     const spy = vi.spyOn(capturedQueryClient, "setQueryData")
     capturedOnMessage!({ type: "task.updated", taskId: "t_1" })
     expect(spy).not.toHaveBeenCalled()
+  })
+})
+
+// ── Regression #3 — channel.delete evicts channel-scoped caches ─────────
+describe("useCommunityWs — channel.delete evicts channel-scoped caches", () => {
+  it("removes channelMessages, pins, threads, and forumPosts for the deleted channel", async () => {
+    await mountHook()
+    // Seed all four caches for the target channel so we can observe eviction.
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_dead"), {
+      pages: [{ messages: [{ id: "m_1" }], hasMore: false }],
+      pageParams: [null],
+    })
+    capturedQueryClient.setQueryData(communityKeys.pins("ch_dead"), { pins: [{ id: "p" }] })
+    capturedQueryClient.setQueryData(communityKeys.threads("ch_dead"), { threads: [{ id: "t" }] })
+    capturedQueryClient.setQueryData(communityKeys.forumPosts("ch_dead"), { posts: [{ id: "fp" }] })
+
+    const event: CommunityChannelDelete = {
+      type: "community:channel.delete",
+      serverId: "srv_1",
+      channelId: "ch_dead",
+    }
+    capturedOnMessage!(event)
+
+    expect(capturedQueryClient.getQueryData(communityKeys.channelMessages("ch_dead"))).toBeUndefined()
+    expect(capturedQueryClient.getQueryData(communityKeys.pins("ch_dead"))).toBeUndefined()
+    expect(capturedQueryClient.getQueryData(communityKeys.threads("ch_dead"))).toBeUndefined()
+    expect(capturedQueryClient.getQueryData(communityKeys.forumPosts("ch_dead"))).toBeUndefined()
+  })
+})
+
+// ── Regression #4 — child_create seeds messageCount: 0 ──────────────────
+describe("useCommunityWs — child_create patches parent thread badge with count 0", () => {
+  it("stamps messageCount: 0 on the parent message's thread stub", async () => {
+    await mountHook()
+    // Seed the parent channel's messages cache with the parent message.
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_parent"), {
+      pages: [
+        {
+          messages: [{ id: "m_parent", content: "hello" }],
+          hasMore: false,
+        },
+      ],
+      pageParams: [null],
+    })
+
+    const event: CommunityChildChannelCreate = {
+      type: "community:channel.child_create",
+      parentChannelId: "ch_parent",
+      parentMessageId: "m_parent",
+      channel: {
+        id: "ch_thread",
+        name: "New thread",
+        type: "thread",
+        createdAt: "2026-07-03T00:00:00.000Z",
+      },
+    }
+    capturedOnMessage!(event)
+
+    const cache = capturedQueryClient.getQueryData<{
+      pages: { messages: { id: string; thread?: { id: string; name: string; messageCount: number } }[] }[]
+    }>(communityKeys.channelMessages("ch_parent"))
+    expect(cache?.pages[0].messages[0].thread).toEqual({
+      id: "ch_thread",
+      name: "New thread",
+      messageCount: 0,
+    })
+  })
+
+  it("child_update still applies the reported messageCount unchanged", async () => {
+    await mountHook()
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_parent"), {
+      pages: [
+        {
+          messages: [
+            {
+              id: "m_parent",
+              content: "hello",
+              thread: { id: "ch_thread", name: "old", messageCount: 0 },
+            },
+          ],
+          hasMore: false,
+        },
+      ],
+      pageParams: [null],
+    })
+
+    const event: CommunityChildChannelUpdate = {
+      type: "community:channel.child_update",
+      parentChannelId: "ch_parent",
+      channelId: "ch_thread",
+      changes: { messageCount: 5 },
+    }
+    capturedOnMessage!(event)
+
+    const cache = capturedQueryClient.getQueryData<{
+      pages: { messages: { thread?: { messageCount: number } }[] }[]
+    }>(communityKeys.channelMessages("ch_parent"))
+    expect(cache?.pages[0].messages[0].thread?.messageCount).toBe(5)
+  })
+})
+
+// ── Regression #5 — typing.start focus guard (DM leak) ──────────────────
+describe("useCommunityWs — typing.start honours focus (no DM leak)", () => {
+  it("does NOT surface a DM-only typing.start when the viewer is focused on a channel", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    const event: CommunityTypingStart = {
+      type: "community:typing.start",
+      dmConversationId: "dm_other",
+      userId: "u_other",
+    }
+    capturedOnMessage!(event)
+
+    expect(useCommunityStore.getState().typingUsers).toEqual([])
+  })
+
+  it("does surface a channel typing.start when the viewer is focused on that channel", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    const event: CommunityTypingStart = {
+      type: "community:typing.start",
+      channelId: "ch_1",
+      userId: "u_other",
+    }
+    capturedOnMessage!(event)
+
+    expect(useCommunityStore.getState().typingUsers).toEqual(["u_other"])
+  })
+})
+
+// ── Regression #6 — auto-mark-read on message.create in focused channel ─
+describe("useCommunityWs — auto-mark-read fires for focused channel", () => {
+  it("calls markRead(mutate) when a foreign-authored message lands in the focused channel", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook({ viewerUserId: "u_me" })
+
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_focused"), {
+      pages: [{ messages: [], hasMore: false }],
+      pageParams: [null],
+    })
+
+    const event: CommunityMessageCreate = {
+      type: "community:message.create",
+      channelId: "ch_focused",
+      message: {
+        id: "m_1",
+        authorId: "u_someone_else",
+        authorName: "them",
+        content: "hi",
+        createdAt: "2026-07-03T00:00:00.000Z",
+      },
+    }
+    capturedOnMessage!(event)
+
+    expect(markReadMutate).toHaveBeenCalledWith({ channelId: "ch_focused" })
+  })
+
+  it("does NOT call markRead when the message is authored by the viewer", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook({ viewerUserId: "u_me" })
+
+    const event: CommunityMessageCreate = {
+      type: "community:message.create",
+      channelId: "ch_focused",
+      message: {
+        id: "m_1",
+        authorId: "u_me",
+        authorName: "me",
+        content: "hi",
+        createdAt: "2026-07-03T00:00:00.000Z",
+      },
+    }
+    capturedOnMessage!(event)
+
+    expect(markReadMutate).not.toHaveBeenCalled()
+  })
+
+  it("does NOT call markRead for a DM new_message (channels only)", async () => {
+    await mountHook({ viewerUserId: "u_me" })
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ dmConversationId: "dm_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook({ viewerUserId: "u_me" })
+
+    const event: CommunityDmNewMessage = {
+      type: "community:dm.new_message",
+      dmConversationId: "dm_1",
+      message: {
+        id: "dm_m_1",
+        authorId: "u_a",
+        authorName: "a",
+        content: "hi",
+        createdAt: "2026-07-03T00:00:00.000Z",
+      },
+    }
+    capturedOnMessage!(event)
+
+    expect(markReadMutate).not.toHaveBeenCalled()
+  })
+})
+
+// ── Regression #8 — server.update explicit-null icon clears the field ───
+describe("useCommunityWs — server.update icon removal", () => {
+  it("clears icon when changes.icon is null (does not fall back to the prior icon)", async () => {
+    await mountHook()
+    capturedQueryClient.setQueryData(communityKeys.server("srv_1"), {
+      id: "srv_1",
+      name: "n",
+      description: "d",
+      icon: "https://cdn/x.png",
+      ownerId: "u_1",
+      categories: [],
+    })
+    const event: CommunityServerUpdate = {
+      type: "community:server.update",
+      serverId: "srv_1",
+      changes: { icon: null },
+    }
+    capturedOnMessage!(event)
+    const detail = capturedQueryClient.getQueryData<{ icon: string | null }>(
+      communityKeys.server("srv_1"),
+    )
+    expect(detail?.icon).toBeNull()
+  })
+})
+
+// ── Regression #10 — server.delete resets focused-server pointers ───────
+describe("useCommunityWs — server.delete resets store when focused server dies", () => {
+  it("clears currentServerId + currentChannelId if the deleted server is currently focused", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId("srv_doomed")
+    useCommunityStore.getState().setCurrentChannelId("ch_1")
+
+    const event: CommunityServerDelete = {
+      type: "community:server.delete",
+      serverId: "srv_doomed",
+    }
+    capturedOnMessage!(event)
+
+    expect(useCommunityStore.getState().currentServerId).toBeNull()
+    expect(useCommunityStore.getState().currentChannelId).toBeNull()
+  })
+
+  it("does NOT touch the store when a different server is deleted", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().setCurrentServerId("srv_active")
+    useCommunityStore.getState().setCurrentChannelId("ch_1")
+
+    const event: CommunityServerDelete = {
+      type: "community:server.delete",
+      serverId: "srv_other",
+    }
+    capturedOnMessage!(event)
+
+    expect(useCommunityStore.getState().currentServerId).toBe("srv_active")
+    expect(useCommunityStore.getState().currentChannelId).toBe("ch_1")
+  })
+})
+
+// ── Regression #15 — double-mount guard warns ───────────────────────────
+describe("useCommunityWs — double-mount detection", () => {
+  it("emits console.warn when a second instance mounts with a different send", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      // First mount publishes the current stable `send` into activeSend.
+      await mountHook()
+      flushEffects()
+      // Simulate a second, independent hook site returning a different `send`
+      // by swapping the shared stub before the second mount.
+      stableSend = vi.fn()
+      // Reset ref counters so the shim hands out fresh refs (mimics a second
+      // hook site — not a re-render of the first).
+      refs = new Map()
+      refCounter = 0
+      callbackMemo = new Map()
+      callbackCounter = 0
+      await mountHook()
+      flushEffects()
+      expect(
+        warnSpy.mock.calls.some((c) =>
+          typeof c[0] === "string" && c[0].includes("Multiple instances"),
+        ),
+      ).toBe(true)
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it("does NOT warn on a normal re-render (same send identity)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      await mountHook()
+      flushEffects()
+      // Re-mount with the SAME stableSend — should be a no-op for the guard.
+      refs = new Map()
+      refCounter = 0
+      callbackMemo = new Map()
+      callbackCounter = 0
+      await mountHook()
+      flushEffects()
+      expect(
+        warnSpy.mock.calls.some((c) =>
+          typeof c[0] === "string" && c[0].includes("Multiple instances"),
+        ),
+      ).toBe(false)
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })

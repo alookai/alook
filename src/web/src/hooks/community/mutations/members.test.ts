@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
 import { communityKeys } from "@/lib/query-keys"
+import type { MemberOverlayEvent } from "@/hooks/community/use-server-members"
 
 vi.mock("react", () => ({
   useRef: (initial: unknown) => ({ current: initial }),
@@ -49,7 +50,13 @@ async function runMutation<Args>(args: Args) {
 
 async function load() {
   vi.resetModules()
-  return await import("./members")
+  const mod = await import("./members")
+  // `dispatchMemberOverlayEvent` / `subscribeMemberOverlayEvents` share the
+  // module-scoped bus in `use-server-members.ts`. `vi.resetModules()` clears
+  // the module cache, so we must import the sibling module *after* resetting
+  // to reach the same bus instance the mutation module now references.
+  const shared = await import("@/hooks/community/use-server-members")
+  return { ...mod, shared }
 }
 
 beforeEach(() => {
@@ -82,6 +89,17 @@ describe("useSetMemberRole — optimistic + rollback", () => {
     )
     expect(cache?.pages[0].members[0].role).toBe("member")
   })
+
+  it("dispatches a member-overlay 'role' event so search results mirror the change", async () => {
+    const mod = await load()
+    const received: MemberOverlayEvent[] = []
+    const unsub = mod.shared.subscribeMemberOverlayEvents((ev) => received.push(ev))
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    mod.useSetMemberRole()
+    await runMutation({ serverId: "srv_1", memberId: "mem_1", role: "admin" })
+    unsub()
+    expect(received).toContainEqual({ type: "role", memberId: "mem_1", role: "admin" })
+  })
 })
 
 describe("useKickMember — optimistic + rollback", () => {
@@ -107,5 +125,16 @@ describe("useKickMember — optimistic + rollback", () => {
       communityKeys.members("srv_1"),
     )
     expect(cache?.pages[0].members).toHaveLength(1)
+  })
+
+  it("dispatches a member-overlay 'kick' event so search results drop the row", async () => {
+    const mod = await load()
+    const received: MemberOverlayEvent[] = []
+    const unsub = mod.shared.subscribeMemberOverlayEvents((ev) => received.push(ev))
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    mod.useKickMember()
+    await runMutation({ serverId: "srv_1", memberId: "mem_1" })
+    unsub()
+    expect(received).toContainEqual({ type: "kick", memberId: "mem_1" })
   })
 })

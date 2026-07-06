@@ -1,5 +1,6 @@
 "use client"
 
+import { useRef } from "react"
 import {
   useMutation,
   useQueryClient,
@@ -584,7 +585,7 @@ export function useCreateThread() {
               ...p,
               messages: p.messages.map((m) =>
                 m.id === args.messageId
-                  ? { ...m, thread: { id: data.id, name: args.name, messageCount: 1 } }
+                  ? { ...m, thread: { id: data.id, name: args.name, messageCount: 0 } }
                   : m,
               ),
             }
@@ -601,11 +602,21 @@ export function useCreateThread() {
 // ── Read state ─────────────────────────────────────────────────────────────
 
 // #13 read-stampede: debounce mark-channel-read at 500ms per channelId. On
-// unmount / channel switch, `flushAll()` runs any pending timer immediately so
-// the user's last-read pointer isn't lost.
+// unmount / channel switch, `flushPendingReads()` runs any pending timer
+// immediately so the user's last-read pointer isn't lost.
 export const MARK_CHANNEL_READ_DEBOUNCE_MS = 500
 
-type PendingRead = { timer: ReturnType<typeof setTimeout>; channelId: string }
+/**
+ * A single pending mark-read carries the debounce timer and a `fire` closure.
+ * `fire` issues the PUT, invokes the caller's `onDone` after the PUT resolves,
+ * and removes its own map entry. Both the timer callback and
+ * `flushPendingReads()` invoke `fire` — same code path, whether the window
+ * elapsed naturally or was flushed early.
+ */
+type PendingRead = {
+  timer: ReturnType<typeof setTimeout>
+  fire: () => void
+}
 const pendingReads = new Map<string, PendingRead>()
 
 /** Testing hook — clears any pending mark-read timer without firing. */
@@ -614,14 +625,46 @@ export function _resetPendingReads_forTesting() {
   pendingReads.clear()
 }
 
-/** Flush every pending mark-read immediately. Called on unmount. */
+/**
+ * Flush every pending mark-read immediately. Each entry's `fire` runs the
+ * same code the timer would have — so `onDone` (typically the inbox
+ * invalidate) still fires exactly once per PUT, even when a caller flushes
+ * mid-window.
+ */
 export function flushPendingReads() {
   const pending = [...pendingReads.values()]
-  pendingReads.clear()
   for (const p of pending) {
     clearTimeout(p.timer)
-    void apiFetch(`/api/community/channels/${p.channelId}/read`, { method: "PUT" }).catch(() => {})
+    p.fire()
   }
+}
+
+/**
+ * Debounce a mark-channel-read PUT. Called from `useMarkChannelRead` below.
+ * On same-channel re-invoke within the 500ms window the previous timer is
+ * cancelled and the previous `onDone` is dropped — the new scheduling
+ * subsumes it (same channel, fresher intent). Nothing is left "hanging"
+ * because `mutationFn` no longer awaits the debounced work.
+ */
+export function scheduleMarkRead(channelId: string, onDone: () => void): void {
+  const existing = pendingReads.get(channelId)
+  if (existing) clearTimeout(existing.timer)
+  const fire = () => {
+    // Idempotent: if the map has already moved on (fire ran, or a fresh
+    // scheduling replaced us), do nothing. This is what makes it safe for
+    // both the timer AND `flushPendingReads()` to call `fire` in the same
+    // tick — only the first wins.
+    const cur = pendingReads.get(channelId)
+    if (cur?.fire !== fire) return
+    pendingReads.delete(channelId)
+    void apiFetch(`/api/community/channels/${channelId}/read`, { method: "PUT" })
+      .then(() => onDone())
+      .catch(() => {
+        // Silent — the inbox will reconcile once the WS invalidate fires.
+      })
+  }
+  const timer = setTimeout(fire, MARK_CHANNEL_READ_DEBOUNCE_MS)
+  pendingReads.set(channelId, { timer, fire })
 }
 
 export type MarkChannelReadArgs = { channelId: string }
@@ -638,26 +681,26 @@ export type MarkChannelReadArgs = { channelId: string }
  *    not three unrelated per-feed fetches.
  * 3. On unmount / channel switch, `flushPendingReads()` forces the pending
  *    PUT to fire so the pointer isn't stranded in the debounce window.
+ *
+ * Note: `mutationFn` resolves synchronously (fire-and-forget). The PUT and
+ * the inbox invalidate happen inside `scheduleMarkRead`'s `onDone`, NOT in
+ * TanStack's `onSuccess`. This is deliberate — the previous design wrapped
+ * the setTimeout inside the mutationFn's Promise, and a same-channel
+ * re-invoke (which clears the timer) or a `flushPendingReads()` call would
+ * strand the Promise's `resolve()` forever.
  */
 export function useMarkChannelRead() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, MarkChannelReadArgs>({
     mutationFn: async ({ channelId }) => {
-      // Reset any queued read for this channel — this call subsumes it.
-      const existing = pendingReads.get(channelId)
-      if (existing) clearTimeout(existing.timer)
-      return new Promise<void>((resolve) => {
-        const timer = setTimeout(async () => {
-          pendingReads.delete(channelId)
-          try {
-            await apiFetch(`/api/community/channels/${channelId}/read`, { method: "PUT" })
-          } catch {
-            // Silent — the inbox will reconcile once the retry fires.
-          }
-          resolve()
-        }, MARK_CHANNEL_READ_DEBOUNCE_MS)
-        pendingReads.set(channelId, { timer, channelId })
+      scheduleMarkRead(channelId, () => {
+        // Single invalidate on the whole inbox prefix — refreshes all three
+        // feeds under one round-trip. Do NOT invalidate on WS message.create;
+        // that debounce lives in useCommunityWs.
+        void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
       })
+      // Resolve immediately — the debounced work runs independently. Callers
+      // don't (and shouldn't) block on the eventual PUT.
     },
     onMutate: async (_args) => {
       // Optimistic inbox trim so the popover updates instantly. The server
@@ -672,12 +715,6 @@ export function useMarkChannelRead() {
           return { ...prev, servers }
         },
       )
-    },
-    onSuccess: () => {
-      // Single invalidate on the whole inbox prefix — refreshes all three
-      // feeds under one round-trip. Do NOT invalidate on WS message.create;
-      // that debounce lives in useCommunityWs.
-      void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
     },
   })
 }
@@ -712,13 +749,15 @@ export function useMarkDmRead() {
 
 export function useMarkAllInboxRead() {
   const queryClient = useQueryClient()
+  // TanStack Query calls `onMutate` before `mutationFn`, so the optimistic
+  // clear below wipes the for-you cache before `mutationFn` can read the
+  // eventKeys. Capture the pre-clear eventKeys in `onMutate` via a ref, and
+  // read them back in `mutationFn`. Ref (not module state) so parallel calls
+  // from different hook instances don't stomp each other.
+  const eventKeysRef = useRef<string[]>([])
   return useMutation<void, Error, void>({
     mutationFn: async () => {
-      // Read current for-you cache to derive the dismiss keys.
-      const forYou = queryClient.getQueryData<{ events: { eventKey: string }[] }>(
-        communityKeys.inboxForYou(),
-      )
-      const eventKeys = forYou?.events.map((e) => e.eventKey) ?? []
+      const eventKeys = eventKeysRef.current
       await Promise.all([
         apiFetch("/api/community/inbox/mentions/read-all", { method: "POST" }),
         apiFetch("/api/community/inbox/unreads/read-all", { method: "POST" }),
@@ -731,6 +770,12 @@ export function useMarkAllInboxRead() {
       ])
     },
     onMutate: async () => {
+      // Snapshot the for-you eventKeys BEFORE the optimistic clear — the
+      // dismiss POST needs them and `mutationFn` runs after this hook.
+      const forYou = queryClient.getQueryData<{ events: { eventKey: string }[] }>(
+        communityKeys.inboxForYou(),
+      )
+      eventKeysRef.current = forYou?.events.map((e) => e.eventKey) ?? []
       queryClient.setQueryData(communityKeys.inboxForYou(), { events: [] })
       queryClient.setQueryData(communityKeys.inboxUnreads(), { servers: [] })
       queryClient.setQueryData(communityKeys.inboxMentions(), { mentions: [] })

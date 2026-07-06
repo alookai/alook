@@ -136,6 +136,7 @@ export function useReorderServers() {
     },
     onMutate: async (args) => {
       const key = communityKeys.servers()
+      await queryClient.cancelQueries({ queryKey: key })
       const snapshot = queryClient.getQueryData(key)
       queryClient.setQueryData(key, (prev: { servers: { id: string }[] } | undefined) => {
         if (!prev) return prev

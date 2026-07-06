@@ -5,6 +5,7 @@ import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { CommunityRole } from "@alook/shared"
 import {
+  dispatchMemberOverlayEvent,
   patchCacheKick,
   patchCacheRole,
   type MembersEnvelope,
@@ -45,6 +46,12 @@ export function useSetMemberRole() {
       queryClient.setQueryData<MembersPageCache | undefined>(key, (cache) =>
         patchCacheRole(cache, args.memberId, args.role),
       )
+      // Mirror the role change onto any active search overlay so a member
+      // shown in the search results reflects the new role while the request
+      // is in flight (and after — the server won't fan out a MEMBER_UPDATE
+      // to the acting client, so this is the only source of truth for the
+      // overlay).
+      dispatchMemberOverlayEvent({ type: "role", memberId: args.memberId, role: args.role })
       return { snapshot }
     },
     onError: (_err, args, ctx) => {
@@ -72,6 +79,8 @@ export function useKickMember() {
       queryClient.setQueryData<MembersPageCache | undefined>(key, (cache) =>
         patchCacheKick(cache, args.memberId),
       )
+      // Mirror the removal onto any active search overlay.
+      dispatchMemberOverlayEvent({ type: "kick", memberId: args.memberId })
       return { snapshot }
     },
     onError: (_err, args, ctx) => {

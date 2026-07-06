@@ -100,19 +100,26 @@ export const membersPageQueryFn =
 type MembersPageCache = InfiniteData<MembersEnvelope>
 
 /**
- * Append a joiner to the last cached page, but only if the last page is
- * already loaded (`hasMore` on the last page is false). Otherwise the
- * intervening pages haven't been fetched yet and the joiner would appear as
- * a stale duplicate once they arrive.
+ * Apply a MEMBER_JOIN event to the cached pages.
  *
- * Returns the same reference when nothing changes so React-Query bails out
- * of a re-render on identical data.
+ * Appends the joiner to the last cached page only when the last page is
+ * already loaded (`hasMore=false`) — otherwise the joiner belongs on an
+ * unloaded page and appending would produce a stale duplicate once that page
+ * arrives. Either way, the server-wide `total` bumps on every page so the
+ * header count stays accurate.
+ *
+ * Dedup is by `userId` across every cached page: a re-delivered event whose
+ * subject is already loaded is treated as a no-op (no member append, no
+ * total bump). Returns the same reference in that case so React-Query bails
+ * out of a re-render.
  */
 // `total` should read the same across every cached page — it's a per-server
 // count, not a per-page tally. The routes populate it identically on each
-// paged fetch. Any patch that adds/removes a member must therefore bump the
-// count on every page, otherwise the derived total (which reads a single
-// page) skews when a leaver lived on a non-last page.
+// paged fetch. Every add/remove event bumps `total` exactly once, regardless
+// of which page the target lives on. Dedup for join is by `userId` across all
+// pages; for leave/kick, the server contract is that each event fires once
+// per membership change, so unconditional decrement stays correct even when
+// the target sits on an unloaded page.
 function withNormalizedTotal(
   pages: MembersEnvelope[],
   delta: number,
@@ -126,17 +133,21 @@ export function patchCacheJoin(
   event: CommunityMemberJoin,
 ): MembersPageCache | undefined {
   if (!cache) return cache
+  // Dedup across every cached page — a re-delivered join must not double the
+  // total. If they're already loaded somewhere, treat this as a re-delivery.
+  for (const p of cache.pages) {
+    if (p.members.some((m) => m.userId === event.member.userId)) return cache
+  }
   const lastIdx = cache.pages.length - 1
   const lastPage = cache.pages[lastIdx]
   if (!lastPage) return cache
   const hasMore = lastPage.hasMore
-  if (hasMore) return cache
-  // De-dupe across every page.
-  for (const p of cache.pages) {
-    if (p.members.some((m) => m.userId === event.member.userId)) return cache
+  // Even if we can't append (hasMore=true means the joiner belongs on an
+  // unloaded page), still bump total so the header reads accurately.
+  if (hasMore) {
+    return { ...cache, pages: withNormalizedTotal(cache.pages, +1) }
   }
   const appended = applyJoinEvent(lastPage.members, event, false)
-  if (appended === lastPage.members) return cache
   const nextPages = [...cache.pages]
   nextPages[lastIdx] = { ...lastPage, members: appended }
   return { ...cache, pages: withNormalizedTotal(nextPages, +1) }
@@ -147,14 +158,14 @@ export function patchCacheLeave(
   event: CommunityMemberLeave,
 ): MembersPageCache | undefined {
   if (!cache) return cache
-  let removed = false
   const nextPages = cache.pages.map((p) => {
     const filtered = p.members.filter((m) => m.userId !== event.userId)
     if (filtered.length === p.members.length) return p
-    removed = true
     return { ...p, members: filtered }
   })
-  if (!removed) return cache
+  // Always decrement — the leaver may live on an unloaded page. WS delivers
+  // each event exactly once per membership change, so this is idempotent by
+  // contract.
   return { ...cache, pages: withNormalizedTotal(nextPages, -1) }
 }
 
@@ -175,14 +186,12 @@ export function patchCacheKick(
   memberId: string,
 ): MembersPageCache | undefined {
   if (!cache) return cache
-  let removed = false
   const nextPages = cache.pages.map((p) => {
     const filtered = p.members.filter((m) => m.id !== memberId)
     if (filtered.length === p.members.length) return p
-    removed = true
     return { ...p, members: filtered }
   })
-  if (!removed) return cache
+  // Always decrement — the kicked member may live on an unloaded page.
   return { ...cache, pages: withNormalizedTotal(nextPages, -1) }
 }
 
@@ -197,6 +206,48 @@ export function patchCacheRole(
     members: p.members.map((m) => (m.id === memberId ? { ...m, role } : m)),
   }))
   return { ...cache, pages: nextPages }
+}
+
+// ── Overlay event bus ───────────────────────────────────────────────────────
+//
+// The paged cache lives in TanStack Query and is patched directly by the
+// mutations. The *search overlay* (results of the /members/search endpoint)
+// lives in local state inside `useServerMembers`, so mutations that only touch
+// the paged cache would leave a stale row visible when the user has an active
+// search.
+//
+// The bus below lets mutations broadcast overlay-affecting events without
+// coupling to the hook instance. `useServerMembers` subscribes and mirror-
+// patches its `searchResults` state; if there's no active search the events
+// are a no-op.
+export type MemberOverlayEvent =
+  | { type: "kick"; memberId: string }
+  | { type: "role"; memberId: string; role: CommunityRole }
+  | { type: "update"; event: CommunityMemberUpdate }
+  | { type: "leave"; userId: string }
+
+const memberOverlayBus =
+  typeof EventTarget !== "undefined" ? new EventTarget() : null
+
+const MEMBER_OVERLAY_EVENT = "member-overlay"
+
+export function dispatchMemberOverlayEvent(ev: MemberOverlayEvent): void {
+  if (!memberOverlayBus) return
+  memberOverlayBus.dispatchEvent(
+    new CustomEvent<MemberOverlayEvent>(MEMBER_OVERLAY_EVENT, { detail: ev }),
+  )
+}
+
+export function subscribeMemberOverlayEvents(
+  listener: (ev: MemberOverlayEvent) => void,
+): () => void {
+  if (!memberOverlayBus) return () => {}
+  const handler = (e: Event) => {
+    const detail = (e as CustomEvent<MemberOverlayEvent>).detail
+    if (detail) listener(detail)
+  }
+  memberOverlayBus.addEventListener(MEMBER_OVERLAY_EVENT, handler)
+  return () => memberOverlayBus.removeEventListener(MEMBER_OVERLAY_EVENT, handler)
 }
 
 // ── Public hook API ─────────────────────────────────────────────────────────
@@ -422,6 +473,29 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
     return () => {
       if (searchTimer.current) clearTimeout(searchTimer.current)
     }
+  }, [])
+
+  // Mirror-patch the search overlay from mutation-side events. Member ids are
+  // server-scoped so a filter/map by memberId is safe regardless of which
+  // server currently owns the overlay.
+  useEffect(() => {
+    return subscribeMemberOverlayEvents((ev) => {
+      setSearchResults((prev) => {
+        if (prev === null) return prev
+        switch (ev.type) {
+          case "kick":
+            return prev.filter((m) => m.id !== ev.memberId)
+          case "role":
+            return prev.map((m) => (m.id === ev.memberId ? { ...m, role: ev.role } : m))
+          case "update":
+            return applyUpdateEvent(prev, ev.event)
+          case "leave":
+            return prev.filter((m) => m.userId !== ev.userId)
+          default:
+            return prev
+        }
+      })
+    })
   }, [])
 
   return {

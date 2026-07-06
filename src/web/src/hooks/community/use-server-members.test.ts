@@ -21,7 +21,10 @@ import {
   patchCacheRole,
   membersPageQueryFn,
   SEARCH_DEBOUNCE_MS,
+  dispatchMemberOverlayEvent,
+  subscribeMemberOverlayEvents,
   type MembersEnvelope,
+  type MemberOverlayEvent,
 } from "./use-server-members"
 import { communityKeys } from "@/lib/query-keys"
 import type { Member } from "@/components/community/_types"
@@ -162,19 +165,23 @@ describe("patchCacheJoin", () => {
     expect(next!.pages[0].total).toBe(3)
   })
 
-  it("returns the same reference when the last page still has more pages behind it", () => {
+  it("bumps total even when hasMore=true (joiner lives on an unloaded page)", () => {
+    // The joiner belongs on a page we haven't fetched, but the server-wide
+    // total must still tick up so the header count stays accurate.
     const cache = makeCache([makeEnvelope([m("a")], true, 3)])
     const next = patchCacheJoin(cache, joinEvent("z"))
-    expect(next).toBe(cache)
+    expect(next).not.toBe(cache)
+    expect(next!.pages[0].members.map((x) => x.id)).toEqual(["a"])
+    expect(next!.pages[0].total).toBe(4)
   })
 
-  it("dedupes across all cached pages", () => {
+  it("dedupes across all cached pages (repeated event is a no-op)", () => {
     const cache = makeCache([
       makeEnvelope([m("a", "u_a")], false, 2),
       makeEnvelope([m("b", "u_b")], false, 2),
     ])
-    // The last page has hasMore=false — normally we'd append, but userId u_a
-    // already exists on an earlier page, so the helper bails out.
+    // userId u_a already exists on an earlier page — treat as re-delivery
+    // and skip the total bump entirely.
     const next = patchCacheJoin(cache, joinEvent("u_a"))
     expect(next).toBe(cache)
   })
@@ -196,11 +203,16 @@ describe("patchCacheLeave", () => {
     expect(next!.pages[1].total).toBe(2)
   })
 
-  it("returns the same reference when nothing changes", () => {
-    const cache = makeCache([makeEnvelope([m("a")], false)])
-    const ev: CommunityMemberLeave = { type: "community:member.leave", serverId: "srv_1", userId: "u_none" }
+  it("decrements total even when the leaver lives on an unloaded page", () => {
+    // The leaver's userId is not present on any cached page (they live on an
+    // unfetched page). The paged members stay untouched but the server-wide
+    // total must still tick down.
+    const cache = makeCache([makeEnvelope([m("a", "u_a")], true, 5)])
+    const ev: CommunityMemberLeave = { type: "community:member.leave", serverId: "srv_1", userId: "u_ghost" }
     const next = patchCacheLeave(cache, ev)
-    expect(next).toBe(cache)
+    expect(next).not.toBe(cache)
+    expect(next!.pages[0].members.map((x) => x.id)).toEqual(["a"])
+    expect(next!.pages[0].total).toBe(4)
   })
 })
 
@@ -230,10 +242,13 @@ describe("patchCacheKick", () => {
     expect(next.pages[0].total).toBe(1)
   })
 
-  it("no-op when the memberId is unknown", () => {
-    const cache = makeCache([makeEnvelope([m("a")], false)])
-    const next = patchCacheKick(cache, "zzz")
-    expect(next).toBe(cache)
+  it("decrements total even when the memberId lives on an unloaded page", () => {
+    // The kicked member is not on any cached page, but the server-wide total
+    // must still tick down because the kick actually removed them.
+    const cache = makeCache([makeEnvelope([m("a")], true, 5)])
+    const next = patchCacheKick(cache, "mem_ghost")!
+    expect(next.pages[0].members.map((x) => x.id)).toEqual(["a"])
+    expect(next.pages[0].total).toBe(4)
   })
 })
 
@@ -292,5 +307,36 @@ describe("membersPageQueryFn", () => {
     expect(data?.pages).toHaveLength(2)
     expect(data?.pages[0].members.map((x) => x.id)).toEqual(["a"])
     expect(data?.pages[1].members.map((x) => x.id)).toEqual(["b"])
+  })
+})
+
+describe("member overlay bus", () => {
+  it("delivers dispatched events to subscribers, and unsubscribe stops delivery", () => {
+    const received: MemberOverlayEvent[] = []
+    const unsub = subscribeMemberOverlayEvents((ev) => received.push(ev))
+    dispatchMemberOverlayEvent({ type: "kick", memberId: "mem_1" })
+    dispatchMemberOverlayEvent({ type: "role", memberId: "mem_1", role: "admin" })
+    expect(received).toHaveLength(2)
+    expect(received[0]).toEqual({ type: "kick", memberId: "mem_1" })
+    expect(received[1]).toEqual({ type: "role", memberId: "mem_1", role: "admin" })
+    unsub()
+    dispatchMemberOverlayEvent({ type: "kick", memberId: "mem_2" })
+    expect(received).toHaveLength(2)
+  })
+
+  it("mirror-patch shape: a kick overlay event filters the memberId out of a search list", () => {
+    // Mirrors the reducer logic the hook uses inside its bus subscription:
+    // when a kick event fires, the local search overlay must drop the row.
+    const searchResults: Member[] = [m("mem_1"), m("mem_2"), m("mem_3")]
+    let overlay: Member[] | null = searchResults
+    const unsub = subscribeMemberOverlayEvents((ev) => {
+      if (overlay === null) return
+      if (ev.type === "kick") {
+        overlay = overlay.filter((x) => x.id !== ev.memberId)
+      }
+    })
+    dispatchMemberOverlayEvent({ type: "kick", memberId: "mem_2" })
+    expect(overlay?.map((x) => x.id)).toEqual(["mem_1", "mem_3"])
+    unsub()
   })
 })
