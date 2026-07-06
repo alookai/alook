@@ -182,11 +182,12 @@ export class WsControlChannel implements HostControlChannel {
   }
 
   /**
-   * Register a side-effect hook fired every time the channel (re)connects and
-   * completes its resync — used e.g. for daemon warmup fetches. Independent of
-   * the resync provider so warmup composes with the state-snapshot path.
+   * Register a side-effect hook fired every time the channel opens and
+   * completes its resync — including the FIRST open, not just reconnects. Used
+   * e.g. for daemon warmup fetches. Independent of the resync provider so
+   * warmup composes with the state-snapshot path.
    */
-  onReconnected(hook: () => void): void {
+  onOpen(hook: () => void): void {
     this.resyncHooks.push(hook);
   }
 
@@ -316,8 +317,16 @@ export class WsControlChannel implements HostControlChannel {
     const cmd = frame as unknown as HostCommand;
     for (const cb of this.commandCbs) {
       // Each listener is fire-and-forget; failures in one must not skip the
-      // next. If a listener wants to fail loud, it should throw async.
-      void cb(cmd);
+      // next. Catch rejections explicitly — a bare `void cb(cmd)` on an async
+      // listener that throws would surface as an unhandled promise rejection
+      // and, under Node ≥15 defaults, could terminate the daemon.
+      try {
+        Promise.resolve(cb(cmd)).catch(() => {
+          /* listener failure — swallowed, transport keeps going */
+        });
+      } catch {
+        /* sync throw from a listener — same policy */
+      }
     }
   }
 

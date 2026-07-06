@@ -7,6 +7,7 @@ import { communityKeys } from "@/lib/query-keys"
 export type BotSummary = {
   id: string
   name: string
+  description: string
   image: string | null
   machineId: string
   runtime: string

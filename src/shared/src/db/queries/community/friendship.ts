@@ -3,16 +3,15 @@ import { communityFriendship } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 
-/**
- * Synthetic friendship id used for owner ↔ own-bot rows in `listFriends`.
- * Bots never have a real `communityFriendship` row with their owner — they
- * ARE the owner's friend by construction. The `self-bot:` prefix flags the
- * row as synthetic so UI code (e.g. remove-friend, block) can skip it.
- */
-export const SELF_BOT_FRIENDSHIP_PREFIX = "self-bot:";
-export function isSelfBotFriendship(id: string): boolean {
-  return id.startsWith(SELF_BOT_FRIENDSHIP_PREFIX);
-}
+// Re-export from the client-safe constants module so existing
+// `queries.communityFriendship.isSelfBotFriendship` call-sites keep working
+// without any behavior change. Client-side components should import from
+// `@alook/shared` directly instead of going through `queries`.
+import {
+  SELF_BOT_FRIENDSHIP_PREFIX,
+  isSelfBotFriendship,
+} from "../../../constants";
+export { SELF_BOT_FRIENDSHIP_PREFIX, isSelfBotFriendship };
 
 /**
  * Look up any friendship row between two users, in either direction.

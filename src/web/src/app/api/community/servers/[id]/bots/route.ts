@@ -4,6 +4,7 @@ import {
   ROLES,
   WS_EVENTS,
   CommunityBotAddToServerRequestSchema,
+  createLogger,
 } from "@alook/shared"
 import type { CommunityMemberJoin } from "@alook/shared"
 import { getDb } from "@/lib/db"
@@ -11,6 +12,8 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
+
+const log = createLogger({ service: "community-bots-server-add" })
 
 /**
  * Add a bot to a server. Two paths, keyed by ownership + friendship:
@@ -116,9 +119,24 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       dmMessageId: msg.id,
     })
   } catch (err) {
-    await queries.communityMessage.hardDeleteMessage(db, msg.id).catch(() => {})
-    // Race lost — the peer request already exists. Report pending to keep the
-    // caller-facing shape identical to the idempotent case above.
+    // Race lost or transient — compensate by deleting the DM card so the
+    // owner never sees an unactionable card. If the compensating delete
+    // ALSO fails we've left an orphan; surface 500 so the caller retries
+    // (idempotency on the partial-unique will short-circuit on retry).
+    try {
+      await queries.communityMessage.hardDeleteMessage(db, msg.id)
+    } catch (rollbackErr) {
+      log.error("approval_request_rollback_failed", {
+        botId,
+        serverId,
+        messageId: msg.id,
+        insertErr: String(err),
+        rollbackErr: String(rollbackErr),
+      })
+      return writeError("approval request write failed", 500)
+    }
+    // Race lost — the peer request already exists. Report pending to keep
+    // the caller-facing shape identical to the idempotent case above.
     return writeJSON({ status: "pending" }, 200)
   }
 

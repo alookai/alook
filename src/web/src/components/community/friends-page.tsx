@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { EmptyState } from "./empty-state"
 import type { Friend, PendingRequest, BlockedUser, OpenProfile } from "./_types"
-import { queries } from "@alook/shared"
+import { isSelfBotFriendship } from "@alook/shared"
 
 function FriendSection({ title, count, emptyLabel, children }: {
   title: string
@@ -82,7 +82,7 @@ export function FriendsPage({
     // Owner ↔ own-bot rows are synthetic — no real friendship row exists.
     // Suppress Remove / Block for these so the caller never fires a mutation
     // with a synthetic id.
-    const isSelfBot = queries.communityFriendship.isSelfBotFriendship(f.id)
+    const isSelfBot = isSelfBotFriendship(f.id)
     return (
       <ContextMenu key={f.id}>
         <ContextMenuTrigger

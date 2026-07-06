@@ -87,12 +87,15 @@ export function createAuth(env: Env) {
       user: {
         create: {
           before: async (user) => {
-            // Reserve the bot synthetic-email domain so a real signup can't
-            // collide with a bot row's UNIQUE(email). Only bot creation should
-            // ever mint an address at this domain; a public signup here means
-            // someone is impersonating or the domain assumption is wrong.
+            // Reserve the bot synthetic-email domain (and every subdomain) so
+            // a real signup can't collide with a bot row's UNIQUE(email). Only
+            // bot creation should ever mint an address here; a public signup
+            // means someone is impersonating or the domain assumption is wrong.
             const emailDomain = user.email?.split("@")[1]?.toLowerCase()
-            if (emailDomain === COMMUNITY_BOT_EMAIL_DOMAIN) {
+            if (
+              emailDomain === COMMUNITY_BOT_EMAIL_DOMAIN ||
+              emailDomain?.endsWith("." + COMMUNITY_BOT_EMAIL_DOMAIN)
+            ) {
               return false as unknown as { data: typeof user }
             }
             const trimmed = (user.name ?? "").trim()

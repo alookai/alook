@@ -295,8 +295,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   channel.onCommand((cmd) => {
     handleBotFrame(cmd);
   });
-  // Warmup on every (re)connect. `onReconnected` fires after resync completes.
-  channel.onReconnected(() => {
+  // Warmup on every (re)connect — including the first open. `onOpen` fires
+  // after resync completes.
+  channel.onOpen(() => {
     void coldStartWarmup();
   });
 

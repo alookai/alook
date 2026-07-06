@@ -142,6 +142,20 @@ export function communityBotSyntheticEmail(userId: string): string {
   return `${COMMUNITY_BOT_EMAIL_PREFIX}${userId}@${COMMUNITY_BOT_EMAIL_DOMAIN}`.toLowerCase();
 }
 
+/**
+ * Synthetic friendship id used for owner ↔ own-bot rows in `listFriends`.
+ * Bots never have a real `communityFriendship` row with their owner — they
+ * ARE the owner's friend by construction. The `self-bot:` prefix flags the
+ * row as synthetic so UI code (e.g. remove-friend, block) can skip it.
+ *
+ * Lives here (not in the db/queries layer) so client-side components can
+ * import it without pulling drizzle-orm into the browser bundle.
+ */
+export const SELF_BOT_FRIENDSHIP_PREFIX = "self-bot:";
+export function isSelfBotFriendship(id: string): boolean {
+  return id.startsWith(SELF_BOT_FRIENDSHIP_PREFIX);
+}
+
 // Dev mode auth (shared between web frontend and @alook/app CLI)
 export const DEV_PASSWORD = "dev-password-000";
 

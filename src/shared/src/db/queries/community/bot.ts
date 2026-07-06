@@ -18,7 +18,7 @@
  * return null / 404 at the route. The victim's state must be untouched.
  */
 
-import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import { aliasedTable, and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 import { user } from "../../schema";
 import {
   communityBotBinding,
@@ -200,6 +200,9 @@ export async function listBotsForMachine(
   db: Database,
   machineId: string
 ): Promise<Array<{ id: string; name: string; description: string }>> {
+  // Guard against orphaned bots: if a future flow soft-deletes an owner user
+  // without cascading their bots, don't hand them to the daemon for warmup.
+  const owner = aliasedTable(user, "owner");
   const rows = await db
     .select({
       id: user.id,
@@ -208,6 +211,7 @@ export async function listBotsForMachine(
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
+    .innerJoin(owner, eq(owner.id, user.ownerUserId))
     .leftJoin(
       communityUserProfile,
       eq(communityUserProfile.userId, user.id)
@@ -216,7 +220,8 @@ export async function listBotsForMachine(
       and(
         eq(communityBotBinding.machineId, machineId),
         eq(user.isBot, true),
-        isNull(user.deletedAt)
+        isNull(user.deletedAt),
+        isNull(owner.deletedAt)
       )
     );
   return rows.map((r) => ({
@@ -315,10 +320,16 @@ export async function createBot(
     runtime: data.runtime,
     createdAt: nowIso,
   });
-  const stmt3 = db.insert(communityUserProfile).values({
-    userId: botId,
-    aboutMe: description,
-  });
+  // Match updateBot's upsert semantics — reincarnation paths (nanoid collision
+  // aside, future flows that recycle a botId) shouldn't roll the batch back on
+  // a profile PK conflict.
+  const stmt3 = db
+    .insert(communityUserProfile)
+    .values({ userId: botId, aboutMe: description })
+    .onConflictDoUpdate({
+      target: communityUserProfile.userId,
+      set: { aboutMe: description },
+    });
   await db.batch([stmt1, stmt2, stmt3] as any);
 
   return {
@@ -346,36 +357,52 @@ export async function updateBot(
   if (data.name !== undefined) set.name = data.name;
   if (data.image !== undefined) set.image = data.image;
 
-  const rows = await db
-    .update(user)
-    .set(set)
-    .where(
-      and(
-        eq(user.id, botId),
-        eq(user.ownerUserId, ownerId),
-        eq(user.isBot, true),
-        isNull(user.deletedAt)
-      )
-    )
-    .returning({ id: user.id, name: user.name, image: user.image });
-
-  if (rows.length === 0) return null;
-
-  // Persist description on the profile row. The row is guaranteed to exist
-  // (createBot writes it), but upsert to be resilient to legacy bots that
-  // predate the profile write. Ownership was already gated by the user UPDATE
-  // above.
-  let description = "";
+  // When description is changing, batch the user UPDATE + profile upsert so a
+  // concurrent softDeleteBot can't slip in between and leave a fresh description
+  // on a tombstoned bot. The upsert INSERT branch is safe (createBot writes the
+  // profile row); it only fires for legacy rows that pre-date the profile write.
+  let rows: Array<{ id: string; name: string; image: string | null }>;
   if (data.description !== undefined) {
-    await db
+    const s1 = db
+      .update(user)
+      .set(set)
+      .where(
+        and(
+          eq(user.id, botId),
+          eq(user.ownerUserId, ownerId),
+          eq(user.isBot, true),
+          isNull(user.deletedAt)
+        )
+      )
+      .returning({ id: user.id, name: user.name, image: user.image });
+    const s2 = db
       .insert(communityUserProfile)
       .values({ userId: botId, aboutMe: data.description })
       .onConflictDoUpdate({
         target: communityUserProfile.userId,
         set: { aboutMe: data.description },
       });
-    description = data.description;
+    const results = (await db.batch([s1, s2] as any)) as any[];
+    rows = Array.isArray(results?.[0]) ? results[0] : [];
   } else {
+    rows = await db
+      .update(user)
+      .set(set)
+      .where(
+        and(
+          eq(user.id, botId),
+          eq(user.ownerUserId, ownerId),
+          eq(user.isBot, true),
+          isNull(user.deletedAt)
+        )
+      )
+      .returning({ id: user.id, name: user.name, image: user.image });
+  }
+
+  if (rows.length === 0) return null;
+
+  let description = data.description ?? "";
+  if (data.description === undefined) {
     const profileRows = await db
       .select({ aboutMe: communityUserProfile.aboutMe })
       .from(communityUserProfile)

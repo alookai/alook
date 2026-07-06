@@ -102,6 +102,8 @@ export {
   COMMUNITY_BOT_EMAIL_DOMAIN,
   COMMUNITY_BOT_EMAIL_PREFIX,
   communityBotSyntheticEmail,
+  SELF_BOT_FRIENDSHIP_PREFIX,
+  isSelfBotFriendship,
 } from "./constants";
 
 export {

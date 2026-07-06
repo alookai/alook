@@ -59,7 +59,14 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     changes: JSON.stringify({ botId: id, fields: changedFields }),
   })
 
-  return writeJSON({ bot: { id, name: updated.name, image: updated.image } })
+  return writeJSON({
+    bot: {
+      id,
+      name: updated.name,
+      description: updated.description,
+      image: updated.image,
+    },
+  })
 })
 
 export const DELETE = withAuth(async (_req, ctx) => {

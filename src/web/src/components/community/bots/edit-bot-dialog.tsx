@@ -43,7 +43,7 @@ export function EditBotDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const [name, setName] = useState(bot.name)
-  const [description, setDescription] = useState("")
+  const [description, setDescription] = useState(bot.description ?? "")
   const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(() => {
     return parseAvatarUrl(bot.image ?? "") ?? DEFAULT_AVATAR
   })

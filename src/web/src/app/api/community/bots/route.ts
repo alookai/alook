@@ -35,11 +35,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     ctx.userId,
   )
   if (!machine) return writeError("machine not found", 404)
-  const runtimes = (machine.availableRuntimes ?? []) as Array<
-    string | { id?: string }
-  >
-  // availableRuntimes may be either string[] (legacy) or { id, version, ... }[].
-  const runtimeIds = runtimes.map((r) => (typeof r === "string" ? r : r.id ?? ""))
+  // getMachineForOwner canonicalizes `availableRuntimes` to `{ id, version? }[]`
+  // and drops empty ids, so we can trust the shape here.
+  const runtimeIds = machine.availableRuntimes.map((r) => r.id)
   if (!runtimeIds.includes(body.runtime)) {
     return writeError(
       `runtime ${body.runtime} not available on this machine`,

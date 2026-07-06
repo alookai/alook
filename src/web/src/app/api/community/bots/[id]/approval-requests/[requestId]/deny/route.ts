@@ -33,7 +33,7 @@ export const POST = withAuth(async (_req, ctx) => {
       ? COMMUNITY_AUDIT_ACTIONS.BOT_JOIN_DENIED
       : COMMUNITY_AUDIT_ACTIONS.BOT_FRIEND_DENIED
   logAudit(db, {
-    serverId: request.serverId ?? "",
+    serverId: request.serverId ?? null,
     actorId: ctx.userId,
     action,
     targetType: "user",
