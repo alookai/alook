@@ -94,6 +94,14 @@ export {
   DEV_EMAIL_WORKER_URL,
   MeetingStatus,
   TERMINAL_MEETING_STATUSES,
+  COMMUNITY_BOT_LIMIT_PER_OWNER,
+  COMMUNITY_BOT_NAME_MIN,
+  COMMUNITY_BOT_NAME_MAX,
+  COMMUNITY_BOT_DESCRIPTION_MAX,
+  COMMUNITY_BOT_IMAGE_URL_MAX,
+  COMMUNITY_BOT_EMAIL_DOMAIN,
+  COMMUNITY_BOT_EMAIL_PREFIX,
+  communityBotSyntheticEmail,
 } from "./constants";
 
 export {
@@ -233,6 +241,10 @@ export {
   COMMUNITY_RUNTIME_ID_MAX,
   COMMUNITY_RUNTIME_VERSION_MAX,
   COMMUNITY_RUNTIME_LIST_MAX,
+  CommunityBotCreateRequestSchema,
+  CommunityBotPatchRequestSchema,
+  CommunityBotAddToServerRequestSchema,
+  CommunityDaemonSendAsBotRequestSchema,
 } from "./schemas";
 
 export type {
@@ -292,9 +304,19 @@ export type {
   CommunityDaemonEnrollAgentResponse,
   HostReadyMessage,
   SessionErrorFrame,
+  CommunityBotCreateRequest,
+  CommunityBotPatchRequest,
+  CommunityBotAddToServerRequest,
+  CommunityDaemonSendAsBotRequest,
 } from "./schemas";
 
 export type { CommunityMachineSummary, CommunityMachineRuntime } from "./community-ws-events";
+export type {
+  BotAddedFrame,
+  BotUpdatedFrame,
+  BotRemovedFrame,
+  CommunityBotHostFrame,
+} from "./community-ws-events";
 
 // Community WS events
 export type {

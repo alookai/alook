@@ -103,6 +103,28 @@ export const communityMachineCredential = sqliteTable(
   ]
 );
 
+// community_bot_binding — per-bot (userId is a bot's user row) machine +
+// runtime pairing. One row per live bot. `machineId` is RESTRICT so a raw
+// DB delete of a machine with bots errors; application layer cascades UX-side.
+// On bot soft-delete, the binding row is explicitly deleted (soft-delete does
+// not remove the user row, so the FK CASCADE from user does not fire).
+export const communityBotBinding = sqliteTable(
+  "community_bot_binding",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    machineId: text("machine_id")
+      .notNull()
+      .references(() => communityMachine.id, { onDelete: "restrict" }),
+    runtime: text("runtime").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [index("idx_community_bot_binding_machine").on(t.machineId)]
+);
+
 // community_agent_runner_key — per-agent runner key. Same hashing shape
 // as community_machine_credential; no data-plane consumer in v1.
 export const communityAgentRunnerKey = sqliteTable(

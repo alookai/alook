@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const getUser = vi.fn()
+const getUserInternal = vi.fn()
 const isBlocked = vi.fn()
 const sendRequest = vi.fn()
 const broadcastToUser = vi.fn()
@@ -15,11 +16,22 @@ vi.mock("@alook/shared", async () => {
     queries: {
       user: {
         getUser: (...a: unknown[]) => getUser(...a),
+        getUserInternal: (...a: unknown[]) => getUserInternal(...a),
         getUserByNameCaseInsensitive: vi.fn(),
       },
       communityFriendship: {
         sendRequest: (...a: unknown[]) => sendRequest(...a),
         isBlocked: (...a: unknown[]) => isBlocked(...a),
+      },
+      communityBot: {
+        findPendingFriendRequest: vi.fn().mockResolvedValue(null),
+        createApprovalRequestStatement: vi.fn(),
+      },
+      communityDm: {
+        createOrGetDM: vi.fn(),
+      },
+      communityMessage: {
+        createMessage: vi.fn(),
       },
     },
   }
@@ -58,6 +70,12 @@ describe("POST /api/community/friends/request", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getUser.mockResolvedValue({ id: "u2" })
+    getUserInternal.mockResolvedValue({
+      id: "u2",
+      isBot: false,
+      ownerUserId: null,
+      deletedAt: null,
+    })
     isBlocked.mockResolvedValue(false)
     broadcastToUser.mockResolvedValue(undefined)
   })
@@ -172,6 +190,7 @@ describe("POST /api/community/friends/request", () => {
 
   it("returns 404 when the target user doesn't exist", async () => {
     getUser.mockResolvedValue(null)
+    getUserInternal.mockResolvedValue(null)
     const res = await POST(postReq({ userId: "u2" }), {} as never)
     expect(res.status).toBe(404)
     expect(sendRequest).not.toHaveBeenCalled()

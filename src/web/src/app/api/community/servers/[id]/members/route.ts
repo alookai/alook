@@ -39,12 +39,14 @@ export const GET = withAuth(async (req, ctx) => {
   // client has no joinedAt field and shouldn't gain one.
   const envelope = buildMemberPaginatedResponse(page.members, page.hasMore)
 
+  // Owner-scoped isBot/ownerUserId projection:
+  //   - The caller sees `isBot: true` + `ownerUserId` ONLY on rows they own.
+  //   - Other bots (owned by other users) appear as normal humans — no
+  //     isBot/ownerUserId fields at all.
+  // This is the load-bearing pass-as-human projection at the member-list layer.
   const members = envelope.members.map((r) => {
-    // user.name is notNull().default("") in the DB (#20). The query's declared
-    // return type carries string|null for legacy reasons; fall back to "" so
-    // the display shape stays a plain string. avatarInitial handles the
-    // empty case.
     const display = r.nickname ?? r.userName ?? ""
+    const isOwnBot = r.userIsBot === true && r.userOwnerUserId === ctx.userId
     return {
       id: r.id,
       userId: r.userId,
@@ -53,6 +55,7 @@ export const GET = withAuth(async (req, ctx) => {
       status: (r.userId === ctx.userId ? "online" : "offline") as "online" | "offline",
       sub: "",
       role: r.role ?? "member",
+      ...(isOwnBot ? { isBot: true as const, ownerUserId: r.userOwnerUserId! } : {}),
     }
   })
 

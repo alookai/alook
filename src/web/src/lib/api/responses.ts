@@ -19,7 +19,14 @@ type AgentLinkRow = typeof schema.agentLink.$inferSelect;
 type CalendarEventRow = typeof schema.calendarEvent.$inferSelect;
 type IssueRow = typeof schema.issue.$inferSelect;
 
-export function userToResponse(u: UserRow) {
+export function userToResponse(u: {
+  id: string;
+  name: string;
+  email: string;
+  image: string | null;
+  createdAt: string;
+  updatedAt: string;
+}) {
   return {
     id: u.id,
     name: u.name,

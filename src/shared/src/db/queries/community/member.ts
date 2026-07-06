@@ -1,4 +1,4 @@
-import { eq, and, ne, inArray, count, asc, or, gt, like } from "drizzle-orm";
+import { eq, and, ne, inArray, count, asc, or, gt, like, isNull, sql } from "drizzle-orm";
 import { communityServerMember } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -41,6 +41,11 @@ export async function updateRole(db: Database, memberId: string, role: string) {
 }
 
 export async function listMembers(db: Database, serverId: string) {
+  // deletedAt filter — a bot (or a soft-deleted human) is hidden from every
+  // member list. History surfaces still hydrate cached name/avatar via
+  // `getUsersByIds` without excludeDeleted, so tombstone rendering still works.
+  // Return type MUST NOT include isBot/ownerUserId — the route response
+  // projection is responsible for owner-scoped `isBot` gating.
   return db
     .select({
       id: communityServerMember.id,
@@ -52,10 +57,12 @@ export async function listMembers(db: Database, serverId: string) {
       userName: user.name,
       userEmail: user.email,
       userImage: user.image,
+      userIsBot: user.isBot,
+      userOwnerUserId: user.ownerUserId,
     })
     .from(communityServerMember)
     .innerJoin(user, eq(communityServerMember.userId, user.id))
-    .where(eq(communityServerMember.serverId, serverId));
+    .where(and(eq(communityServerMember.serverId, serverId), isNull(user.deletedAt)));
 }
 
 export async function updateRailOrder(
@@ -137,6 +144,8 @@ export async function listMembersPaginated(
     userName: string | null;
     userEmail: string;
     userImage: string | null;
+    userIsBot: boolean;
+    userOwnerUserId: string | null;
   }>;
   hasMore: boolean;
   cursor: { joinedAt: string; id: string } | undefined;
@@ -160,6 +169,8 @@ export async function listMembersPaginated(
     );
   }
 
+  // Filter soft-deleted user rows from paginated listings.
+  conditions.push(isNull(user.deletedAt) as any);
   const rows = await db
     .select({
       id: communityServerMember.id,
@@ -171,6 +182,8 @@ export async function listMembersPaginated(
       userName: user.name,
       userEmail: user.email,
       userImage: user.image,
+      userIsBot: user.isBot,
+      userOwnerUserId: user.ownerUserId,
     })
     .from(communityServerMember)
     .innerJoin(user, eq(communityServerMember.userId, user.id))
@@ -290,6 +303,61 @@ export async function getMemberships(db: Database, userId: string, serverIds: st
       and(
         eq(communityServerMember.userId, userId),
         inArray(communityServerMember.serverId, serverIds)
+      )
+    );
+}
+
+/**
+ * Owner-leaves-server cascade — SELECT the bot userIds that will be removed
+ * from `serverId` because their owner is leaving. Called as step 1 of the
+ * three-step leave/kick sequence (see §Owner-leaves-server in plan).
+ */
+export async function listOwnerBotsInServer(
+  db: Database,
+  serverId: string,
+  ownerUserId: string
+): Promise<string[]> {
+  const rows = await db
+    .select({ id: user.id })
+    .from(user)
+    .innerJoin(communityServerMember, eq(communityServerMember.userId, user.id))
+    .where(
+      and(
+        eq(communityServerMember.serverId, serverId),
+        eq(user.ownerUserId, ownerUserId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt)
+      )
+    );
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Statement-returning DELETE for the owner-leaves cascade. Takes an already-
+ * resolved bot user id list so the batch is atomic AND auditable (no hidden
+ * subquery). Empty list → no-op (returned as a DELETE with an unsatisfiable
+ * predicate, since Drizzle rejects `inArray([])`).
+ */
+export function removeOwnerBotsFromServerStatement(
+  db: Database,
+  serverId: string,
+  botUserIds: string[]
+) {
+  if (botUserIds.length === 0) {
+    // No-op statement — DELETE with an unsatisfiable predicate. D1's batch
+    // shape still needs a statement even for empty lists. Drizzle rejects
+    // `inArray([])`, so this is the AGENTS.md-carved-out case where a raw
+    // `sql\`1 = 0\`` is the only option.
+    return db
+      .delete(communityServerMember)
+      .where(sql`1 = 0`);
+  }
+  return db
+    .delete(communityServerMember)
+    .where(
+      and(
+        eq(communityServerMember.serverId, serverId),
+        inArray(communityServerMember.userId, botUserIds)
       )
     );
 }

@@ -78,6 +78,16 @@ export async function createMessage(
   return msg;
 }
 
+/**
+ * Hard-delete a message row by id. Reserved for rollback of a message that
+ * was written moments before but its dependent row (approval-request, etc.)
+ * failed to persist. Do NOT use this for user-facing message deletion — that
+ * path should soft-delete or set a tombstone.
+ */
+export async function hardDeleteMessage(db: Database, messageId: string) {
+  await db.delete(communityMessage).where(eq(communityMessage.id, messageId));
+}
+
 export async function listMessages(
   db: Database,
   opts: {

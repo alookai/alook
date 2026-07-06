@@ -44,7 +44,8 @@ export default function MeLayout({ children }: { children: ReactNode }) {
 
   const hasDm = !!params.dmId
   const machinesActive = pathname === "/community/me/machines"
-  const friendsActive = !hasDm && !machinesActive
+  const botsActive = pathname === "/community/me/bots"
+  const friendsActive = !hasDm && !machinesActive && !botsActive
 
   const [mobileZone, setMobileZone] = useState<MobileZone>(() => (hasDm ? "messages" : "nav"))
 
@@ -63,6 +64,12 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   const onShowMachines = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)
     router.push("/community/me/machines")
+    if (bp === "mobile") setMobileZone("messages")
+  }, [router, bp])
+
+  const onShowBots = useCallback(() => {
+    useCommunityStore.getState().setCurrentChannelId(null)
+    router.push("/community/me/bots")
     if (bp === "mobile") setMobileZone("messages")
   }, [router, bp])
 
@@ -86,10 +93,12 @@ export default function MeLayout({ children }: { children: ReactNode }) {
       onPickDm={enterDm}
       onShowFriends={onShowFriends}
       onShowMachines={onShowMachines}
+      onShowBots={onShowBots}
       friendsActive={friendsActive}
       machinesActive={machinesActive}
+      botsActive={botsActive}
     />
-  ), [dms, currentChannelId, dmsLoading, blockedUserIds, enterDm, onShowFriends, onShowMachines, friendsActive, machinesActive])
+  ), [dms, currentChannelId, dmsLoading, blockedUserIds, enterDm, onShowFriends, onShowMachines, onShowBots, friendsActive, machinesActive, botsActive])
 
   return (
     <ShellFrame

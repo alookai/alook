@@ -1,10 +1,12 @@
-import { and, eq, gt, desc, isNull } from "drizzle-orm";
+import { and, eq, gt, desc, isNull, inArray, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import {
   communityMachineToken,
   communityMachine,
   communityMachineCredential,
   communityAgentRunnerKey,
 } from "../../community-machine-schema";
+import { user } from "../../schema";
 import type { Database } from "../../index";
 import {
   COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
@@ -14,7 +16,6 @@ import type {
   CommunityMachineRuntime,
   CommunityMachineSummary,
 } from "../../../community-ws-events";
-import { isUniqueConstraintError } from "../../../utils/db-errors";
 
 // ---------------------------------------------------------------------------
 // Credential hashing
@@ -54,9 +55,10 @@ export function doNameFromHash(hash: string): string {
 
 /**
  * Mint a fresh pending pairing token for a user (first pair) or bind it to
- * an existing machine (reconnect). Fails if the user already has a pending
- * token — the partial unique index enforces the invariant at the DB level,
- * so surface it as a `PendingTokenAlreadyExistsError` to the caller.
+ * an existing machine (reconnect). Any prior pending token for the same user
+ * is revoked first — the sheet auto-mints on open, and the user's latest
+ * click is authoritative. `cmk_` credentials are unaffected; only the
+ * ephemeral `cmt_` row is replaced.
  *
  * `machineId` — when set, /activate will treat this as a reconnect and reuse
  * the existing machine row. When null, /activate creates a fresh row.
@@ -66,25 +68,27 @@ export async function createPairingToken(
   userId: string,
   opts: { machineId?: string | null } = {}
 ): Promise<{ tokenId: string; expiresAt: string }> {
+  await db
+    .update(communityMachineToken)
+    .set({ status: "revoked" })
+    .where(
+      and(
+        eq(communityMachineToken.userId, userId),
+        eq(communityMachineToken.status, "pending")
+      )
+    );
   const expiresAt = new Date(Date.now() + COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS).toISOString();
-  try {
-    const rows = await db
-      .insert(communityMachineToken)
-      .values({
-        userId,
-        machineId: opts.machineId ?? null,
-        status: "pending",
-        expiresAt,
-      })
-      .returning();
-    const row = rows[0]!;
-    return { tokenId: row.id, expiresAt: row.expiresAt };
-  } catch (err) {
-    if (isUniqueConstraintError(err)) {
-      throw new PendingTokenAlreadyExistsError();
-    }
-    throw err;
-  }
+  const rows = await db
+    .insert(communityMachineToken)
+    .values({
+      userId,
+      machineId: opts.machineId ?? null,
+      status: "pending",
+      expiresAt,
+    })
+    .returning();
+  const row = rows[0]!;
+  return { tokenId: row.id, expiresAt: row.expiresAt };
 }
 
 /**
@@ -113,13 +117,6 @@ export async function createReconnectPairingToken(
     throw new Error("createReconnectPairingToken: machine not owned by user");
   }
   return createPairingToken(db, userId, { machineId });
-}
-
-export class PendingTokenAlreadyExistsError extends Error {
-  constructor() {
-    super("A pending pairing token already exists for this user");
-    this.name = "PendingTokenAlreadyExistsError";
-  }
 }
 
 /**
@@ -575,6 +572,27 @@ export async function findActiveCredentialByBearer(
   return findCredentialByHash(db, hash);
 }
 
+/**
+ * Return the live DO-name suffixes for a machine (typically one, but robust
+ * to N historical credentials). Used by the WS DO push router when it needs
+ * to route `bot:*` frames to the daemon's current DO.
+ */
+export async function getActiveDoNamesForMachine(
+  db: Database,
+  machineId: string
+): Promise<string[]> {
+  const rows = await db
+    .select({ doName: communityMachineCredential.doName })
+    .from(communityMachineCredential)
+    .where(
+      and(
+        eq(communityMachineCredential.machineId, machineId),
+        isNull(communityMachineCredential.revokedAt)
+      )
+    );
+  return rows.map((r) => r.doName);
+}
+
 /** Soft-revoke a single credential by opaque id. */
 export async function revokeCredential(
   db: Database,
@@ -628,11 +646,16 @@ export async function mintAgentRunnerKey(
   db: Database,
   { userId, machineId, agentId }: { userId: string; machineId: string; agentId: string }
 ): Promise<{ runnerKey: string; existed: boolean }> {
+  // Scope by userId — a cross-owner call for (machineId, agentId) that
+  // belong to a different user must not touch the victim's row. Combined
+  // with the partial unique (machineId, agentId) WHERE revoked_at IS NULL,
+  // this makes the dedupe safe against cross-owner collisions.
   const existing = await db
     .select({ id: communityAgentRunnerKey.id })
     .from(communityAgentRunnerKey)
     .where(
       and(
+        eq(communityAgentRunnerKey.userId, userId),
         eq(communityAgentRunnerKey.machineId, machineId),
         eq(communityAgentRunnerKey.agentId, agentId),
         isNull(communityAgentRunnerKey.revokedAt)
@@ -662,6 +685,66 @@ export async function mintAgentRunnerKey(
     createdAt: new Date().toISOString(),
   });
   return { runnerKey: bearer, existed: existing.length > 0 };
+}
+
+/**
+ * Soft-revoke every active `crk_` for a machine. Called from machine delete
+ * and reconnect (where `cmk_` is rotated but `machineId` stays stable) so
+ * stale runner keys don't outlive the credential that authorized them.
+ */
+export async function revokeRunnerKeysForMachine(
+  db: Database,
+  machineId: string
+): Promise<{ doNames: string[] }> {
+  const rows = await db
+    .update(communityAgentRunnerKey)
+    .set({ revokedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(communityAgentRunnerKey.machineId, machineId),
+        isNull(communityAgentRunnerKey.revokedAt)
+      )
+    )
+    .returning({ doName: communityAgentRunnerKey.doName });
+  return { doNames: rows.map((r) => r.doName) };
+}
+
+/**
+ * Statement-returning variant scoped by owner via subquery. Composed into
+ * `db.batch([...])` inside the bot soft-delete flow so the revoke commits
+ * atomically with the user-flag and member-row updates.
+ *
+ * Uses a subquery on `user.ownerUserId` rather than a plain `agentId = :id`
+ * predicate — the batch must be a no-op against a cross-owner bot id, per
+ * §Ownership scoping invariant in plans/community-bots.md.
+ */
+export function revokeRunnerKeysForAgentStatement(
+  db: Database,
+  agentUserId: string,
+  ownerId: string
+) {
+  return db
+    .update(communityAgentRunnerKey)
+    .set({ revokedAt: new Date().toISOString() })
+    .where(
+      and(
+        eq(communityAgentRunnerKey.agentId, agentUserId),
+        isNull(communityAgentRunnerKey.revokedAt),
+        inArray(
+          communityAgentRunnerKey.userId,
+          db
+            .select({ id: user.id })
+            .from(user)
+            .where(
+              and(
+                eq(user.id, agentUserId),
+                eq(user.ownerUserId, ownerId),
+                eq(user.isBot, true)
+              )
+            )
+        )
+      )
+    );
 }
 
 export async function findActiveAgentRunnerKeyByBearer(

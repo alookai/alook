@@ -86,6 +86,54 @@ export default {
       return stub.fetch(new Request("http://internal/check-user-online"))
     }
 
+    // POST /community-machine/by-id/<machineId>/push — push a bot event
+    // (bot:added / bot:updated / bot:removed) to the daemon connection for
+    // this machine. Looks up the live credential do_name via D1 and dispatches
+    // to the corresponding DO. Best-effort — if the daemon is offline the DO
+    // drops the event; cold-start warmup on reconnect re-syncs authoritative
+    // state.
+    const pushToMachine = url.pathname.match(/^\/community-machine\/by-id\/([^/]+)\/push$/)
+    if (pushToMachine && request.method === "POST") {
+      const machineId = decodeURIComponent(pushToMachine[1])
+      const reqLog = log.child({ traceId, machineId })
+      reqLog.debug("pushing bot event to machine")
+      // Look up the active `do_name` for this machineId via D1. Multiple
+      // credentials may exist for a machine over time; we push to every live
+      // one (there should be exactly one, but be robust).
+      let doNames: string[] = []
+      try {
+        const shared = await import("@alook/shared")
+        const db = shared.createDb((env as unknown as { DB: D1Database }).DB)
+        doNames = await queries.communityMachine.getActiveDoNamesForMachine(db, machineId)
+      } catch {
+        // If we can't reach D1 to resolve, silently drop — the daemon's
+        // reconnect warmup will re-sync authoritative state.
+        return Response.json({ sent: 0 })
+      }
+      if (doNames.length === 0) {
+        return Response.json({ sent: 0 })
+      }
+      const bodyText = await request.text()
+      let delivered = 0
+      for (const dn of doNames) {
+        const doId = env.WS_DO.idFromName("community-machine:" + dn)
+        const stub = env.WS_DO.get(doId)
+        try {
+          const res = await stub.fetch(
+            new Request("http://internal/push", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: bodyText,
+            }),
+          )
+          if (res.ok) delivered++
+        } catch {
+          // best-effort
+        }
+      }
+      return Response.json({ sent: delivered })
+    }
+
     // POST /community-machine/<doName>/force-close — disconnect a daemon by
     // its DO-name suffix (first 32 hex of the credential hash). Callers look
     // the suffix up from `community_machine_credential.do_name`.

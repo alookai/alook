@@ -68,17 +68,63 @@ export interface WsControlChannelOpts {
  * (community DO) validates frames against that schema, so any nesting drop
  * would silently be discarded.
  */
+/**
+ * Command reply protocol — daemon → server. New in v0.2.0.
+ *
+ * `agent_started_ack` / `agent_stopped_ack` are new frames. `agent_deliver_ack`
+ * is additively extended with optional `status` + `error`; existing server-side
+ * consumers that read only `{ agentId, deliveryId }` still work.
+ *
+ * Error codes:
+ *   - bot_unknown       daemon received a command for a bot not in botsById
+ *   - bot_enroll_failed enrollAgent call failed (server 5xx / network)
+ *   - bot_runtime_missing bot's runtime not in live availableRuntimes
+ *   - bot_not_a_member  bot not a communityServerMember of target channel
+ *   - internal_error    catch-all
+ */
+export type AgentCommandAckStatus = "ok" | "error";
+export type AgentCommandAckError = { code: string; message: string };
+
 type OutboundFrame =
   | ({ type: "ready" } & HostReady)
   | { type: "agent_session"; agentId: AgentId; sessionId: string; launchId: string }
-  | { type: "agent_deliver_ack"; agentId: AgentId; deliveryId: string }
+  | {
+      type: "agent_deliver_ack";
+      agentId: AgentId;
+      deliveryId: string;
+      status?: AgentCommandAckStatus;
+      error?: AgentCommandAckError;
+    }
+  | {
+      type: "agent_started_ack";
+      agentId: AgentId;
+      launchId: string;
+      status: AgentCommandAckStatus;
+      error?: AgentCommandAckError;
+    }
+  | {
+      type: "agent_stopped_ack";
+      agentId: AgentId;
+      status: AgentCommandAckStatus;
+      error?: AgentCommandAckError;
+    }
   | SessionErrorFrame;
 
 type ResyncProvider = () => { ready: HostReady; sessions: AgentSessionReport[] };
 
+type PendingAck = {
+  agentId: AgentId;
+  deliveryId: string;
+  status?: AgentCommandAckStatus;
+  error?: AgentCommandAckError;
+};
+
 export class WsControlChannel implements HostControlChannel {
   private statusValue: ControlChannelStatus = "idle";
-  private commandCb: ((cmd: HostCommand) => void | Promise<void>) | null = null;
+  // Multiple listeners so consumers can layer behavior (e.g. bot-cache pre-hook
+  // + AgentRouter's real handler) without monkey-patching this class.
+  private commandCbs: Array<(cmd: HostCommand) => void | Promise<void>> = [];
+  private resyncHooks: Array<() => void> = [];
   private ws: WebSocketLike | null = null;
   private attempt = 0;
   private closedByUser = false;
@@ -92,7 +138,7 @@ export class WsControlChannel implements HostControlChannel {
    * regenerated fresh by the resync provider on (re)connect, so stale snapshots
    * are never replayed.
    */
-  private pendingAcks: Array<{ agentId: AgentId; deliveryId: string }> = [];
+  private pendingAcks: PendingAck[] = [];
 
   constructor(private readonly opts: WsControlChannelOpts) {}
 
@@ -117,12 +163,31 @@ export class WsControlChannel implements HostControlChannel {
 
   /* ---- HostControlChannel ---------------------------------------- */
 
+  /**
+   * Register a command listener. Multiple listeners may be registered; they
+   * run in FIFO order on each inbound frame. This lets a pre-hook (bot cache)
+   * observe frames before the AgentRouter's dispatcher without wrapping them.
+   */
   onCommand(cb: (cmd: HostCommand) => void | Promise<void>): void {
-    this.commandCb = cb;
+    this.commandCbs.push(cb);
   }
 
+  /**
+   * The resync provider builds the current-state snapshot the server needs on
+   * every (re)connect. Only one provider makes sense; the last registration
+   * wins (matches prior single-provider semantics).
+   */
   onResync(provider: ResyncProvider): void {
     this.resyncProvider = provider;
+  }
+
+  /**
+   * Register a side-effect hook fired every time the channel (re)connects and
+   * completes its resync — used e.g. for daemon warmup fetches. Independent of
+   * the resync provider so warmup composes with the state-snapshot path.
+   */
+  onReconnected(hook: () => void): void {
+    this.resyncHooks.push(hook);
   }
 
   async reportReady(ready: HostReady): Promise<void> {
@@ -133,13 +198,37 @@ export class WsControlChannel implements HostControlChannel {
     this.sendFrame({ type: "agent_session", ...info });
   }
 
-  async reportDeliverAck(info: { agentId: AgentId; deliveryId: string }): Promise<void> {
+  async reportDeliverAck(info: {
+    agentId: AgentId;
+    deliveryId: string;
+    status?: AgentCommandAckStatus;
+    error?: AgentCommandAckError;
+  }): Promise<void> {
     // Acks must not be lost across a brief disconnect — buffer if not open.
     if (this.statusValue !== "open" || !this.ws) {
       this.pendingAcks.push(info);
       return;
     }
     this.ws.send(JSON.stringify({ type: "agent_deliver_ack", ...info }));
+  }
+
+  /** Reply to an `agent:start` HostCommand with the launch outcome. */
+  async reportStartedAck(info: {
+    agentId: AgentId;
+    launchId: string;
+    status: AgentCommandAckStatus;
+    error?: AgentCommandAckError;
+  }): Promise<void> {
+    this.sendFrame({ type: "agent_started_ack", ...info });
+  }
+
+  /** Reply to an `agent:stop` HostCommand with the stop outcome. */
+  async reportStoppedAck(info: {
+    agentId: AgentId;
+    status: AgentCommandAckStatus;
+    error?: AgentCommandAckError;
+  }): Promise<void> {
+    this.sendFrame({ type: "agent_stopped_ack", ...info });
   }
 
   async reportSessionError(frame: SessionErrorFrame): Promise<void> {
@@ -175,6 +264,13 @@ export class WsControlChannel implements HostControlChannel {
       const acks = this.pendingAcks;
       this.pendingAcks = [];
       for (const a of acks) this.ws.send(JSON.stringify({ type: "agent_deliver_ack", ...a }));
+    }
+    for (const hook of this.resyncHooks) {
+      try {
+        hook();
+      } catch {
+        // Hooks are fire-and-forget; a hook failure must not block resync.
+      }
     }
   }
 
@@ -217,7 +313,12 @@ export class WsControlChannel implements HostControlChannel {
 
     // Valid server frame — reset backoff (server accepted us).
     this.attempt = 0;
-    this.commandCb?.(frame as unknown as HostCommand);
+    const cmd = frame as unknown as HostCommand;
+    for (const cb of this.commandCbs) {
+      // Each listener is fire-and-forget; failures in one must not skip the
+      // next. If a listener wants to fail loud, it should throw async.
+      void cb(cmd);
+    }
   }
 
   private onSocketClosed(): void {

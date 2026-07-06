@@ -10,6 +10,9 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 const mockMint = vi.fn()
 const mockFindCred = vi.fn()
 
+const mockGetUserInternal = vi.fn()
+const mockGetBotBinding = vi.fn()
+
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<any>("@alook/shared")
   return {
@@ -18,6 +21,12 @@ vi.mock("@alook/shared", async () => {
       communityMachine: {
         mintAgentRunnerKey: (...a: unknown[]) => mockMint(...a),
         findActiveCredentialByBearer: (...a: unknown[]) => mockFindCred(...a),
+      },
+      user: {
+        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
+      },
+      communityBot: {
+        getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a),
       },
     },
   }
@@ -36,6 +45,14 @@ function req(body: unknown, headers: Record<string, string> = {}): NextRequest {
 describe("POST /api/community/daemon/enroll-agent", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Default: happy-path bot exists, owned by u_1, bound to cm_1.
+    mockGetUserInternal.mockResolvedValue({
+      id: "agent_a",
+      isBot: true,
+      ownerUserId: "u_1",
+      deletedAt: null,
+    })
+    mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "claude" })
   })
 
   it("returns 200 + runnerKey on happy path", async () => {

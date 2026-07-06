@@ -364,9 +364,11 @@ export const communityAuditLog = sqliteTable(
   "community_audit_log",
   {
     id: text("id").primaryKey().$defaultFn(() => nanoid()),
-    serverId: text("server_id")
-      .notNull()
-      .references(() => communityServer.id, { onDelete: "cascade" }),
+    // Nullable — bot-lifecycle rows (created/updated/deleted, friend approval)
+    // have no server scope. See migration 0050.
+    serverId: text("server_id").references(() => communityServer.id, {
+      onDelete: "cascade",
+    }),
     actorId: text("actor_id").references(() => user.id, { onDelete: "set null" }),
     action: text("action").notNull(),
     targetType: text("target_type").notNull(),
@@ -378,10 +380,41 @@ export const communityAuditLog = sqliteTable(
   (t) => [
     index("idx_audit_log_server_created").on(t.serverId, t.createdAt),
     index("idx_audit_log_server_action").on(t.serverId, t.action),
+    index("idx_audit_log_actor_created").on(t.actorId, t.createdAt),
   ]
 );
 
-// 20. community_inbox_dismissal
+// 20. community_bot_approval_request
+// Represents pending/resolved approval workflows a bot owner sees in the
+// owner↔bot DM. `kind` distinguishes the two flows:
+//   - "join_server": another user asked to add the bot to a server they're in
+//   - "friend": another user sent a friend request to the bot
+// `serverId` is non-null iff `kind = "join_server"` (application-enforced).
+export const communityBotApprovalRequest = sqliteTable(
+  "community_bot_approval_request",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "bar_" + nanoid()),
+    botId: text("bot_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    serverId: text("server_id").references(() => communityServer.id, {
+      onDelete: "cascade",
+    }),
+    requestedByUserId: text("requested_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    dmMessageId: text("dm_message_id")
+      .notNull()
+      .references(() => communityMessage.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+    resolvedAt: text("resolved_at"),
+  },
+  (t) => [index("idx_community_bot_approval_bot").on(t.botId, t.status)]
+);
+
+// 21. community_inbox_dismissal
 // Tracks which "For You" inbox events the user has hard-dismissed.
 // eventKey is opaque, formed like "mention:<messageId>" / "reply:<messageId>" /
 // "thread:<channelId>". Once dismissed, the corresponding event is filtered out

@@ -11,7 +11,7 @@ import {
   WS_EVENTS,
 } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
-import { logAudit } from "@/lib/community/audit"
+import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 import { requireServerAdmin } from "@/lib/community/permissions"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
@@ -97,23 +97,66 @@ export const DELETE = withAuth(async (_req, ctx) => {
     return writeError("only the owner can remove an admin", 403)
   }
 
+  // Kick semantics differ by target type:
+  //   - Kicking a bot: remove ONLY that bot's member row. No owner cascade.
+  //   - Kicking a human: cascade removes owner's live bots that are members.
+  const targetInternal = await queries.user.getUserInternal(db, target.userId)
+  const targetIsBot = targetInternal?.isBot === true
+
+  let botIdsToCascade: string[] = []
+  if (!targetIsBot) {
+    botIdsToCascade = await queries.communityMember.listOwnerBotsInServer(
+      db,
+      serverId,
+      target.userId,
+    )
+  }
+
   const removed = await queries.communityMember.removeMember(db, memberId)
   if (!removed) return writeError("member not found", 404)
+
+  for (const botId of botIdsToCascade) {
+    const bmember = await queries.communityMember.getMember(db, serverId, botId)
+    if (bmember) {
+      await queries.communityMember.removeMember(db, bmember.id)
+    }
+  }
 
   logAudit(db, {
     serverId,
     actorId: ctx.userId,
-    action: "member_kick",
-    targetType: "member",
-    targetId: memberId,
-    changes: JSON.stringify({ userId: target.userId }),
+    action: targetIsBot ? COMMUNITY_AUDIT_ACTIONS.BOT_REMOVED_FROM_SERVER : "member_kick",
+    targetType: targetIsBot ? "user" : "member",
+    targetId: targetIsBot ? target.userId : memberId,
+    changes: JSON.stringify(
+      targetIsBot
+        ? { botId: target.userId, serverId, kind: "kicked" }
+        : { userId: target.userId },
+    ),
   })
+  for (const botId of botIdsToCascade) {
+    logAudit(db, {
+      serverId,
+      actorId: ctx.userId,
+      action: COMMUNITY_AUDIT_ACTIONS.BOT_REMOVED_FROM_SERVER,
+      targetType: "user",
+      targetId: botId,
+      changes: JSON.stringify({ botId, serverId, kind: "owner_left_cascade" }),
+    })
+  }
 
   fanOutToServerMembers(serverId, {
     type: WS_EVENTS.MEMBER_LEAVE,
     serverId,
     userId: target.userId,
   })
+  for (const botId of botIdsToCascade) {
+    fanOutToServerMembers(serverId, {
+      type: WS_EVENTS.MEMBER_LEAVE,
+      serverId,
+      userId: botId,
+    })
+  }
 
   return new Response(null, { status: 204 })
 })

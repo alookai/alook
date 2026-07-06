@@ -31,6 +31,26 @@ export const POST = withCommunityDaemonAuth(async (req, ctx) => {
   }
 
   const db = getDb(ctx.env.DB)
+
+  // Bot enrollment invariant: the target bot must be
+  //   user.id = agentId AND isBot AND ownerUserId = ctx.userId AND deletedAt IS NULL
+  // AND its binding must point to this machine. Prevents a compromised daemon
+  // on machine A from minting a `crk_` for a bot bound to machine B (which
+  // would otherwise slip through the old blind-mint path).
+  const target = await queries.user.getUserInternal(db, parsed.data.agentId)
+  if (
+    !target ||
+    target.isBot !== true ||
+    target.ownerUserId !== ctx.userId ||
+    target.deletedAt !== null
+  ) {
+    return NextResponse.json({ error: "bot not found" }, { status: 404 })
+  }
+  const binding = await queries.communityBot.getBotBinding(db, parsed.data.agentId)
+  if (!binding || binding.machineId !== ctx.machineId) {
+    return NextResponse.json({ error: "bot not on this machine" }, { status: 404 })
+  }
+
   const { runnerKey } = await queries.communityMachine.mintAgentRunnerKey(db, {
     userId: ctx.userId,
     machineId: ctx.machineId,

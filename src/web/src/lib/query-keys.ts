@@ -70,6 +70,9 @@ export const communityKeys = {
   // ── Machines / daemons ──────────────────────────────────────────────────
   machines: () => [...communityKeys.all, "machines"] as const,
 
+  // ── Bots ────────────────────────────────────────────────────────────────
+  bots: () => [...communityKeys.all, "bots"] as const,
+
   // ── Notification settings ───────────────────────────────────────────────
   notificationSettings: () =>
     [...communityKeys.all, "notification-settings"] as const,

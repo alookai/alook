@@ -30,6 +30,15 @@ vi.mock("@alook/shared", async () => {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
         updateRole: (...a: unknown[]) => mockUpdateRole(...a),
         removeMember: (...a: unknown[]) => mockRemoveMember(...a),
+        listOwnerBotsInServer: vi.fn().mockResolvedValue([]),
+      },
+      user: {
+        getUserInternal: vi.fn().mockResolvedValue({
+          id: "u_target",
+          isBot: false,
+          ownerUserId: null,
+          deletedAt: null,
+        }),
       },
     },
   }

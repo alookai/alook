@@ -25,6 +25,38 @@ import type { AgentProcessManager } from "./managerRuntime.js";
  * to the server as a `session.error{code:"runtime_not_available"}` frame so
  * the web-side machine card can surface the mismatch inline.
  */
+/**
+ * Thrown by onBeforeAgent when a command names a bot the daemon has never
+ * heard of (post-warmup or after bot:removed evicted the cache entry).
+ * Surfaces as `bot_unknown` in the ack frame.
+ */
+export class UnknownBotError extends Error {
+  constructor(public readonly botId: string) {
+    super(`Bot not in this daemon's cache: ${botId}`);
+    this.name = "UnknownBotError";
+  }
+}
+
+/**
+ * Thrown by onBeforeAgent when the daemon's `enrollAgent` HTTP call fails
+ * (server 5xx, network error, etc.).
+ */
+export class BotEnrollFailedError extends Error {
+  constructor(public readonly botId: string, cause: unknown) {
+    super(
+      `Failed to enroll bot ${botId}: ${cause instanceof Error ? cause.message : String(cause)}`
+    );
+    this.name = "BotEnrollFailedError";
+  }
+}
+
+function classifyErrorCode(err: unknown): string {
+  if (err instanceof UnknownBotError) return "bot_unknown";
+  if (err instanceof BotEnrollFailedError) return "bot_enroll_failed";
+  if (err instanceof UnknownRuntimeError) return "bot_runtime_missing";
+  return "internal_error";
+}
+
 export class UnknownRuntimeError extends Error {
   constructor(public readonly requested: string | undefined, public readonly available: string[]) {
     super(
@@ -99,6 +131,13 @@ export class AgentRouter {
             sessionId: cmd.sessionId,
             launchId: cmd.launchId,
           });
+          this.running.add(cmd.agentId);
+          if (cmd.wakeMessage) this.deliver(cmd.agentId, cmd.wakeMessage, cmd.deliveryId);
+          await this.opts.channel.reportStartedAck?.({
+            agentId: cmd.agentId,
+            launchId: cmd.launchId,
+            status: "ok",
+          });
         } catch (err) {
           if (err instanceof UnknownRuntimeError) {
             // Forward a structured session.error so the server / machine DO
@@ -114,21 +153,72 @@ export class AgentRouter {
               },
             };
             await this.opts.channel.reportSessionError?.(frame);
+            await this.opts.channel.reportStartedAck?.({
+              agentId: cmd.agentId,
+              launchId: cmd.launchId,
+              status: "error",
+              error: {
+                code: "bot_runtime_missing",
+                message: err.message,
+              },
+            });
             return;
           }
-          throw err;
+          // Any other throw — including onBeforeAgent throws that used to be
+          // swallowed silently — surfaces as a structured error ack.
+          await this.opts.channel.reportStartedAck?.({
+            agentId: cmd.agentId,
+            launchId: cmd.launchId,
+            status: "error",
+            error: {
+              code: classifyErrorCode(err),
+              message: err instanceof Error ? err.message : String(err),
+            },
+          });
+          return;
         }
-        this.running.add(cmd.agentId);
-        if (cmd.wakeMessage) this.deliver(cmd.agentId, cmd.wakeMessage, cmd.deliveryId);
         break;
       case "agent:deliver":
-        await this.opts.onBeforeAgent?.(cmd.agentId);
-        this.running.add(cmd.agentId);
-        this.deliver(cmd.agentId, cmd.message, cmd.deliveryId);
+        try {
+          await this.opts.onBeforeAgent?.(cmd.agentId);
+          this.running.add(cmd.agentId);
+          this.deliver(cmd.agentId, cmd.message, cmd.deliveryId);
+        } catch (err) {
+          await this.opts.channel.reportDeliverAck({
+            agentId: cmd.agentId,
+            deliveryId: cmd.deliveryId,
+            status: "error",
+            error: {
+              code: classifyErrorCode(err),
+              message: err instanceof Error ? err.message : String(err),
+            },
+          });
+        }
         break;
       case "agent:stop":
-        this.running.delete(cmd.agentId);
-        void this.opts.manager.stop(cmd.agentId);
+        try {
+          this.running.delete(cmd.agentId);
+          void this.opts.manager.stop(cmd.agentId);
+          await this.opts.channel.reportStoppedAck?.({
+            agentId: cmd.agentId,
+            status: "ok",
+          });
+        } catch (err) {
+          await this.opts.channel.reportStoppedAck?.({
+            agentId: cmd.agentId,
+            status: "error",
+            error: {
+              code: classifyErrorCode(err),
+              message: err instanceof Error ? err.message : String(err),
+            },
+          });
+        }
+        break;
+      // bot:* frames are handled at the daemon layer (createDaemon), NOT here.
+      // agentRouter is intentionally thin on control-plane routing.
+      case "bot:added":
+      case "bot:updated":
+      case "bot:removed":
         break;
     }
   }

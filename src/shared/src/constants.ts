@@ -115,6 +115,33 @@ export const TERMINAL_MEETING_STATUSES: readonly MeetingStatusType[] = [
   MeetingStatus.FAILED,
 ] as const;
 
+// ── Community bots ───────────────────────────────────────────────────────────
+
+// Anti-abuse floor. NOT a UX cap — per-server pollution is prevented by
+// explicit-add-per-server (no fan-out). Bump if abuse patterns change; do not
+// repurpose as a UX signal.
+export const COMMUNITY_BOT_LIMIT_PER_OWNER = 20;
+// Display-line-fit at 375 px mobile width.
+export const COMMUNITY_BOT_NAME_MIN = 1;
+export const COMMUNITY_BOT_NAME_MAX = 32;
+// Prompt-size sanity; system prompts embed this verbatim.
+export const COMMUNITY_BOT_DESCRIPTION_MAX = 1024;
+// HTTP URL bounds.
+export const COMMUNITY_BOT_IMAGE_URL_MAX = 2048;
+// Synthetic email — bots never sign in (no session mint), but Better-Auth
+// requires a unique email on the user row. `bots.alook.local` is a reserved
+// non-routable local domain.
+export const COMMUNITY_BOT_EMAIL_DOMAIN = "bots.alook.local";
+export const COMMUNITY_BOT_EMAIL_PREFIX = "bot-";
+/**
+ * Single source of truth for constructing a bot's synthetic email.
+ * Always lowercased before insert — Better-Auth lowercases inputs and the
+ * underlying `user.email` unique index is case-sensitive at the DB layer.
+ */
+export function communityBotSyntheticEmail(userId: string): string {
+  return `${COMMUNITY_BOT_EMAIL_PREFIX}${userId}@${COMMUNITY_BOT_EMAIL_DOMAIN}`.toLowerCase();
+}
+
 // Dev mode auth (shared between web frontend and @alook/app CLI)
 export const DEV_PASSWORD = "dev-password-000";
 

@@ -957,3 +957,74 @@ export const CommunityDaemonEnrollAgentResponseSchema = z.object({
   expiresAt: z.string().nullable(),
 });
 export type CommunityDaemonEnrollAgentResponse = z.infer<typeof CommunityDaemonEnrollAgentResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Community bots — first-class community identities owned by users. See
+// plans/community-bots.md for the invariants.
+// ---------------------------------------------------------------------------
+
+import {
+  COMMUNITY_BOT_NAME_MIN,
+  COMMUNITY_BOT_NAME_MAX,
+  COMMUNITY_BOT_DESCRIPTION_MAX,
+  COMMUNITY_BOT_IMAGE_URL_MAX,
+} from "./constants";
+
+// Accepts either an https URL or the in-house `avatar:` serialized config
+// produced by `serializeAvatarConfig` in the web avatar picker.
+const BotImageUrlSchema = z
+  .string()
+  .max(COMMUNITY_BOT_IMAGE_URL_MAX)
+  .refine((v) => v.startsWith("https://") || v.startsWith("avatar:"), {
+    message: "image must be an https URL or an avatar: config",
+  });
+
+export const CommunityBotCreateRequestSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(COMMUNITY_BOT_NAME_MIN)
+    .max(COMMUNITY_BOT_NAME_MAX),
+  description: z.string().max(COMMUNITY_BOT_DESCRIPTION_MAX).optional(),
+  machineId: z.string().min(1),
+  runtime: z.string().min(1),
+  image: BotImageUrlSchema.optional(),
+});
+export type CommunityBotCreateRequest = z.infer<typeof CommunityBotCreateRequestSchema>;
+
+export const CommunityBotPatchRequestSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(COMMUNITY_BOT_NAME_MIN)
+      .max(COMMUNITY_BOT_NAME_MAX)
+      .optional(),
+    description: z.string().max(COMMUNITY_BOT_DESCRIPTION_MAX).optional(),
+    image: BotImageUrlSchema.nullable().optional(),
+  })
+  .refine((v) => v.name !== undefined || v.description !== undefined || v.image !== undefined, {
+    message: "at least one field must be provided",
+  });
+export type CommunityBotPatchRequest = z.infer<typeof CommunityBotPatchRequestSchema>;
+
+export const CommunityBotAddToServerRequestSchema = z.object({
+  botId: z.string().min(1),
+});
+export type CommunityBotAddToServerRequest = z.infer<
+  typeof CommunityBotAddToServerRequestSchema
+>;
+
+export const CommunityDaemonSendAsBotRequestSchema = z.object({
+  // Target — channel or dm — plus target id.
+  target: z.enum(["channel", "dm"]),
+  targetId: z.string().min(1),
+  content: z.string().max(4000),
+  replyToId: z.string().optional(),
+  mentionType: z.enum(["everyone", "here", "user"]).optional(),
+  embeds: z.array(z.unknown()).optional(),
+  attachments: z.array(z.unknown()).optional(),
+});
+export type CommunityDaemonSendAsBotRequest = z.infer<
+  typeof CommunityDaemonSendAsBotRequestSchema
+>;

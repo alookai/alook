@@ -5,6 +5,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireNotBlocked } from "@/lib/community/permissions"
+import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -18,7 +19,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   let targetUserId = body.userId
   if (!targetUserId && body.username) {
-    const targetUser = await queries.user.getUserByNameCaseInsensitive(db, body.username)
+    const targetUser = await queries.user.getUserByNameCaseInsensitive(
+      db,
+      body.username,
+      { excludeDeleted: true },
+    )
     if (!targetUser) return writeError("user not found", 404)
     targetUserId = targetUser.id
   }
@@ -32,13 +37,87 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   // Make sure the user exists; also avoids leaking block state vs unknown user.
-  const target = await queries.user.getUser(db, targetUserId)
-  if (!target) return writeError("user not found", 404)
+  // Use `getUserInternal` here so we can detect isBot and route into the
+  // bot-approval flow. Filter deleted so `deletedAt IS NOT NULL` reads as 404.
+  const target = await queries.user.getUserInternal(db, targetUserId)
+  if (!target || target.deletedAt !== null) return writeError("user not found", 404)
 
   // Surface block as 403 explicitly — same response code as DM, so a blocked
   // user can't enumerate "block" vs "friendship exists" via timing/error text.
   const block = await requireNotBlocked(db, ctx.userId, targetUserId)
   if (!block.ok) return writeError(block.error, block.status)
+
+  // ── Bot targets ─────────────────────────────────────────────────────────
+  //
+  // If the target is a bot, route through the approval-request flow: write a
+  // DM card to the owner, insert a pending communityBotApprovalRequest. From
+  // Bob's UI, the confirmation string is identical to a human friend-request
+  // response — this is the strongest pass-as-human invariant.
+  if (target.isBot === true) {
+    // Owner ↔ own-bot is an implicit friendship — `listFriends` synthesizes
+    // the row, and `areFriends` returns true. Return 409 "already friends" so
+    // the UI can treat it as a no-op instead of surfacing an error.
+    if (target.ownerUserId === ctx.userId) {
+      return writeError("already friends", 409)
+    }
+    if (!target.ownerUserId) return writeError("user not found", 404)
+
+    // Idempotency guard — matches the existing human 409 shape.
+    const pending = await queries.communityBot.findPendingFriendRequest(
+      db,
+      target.id,
+      ctx.userId,
+    )
+    if (pending) return writeError("friend request already sent", 409)
+
+    // Owner ↔ bot DM (may need to be created).
+    const dm = await queries.communityDm.createOrGetDM(db, {
+      userId1: target.id,
+      userId2: target.ownerUserId,
+    })
+    const msg = await queries.communityMessage.createMessage(db, {
+      authorId: target.id,
+      content: "A friend wants to be my friend. Approve?",
+      dmConversationId: dm.id,
+    })
+    try {
+      await queries.communityBot.createApprovalRequestStatement(db, {
+        botId: target.id,
+        kind: "friend",
+        serverId: null,
+        requestedByUserId: ctx.userId,
+        dmMessageId: msg.id,
+      })
+    } catch (err) {
+      if (isUniqueConstraintError(err)) {
+        return writeError("friend request already sent", 409)
+      }
+      throw err
+    }
+
+    logAudit(db, {
+      serverId: null,
+      actorId: ctx.userId,
+      action: COMMUNITY_AUDIT_ACTIONS.BOT_FRIEND_REQUESTED,
+      targetType: "user",
+      targetId: target.id,
+      changes: JSON.stringify({ botId: target.id, requestedByUserId: ctx.userId }),
+    })
+    broadcastToUserSafe(target.ownerUserId, {
+      type: WS_EVENTS.DM_NEW_MESSAGE,
+      dmConversationId: dm.id,
+      message: {
+        id: msg.id,
+        authorId: target.id,
+        authorName: target.name,
+        content: msg.content,
+        createdAt: msg.createdAt,
+      },
+    })
+    // 201 — same status code the human path emits on success. Body shape
+    // differs (friendship: null + status: "pending") — clients accept both.
+    return writeJSON({ friendship: null, status: "pending" }, 201)
+  }
 
   try {
     const result = await queries.communityFriendship.sendRequest(db, {

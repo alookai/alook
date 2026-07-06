@@ -34,12 +34,34 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (body.userId === ctx.userId) return writeError("cannot DM yourself", 400)
 
   // Make sure the target user exists — otherwise we silently create an
-  // orphan DM row that the recipient never sees.
-  const target = await queries.user.getUser(db, body.userId)
-  if (!target) return writeError("user not found", 404)
+  // orphan DM row that the recipient never sees. Use `getUserInternal` so we
+  // can gate bot targets on owner ↔ bot relationship.
+  const target = await queries.user.getUserInternal(db, body.userId)
+  if (!target || target.deletedAt !== null) return writeError("user not found", 404)
 
-  const blocked = await requireNotBlocked(db, ctx.userId, body.userId)
-  if (!blocked.ok) return writeError(blocked.error, blocked.status)
+  // Bot-target gating: caller must be either the bot's owner OR in an
+  // accepted friendship with the bot. Otherwise 404 — indistinguishable from
+  // "user not found" to preserve pass-as-human.
+  if (target.isBot === true) {
+    const isOwner = target.ownerUserId === ctx.userId
+    if (!isOwner) {
+      const areFriends = await queries.communityFriendship.areFriends(
+        db,
+        ctx.userId,
+        body.userId,
+      )
+      if (!areFriends) return writeError("user not found", 404)
+    }
+    // Owners: skip block-check with their own bot (self-block doesn't exist,
+    // but skip the round-trip regardless).
+    if (!isOwner) {
+      const blocked = await requireNotBlocked(db, ctx.userId, body.userId)
+      if (!blocked.ok) return writeError(blocked.error, blocked.status)
+    }
+  } else {
+    const blocked = await requireNotBlocked(db, ctx.userId, body.userId)
+    if (!blocked.ok) return writeError(blocked.error, blocked.status)
+  }
 
   const dm = await queries.communityDm.createOrGetDM(db, {
     userId1: ctx.userId,

@@ -1,14 +1,14 @@
 "use client"
 
 import { memo } from "react"
-import { Users, Ban, Monitor } from "lucide-react"
+import { Users, Ban, Monitor, Bot } from "lucide-react"
 import { Avatar } from "./avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { DM } from "./_types"
 
 export const DmSidebar = memo(function DmSidebar({
-  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines,
-  friendsActive, machinesActive,
+  dms, activeDm, blockedUserIds, loading, onPickDm, onShowFriends, onShowMachines, onShowBots,
+  friendsActive, machinesActive, botsActive,
 }: {
   dms: DM[]
   activeDm: string | null
@@ -17,11 +17,13 @@ export const DmSidebar = memo(function DmSidebar({
   onPickDm: (id: string) => void
   onShowFriends: () => void
   onShowMachines?: () => void
+  onShowBots?: () => void
   friendsActive?: boolean
   machinesActive?: boolean
+  botsActive?: boolean
 }) {
   if (loading && dms.length === 0) return <DmSidebarSkeleton />
-  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive)
+  const isFriendsActive = friendsActive ?? (activeDm === null && !machinesActive && !botsActive)
   return (
     <aside className="flex min-w-0 flex-1 flex-col">
       <div className="flex-1 overflow-y-auto thin-scrollbar px-2 py-4">
@@ -38,11 +40,22 @@ export const DmSidebar = memo(function DmSidebar({
           <button
             onClick={onShowMachines}
             className={[
-              "mb-2 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
+              "mb-1 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
               machinesActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
             ].join(" ")}
           >
             <Monitor className="size-5" /> Machines
+          </button>
+        )}
+        {onShowBots && (
+          <button
+            onClick={onShowBots}
+            className={[
+              "mb-2 flex h-9 w-full items-center gap-2 rounded-md px-2 text-sm font-medium",
+              botsActive ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+            ].join(" ")}
+          >
+            <Bot className="size-5" /> My Bots
           </button>
         )}
         <div className="my-2 h-px bg-border" />

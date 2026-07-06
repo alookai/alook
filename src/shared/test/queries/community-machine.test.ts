@@ -203,13 +203,35 @@ describe("findTokenById returns machineId (nullable)", () => {
 });
 
 describe("createPairingToken", () => {
-  it("inserts a pending token and returns id + expiry", async () => {
+  function makeChain(insertRows: Array<{ id: string; expiresAt: string }>) {
     const chain: any = {};
+    // update().set().where() — awaited directly, returns nothing meaningful
+    chain.update = vi.fn(() => chain);
+    chain.set = vi.fn(() => chain);
+    chain.where = vi.fn(() => Promise.resolve());
+    // insert().values().returning()
     chain.insert = vi.fn(() => chain);
     chain.values = vi.fn(() => chain);
-    chain.returning = vi.fn(() =>
-      Promise.resolve([{ id: "cmt_new", expiresAt: "future" }])
+    chain.returning = vi.fn(() => Promise.resolve(insertRows));
+    return chain;
+  }
+
+  it("revokes any existing pending token for the user before insert", async () => {
+    const chain = makeChain([{ id: "cmt_new", expiresAt: "future" }]);
+    await q.createPairingToken(chain, "u_1");
+    expect(chain.update).toHaveBeenCalled();
+    expect(chain.set).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "revoked" })
     );
+    // update() ran before insert() — both were called
+    expect(chain.insert).toHaveBeenCalled();
+    const updateOrder = chain.update.mock.invocationCallOrder[0];
+    const insertOrder = chain.insert.mock.invocationCallOrder[0];
+    expect(updateOrder).toBeLessThan(insertOrder);
+  });
+
+  it("inserts a pending token and returns id + expiry", async () => {
+    const chain = makeChain([{ id: "cmt_new", expiresAt: "future" }]);
     const r = await q.createPairingToken(chain, "u_1");
     expect(r).toEqual({ tokenId: "cmt_new", expiresAt: "future" });
     expect(chain.values).toHaveBeenCalledWith(
@@ -218,43 +240,10 @@ describe("createPairingToken", () => {
   });
 
   it("passes through machineId when supplied (reconnect path)", async () => {
-    const chain: any = {};
-    chain.insert = vi.fn(() => chain);
-    chain.values = vi.fn(() => chain);
-    chain.returning = vi.fn(() =>
-      Promise.resolve([{ id: "cmt_new", expiresAt: "future" }])
-    );
+    const chain = makeChain([{ id: "cmt_new", expiresAt: "future" }]);
     await q.createPairingToken(chain, "u_1", { machineId: "cm_x" });
     expect(chain.values).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: "cm_x" })
-    );
-  });
-
-  it("maps UNIQUE constraint violation to PendingTokenAlreadyExistsError", async () => {
-    const chain: any = {};
-    chain.insert = vi.fn(() => chain);
-    chain.values = vi.fn(() => chain);
-    chain.returning = vi.fn(() =>
-      Promise.reject(new Error("UNIQUE constraint failed: community_machine_token"))
-    );
-    await expect(q.createPairingToken(chain, "u_1")).rejects.toBeInstanceOf(
-      q.PendingTokenAlreadyExistsError
-    );
-  });
-
-  it("maps DrizzleQueryError-wrapped UNIQUE violations via .cause", async () => {
-    const chain: any = {};
-    chain.insert = vi.fn(() => chain);
-    chain.values = vi.fn(() => chain);
-    // Drizzle 0.44+ wraps the driver error as .cause; the outer message has
-    // no "UNIQUE" text, so we rely on the shared helper's cause-recursion.
-    const driver: any = new Error("UNIQUE constraint failed: community_machine_token.user_id");
-    driver.code = "SQLITE_CONSTRAINT_UNIQUE";
-    const wrapped: any = new Error("Failed query: INSERT INTO community_machine_token ...");
-    wrapped.cause = driver;
-    chain.returning = vi.fn(() => Promise.reject(wrapped));
-    await expect(q.createPairingToken(chain, "u_1")).rejects.toBeInstanceOf(
-      q.PendingTokenAlreadyExistsError
     );
   });
 });
@@ -275,8 +264,16 @@ describe("createReconnectPairingToken", () => {
     const chain: any = {};
     chain.select = vi.fn(() => chain);
     chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain);
+    // select().from().where().limit() → owned row; update().set().where() → pre-revoke
+    let whereCallCount = 0;
+    chain.where = vi.fn(() => {
+      whereCallCount += 1;
+      // 2nd where() is the pre-revoke tail; resolves to nothing
+      return whereCallCount >= 2 ? Promise.resolve() : chain;
+    });
     chain.limit = vi.fn(() => Promise.resolve([{ id: "cm_x" }]));
+    chain.update = vi.fn(() => chain);
+    chain.set = vi.fn(() => chain);
     chain.insert = vi.fn(() => chain);
     chain.values = vi.fn(() => chain);
     chain.returning = vi.fn(() =>
@@ -287,22 +284,6 @@ describe("createReconnectPairingToken", () => {
     expect(chain.values).toHaveBeenCalledWith(
       expect.objectContaining({ machineId: "cm_x" })
     );
-  });
-
-  it("propagates PendingTokenAlreadyExistsError from createPairingToken", async () => {
-    const chain: any = {};
-    chain.select = vi.fn(() => chain);
-    chain.from = vi.fn(() => chain);
-    chain.where = vi.fn(() => chain);
-    chain.limit = vi.fn(() => Promise.resolve([{ id: "cm_x" }]));
-    chain.insert = vi.fn(() => chain);
-    chain.values = vi.fn(() => chain);
-    chain.returning = vi.fn(() =>
-      Promise.reject(new Error("UNIQUE constraint failed"))
-    );
-    await expect(
-      q.createReconnectPairingToken(chain, "u_1", "cm_x")
-    ).rejects.toBeInstanceOf(q.PendingTokenAlreadyExistsError);
   });
 });
 

@@ -97,6 +97,17 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       })
     }
 
+    if (url.pathname === "/push" && request.method === "POST") {
+      // Forward a bot:* frame (or any host-command frame) to the connected
+      // daemon. Best-effort — if the daemon isn't connected, drops silently.
+      // Cold-start warmup on reconnect re-syncs authoritative state.
+      const body = await request.text()
+      const sent = this.forwardToCommunityMachine(body)
+      return new Response(JSON.stringify({ sent }), {
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
     if (url.pathname === "/forward-agent-start" && request.method === "POST") {
       // Forward an `agent:start` frame to the connected daemon and clear
       // any lastRuntimeError overlay optimistically (with a fan-out) so the
@@ -461,6 +472,46 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
     if (!identity) {
       log.warn("community machine message with no cached identity")
+      return
+    }
+
+    // Agent command ack frames — daemon → server reply protocol. New in v0.2.
+    // `agent_started_ack` / `agent_stopped_ack` / extended `agent_deliver_ack`
+    // carry `status: "ok" | "error"` + optional `{ code, message }`.
+    // No persistent write: there is no `communityAgentRuntime` table (checked)
+    // and adding one is scope creep. Log for observability only; owner-visible
+    // surfacing goes through the daemon-side error propagation to the bot
+    // process (which can DM the owner).
+    if (
+      parsed && typeof parsed === "object" && "type" in parsed &&
+      typeof (parsed as { type: unknown }).type === "string" &&
+      (
+        (parsed as { type: string }).type === "agent_started_ack" ||
+        (parsed as { type: string }).type === "agent_stopped_ack" ||
+        (parsed as { type: string }).type === "agent_deliver_ack"
+      )
+    ) {
+      const ack = parsed as {
+        type: string
+        agentId?: string
+        status?: string
+        error?: { code?: string; message?: string }
+      }
+      if (ack.status === "error") {
+        log.warn("agent command ack error", {
+          machineId: identity.machineId,
+          type: ack.type,
+          agentId: ack.agentId,
+          code: ack.error?.code,
+          message: ack.error?.message,
+        })
+      } else if (ack.status === "ok") {
+        log.debug("agent command ack ok", {
+          machineId: identity.machineId,
+          type: ack.type,
+          agentId: ack.agentId,
+        })
+      }
       return
     }
 

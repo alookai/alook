@@ -389,6 +389,33 @@ export type CommunityMachineRemoved = {
   machineId: string
 }
 
+// ── Bot events ────────────────────────────────────────────────────────────────
+//
+// Server → daemon frames. Colon-namespaced to match the existing HostCommand
+// convention (`agent:start` / `agent:stop` / `agent:deliver`). Delivered to
+// the specific machine's daemon connection via the WS Durable Object.
+
+export type BotAddedFrame = {
+  type: "bot:added"
+  botId: string
+  name: string
+  description?: string
+}
+
+export type BotUpdatedFrame = {
+  type: "bot:updated"
+  botId: string
+  name: string
+  description?: string
+}
+
+export type BotRemovedFrame = {
+  type: "bot:removed"
+  botId: string
+}
+
+export type CommunityBotHostFrame = BotAddedFrame | BotUpdatedFrame | BotRemovedFrame
+
 // ── Union type ────────────────────────────────────────────────────────────────
 
 export type CommunityWsEvent =

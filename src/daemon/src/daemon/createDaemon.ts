@@ -25,11 +25,16 @@ import { homedir } from "os";
 import { WsControlChannel } from "../server/wsControlChannel.js";
 import { CredentialBroker, startCredentialProxy } from "../credentials/index.js";
 import { AgentProcessManager, AgentRouter } from "../manager/index.js";
+import { UnknownBotError, BotEnrollFailedError } from "../manager/agentRouter.js";
 import { createTimelineRecorder } from "../timeline/index.js";
 import { resolveAlookCliPathWithFallback } from "../discovery.js";
 import type { Driver, LaunchContext } from "../types.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
-import type { Message } from "../server/contract.js";
+import type { Message, HostCommand } from "../server/contract.js";
+
+// Cold-start warmup backoff schedule (ms).
+const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
+const WARMUP_CEILING_MS = 30_000;
 
 /** The minimal WebSocket the control channel needs (host injects a `ws` factory). */
 export type DaemonWebSocketFactory = (url: string, headers: Record<string, string>) => unknown;
@@ -104,18 +109,85 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   // Per-agent enrolled runner keys (enrollment is async; stored before deliver).
   const enrolledKeys = new Map<string, string>();
 
+  // ── Bot cache ──────────────────────────────────────────────────────────
+  //
+  // `botsById` holds the minimum info the daemon needs to assemble system
+  // prompts + gate `agent:*` commands. Maintained by:
+  //   1. Cold-start warmup on WS `ready` (HTTP fetch, retried with backoff).
+  //   2. Steady-state server pushes: bot:added / bot:updated / bot:removed.
+  //   3. Reconnect: warmup re-runs; server's snapshot wins.
+  //
+  // Note: `cmk_`-rotation-implies-re-pair is documented as an assumption;
+  // runtime code doesn't handle rotation.
+  const botsById = new Map<string, { name: string; description?: string }>();
+
+  async function listMyBotsHttp(): Promise<
+    Array<{ id: string; name: string; description?: string }>
+  > {
+    const res = await fetch(`${opts.serverUrl}/api/community/daemon/bots`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${opts.machineKey}` },
+    });
+    if (!res.ok) throw new Error(`listMyBots ${res.status}`);
+    const json = (await res.json()) as {
+      bots?: Array<{ id: string; name: string; description?: string }>;
+    };
+    return json.bots ?? [];
+  }
+
+  async function coldStartWarmup(): Promise<void> {
+    const start = Date.now();
+    let attempt = 0;
+    while (Date.now() - start < WARMUP_CEILING_MS) {
+      try {
+        const bots = await listMyBotsHttp();
+        // Server snapshot wins — reconcile the cache.
+        botsById.clear();
+        for (const b of bots) {
+          botsById.set(b.id, { name: b.name, description: b.description });
+        }
+        return;
+      } catch {
+        const delay = WARMUP_BACKOFF_MS[Math.min(attempt, WARMUP_BACKOFF_MS.length - 1)];
+        await new Promise((r) => setTimeout(r, delay));
+        attempt++;
+      }
+    }
+    // Ceiling exhausted — resolve empty. A subsequent `agent:start` /
+    // `agent:deliver` frame will trigger a deferred retry via enrollAgent.
+  }
+
   const enrollAgent = async (agentId: string): Promise<string> => {
     const existing = enrolledKeys.get(agentId);
     if (existing) return existing;
-    const res = await fetch(`${opts.serverUrl}/api/community/daemon/enroll-agent`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${opts.machineKey}` },
-      body: JSON.stringify({ agentId }),
-    });
-    const json = (await res.json()) as { runnerKey?: string; error?: string };
-    if (!res.ok || !json.runnerKey) throw new Error(json.error ?? `enroll failed for ${agentId} (${res.status})`);
-    enrolledKeys.set(agentId, json.runnerKey);
-    return json.runnerKey;
+    // Bot-scoped cache-invalidation: if this agent isn't in `botsById` we
+    // don't have authoritative confirmation the server thinks it exists;
+    // proceed anyway (the server-side enroll route is the source of truth
+    // and will 404 if the bot is unknown/cross-owner).
+    try {
+      const res = await fetch(`${opts.serverUrl}/api/community/daemon/enroll-agent`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${opts.machineKey}` },
+        body: JSON.stringify({ agentId }),
+      });
+      const json = (await res.json()) as { runnerKey?: string; error?: string };
+      if (!res.ok || !json.runnerKey) {
+        if (res.status === 404) {
+          throw new UnknownBotError(agentId);
+        }
+        throw new BotEnrollFailedError(
+          agentId,
+          new Error(json.error ?? `enroll failed (${res.status})`),
+        );
+      }
+      enrolledKeys.set(agentId, json.runnerKey);
+      return json.runnerKey;
+    } catch (err) {
+      if (err instanceof UnknownBotError || err instanceof BotEnrollFailedError) {
+        throw err;
+      }
+      throw new BotEnrollFailedError(agentId, err);
+    }
   };
 
   const channel = new WsControlChannel({
@@ -125,17 +197,54 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     onAuthRejected: opts.onAuthRejected,
   });
 
+  // Cache-side handler for bot:* frames. Runs BEFORE AgentRouter sees them,
+  // via a channel wrapper (registered below).
+  function handleBotFrame(cmd: HostCommand): void {
+    switch (cmd.type) {
+      case "bot:added":
+        botsById.set(cmd.botId, { name: cmd.name, description: cmd.description });
+        break;
+      case "bot:updated": {
+        const prev = botsById.get(cmd.botId);
+        botsById.set(cmd.botId, { name: cmd.name, description: cmd.description });
+        // If a subprocess is running for this bot AND name/description changed,
+        // stop it so the next wake trigger spawns a fresh subprocess with the
+        // new system prompt. Rename is effective on next spawn, not mid-flight.
+        const nameChanged = prev && prev.name !== cmd.name;
+        const descChanged = prev && (prev.description ?? "") !== (cmd.description ?? "");
+        if (nameChanged || descChanged) {
+          void manager.stop(cmd.botId);
+        }
+        break;
+      }
+      case "bot:removed":
+        botsById.delete(cmd.botId);
+        enrolledKeys.delete(cmd.botId);
+        void manager.stop(cmd.botId);
+        break;
+      default:
+        break;
+    }
+  }
+
   const manager = new AgentProcessManager({
     driverFor: opts.driverFor,
     baseContextFor: (agentId: string) => {
       const runnerKey = enrolledKeys.get(agentId);
       if (!runnerKey) throw new Error(`agent ${agentId} not enrolled yet — enroll before deliver`);
+      // Look up bot metadata for system-prompt assembly. Missing (unknown bot
+      // that pre-dates warmup) is not fatal — the manager's default prompt
+      // path handles missing name/description.
+      const botMeta = botsById.get(agentId);
       return {
         agentId,
         workingDirectory: workdirFor(agentId),
         credentialProxy: { broker, proxyUrl: proxy.url, runnerKey },
         agentCliPath: resolvedCliPath ?? opts.agentCliPath,
-        config: {},
+        config: {
+          ...(botMeta?.name ? { agentName: botMeta.name } : {}),
+          ...(botMeta?.description ? { description: botMeta.description } : {}),
+        } as LaunchContext["config"],
       } as Omit<LaunchContext, "prompt" | "standingPrompt"> & { config?: LaunchContext["config"] };
     },
     tickIntervalMs: opts.tickIntervalMs ?? 2000,
@@ -154,10 +263,43 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     arch: opts.arch,
     osRelease: opts.osRelease,
     daemonVersion: opts.daemonVersion,
-    onBeforeAgent: async (agentId) => { await enrollAgent(agentId); },
+    // onBeforeAgent gate — reject unknown bots BEFORE enroll to keep the
+    // failure code stable (`bot_unknown` vs `bot_enroll_failed`).
+    onBeforeAgent: async (agentId) => {
+      if (!botsById.has(agentId)) {
+        // Try one deferred warmup pass — the ceiling-exhaustion case parks
+        // the daemon with an empty cache; the first real frame should retry
+        // the fetch once before erroring out.
+        try {
+          const bots = await listMyBotsHttp();
+          for (const b of bots) {
+            botsById.set(b.id, { name: b.name, description: b.description });
+          }
+        } catch {
+          // Fall through — still treat as unknown below.
+        }
+      }
+      if (!botsById.has(agentId)) {
+        throw new UnknownBotError(agentId);
+      }
+      await enrollAgent(agentId);
+    },
     transformWakeText: (message: Message) =>
       `You have a new message in channel ${message.channel}.`,
   });
+
+  // Register the bot-cache pre-hook. `onCommand` supports multiple listeners
+  // in FIFO order — this one runs before the AgentRouter's listener (which
+  // router.start() appends), so bot:* frames mutate the cache before the
+  // router dispatches. No monkey-patching required.
+  channel.onCommand((cmd) => {
+    handleBotFrame(cmd);
+  });
+  // Warmup on every (re)connect. `onReconnected` fires after resync completes.
+  channel.onReconnected(() => {
+    void coldStartWarmup();
+  });
+
   channel.connect();
   await router.start();
 

@@ -89,6 +89,42 @@ export function withAuth(handler: AuthenticatedHandler) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 })
     }
 
+    // Session guard — Better-Auth's Drizzle adapter reads user rows via
+    // .select() directly, so a session cookie may carry stale state after a
+    // user is soft-deleted or if some future flow ever mints a session for a
+    // bot user row. Enforce at request-time:
+    //   - deletedAt != null → session invalid
+    //   - isBot === true    → session invalid (bots must never sign in)
+    // Belt-and-braces with the databaseHooks.session.create.before hook.
+    try {
+      const db = getDb(cloudflareEnv.DB)
+      const internal = await queries.user.getUserInternal(
+        db,
+        sessionResult.response.user.id,
+      )
+      if (!internal || internal.deletedAt !== null || internal.isBot === true) {
+        // Best-effort server-side invalidation. Cookie clear happens via the
+        // 401 response below; Better-Auth will see the missing session next
+        // request.
+        try {
+          await auth.api.signOut({ headers: req.headers })
+        } catch {
+          // ignore — signOut best-effort
+        }
+        const invalid = NextResponse.json(
+          { error: "session no longer valid" },
+          { status: 401 },
+        )
+        // Clear known Better-Auth cookie names to prevent replay.
+        invalid.cookies.set("better-auth.session_token", "", { maxAge: 0, path: "/" })
+        invalid.cookies.set("better-auth.session_data", "", { maxAge: 0, path: "/" })
+        return invalid
+      }
+    } catch {
+      // Fall through — if the guard read fails, session validation already
+      // succeeded and we don't want to break auth for an incidental read error.
+    }
+
     const authCtx: AuthContext = {
       env: cloudflareEnv,
       userId: sessionResult.response.user.id,

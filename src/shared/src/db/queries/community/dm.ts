@@ -1,4 +1,4 @@
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, and, or, desc, isNull } from "drizzle-orm";
 import { communityDmConversation } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -48,7 +48,8 @@ export async function listDMs(db: Database, userId: string) {
     })
     .from(communityDmConversation)
     .innerJoin(user, eq(user.id, communityDmConversation.user2Id))
-    .where(eq(communityDmConversation.user1Id, userId))
+    .where(and(eq(communityDmConversation.user1Id, userId), isNull(user.deletedAt)))
+    // filtered in the WHERE above; sorted here.
     .orderBy(desc(communityDmConversation.lastMessageAt));
 
   // Where user is user2 — join to get user1 info
@@ -64,7 +65,8 @@ export async function listDMs(db: Database, userId: string) {
     })
     .from(communityDmConversation)
     .innerJoin(user, eq(user.id, communityDmConversation.user1Id))
-    .where(eq(communityDmConversation.user2Id, userId))
+    .where(and(eq(communityDmConversation.user2Id, userId), isNull(user.deletedAt)))
+    // filtered in the WHERE above; sorted here.
     .orderBy(desc(communityDmConversation.lastMessageAt));
 
   // Merge and sort by lastMessageAt DESC

@@ -354,6 +354,27 @@ export type HostCommand =
        * host dedups by id so the agent never sees a duplicate wake.
        */
       deliveryId: string;
+    }
+  // ─── Bot lifecycle events (server → daemon) ────────────────────────────
+  // Colon-namespaced to match the agent:* naming convention. Delivered to
+  // the specific machine's daemon connection via the WS DO. On the daemon,
+  // these mutate the in-memory `botsById` cache and trigger `manager.stop`
+  // when a running bot's config changes.
+  | {
+      type: "bot:added";
+      botId: AgentId;
+      name: string;
+      description?: string;
+    }
+  | {
+      type: "bot:updated";
+      botId: AgentId;
+      name: string;
+      description?: string;
+    }
+  | {
+      type: "bot:removed";
+      botId: AgentId;
     };
 
 /** What the host reports to the server on connect (the registration handshake). */
@@ -396,8 +417,36 @@ export interface HostControlChannel {
   reportReady(ready: HostReady): Promise<void>;
   /** Report an agent's runtime session id (after it starts / resumes). */
   reportAgentSession(info: { agentId: AgentId; sessionId: string; launchId: string }): Promise<void>;
-  /** Acknowledge an at-least-once delivery so the server stops redelivering it. */
-  reportDeliverAck(info: { agentId: AgentId; deliveryId: string }): Promise<void>;
+  /**
+   * Acknowledge an at-least-once delivery so the server stops redelivering it.
+   * `status`/`error` are additive — existing callers passing only
+   * `{ agentId, deliveryId }` still work; the server side reads them when
+   * present to report an error inline.
+   */
+  reportDeliverAck(info: {
+    agentId: AgentId;
+    deliveryId: string;
+    status?: "ok" | "error";
+    error?: { code: string; message: string };
+  }): Promise<void>;
+  /**
+   * Reply to an `agent:start` command with the launch outcome. New in v0.2.
+   * Optional so the local mock channel can omit it.
+   */
+  reportStartedAck?(info: {
+    agentId: AgentId;
+    launchId: string;
+    status: "ok" | "error";
+    error?: { code: string; message: string };
+  }): Promise<void>;
+  /**
+   * Reply to an `agent:stop` command with the stop outcome. New in v0.2.
+   */
+  reportStoppedAck?(info: {
+    agentId: AgentId;
+    status: "ok" | "error";
+    error?: { code: string; message: string };
+  }): Promise<void>;
   /**
    * Report a `session.error` upward. Used by `AgentRouter` when a driver
    * can't fulfil an `agent:start` (e.g. runtime not installed) — the server

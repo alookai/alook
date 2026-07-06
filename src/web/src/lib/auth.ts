@@ -1,6 +1,13 @@
 import { betterAuth } from "better-auth"
 import { emailOTP, deviceAuthorization, bearer } from "better-auth/plugins"
-import { createLogger, DEV_EMAIL_WORKER_URL, resolveMode } from "@alook/shared"
+import {
+  createLogger,
+  DEV_EMAIL_WORKER_URL,
+  resolveMode,
+  queries,
+  COMMUNITY_BOT_EMAIL_DOMAIN,
+} from "@alook/shared"
+import { getDb } from "@/lib/db"
 import { getOtpSubject, renderOtpEmail } from "./email-templates"
 
 const log = createLogger({ service: "auth" })
@@ -80,6 +87,14 @@ export function createAuth(env: Env) {
       user: {
         create: {
           before: async (user) => {
+            // Reserve the bot synthetic-email domain so a real signup can't
+            // collide with a bot row's UNIQUE(email). Only bot creation should
+            // ever mint an address at this domain; a public signup here means
+            // someone is impersonating or the domain assumption is wrong.
+            const emailDomain = user.email?.split("@")[1]?.toLowerCase()
+            if (emailDomain === COMMUNITY_BOT_EMAIL_DOMAIN) {
+              return false as unknown as { data: typeof user }
+            }
             const trimmed = (user.name ?? "").trim()
             if (trimmed) return { data: user }
             const fallback = user.email?.split("@")[0]?.trim()
@@ -105,6 +120,25 @@ export function createAuth(env: Env) {
       },
       session: {
         create: {
+          // Belt-and-braces: refuse to mint a session for a bot user row.
+          // Non-goal per plan: "logging in as a bot" — no UI, no session
+          // token; enforced structurally here so a future flow that reaches
+          // `session.create` can't accidentally hand a bot a cookie.
+          before: async (session) => {
+            try {
+              const db = getDb(env.DB)
+              const target = await queries.user.getUserInternal(db, session.userId)
+              if (target?.isBot === true || target?.deletedAt !== null) {
+                // Returning `false` cancels the create per Better-Auth API.
+                return false as unknown as { data: typeof session }
+              }
+              return { data: session }
+            } catch {
+              // Best-effort — fall through and allow. The withAuth guard
+              // catches this on the very next request anyway.
+              return { data: session }
+            }
+          },
           after: async (session, ctx) => {
             if (!ctx) return
             const signupCookie = ctx.getCookie("is_new_signup")

@@ -19,14 +19,13 @@ export const POST = withAuth(async (_req, ctx) => {
       ctx.userId,
       id
     )
+    // Reconnect rotates `cmk_` on next /activate. Runner keys are tied to
+    // the machine but authorized by `cmk_`, so stale `crk_` rows would
+    // outlive the credential that authorized them. Revoke them here so the
+    // daemon re-enrolls after reconnect.
+    await queries.communityMachine.revokeRunnerKeysForMachine(db, id)
     return writeJSON({ tokenId: token.tokenId, expiresAt: token.expiresAt })
   } catch (err) {
-    if (err instanceof queries.communityMachine.PendingTokenAlreadyExistsError) {
-      return writeError(
-        "You already have an unused pairing token — cancel it first",
-        409
-      )
-    }
     if (err instanceof Error && /not owned by user/.test(err.message)) {
       return writeError("machine not found", 404)
     }

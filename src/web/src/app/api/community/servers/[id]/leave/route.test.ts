@@ -20,6 +20,7 @@ vi.mock("@alook/shared", async () => {
       communityMember: {
         getMember: (...a: unknown[]) => mockGetMember(...a),
         removeMember: (...a: unknown[]) => mockRemoveMember(...a),
+        listOwnerBotsInServer: vi.fn().mockResolvedValue([]),
       },
     },
   }

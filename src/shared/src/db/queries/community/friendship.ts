@@ -1,7 +1,18 @@
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, isNull } from "drizzle-orm";
 import { communityFriendship } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+
+/**
+ * Synthetic friendship id used for owner ↔ own-bot rows in `listFriends`.
+ * Bots never have a real `communityFriendship` row with their owner — they
+ * ARE the owner's friend by construction. The `self-bot:` prefix flags the
+ * row as synthetic so UI code (e.g. remove-friend, block) can skip it.
+ */
+export const SELF_BOT_FRIENDSHIP_PREFIX = "self-bot:";
+export function isSelfBotFriendship(id: string): boolean {
+  return id.startsWith(SELF_BOT_FRIENDSHIP_PREFIX);
+}
 
 /**
  * Look up any friendship row between two users, in either direction.
@@ -228,7 +239,10 @@ export async function unblock(
 }
 
 export async function listFriends(db: Database, userId: string) {
-  // Query where user is the requester
+  // Filter deletedAt IS NULL — a soft-deleted friend (bot or human) is hidden
+  // from the friend list. Return shape MUST NOT include isBot/ownerUserId:
+  // Bob's friend list must render zoe (someone else's bot) indistinguishably
+  // from a human friend.
   const asRequester = await db
     .select({
       id: communityFriendship.id,
@@ -242,11 +256,11 @@ export async function listFriends(db: Database, userId: string) {
     .where(
       and(
         eq(communityFriendship.requesterId, userId),
-        eq(communityFriendship.status, "accepted")
+        eq(communityFriendship.status, "accepted"),
+        isNull(user.deletedAt)
       )
     );
 
-  // Query where user is the addressee
   const asAddressee = await db
     .select({
       id: communityFriendship.id,
@@ -260,11 +274,122 @@ export async function listFriends(db: Database, userId: string) {
     .where(
       and(
         eq(communityFriendship.addresseeId, userId),
-        eq(communityFriendship.status, "accepted")
+        eq(communityFriendship.status, "accepted"),
+        isNull(user.deletedAt)
       )
     );
 
-  return [...asRequester, ...asAddressee];
+  // Owner ↔ own-bot rows are surfaced here too — bots the caller owns must
+  // appear in the Friends tab so the owner can DM / mention / @-them from
+  // the same surface as any other friend. No real `communityFriendship` row
+  // exists for these pairs; the id is prefixed `self-bot:` so callers can
+  // detect + skip friendship-only actions (remove-friend, block).
+  const ownBots = await db
+    .select({
+      botUserId: user.id,
+      botName: user.name,
+      botEmail: user.email,
+      botImage: user.image,
+    })
+    .from(user)
+    .where(
+      and(
+        eq(user.ownerUserId, userId),
+        eq(user.isBot, true),
+        isNull(user.deletedAt)
+      )
+    );
+  const ownBotRows = ownBots.map((b) => ({
+    id: SELF_BOT_FRIENDSHIP_PREFIX + b.botUserId,
+    friendUserId: b.botUserId,
+    friendName: b.botName,
+    friendEmail: b.botEmail,
+    friendImage: b.botImage,
+  }));
+
+  return [...asRequester, ...asAddressee, ...ownBotRows];
+}
+
+/**
+ * Are two users in an `accepted` friendship? Direction-agnostic. Used by the
+ * bot-server-add flow (friend-of-bot path) and DM peer allow-list.
+ */
+export async function areFriends(
+  db: Database,
+  userA: string,
+  userB: string
+): Promise<boolean> {
+  // Owner ↔ own-bot is an implicit friendship (no row exists but they act
+  // like friends everywhere). Check both directions so callers don't have to
+  // know which side is the bot.
+  const selfBotRows = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(
+      and(
+        eq(user.isBot, true),
+        or(
+          and(eq(user.id, userA), eq(user.ownerUserId, userB)),
+          and(eq(user.id, userB), eq(user.ownerUserId, userA))
+        )
+      )
+    )
+    .limit(1);
+  if (selfBotRows.length > 0) return true;
+
+  const rows = await db
+    .select({ id: communityFriendship.id })
+    .from(communityFriendship)
+    .where(
+      and(
+        eq(communityFriendship.status, "accepted"),
+        or(
+          and(
+            eq(communityFriendship.requesterId, userA),
+            eq(communityFriendship.addresseeId, userB)
+          ),
+          and(
+            eq(communityFriendship.requesterId, userB),
+            eq(communityFriendship.addresseeId, userA)
+          )
+        )
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Directly create an already-accepted friendship. Used by the bot approval
+ * flow — approve implies both parties agree, so we skip the pending state.
+ * If a row already exists in either direction, returns null and lets the
+ * caller treat it as idempotent.
+ */
+export async function createAcceptedFriendship(
+  db: Database,
+  data: { requesterId: string; addresseeId: string }
+): Promise<typeof communityFriendship.$inferSelect | null> {
+  const existing = await findExisting(db, data.requesterId, data.addresseeId);
+  if (existing) {
+    if (existing.status === "accepted") return existing;
+    if (existing.status === "blocked") return null;
+    // pending — promote to accepted
+    const rows = await db
+      .update(communityFriendship)
+      .set({ status: "accepted", updatedAt: new Date().toISOString() })
+      .where(eq(communityFriendship.id, existing.id))
+      .returning();
+    return rows[0] ?? null;
+  }
+  const rows = await db
+    .insert(communityFriendship)
+    .values({
+      requesterId: data.requesterId,
+      addresseeId: data.addresseeId,
+      status: "accepted",
+    })
+    .returning();
+  return rows[0] ?? null;
 }
 
 export async function getFriendship(db: Database, friendshipId: string) {

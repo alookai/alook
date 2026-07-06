@@ -8,7 +8,8 @@ const DEFAULT_LIMIT = 50;
 export async function logAction(
   db: Database,
   data: {
-    serverId: string;
+    /** Null for user-scoped rows (bot lifecycle, friend approvals). */
+    serverId: string | null;
     actorId: string;
     action: string;
     targetType: string;
