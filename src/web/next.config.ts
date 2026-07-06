@@ -2,9 +2,6 @@ import type { NextConfig } from "next";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import createMDX from "@next/mdx";
-import createNextIntlPlugin from "next-intl/plugin";
-
-const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, "package.json"), "utf-8"));
 
@@ -36,7 +33,7 @@ const withMDX = createMDX({
 	},
 });
 
-export default withNextIntl(withMDX(nextConfig));
+export default withMDX(nextConfig);
 
 // Enable calling `getCloudflareContext()` in `next dev`.
 // See https://opennext.js.org/cloudflare/bindings#local-access-to-bindings.
