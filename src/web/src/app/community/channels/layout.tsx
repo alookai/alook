@@ -35,7 +35,6 @@ import {
   useDeleteCategory,
   useReorderCategories,
   useReorderChannels,
-  useMarkChannelRead,
   useDeleteServer,
   useUpdateServer,
   useUploadServerIcon,
@@ -91,7 +90,6 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const deleteCategoryMut = useDeleteCategory()
   const reorderCategoriesMut = useReorderCategories()
   const reorderChannelsMut = useReorderChannels()
-  const markChannelReadMut = useMarkChannelRead()
   const deleteServerMut = useDeleteServer()
   const updateServerMut = useUpdateServer()
   const uploadServerIconMut = useUploadServerIcon()
@@ -150,11 +148,20 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     // renders using the old channel's type for one frame. Letting the newly-
     // mounted ChannelView sync the store in its own useEffect keeps skeleton
     // type consistent with the target channel.
+    //
+    // #3: also do NOT eagerly mark the channel read. The
+    // IntersectionObserver in `useChannelWatermark` is authoritative — it
+    // advances the pointer as the user actually looks at messages. Clicking
+    // the sidebar is not "I read everything"; it's just a navigation event.
+    // `channelTree.markRead(id)` is a client-only tint (unread flag on the
+    // sidebar row) — kept so the badge fades on click as it did before. If
+    // the user then never scrolls to the new messages, the server-side
+    // watermark stays put and the badge will re-appear on next refetch,
+    // which is the correct behavior.
     router.push(`/community/channels/${serverId}/${id}`)
-    markChannelReadMut.mutate({ channelId: id })
     channelTree.markRead(id)
     if (bp === "mobile") setMobileZone("messages")
-  }, [router, serverId, markChannelReadMut, channelTree, bp])
+  }, [router, serverId, channelTree, bp])
 
   const onSidebarOpenSettings = useCallback((section?: SettingsSection) => {
     if (section) setSettingsSection(section)

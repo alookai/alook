@@ -38,12 +38,22 @@ import { POST } from "./route"
 describe("POST /api/community/inbox/unreads/read-all", () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it("returns the count of channels marked read", async () => {
+  it("returns the count of NON-EMPTY channels marked read (invariant: empty channels excluded)", async () => {
+    // Post-invariant: count == channels that actually received an aligned
+    // write. Empty channels are skipped, so this is <= reachable-channel count.
     mockMarkAllServerChannelsRead.mockResolvedValue(7)
     const res = await POST(new NextRequest("http://localhost/api/community/inbox/unreads/read-all", { method: "POST" }))
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body).toEqual({ ok: true, count: 7 })
     expect(mockMarkAllServerChannelsRead).toHaveBeenCalledWith({}, "u1")
+  })
+
+  it("returns count 0 when every channel is empty (nothing to write)", async () => {
+    mockMarkAllServerChannelsRead.mockResolvedValue(0)
+    const res = await POST(new NextRequest("http://localhost/api/community/inbox/unreads/read-all", { method: "POST" }))
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, count: 0 })
   })
 })

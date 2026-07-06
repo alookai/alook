@@ -21,7 +21,6 @@ type RawServerRow = {
   name: string
   icon: string | null
   role?: string
-  unread?: boolean
   mentions?: number
 }
 
@@ -39,7 +38,9 @@ export const serversQueryFn = async (): Promise<ServersResponse> => {
     name: s.name,
     initial: avatarInitial(s.name),
     active: false,
-    unread: s.unread ?? false,
+    // Defensive fallback: the API always projects `mentions` now, but during
+    // rolling deploys or from cached stale responses the field could still be
+    // absent — treat it as 0 rather than NaN.
     mentions: s.mentions ?? 0,
     isOwner: isServerOwner(s.role),
     icon: s.icon ?? null,

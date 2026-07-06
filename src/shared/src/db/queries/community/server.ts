@@ -1,9 +1,11 @@
-import { eq, and, asc, inArray, or, like, isNull } from "drizzle-orm";
+import { eq, and, asc, inArray, or, like, isNull, sql, count } from "drizzle-orm";
 import {
   communityServer,
   communityCategory,
   communityChannel,
   communityServerMember,
+  communityMention,
+  communityMessage,
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -114,6 +116,29 @@ export async function deleteServer(db: Database, serverId: string) {
 }
 
 export async function listUserServers(db: Database, userId: string) {
+  // Subquery: unread mention count for this viewer, grouped by server.
+  // Only kind='mention' counts toward the rail badge — replies live in the
+  // For You feed but do not warrant a red number on the server icon.
+  // The inner joins on message → channel drop DM mentions (channelId IS NULL)
+  // and orphan rows, so the count only reflects server-scoped mentions.
+  const mentionCounts = db
+    .select({
+      serverId: communityChannel.serverId,
+      mentions: count().as("mentions"),
+    })
+    .from(communityMention)
+    .innerJoin(communityMessage, eq(communityMessage.id, communityMention.messageId))
+    .innerJoin(communityChannel, eq(communityChannel.id, communityMessage.channelId))
+    .where(
+      and(
+        eq(communityMention.userId, userId),
+        eq(communityMention.read, 0),
+        eq(communityMention.kind, "mention")
+      )
+    )
+    .groupBy(communityChannel.serverId)
+    .as("mention_counts");
+
   return db
     .select({
       id: communityServer.id,
@@ -125,6 +150,11 @@ export async function listUserServers(db: Database, userId: string) {
       role: communityServerMember.role,
       nickname: communityServerMember.nickname,
       railOrder: communityServerMember.railOrder,
+      // COALESCE has no ORM operator in this Drizzle version — the LEFT JOIN
+      // yields NULL for servers with zero unread mentions. Wrap the aggregate
+      // column with a narrow `sql` cast so the client always receives a
+      // number, never NULL.
+      mentions: sql<number>`COALESCE(${mentionCounts.mentions}, 0)`.mapWith(Number),
     })
     .from(communityServer)
     .innerJoin(
@@ -134,6 +164,7 @@ export async function listUserServers(db: Database, userId: string) {
         eq(communityServerMember.userId, userId)
       )
     )
+    .leftJoin(mentionCounts, eq(mentionCounts.serverId, communityServer.id))
     .orderBy(asc(communityServerMember.railOrder));
 }
 

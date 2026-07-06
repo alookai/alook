@@ -223,6 +223,26 @@ export const communityFriendship = sqliteTable(
 );
 
 // 12. community_read_state
+//
+// INVARIANT: every row here satisfies
+//   lastReadMessageId IS NOT NULL
+//   AND lastReadAt === getMessage(lastReadMessageId).createdAt
+//
+// `lastReadAt` is a denormalized cache of the target message's own
+// `createdAt` — it exists only so the inbox unread predicate
+// (`channel.lastMessageAt > lastReadAt`) stays a single-column comparison.
+// It is NEVER the semantic source of truth on its own.
+//
+// Consequences for writers:
+// - If a channel/DM has no messages yet, there is NO row — mass mark-read is
+//   a no-op. Never insert `{ lastReadAt: now, lastReadMessageId: null }`. If
+//   a future path genuinely needs to erase the pointer, delete the row.
+// - Route every write through `markReadToMessageBuilder` /
+//   `markReadToMessage` in `queries/community/read-state.ts`. Both take a
+//   `message: { id, createdAt }` and enforce alignment by construction. To
+//   mark "as of now", fetch the latest message first with
+//   `queries.communityMessage.getLatestMessage`; empty → no-op.
+//
 // CHECK constraint (in migration SQL): exactly one of channelId/dmConversationId is non-null
 // Partial unique indexes will be in migration SQL since Drizzle doesn't support partial indexes
 export const communityReadState = sqliteTable(
@@ -239,7 +259,10 @@ export const communityReadState = sqliteTable(
       () => communityDmConversation.id,
       { onDelete: "cascade" }
     ),
+    // INVARIANT: === getMessage(lastReadMessageId).createdAt (see table comment).
     lastReadAt: text("last_read_at").notNull(),
+    // INVARIANT: non-null whenever the row exists. Route writes through
+    // `markReadToMessageBuilder` — never null out.
     lastReadMessageId: text("last_read_message_id"),
   },
   (t) => [index("idx_read_state_user").on(t.userId)]

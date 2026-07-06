@@ -15,7 +15,7 @@ describe("useServers / serversQueryFn", () => {
   it("materialises raw server rows into render-ready Server shape", async () => {
     apiFetchMock.mockResolvedValueOnce({
       servers: [
-        { id: "srv_1", name: "Alook", icon: null, role: "owner", unread: true, mentions: 3 },
+        { id: "srv_1", name: "Alook", icon: null, role: "owner", mentions: 3 },
         { id: "srv_2", name: "Beta", icon: null, role: "member" },
       ],
     })
@@ -24,12 +24,27 @@ describe("useServers / serversQueryFn", () => {
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/servers")
     expect(data.servers[0].initial).toBe("A")
     expect(data.servers[0].isOwner).toBe(true)
-    expect(data.servers[0].unread).toBe(true)
     expect(data.servers[0].mentions).toBe(3)
     expect(data.servers[0].active).toBe(false)
+    // `unread` has been removed from the Server type — the mapper must not
+    // project it. Pin the invariant so a future revival gets caught.
+    expect((data.servers[0] as { unread?: boolean }).unread).toBeUndefined()
     expect(data.servers[1].mentions).toBe(0)
-    expect(data.servers[1].unread).toBe(false)
     expect(data.servers[1].isOwner).toBe(false)
+    expect((data.servers[1] as { unread?: boolean }).unread).toBeUndefined()
+  })
+
+  it("preserves mentions when provided; defaults to 0 when omitted", async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      servers: [
+        { id: "srv_1", name: "A", icon: null, mentions: 7 },
+        { id: "srv_2", name: "B", icon: null }, // no mentions key
+      ],
+    })
+    const { serversQueryFn } = await import("./use-servers")
+    const data = await serversQueryFn()
+    expect(data.servers[0].mentions).toBe(7)
+    expect(data.servers[1].mentions).toBe(0)
   })
 
   it("populates queryClient at communityKeys.servers()", async () => {

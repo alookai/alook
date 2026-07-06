@@ -25,6 +25,8 @@ import { useCurrentUser } from "@/contexts/community/current-user"
 import { useServer } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import { useMessages } from "@/hooks/community/use-messages"
+import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
+import { useChannelWatermark } from "@/hooks/community/use-channel-watermark"
 import {
   useThreads,
   useForumPosts,
@@ -113,6 +115,32 @@ function ChannelView() {
 
   const messagesQuery = useMessages(channelId)
   const { messages, isLoading: messagesLoading } = messagesQuery
+
+  // Frozen-once snapshot of the viewer's read pointer for this channel — the
+  // anchor for the "New" divider AND the mount-time initial scroll target.
+  // The value NEVER changes during the mount even as the watermark advances.
+  const { snapshot: readSnapshot } = useChannelReadStateSnapshot(channelId)
+
+  // The message immediately after the viewer's `lastReadMessageId` inside the
+  // current window. id-first: the invariant guarantees
+  // `getMessage(lastReadMessageId).createdAt === lastReadAt`, so we only need
+  // the id to find the anchor. `idx === -1` means the last-read message has
+  // scrolled off the top of the fetched window — no divider is shown.
+  const newDividerBefore = useMemo(() => {
+    const lastId = readSnapshot?.lastReadMessageId
+    if (!lastId) return undefined
+    const idx = messages.findIndex((m) => m.id === lastId)
+    if (idx === -1) return undefined
+    return messages[idx + 1]?.id
+  }, [messages, readSnapshot])
+
+  // Scroll root of the message list — needed so `useChannelWatermark`'s
+  // IntersectionObserver measures against the correct viewport instead of
+  // the page's default viewport. Set once by `MessageList` via
+  // `onScrollRoot`.
+  const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
+  useChannelWatermark({ channelId, messages, scrollRootEl })
+
   const { threads, isLoading: threadsLoading } = useThreads(channelId)
   const { posts: forumPosts, isLoading: forumPostsLoading } = useForumPosts(channelId, isForum)
   const { pins: pinned, isLoading: pinnedLoading } = usePins(channelId)
@@ -574,12 +602,14 @@ function ChannelView() {
           messages={messages}
           loading={messagesLoading}
           pinnedIds={pinnedIds}
+          newDividerBefore={newDividerBefore}
           typingUsers={typingUsers.map((id) => members.find((m) => m.userId === id)?.name ?? id)}
           onOpenThread={enterThread}
           {...messageActions}
           onOpenProfile={openProfile}
           resolveUserName={resolveUserName}
           scrollToMessageId={scrollToMessageId}
+          onScrollRoot={setScrollRootEl}
         />
         <Composer
           channel={channelName}

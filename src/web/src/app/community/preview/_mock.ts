@@ -33,9 +33,9 @@ import type {
 } from "@/components/community/_types"
 
 export const SERVERS: Server[] = [
-  { id: "sv_alook", name: "Alook", initial: "A", active: true, unread: false, mentions: 0 },
-  { id: "sv_cf", name: "Cloudflare", initial: "CF", active: false, unread: true, mentions: 3 },
-  { id: "sv_oss", name: "OSS Club", initial: "OS", active: false, unread: false, mentions: 0 },
+  { id: "sv_alook", name: "Alook", initial: "A", active: true, mentions: 0 },
+  { id: "sv_cf", name: "Cloudflare", initial: "CF", active: false, mentions: 3 },
+  { id: "sv_oss", name: "OSS Club", initial: "OS", active: false, mentions: 0 },
 ]
 
 export const CATEGORIES: Category[] = [

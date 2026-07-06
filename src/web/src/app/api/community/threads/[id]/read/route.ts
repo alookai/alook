@@ -5,6 +5,15 @@ import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { requireChannelMember } from "@/lib/community/permissions"
 
+/**
+ * PUT /api/community/threads/:id/read
+ *
+ * Same two-shape contract as `PUT /channels/:id/read` (a thread is a channel):
+ * - Body `{ lastReadMessageId }` present → scope-check + align to that
+ *   message.
+ * - Body absent / empty → align to the thread's latest message. Empty thread
+ *   → no-op (invariant forbids `lastReadMessageId = null` rows).
+ */
 export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing id", 400)
@@ -27,12 +36,24 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     // Body is optional
   }
 
-  const result = await queries.communityReadState.markRead(db, {
+  let target: { id: string; createdAt: string } | null
+  if (body.lastReadMessageId) {
+    const msg = await queries.communityMessage.getMessage(db, body.lastReadMessageId)
+    if (!msg) return writeError("message not found", 404)
+    if (msg.channelId !== channelId) {
+      return writeError("message not in channel", 400)
+    }
+    target = { id: msg.id, createdAt: msg.createdAt }
+  } else {
+    target = await queries.communityMessage.getLatestMessage(db, { channelId })
+    if (!target) return writeJSON({ ok: true })
+  }
+
+  await queries.communityReadState.markReadToMessage(db, {
     userId: ctx.userId,
     channelId,
-    lastReadAt: new Date().toISOString(),
-    lastReadMessageId: body.lastReadMessageId,
+    message: target,
   })
 
-  return writeJSON(result)
+  return writeJSON({ ok: true })
 })

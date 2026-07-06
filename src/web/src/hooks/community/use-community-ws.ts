@@ -56,7 +56,6 @@ import type { Msg, Attachment } from "@/components/community/_types"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { MachinesResponse } from "@/hooks/community/use-machines"
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
-import { useMarkChannelRead } from "@/hooks/community/mutations/messages"
 
 /**
  * Community WebSocket handler.
@@ -161,8 +160,11 @@ function insertMessageIntoCache(
     ...(isSystem ? { type: "system" as const } : {}),
     ...(replyTo ? { replyTo } : {}),
     ...(attachments?.length ? { attachments } : {}),
-    // Preserve authorId indirectly (mostly cosmetic; unused by the row).
-    ...(authorId ? {} : {}),
+    // #3: preserve authorId so `useChannelWatermark` can skip self-authored
+    // messages when advancing the read pointer (avoids a redundant PUT — the
+    // server-side write path already sets the sender's `lastReadMessageId`
+    // on send, see #1).
+    ...(authorId ? { authorId } : {}),
   }
   return {
     ...cache,
@@ -287,16 +289,12 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
   const callbacksRef = useRef<CommunityWsCallbacks>(options ?? {})
   callbacksRef.current = options ?? {}
 
-  // Auto-mark-read for messages that arrive in the currently-focused channel
-  // (#6). Held in a ref so the WS handler `useCallback` doesn't need to
-  // rebind on every render of the underlying mutation — the debounce in
-  // `useMarkChannelRead` (500ms per channelId) already collapses bursts, so
-  // this only adds one call per burst per focused channel.
-  const markChannelRead = useMarkChannelRead()
-  const markReadRef = useRef(markChannelRead.mutate)
-  useEffect(() => {
-    markReadRef.current = markChannelRead.mutate
-  }, [markChannelRead.mutate])
+  // #3: the previous WS-driven auto-mark-read (a `useMarkChannelRead()` call
+  // fired on every foreign-authored message in the focused channel) has
+  // been removed. The IntersectionObserver in `useChannelWatermark` is now
+  // authoritative — if a WS-delivered message actually becomes visible in
+  // the viewport, IO advances the read pointer; if the user is scrolled up
+  // reading history, the pointer stays put (which is the correct behavior).
 
   // Debounced inbox invalidation. Grouping repeated invalidations into one
   // refetch cycle keeps the popover from re-rendering on every message tick.
@@ -352,18 +350,12 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             scheduleInboxInvalidate()
           }
 
-          // 3) Auto-mark-read for messages that land in the currently focused
-          //    channel — only channels (not DMs) and only for messages not
-          //    authored by the viewer. Mirrors the debounce in
-          //    `useMarkChannelRead` (500ms per channelId) so a burst collapses
-          //    into a single PUT.
-          if (
-            event.channelId &&
-            event.channelId === sub.channelId &&
-            event.message.authorId !== viewerId
-          ) {
-            markReadRef.current({ channelId: event.channelId })
-          }
+          // Note: no auto-mark-read here. See #3 — the
+          // IntersectionObserver in `useChannelWatermark` advances the
+          // read pointer when a message actually becomes visible in the
+          // viewport. If the user is scrolled up reading history, their
+          // pointer must stay put; the WS handler cannot know whether the
+          // incoming message is on screen.
 
           // Legacy callback fanout — cache patches above are authoritative.
           cbs.onAnyMessage?.(event)
@@ -673,6 +665,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
         // ── Mentions ────────────────────────────────────────────────────
         case "community:mention.create": {
           void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+          // The server rail badge counts unread mentions per server; refresh
+          // it on every new mention. No debounce — mention.create is rare
+          // and the servers list is small.
+          void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
           cbs.onMention?.(event)
           return
         }

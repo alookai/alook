@@ -540,6 +540,26 @@ describe("useMarkChannelRead — #13 debounced read stampede", () => {
     expect(inboxInvalidates).toHaveLength(1)
   })
 
+  it("onDone also invalidates communityKeys.servers() so the rail badge drops", async () => {
+    // Marking a channel read clears its unread mentions on the server; the
+    // rail badge is derived from the same aggregate, so it must refresh.
+    apiFetchMock.mockResolvedValue(undefined)
+    const mod = await loadMod()
+    mod._resetPendingReads_forTesting()
+    mod.useMarkChannelRead()
+    const cfg = capturedConfig!
+    const spy = vi.spyOn(capturedQc, "invalidateQueries")
+    void cfg.mutationFn!({ channelId: "ch_1" })
+    mod.flushPendingReads()
+    await Promise.resolve()
+    await Promise.resolve()
+    const serversInvalidates = spy.mock.calls.filter((c) => {
+      const key = c[0]?.queryKey as unknown[] | undefined
+      return Array.isArray(key) && key.length === 2 && key[0] === "community" && key[1] === "servers"
+    })
+    expect(serversInvalidates).toHaveLength(1)
+  })
+
   it("same-channel re-invoke within window collapses to a single PUT — old scheduling is subsumed", async () => {
     // Regression companion to the Promise-hang bug: verify the debounce
     // behavior itself still holds. A rapid burst on the same channel must
@@ -561,6 +581,135 @@ describe("useMarkChannelRead — #13 debounced read stampede", () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it("useMarkChannelRead fires PUT with NO body — the mass mark-read path", async () => {
+    // The extended `scheduleMarkRead` accepts an optional messageId. The
+    // no-messageId call site (useMarkChannelRead → useMarkAllInboxRead)
+    // must NOT send a body — the server treats absence as "mark whole
+    // channel read at now".
+    vi.useFakeTimers()
+    try {
+      apiFetchMock.mockResolvedValue(undefined)
+      const mod = await loadMod()
+      mod._resetPendingReads_forTesting()
+      mod.useMarkChannelRead()
+      const cfg = capturedConfig!
+      void cfg.mutationFn!({ channelId: "ch_1" })
+      await vi.advanceTimersByTimeAsync(500)
+      const put = apiFetchMock.mock.calls.find(
+        (c) => (c[1] as { method?: string })?.method === "PUT",
+      )
+      expect(put).toBeDefined()
+      // No `body` key on the init.
+      expect((put![1] as RequestInit).body).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+// ── scheduleMarkRead — extended signature (with messageId body) ──────────
+describe("scheduleMarkRead — with messageId body", () => {
+  it("posts { lastMessageId } when a messageId is passed", async () => {
+    vi.useFakeTimers()
+    try {
+      apiFetchMock.mockResolvedValue(undefined)
+      const mod = await loadMod()
+      mod._resetPendingReads_forTesting()
+      mod.scheduleMarkRead("ch_1", { messageId: "m_42", onDone: () => {} })
+      await vi.advanceTimersByTimeAsync(500)
+      const put = apiFetchMock.mock.calls.find(
+        (c) => (c[1] as { method?: string })?.method === "PUT",
+      )
+      expect(put).toBeDefined()
+      expect((put![1] as RequestInit).body).toBe(JSON.stringify({ lastMessageId: "m_42" }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("supersedes the pending messageId when a newer one arrives mid-window", async () => {
+    vi.useFakeTimers()
+    try {
+      apiFetchMock.mockResolvedValue(undefined)
+      const mod = await loadMod()
+      mod._resetPendingReads_forTesting()
+      mod.scheduleMarkRead("ch_1", { messageId: "m_stale", onDone: () => {} })
+      // Fresh call within the window — the latest messageId wins.
+      mod.scheduleMarkRead("ch_1", { messageId: "m_fresh", onDone: () => {} })
+      await vi.advanceTimersByTimeAsync(500)
+      const puts = apiFetchMock.mock.calls.filter(
+        (c) => (c[1] as { method?: string })?.method === "PUT",
+      )
+      expect(puts).toHaveLength(1)
+      expect((puts[0][1] as RequestInit).body).toBe(JSON.stringify({ lastMessageId: "m_fresh" }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("no messageId → no body (preserves the mass mark-read path)", async () => {
+    vi.useFakeTimers()
+    try {
+      apiFetchMock.mockResolvedValue(undefined)
+      const mod = await loadMod()
+      mod._resetPendingReads_forTesting()
+      mod.scheduleMarkRead("ch_1", { onDone: () => {} })
+      await vi.advanceTimersByTimeAsync(500)
+      const put = apiFetchMock.mock.calls.find(
+        (c) => (c[1] as { method?: string })?.method === "PUT",
+      )
+      expect((put![1] as RequestInit).body).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+// ── useAdvanceChannelWatermark — thin wrapper for viewport advances ─────
+describe("useAdvanceChannelWatermark", () => {
+  it("returns a callable that PUTs { lastMessageId } after the debounce", async () => {
+    vi.useFakeTimers()
+    try {
+      apiFetchMock.mockResolvedValue(undefined)
+      const mod = await loadMod()
+      mod._resetPendingReads_forTesting()
+      const advance = mod.useAdvanceChannelWatermark()
+      advance("ch_1", "m_42")
+      await vi.advanceTimersByTimeAsync(500)
+      const put = apiFetchMock.mock.calls.find(
+        (c) => (c[1] as { method?: string })?.method === "PUT",
+      )
+      expect(put).toBeDefined()
+      expect((put![0] as string)).toBe("/api/community/channels/ch_1/read")
+      expect((put![1] as RequestInit).body).toBe(JSON.stringify({ lastMessageId: "m_42" }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("onDone invalidates inbox + servers after the PUT resolves", async () => {
+    apiFetchMock.mockResolvedValue(undefined)
+    const mod = await loadMod()
+    mod._resetPendingReads_forTesting()
+    const advance = mod.useAdvanceChannelWatermark()
+    const spy = vi.spyOn(capturedQc, "invalidateQueries")
+    advance("ch_1", "m_42")
+    mod.flushPendingReads()
+    // Drain the `.then(onDone)` microtask chain.
+    await Promise.resolve()
+    await Promise.resolve()
+    const inboxCalls = spy.mock.calls.filter((c) => {
+      const key = c[0]?.queryKey as unknown[] | undefined
+      return Array.isArray(key) && key.includes("inbox")
+    })
+    const serversCalls = spy.mock.calls.filter((c) => {
+      const key = c[0]?.queryKey as unknown[] | undefined
+      return Array.isArray(key) && key.length === 2 && key[1] === "servers"
+    })
+    expect(inboxCalls.length).toBeGreaterThanOrEqual(1)
+    expect(serversCalls.length).toBeGreaterThanOrEqual(1)
   })
 })
 
@@ -650,6 +799,22 @@ describe("useMarkAllInboxRead — captures eventKeys BEFORE optimistic clear", (
     expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toEqual({ servers: [] })
     expect(capturedQc.getQueryData(communityKeys.inboxMentions())).toEqual({ mentions: [] })
   })
+
+  it("onSuccess invalidates communityKeys.servers() so every rail badge drops to 0", async () => {
+    // Mark-all-read clears every unread mention row on the server — the rail
+    // aggregate must refresh across all servers, not just the inbox feeds.
+    capturedQc.setQueryData(communityKeys.inboxForYou(), { events: [] })
+    apiFetchMock.mockResolvedValue(undefined)
+    const mod = await loadMod()
+    mod.useMarkAllInboxRead()
+    const spy = vi.spyOn(capturedQc, "invalidateQueries")
+    await runMutation<void>(undefined as unknown as void)
+    const serversInvalidates = spy.mock.calls.filter((c) => {
+      const key = c[0]?.queryKey as unknown[] | undefined
+      return Array.isArray(key) && key.length === 2 && key[0] === "community" && key[1] === "servers"
+    })
+    expect(serversInvalidates.length).toBeGreaterThanOrEqual(1)
+  })
 })
 
 // ── useDismissForYouEvent — rollback ─────────────────────────────────────
@@ -685,5 +850,21 @@ describe("useDeleteMention — rollback", () => {
       communityKeys.inboxMentions(),
     )
     expect(cache?.mentions).toHaveLength(1)
+  })
+
+  it("invalidates communityKeys.servers() on success so the rail badge decrements", async () => {
+    capturedQc.setQueryData(communityKeys.inboxMentions(), {
+      mentions: [{ id: "men_1" }],
+    })
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await loadMod()
+    mod.useDeleteMention()
+    const spy = vi.spyOn(capturedQc, "invalidateQueries")
+    await runMutation({ mentionId: "men_1" })
+    const serversInvalidates = spy.mock.calls.filter((c) => {
+      const key = c[0]?.queryKey as unknown[] | undefined
+      return Array.isArray(key) && key.length === 2 && key[0] === "community" && key[1] === "servers"
+    })
+    expect(serversInvalidates).toHaveLength(1)
   })
 })

@@ -88,11 +88,12 @@ vi.mock("@/lib/use-user-ws", () => ({
   },
 }))
 
-// Mock useMarkChannelRead so the hook body doesn't run through a real
-// `useMutation` under the trimmed react shim. Tests can inspect / reset the
-// spy between runs. `flushPendingReads` is a noop stand-in — the community
-// store's `reset()` dynamically imports this module and expects the export
-// to exist.
+// #3: `useCommunityWs` no longer calls `useMarkChannelRead` — the WS-driven
+// auto-mark-read was replaced by the viewport IntersectionObserver in
+// `useChannelWatermark`. The mock still exists because `flushPendingReads`
+// is imported by the community store's `reset()`. The `markReadMutate` spy
+// is used by the regression test below that asserts the WS handler NEVER
+// invokes it, even for foreign-authored messages in the focused channel.
 const markReadMutate = vi.fn()
 vi.mock("@/hooks/community/mutations/messages", () => ({
   useMarkChannelRead: () => ({ mutate: markReadMutate }),
@@ -365,6 +366,23 @@ describe("useCommunityWs — friend + mention → invalidate", () => {
         return Array.isArray(key) && key.includes("inbox")
       }),
     ).toBe(true)
+  })
+
+  it("mention.create also invalidates communityKeys.servers() so the rail badge ticks", async () => {
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+    const event: CommunityMentionCreate = {
+      type: "community:mention.create",
+      userId: "u_1",
+      messageId: "m_1",
+      authorName: "A",
+    }
+    capturedOnMessage!(event)
+    const serversInvalidates = spy.mock.calls.filter((c) => {
+      const key = c[0]?.queryKey as unknown[] | undefined
+      return Array.isArray(key) && key.length === 2 && key[0] === "community" && key[1] === "servers"
+    })
+    expect(serversInvalidates).toHaveLength(1)
   })
 })
 
@@ -723,9 +741,13 @@ describe("useCommunityWs — typing.start honours focus (no DM leak)", () => {
   })
 })
 
-// ── Regression #6 — auto-mark-read on message.create in focused channel ─
-describe("useCommunityWs — auto-mark-read fires for focused channel", () => {
-  it("calls markRead(mutate) when a foreign-authored message lands in the focused channel", async () => {
+// ── #3 — WS message.create MUST NOT auto-mark-read ─────────────────────────
+// The IntersectionObserver in `useChannelWatermark` is authoritative: the
+// read pointer only advances when a message actually becomes visible in the
+// viewport. If the user is scrolled up reading history, a WS-delivered new
+// message must NOT touch the pointer — that's the whole point of the fix.
+describe("useCommunityWs — does NOT auto-mark-read on WS message.create", () => {
+  it("does NOT call markRead when a foreign-authored message lands in the focused channel", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ channelId: "ch_focused" })
@@ -752,7 +774,7 @@ describe("useCommunityWs — auto-mark-read fires for focused channel", () => {
     }
     capturedOnMessage!(event)
 
-    expect(markReadMutate).toHaveBeenCalledWith({ channelId: "ch_focused" })
+    expect(markReadMutate).not.toHaveBeenCalled()
   })
 
   it("does NOT call markRead when the message is authored by the viewer", async () => {
@@ -780,7 +802,7 @@ describe("useCommunityWs — auto-mark-read fires for focused channel", () => {
     expect(markReadMutate).not.toHaveBeenCalled()
   })
 
-  it("does NOT call markRead for a DM new_message (channels only)", async () => {
+  it("does NOT call markRead for a DM new_message either", async () => {
     await mountHook({ viewerUserId: "u_me" })
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ dmConversationId: "dm_1" })

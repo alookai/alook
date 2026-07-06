@@ -5,6 +5,15 @@ import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { requireDMParticipant } from "@/lib/community/permissions"
 
+/**
+ * PUT /api/community/dm/:id/read
+ *
+ * DM twin of `PUT /channels/:id/read`.
+ * - Body `{ lastReadMessageId }` present → verify the message lives in this
+ *   DM, then align to it.
+ * - Body absent / empty → align to the DM's latest message. Empty DM →
+ *   no-op (invariant forbids `lastReadMessageId = null` rows).
+ */
 export const PUT = withAuth(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id
   if (!dmId) return writeError("missing dm id", 400)
@@ -20,19 +29,23 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     // Body is optional
   }
 
+  let target: { id: string; createdAt: string } | null
   if (body.lastReadMessageId) {
     const msg = await queries.communityMessage.getMessage(db, body.lastReadMessageId)
     if (!msg || msg.dmConversationId !== dmId) {
       return writeError("lastReadMessageId does not belong to this dm", 400)
     }
+    target = { id: msg.id, createdAt: msg.createdAt }
+  } else {
+    target = await queries.communityMessage.getLatestMessage(db, { dmConversationId: dmId })
+    if (!target) return writeJSON({ ok: true })
   }
 
-  const result = await queries.communityReadState.markRead(db, {
+  await queries.communityReadState.markReadToMessage(db, {
     userId: ctx.userId,
     dmConversationId: dmId,
-    lastReadAt: new Date().toISOString(),
-    lastReadMessageId: body.lastReadMessageId,
+    message: target,
   })
 
-  return writeJSON(result)
+  return writeJSON({ ok: true })
 })

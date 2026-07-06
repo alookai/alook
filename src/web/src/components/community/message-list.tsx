@@ -15,7 +15,7 @@ export function MessageList({
   channel, messages, loading, pinnedIds, newDividerBefore, typingUsers, onOpenThread, onOpenProfile,
   onToggleReaction, onReact,
   onReply, onPin, onCreateThread, onCopy, onRetry, onPreviewImage, onDownloadFile,
-  resolveUserName, scrollToMessageId, hero,
+  resolveUserName, scrollToMessageId, hero, onScrollRoot,
 }: {
   channel: string
   messages: Msg[]
@@ -37,30 +37,74 @@ export function MessageList({
   resolveUserName?: (userId: string) => string
   scrollToMessageId?: string | null
   hero?: React.ReactNode
+  /**
+   * Called with the scroll-root element once it mounts (and `null` on
+   * unmount). Consumers (e.g. `useChannelWatermark`) use this to observe
+   * `[data-msg-id]` rows against the correct viewport root rather than the
+   * page's default viewport.
+   */
+  onScrollRoot?: (el: HTMLDivElement | null) => void
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevMsgCountRef = useRef(messages.length)
+  // Tracks whether the mount-time initial-scroll has fired yet. On channel
+  // switch (`messages` cleared) we reset it so the new channel gets its own
+  // initial scroll — mirrors the `prevMsgCountRef` reset below.
+  const didInitialScrollRef = useRef(false)
+
+  // Publish the scroll root to interested consumers (watermark observer).
+  // The callback identity may vary across renders; only re-invoke when the
+  // element itself changes.
+  useEffect(() => {
+    if (!onScrollRoot) return
+    onScrollRoot(scrollRef.current)
+    return () => onScrollRoot(null)
+  }, [onScrollRoot])
 
   // When the messages list is cleared on channel switch, the previous count is
   // stale — the very first batch that arrives would compare against the old
   // length and skip the bottom-anchor scroll. Reset when we hit empty.
   useEffect(() => {
-    if (messages.length === 0) prevMsgCountRef.current = 0
+    if (messages.length === 0) {
+      prevMsgCountRef.current = 0
+      didInitialScrollRef.current = false
+    }
   }, [messages.length])
 
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    // Scroll to bottom on initial load or when new messages arrive
     const isNewMessage = messages.length > prevMsgCountRef.current
     prevMsgCountRef.current = messages.length
-    // Only auto-scroll if user is near the bottom (within 150px) or it's initial/new message
+
+    // Mount-time initial scroll: target the "New" divider when there's an
+    // unread pointer, otherwise fall through to the bottom-anchor. Only
+    // fires once per mount — subsequent renders use the near-bottom heuristic
+    // below so the list still auto-follows when the user is near the bottom.
+    if (!didInitialScrollRef.current && messages.length > 0) {
+      if (newDividerBefore) {
+        const target = el.querySelector<HTMLElement>(
+          `[data-msg-id="${cssEscape(newDividerBefore)}"]`,
+        )
+        if (target) {
+          target.scrollIntoView({ block: "start" })
+          didInitialScrollRef.current = true
+          return
+        }
+      }
+      el.scrollTop = el.scrollHeight
+      didInitialScrollRef.current = true
+      return
+    }
+
+    // Only auto-scroll if user is near the bottom (within 150px) or it's
+    // a new message arriving.
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150
     if (nearBottom || isNewMessage) {
       el.scrollTop = el.scrollHeight
     }
-  }, [messages])
+  }, [messages, newDividerBefore])
 
   const jumpTo = (id: string) => {
     setJumped(id)
@@ -111,7 +155,11 @@ export function MessageList({
             return clusters.map((cluster, ci) => (
               <div key={cluster.messages[0].m.id ?? ci}>
                 {cluster.messages.map(({ m, grouped, showDateDivider, showNewDivider }) => (
-                  <div key={m.id}>
+                  // `data-msg-id` anchors the IntersectionObserver in
+                  // `useChannelWatermark` — every rendered row is a candidate
+                  // for the read pointer. Also used by the mount-time
+                  // "scroll to New divider" effect above.
+                  <div key={m.id} data-msg-id={m.id}>
                     {showDateDivider && <DateDivider label={formatDateLabel(m.createdAt!)} />}
                     {showNewDivider && <NewDivider />}
                     <Message
@@ -143,6 +191,19 @@ export function MessageList({
       </div>
     </div>
   )
+}
+
+// Escape a message id for safe use inside an attribute selector. Message ids
+// are nanoids in production (URL-safe alphabet), but the temp-id path
+// (`temp_<Date.now()>_<rand>`) contains underscores that CSS accepts unescaped
+// too. This is defensive against a future format change — CSS.escape is native
+// in every runtime we ship to, but SSR and older test envs may lack it, so we
+// fall back to a conservative replacer for non-identifier characters.
+function cssEscape(id: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(id)
+  }
+  return id.replace(/[^a-zA-Z0-9_-]/g, "\\$&")
 }
 
 // Loading placeholder for the message list. Mirrors the cluster layout used

@@ -36,7 +36,6 @@ import {
   useUpdateFolderItems,
   useCreateServerFolderWith,
   useCreateOrGetDm,
-  useMarkChannelRead,
   useMarkAllInboxRead,
   useDismissForYouEvent,
   useDeleteMention,
@@ -112,7 +111,6 @@ export function ShellFrame({
   const updateFolderItems = useUpdateFolderItems()
   const createFolderWith = useCreateServerFolderWith()
   const createOrGetDm = useCreateOrGetDm()
-  const markChannelRead = useMarkChannelRead()
   const markAllInboxRead = useMarkAllInboxRead()
   const dismissForYouEvent = useDismissForYouEvent()
   const deleteMention = useDeleteMention()
@@ -344,10 +342,13 @@ export function ShellFrame({
 
   const openServerChannel = useCallback(
     (sid: string, cid: string) => {
+      // #3: no eager mark-read on inbox → channel navigation. The channel's
+      // IntersectionObserver watermark advances the pointer as the user
+      // actually reads. If they open the channel and don't scroll to the
+      // new messages, the pointer correctly stays put.
       router.push(`/community/channels/${sid}/${cid}`)
-      markChannelRead.mutate({ channelId: cid })
     },
-    [router, markChannelRead],
+    [router],
   )
 
   const inboxElement = (

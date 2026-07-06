@@ -146,7 +146,7 @@ export const ServerRail = memo(function ServerRail({
                       folderItems.push(
                         <SortableServer
                           key={sid}
-                          server={{ id: fs.id, name: fs.name, initial: fs.initial, icon: fs.icon, active: false, unread: false, mentions: 0, isOwner: false }}
+                          server={{ id: fs.id, name: fs.name, initial: fs.initial, icon: fs.icon, active: false, mentions: 0, isOwner: false }}
                           active={view !== "dm" && activeId === sid}
                           onClick={() => pickServer(sid)}
                           inFolder

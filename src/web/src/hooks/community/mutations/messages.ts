@@ -202,6 +202,11 @@ export function useSendMessage() {
       const optimisticAttachments = args.attachments?.map(toAttachmentVm)
       const msg: Msg = {
         id: tempId,
+        // #3: stamp the sender's userId onto optimistic rows so
+        // `useChannelWatermark` recognizes them as self-authored (skip
+        // client PUT — server-side write path already writes the sender's
+        // watermark on POST, see #1).
+        authorId: args.author.id,
         authorName: args.author.name,
         authorAvatar: args.author.avatar,
         content: args.content,
@@ -607,15 +612,22 @@ export function useCreateThread() {
 export const MARK_CHANNEL_READ_DEBOUNCE_MS = 500
 
 /**
- * A single pending mark-read carries the debounce timer and a `fire` closure.
- * `fire` issues the PUT, invokes the caller's `onDone` after the PUT resolves,
- * and removes its own map entry. Both the timer callback and
- * `flushPendingReads()` invoke `fire` — same code path, whether the window
- * elapsed naturally or was flushed early.
+ * A single pending mark-read carries the debounce timer, a `fire` closure,
+ * and the most recently queued `messageId` (or `undefined` for a no-body
+ * mass mark-read). Re-scheduling within the debounce window replaces the
+ * pending `messageId` — monotone forward semantics live one layer up in
+ * `useChannelWatermark`, so this layer just uses whichever value the last
+ * caller passed.
+ *
+ * Both the timer callback and `flushPendingReads()` invoke `fire` — same
+ * code path, whether the window elapsed naturally or was flushed early.
  */
 type PendingRead = {
   timer: ReturnType<typeof setTimeout>
   fire: () => void
+  // Latest queued message id — captured in the closure so `fire` reads the
+  // freshest value even after the timer was scheduled with a stale one.
+  messageId: string | undefined
 }
 const pendingReads = new Map<string, PendingRead>()
 
@@ -639,46 +651,82 @@ export function flushPendingReads() {
   }
 }
 
+export type ScheduleMarkReadOpts = {
+  /**
+   * When set, PUT `{ lastMessageId }` — advances the read pointer to that
+   * message's `(createdAt, id)`. Omit for the mass mark-read case (no body).
+   * The mutation layer trusts whatever value the caller passes most
+   * recently; monotonicity is the caller's responsibility (see
+   * `useChannelWatermark`).
+   */
+  messageId?: string
+  onDone: () => void
+}
+
 /**
- * Debounce a mark-channel-read PUT. Called from `useMarkChannelRead` below.
- * On same-channel re-invoke within the 500ms window the previous timer is
- * cancelled and the previous `onDone` is dropped — the new scheduling
- * subsumes it (same channel, fresher intent). Nothing is left "hanging"
+ * Debounce a mark-channel-read PUT. Same-channel re-invokes within the
+ * 500ms window replace the pending intent (previous `messageId` and
+ * `onDone` are dropped; the new pair takes over). Nothing is left "hanging"
  * because `mutationFn` no longer awaits the debounced work.
  */
-export function scheduleMarkRead(channelId: string, onDone: () => void): void {
+export function scheduleMarkRead(
+  channelId: string,
+  opts: ScheduleMarkReadOpts,
+): void {
   const existing = pendingReads.get(channelId)
   if (existing) clearTimeout(existing.timer)
-  const fire = () => {
-    // Idempotent: if the map has already moved on (fire ran, or a fresh
-    // scheduling replaced us), do nothing. This is what makes it safe for
-    // both the timer AND `flushPendingReads()` to call `fire` in the same
-    // tick — only the first wins.
-    const cur = pendingReads.get(channelId)
-    if (cur?.fire !== fire) return
-    pendingReads.delete(channelId)
-    void apiFetch(`/api/community/channels/${channelId}/read`, { method: "PUT" })
-      .then(() => onDone())
-      .catch(() => {
-        // Silent — the inbox will reconcile once the WS invalidate fires.
-      })
+  // `entry` is captured inside `fire` so it can read the freshest
+  // `messageId` at the moment the PUT actually issues — even if a later
+  // schedule call updated it in place. Cleaner than closing over a mutable
+  // outer variable.
+  const entry: PendingRead = {
+    // Timer is filled in below after fire is defined.
+    timer: undefined as unknown as ReturnType<typeof setTimeout>,
+    messageId: opts.messageId,
+    fire: () => {
+      // Idempotent: if the map has already moved on (fire ran, or a fresh
+      // scheduling replaced us), do nothing. This is what makes it safe for
+      // both the timer AND `flushPendingReads()` to call `fire` in the same
+      // tick — only the first wins.
+      const cur = pendingReads.get(channelId)
+      if (cur !== entry) return
+      pendingReads.delete(channelId)
+      const body = entry.messageId
+        ? JSON.stringify({ lastMessageId: entry.messageId })
+        : undefined
+      const init: RequestInit = body
+        ? { method: "PUT", body }
+        : { method: "PUT" }
+      void apiFetch(`/api/community/channels/${channelId}/read`, init)
+        .then(() => opts.onDone())
+        .catch(() => {
+          // Silent — the inbox will reconcile once the WS invalidate fires.
+        })
+    },
   }
-  const timer = setTimeout(fire, MARK_CHANNEL_READ_DEBOUNCE_MS)
-  pendingReads.set(channelId, { timer, fire })
+  entry.timer = setTimeout(entry.fire, MARK_CHANNEL_READ_DEBOUNCE_MS)
+  pendingReads.set(channelId, entry)
 }
 
 export type MarkChannelReadArgs = { channelId: string }
 
 /**
- * Debounced mark-channel-read. The WS handler used to blast one PUT per
- * `message.create` in the focused channel + a refetch of all three inbox
- * feeds — under a busy channel this hit the API dozens of times a second.
+ * Debounced mark-channel-read for the mass "mark whole channel read" path
+ * (no specific messageId). After #3, no in-repo caller invokes this — the
+ * eager mass mark-read on sidebar-click / inbox-open was removed, and
+ * `useMarkAllInboxRead` POSTs to the three inbox read-all routes directly.
+ * Kept as a stable API for future bulk mark-read affordances (per-channel context
+ * menu, "mark from here down", etc.) and to document the shape of a
+ * no-body PUT.
  *
- * This hook now:
- * 1. Debounces the PUT per `channelId` (500ms) — a fast burst of messages
+ * For per-viewport watermark advances (Slack-style progressive read), use
+ * `useAdvanceChannelWatermark` below, which passes a specific `messageId`.
+ *
+ * This hook:
+ * 1. Debounces the PUT per `channelId` (500ms) so a burst of triggers
  *    collapses to a single request.
- * 2. Invalidates `communityKeys.inbox()` after the PUT — one refetch cycle,
- *    not three unrelated per-feed fetches.
+ * 2. Invalidates `communityKeys.inbox()` and `communityKeys.servers()` after
+ *    the PUT — one refetch cycle, not three unrelated per-feed fetches.
  * 3. On unmount / channel switch, `flushPendingReads()` forces the pending
  *    PUT to fire so the pointer isn't stranded in the debounce window.
  *
@@ -693,11 +741,16 @@ export function useMarkChannelRead() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, MarkChannelReadArgs>({
     mutationFn: async ({ channelId }) => {
-      scheduleMarkRead(channelId, () => {
-        // Single invalidate on the whole inbox prefix — refreshes all three
-        // feeds under one round-trip. Do NOT invalidate on WS message.create;
-        // that debounce lives in useCommunityWs.
-        void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+      scheduleMarkRead(channelId, {
+        onDone: () => {
+          // Single invalidate on the whole inbox prefix — refreshes all three
+          // feeds under one round-trip. Do NOT invalidate on WS message.create;
+          // that debounce lives in useCommunityWs.
+          void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+          // Marking a channel read drops any unread mention rows for that
+          // channel — refresh the server list so the rail badge decrements.
+          void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+        },
       })
       // Resolve immediately — the debounced work runs independently. Callers
       // don't (and shouldn't) block on the eventual PUT.
@@ -717,6 +770,37 @@ export function useMarkChannelRead() {
       )
     },
   })
+}
+
+// ── Advance channel watermark (progressive read) ──────────────────────────
+
+/**
+ * Thin wrapper around `scheduleMarkRead` that includes a specific
+ * `messageId` in the PUT body — advances the read pointer to that
+ * message's `(createdAt, id)`. Callback returned is stable across renders.
+ *
+ * Monotonicity (never regress) is the caller's job — this hook just carries
+ * whatever id was passed to the underlying debounce. `useChannelWatermark`
+ * keeps a `maxSeen` ref and only invokes this hook when it advances.
+ *
+ * The caller supplies the channelId + messageId at call time so a single
+ * hook instance can serve multiple channels across a session; the debounce
+ * key is `channelId`, so bursts against the same channel still collapse.
+ */
+export function useAdvanceChannelWatermark(): (
+  channelId: string,
+  messageId: string,
+) => void {
+  const queryClient = useQueryClient()
+  return (channelId, messageId) => {
+    scheduleMarkRead(channelId, {
+      messageId,
+      onDone: () => {
+        void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+        void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+      },
+    })
+  }
 }
 
 // ── Mark DM read ───────────────────────────────────────────────────────────
@@ -780,8 +864,17 @@ export function useMarkAllInboxRead() {
       queryClient.setQueryData(communityKeys.inboxUnreads(), { servers: [] })
       queryClient.setQueryData(communityKeys.inboxMentions(), { mentions: [] })
     },
+    onSuccess: () => {
+      // "Mark everything read" clears every unread mention row — the rail
+      // badges across all servers must fall to 0 in one refetch.
+      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+    },
     onError: () => {
       void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+      // A partial write is possible (one of the three POSTs may have
+      // succeeded before another failed) — refresh the rail badges too so
+      // the UI reflects whatever landed on the server.
+      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
     },
   })
 }
@@ -826,6 +919,11 @@ export function useDeleteMention() {
         prev ? { ...prev, mentions: prev.mentions.filter((m) => m.id !== args.mentionId) } : prev,
       )
       return { snapshot }
+    },
+    onSuccess: () => {
+      // Deleting a mention row removes it from the unread-mention aggregate
+      // that feeds the server rail badge — refresh so the count drops.
+      void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
     },
     onError: (_err, _args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.inboxMentions(), ctx.snapshot)

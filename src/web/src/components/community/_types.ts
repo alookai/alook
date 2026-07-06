@@ -32,7 +32,6 @@ export type Server = {
   name: string
   initial: string
   active: boolean
-  unread: boolean
   mentions: number
   isOwner?: boolean
   icon?: string | null
@@ -96,6 +95,11 @@ export type Msg = {
   id: string // nanoid
   type?: "system"
   systemKind?: "join" | "thread"
+  // Author's user id — populated by `mapMessageForApi` / WS message-create,
+  // consumed by `useChannelWatermark` to skip self-authored messages when
+  // advancing the read pointer. Optional to keep optimistic rows valid
+  // before the server response reconciles.
+  authorId?: string
   authorName?: string
   color?: string
   createdAt?: string // ISO 8601 timestamp — the UI formats for display
