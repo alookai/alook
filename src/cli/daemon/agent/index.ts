@@ -11,6 +11,7 @@ import type {
 } from "../types.js";
 import { ClaudeBackend } from "./claude.js";
 import { CodexBackend } from "./codex.js";
+import { HermesBackend } from "./hermes.js";
 import { OpenCodeBackend } from "./opencode.js";
 import { execSync } from "child_process";
 
@@ -44,6 +45,8 @@ export function createBackend(
       return new ClaudeBackend(cliPath);
     case "codex":
       return new CodexBackend(cliPath);
+    case "hermes":
+      return new HermesBackend(cliPath);
     case "opencode":
       return new OpenCodeBackend(cliPath);
     default:
