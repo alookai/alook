@@ -58,9 +58,8 @@ function reqWithFile(file: unknown | null): NextRequest {
  * derived from the underlying byte length and ignores `Object.defineProperty`,
  * so we hand-build the object instead of allocating real bytes.
  *
- * The upload helper streams the body to R2 via `file.stream()` — that path
- * must be exercised, so we return a real `ReadableStream` (empty is fine;
- * the mocked `put` never reads it).
+ * The upload helper passes the File-shaped object itself to R2 so the Workers
+ * runtime sees a known-length body. The mocked `put` never reads it.
  */
 function fakeFile(name: string, type: string, size: number) {
   return {
@@ -88,16 +87,15 @@ describe("handleAttachmentUpload", () => {
     expect(put).toHaveBeenCalledOnce()
   })
 
-  it("streams the body to R2 (never a buffered ArrayBuffer)", async () => {
-    // 25 MB attachment cap × 128 MB worker RAM means we must not
-    // `await file.arrayBuffer()` before `put`. Assert the value handed
-    // to R2 is a ReadableStream so a regression to buffering is caught.
+  it("passes a known-length File body to R2", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("hi.png", "image/png", 10)
     await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1")
     expect(put).toHaveBeenCalledOnce()
     const [, body] = put.mock.calls[0]
-    expect(body).toBeInstanceOf(ReadableStream)
+    expect(body).toBe(file)
+    expect(body).toMatchObject({ size: 10, type: "image/png" })
+    expect(body).not.toBeInstanceOf(ReadableStream)
     expect(body).not.toBeInstanceOf(ArrayBuffer)
   })
 
@@ -159,13 +157,15 @@ describe("handleServerIconUpload", () => {
     expect(res.key).toMatch(/^server-icon\/s1\/[0-9a-f-]+$/)
   })
 
-  it("streams the icon body to R2 (never a buffered ArrayBuffer)", async () => {
+  it("passes a known-length File icon body to R2", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("icon.png", "image/png", 10)
     await handleServerIconUpload(reqWithFile(file), envWithR2(put), "s1")
     expect(put).toHaveBeenCalledOnce()
     const [, body] = put.mock.calls[0]
-    expect(body).toBeInstanceOf(ReadableStream)
+    expect(body).toBe(file)
+    expect(body).toMatchObject({ size: 10, type: "image/png" })
+    expect(body).not.toBeInstanceOf(ReadableStream)
     expect(body).not.toBeInstanceOf(ArrayBuffer)
   })
 
@@ -264,10 +264,13 @@ describe("runAttachmentUpload", () => {
     expect(body.size).toBe(10)
     expect(body.url).toMatch(/^\/api\/community\/media\/channel\/c1\/[0-9a-f-]+\/hi\.png$/)
     expect(put).toHaveBeenCalledOnce()
-    // Streaming rule applies here too — the shared helper must not buffer.
+    // Known-length R2 body rule applies here too — the shared helper must not
+    // hand R2 an unknown-length ReadableStream or buffer into ArrayBuffer.
     const [key, streamed] = put.mock.calls[0]
     expect(key).toMatch(/^channel\/c1\//)
-    expect(streamed).toBeInstanceOf(ReadableStream)
+    expect(streamed).toMatchObject({ size: 10, type: "image/png" })
+    expect(streamed).not.toBeInstanceOf(ReadableStream)
+    expect(streamed).not.toBeInstanceOf(ArrayBuffer)
   })
 
   it("routes 'dm' kind through the dm/ R2 prefix", async () => {

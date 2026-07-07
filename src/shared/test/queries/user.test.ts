@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as userQueries from "../../src/db/queries/user";
+import { computeDiscriminator } from "../../src/lib/discriminator";
 
 function createSelectMock(rows: any[]) {
   const chain: any = {};
@@ -33,6 +34,14 @@ describe("createUser", () => {
   it("creates user", async () => {
     const u = { id: "u_1" };
     expect(await userQueries.createUser(createSelectMock([u]), { name: "A", email: "a@b.com" })).toEqual(u);
+  });
+  it("writes a generated discriminator instead of relying on the schema default", async () => {
+    const chain = createSelectMock([{ id: "u_1" }]);
+    await userQueries.createUser(chain, { name: "A", email: "a@b.com" });
+    const values = chain.values.mock.calls[0][0];
+    expect(values.id).toEqual(expect.any(String));
+    expect(values.discriminator).toBe(computeDiscriminator(values.id));
+    expect(values.discriminator).toMatch(/^\d{4}$/);
   });
   it("rejects empty name", async () => {
     await expect(

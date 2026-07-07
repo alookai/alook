@@ -34,6 +34,7 @@ import {
 import { communityMachine } from "../../community-machine-schema";
 import type { Database } from "../../index";
 import { communityBotSyntheticEmail } from "../../../constants";
+import { computeDiscriminator } from "../../../lib/discriminator";
 import { nanoid } from "nanoid";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -311,6 +312,7 @@ export async function createBot(
     image: data.image ?? null,
     isBot: true,
     ownerUserId: data.ownerId,
+    discriminator: computeDiscriminator(botId),
     createdAt: nowIso,
     updatedAt: nowIso,
   });

@@ -60,6 +60,15 @@ export function createAuth(env: Env) {
       enabled: !isProd,
       requireEmailVerification: false,
     },
+    user: {
+      additionalFields: {
+        discriminator: {
+          type: "string",
+          required: false,
+          input: false,
+        },
+      },
+    },
     socialProviders: {
       github: {
         clientId: env.GITHUB_CLIENT_ID,

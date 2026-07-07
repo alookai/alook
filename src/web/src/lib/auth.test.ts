@@ -60,6 +60,12 @@ function makeEnv(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 type AuthOptions = {
+  user?: {
+    additionalFields?: Record<
+      string,
+      { type: string; required?: boolean; input?: boolean; returned?: boolean }
+    >
+  }
   rateLimit: {
     enabled: boolean
     customRules: Record<string, { window: number; max: number }>
@@ -199,6 +205,20 @@ describe("createAuth session cookie cache", () => {
     const createAuth = await loadCreateAuth()
     const opts = (createAuth(makeEnv({ NODE_ENV: "development" }) as never) as { __options: AuthOptions }).__options
     expect(opts.session?.cookieCache?.enabled).toBe(true)
+  })
+})
+
+describe("createAuth user fields", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("registers discriminator as a Better Auth user field", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    expect(opts.user?.additionalFields?.discriminator).toEqual({
+      type: "string",
+      required: false,
+      input: false,
+    })
   })
 })
 
@@ -357,8 +377,11 @@ describe("createAuth databaseHooks — user.create.before", () => {
     const createAuth = await loadCreateAuth()
     const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
     const beforeHook = opts.databaseHooks!.user!.create!.before!
+    const { computeDiscriminator } = await import("@alook/shared")
     const a = await beforeHook({ id: "u_fixed_id", name: "x", email: "x@example.com" })
     const b = await beforeHook({ id: "u_fixed_id", name: "y", email: "y@example.com" })
     expect(a.data.discriminator).toBe(b.data.discriminator)
+    expect(a.data.discriminator).toBe(computeDiscriminator("u_fixed_id"))
+    expect(a.data.discriminator).not.toBe("0000")
   })
 })

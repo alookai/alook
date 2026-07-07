@@ -54,11 +54,10 @@ async function readFile(req: NextRequest): Promise<File | UploadErr> {
  * Returns the R2 key + a `/api/community/media/<key>` URL that the auth-gated
  * media route can serve.
  *
- * The body is streamed straight to R2 (`file.stream()`) rather than buffered
- * into a full `ArrayBuffer` first — the 25 MB attachment cap on a 128 MB
- * worker means concurrent uploads would otherwise risk OOM. Size and
- * content-type are validated against the `File` object before the put, so we
- * don't need the buffered bytes for those checks.
+ * R2 requires stream bodies to have a known length. Passing the `File` itself
+ * preserves that length for the Workers runtime while avoiding an explicit
+ * `arrayBuffer()` copy in application code. Size and content-type are
+ * validated against the `File` object before the put.
  */
 export async function handleAttachmentUpload(
   req: NextRequest,
@@ -86,7 +85,7 @@ export async function handleAttachmentUpload(
   const fileId = crypto.randomUUID()
   const key = buildMediaKey(kind, targetId, fileId, file.name)
 
-  await env.COMMUNITY_MEDIA.put(key, file.stream(), {
+  await env.COMMUNITY_MEDIA.put(key, file, {
     httpMetadata: { contentType: file.type },
   })
 
@@ -102,8 +101,8 @@ export async function handleAttachmentUpload(
 }
 
 /**
- * Validate + upload a server icon. Smaller cap, image-only. Same streaming
- * rationale as `handleAttachmentUpload`.
+ * Validate + upload a server icon. Smaller cap, image-only. Same known-length
+ * R2 body rule as `handleAttachmentUpload`.
  */
 export async function handleServerIconUpload(
   req: NextRequest,
@@ -130,7 +129,7 @@ export async function handleServerIconUpload(
   const fileId = crypto.randomUUID()
   const key = buildServerIconKey(serverId, fileId)
 
-  await env.COMMUNITY_MEDIA.put(key, file.stream(), {
+  await env.COMMUNITY_MEDIA.put(key, file, {
     httpMetadata: { contentType: file.type },
   })
 

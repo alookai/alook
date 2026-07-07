@@ -1,10 +1,11 @@
-import { describe, it, expect } from "vitest"
+import { describe, it, expect, vi } from "vitest"
 import * as q from "../../src/db/queries/community/bot"
 import {
   communityBotSyntheticEmail,
   COMMUNITY_BOT_LIMIT_PER_OWNER,
   COMMUNITY_BOT_NAME_MAX,
 } from "../../src/constants"
+import { computeDiscriminator } from "../../src/lib/discriminator"
 
 /**
  * Smoke test — verifies the community/bot module exports the documented
@@ -55,6 +56,36 @@ describe("communityBotSyntheticEmail", () => {
   })
   it("is injective on userId — different ids → different emails", () => {
     expect(communityBotSyntheticEmail("a")).not.toBe(communityBotSyntheticEmail("b"))
+  })
+})
+
+describe("createBot", () => {
+  it("writes a discriminator for the bot user row", async () => {
+    const userValues: unknown[] = []
+    const db = {
+      insert: vi.fn(() => ({
+        values: vi.fn((values: unknown) => {
+          userValues.push(values)
+          return {
+            onConflictDoUpdate: vi.fn(() => ({ __stmt: "profile" })),
+          }
+        }),
+      })),
+      batch: vi.fn(async () => []),
+    }
+
+    await q.createBot(db as never, {
+      ownerId: "owner_1",
+      name: "helper",
+      description: "does things",
+      machineId: "machine_1",
+      runtime: "codex",
+    })
+
+    const botUser = userValues[0] as { id: string; discriminator: string }
+    expect(botUser.discriminator).toBe(computeDiscriminator(botUser.id))
+    expect(botUser.discriminator).toMatch(/^\d{4}$/)
+    expect(db.batch).toHaveBeenCalledOnce()
   })
 })
 
