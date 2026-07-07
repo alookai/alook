@@ -53,3 +53,33 @@ export function useFriends(): UseQueryResult<FriendsResponse> & {
     blocked: query.data?.blocked ?? (EMPTY_BLOCKED as BlockedUser[]),
   }
 }
+
+/**
+ * Fetches the bulk online/offline check for the caller's own friends — the
+ * friends-list analogue of `usePresence(serverId)` in `use-server-panels.ts`.
+ *
+ * Friends can be online without ever sharing a server, so the co-member-
+ * scoped WS presence snapshot alone never learns about them. This seeds
+ * `useCommunityWsStore`'s `onlineUserIds` on mount (see
+ * `app/community/me/layout.tsx`); WS `community:presence.update` events
+ * keep it fresh afterward.
+ */
+export type FriendsPresenceResponse = { online: string[] }
+
+export const friendsPresenceQueryFn = () =>
+  apiFetch<FriendsPresenceResponse>("/api/community/friends/presence")
+
+const EMPTY_ONLINE: readonly string[] = Object.freeze([])
+
+export function useFriendsPresence(): UseQueryResult<FriendsPresenceResponse> & {
+  online: readonly string[]
+} {
+  const query = useQuery({
+    queryKey: communityKeys.friendsPresence(),
+    queryFn: friendsPresenceQueryFn,
+  })
+  return {
+    ...query,
+    online: query.data?.online ?? EMPTY_ONLINE,
+  }
+}

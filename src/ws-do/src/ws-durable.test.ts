@@ -74,6 +74,8 @@ const mockUpsertMachineByMachineId = vi.fn()
 const mockTouchMachineHeartbeat = vi.fn()
 const mockMarkMachineOffline = vi.fn()
 const mockMarkMachineOnlineIfOffline = vi.fn()
+const mockGetCoMemberUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
+const mockGetFriendUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
 // mockToSummary now returns row.status verbatim — status is the source of
 // truth on the column, not a derivation from lastSeenAt. See
 // plans/community-machine-presence-fix.md.
@@ -166,6 +168,12 @@ vi.mock("@alook/shared", () => {
         markMachineOnlineIfOffline: (...a: any[]) => mockMarkMachineOnlineIfOffline(...a),
         toSummary: (row: any) => mockToSummary(row),
       },
+      communityMember: {
+        getCoMemberUserIds: (...a: [unknown, string]) => mockGetCoMemberUserIds(...a),
+      },
+      communityFriendship: {
+        getFriendUserIds: (...a: [unknown, string]) => mockGetFriendUserIds(...a),
+      },
     },
   }
 })
@@ -193,6 +201,11 @@ function createDO() {
 describe("WebSocketDurableObject", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // `clearAllMocks` doesn't undo a `mockResolvedValue` set by a prior test —
+    // re-pin these two to their empty default so presence-audience tests
+    // don't leak state into unrelated auth-flow tests.
+    mockGetCoMemberUserIds.mockResolvedValue([])
+    mockGetFriendUserIds.mockResolvedValue([])
   })
 
   describe("fetch — WebSocket upgrade", () => {
@@ -393,6 +406,83 @@ describe("WebSocketDurableObject", () => {
 
       expect(ws.close).not.toHaveBeenCalled()
       expect(ws.send).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("presence audience — co-members ∪ friends (deduped)", () => {
+    // Presence fan-out must reach friends who share no server, not just
+    // co-members — that's the whole point of a friends list. Exercised
+    // directly against the private helper/methods (bypassing the
+    // fire-and-forget `.catch(() => {})` call sites in the auth flow) so
+    // these assertions aren't racing an un-awaited promise.
+    type PresenceInternals = {
+      getPresenceAudience(userId: string): Promise<string[]>
+      broadcastPresence(userId: string, online: boolean): Promise<void>
+      sendPresenceSnapshot(ws: WebSocket, userId: string): Promise<void>
+    }
+
+    it("getPresenceAudience merges co-members and friends without duplicates", async () => {
+      const { durable } = createDO()
+      mockGetCoMemberUserIds.mockResolvedValue(["member-a", "shared-b"])
+      mockGetFriendUserIds.mockResolvedValue(["shared-b", "friend-c"])
+
+      const audience = await (durable as unknown as PresenceInternals).getPresenceAudience("user-1")
+
+      expect(new Set(audience)).toEqual(new Set(["member-a", "shared-b", "friend-c"]))
+      expect(audience).toHaveLength(3)
+      expect(mockGetCoMemberUserIds).toHaveBeenCalledWith({}, "user-1")
+      expect(mockGetFriendUserIds).toHaveBeenCalledWith({}, "user-1")
+    })
+
+    it("getPresenceAudience returns [] when the user has no co-members and no friends", async () => {
+      const { durable } = createDO()
+      mockGetCoMemberUserIds.mockResolvedValue([])
+      mockGetFriendUserIds.mockResolvedValue([])
+
+      const audience = await (durable as unknown as PresenceInternals).getPresenceAudience("user-1")
+
+      expect(audience).toEqual([])
+    })
+
+    it("broadcastPresence fans out to a friend who shares no server", async () => {
+      const { durable, env } = createDO()
+      mockGetCoMemberUserIds.mockResolvedValue([])
+      mockGetFriendUserIds.mockResolvedValue(["friend-c"])
+      mockStubFetch.mockClear()
+
+      await (durable as unknown as PresenceInternals).broadcastPresence("user-1", true)
+
+      expect(env.WS_DO.idFromName).toHaveBeenCalledWith("user:friend-c")
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
+      const [req] = mockStubFetch.mock.calls[0] as [Request]
+      expect(req.url).toBe("http://internal/broadcast")
+    })
+
+    it("broadcastPresence no-ops (no fetches) when co-members and friends are both empty", async () => {
+      const { durable } = createDO()
+      mockGetCoMemberUserIds.mockResolvedValue([])
+      mockGetFriendUserIds.mockResolvedValue([])
+      mockStubFetch.mockClear()
+
+      await (durable as unknown as PresenceInternals).broadcastPresence("user-1", true)
+
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("sendPresenceSnapshot reports an online friend who shares no server", async () => {
+      const { durable } = createDO()
+      mockGetCoMemberUserIds.mockResolvedValue([])
+      mockGetFriendUserIds.mockResolvedValue(["friend-c"])
+      mockStubFetch.mockResolvedValue(
+        new (globalThis.Response as any)(JSON.stringify({ online: true })),
+      )
+      const ws = createMockWebSocket()
+
+      await (durable as unknown as PresenceInternals).sendPresenceSnapshot(ws as any, "user-1")
+
+      expect(ws.send).toHaveBeenCalledWith(
+        JSON.stringify({ type: "community:presence.update", userId: "friend-c", online: true }),
+      )
     })
   })
 

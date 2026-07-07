@@ -76,6 +76,7 @@ export const communityKeys = {
 
   // ── Social ──────────────────────────────────────────────────────────────
   friends: () => [...communityKeys.all, "friends"] as const,
+  friendsPresence: () => [...communityKeys.friends(), "presence"] as const,
   dms: () => [...communityKeys.all, "dms"] as const,
   folders: () => [...communityKeys.all, "folders"] as const,
 

@@ -313,7 +313,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       if (!wasOnline) {
         this.broadcastPresence(userId, true).catch(() => {})
       }
-      // Send presence snapshot of online co-members
+      // Send presence snapshot of online co-members + friends
       this.sendPresenceSnapshot(ws, userId).catch(() => {})
       return
     }
@@ -883,11 +883,11 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   private static readonly SUBREQUEST_BATCH_SIZE = 40
 
   private async broadcastPresence(userId: string, online: boolean): Promise<void> {
-    const coMembers = await this.getCoMembers(userId)
-    if (coMembers.length === 0) return
+    const audience = await this.getPresenceAudience(userId)
+    if (audience.length === 0) return
     const payload = JSON.stringify({ type: "community:presence.update", userId, online })
-    for (let i = 0; i < coMembers.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
-      const batch = coMembers.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
+    for (let i = 0; i < audience.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
+      const batch = audience.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
       await Promise.allSettled(
         batch.map((memberId) => {
           const doId = this.env.WS_DO.idFromName("user:" + memberId)
@@ -906,12 +906,32 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     return queries.communityMember.getCoMemberUserIds(db, userId)
   }
 
+  private async getFriendIds(userId: string): Promise<string[]> {
+    const db = createDb(this.env.DB)
+    return queries.communityFriendship.getFriendUserIds(db, userId)
+  }
+
+  /**
+   * Who should learn about `userId`'s online/offline flips: server
+   * co-members AND accepted friends. Friends are the common case that a
+   * co-members-only audience misses entirely — two people can be friends
+   * without ever sharing a server, which is the whole point of a friends
+   * list. Deduped so a friend who's also a co-member gets one fetch, not two.
+   */
+  private async getPresenceAudience(userId: string): Promise<string[]> {
+    const [coMembers, friends] = await Promise.all([
+      this.getCoMembers(userId),
+      this.getFriendIds(userId),
+    ])
+    return [...new Set([...coMembers, ...friends])]
+  }
+
   private async sendPresenceSnapshot(ws: WebSocket, userId: string): Promise<void> {
-    const coMembers = await this.getCoMembers(userId)
-    if (coMembers.length === 0) return
+    const audience = await this.getPresenceAudience(userId)
+    if (audience.length === 0) return
     const onlineIds: string[] = []
-    for (let i = 0; i < coMembers.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
-      const batch = coMembers.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
+    for (let i = 0; i < audience.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
+      const batch = audience.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
       const checks = await Promise.allSettled(
         batch.map(async (memberId) => {
           const doId = this.env.WS_DO.idFromName("user:" + memberId)

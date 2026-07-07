@@ -314,6 +314,31 @@ export async function listFriends(db: Database, userId: string) {
 }
 
 /**
+ * Ids-only variant of `listFriends` — no `user` join, no own-bot rows. Used
+ * on hot paths that only need "who is this user's friend" (WS presence
+ * fan-out, presence bulk-check route) and would rather not pay for name/
+ * email/image columns they're going to throw away.
+ */
+export async function getFriendUserIds(db: Database, userId: string): Promise<string[]> {
+  const rows = await db
+    .select({
+      requesterId: communityFriendship.requesterId,
+      addresseeId: communityFriendship.addresseeId,
+    })
+    .from(communityFriendship)
+    .where(
+      and(
+        eq(communityFriendship.status, "accepted"),
+        or(
+          eq(communityFriendship.requesterId, userId),
+          eq(communityFriendship.addresseeId, userId),
+        ),
+      ),
+    );
+  return rows.map((r) => (r.requesterId === userId ? r.addresseeId : r.requesterId));
+}
+
+/**
  * Are two users in an `accepted` friendship? Direction-agnostic. Used by the
  * bot-server-add flow (friend-of-bot path) and DM peer allow-list.
  */

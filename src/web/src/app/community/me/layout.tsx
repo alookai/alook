@@ -8,9 +8,9 @@ import { DmSidebar } from "@/components/community/dm-sidebar"
 import type { MobileZone } from "@/components/community/_types"
 import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
-import { useFriends } from "@/hooks/community/use-friends"
+import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
 import { useMarkDmRead } from "@/hooks/community/mutations"
-import { useOnlineUserIds } from "@/stores/community/ws"
+import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 
 // DM-side layout. The DM subtree has no server settings, no channel sidebar,
 // and no `[serverId]` param — everything is scoped to the current user.
@@ -41,6 +41,18 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     useCommunityStore.getState().setCurrentServerId(null)
   }, [])
+
+  // Seed the presence set for the friends/DM subtree — mirrors
+  // `channels/layout.tsx`'s `usePresence(serverId)` → `hydratePresence(...)`
+  // seed for server members. Without this, a friend who shares no server
+  // with you never shows online until a live WS event happens to arrive
+  // while you're on this page. `hydratePresence` is a one-shot replacement
+  // that no-ops on an identical list, so a re-render with the same online
+  // set doesn't cause an extra store write.
+  const { online: onlineFriendIds } = useFriendsPresence()
+  useEffect(() => {
+    useCommunityWsStore.getState().hydratePresence(onlineFriendIds)
+  }, [onlineFriendIds])
 
   const hasDm = !!params.dmId
   const machinesActive = pathname === "/community/me/machines"
