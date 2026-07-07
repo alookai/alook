@@ -20,6 +20,7 @@
  */
 import type { HostCommand, HostControlChannel, HostReady, HostReadyRuntime, UnreadNotice, AgentSessionReport, SessionErrorFrame } from "../server/contract.js";
 import type { AgentProcessManager } from "./managerRuntime.js";
+import { createLogger, type Logger } from "../logger.js";
 
 /**
  * Thrown by a `driverFor` implementation when the server asked for a runtime
@@ -98,6 +99,8 @@ export interface AgentRouterOpts {
    * into one wire frame. Tests inject a synchronous scheduler.
    */
   scheduleReadyResend?: (fn: () => void) => void;
+  /** Defaults to `createLogger({ header: "@alook/daemon:router" })`. */
+  logger?: Logger;
 }
 
 function defaultFormatUnreadNoticeText(notice: UnreadNotice): string {
@@ -120,8 +123,10 @@ export class AgentRouter {
   /** Coalescer: one microtask-scheduled `sendReady` per burst of mutations. */
   private pendingResend = false;
   private readonly scheduleResend: (fn: () => void) => void;
+  private readonly log: Logger;
 
   constructor(private readonly opts: AgentRouterOpts) {
+    this.log = opts.logger ?? createLogger({ header: "@alook/daemon:router" });
     this.scheduleResend = opts.scheduleReadyResend ?? queueMicrotask.bind(globalThis);
     for (const r of opts.runtimeReport) {
       this.runtimes.set(r.id, {
@@ -202,6 +207,7 @@ export class AgentRouter {
       lastError: reason,
       lastErrorAt: nowIso,
     });
+    this.log.warn("runtime marked unhealthy", { runtimeId: id, reason });
     this.scheduleReadyFrameResend();
   }
 
@@ -220,6 +226,7 @@ export class AgentRouter {
       version: existing.version,
       status: "healthy",
     });
+    this.log.info("runtime marked healthy again", { runtimeId: id });
     this.scheduleReadyFrameResend();
   }
 
@@ -243,6 +250,11 @@ export class AgentRouter {
   private async onCommand(cmd: HostCommand): Promise<void> {
     switch (cmd.type) {
       case "agent:wake":
+        this.log.info("agent:wake received", {
+          agentId: cmd.agentId,
+          channel: cmd.unreadNotice.channel,
+          latestSeq: cmd.unreadNotice.latestSeq,
+        });
         try {
           await this.opts.onBeforeAgent?.(cmd.agentId);
           this.opts.manager.register(cmd.agentId, {
@@ -260,6 +272,7 @@ export class AgentRouter {
             launchId: cmd.launchId,
             status: "ok",
           });
+          this.log.info("agent:wake ack", { agentId: cmd.agentId, status: "ok" });
         } catch (err) {
           if (err instanceof UnknownRuntimeError) {
             // Forward a structured session.error so the server / machine DO
@@ -284,23 +297,33 @@ export class AgentRouter {
                 message: err.message,
               },
             });
+            this.log.info("agent:wake ack", {
+              agentId: cmd.agentId,
+              status: "error",
+              "error.code": "bot_runtime_missing",
+            });
             return;
           }
           // Any other throw — including onBeforeAgent throws that used to be
           // swallowed silently — surfaces as a structured error ack.
-          await this.opts.channel.reportWakeAck?.({
-            agentId: cmd.agentId,
-            launchId: cmd.launchId,
-            status: "error",
-            error: {
-              code: classifyErrorCode(err),
-              message: err instanceof Error ? err.message : String(err),
-            },
-          });
+          {
+            const code = classifyErrorCode(err);
+            await this.opts.channel.reportWakeAck?.({
+              agentId: cmd.agentId,
+              launchId: cmd.launchId,
+              status: "error",
+              error: {
+                code,
+                message: err instanceof Error ? err.message : String(err),
+              },
+            });
+            this.log.info("agent:wake ack", { agentId: cmd.agentId, status: "error", "error.code": code });
+          }
           return;
         }
         break;
       case "agent:stop":
+        this.log.info("agent:stop received", { agentId: cmd.agentId });
         try {
           this.running.delete(cmd.agentId);
           void this.opts.manager.stop(cmd.agentId);
@@ -308,15 +331,18 @@ export class AgentRouter {
             agentId: cmd.agentId,
             status: "ok",
           });
+          this.log.info("agent:stop ack", { agentId: cmd.agentId, status: "ok" });
         } catch (err) {
+          const code = classifyErrorCode(err);
           await this.opts.channel.reportStoppedAck?.({
             agentId: cmd.agentId,
             status: "error",
             error: {
-              code: classifyErrorCode(err),
+              code,
               message: err instanceof Error ? err.message : String(err),
             },
           });
+          this.log.info("agent:stop ack", { agentId: cmd.agentId, status: "error", "error.code": code });
         }
         break;
       // bot:* frames are handled at the daemon layer (createDaemon), NOT here.

@@ -22,6 +22,7 @@ import {
 import type { Driver, LaunchContext } from "../types.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import { createChildProcessRuntimeSession, type ChildProcessRuntimeSession } from "../runtime/runtimeSession.js";
+import { createLogger, type Logger } from "../logger.js";
 
 /** Minimal shape the executor needs from a runtime session. */
 export interface ManagedSession {
@@ -102,6 +103,8 @@ export interface ManagerRuntimeOpts {
    * their install (or after a genuine transient failure).
    */
   onRuntimeSessionEstablished?: (runtimeId: string) => void;
+  /** Defaults to `createLogger({ header: "@alook/daemon:manager" })`. */
+  logger?: Logger;
 }
 
 /**
@@ -138,6 +141,15 @@ export class AgentProcessManager {
   private readonly launchIds = new Map<string, string>();
   /** agentId → live runtime sessionId (learned from session_init), for resync. */
   private readonly liveSessions = new Map<string, string>();
+  /**
+   * agentId → the current spawn's per-session end-tracking flags, shared
+   * between `doSpawn`'s closure (turn_end / exit) and `applyEffect` (stop /
+   * terminate_stalled) — see `logSessionEnded`'s `suppressExitLog` handling.
+   */
+  private readonly activeSpawnState = new Map<
+    string,
+    { hasEstablished: boolean; hasReportedSpawnFailure: boolean; suppressExitLog: boolean }
+  >();
   private readonly opts: Required<
     Omit<
       ManagerRuntimeOpts,
@@ -149,6 +161,7 @@ export class AgentProcessManager {
       | "wakePromptFooter"
       | "onRuntimeSpawnFailed"
       | "onRuntimeSessionEstablished"
+      | "logger"
     >
   > &
     Pick<
@@ -161,9 +174,11 @@ export class AgentProcessManager {
       | "wakePromptFooter"
       | "onRuntimeSpawnFailed"
       | "onRuntimeSessionEstablished"
+      | "logger"
     >;
   private tickTimer: ReturnType<typeof setInterval> | null = null;
   private readonly now: () => number;
+  private readonly log: Logger;
 
   constructor(opts: ManagerRuntimeOpts) {
     this.opts = {
@@ -173,6 +188,7 @@ export class AgentProcessManager {
       ...opts,
     };
     this.now = opts.now ?? (() => Date.now());
+    this.log = opts.logger ?? createLogger({ header: "@alook/daemon:manager" });
     this.state = createInitialManagerState(this.opts.staleThresholdMs, this.opts.idleTimeoutMs);
   }
 
@@ -261,19 +277,31 @@ export class AgentProcessManager {
       case "send": {
         const session = this.sessions.get(effect.agentId);
         session?.send({ text: this.withFooter(effect.text), mode: effect.mode });
+        this.log.info("steering message sent to running agent", { agentId: effect.agentId, mode: effect.mode });
         break;
       }
       case "stop":
       case "terminate_stalled": {
         const session = this.sessions.get(effect.agentId);
         void Promise.resolve(session?.stop({ reason: effect.type, forceAfterMs: 5_000 }));
+        // The stop we just issued will make the underlying process emit its
+        // own `exit` shortly after — suppress that follow-up log so a single
+        // termination doesn't produce two contradictory "session ended" lines.
+        const spawnState = this.activeSpawnState.get(effect.agentId);
+        if (spawnState) spawnState.suppressExitLog = true;
+        this.logSessionEnded(effect.agentId, effect.type === "stop" ? "stopped" : "terminate_stalled");
         break;
       }
     }
   }
 
+  private logSessionEnded(agentId: string, reason: "turn_end" | "stopped" | "terminate_stalled" | "exit"): void {
+    this.log.info("agent session ended", { agentId, sessionId: this.liveSessions.get(agentId) ?? "", reason });
+  }
+
   private doSpawn(agentId: string, prompt: string, resumeSessionId: string | null): void {
     const driver = this.opts.driverFor(agentId, this.runtimeConfigs.get(agentId));
+    this.log.info("spawning agent", { agentId, runtime: driver.id });
     const base = this.opts.baseContextFor(agentId);
     // The server-pushed RuntimeConfig (from agent:wake) takes precedence over
     // any baseContextFor default; the resume sessionId likewise prefers the
@@ -326,10 +354,18 @@ export class AgentProcessManager {
     //     path to see the failure gets to name the reason — subsequent paths
     //     no-op instead of clobbering a specific `ENOENT` with generic
     //     `pre_handshake_exit`.
-    const state = { hasEstablished: false, hasReportedSpawnFailure: false };
+    //   - suppressExitLog: set once this session's end has already been
+    //     logged via a more specific reason (`turn_end` for a `per_turn`
+    //     runtime that's about to exit on its own, or `stopped`/
+    //     `terminate_stalled` from `applyEffect`) so the process's eventual
+    //     `exit` event doesn't ALSO log a redundant/contradictory
+    //     "session ended" line for the same termination.
+    const state = { hasEstablished: false, hasReportedSpawnFailure: false, suppressExitLog: false };
+    this.activeSpawnState.set(agentId, state);
     const reportSpawnFailure = (reason: string) => {
       if (state.hasEstablished || state.hasReportedSpawnFailure) return;
       state.hasReportedSpawnFailure = true;
+      this.log.warn("spawn failed", { agentId, runtime: driver.id, reason });
       this.opts.onRuntimeSpawnFailed?.(driver.id, reason);
     };
 
@@ -345,7 +381,13 @@ export class AgentProcessManager {
       // where session A established, session B failed and flipped the runtime
       // unhealthy, and A's ongoing runtime_events never heal it back.
       this.opts.onRuntimeSessionEstablished?.(driver.id);
-      this.onRuntimeEvent(agentId, e);
+      // A `per_turn` runtime handles exactly one turn per spawn and exits on
+      // its own right after (see managerPolicy's onTurnEnd) — that upcoming
+      // `exit` is expected, not a new termination, so don't double-log it.
+      if ((e as { kind?: string })?.kind === "turn_end" && driver.lifecycle.kind === "per_turn") {
+        state.suppressExitLog = true;
+      }
+      this.onRuntimeEvent(agentId, e, driver.id);
     });
     // Child-process `error` (ENOENT etc.) — Node EE emits this before or in
     // parallel with `exit`. Without this subscriber the raw `error` would
@@ -362,8 +404,14 @@ export class AgentProcessManager {
       // Guarded by `hasReportedSpawnFailure` so an ENOENT (already reported
       // via `error`) doesn't get overwritten with generic `pre_handshake_exit`.
       reportSpawnFailure("pre_handshake_exit");
+      // Only an ESTABLISHED session "ended" — a pre-handshake exit is
+      // already covered by the spawn-failed warning above. And only if this
+      // termination wasn't already logged under a more specific reason (see
+      // `suppressExitLog` above).
+      if (state.hasEstablished && !state.suppressExitLog) this.logSessionEnded(agentId, "exit");
       this.sessions.delete(agentId);
       this.liveSessions.delete(agentId);
+      if (this.activeSpawnState.get(agentId) === state) this.activeSpawnState.delete(agentId);
       this.dispatch({ type: "exit", agentId });
     });
 
@@ -384,7 +432,7 @@ export class AgentProcessManager {
       });
   }
 
-  private onRuntimeEvent(agentId: string, e: unknown): void {
+  private onRuntimeEvent(agentId: string, e: unknown, runtimeId: string): void {
     const ev = e as { kind?: string; sessionId?: string; text?: string };
     if (!ev?.kind) return;
     if (ev.kind === "session_init" && ev.sessionId) {
@@ -396,6 +444,7 @@ export class AgentProcessManager {
         sessionId: ev.sessionId,
         launchId: this.launchIds.get(agentId) ?? "",
       });
+      this.log.info("agent session established", { agentId, sessionId: ev.sessionId, runtime: runtimeId });
     }
     // Accumulate the agent's text output onto its latest timeline entry, so the
     // log records "what the agent said" — the basis for using it as memory.
@@ -405,6 +454,7 @@ export class AgentProcessManager {
     // Any event is progress for stall detection.
     this.dispatch({ type: "progress", agentId, nowMs: this.now() });
     if (ev.kind === "turn_end") {
+      this.logSessionEnded(agentId, "turn_end");
       this.dispatch({ type: "turn_end", agentId, nowMs: this.now() });
     }
   }

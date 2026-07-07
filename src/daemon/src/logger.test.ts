@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { createLogger } from "./logger";
 
 function capture() {
@@ -85,5 +85,42 @@ describe("createLogger", () => {
     const log = createLogger({ now: FIXED, ...c.sink });
     log.info("plain message");
     expect(c.out[0]).toBe("2026-06-25T12:00:00.000Z @alook/daemon INFO  plain message");
+  });
+});
+
+describe("createLogger — ALOOK_LOG_LEVEL env fallback", () => {
+  const ORIGINAL = process.env.ALOOK_LOG_LEVEL;
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.ALOOK_LOG_LEVEL;
+    else process.env.ALOOK_LOG_LEVEL = ORIGINAL;
+  });
+
+  it("ALOOK_LOG_LEVEL=warn suppresses info/debug and still emits warn/error", () => {
+    process.env.ALOOK_LOG_LEVEL = "warn";
+    const c = capture();
+    const log = createLogger({ now: FIXED, ...c.sink });
+    log.debug("d");
+    log.info("i");
+    log.warn("w");
+    log.error("e");
+    expect(c.out).toEqual([]);
+    expect(c.err.map((l) => l.split(" ").pop())).toEqual(["w", "e"]);
+  });
+
+  it("an explicit options.level overrides the env var", () => {
+    process.env.ALOOK_LOG_LEVEL = "warn";
+    const c = capture();
+    const log = createLogger({ now: FIXED, level: "debug", ...c.sink });
+    log.debug("shown");
+    expect(c.out).toEqual(["2026-06-25T12:00:00.000Z @alook/daemon DEBUG shown"]);
+  });
+
+  it("an invalid ALOOK_LOG_LEVEL value falls back to the info default", () => {
+    process.env.ALOOK_LOG_LEVEL = "not-a-level";
+    const c = capture();
+    const log = createLogger({ now: FIXED, ...c.sink });
+    log.debug("hidden");
+    log.info("shown");
+    expect(c.out).toEqual(["2026-06-25T12:00:00.000Z @alook/daemon INFO  shown"]);
   });
 });

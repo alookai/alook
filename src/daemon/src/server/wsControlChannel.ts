@@ -34,6 +34,7 @@ import type {
   WebSocketLike,
   WebSocketFactory,
 } from "./contract.js";
+import { createLogger, type Logger } from "../logger.js";
 // Re-export so existing importers of these from this module keep working.
 export type { WebSocketLike, WebSocketFactory } from "./contract.js";
 
@@ -60,6 +61,8 @@ export interface WsControlChannelOpts {
    */
   onAuthRejected?: () => void;
   now?: () => number;
+  /** Defaults to `createLogger({ header: "@alook/daemon:ws" })`. */
+  logger?: Logger;
 }
 
 /**
@@ -110,6 +113,10 @@ type OutboundFrame =
 
 type ResyncProvider = () => { ready: HostReady; sessions: AgentSessionReport[] };
 
+function describeErr(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export class WsControlChannel implements HostControlChannel {
   private statusValue: ControlChannelStatus = "idle";
   // Multiple listeners so consumers can layer behavior (e.g. bot-cache pre-hook
@@ -123,8 +130,11 @@ export class WsControlChannel implements HostControlChannel {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pongDeadline = 0;
   private resyncProvider: ResyncProvider | null = null;
+  private readonly log: Logger;
 
-  constructor(private readonly opts: WsControlChannelOpts) {}
+  constructor(private readonly opts: WsControlChannelOpts) {
+    this.log = opts.logger ?? createLogger({ header: "@alook/daemon:ws" });
+  }
 
   get status(): ControlChannelStatus {
     return this.statusValue;
@@ -233,7 +243,10 @@ export class WsControlChannel implements HostControlChannel {
     // ready/agent_session are point-in-time state; if the socket isn't open we
     // drop them here and let the resync provider regenerate fresh state on the
     // next (re)connect — never replay a stale snapshot.
-    if (this.statusValue !== "open" || !this.ws) return;
+    if (this.statusValue !== "open" || !this.ws) {
+      this.log.debug("frame dropped — socket not open", { type: frame.type });
+      return;
+    }
     this.ws.send(JSON.stringify(frame));
   }
 
@@ -247,6 +260,7 @@ export class WsControlChannel implements HostControlChannel {
       const { ready, sessions } = this.resyncProvider();
       this.sendFrame({ type: "ready", ...ready });
       for (const s of sessions) this.sendFrame({ type: "agent_session", ...s });
+      this.log.info("resync sent", { ready: ready.runtimeReport.length, sessions: sessions.length });
     }
     for (const hook of this.resyncHooks) {
       try {
@@ -264,6 +278,7 @@ export class WsControlChannel implements HostControlChannel {
 
     ws.on("open", () => {
       this.statusValue = "open";
+      this.log.info("control channel open", { attempt: this.attempt });
       this.startHeartbeat();
       this.resyncOnConnect();
     });
@@ -271,8 +286,9 @@ export class WsControlChannel implements HostControlChannel {
     ws.on("pong", () => {
       this.attempt = 0;
       this.pongDeadline = this.now() + (this.opts.heartbeat?.pongTimeoutMs ?? 30_000);
+      this.log.debug("heartbeat pong");
     });
-    ws.on("close", () => this.onSocketClosed());
+    ws.on("close", (code?: number, reason?: unknown) => this.onSocketClosed(code, reason));
     // Errors surface via the socket's own close; a host factory may also log.
     ws.on("error", () => {
       /* swallow — close handler drives reconnect */
@@ -290,6 +306,7 @@ export class WsControlChannel implements HostControlChannel {
 
     if (frame.type === "error" && frame.code === "AUTH_REJECTED") {
       this.authRejected = true;
+      this.log.error("AUTH_REJECTED received — machine key rejected, not reconnecting");
       this.opts.onAuthRejected?.();
       return;
     }
@@ -303,16 +320,17 @@ export class WsControlChannel implements HostControlChannel {
       // listener that throws would surface as an unhandled promise rejection
       // and, under Node ≥15 defaults, could terminate the daemon.
       try {
-        Promise.resolve(cb(cmd)).catch(() => {
-          /* listener failure — swallowed, transport keeps going */
+        Promise.resolve(cb(cmd)).catch((err: unknown) => {
+          this.log.warn("command listener threw", { type: cmd.type, err: describeErr(err) });
         });
-      } catch {
-        /* sync throw from a listener — same policy */
+      } catch (err) {
+        this.log.warn("command listener threw synchronously", { type: cmd.type, err: describeErr(err) });
       }
     }
   }
 
-  private onSocketClosed(): void {
+  private onSocketClosed(code?: number, reason?: unknown): void {
+    this.log.warn("control channel closed", { code, reason: reason ? String(reason) : "" });
     this.clearHeartbeat();
     this.ws = null;
     if (this.closedByUser) return;
@@ -337,6 +355,7 @@ export class WsControlChannel implements HostControlChannel {
     this.attempt += 1;
     const delayMs = Math.min(max, base * 2 ** (this.attempt - 1));
     this.statusValue = "reconnecting";
+    this.log.info("reconnecting", { attempt: this.attempt, delayMs });
     // NOTE: do NOT `t.unref()` — this timer is what keeps the daemon alive
     // while it's waiting to reconnect. Unrefing it here caused the daemon
     // to silently exit(0) when the server dropped the socket (no other
@@ -351,9 +370,11 @@ export class WsControlChannel implements HostControlChannel {
     this.pingTimer = setInterval(() => {
       if (this.now() > this.pongDeadline) {
         // Watchdog: no pong in time → treat as dead, force reconnect.
+        this.log.warn("heartbeat pong timeout — forcing reconnect");
         this.ws?.close();
         return;
       }
+      this.log.debug("heartbeat ping");
       this.ws?.ping?.();
     }, interval);
     this.pingTimer.unref?.();

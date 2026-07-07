@@ -110,6 +110,8 @@ concrete message and terminates the process on turn end.
 src/
   types.ts                       # Driver interface + ParsedEvent + lifecycle/capability types
   index.ts                       # public entry point
+  logger.ts                      # tiny structured logger (ALOOK_LOG_LEVEL); wired through
+                                  #   wsControlChannel.ts/agentRouter.ts/managerRuntime.ts too, not just cli/daemonStart.ts
   drivers/
     index.ts                     # getDriver(runtimeId) registry  ← start here
     cliTransport.ts              # shared: state dir, token, decoupling cliName wrapper -> targetCommand, env

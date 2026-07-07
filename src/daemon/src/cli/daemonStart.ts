@@ -416,6 +416,7 @@ export async function daemonStart(opts: DaemonStartOpts): Promise<void> {
     arch: process.arch,
     osRelease: os.release(),
     daemonVersion: readDaemonVersion(),
+    logger: log,
     onAuthRejected: () => {
       log.error("machine key rejected by server — is it correct / has it expired?");
       releaseLock(pf);

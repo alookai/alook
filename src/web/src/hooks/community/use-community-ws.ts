@@ -745,7 +745,18 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
     [queryClient, scheduleInboxInvalidate],
   )
 
-  const { send } = useUserWs(handleMessage)
+  // Machines are WS-live-patched with no query refetch (see `use-machines.ts`)
+  // — but that only works while THIS browser tab's own socket stays connected.
+  // If the socket drops and an offline→online transition happens while it's
+  // down, the event never arrives and the card is stuck stale until a full
+  // page reload. Mirror `AgentProvider`'s reconnect pattern
+  // (`contexts/agent-context.tsx`): resync the machines query on every
+  // reconnect so a missed transition self-corrects within the reconnect
+  // window instead of requiring a manual reload.
+  const handleReconnect = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: communityKeys.machines() })
+  }, [queryClient])
+  const { send } = useUserWs(handleMessage, { onReconnect: handleReconnect })
 
   // Publish the send binding so free helpers (`communityWsSendTyping`) can
   // dispatch without holding a hook reference. Single-instance assumption

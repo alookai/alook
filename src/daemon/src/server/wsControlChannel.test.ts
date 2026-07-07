@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { WsControlChannel } from "./wsControlChannel";
 import type { WebSocketLike, HostReady, AgentSessionReport } from "./contract";
+import type { Logger } from "../logger";
 
 /**
  * A controllable fake socket: records sent frames, lets the test drive open/close
@@ -28,7 +29,7 @@ class FakeSocket implements WebSocketLike {
   }
 }
 
-function makeChannel() {
+function makeChannel(overrides: Partial<ConstructorParameters<typeof WsControlChannel>[0]> = {}) {
   const sockets: FakeSocket[] = [];
   const ch = new WsControlChannel({
     url: "ws://test",
@@ -40,8 +41,28 @@ function makeChannel() {
     // No real timers needed; reconnect uses setTimeout(unref) — we drive openSocket
     // indirectly by emitting close then letting the scheduled reconnect fire.
     reconnect: { baseMs: 1, maxMs: 1 },
+    ...overrides,
   });
   return { ch, sockets };
+}
+
+/** Stub logger — records calls per level for assertions. */
+function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "error", Array<[string, unknown[]]>> } {
+  const calls: Record<"debug" | "info" | "warn" | "error", Array<[string, unknown[]]>> = {
+    debug: [],
+    info: [],
+    warn: [],
+    error: [],
+  };
+  const logger = {
+    calls,
+    debug: (m: string, ...d: unknown[]) => calls.debug.push([m, d]),
+    info: (m: string, ...d: unknown[]) => calls.info.push([m, d]),
+    warn: (m: string, ...d: unknown[]) => calls.warn.push([m, d]),
+    error: (m: string, ...d: unknown[]) => calls.error.push([m, d]),
+    child: () => logger,
+  };
+  return logger;
 }
 
 describe("WsControlChannel — resync on (re)connect", () => {
@@ -289,5 +310,85 @@ describe("WsControlChannel — reconnect timer keeps the event loop alive", () =
     } finally {
       globalThis.setTimeout = originalSetTimeout;
     }
+  });
+});
+
+describe("WsControlChannel — logging", () => {
+  it("logs info on open, and info on resync with runtime/session counts", async () => {
+    const logger = stubLogger();
+    const { ch, sockets } = makeChannel({ logger });
+    ch.onResync(() => ({
+      ready: { runtimeReport: [{ id: "claude" }], runningAgents: ["a1"] },
+      sessions: [{ agentId: "a1", sessionId: "s1", launchId: "l1" }],
+    }));
+    ch.connect();
+    sockets[0].emit("open");
+
+    expect(logger.calls.info.some(([m, d]) => m === "control channel open" && (d[0] as any).attempt === 0)).toBe(
+      true,
+    );
+    expect(
+      logger.calls.info.some(
+        ([m, d]) => m === "resync sent" && (d[0] as any).ready === 1 && (d[0] as any).sessions === 1,
+      ),
+    ).toBe(true);
+  });
+
+  it("logs warn on close", async () => {
+    const logger = stubLogger();
+    const { ch, sockets } = makeChannel({ logger });
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.connect();
+    sockets[0].emit("open");
+    sockets[0].emit("close", 1006, "abnormal");
+
+    expect(
+      logger.calls.warn.some(([m, d]) => m === "control channel closed" && (d[0] as any).code === 1006),
+    ).toBe(true);
+  });
+
+  it("logs info on each scheduled reconnect with the computed delayMs", async () => {
+    const logger = stubLogger();
+    const { ch, sockets } = makeChannel({ logger, reconnect: { baseMs: 10, maxMs: 100 } });
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.connect();
+    sockets[0].emit("open");
+    sockets[0].emit("close");
+
+    expect(
+      logger.calls.info.some(([m, d]) => m === "reconnecting" && (d[0] as any).attempt === 1 && (d[0] as any).delayMs === 10),
+    ).toBe(true);
+  });
+
+  it("logs error on AUTH_REJECTED", async () => {
+    const logger = stubLogger();
+    const { ch, sockets } = makeChannel({ logger });
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.connect();
+    sockets[0].emit("open");
+    sockets[0].emit("message", JSON.stringify({ type: "error", code: "AUTH_REJECTED" }));
+
+    expect(logger.calls.error.some(([m]) => m === "AUTH_REJECTED received — machine key rejected, not reconnecting")).toBe(
+      true,
+    );
+  });
+
+  it("logs warn when heartbeat pong times out", async () => {
+    const logger = stubLogger();
+    let now = 0;
+    const { ch, sockets } = makeChannel({
+      logger,
+      now: () => now,
+      heartbeat: { pingIntervalMs: 10, pongTimeoutMs: 20 },
+    });
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.connect();
+    sockets[0].emit("open");
+    // Advance the injected clock past the pong deadline, then let the
+    // heartbeat interval fire against real timers.
+    now = 1000;
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(logger.calls.warn.some(([m]) => m === "heartbeat pong timeout — forcing reconnect")).toBe(true);
   });
 });

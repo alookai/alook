@@ -80,10 +80,12 @@ vi.mock("@tanstack/react-query", async () => {
 // level `activeSend` guard in `useCommunityWs` sees the same identity — a
 // fresh spy per mount would trip the double-mount detector on every remount.
 let capturedOnMessage: ((msg: unknown) => void) | null = null
+let capturedOnReconnect: (() => void) | null = null
 let stableSend: ReturnType<typeof vi.fn> = vi.fn()
 vi.mock("@/lib/use-user-ws", () => ({
-  useUserWs: (onMessage: (msg: unknown) => void) => {
+  useUserWs: (onMessage: (msg: unknown) => void, options?: { onReconnect?: () => void }) => {
     capturedOnMessage = onMessage
+    capturedOnReconnect = options?.onReconnect ?? null
     return { send: stableSend }
   },
 }))
@@ -108,6 +110,7 @@ function resetHarness() {
   callbackCounter = 0
   pendingEffects = []
   capturedOnMessage = null
+  capturedOnReconnect = null
   capturedQueryClient = new QueryClient()
   stableSend = vi.fn()
   markReadMutate.mockClear()
@@ -885,6 +888,24 @@ describe("useCommunityWs — server.delete resets store when focused server dies
 
     expect(useCommunityStore.getState().currentServerId).toBe("srv_active")
     expect(useCommunityStore.getState().currentChannelId).toBe("ch_1")
+  })
+})
+
+// ── "stuck offline" fix — resync machines on WS reconnect ───────────────
+describe("useCommunityWs — resyncs machines on WS reconnect", () => {
+  it("invalidates communityKeys.machines() when the captured onReconnect fires", async () => {
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    expect(capturedOnReconnect).not.toBeNull()
+    capturedOnReconnect!()
+
+    expect(
+      spy.mock.calls.some((c) => {
+        const key = c[0]?.queryKey as unknown[] | undefined
+        return Array.isArray(key) && key.includes("machines")
+      }),
+    ).toBe(true)
   })
 })
 

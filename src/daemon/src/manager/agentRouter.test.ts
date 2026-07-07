@@ -2,6 +2,26 @@ import { describe, it, expect } from "vitest";
 import { AgentRouter, UnknownRuntimeError } from "./agentRouter";
 import type { AgentProcessManager } from "./managerRuntime";
 import type { HostControlChannel, HostCommand, SessionErrorFrame } from "../server/contract";
+import type { Logger } from "../logger";
+
+/** Stub logger — records calls per level for assertions. */
+function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "error", Array<[string, unknown[]]>> } {
+  const calls: Record<"debug" | "info" | "warn" | "error", Array<[string, unknown[]]>> = {
+    debug: [],
+    info: [],
+    warn: [],
+    error: [],
+  };
+  const logger = {
+    calls,
+    debug: (m: string, ...d: unknown[]) => calls.debug.push([m, d]),
+    info: (m: string, ...d: unknown[]) => calls.info.push([m, d]),
+    warn: (m: string, ...d: unknown[]) => calls.warn.push([m, d]),
+    error: (m: string, ...d: unknown[]) => calls.error.push([m, d]),
+    child: () => logger,
+  };
+  return logger;
+}
 
 /** Fake manager recording deliver/register; enough for router behavior tests. */
 function fakeManager() {
@@ -314,5 +334,95 @@ describe("AgentRouter — runtime health map", () => {
     expect(() => router.markRuntimeUnhealthy("codex", "ENOENT")).not.toThrow();
     // Map still mutated for the next resyncOnConnect to pick up.
     expect(router.isRuntimeHealthy("codex")).toBe(false);
+  });
+});
+
+describe("AgentRouter — logging", () => {
+  it("logs info when agent:wake is received, and info for the ack (ok status)", async () => {
+    const { mgr } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const logger = stubLogger();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }], logger });
+    await router.start();
+
+    await fire({
+      type: "agent:wake",
+      agentId: "a1",
+      config: { version: 1, runtime: "mock", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: "l1",
+      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 7 },
+    });
+
+    expect(
+      logger.calls.info.some(
+        ([m, d]) => m === "agent:wake received" && (d[0] as any).agentId === "a1" && (d[0] as any).channel === "/demo/general",
+      ),
+    ).toBe(true);
+    expect(logger.calls.info.some(([m, d]) => m === "agent:wake ack" && (d[0] as any).status === "ok")).toBe(true);
+  });
+
+  it("logs info for the ack with error status when the wake fails", async () => {
+    const throwing: UnknownRuntimeError = new UnknownRuntimeError("gemini", ["claude"]);
+    const mgr = {
+      register() {
+        throw throwing;
+      },
+      deliver() {},
+      stop() {},
+      liveSessionReports: () => [],
+    } as unknown as AgentProcessManager;
+    const { ch, fire } = fakeChannel();
+    const logger = stubLogger();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "claude" }], logger });
+    await router.start();
+
+    await fire({
+      type: "agent:wake",
+      agentId: "a1",
+      config: { version: 1, runtime: "gemini", model: { kind: "default" }, mode: { kind: "default" } },
+      launchId: "l1",
+      unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+    });
+
+    expect(logger.calls.info.some(([m, d]) => m === "agent:wake ack" && (d[0] as any).status === "error")).toBe(
+      true,
+    );
+  });
+
+  it("logs info on agent:stop received + ack", async () => {
+    const { mgr } = fakeManager();
+    const { ch, fire } = fakeChannel();
+    const logger = stubLogger();
+    const router = new AgentRouter({ manager: mgr, channel: ch, runtimeReport: [{ id: "mock" }], logger });
+    await router.start();
+
+    await fire({ type: "agent:stop", agentId: "a1" });
+
+    expect(logger.calls.info.some(([m, d]) => m === "agent:stop received" && (d[0] as any).agentId === "a1")).toBe(
+      true,
+    );
+    expect(logger.calls.info.some(([m, d]) => m === "agent:stop ack" && (d[0] as any).status === "ok")).toBe(true);
+  });
+
+  it("logs warn/info from markRuntimeUnhealthy/markRuntimeHealthy only on actual state changes", () => {
+    const { mgr } = fakeManager();
+    const { ch } = fakeChannel();
+    const logger = stubLogger();
+    const router = new AgentRouter({
+      manager: mgr,
+      channel: ch,
+      runtimeReport: [{ id: "codex" }],
+      logger,
+      scheduleReadyResend: (fn) => fn(),
+    });
+
+    router.markRuntimeUnhealthy("codex", "ENOENT");
+    // Idempotent repeat — no new warn log.
+    router.markRuntimeUnhealthy("codex", "ENOENT");
+    expect(logger.calls.warn.filter(([m]) => m === "runtime marked unhealthy")).toHaveLength(1);
+
+    router.markRuntimeHealthy("codex");
+    router.markRuntimeHealthy("codex"); // idempotent — already healthy
+    expect(logger.calls.info.filter(([m]) => m === "runtime marked healthy again")).toHaveLength(1);
   });
 });
