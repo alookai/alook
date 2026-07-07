@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 
 // Aligned to Tailwind's `sm` breakpoint. See DESIGN.md → Breakpoints.
-export const MOBILE_BREAKPOINT = 640
+const MOBILE_BREAKPOINT = 640
 
 export type Breakpoint = "desktop" | "mobile"
 

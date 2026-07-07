@@ -1,10 +1,10 @@
 import { queries, canManageServer } from "@alook/shared"
 import type { Database } from "@alook/shared"
 
-export type PermissionError =
+type PermissionError =
   | { ok: false; status: 401 | 403 | 404; error: string }
 
-export type Ok<T> = { ok: true; value: T }
+type Ok<T> = { ok: true; value: T }
 export type Result<T> = Ok<T> | PermissionError
 
 const ok = <T>(value: T): Ok<T> => ({ ok: true, value })

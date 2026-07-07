@@ -13,7 +13,6 @@
 
 import type {
   Server,
-  FolderServer,
   CommunityFolder,
   Category,
   Msg,
@@ -390,13 +389,6 @@ export const UNREAD_SERVERS: UnreadServer[] = [
       { channelId: "ch_flagship", channelName: "flagship", lastMessageAt: "2026-06-25T08:43:00Z", mentionCount: 1 },
     ],
   },
-]
-
-export const FOLDER_SERVERS: FolderServer[] = [
-  { id: "fld_ai", initial: "AI", name: "Acontext" },
-  { id: "fld_ml", initial: "ML", name: "memobase" },
-  { id: "fld_js", initial: "JS", name: "Second Me" },
-  { id: "fld_go", initial: "GO", name: "Midjourney" },
 ]
 
 export const MOCK_FOLDERS: CommunityFolder[] = [

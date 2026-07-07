@@ -12,9 +12,9 @@ import { useCommunityWsStore } from "@/stores/community/ws"
  * Why a store bridge instead of per-consumer overlay: bots pass as users at
  * every user-facing surface. Every consumer (DM sidebar, friends page, mention
  * popover, profile card, member list) already reads presence via
- * `useOnlineUserIds()` / `useIsUserOnline(id)`. Making bot presence flow
- * through the same store means those consumers need zero code changes — the
- * union hook returns human-online ∪ bot-online transparently.
+ * `useOnlineUserIds()`. Making bot presence flow through the same store means
+ * those consumers need zero code changes — the union hook returns
+ * human-online ∪ bot-online transparently.
  *
  * The only reason human vs bot presence exists as two writes is that the
  * underlying signals are different:

@@ -10,7 +10,7 @@ import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover
 // emoji-mart picker — themed to match light/dark. Uses the native set so it
 // renders system emoji without fetching an external SVG sprite (the twitter/twemoji
 // set shows "#" placeholders when the CDN sprite can't load).
-export function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
+function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
   const { resolvedTheme } = useTheme()
   return (
     <EmojiMartPicker

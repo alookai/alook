@@ -11,7 +11,7 @@ const S1 = "\u{E001}"
 //   32-char tokens both fit)
 // - the URL matcher is applied AFTER code fences/spans are stashed, so links
 //   inside code stay literal
-export const INVITE_URL_RE = /(https?:\/\/[^\s/]+)?\/community\/invite\/([A-Za-z0-9_-]{6,64})/g
+const INVITE_URL_RE = /(https?:\/\/[^\s/]+)?\/community\/invite\/([A-Za-z0-9_-]{6,64})/g
 
 /**
  * Extract every invite token in a message body (URL text stays as-is, cards

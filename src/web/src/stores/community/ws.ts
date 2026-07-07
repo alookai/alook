@@ -127,9 +127,8 @@ import { useMemo } from "react"
 
 /**
  * Presence unions users + own-bots — every consumer that asks "is X online?"
- * gets the right answer regardless of whether X is a human friend or an owner's
- * own bot. Callers that need to distinguish (e.g. block-detection) still can
- * via the raw human/bot selectors below.
+ * gets the right answer regardless of whether X is a human friend or an
+ * owner's own bot.
  *
  * Returned Set is memoized on the two slice identities, so consumers used as
  * effect deps don't retrigger unless a real presence change happened.
@@ -145,15 +144,3 @@ export const useOnlineUserIds = (): ReadonlySet<string> => {
     return merged
   }, [users, bots])
 }
-
-export const useOnlineHumanUserIds = () =>
-  useCommunityWsStore((s) => s.onlineUserIds)
-
-export const useOnlineBotUserIds = () =>
-  useCommunityWsStore((s) => s.onlineBotUserIds)
-
-export const useIsUserOnline = (userId: string | null | undefined): boolean =>
-  useCommunityWsStore((s) => {
-    if (!userId) return false
-    return s.onlineUserIds.has(userId) || s.onlineBotUserIds.has(userId)
-  })

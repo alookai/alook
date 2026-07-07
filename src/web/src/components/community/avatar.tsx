@@ -3,7 +3,7 @@ import { Avatar as UiAvatar, AvatarImage, AvatarFallback, AvatarBadge } from "@/
 import { AvatarRenderer, parseAvatarUrl, configFromName } from "@/components/avatar"
 import type { Presence } from "./_types"
 
-export const STATUS_COLOR: Record<Presence, string> = {
+const STATUS_COLOR: Record<Presence, string> = {
   online: "var(--status-online)",
   offline: "var(--status-offline)",
 }

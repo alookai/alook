@@ -10,7 +10,7 @@ import { communityKeys } from "@/lib/query-keys"
  * — the shape the settings UI consumes. Display strings ("All Messages",
  * "Only @mentions", "Nothing") mirror the mapping in the old context.
  */
-export type NotificationSettingRow = {
+type NotificationSettingRow = {
   serverId?: string | null
   channelId?: string | null
   level: string

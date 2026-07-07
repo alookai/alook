@@ -58,8 +58,16 @@ describe("CredentialBroker", () => {
     const reg = broker.mint("agent-1", "launch-1", ["send"], REAL_KEY);
     expect(reg.voucher.startsWith("vch_")).toBe(true);
     expect(fs.readFileSync(reg.voucherFile, "utf8")).toBe(reg.voucher);
-    const mode = fs.statSync(reg.voucherFile).mode & 0o777;
-    expect(mode).toBe(0o600);
+    // POSIX owner-only permission bits don't map onto Windows' ACL model —
+    // `fs.chmodSync(file, 0o600)` there just clears the read-only attribute,
+    // so the resulting mode is whatever Windows reports for "not read-only"
+    // (typically 0o666), not a literal 0o600. Only assert the exact bits on
+    // POSIX platforms; on Windows just confirm the file isn't world-writable
+    // in the "read-only flag cleared" sense doesn't apply, so skip to size.
+    if (process.platform !== "win32") {
+      const mode = fs.statSync(reg.voucherFile).mode & 0o777;
+      expect(mode).toBe(0o600);
+    }
     expect(broker.size).toBe(1);
   });
 

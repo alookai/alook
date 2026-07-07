@@ -22,7 +22,7 @@ export type MessageTarget =
     }
   | { kind: "dm"; dmId: string; otherUserId: string }
 
-export type IncomingAttachment = {
+type IncomingAttachment = {
   url: string
   filename: string
   contentType: string
@@ -48,13 +48,13 @@ type FullMessageRow = NonNullable<
   Awaited<ReturnType<typeof queries.communityMessage.getMessage>>
 >
 
-export type CreateMessageError = {
+type CreateMessageError = {
   ok: false
   status: 400
   error: string
 }
 
-export type CreateMessageOk = {
+type CreateMessageOk = {
   ok: true
   row: FullMessageRow
   attachments: CreatedAttachment[]

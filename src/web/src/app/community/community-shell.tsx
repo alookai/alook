@@ -59,8 +59,7 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
 
   // Seed own-bot presence into the WS presence store. Runs once for the whole
   // community subtree so every consumer reads bot presence through the same
-  // `useOnlineUserIds()` / `useIsUserOnline()` API as human presence — no
-  // per-page overlay code.
+  // `useOnlineUserIds()` API as human presence — no per-page overlay code.
   useBotPresenceBridge()
 
   // Hydrate `aboutMe` — the community identity holds email/name/avatar from

@@ -95,12 +95,3 @@ export const communityKeys = {
     [...communityKeys.all, "profile", userId] as const,
 } as const
 
-type Factories = {
-  [K in keyof typeof communityKeys]: (typeof communityKeys)[K] extends (
-    ...args: never[]
-  ) => infer R
-    ? R
-    : (typeof communityKeys)[K]
-}
-
-export type CommunityQueryKey = Factories[keyof Factories]

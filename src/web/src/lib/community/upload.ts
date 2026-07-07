@@ -12,7 +12,7 @@ import type { AuthContext } from "@/lib/middleware/auth"
 import type { Result } from "./permissions"
 import { buildMediaKey, buildServerIconKey } from "./storage"
 
-export type UploadOk = {
+type UploadOk = {
   ok: true
   id: string
   key: string
@@ -22,7 +22,7 @@ export type UploadOk = {
   size: number
 }
 
-export type UploadErr = { ok: false; response: NextResponse }
+type UploadErr = { ok: false; response: NextResponse }
 
 export type UploadResult = UploadOk | UploadErr
 

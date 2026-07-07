@@ -25,8 +25,6 @@ export const COMMUNITY_AUDIT_ACTIONS = {
   BOT_FRIEND_DENIED: "community.bot.friend_denied",
   MESSAGE_AUTHORED_AS_BOT: "community.message.authored_as_bot",
 } as const
-export type CommunityAuditAction =
-  (typeof COMMUNITY_AUDIT_ACTIONS)[keyof typeof COMMUNITY_AUDIT_ACTIONS]
 
 type AuditAction = {
   /** Null for user-scoped rows (bot lifecycle, friend approvals). */

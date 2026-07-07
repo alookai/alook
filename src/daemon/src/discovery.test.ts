@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import * as path from "path";
 import { fileURLToPath } from "url";
 import {
@@ -66,9 +66,21 @@ describe("resolveAlookCliPathWithFallback", () => {
   });
 });
 
+// `detectRuntimes()` probes every registered runtime by resolving its binary
+// on PATH (a spawned subprocess per runtime — `which` on POSIX, PowerShell
+// `Get-Command` on Windows). Windows CI runners pay real per-spawn overhead
+// for that, so share ONE probe across all assertions in this describe block
+// (via `beforeAll`) instead of re-running it per `it()` — that's the fix for
+// this suite occasionally exceeding the default 10s test timeout on
+// `windows-latest`, not a symptom of anything actually hanging.
 describe("detectRuntimes", () => {
-  it("returns an array of runtime info objects", async () => {
-    const runtimes = await detectRuntimes();
+  let runtimes: Awaited<ReturnType<typeof detectRuntimes>>;
+
+  beforeAll(async () => {
+    runtimes = await detectRuntimes();
+  }, 30_000);
+
+  it("returns an array of runtime info objects", () => {
     expect(Array.isArray(runtimes)).toBe(true);
     expect(runtimes.length).toBeGreaterThan(0);
     for (const r of runtimes) {
@@ -79,14 +91,12 @@ describe("detectRuntimes", () => {
     }
   });
 
-  it("includes claude in the list", async () => {
-    const runtimes = await detectRuntimes();
+  it("includes claude in the list", () => {
     const claude = runtimes.find((r) => r.id === "claude");
     expect(claude).toBeDefined();
   });
 
-  it("carries lastError + lastErrorAt on unhealthy entries so /community can surface the reason", async () => {
-    const runtimes = await detectRuntimes();
+  it("carries lastError + lastErrorAt on unhealthy entries so /community can surface the reason", () => {
     for (const r of runtimes) {
       if (r.status === "unhealthy") {
         expect(typeof r.lastError).toBe("string");
@@ -99,10 +109,14 @@ describe("detectRuntimes", () => {
 });
 
 describe("getAvailableRuntimes", () => {
-  it("returns only available runtime IDs", async () => {
-    const available = await getAvailableRuntimes();
-    expect(Array.isArray(available)).toBe(true);
-    // At minimum, claude should be available on this dev machine
-    // (but don't hard-fail CI if it's not installed)
-  });
+  it(
+    "returns only available runtime IDs",
+    async () => {
+      const available = await getAvailableRuntimes();
+      expect(Array.isArray(available)).toBe(true);
+      // At minimum, claude should be available on this dev machine
+      // (but don't hard-fail CI if it's not installed)
+    },
+    30_000,
+  );
 });

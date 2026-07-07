@@ -76,7 +76,7 @@ export type Attachment =
   | { kind: "image"; name: string; url: string }
   | { kind: "file"; name: string; url: string; size: string }
 
-export type Embed = {
+type Embed = {
   provider?: string
   url?: string
   title: string
@@ -89,7 +89,7 @@ export type Embed = {
   author?: { name: string; url?: string; iconUrl?: string }
 }
 
-export type Reaction = { emoji: string; count: number; me: boolean; userIds: string[] }
+type Reaction = { emoji: string; count: number; me: boolean; userIds: string[] }
 
 export type Msg = {
   id: string // nanoid
@@ -135,8 +135,7 @@ export type ForumPost = Thread & {
 // ── Members / friends / DMs ──────────────────────────────────────────────────
 export type Role = CommunityRole
 
-export { canManageServer, isServerOwner } from "@alook/shared"
-export type { ChannelType } from "@alook/shared"
+export { canManageServer } from "@alook/shared"
 
 export type Member = {
   id: string

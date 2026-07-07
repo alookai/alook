@@ -15,13 +15,13 @@ import type { InvitesResponse } from "@/hooks/community/use-server-panels"
 
 // ── Create invite ─────────────────────────────────────────────────────────
 
-export type CreateInviteArgs = {
+type CreateInviteArgs = {
   serverId: string
   creatorId: string
   creatorName: string
 }
 
-export type CreateInviteResult = {
+type CreateInviteResult = {
   invite: {
     token: string
     uses: number
@@ -30,7 +30,7 @@ export type CreateInviteResult = {
   }
 }
 
-export function useCreateInvite() {
+function useCreateInvite() {
   const queryClient = useQueryClient()
   return useMutation<CreateInviteResult, Error, CreateInviteArgs>({
     mutationFn: async ({ serverId }) => {

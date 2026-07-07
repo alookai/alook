@@ -55,18 +55,18 @@ import type React from "react"
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type CurrentChannelMeta = {
+type CurrentChannelMeta = {
   name: string
   parentChannelId: string | null
   parentMessageId?: string | null
 }
 
-export type CommunitySubscription = {
+type CommunitySubscription = {
   channelId?: string
   dmConversationId?: string
 }
 
-export type CommunityUiHandlers = {
+type CommunityUiHandlers = {
   previewImage?: (url: string) => void
   openProfile?: (name: string, e: React.MouseEvent) => void
   goBackMobile?: () => void
@@ -200,9 +200,6 @@ export const useCommunityStore = create<CommunityStoreState>((set, get) => ({
 
 // ── Selectors ────────────────────────────────────────────────────────────────
 
-export const useCurrentServerId = () =>
-  useCommunityStore((s) => s.currentServerId)
-
 export const useCurrentChannelId = () =>
   useCommunityStore((s) => s.currentChannelId)
 
@@ -225,9 +222,6 @@ const stableUiHandlers: CommunityUiHandlers = {
   goBackMobile: () => useCommunityStore.getState().uiHandlers.goBackMobile?.(),
 }
 export const useUiHandlers = () => stableUiHandlers
-
-export const useCommunitySubscription = () =>
-  useCommunityStore((s) => s.subscription)
 
 export const usePendingMachineTokenId = () =>
   useCommunityStore((s) => s.pendingMachineTokenId)

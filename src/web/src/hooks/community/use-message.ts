@@ -16,8 +16,7 @@ import type { Msg } from "@/components/community/_types"
  * (or `setQueryData`-patch) exactly one entry and every viewer of it updates
  * without a page reload.
  *
- * Pass a falsy id when there's nothing to load — the query stays disabled
- * (matches the `useUserProfile(null)` pattern).
+ * Pass a falsy id when there's nothing to load — the query stays disabled.
  */
 export type OpenerPayload = {
   id: string

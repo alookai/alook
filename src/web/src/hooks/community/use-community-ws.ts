@@ -82,7 +82,7 @@ import type { ServersResponse, ServerDetail } from "@/hooks/community/use-server
 // Debounce inbox invalidation so a busy channel doesn't fire one refetch per
 // message. 500ms matches the mark-channel-read debounce so both fire once per
 // message burst.
-export const INBOX_INVALIDATE_DEBOUNCE_MS = 500
+const INBOX_INVALIDATE_DEBOUNCE_MS = 500
 
 // ── Types (kept for backwards compat with any lingering imports) ─────────
 

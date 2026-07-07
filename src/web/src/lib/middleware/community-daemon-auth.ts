@@ -3,7 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
 
-export interface CommunityDaemonAuthContext {
+interface CommunityDaemonAuthContext {
   env: Env
   userId: string
   machineId: string

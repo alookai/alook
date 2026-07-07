@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 
-export interface CommunityPairingTokenContext {
+interface CommunityPairingTokenContext {
   env: Env
   rawTokenId: string
 }

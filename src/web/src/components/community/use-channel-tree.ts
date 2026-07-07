@@ -50,13 +50,8 @@ export function reorderChannelsWithin(order: ChannelOrder, activeId: string, ove
   return { ...order, [cat]: arrayMove(order[cat], from, to) }
 }
 
-/** Append a channel to a category. Pure. */
-export function addChannelTo(order: ChannelOrder, categoryId: string, channel: Channel): ChannelOrder {
-  return { ...order, [categoryId]: [...(order[categoryId] ?? []), channel] }
-}
-
 /** Remove a channel by id from whichever category holds it. Pure. */
-export function removeChannelFrom(order: ChannelOrder, id: string): ChannelOrder {
+function removeChannelFrom(order: ChannelOrder, id: string): ChannelOrder {
   const cat = catOf(id, order)
   if (!cat) return order
   return { ...order, [cat]: order[cat].filter((c) => c.id !== id) }
