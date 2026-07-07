@@ -67,12 +67,10 @@ describe("resolveAlookCliPathWithFallback", () => {
 });
 
 // `detectRuntimes()` probes every registered runtime by resolving its binary
-// on PATH (a spawned subprocess per runtime — `which` on POSIX, PowerShell
-// `Get-Command` on Windows). Windows CI runners pay real per-spawn overhead
-// for that, so share ONE probe across all assertions in this describe block
-// (via `beforeAll`) instead of re-running it per `it()` — that's the fix for
-// this suite occasionally exceeding the default 10s test timeout on
-// `windows-latest`, not a symptom of anything actually hanging.
+// on PATH (a spawned subprocess per runtime — `which` on POSIX, `where` on
+// Windows). Even a fast per-spawn cost adds up across ~9 runtimes probed
+// sequentially, so share ONE probe across all assertions in this describe
+// block (via `beforeAll`) instead of re-running it per `it()`.
 describe("detectRuntimes", () => {
   let runtimes: Awaited<ReturnType<typeof detectRuntimes>>;
 

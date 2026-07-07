@@ -17,11 +17,14 @@ export function resolveCommandOnPath(command: string, deps: ProbeDeps = {}): str
   if (deps.which) return deps.which(command);
   try {
     if (process.platform === "win32") {
-      const out = execFileSync("powershell", ["-Command", `(Get-Command ${command}).Source`], {
-        encoding: "utf8",
-        timeout: 5000,
-      });
-      return out.trim() || null;
+      // `where` is a native cmd.exe builtin (PATHEXT-aware, resolves .cmd/.bat
+      // shims just like `Get-Command`) that returns in milliseconds. Spawning
+      // `powershell -Command` here instead cost 1-3s of interpreter cold-start
+      // PER call — with ~9 runtimes probed sequentially at daemon startup /
+      // in `detectRuntimes()` tests, that added up to 30s+ wall time.
+      const out = execFileSync("where", [command], { encoding: "utf8", timeout: 5000 });
+      const first = out.split(/\r?\n/).find((line) => line.trim().length > 0);
+      return first?.trim() || null;
     }
     const out = execFileSync("which", [command], { encoding: "utf8", timeout: 5000 });
     return out.trim() || null;
