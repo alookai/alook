@@ -32,7 +32,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError(`name must be 1-${MAX_CHANNEL_NAME_LENGTH} characters`, 400)
   }
 
-  // Discord/Slack semantics: one thread per message.
+  // One thread per message.
   const existing = await queries.communityChannel.listChildChannels(db, message.channelId, {
     type: "thread",
   })

@@ -276,7 +276,7 @@ export function useRailOrder(
     const activeId = String(active.id)
     const overId = String(over.id)
 
-    // Discord-style group creation
+    // Folder group creation
     if (pendingGroup && pendingGroup === overId && callbacks?.onCreateFolder) {
       callbacks.onCreateFolder(activeId, overId)
       return

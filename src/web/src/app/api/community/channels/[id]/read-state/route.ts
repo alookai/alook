@@ -12,7 +12,7 @@ import { requireChannelMember } from "@/lib/community/permissions"
  * per channel mount to compute the "New" divider anchor and initial scroll
  * position. Returns `{ null, null }` when the viewer has never visited the
  * channel — the caller treats that as "everything is new, but no divider
- * (start at the bottom)", matching the Slack / Discord first-visit UX.
+ * (start at the bottom)", matching common chat-app first-visit UX.
  *
  * Contract mirrors the sibling `read` route: 404 for unknown channels, 403
  * for non-members. The two-step check preserves that ordering (unknown →

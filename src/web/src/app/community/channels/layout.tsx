@@ -74,8 +74,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const isAdmin = canManageServer(myMember?.role)
   // Fetch invites for every member (not just admins) — the invite popover on
   // the sidebar header reuses cached invites to avoid burning the per-server
-  // active-invite cap. Non-admins can now create invites (Discord parity), so
-  // the cache is genuinely useful to them too.
+  // active-invite cap. Non-admins can now create invites too, so the cache is
+  // genuinely useful to them as well.
   const { invites, isLoading: invitesLoading } = useInvites(serverId, true)
   const { entries: auditLog, isLoading: auditLogLoading } = useAuditLog(serverId, isAdmin)
   const { online: initialOnline } = usePresence(serverId)

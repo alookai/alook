@@ -14,8 +14,8 @@ const S1 = "\u{E001}"
 export const INVITE_URL_RE = /(https?:\/\/[^\s/]+)?\/community\/invite\/([A-Za-z0-9_-]{6,64})/g
 
 /**
- * Extract every invite token in a message body (Discord-parity: URL text
- * stays as-is, cards render *below* the message). Returns the tokens in
+ * Extract every invite token in a message body (URL text stays as-is, cards
+ * render *below* the message). Returns the tokens in
  * discovery order, deduped so a friend spamming the same link doesn't stack
  * duplicate cards.
  */

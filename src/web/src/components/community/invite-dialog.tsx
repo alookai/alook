@@ -25,7 +25,7 @@ function inviteUrl(token: string) {
 }
 
 /**
- * Discord-style invite dialog: friends list at the top (each with an "Invite"
+ * Invite dialog: friends list at the top (each with an "Invite"
  * button that sends the invite URL as a DM), plus a copyable link at the
  * bottom. Modal-shaped (not floating) so the vertical stack of friends can
  * comfortably scroll without fighting a popover's anchor boundaries.

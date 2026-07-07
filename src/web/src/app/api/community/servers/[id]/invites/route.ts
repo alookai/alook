@@ -19,7 +19,7 @@ export const GET = withAuth(async (_req, ctx) => {
   if (!serverId) return writeError("server id is required", 400)
 
   const db = getDb(ctx.env.DB)
-  // Any member can see the invite list (Discord-like).
+  // Any member can see the invite list.
   const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
@@ -32,7 +32,7 @@ export const POST = withAuth(async (req, ctx) => {
   if (!serverId) return writeError("server id is required", 400)
 
   const db = getDb(ctx.env.DB)
-  // Any member can create an invite — Discord parity. Growth is bounded by
+  // Any member can create an invite. Growth is bounded by
   // MAX_ACTIVE_INVITES_PER_SERVER + expiry + maxUses, not by role.
   const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)

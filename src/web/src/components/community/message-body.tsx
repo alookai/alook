@@ -17,7 +17,7 @@ import { CommunityInviteCard } from "./community-invite-card"
 // syntax (spoilers, @mentions, @everyone/@here, #channels) that's preprocessed
 // into custom tags and mapped to pill components — no custom markdown parser.
 //
-// Community invite URLs (`/community/invite/<token>`) are Discord-style: the
+// Community invite URLs (`/community/invite/<token>`) render inline: the
 // URL stays as a plain auto-linked <a> in the message body, and a rich join
 // card renders BELOW it. Both surfaces coexist so users can still copy/share
 // the raw link even when the card is present.

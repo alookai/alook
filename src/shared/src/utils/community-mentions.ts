@@ -19,7 +19,7 @@ export interface MentionCandidate {
 
 /**
  * The roster-wide mention triggers. Order matters — when both `@everyone` and
- * `@here` appear in the same message, `everyone` wins (Discord precedence).
+ * `@here` appear in the same message, `everyone` wins (broader scope wins).
  */
 export const MENTION_TYPES = ["everyone", "here"] as const;
 export type MentionType = (typeof MENTION_TYPES)[number];

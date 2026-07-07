@@ -8,7 +8,7 @@
  * Defining it here lets the CLI and the mock server be built independently and
  * integration-tested against the same types.
  *
- * Domain model (Alook is Discord-like):
+ * Domain model (server/channel/message hierarchy):
  *   User ──< Agent ──< (participates in) Server/workspace ──< Channel ──< Message
  *   - one User owns many Agents;
  *   - one Agent participates in many Servers (workspaces);
@@ -87,8 +87,8 @@ export interface Sender {
 /* ------------------------------------------------------------------ */
 
 /**
- * The DM pseudo-server segment. DMs are standalone and global (Discord-style) —
- * not under any real server. In a path ref the DM "server" segment is `.dm`.
+ * The DM pseudo-server segment. DMs are standalone and global — not under any
+ * real server. In a path ref the DM "server" segment is `.dm`.
  */
 export const DM_SERVER = ".dm";
 

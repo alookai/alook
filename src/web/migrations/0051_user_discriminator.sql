@@ -1,4 +1,4 @@
--- Add a 4-digit `discriminator` to every user for Discord-style `name#0042`
+-- Add a 4-digit `discriminator` to every user for `name#0042`-style
 -- disambiguation in the UserCard and friend-search picker.
 --
 -- New rows get an FNV-1a hash of user.id at INSERT time via the Better-Auth

@@ -22,7 +22,7 @@ import {
   type MentionPopupState,
 } from "@/lib/community/mention-extension"
 
-// Composer — plain-text TipTap editor with a Discord-style @-mention popover.
+// Composer — plain-text TipTap editor with a chat-style @-mention popover.
 // Users type raw markdown which MessageBody/Streamdown renders on display.
 // Enter sends, Shift+Enter adds a newline; while the mention popover is open
 // Enter/Tab/Arrow keys drive selection instead. @everyone / @here are virtual
