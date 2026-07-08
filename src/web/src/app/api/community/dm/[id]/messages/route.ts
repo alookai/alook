@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
 import { requireDMParticipant } from "@/lib/community/permissions"
+import { checkMessageRateLimit } from "@/lib/community/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
 import { mapMessageForApi } from "@/lib/community/message-payload"
 
@@ -41,20 +42,17 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       ? queries.communityReaction.listReactionsByMessageIds(db, messageIds, ctx.userId)
       : Promise.resolve([]),
     replyToIds.length > 0
-      ? queries.communityMessage.getMessagesByIds(db, replyToIds)
+      ? queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { dmConversationId: dmId })
       : Promise.resolve([]),
   ])
 
   const attachmentsByMessage = groupAttachments(allAttachments)
   const reactionsByMessage = groupReactions(allReactions, ctx.userId)
 
-  // Scope-check reply targets against this DM so a client can't leak previews
-  // of messages from other DMs/channels just by referencing their id.
-  const replyMap = new Map(
-    replyMessages
-      .filter((m) => m.dmConversationId === dmId)
-      .map((m) => [m.id, m]),
-  )
+  // Reply targets are already scoped to this DM by the query above — a
+  // client can't leak previews of messages from other DMs/channels just by
+  // referencing their id.
+  const replyMap = new Map(replyMessages.map((m) => [m.id, m]))
 
   const messages = items.map((r) =>
     mapMessageForApi(r, { replyMap, attachmentsByMessage, reactionsByMessage }),
@@ -70,6 +68,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const auth = await requireDMParticipant(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
+
+  const rateLimit = await checkMessageRateLimit(ctx.env.RATE_LIMIT_KV, ctx.userId)
+  if (!rateLimit.allowed) {
+    return writeError("rate limited", 429, { "Retry-After": String(rateLimit.retryAfterSec) })
+  }
 
   let body: unknown
   try {

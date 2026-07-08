@@ -143,21 +143,18 @@ export async function createCommunityMessage(params: {
     throw new Error("message not found after insert")
   }
 
-  // Reply target for mention broadcasts. Scope-check against the current
-  // target so a caller can't attach a preview of a message from a different
-  // DM/channel by passing its id. The payload-side reply preview is built
-  // from the same scope-checked map by `mapMessageForWs` below.
+  // Reply target for mention broadcasts. Scoped at the query level (not a
+  // post-hoc `.filter()`) so a caller can't attach a preview of a message
+  // from a different DM/channel by passing its id. The payload-side reply
+  // preview is built from the same scope-checked map by `mapMessageForWs`
+  // below.
   const replyMap = new Map<string, { id: string; authorName: string; content: string | null }>()
   const replyTargets = new Set<string>()
   if (row.replyToId) {
     // single-id path — see `dm/[id]/messages/route.ts` / `channels/[id]/messages/route.ts` for the batched N-id path
-    const replyMsg = await queries.communityMessage.getMessage(db, row.replyToId)
-    const inScope = replyMsg
-      ? target.kind === "dm"
-        ? replyMsg.dmConversationId === target.dmId
-        : replyMsg.channelId === target.channelId
-      : false
-    if (replyMsg && inScope) {
+    const scope = target.kind === "dm" ? { dmConversationId: target.dmId } : { channelId: target.channelId }
+    const replyMsg = await queries.communityMessage.getMessageInScope(db, row.replyToId, scope)
+    if (replyMsg) {
       replyMap.set(replyMsg.id, {
         id: replyMsg.id,
         authorName: replyMsg.authorName,

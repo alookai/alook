@@ -76,6 +76,9 @@ const mockMarkMachineOffline = vi.fn()
 const mockMarkMachineOnlineIfOffline = vi.fn()
 const mockGetCoMemberUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
 const mockGetFriendUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
+const mockGetChannelForMember = vi.fn()
+const mockGetDM = vi.fn()
+const mockListMembers = vi.fn()
 // mockToSummary now returns row.status verbatim — status is the source of
 // truth on the column, not a derivation from lastSeenAt. See
 // plans/community-machine-presence-fix.md.
@@ -170,9 +173,16 @@ vi.mock("@alook/shared", () => {
       },
       communityMember: {
         getCoMemberUserIds: (...a: [unknown, string]) => mockGetCoMemberUserIds(...a),
+        listMembers: (...a: any[]) => mockListMembers(...a),
       },
       communityFriendship: {
         getFriendUserIds: (...a: [unknown, string]) => mockGetFriendUserIds(...a),
+      },
+      communityChannel: {
+        getChannelForMember: (...a: any[]) => mockGetChannelForMember(...a),
+      },
+      communityDm: {
+        getDM: (...a: any[]) => mockGetDM(...a),
       },
     },
   }
@@ -1103,6 +1113,109 @@ describe("WebSocketDurableObject", () => {
       expect(store.has("community-machine-handle")).toBe(true)
       expect(store.has("community-machine-identity")).toBe(true)
       expect(ctx.storage.setAlarm).toHaveBeenCalled()
+    })
+  })
+
+  describe("webSocketMessage — community:typing.start authz (fanOutTyping)", () => {
+    // fanOutTyping runs fire-and-forget (`.catch()`, not awaited) inside
+    // webSocketMessage, so `await durable.webSocketMessage(...)` alone
+    // doesn't guarantee its internal DB-then-broadcast chain has settled.
+    // Flush a macrotask so all pending microtasks (getDM/getChannelForMember
+    // → listMembers → Promise.all(fetch)) drain before asserting.
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+    it("does not fan out or broadcast when sender is not a member of the target channel", async () => {
+      const { durable, env } = createDO()
+      mockGetChannelForMember.mockResolvedValueOnce(null)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-private" }),
+      )
+      await flush()
+
+      expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "chan-private", "attacker")
+      expect(mockListMembers).not.toHaveBeenCalled()
+      expect((env.WS_DO as any).get).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("fans out to other server members when sender IS a channel member", async () => {
+      const { durable, env } = createDO()
+      mockGetChannelForMember.mockResolvedValueOnce({ id: "chan-1", serverId: "server-1" })
+      mockListMembers.mockResolvedValueOnce([
+        { userId: "member-1" },
+        { userId: "member-2" },
+        { userId: "sender-1" },
+      ])
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-1" }),
+      )
+      await flush()
+
+      expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "chan-1", "sender-1")
+      expect(mockListMembers).toHaveBeenCalledWith(expect.anything(), "server-1")
+      // Sender is excluded from recipients — only the other 2 members get a broadcast POST.
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-1")
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-2")
+      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
+      expect(mockStubFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it("does not fan out when sender is not a participant of the target DM", async () => {
+      const { durable, env } = createDO()
+      mockGetDM.mockResolvedValueOnce({
+        id: "dm-1",
+        user1Id: "alice",
+        user2Id: "bob",
+        lastMessageAt: null,
+        createdAt: "",
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", dmConversationId: "dm-1" }),
+      )
+      await flush()
+
+      expect(mockGetDM).toHaveBeenCalledWith(expect.anything(), "dm-1")
+      expect((env.WS_DO as any).get).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("fans out to the other participant when sender IS a DM participant", async () => {
+      const { durable, env } = createDO()
+      mockGetDM.mockResolvedValueOnce({
+        id: "dm-1",
+        user1Id: "alice",
+        user2Id: "bob",
+        lastMessageAt: null,
+        createdAt: "",
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", dmConversationId: "dm-1" }),
+      )
+      await flush()
+
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:bob")
+      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:alice")
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })
   })
 })

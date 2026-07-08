@@ -362,6 +362,15 @@ export function removeOwnerBotsFromServerStatement(
     );
 }
 
+/** Executes `removeOwnerBotsFromServerStatement` — one DELETE for all bots. */
+export async function removeOwnerBotsFromServer(
+  db: Database,
+  serverId: string,
+  botUserIds: string[],
+) {
+  await removeOwnerBotsFromServerStatement(db, serverId, botUserIds);
+}
+
 export async function getCoMemberUserIds(db: Database, userId: string): Promise<string[]> {
   const userServerIds = db
     .select({ serverId: communityServerMember.serverId })

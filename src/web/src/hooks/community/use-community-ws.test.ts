@@ -210,6 +210,60 @@ describe("useCommunityWs — message.create", () => {
     expect(cache?.pages[0].messages).toHaveLength(1)
   })
 
+  it("caps the live page at MAX_LIVE_PAGE_MESSAGES, dropping the oldest entry", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    const MAX_LIVE_PAGE_MESSAGES = 500
+    const seeded = Array.from({ length: MAX_LIVE_PAGE_MESSAGES }, (_, i) => ({
+      id: `seed_${i}`,
+      content: "x",
+      createdAt: "2026-07-03T00:00:00.000Z",
+    }))
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
+      pages: [{ messages: seeded, hasMore: false }],
+      pageParams: [null],
+    })
+
+    capturedOnMessage!(messageCreate("ch_1", "new_message"))
+
+    const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
+      communityKeys.channelMessages("ch_1"),
+    )
+    const ids = cache?.pages[0].messages.map((m) => m.id) ?? []
+    expect(ids).toHaveLength(MAX_LIVE_PAGE_MESSAGES)
+    // Oldest entry (seed_0) was dropped; the newest inserted message is present.
+    expect(ids).not.toContain("seed_0")
+    expect(ids[ids.length - 1]).toBe("new_message")
+    // Second-oldest survivor shifts to the front.
+    expect(ids[0]).toBe("seed_1")
+  })
+
+  it("does not drop below the cap when the page isn't at capacity yet", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
+      pages: [{ messages: [{ id: "seed_0", content: "x", createdAt: "t" }], hasMore: false }],
+      pageParams: [null],
+    })
+    capturedOnMessage!(messageCreate("ch_1", "m_new"))
+    const cache = capturedQueryClient.getQueryData<{ pages: { messages: { id: string }[] }[] }>(
+      communityKeys.channelMessages("ch_1"),
+    )
+    expect(cache?.pages[0].messages.map((m) => m.id)).toEqual(["seed_0", "m_new"])
+  })
+
   it("does not schedule an inbox invalidate for viewer's own messages", async () => {
     vi.useFakeTimers()
     try {

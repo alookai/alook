@@ -115,12 +115,7 @@ export const DELETE = withAuth(async (_req, ctx) => {
   const removed = await queries.communityMember.removeMember(db, memberId)
   if (!removed) return writeError("member not found", 404)
 
-  for (const botId of botIdsToCascade) {
-    const bmember = await queries.communityMember.getMember(db, serverId, botId)
-    if (bmember) {
-      await queries.communityMember.removeMember(db, bmember.id)
-    }
-  }
+  await queries.communityMember.removeOwnerBotsFromServer(db, serverId, botIdsToCascade)
 
   logAudit(db, {
     serverId,

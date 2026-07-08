@@ -9,7 +9,7 @@ const mockGetDM = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
-const mockGetMessagesByIds = vi.fn()
+const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMessages = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
@@ -19,8 +19,13 @@ const mockCreateAttachment = vi.fn()
 
 const mockFanOutToDM = vi.fn()
 const mockBroadcastToUser = vi.fn()
+const mockCheckMessageRateLimit = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+
+vi.mock("@/lib/community/rate-limit", () => ({
+  checkMessageRateLimit: (...a: unknown[]) => mockCheckMessageRateLimit(...a),
+}))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -36,7 +41,7 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
-        getMessagesByIds: (...a: unknown[]) => mockGetMessagesByIds(...a),
+        getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
       },
       communityMember: {
@@ -69,7 +74,7 @@ vi.mock("@/lib/broadcast", () => ({
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
+    return handler(req, { env: { DB: {}, RATE_LIMIT_KV: {} }, userId: "u1", email: "u@t.com", params })
   }),
 }))
 
@@ -77,7 +82,8 @@ vi.mock("@/lib/middleware/helpers", () => {
   const { NextResponse } = require("next/server")
   return {
     writeJSON: (data: unknown, status = 200) => NextResponse.json(data, { status }),
-    writeError: (message: string, status: number) => NextResponse.json({ error: message }, { status }),
+    writeError: (message: string, status: number, headers?: Record<string, string>) =>
+      NextResponse.json({ error: message }, { status, ...(headers ? { headers } : {}) }),
   }
 })
 
@@ -111,6 +117,19 @@ describe("POST /api/community/dm/[id]/messages", () => {
     })
     mockFanOutToDM.mockResolvedValue(undefined)
     mockBroadcastToUser.mockResolvedValue(undefined)
+    mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })
+  })
+
+  it("returns 429 with Retry-After when the sender is rate limited", async () => {
+    mockIsBlocked.mockResolvedValue(false)
+    mockCheckMessageRateLimit.mockResolvedValue({ allowed: false, retryAfterSec: 4 })
+
+    const res = await POST(postReq({ content: "hi" }), ctx)
+
+    expect(res.status).toBe(429)
+    expect(res.headers.get("Retry-After")).toBe("4")
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+    expect(mockFanOutToDM).not.toHaveBeenCalled()
   })
 
   it("returns 403 when the DM counterpart is blocked", async () => {
@@ -173,10 +192,11 @@ describe("GET /api/community/dm/[id]/messages", () => {
     expect(mockListMessages).not.toHaveBeenCalled()
   })
 
-  it("resolves reply previews via one getMessagesByIds call (never per-item getMessage)", async () => {
+  it("resolves reply previews via one scoped getMessagesByIdsInScope call (never per-item getMessage)", async () => {
     // 5-message page. 3 have replyToId set:
     //   m-a → target r-in-scope (same DM) → resolves.
-    //   m-b → target r-out-of-scope (different DM) → filtered → deleted: true.
+    //   m-b → target r-out-of-scope (a different DM) → the scoped query never
+    //         returns it (it's filtered in SQL, not in application code) → deleted: true.
     //   m-c → target r-missing → deleted: true.
     //   m-d → replies to r-in-scope again → resolves.
     //   m-e → no reply.
@@ -190,11 +210,10 @@ describe("GET /api/community/dm/[id]/messages", () => {
     ])
     mockListByMessageIds.mockResolvedValue([])
     mockListReactionsByMessageIds.mockResolvedValue([])
-    mockGetMessagesByIds.mockResolvedValue([
+    // The (mocked) scoped query only ever returns in-scope rows — "r-out-of-scope"
+    // and "r-missing" are absent, simulating the real WHERE-clause scoping.
+    mockGetMessagesByIdsInScope.mockResolvedValue([
       { id: "r-in-scope", authorName: "Zed", content: "original", dmConversationId: "d1", channelId: null },
-      // r-out-of-scope belongs to a different DM — filter must drop it.
-      { id: "r-out-of-scope", authorName: "Zed", content: "elsewhere", dmConversationId: "d-other", channelId: null },
-      // r-missing intentionally not returned.
     ])
 
     const res = await GET(getReq(), ctx)
@@ -209,11 +228,12 @@ describe("GET /api/community/dm/[id]/messages", () => {
     expect(byId.get("m-d")?.replyTo).toEqual({ id: "r-in-scope", authorName: "Zed", text: "original" })
     expect(byId.get("m-e")?.replyTo).toBeUndefined()
 
-    // Single batched fetch — no per-item getMessage.
-    expect(mockGetMessagesByIds).toHaveBeenCalledTimes(1)
+    // Single batched, scoped fetch — no per-item getMessage.
+    expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
     expect(mockGetMessage).not.toHaveBeenCalled()
-    const [, ids] = mockGetMessagesByIds.mock.calls[0]
+    const [, ids, scope] = mockGetMessagesByIdsInScope.mock.calls[0]
     expect(ids.sort()).toEqual(["r-in-scope", "r-in-scope", "r-missing", "r-out-of-scope"].sort())
+    expect(scope).toEqual({ dmConversationId: "d1" })
   })
 
   it("runs attachment, reaction, and reply-target fetches in parallel", async () => {
@@ -236,7 +256,7 @@ describe("GET /api/community/dm/[id]/messages", () => {
     }
     mockListByMessageIds.mockImplementation(() => tracked([]))
     mockListReactionsByMessageIds.mockImplementation(() => tracked([]))
-    mockGetMessagesByIds.mockImplementation(() => tracked([]))
+    mockGetMessagesByIdsInScope.mockImplementation(() => tracked([]))
 
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
@@ -244,6 +264,6 @@ describe("GET /api/community/dm/[id]/messages", () => {
     expect(maxInFlight).toBe(3)
     expect(mockListByMessageIds).toHaveBeenCalledTimes(1)
     expect(mockListReactionsByMessageIds).toHaveBeenCalledTimes(1)
-    expect(mockGetMessagesByIds).toHaveBeenCalledTimes(1)
+    expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
   })
 })

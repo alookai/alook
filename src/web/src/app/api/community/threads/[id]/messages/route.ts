@@ -42,20 +42,17 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       ? queries.communityReaction.listReactionsByMessageIds(db, messageIds, ctx.userId)
       : Promise.resolve([]),
     replyToIds.length > 0
-      ? queries.communityMessage.getMessagesByIds(db, replyToIds)
+      ? queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { channelId })
       : Promise.resolve([]),
   ])
 
   const attachmentsByMessage = groupAttachments(allAttachments)
   const reactionsByMessage = groupReactions(allReactions, ctx.userId)
 
-  // Scope-check reply targets against this channel so a caller can't leak
-  // previews of messages from other channels/DMs just by referencing their id.
-  const replyMap = new Map(
-    replyMessages
-      .filter((m) => m.channelId === channelId)
-      .map((m) => [m.id, m]),
-  )
+  // Reply targets are already scoped to this channel by the query above — a
+  // caller can't leak previews of messages from other channels/DMs just by
+  // referencing their id.
+  const replyMap = new Map(replyMessages.map((m) => [m.id, m]))
 
   const messages = items.map((r) =>
     mapMessageForApi(r, { replyMap, attachmentsByMessage, reactionsByMessage }),

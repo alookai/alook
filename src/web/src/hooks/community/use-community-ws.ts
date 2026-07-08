@@ -84,6 +84,17 @@ import type { ServersResponse, ServerDetail } from "@/hooks/community/use-server
 // message burst.
 const INBOX_INVALIDATE_DEBOUNCE_MS = 500
 
+// Cap on the live (newest) page's message count inside `insertMessageIntoCache`.
+// Without this, a channel that stays open for a long session (or a flood of
+// WS message.create events) grows the first page — and the per-render
+// clustering pass in `message-list.tsx` — without bound. Matches
+// `SEEN_MESSAGE_MAX` (stores/community/ws.ts) for consistency; set generous
+// on purpose — tune down later if memory/render cost is still a problem.
+// Only the live-tail page is capped: pagination-loaded older pages
+// (`fetchOlder`) are left uncapped since they only grow from explicit user
+// "load more" clicks, not an attacker-controlled vector.
+const MAX_LIVE_PAGE_MESSAGES = 500
+
 // ── Types (kept for backwards compat with any lingering imports) ─────────
 
 export type Subscription = {
@@ -166,9 +177,15 @@ function insertMessageIntoCache(
     // on send, see #1).
     ...(authorId ? { authorId } : {}),
   }
+  const merged = [...first.messages, rendered]
+  // Drop from the head (oldest end of this page) once the live tail grows
+  // past the cap — keeps the newest messages, sheds the oldest.
+  const messages = merged.length > MAX_LIVE_PAGE_MESSAGES
+    ? merged.slice(merged.length - MAX_LIVE_PAGE_MESSAGES)
+    : merged
   return {
     ...cache,
-    pages: [{ ...first, messages: [...first.messages, rendered] }, ...cache.pages.slice(1)],
+    pages: [{ ...first, messages }, ...cache.pages.slice(1)],
   }
 }
 

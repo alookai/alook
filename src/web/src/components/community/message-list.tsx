@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { DateDivider, NewDivider } from "./dividers"
 import { Message } from "./message"
 import { TypingIndicator } from "./typing-indicator"
@@ -116,6 +116,28 @@ export function MessageList({
     if (scrollToMessageId) jumpTo(scrollToMessageId)
   }, [scrollToMessageId])
 
+  // Group consecutive messages from the same author into clusters. Memoized
+  // so a re-render triggered by unrelated state (typing indicator ticks,
+  // presence updates, etc.) doesn't re-walk the full message list every time.
+  const clusters = useMemo(() => {
+    const result: { messages: { m: Msg; grouped: boolean; showDateDivider: boolean; showNewDivider: boolean }[] }[] = []
+    messages.forEach((m, i) => {
+      const prev = i > 0 ? messages[i - 1] : null
+      const prevDate = prev ? dateKey(prev.createdAt) : ""
+      const curDate = dateKey(m.createdAt)
+      const showDateDivider = !!(curDate && curDate !== prevDate)
+      const grouped = !!(prev && !m.type && !m.replyTo && !showDateDivider && prev.authorName === m.authorName
+        && prev.createdAt && m.createdAt && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < 420_000)
+      const entry = { m, grouped, showDateDivider, showNewDivider: m.id === newDividerBefore }
+      if (grouped && result.length > 0) {
+        result[result.length - 1].messages.push(entry)
+      } else {
+        result.push({ messages: [entry] })
+      }
+    })
+    return result
+  }, [messages, newDividerBefore])
+
   // All hooks must run before any conditional return — rule-of-hooks.
   if (loading && messages.length === 0) return <MessageListSkeleton dm={!!hero} />
 
@@ -135,56 +157,38 @@ export function MessageList({
             )}
           </div>
 
-          {(() => {
-            // Group consecutive messages from same author into clusters
-            const clusters: { messages: { m: Msg; grouped: boolean; showDateDivider: boolean; showNewDivider: boolean }[] }[] = []
-            messages.forEach((m, i) => {
-              const prev = i > 0 ? messages[i - 1] : null
-              const prevDate = prev ? dateKey(prev.createdAt) : ""
-              const curDate = dateKey(m.createdAt)
-              const showDateDivider = !!(curDate && curDate !== prevDate)
-              const grouped = !!(prev && !m.type && !m.replyTo && !showDateDivider && prev.authorName === m.authorName
-                && prev.createdAt && m.createdAt && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < 420_000)
-              const entry = { m, grouped, showDateDivider, showNewDivider: m.id === newDividerBefore }
-              if (grouped && clusters.length > 0) {
-                clusters[clusters.length - 1].messages.push(entry)
-              } else {
-                clusters.push({ messages: [entry] })
-              }
-            })
-            return clusters.map((cluster, ci) => (
-              <div key={cluster.messages[0].m.id ?? ci}>
-                {cluster.messages.map(({ m, grouped, showDateDivider, showNewDivider }) => (
-                  // `data-msg-id` anchors the IntersectionObserver in
-                  // `useChannelWatermark` — every rendered row is a candidate
-                  // for the read pointer. Also used by the mount-time
-                  // "scroll to New divider" effect above.
-                  <div key={m.id} data-msg-id={m.id}>
-                    {showDateDivider && <DateDivider label={formatDateLabel(m.createdAt!)} />}
-                    {showNewDivider && <NewDivider />}
-                    <Message
-                      m={{ ...m, grouped }}
-                      pinned={pinnedIds?.has(m.id)}
-                      onOpenThread={onOpenThread}
-                      onOpenProfile={onOpenProfile}
-                      onJumpReply={() => m.replyTo && jumpTo(m.replyTo.id)}
-                      onToggleReaction={onToggleReaction ? (emoji) => onToggleReaction(m.id, emoji) : undefined}
-                      onReact={onReact ? (emoji) => onReact(m.id, emoji) : undefined}
-                      onReply={onReply ? () => onReply(m.id) : undefined}
-                      onPin={onPin ? () => onPin(m.id) : undefined}
-                      onCreateThread={onCreateThread ? () => onCreateThread(m.id) : undefined}
-                      onCopy={onCopy ? () => onCopy(m.id) : undefined}
-                      onRetry={onRetry ? () => onRetry(m.id) : undefined}
-                      onPreviewImage={onPreviewImage}
-                      onDownloadFile={onDownloadFile}
-                      highlighted={jumped === m.id}
-                      resolveUserName={resolveUserName}
-                    />
-                  </div>
-                ))}
-              </div>
-            ))
-          })()}
+          {clusters.map((cluster, ci) => (
+            <div key={cluster.messages[0].m.id ?? ci}>
+              {cluster.messages.map(({ m, grouped, showDateDivider, showNewDivider }) => (
+                // `data-msg-id` anchors the IntersectionObserver in
+                // `useChannelWatermark` — every rendered row is a candidate
+                // for the read pointer. Also used by the mount-time
+                // "scroll to New divider" effect above.
+                <div key={m.id} data-msg-id={m.id}>
+                  {showDateDivider && <DateDivider label={formatDateLabel(m.createdAt!)} />}
+                  {showNewDivider && <NewDivider />}
+                  <Message
+                    m={{ ...m, grouped }}
+                    pinned={pinnedIds?.has(m.id)}
+                    onOpenThread={onOpenThread}
+                    onOpenProfile={onOpenProfile}
+                    onJumpReply={() => m.replyTo && jumpTo(m.replyTo.id)}
+                    onToggleReaction={onToggleReaction ? (emoji) => onToggleReaction(m.id, emoji) : undefined}
+                    onReact={onReact ? (emoji) => onReact(m.id, emoji) : undefined}
+                    onReply={onReply ? () => onReply(m.id) : undefined}
+                    onPin={onPin ? () => onPin(m.id) : undefined}
+                    onCreateThread={onCreateThread ? () => onCreateThread(m.id) : undefined}
+                    onCopy={onCopy ? () => onCopy(m.id) : undefined}
+                    onRetry={onRetry ? () => onRetry(m.id) : undefined}
+                    onPreviewImage={onPreviewImage}
+                    onDownloadFile={onDownloadFile}
+                    highlighted={jumped === m.id}
+                    resolveUserName={resolveUserName}
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
 
           {typingUsers && typingUsers.length > 0 && <TypingIndicator names={typingUsers} />}
         </div>

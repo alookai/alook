@@ -820,6 +820,13 @@ export class WebSocketDurableObject extends DurableObject<Env> {
    * For channel/thread: resolve channel -> server -> members.
    * For DM: resolve the 2 participants.
    * Excludes the sender.
+   *
+   * Authorization: the sender must actually be a member of the target
+   * channel's server (or a participant of the target DM) before we resolve
+   * recipients — otherwise anyone who merely knows a channel/DM id could
+   * make their client "type" into a scope they have no access to. Both
+   * branches fold the check into the same query that already resolves the
+   * fan-out target, so this adds no extra DB round-trip versus before.
    */
   private async fanOutTyping(
     senderUserId: string,
@@ -834,18 +841,25 @@ export class WebSocketDurableObject extends DurableObject<Env> {
 
     if (dmConversationId) {
       const dm = await queries.communityDm.getDM(db, dmConversationId)
-      if (dm) {
-        recipientUserIds = [dm.user1Id, dm.user2Id].filter(Boolean) as string[]
+      if (!dm || (dm.user1Id !== senderUserId && dm.user2Id !== senderUserId)) {
+        log.warn("fanOutTyping: sender not a DM participant", { senderUserId, dmConversationId })
+        return
       }
+      recipientUserIds = [dm.user1Id, dm.user2Id].filter(Boolean) as string[]
     } else {
       // Both threadId and channelId resolve to a channel after thread→channel unification
       const targetId = threadId || channelId
       if (targetId) {
-        const channel = await queries.communityChannel.getChannel(db, targetId)
-        if (channel) {
-          const members = await queries.communityMember.listMembers(db, channel.serverId)
-          recipientUserIds = members.map((m) => m.userId)
+        // getChannelForMember returns null when senderUserId isn't a member
+        // of the channel's server — same authz the HTTP layer enforces via
+        // requireChannelMember (src/web/src/lib/community/permissions.ts).
+        const membership = await queries.communityChannel.getChannelForMember(db, targetId, senderUserId)
+        if (!membership) {
+          log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId: targetId })
+          return
         }
+        const members = await queries.communityMember.listMembers(db, membership.serverId)
+        recipientUserIds = members.map((m) => m.userId)
       }
     }
 

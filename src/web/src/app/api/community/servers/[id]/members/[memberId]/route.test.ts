@@ -14,6 +14,8 @@ const mockGetMemberById = vi.fn()
 const mockListMembers = vi.fn()
 const mockUpdateRole = vi.fn()
 const mockRemoveMember = vi.fn()
+const mockRemoveOwnerBotsFromServer = vi.fn()
+const mockListOwnerBotsInServer = vi.fn()
 const mockLogAudit = vi.fn()
 const mockFanOut = vi.fn()
 
@@ -30,7 +32,8 @@ vi.mock("@alook/shared", async () => {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
         updateRole: (...a: unknown[]) => mockUpdateRole(...a),
         removeMember: (...a: unknown[]) => mockRemoveMember(...a),
-        listOwnerBotsInServer: vi.fn().mockResolvedValue([]),
+        removeOwnerBotsFromServer: (...a: unknown[]) => mockRemoveOwnerBotsFromServer(...a),
+        listOwnerBotsInServer: (...a: unknown[]) => mockListOwnerBotsInServer(...a),
       },
       user: {
         getUserInternal: vi.fn().mockResolvedValue({
@@ -44,9 +47,13 @@ vi.mock("@alook/shared", async () => {
   }
 })
 
-vi.mock("@/lib/community/audit", () => ({
-  logAudit: (...a: unknown[]) => mockLogAudit(...a),
-}))
+vi.mock("@/lib/community/audit", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
+  return {
+    ...actual,
+    logAudit: (...a: unknown[]) => mockLogAudit(...a),
+  }
+})
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
@@ -184,6 +191,8 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
       userImage: null,
     })
     mockRemoveMember.mockResolvedValue({ id: "mem_target" })
+    mockListOwnerBotsInServer.mockResolvedValue([])
+    mockRemoveOwnerBotsFromServer.mockResolvedValue(undefined)
     mockFanOut.mockResolvedValue(undefined)
   })
 
@@ -238,5 +247,17 @@ describe("DELETE /api/community/servers/[id]/members/[memberId]", () => {
     const res = await DELETE(deleteReq(), ctx)
     expect(res.status).toBe(403)
     expect(mockRemoveMember).not.toHaveBeenCalled()
+  })
+
+  it("bulk-removes cascaded owner bots after kicking a human member", async () => {
+    mockListOwnerBotsInServer.mockResolvedValue(["bot_1"])
+
+    const res = await DELETE(deleteReq(), ctx)
+    expect(res.status).toBe(204)
+    expect(mockRemoveOwnerBotsFromServer).toHaveBeenCalledWith(
+      expect.anything(),
+      "srv_1",
+      ["bot_1"],
+    )
   })
 })

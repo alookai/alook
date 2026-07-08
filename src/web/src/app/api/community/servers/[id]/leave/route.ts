@@ -31,15 +31,7 @@ export const POST = withAuth(async (_req, ctx) => {
   )
 
   await queries.communityMember.removeMember(db, member.id)
-  // Cascade each bot's member row. The bot's member row is unique on
-  // (serverId, userId); getMember → removeMember. Loop is O(N) DB calls; the
-  // typical case is N=0 or N=1, so no batching needed.
-  for (const botId of botIdsToCascade) {
-    const bmember = await queries.communityMember.getMember(db, serverId, botId)
-    if (bmember) {
-      await queries.communityMember.removeMember(db, bmember.id)
-    }
-  }
+  await queries.communityMember.removeOwnerBotsFromServer(db, serverId, botIdsToCascade)
 
   logAudit(db, {
     serverId,

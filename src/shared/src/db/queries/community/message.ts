@@ -374,3 +374,73 @@ export async function getMessagesByIds(db: Database, ids: string[]) {
     .where(inArray(communityMessage.id, ids));
   return rows.map((r) => ({ ...r, embeds: safeParseEmbeds(r.embeds, r.id) }));
 }
+
+/** Scope a single-id/batched-id lookup to a channel or DM. */
+export type MessageScope = { channelId: string } | { dmConversationId: string };
+
+function scopeCondition(scope: MessageScope) {
+  return "channelId" in scope
+    ? eq(communityMessage.channelId, scope.channelId)
+    : eq(communityMessage.dmConversationId, scope.dmConversationId);
+}
+
+/**
+ * Scope-first single-message lookup — `WHERE id = ? AND (channelId = ? OR
+ * dmConversationId = ?)`. Callers resolving a reply-target preview must use
+ * this instead of `getMessage` + a post-hoc `.filter()`: a message whose id a
+ * client supplies (e.g. `replyToId`) must never resolve outside the current
+ * channel/DM, and folding the check into the WHERE clause makes that
+ * impossible to accidentally drop in a future refactor (see AGENTS.md:
+ * "scope the queries before, not check the ownership after").
+ */
+export async function getMessageInScope(db: Database, messageId: string, scope: MessageScope) {
+  const rows = await db
+    .select({
+      id: communityMessage.id,
+      authorId: communityMessage.authorId,
+      content: communityMessage.content,
+      type: communityMessage.type,
+      mentionType: communityMessage.mentionType,
+      replyToId: communityMessage.replyToId,
+      embeds: communityMessage.embeds,
+      flags: communityMessage.flags,
+      createdAt: communityMessage.createdAt,
+      channelId: communityMessage.channelId,
+      dmConversationId: communityMessage.dmConversationId,
+      authorName: user.name,
+      authorEmail: user.email,
+      authorImage: user.image,
+    })
+    .from(communityMessage)
+    .innerJoin(user, eq(communityMessage.authorId, user.id))
+    .where(and(eq(communityMessage.id, messageId), scopeCondition(scope)));
+  const row = rows[0];
+  if (!row) return null;
+  return { ...row, embeds: safeParseEmbeds(row.embeds, row.id) };
+}
+
+/** Batched form of `getMessageInScope` — see its doc comment for the "why". */
+export async function getMessagesByIdsInScope(db: Database, ids: string[], scope: MessageScope) {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({
+      id: communityMessage.id,
+      authorId: communityMessage.authorId,
+      content: communityMessage.content,
+      type: communityMessage.type,
+      mentionType: communityMessage.mentionType,
+      replyToId: communityMessage.replyToId,
+      embeds: communityMessage.embeds,
+      flags: communityMessage.flags,
+      createdAt: communityMessage.createdAt,
+      channelId: communityMessage.channelId,
+      dmConversationId: communityMessage.dmConversationId,
+      authorName: user.name,
+      authorEmail: user.email,
+      authorImage: user.image,
+    })
+    .from(communityMessage)
+    .innerJoin(user, eq(communityMessage.authorId, user.id))
+    .where(and(inArray(communityMessage.id, ids), scopeCondition(scope)));
+  return rows.map((r) => ({ ...r, embeds: safeParseEmbeds(r.embeds, r.id) }));
+}
