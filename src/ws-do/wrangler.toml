@@ -32,6 +32,14 @@ database_name = "alook-app"
 name = "WS_DO"
 class_name = "WebSocketDurableObject"
 
+[[durable_objects.bindings]]
+name = "RATE_LIMIT_DO"
+class_name = "RateLimitDurableObject"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["WebSocketDurableObject"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RateLimitDurableObject"]

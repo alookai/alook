@@ -26,8 +26,8 @@ const mockCheckMessageRateLimit = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
-vi.mock("@/lib/community/rate-limit", () => ({
-  checkMessageRateLimit: (...a: unknown[]) => mockCheckMessageRateLimit(...a),
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...a: unknown[]) => mockCheckMessageRateLimit(...a),
 }))
 
 vi.mock("@alook/shared", async () => {
@@ -78,7 +78,7 @@ vi.mock("@/lib/broadcast", () => ({
 vi.mock("@/lib/middleware/auth", () => ({
   withAuth: vi.fn((handler: any) => async (req: any, ctx?: any) => {
     const params = ctx?.params instanceof Promise ? await ctx.params : ctx?.params
-    return handler(req, { env: { DB: {}, RATE_LIMIT_KV: {} }, userId: "u1", email: "u@t.com", params })
+    return handler(req, { env: { DB: {} }, userId: "u1", email: "u@t.com", params })
   }),
 }))
 
@@ -156,7 +156,7 @@ describe("POST /api/community/channels/[id]/messages", () => {
   it("checks the rate limit for the sender's userId, scoped after channel-membership auth", async () => {
     const res = await POST(postReq({ content: "hello" }), ctx)
     expect(res.status).toBe(201)
-    expect(mockCheckMessageRateLimit).toHaveBeenCalledWith(expect.anything(), "u1")
+    expect(mockCheckMessageRateLimit).toHaveBeenCalledWith(expect.anything(), "community:msgSend", "u1")
     // Membership check must run before rate limiting (auth first).
     expect(mockGetChannelForMember).toHaveBeenCalled()
   })

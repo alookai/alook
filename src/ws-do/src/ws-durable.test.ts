@@ -203,6 +203,7 @@ function createDO() {
       idFromName: vi.fn().mockReturnValue("mock-do-id"),
       get: stubGet,
     } as unknown as DurableObjectNamespace,
+    RATE_LIMIT_DO: {} as DurableObjectNamespace,
   }
   const durable = new WebSocketDurableObject(ctx, env)
   return { durable, ctx, getWebSockets, env, stubGet, storage, store }

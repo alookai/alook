@@ -87,10 +87,6 @@ binding = "WAKE_WORKER"
 service = "alook-wake-worker"
 
 [[kv_namespaces]]
-binding = "RATE_LIMIT_KV"
-id = "a3d035bea7bc49d99377b82ec21ce4c1"
-
-[[kv_namespaces]]
 binding = "CACHE_KV"
 id = "3aaa92b4c2c74185b888977e5552e9bf"
 

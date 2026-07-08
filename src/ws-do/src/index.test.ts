@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { createMockDONamespace } from "./__mocks__/cf"
 
-// Mock ws-durable so the router import doesn't pull in cloudflare:workers
+// Mock ws-durable / rate-limit-do so the router import doesn't pull in cloudflare:workers
 vi.mock("./ws-durable", () => ({
   WebSocketDurableObject: class { },
+}))
+vi.mock("./rate-limit-do", () => ({
+  RateLimitDurableObject: class { },
 }))
 
 const mockHashCredential = vi.fn(async (bearer: string) => `sha256:${bearer}`)

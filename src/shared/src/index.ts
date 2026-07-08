@@ -451,6 +451,8 @@ export type { LogLevel, LoggerOptions } from "./logger"
 
 // Lib
 export { isEmptyHtml } from "./lib/html";
+export { RATE_LIMITS } from "./lib/rate-limits";
+export type { RateLimitName, RateLimitPolicy, RateLimitResult } from "./lib/rate-limits";
 export { extractThreadId, buildEmailMapKey } from "./lib/context-key";
 export { parseIcs } from "./lib/ics-parser";
 export type { MeetingInfo } from "./lib/ics-parser";

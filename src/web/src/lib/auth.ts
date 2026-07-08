@@ -8,16 +8,18 @@ import {
   queries,
   COMMUNITY_BOT_EMAIL_DOMAIN,
   computeDiscriminator,
+  RATE_LIMITS,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
+import { checkRateLimit } from "@/lib/rate-limit"
 import { getOtpSubject, renderOtpEmail } from "./email-templates"
 
 const log = createLogger({ service: "auth" })
 
-const OTP_RATE_LIMIT_PATH = "/email-otp/send-verification-otp"
-const DEFAULT_OTP_RATE_LIMIT_MAX = 5
-const DEFAULT_OTP_RATE_LIMIT_WINDOW_SEC = 60
-const KV_MIN_TTL_SEC = 60
+const DEFAULT_OTP_RATE_LIMIT_MAX = RATE_LIMITS["auth:otpSend"].max
+const DEFAULT_OTP_RATE_LIMIT_WINDOW_SEC = Math.round(
+  RATE_LIMITS["auth:otpSend"].windowMs / 1000,
+)
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback
@@ -33,8 +35,6 @@ export function createAuth(env: Env) {
     env.AUTH_OTP_RATE_LIMIT_WINDOW_SEC,
     DEFAULT_OTP_RATE_LIMIT_WINDOW_SEC,
   )
-  const kvTtl = Math.max(KV_MIN_TTL_SEC, otpWindow)
-
   const validateClient = (clientId: string) => {
     const allowed = (env.DEVICE_CLIENT_IDS || "").split(",").map((s) => s.trim()).filter(Boolean)
     return allowed.includes(clientId)
@@ -79,20 +79,14 @@ export function createAuth(env: Env) {
         clientSecret: env.GOOGLE_CLIENT_SECRET,
       },
     },
+    // Better-auth's built-in rate limiter is intentionally OFF — we run our
+    // own DO-backed limiter inside `sendVerificationOTP` below. That gives
+    // the OTP path strong consistency (better-auth's `customStorage`
+    // adapter would still be a `get → mutate → put` sequence, race-prone
+    // against KV; our DO handles the counter atomically) AND keeps every
+    // rate limit going through the shared `RATE_LIMITS` registry.
     rateLimit: {
-      enabled: isProd,
-      customRules: {
-        [OTP_RATE_LIMIT_PATH]: { window: otpWindow, max: otpMax },
-      },
-      customStorage: {
-        get: async (key) => {
-          const raw = await env.RATE_LIMIT_KV.get(key)
-          return raw ? JSON.parse(raw) : undefined
-        },
-        set: async (key, value) => {
-          await env.RATE_LIMIT_KV.put(key, JSON.stringify(value), { expirationTtl: kvTtl })
-        },
-      },
+      enabled: false,
     },
     databaseHooks: {
       user: {
@@ -182,6 +176,21 @@ export function createAuth(env: Env) {
           bearer(),
           emailOTP({
             async sendVerificationOTP({ email, otp, type }) {
+              // Rate-limit BEFORE minting/sending the OTP so abuse can't
+              // burn a token slot or hit the email worker. Keyed by email
+              // (the sender's target); anyone attempting to spam a
+              // specific inbox gets throttled per inbox.
+              const rate = await checkRateLimit(env, "auth:otpSend", email, {
+                windowMs: otpWindow * 1000,
+                max: otpMax,
+              })
+              if (!rate.allowed) {
+                log.warn("OTP send rate-limited", {
+                  to: email,
+                  retryAfterSec: rate.retryAfterSec,
+                })
+                throw new Error(`OTP rate limit; retry in ${rate.retryAfterSec}s`)
+              }
               log.info("sending OTP email", { to: email, type })
               try {
                 const otpPayload = JSON.stringify({

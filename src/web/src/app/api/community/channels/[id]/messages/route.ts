@@ -5,7 +5,7 @@ import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
 import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
 import { requireChannelMember } from "@/lib/community/permissions"
-import { checkMessageRateLimit } from "@/lib/community/rate-limit"
+import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
 import { mapMessageForApi } from "@/lib/community/message-payload"
 
@@ -80,7 +80,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!auth.ok) return writeError(auth.error, auth.status)
   const channel = auth.value
 
-  const rateLimit = await checkMessageRateLimit(ctx.env.RATE_LIMIT_KV, ctx.userId)
+  const rateLimit = await checkRateLimit(ctx.env, "community:msgSend", ctx.userId)
   if (!rateLimit.allowed) {
     return writeError("rate limited", 429, { "Retry-After": String(rateLimit.retryAfterSec) })
   }

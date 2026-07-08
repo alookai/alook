@@ -16,7 +16,7 @@ vi.mock("@alook/shared", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@alook/shared")>()
   return {
     ...actual,
-    createLogger: () => ({ info: vi.fn(), error: vi.fn() }),
+    createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
     DEV_EMAIL_WORKER_URL: "http://localhost:0",
   }
 })
@@ -26,25 +26,24 @@ vi.mock("./email-templates", () => ({
   renderOtpEmail: () => "<html></html>",
 }))
 
-type RateLimitValue = { count: number; lastRequest: number } | undefined
+// Mock `checkRateLimit` so tests can assert what auth passes to the
+// unified rate-limit helper without spinning up the DO.
+const mockCheckRateLimit = vi.fn(async () => ({ allowed: true }))
+vi.mock("@/lib/rate-limit", () => ({
+  checkRateLimit: (...a: unknown[]) => mockCheckRateLimit(...(a as [])),
+}))
 
-function makeKv() {
-  const store = new Map<string, { value: string; expirationTtl?: number }>()
-  return {
-    store,
-    get: vi.fn(async (key: string) => store.get(key)?.value ?? null),
-    put: vi.fn(async (key: string, value: string, opts?: { expirationTtl?: number }) => {
-      store.set(key, { value, expirationTtl: opts?.expirationTtl })
-    }),
-  }
+function makeEnvBase() {
+  return {}
 }
 
 function makeEnv(overrides: Partial<Record<string, unknown>> = {}) {
   return {
+    ...makeEnvBase(),
     DB: {},
     EMAIL_BUCKET: {},
     WS_DO_WORKER: {},
-    EMAIL_WORKER: { fetch: vi.fn() },
+    EMAIL_WORKER: { fetch: vi.fn(async () => new Response("ok", { status: 200 })) },
     NEXT_INC_CACHE_R2_BUCKET: {},
     NEXT_TAG_CACHE_D1: {},
     NEXT_CACHE_DO_QUEUE: {},
@@ -54,7 +53,6 @@ function makeEnv(overrides: Partial<Record<string, unknown>> = {}) {
     GOOGLE_CLIENT_SECRET: "gg-s",
     BETTER_AUTH_SECRET: "secret",
     BETTER_AUTH_URL: "http://localhost:3000",
-    RATE_LIMIT_KV: makeKv(),
     ...overrides,
   }
 }
@@ -68,12 +66,13 @@ type AuthOptions = {
   }
   rateLimit: {
     enabled: boolean
-    customRules: Record<string, { window: number; max: number }>
-    customStorage: {
-      get: (key: string) => Promise<RateLimitValue>
-      set: (key: string, value: RateLimitValue) => Promise<void>
-    }
   }
+  plugins?: Array<{
+    __plugin?: string
+    cfg?: {
+      sendVerificationOTP?: (args: { email: string; otp: string; type: string }) => Promise<void>
+    }
+  }>
   session?: {
     cookieCache?: {
       enabled?: boolean
@@ -100,28 +99,41 @@ async function loadCreateAuth() {
   return mod.createAuth
 }
 
+// Fetches the OTP-plugin `sendVerificationOTP` callback for a given env
+// so tests can drive rate-limit + email-send behavior directly.
+function getSendOtp(opts: AuthOptions) {
+  const otp = opts.plugins?.find((p) => p?.__plugin === "emailOTP")
+  const fn = otp?.cfg?.sendVerificationOTP
+  if (!fn) throw new Error("emailOTP plugin not present")
+  return fn
+}
+
 describe("createAuth rate limiting", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCheckRateLimit.mockReset().mockResolvedValue({ allowed: true })
+  })
 
-  it("enables rate limiting only in production", async () => {
+  it("turns off better-auth's built-in rate limiter — we run our own inside sendVerificationOTP", async () => {
     const createAuth = await loadCreateAuth()
-    const envProd = makeEnv({ NODE_ENV: "production" })
-    const optsProd = (createAuth(envProd as never) as { __options: AuthOptions }).__options
-    expect(optsProd.rateLimit.enabled).toBe(true)
+    const optsProd = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    expect(optsProd.rateLimit.enabled).toBe(false)
 
-    const envDev = makeEnv({ NODE_ENV: "development" })
-    const optsDev = (createAuth(envDev as never) as { __options: AuthOptions }).__options
+    const optsDev = (createAuth(makeEnv({ NODE_ENV: "development" }) as never) as { __options: AuthOptions }).__options
     expect(optsDev.rateLimit.enabled).toBe(false)
   })
 
-  it("uses default 5/60s for the OTP path when env vars are unset", async () => {
+  it("calls checkRateLimit('auth:otpSend', email) with the default 5/60s policy", async () => {
     const createAuth = await loadCreateAuth()
     const env = makeEnv({ NODE_ENV: "production" })
     const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
-    expect(opts.rateLimit.customRules["/email-otp/send-verification-otp"]).toEqual({
-      window: 60,
-      max: 5,
-    })
+    await getSendOtp(opts)({ email: "a@b.com", otp: "1234", type: "sign-in" })
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      env,
+      "auth:otpSend",
+      "a@b.com",
+      { windowMs: 60_000, max: 5 },
+    )
   })
 
   it("honours AUTH_OTP_RATE_LIMIT_MAX / _WINDOW_SEC overrides", async () => {
@@ -132,10 +144,13 @@ describe("createAuth rate limiting", () => {
       AUTH_OTP_RATE_LIMIT_WINDOW_SEC: "120",
     })
     const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
-    expect(opts.rateLimit.customRules["/email-otp/send-verification-otp"]).toEqual({
-      window: 120,
-      max: 3,
-    })
+    await getSendOtp(opts)({ email: "a@b.com", otp: "1234", type: "sign-in" })
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      env,
+      "auth:otpSend",
+      "a@b.com",
+      { windowMs: 120_000, max: 3 },
+    )
   })
 
   it("falls back to defaults when env overrides are non-numeric or zero", async () => {
@@ -146,45 +161,25 @@ describe("createAuth rate limiting", () => {
       AUTH_OTP_RATE_LIMIT_WINDOW_SEC: "0",
     })
     const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
-    expect(opts.rateLimit.customRules["/email-otp/send-verification-otp"]).toEqual({
-      window: 60,
-      max: 5,
-    })
+    await getSendOtp(opts)({ email: "a@b.com", otp: "1234", type: "sign-in" })
+    expect(mockCheckRateLimit).toHaveBeenCalledWith(
+      env,
+      "auth:otpSend",
+      "a@b.com",
+      { windowMs: 60_000, max: 5 },
+    )
   })
 
-  it("customStorage round-trips values through KV with a >=60s TTL", async () => {
+  it("throws before sending when the rate limiter blocks", async () => {
+    mockCheckRateLimit.mockResolvedValueOnce({ allowed: false, retryAfterSec: 42 })
     const createAuth = await loadCreateAuth()
     const env = makeEnv({ NODE_ENV: "production" })
     const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
-    const { get, set } = opts.rateLimit.customStorage
-    const kv = env.RATE_LIMIT_KV as ReturnType<typeof makeKv>
-
-    expect(await get("missing")).toBeUndefined()
-
-    await set("k1", { count: 2, lastRequest: 123 })
-    const stored = kv.store.get("k1")
-    expect(stored?.value).toBe(JSON.stringify({ count: 2, lastRequest: 123 }))
-    expect(stored?.expirationTtl).toBeGreaterThanOrEqual(60)
-
-    expect(await get("k1")).toEqual({ count: 2, lastRequest: 123 })
-  })
-
-  it("clamps KV TTL to 60s when the configured window is shorter", async () => {
-    const createAuth = await loadCreateAuth()
-    const env = makeEnv({ NODE_ENV: "production", AUTH_OTP_RATE_LIMIT_WINDOW_SEC: "10" })
-    const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
-    const kv = env.RATE_LIMIT_KV as ReturnType<typeof makeKv>
-    await opts.rateLimit.customStorage.set("k", { count: 1, lastRequest: 0 })
-    expect(kv.store.get("k")?.expirationTtl).toBe(60)
-  })
-
-  it("uses the configured window as TTL when it exceeds 60s", async () => {
-    const createAuth = await loadCreateAuth()
-    const env = makeEnv({ NODE_ENV: "production", AUTH_OTP_RATE_LIMIT_WINDOW_SEC: "180" })
-    const opts = (createAuth(env as never) as { __options: AuthOptions }).__options
-    const kv = env.RATE_LIMIT_KV as ReturnType<typeof makeKv>
-    await opts.rateLimit.customStorage.set("k", { count: 1, lastRequest: 0 })
-    expect(kv.store.get("k")?.expirationTtl).toBe(180)
+    const sendOtp = getSendOtp(opts)
+    await expect(
+      sendOtp({ email: "a@b.com", otp: "1234", type: "sign-in" }),
+    ).rejects.toThrow(/retry in 42s/)
+    expect(env.EMAIL_WORKER.fetch).not.toHaveBeenCalled()
   })
 })
 
