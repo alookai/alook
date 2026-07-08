@@ -84,9 +84,6 @@ export async function createCommunityMessage(params: {
   const { db, authorId, target, body, source } = params
 
   const content = typeof body.content === "string" ? body.content : ""
-  if (!content || content.trim().length === 0) {
-    return { ok: false, status: 400, error: "content is required" }
-  }
   if (content.length > MAX_MESSAGE_CONTENT_LENGTH) {
     return {
       ok: false,
@@ -107,6 +104,13 @@ export async function createCommunityMessage(params: {
       status: 400,
       error: `too many attachments (max ${MAX_ATTACHMENTS_PER_MESSAGE})`,
     }
+  }
+
+  // A message needs either text content OR at least one attachment. Empty
+  // both means the client wired something wrong — but a bare
+  // attachments-only send is a legitimate flow (drop an image, hit Enter).
+  if (content.trim().length === 0 && (!incomingAttachments || incomingAttachments.length === 0)) {
+    return { ok: false, status: 400, error: "content or attachments required" }
   }
 
   const replyToId =
