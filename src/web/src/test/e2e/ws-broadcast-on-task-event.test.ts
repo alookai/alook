@@ -8,17 +8,15 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
+import { DEV_WS_DO_URL } from "@alook/shared"
 import { seedTestData, cleanupTestData, type TestSeed } from "@alook/test-utils"
-
-const WS_DO_PORT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || 8789
-const WS_DO_HTTP = `http://localhost:${WS_DO_PORT}`
 
 let seed: TestSeed
 let wsAvailable = false
 
 async function checkWsAvailable(): Promise<boolean> {
   try {
-    const res = await fetch(WS_DO_HTTP, { method: "GET" })
+    const res = await fetch(DEV_WS_DO_URL, { method: "GET" })
     return res.status < 500
   } catch {
     return false
@@ -40,7 +38,7 @@ describe("regression: WS broadcast HTTP endpoint on task events", () => {
       taskId: `task_${randomUUID().slice(0, 8)}`,
       conversationId: `conv_${randomUUID().slice(0, 8)}`,
     }
-    const broadcastRes = await fetch(`${WS_DO_HTTP}/broadcast/user/${seed.userId}`, {
+    const broadcastRes = await fetch(`${DEV_WS_DO_URL}/broadcast/user/${seed.userId}`, {
       method: "POST",
       body: JSON.stringify(eventPayload),
     })
@@ -53,7 +51,7 @@ describe("regression: WS broadcast HTTP endpoint on task events", () => {
     if (!wsAvailable) return
 
     const fakeUserId = `u_nonexistent_${randomUUID().slice(0, 8)}`
-    const res = await fetch(`${WS_DO_HTTP}/broadcast/user/${fakeUserId}`, {
+    const res = await fetch(`${DEV_WS_DO_URL}/broadcast/user/${fakeUserId}`, {
       method: "POST",
       body: JSON.stringify({ type: "test.ping" }),
     })
@@ -65,7 +63,7 @@ describe("regression: WS broadcast HTTP endpoint on task events", () => {
   it("daemon broadcast endpoint delivers to daemon WS clients", async () => {
     if (!wsAvailable) return
 
-    const res = await fetch(`${WS_DO_HTTP}/broadcast/daemon/${seed.daemonId}`, {
+    const res = await fetch(`${DEV_WS_DO_URL}/broadcast/daemon/${seed.daemonId}`, {
       method: "POST",
       body: JSON.stringify({ type: "daemon.tasks", tasks: [] }),
     })

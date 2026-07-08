@@ -19,6 +19,7 @@ export const DEFAULT_PORTS: DevPortProfile = {
   web: 15210,
   emailWorker: 15211,
   wsDo: 15212,
+  wakeWorker: 15213,
 };
 
 export const WEB_URL = (port: number) => `http://localhost:${port}`;

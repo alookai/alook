@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
+import { DEV_WS_DO_URL } from "@alook/shared"
 import { signUp, signIn, sessionRequest, sqlRun } from "@alook/test-utils"
 
-const WS_DO_PORT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || 8789
-const WS_DO_HTTP = `http://localhost:${WS_DO_PORT}`
-const WS_DO_WS = `ws://localhost:${WS_DO_PORT}`
+const WS_DO_WS = DEV_WS_DO_URL.replace(/^http/, "ws")
 
 const testEmail = `e2e_ws_${randomUUID().slice(0, 8)}@test.local`
 const testPassword = "TestPassword123!"
@@ -13,7 +12,7 @@ const testName = "E2E WS User"
 async function wsReachable(): Promise<boolean> {
   try {
     // Any non-WS GET returns 400 ("userId required") — we just want a TCP RST-free response.
-    const res = await fetch(WS_DO_HTTP, { method: "GET" })
+    const res = await fetch(DEV_WS_DO_URL, { method: "GET" })
     return res.status < 500
   } catch {
     return false
@@ -106,7 +105,7 @@ describe("ws (dev direct to ws-do)", () => {
     const payload = { type: "runtime.status", daemonId: "d1", workspaceId: "w1", status: "online" }
     const recv = waitForMessage<typeof payload>(ws, (m) => m.type === "runtime.status")
 
-    const broadcastRes = await fetch(`${WS_DO_HTTP}/broadcast/user/${userId}`, {
+    const broadcastRes = await fetch(`${DEV_WS_DO_URL}/broadcast/user/${userId}`, {
       method: "POST",
       body: JSON.stringify(payload),
     })
