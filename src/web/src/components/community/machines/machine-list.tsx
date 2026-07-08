@@ -115,7 +115,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
         {backBar}
         <div className="flex flex-col gap-3 p-6">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-[88px] animate-pulse rounded-lg border bg-muted/30" />
+            <div key={i} className="h-22 animate-pulse rounded-lg border bg-muted/30" />
           ))}
         </div>
       </div>

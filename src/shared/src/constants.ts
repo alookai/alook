@@ -159,9 +159,40 @@ export function isSelfBotFriendship(id: string): boolean {
 // Dev mode auth (shared between web frontend and @alook/app CLI)
 export const DEV_PASSWORD = "dev-password-000";
 
+/**
+ * Shape shared by every "which port does each service run on" profile in the
+ * monorepo — the monorepo-local dev profile below (`DEV_PORTS`) and the
+ * self-hosted `@alook/app` profile (`DEFAULT_PORTS` in
+ * src/app/src/lib/constants.ts, which uses the 1521x range so it doesn't
+ * collide with a developer's own `pnpm dev` checkout). Same format, two
+ * separate value sets on purpose.
+ */
+export interface DevPortProfile {
+  web: number;
+  emailWorker: number;
+  wsDo: number;
+  wakeWorker: number;
+}
+
+// Ports used by `pnpm dev:*` / `wrangler dev` in this monorepo — must match
+// each worker's wrangler.toml `[dev] port` (web via Next, wake-worker via
+// src/wake-worker/wrangler.toml). Single source of truth for the fallback
+// URLs below and every other hardcoded dev-port default across web/cli/daemon.
+export const DEV_PORTS: DevPortProfile = {
+  web: 3000,
+  emailWorker: 8787,
+  wsDo: 8789,
+  wakeWorker: 8790,
+};
+
 // Local dev URLs (used for service-binding fallbacks)
-export const DEV_WEB_URL = process.env.ALOOK_SERVER_URL || "http://localhost:3000";
-export const DEV_WS_DO_URL = process.env.DEV_WS_DO_URL || "http://localhost:8789";
-export const DEV_EMAIL_WORKER_URL = process.env.DEV_EMAIL_WORKER_URL || "http://localhost:8787";
-// `src/wake-worker/wrangler.toml`'s `[dev] port` — see wake-transport.ts.
-export const DEV_WAKE_WORKER_URL = process.env.DEV_WAKE_WORKER_URL || "http://localhost:8790";
+export const DEV_WEB_URL = process.env.ALOOK_SERVER_URL || `http://localhost:${DEV_PORTS.web}`;
+export const DEV_WS_DO_URL = process.env.DEV_WS_DO_URL || `http://localhost:${DEV_PORTS.wsDo}`;
+export const DEV_EMAIL_WORKER_URL = process.env.DEV_EMAIL_WORKER_URL || `http://localhost:${DEV_PORTS.emailWorker}`;
+export const DEV_WAKE_WORKER_URL = process.env.DEV_WAKE_WORKER_URL || `http://localhost:${DEV_PORTS.wakeWorker}`;
+
+/** Local ws-do port — derived from `DEV_WS_DO_URL` so env overrides stay in sync. */
+export function devWsDoPort(): number {
+  const port = Number(new URL(DEV_WS_DO_URL).port);
+  return port || DEV_PORTS.wsDo;
+}

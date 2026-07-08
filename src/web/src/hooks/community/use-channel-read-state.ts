@@ -65,20 +65,25 @@ export function useChannelReadStateSnapshot(channelId: string | null | undefined
 
   // Latch the first resolved snapshot so subsequent renders return a stable
   // reference. Reset on channelId change — a new channel mount is a new
-  // snapshot lifecycle.
+  // snapshot lifecycle. Must reset synchronously during render so the
+  // returned snapshot never belongs to the previous channel.
   const snapshotRef = useRef<ChannelReadStateSnapshot | null>(null)
   const lastChannelIdRef = useRef<string | null | undefined>(channelId)
+  /* eslint-disable react-hooks/refs -- sync channel switch reset; see hook tests */
   if (lastChannelIdRef.current !== channelId) {
     snapshotRef.current = null
     lastChannelIdRef.current = channelId
   }
+  /* eslint-enable react-hooks/refs */
   useEffect(() => {
     if (snapshotRef.current !== null) return
     if (query.data) snapshotRef.current = query.data
   }, [query.data])
 
+  /* eslint-disable react-hooks/refs -- latched snapshot read; see hook tests */
   return {
     snapshot: snapshotRef.current ?? (query.data ?? null),
     isFetching: query.isFetching,
   }
+  /* eslint-enable react-hooks/refs */
 }

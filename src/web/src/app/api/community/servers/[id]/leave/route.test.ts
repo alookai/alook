@@ -7,6 +7,8 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockGetMember = vi.fn()
 const mockRemoveMember = vi.fn()
+const mockRemoveOwnerBotsFromServer = vi.fn()
+const mockListOwnerBotsInServer = vi.fn()
 const mockLogAudit = vi.fn()
 const mockFanOut = vi.fn()
 
@@ -20,15 +22,20 @@ vi.mock("@alook/shared", async () => {
       communityMember: {
         getMember: (...a: unknown[]) => mockGetMember(...a),
         removeMember: (...a: unknown[]) => mockRemoveMember(...a),
-        listOwnerBotsInServer: vi.fn().mockResolvedValue([]),
+        listOwnerBotsInServer: (...a: unknown[]) => mockListOwnerBotsInServer(...a),
+        removeOwnerBotsFromServer: (...a: unknown[]) => mockRemoveOwnerBotsFromServer(...a),
       },
     },
   }
 })
 
-vi.mock("@/lib/community/audit", () => ({
-  logAudit: (...a: unknown[]) => mockLogAudit(...a),
-}))
+vi.mock("@/lib/community/audit", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
+  return {
+    ...actual,
+    logAudit: (...a: unknown[]) => mockLogAudit(...a),
+  }
+})
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOut(...a),
@@ -64,6 +71,8 @@ describe("POST /api/community/servers/[id]/leave", () => {
     vi.clearAllMocks()
     mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "member" })
     mockRemoveMember.mockResolvedValue(true)
+    mockListOwnerBotsInServer.mockResolvedValue([])
+    mockRemoveOwnerBotsFromServer.mockResolvedValue(undefined)
     mockFanOut.mockResolvedValue(undefined)
   })
 
@@ -97,5 +106,18 @@ describe("POST /api/community/servers/[id]/leave", () => {
     expect(res.status).toBe(400)
     expect(mockLogAudit).not.toHaveBeenCalled()
     expect(mockRemoveMember).not.toHaveBeenCalled()
+  })
+
+  it("bulk-removes owner bots in one call instead of getMember loops", async () => {
+    mockListOwnerBotsInServer.mockResolvedValue(["bot_1", "bot_2"])
+
+    const res = await POST(postReq(), ctx)
+    expect(res.status).toBe(204)
+    expect(mockRemoveOwnerBotsFromServer).toHaveBeenCalledWith(
+      expect.anything(),
+      "s1",
+      ["bot_1", "bot_2"],
+    )
+    expect(mockGetMember).toHaveBeenCalledTimes(1)
   })
 })

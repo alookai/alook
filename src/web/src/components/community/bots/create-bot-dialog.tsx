@@ -180,7 +180,7 @@ export function CreateBotDialog({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What is this bot for?"
               rows={3}
-              className="min-h-[72px] resize-none"
+              className="min-h-18 resize-none"
             />
           </div>
 

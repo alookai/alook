@@ -88,15 +88,15 @@ export function ThreadOpener({
                   <button
                     key={i}
                     onClick={() => onPreviewImage?.(a.url)}
-                    className="block w-fit max-w-[280px] overflow-hidden rounded-md border border-border transition-colors hover:border-primary/40"
+                    className="block w-fit max-w-70 overflow-hidden rounded-md border border-border transition-colors hover:border-primary/40"
                   >
-                    <img src={a.url} alt={a.name} className="max-h-40 max-w-[280px] rounded-md object-contain" />
+                    <img src={a.url} alt={a.name} className="max-h-40 max-w-70 rounded-md object-contain" />
                   </button>
                 ) : (
                   <button
                     key={i}
                     onClick={() => onDownloadFile?.(a.url)}
-                    className="flex w-full max-w-[280px] items-center gap-3 rounded-md border border-border bg-card p-2 text-left transition-colors hover:bg-accent"
+                    className="flex w-full max-w-70 items-center gap-3 rounded-md border border-border bg-card p-2 text-left transition-colors hover:bg-accent"
                   >
                     <FileText className="size-6 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
@@ -142,7 +142,7 @@ function ThreadOpenerSkeleton() {
         <Skeleton className="size-8 shrink-0 rounded-full" />
         <div className="flex min-w-0 flex-1 flex-col gap-2">
           <Skeleton className="h-4 w-32 rounded" />
-          <Skeleton className="h-3.5 w-full max-w-[260px] rounded" />
+          <Skeleton className="h-3.5 w-full max-w-65 rounded" />
           <Skeleton className="h-3.5 w-40 rounded" />
         </div>
       </div>

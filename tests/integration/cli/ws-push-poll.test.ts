@@ -7,10 +7,10 @@ import {
   sqlRun,
 } from "@alook/test-utils"
 import { DaemonClient } from "../../../src/cli/daemon/client"
-import { DaemonPushMessageSchema } from "@alook/shared"
+import { DaemonPushMessageSchema, DEV_WEB_URL, DEV_WS_DO_URL } from "@alook/shared"
 
-const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
-const WS_DO_URL = process.env.WS_DO_URL ?? "http://localhost:8789"
+const APP_URL = process.env.APP_URL ?? DEV_WEB_URL
+const WS_DO_URL = process.env.WS_DO_URL ?? DEV_WS_DO_URL
 const client = new DaemonClient(APP_URL)
 
 let seed: TestSeed

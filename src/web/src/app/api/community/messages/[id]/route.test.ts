@@ -6,7 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetMessage = vi.fn()
-const mockGetMessagesByIds = vi.fn()
+const mockGetMessagesByIdsInScope = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockGetDM = vi.fn()
 const mockIsBlocked = vi.fn()
@@ -25,7 +25,7 @@ vi.mock("@alook/shared", async () => {
       },
       communityMessage: {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
-        getMessagesByIds: (...a: unknown[]) => mockGetMessagesByIds(...a),
+        getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
       },
       communityAttachment: {
         listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
@@ -69,7 +69,7 @@ describe("GET /api/community/messages/[id]", () => {
     vi.clearAllMocks()
     mockListByMessageIds.mockResolvedValue([])
     mockListReactionsByMessageIds.mockResolvedValue([])
-    mockGetMessagesByIds.mockResolvedValue([])
+    mockGetMessagesByIdsInScope.mockResolvedValue([])
   })
 
   it("returns the hydrated payload for a channel message when caller is a server member", async () => {
@@ -129,16 +129,18 @@ describe("GET /api/community/messages/[id]", () => {
       dmConversationId: null,
     })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetMessagesByIds.mockResolvedValue([
+    mockGetMessagesByIdsInScope.mockResolvedValue([
       { id: "m0", authorName: "Bob", content: "question?", channelId: "c1" },
     ])
 
     const res = await GET(req(), { params: { id: "m1" } } as any)
     const body = await res.json()
     expect(body.replyTo).toEqual({ id: "m0", authorName: "Bob", text: "question?" })
+    const [, , scope] = mockGetMessagesByIdsInScope.mock.calls[0]
+    expect(scope).toEqual({ channelId: "c1" })
   })
 
-  it("filters out reply preview when target is in a different channel (scope guard)", async () => {
+  it("omits reply preview when target is in a different channel (scope guard)", async () => {
     mockGetMessage.mockResolvedValue({
       id: "m1",
       authorId: "u-author",
@@ -154,13 +156,13 @@ describe("GET /api/community/messages/[id]", () => {
       dmConversationId: null,
     })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
-    mockGetMessagesByIds.mockResolvedValue([
-      { id: "m0", authorName: "Bob", content: "leaked?", channelId: "OTHER" },
-    ])
+    // The scoped query never returns a message from a different channel — no
+    // application-level `.filter()` involved anymore.
+    mockGetMessagesByIdsInScope.mockResolvedValue([])
 
     const res = await GET(req(), { params: { id: "m1" } } as any)
     const body = await res.json()
-    // Target filtered out — mapper returns the `deleted` sentinel.
+    // Target not found in scope — mapper returns the `deleted` sentinel.
     expect(body.replyTo).toEqual({ id: "m0", authorName: "Unknown", text: "", deleted: true })
   })
 

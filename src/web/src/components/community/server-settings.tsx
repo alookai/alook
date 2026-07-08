@@ -177,6 +177,8 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
     return () => clearTimeout(t)
   }, [query, onSearch])
 
+  // TanStack Virtual returns unstable function refs — React Compiler skips memoization.
+  // eslint-disable-next-line react-hooks/incompatible-library -- library limitation
   const rowVirtualizer = useVirtualizer({
     count: members.length,
     getScrollElement: () => scrollRef.current,

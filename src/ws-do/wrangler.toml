@@ -18,6 +18,7 @@ enabled = true
 head_sampling_rate = 0.05
 destinations = ["grafana-traces"]
 
+# Must match DEV_PORTS.wsDo in src/shared/src/constants.ts
 [dev]
 port = 8789
 inspector_port = 9230

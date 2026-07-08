@@ -4,7 +4,6 @@ import {
 } from "@/lib/middleware/helpers";
 import { TaskApiBaseSchema, isOnline, TASK_TYPES, schema, type Message } from "@alook/shared";
 
-type UserRow = typeof schema.user.$inferSelect;
 type WorkspaceRow = typeof schema.workspace.$inferSelect;
 type AgentRow = typeof schema.agent.$inferSelect;
 type EmailRow = typeof schema.emails.$inferSelect;

@@ -53,11 +53,9 @@ export function useChannelWatermark({
   // channel changes so a switch between channels doesn't leak the prior
   // channel's pointer.
   const maxSeenRef = useRef<{ createdAt: string; id: string } | null>(null)
-  const lastChannelIdRef = useRef<string | null | undefined>(channelId)
-  if (lastChannelIdRef.current !== channelId) {
+  useEffect(() => {
     maxSeenRef.current = null
-    lastChannelIdRef.current = channelId
-  }
+  }, [channelId])
 
   // Keep the freshest `messages` array visible to the IntersectionObserver
   // callback via a ref — the callback captures once per observer re-attach
@@ -65,9 +63,11 @@ export function useChannelWatermark({
   // observed on the next render pass (see the effect below), so the ref
   // avoids stale-closure lookups when a row is measured.
   const messagesRef = useRef<Msg[]>(messages)
-  messagesRef.current = messages
   const advanceRef = useRef(advance)
-  advanceRef.current = advance
+  useEffect(() => {
+    messagesRef.current = messages
+    advanceRef.current = advance
+  })
 
   useEffect(() => {
     if (!channelId) return

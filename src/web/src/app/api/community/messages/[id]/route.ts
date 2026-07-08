@@ -52,24 +52,21 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
     queries.communityAttachment.listByMessageIds(db, [messageId]),
     queries.communityReaction.listReactionsByMessageIds(db, [messageId], ctx.userId),
     message.replyToId
-      ? queries.communityMessage.getMessagesByIds(db, [message.replyToId])
+      ? queries.communityMessage.getMessagesByIdsInScope(
+          db,
+          [message.replyToId],
+          message.channelId ? { channelId: message.channelId } : { dmConversationId: message.dmConversationId! },
+        )
       : Promise.resolve([]),
   ])
 
   const attachmentsByMessage = groupAttachments(allAttachments)
   const reactionsByMessage = groupReactions(allReactions, ctx.userId)
 
-  // Scope-check the reply target against the SAME surface as the parent — a
-  // reply preview must not leak content from a different channel/DM.
-  const replyMap = new Map(
-    replyMessages
-      .filter((m) =>
-        message.channelId
-          ? m.channelId === message.channelId
-          : m.dmConversationId === message.dmConversationId,
-      )
-      .map((m) => [m.id, m]),
-  )
+  // Reply target is already scoped to the SAME surface as the parent by the
+  // query above — a reply preview must not leak content from a different
+  // channel/DM.
+  const replyMap = new Map(replyMessages.map((m) => [m.id, m]))
 
   const payload = mapMessageForApi(message, {
     replyMap,

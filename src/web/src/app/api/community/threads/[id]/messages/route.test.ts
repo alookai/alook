@@ -6,7 +6,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 }))
 
 const mockGetChannelForMember = vi.fn()
-const mockGetMessagesByIds = vi.fn()
+const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMessages = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
@@ -22,7 +22,7 @@ vi.mock("@alook/shared", async () => {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
       },
       communityMessage: {
-        getMessagesByIds: (...a: unknown[]) => mockGetMessagesByIds(...a),
+        getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
       },
       communityAttachment: {
@@ -70,7 +70,7 @@ describe("GET /api/community/threads/[id]/messages", () => {
     })
     mockListByMessageIds.mockResolvedValue([])
     mockListReactionsByMessageIds.mockResolvedValue([])
-    mockGetMessagesByIds.mockResolvedValue([])
+    mockGetMessagesByIdsInScope.mockResolvedValue([])
   })
 
   it("runs attachment, reaction, and reply-target fetches in parallel", async () => {
@@ -92,7 +92,7 @@ describe("GET /api/community/threads/[id]/messages", () => {
     }
     mockListByMessageIds.mockImplementation(() => tracked([]))
     mockListReactionsByMessageIds.mockImplementation(() => tracked([]))
-    mockGetMessagesByIds.mockImplementation(() => tracked([]))
+    mockGetMessagesByIdsInScope.mockImplementation(() => tracked([]))
 
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
@@ -100,7 +100,7 @@ describe("GET /api/community/threads/[id]/messages", () => {
     expect(maxInFlight).toBe(3)
     expect(mockListByMessageIds).toHaveBeenCalledTimes(1)
     expect(mockListReactionsByMessageIds).toHaveBeenCalledTimes(1)
-    expect(mockGetMessagesByIds).toHaveBeenCalledTimes(1)
+    expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
   })
 
   it("preserves response shape: reply preview scoped to this channel", async () => {
@@ -110,9 +110,8 @@ describe("GET /api/community/threads/[id]/messages", () => {
       { id: "m-a", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "hi", type: "default", mentionType: null, replyToId: "r-in-scope", channelId: "t1", embeds: null, createdAt: "t1" },
       { id: "m-b", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "leak?", type: "default", mentionType: null, replyToId: "r-out-of-scope", channelId: "t1", embeds: null, createdAt: "t2" },
     ])
-    mockGetMessagesByIds.mockResolvedValue([
+    mockGetMessagesByIdsInScope.mockResolvedValue([
       { id: "r-in-scope", authorName: "Zed", content: "original", channelId: "t1", dmConversationId: null },
-      { id: "r-out-of-scope", authorName: "Zed", content: "elsewhere", channelId: "c-other", dmConversationId: null },
     ])
 
     const res = await GET(getReq(), ctx)

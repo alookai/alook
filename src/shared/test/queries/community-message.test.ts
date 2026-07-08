@@ -101,6 +101,59 @@ describe("getMessagesByIds", () => {
   });
 });
 
+describe("getMessageInScope", () => {
+  it("exports as a function", () => {
+    expect(typeof messageQueries.getMessageInScope).toBe("function");
+  });
+
+  it("returns the row when the db finds an in-scope match", async () => {
+    const db = createSelectMock([messageRow("m_1")]);
+    const result = await messageQueries.getMessageInScope(db, "m_1", { channelId: "ch_1" });
+    expect(result?.id).toBe("m_1");
+    expect(db.where).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns null when the db finds no in-scope match", async () => {
+    const db = createSelectMock([]);
+    const result = await messageQueries.getMessageInScope(db, "m_other", { channelId: "ch_1" });
+    expect(result).toBeNull();
+  });
+
+  it("accepts dmConversationId scope", async () => {
+    const row = { ...messageRow("m_dm"), channelId: null, dmConversationId: "dm_1" };
+    const db = createSelectMock([row]);
+    const result = await messageQueries.getMessageInScope(db, "m_dm", {
+      dmConversationId: "dm_1",
+    });
+    expect(result?.dmConversationId).toBe("dm_1");
+  });
+});
+
+describe("getMessagesByIdsInScope", () => {
+  it("exports as a function", () => {
+    expect(typeof messageQueries.getMessagesByIdsInScope).toBe("function");
+  });
+
+  it("returns [] and does NOT hit db when ids is empty", async () => {
+    const db = createSelectMock([messageRow("m_1")]);
+    const result = await messageQueries.getMessagesByIdsInScope(db, [], { channelId: "ch_1" });
+    expect(result).toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it("returns only rows the db resolves in-scope", async () => {
+    const db = createSelectMock([messageRow("m_1")]);
+    const result = await messageQueries.getMessagesByIdsInScope(
+      db,
+      ["m_1", "m_leak"],
+      { channelId: "ch_1" },
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe("m_1");
+    expect(db.where).toHaveBeenCalledTimes(1);
+  });
+});
+
 /**
  * Captures each `db.insert(...)` and `db.update(...)` call in order so tests
  * can inspect which table was hit with which values/set/onConflict clauses.

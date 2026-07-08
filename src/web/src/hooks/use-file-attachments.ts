@@ -19,7 +19,9 @@ function revokeThumbnailUrls(files: PendingFile[]) {
 export function useFileAttachments() {
   const [pendingFiles, _setPendingFiles] = useState<PendingFile[]>([]);
   const pendingFilesRef = useRef(pendingFiles);
-  pendingFilesRef.current = pendingFiles;
+  useEffect(() => {
+    pendingFilesRef.current = pendingFiles;
+  });
 
   const setPendingFiles = useCallback((next: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
     _setPendingFiles((prev) => {

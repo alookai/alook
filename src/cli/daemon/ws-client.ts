@@ -1,5 +1,5 @@
 import { createLogger } from "../lib/logger.js";
-import { DaemonPushMessageSchema } from "@alook/shared";
+import { DaemonPushMessageSchema, devWsDoPort } from "@alook/shared";
 import type { DaemonPushMessage } from "@alook/shared";
 
 const log = createLogger({ module: "ws-client" });
@@ -8,7 +8,7 @@ const WS_RECONNECT_INIT = 1000;
 const WS_RECONNECT_MAX = 30_000;
 const WS_PING_INTERVAL = 25_000;
 const WS_LIVENESS_TIMEOUT = 50_000;
-const WS_DO_DEV_PORT = Number(process.env.ALOOK_WS_DO_PORT) || 8789;
+const WS_DO_DEV_PORT = Number(process.env.ALOOK_WS_DO_PORT) || devWsDoPort();
 
 export interface DaemonWsClientOptions {
   serverURL: string;

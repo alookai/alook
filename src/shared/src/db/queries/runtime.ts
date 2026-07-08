@@ -2,20 +2,19 @@ import { eq, and, asc, sql, inArray } from "drizzle-orm";
 import { agentRuntime, agent, machine } from "../schema";
 import type { Database } from "../index";
 
-export async function upsertAgentRuntime(
-  db: Database,
-  data: {
-    workspaceId: string;
-    daemonId: string;
-    runtimeMode: string;
-    provider: string;
-    deviceInfo: string;
-    metadata?: unknown;
-  }
-) {
+export type UpsertAgentRuntimeInput = {
+  workspaceId: string;
+  daemonId: string;
+  runtimeMode: string;
+  provider: string;
+  deviceInfo: string;
+  metadata?: unknown;
+};
+
+export function upsertAgentRuntimeStatement(db: Database, data: UpsertAgentRuntimeInput) {
   const now = new Date().toISOString();
   const metaJson = JSON.stringify(data.metadata ?? {});
-  const rows = await db
+  return db
     .insert(agentRuntime)
     .values({
       workspaceId: data.workspaceId,
@@ -39,7 +38,27 @@ export async function upsertAgentRuntime(
       },
     })
     .returning();
+}
+
+export async function upsertAgentRuntime(
+  db: Database,
+  data: UpsertAgentRuntimeInput,
+) {
+  const rows = await upsertAgentRuntimeStatement(db, data);
   return rows[0]!;
+}
+
+export async function batchUpsertAgentRuntimes(
+  db: Database,
+  items: UpsertAgentRuntimeInput[],
+) {
+  if (items.length === 0) return [];
+  if (items.length === 1) {
+    return [await upsertAgentRuntime(db, items[0]!)];
+  }
+  const statements = items.map((item) => upsertAgentRuntimeStatement(db, item));
+  const results = await db.batch(statements as [typeof statements[0], ...typeof statements]);
+  return results.flatMap((rows) => (Array.isArray(rows) ? rows : [rows]));
 }
 
 export async function listAgentRuntimes(db: Database, workspaceId: string, userId?: string) {

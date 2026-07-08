@@ -324,7 +324,7 @@ export function ShellFrame({
   )
 
   const previewImage = useCallback((url: string) => setPreview(url), [])
-  const goBackMobile = useCallback(() => setMobileZone("nav"), [])
+  const goBackMobile = useCallback(() => setMobileZone("nav"), [setMobileZone])
   useEffect(() => {
     useCommunityStore.getState().registerUiHandlers({
       previewImage,

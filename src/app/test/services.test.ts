@@ -8,7 +8,7 @@ const testDir = join(tmpdir(), `alook-test-services-${process.pid}`);
 vi.mock("../src/lib/constants.js", () => ({
   SELF_HOSTED_DIR: testDir,
   PID_FILE: join(testDir, ".pids.json"),
-  DEFAULT_PORTS: { web: 3000, emailWorker: 8787, wsDo: 8789 },
+  DEFAULT_PORTS: { web: 3000, emailWorker: 8787, wsDo: 8789, wakeWorker: 8790 },
   WEB_URL: (port: number) => `http://localhost:${port}`,
 }));
 

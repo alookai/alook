@@ -170,7 +170,7 @@ export function InboxPopover({
 }) {
   const hasAnything = forYou.length > 0 || unreads.length > 0 || mentions.length > 0
   return (
-    <Tabs defaultValue="foryou" className="flex h-[28rem] flex-col">
+    <Tabs defaultValue="foryou" className="flex h-112 flex-col">
       <div className="flex items-center gap-2 px-3 pt-4">
         <Inbox className="size-5" />
         <h2 className="flex-1 text-lg font-semibold">Inbox</h2>

@@ -362,6 +362,15 @@ export function removeOwnerBotsFromServerStatement(
     );
 }
 
+/** Executes `removeOwnerBotsFromServerStatement` — one DELETE for all bots. */
+export async function removeOwnerBotsFromServer(
+  db: Database,
+  serverId: string,
+  botUserIds: string[],
+) {
+  await removeOwnerBotsFromServerStatement(db, serverId, botUserIds);
+}
+
 /**
  * Wake-dispatch access re-check (unread-wake rebuild path,
  * `buildUnreadWakeCommand`) — scoped in SQL before returning, per

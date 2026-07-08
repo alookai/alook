@@ -15,7 +15,24 @@ import {
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
 import { apiFetch } from "@/lib/api/client"
-import { COMMUNITY_SERVER_URL, COMMUNITY_DAEMON_WS_URL } from "@/lib/community/env"
+import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
+
+// Community daemon HTTP/WS endpoints live on the same worker + ws-do as the
+// rest of the app — see use-user-ws.ts, which connects to the identical
+// ws-do for the user's live WS channel. ws-do routes community-daemon
+// connections by their `Authorization: Bearer cmk_...` header, not by host
+// or path, so we reuse that exact local/origin split instead of introducing
+// a separate URL concept (or env vars) just for this sheet.
+const isLocal = isLocalMode()
+
+// Only ever called once `pendingTokenId` is set, which happens from a
+// client-only effect — safe to touch `location` here (never runs during SSR).
+function buildPairCommand(machineKey: string): string {
+  const wsUrl = isLocal
+    ? `ws://localhost:${WS_DO_PORT_DEFAULT}`
+    : `${location.origin.replace("http", "ws")}/api/ws/community-daemon`
+  return `npx @alook/daemon daemon start --machine-key ${machineKey} --server-url ${location.origin} --ws-url ${wsUrl}`
+}
 
 export type PairMachineSheetMode =
   | { kind: "pair" }
@@ -78,9 +95,7 @@ export function PairMachineSheet({
     void generate()
   }, [openKey, generate, setPendingTokenId])
 
-  const command = pendingTokenId
-    ? `npx @alook/daemon daemon start --machine-key ${pendingTokenId} --server-url ${COMMUNITY_SERVER_URL} --ws-url ${COMMUNITY_DAEMON_WS_URL}`
-    : ""
+  const command = pendingTokenId ? buildPairCommand(pendingTokenId) : ""
 
   const copyCommand = useCallback(async () => {
     if (!command) return
@@ -228,7 +243,7 @@ function Marker({
       ].join(" ")}
     >
       {spinning && (
-        <span className="absolute inset-[-3px] rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+        <span className="absolute -inset-0.75 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
       )}
       {n}
     </span>
