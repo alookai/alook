@@ -27,15 +27,16 @@ export type ChannelReadStateSnapshot = {
  *
  * Implementation: fire a normal `useQuery`, then latch the first non-null
  * response in a `useRef`. All subsequent calls return the ref value. The
- * `staleTime: Infinity + refetchOnMount: false` combo means TanStack itself
- * won't tick the cache during this mount, but the ref makes the invariant
- * explicit regardless.
+ * `staleTime: Infinity` + `snapshotRef` combo keeps the anchor frozen for
+ * the entire mount regardless of what TanStack does mid-mount.
  *
- * Note: this hook does NOT unmount cleanup or invalidate — the next channel
- * mount is a fresh useRef, and the next channel's read row is either fresh
- * from the server or read via `queries.communityReadState.getReadState`
- * afresh. The cache key includes `channelId`, so switching channels reads
- * the other channel's snapshot.
+ * Cross-mount refresh: `gcTime: 0` evicts the cache entry the instant the
+ * consumer unmounts. The next mount finds an empty cache and MUST refetch
+ * from the server — otherwise the divider re-anchors to the pre-scroll
+ * position even after the IntersectionObserver has advanced the read row.
+ * Note: `refetchOnMount: true` is NOT enough here — with `staleTime:
+ * Infinity`, TanStack considers cached data fresh and skips the refetch.
+ * `gcTime: 0` is the only reliable path to a genuine cross-mount reload.
  */
 export function useChannelReadStateSnapshot(channelId: string | null | undefined): {
   snapshot: ChannelReadStateSnapshot | null
@@ -52,10 +53,13 @@ export function useChannelReadStateSnapshot(channelId: string | null | undefined
     },
     enabled: !!channelId,
     staleTime: Infinity,
-    // The value is anchored to this mount — no refetch on remount, focus,
-    // or reconnect. If the user leaves and comes back, a fresh mount fires
-    // a new query with a new ref.
-    refetchOnMount: false,
+    // Evict the cache entry the moment the last observer unmounts. Combined
+    // with the fresh useRef on each mount, this guarantees revisiting a
+    // channel fires a real network fetch instead of replaying the stale
+    // pre-scroll pointer — otherwise the "New" divider re-appears at the
+    // old position because TanStack's `staleTime: Infinity` treats cached
+    // data as fresh and refuses to refetch on remount.
+    gcTime: 0,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     // Snapshot is one-shot; even if TanStack retries a failed fetch, the

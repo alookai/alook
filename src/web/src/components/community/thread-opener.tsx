@@ -5,6 +5,7 @@ import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
 import { formatMessageTime } from "./format-time"
 import { Skeleton } from "@/components/ui/skeleton"
+import { NumberTicker } from "@/components/ui/number-ticker"
 import { avatarInitial } from "@/lib/community/avatar"
 import { useMessage } from "@/hooks/community/use-message"
 import type { OpenProfile } from "./_types"
@@ -123,7 +124,7 @@ export function ThreadOpener({
                   ].join(" ")}
                 >
                   <span>{r.emoji}</span>
-                  <span className="text-xs text-muted-foreground">{r.count}</span>
+                  <NumberTicker value={r.count} className="text-xs text-muted-foreground" />
                 </span>
               ))}
             </div>

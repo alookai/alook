@@ -1,12 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ArrowDown } from "lucide-react"
 import { DateDivider, NewDivider } from "./dividers"
 import { Message } from "./message"
 import { TypingIndicator } from "./typing-indicator"
 import { dateKey, formatDateLabel } from "./format-time"
 import { ChannelIcon } from "./channel-icon"
 import { Skeleton } from "@/components/ui/skeleton"
+import { NumberTicker } from "@/components/ui/number-ticker"
 import type { Msg, OpenProfile } from "./_types"
 
 // Channel message list — welcome hero, date dividers, messages (with the NEW divider),
@@ -47,10 +49,9 @@ export function MessageList({
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const prevMsgCountRef = useRef(messages.length)
   // Tracks whether the mount-time initial-scroll has fired yet. On channel
   // switch (`messages` cleared) we reset it so the new channel gets its own
-  // initial scroll — mirrors the `prevMsgCountRef` reset below.
+  // initial scroll.
   const didInitialScrollRef = useRef(false)
 
   // Publish the scroll root to interested consumers (watermark observer).
@@ -62,49 +63,83 @@ export function MessageList({
     return () => onScrollRoot(null)
   }, [onScrollRoot])
 
-  // When the messages list is cleared on channel switch, the previous count is
-  // stale — the very first batch that arrives would compare against the old
-  // length and skip the bottom-anchor scroll. Reset when we hit empty.
   useEffect(() => {
     if (messages.length === 0) {
-      prevMsgCountRef.current = 0
       didInitialScrollRef.current = false
     }
   }, [messages.length])
 
+  // Mount-time initial scroll — exactly two rules, no auto-follow after:
+  //   1. NEW divider present → center it vertically in the viewport.
+  //   2. No NEW divider → snap to the bottom.
+  // Fires once per mount; deliberately no near-bottom heuristic. If the
+  // user has scrolled up, incoming messages do NOT pull the view back —
+  // the floating "↓ N" button below is how they return.
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const isNewMessage = messages.length > prevMsgCountRef.current
-    prevMsgCountRef.current = messages.length
+    if (didInitialScrollRef.current) return
+    if (messages.length === 0) return
 
-    // Mount-time initial scroll: target the "New" divider when there's an
-    // unread pointer, otherwise fall through to the bottom-anchor. Only
-    // fires once per mount — subsequent renders use the near-bottom heuristic
-    // below so the list still auto-follows when the user is near the bottom.
-    if (!didInitialScrollRef.current && messages.length > 0) {
-      if (newDividerBefore) {
-        const target = el.querySelector<HTMLElement>(
-          `[data-msg-id="${cssEscape(newDividerBefore)}"]`,
-        )
-        if (target) {
-          target.scrollIntoView({ block: "start" })
-          didInitialScrollRef.current = true
-          return
-        }
+    if (newDividerBefore) {
+      const target = el.querySelector<HTMLElement>(
+        `[data-msg-id="${cssEscape(newDividerBefore)}"]`,
+      )
+      if (target) {
+        target.scrollIntoView({ block: "center" })
+        didInitialScrollRef.current = true
+        return
       }
-      el.scrollTop = el.scrollHeight
-      didInitialScrollRef.current = true
+    }
+    el.scrollTop = el.scrollHeight
+    didInitialScrollRef.current = true
+  }, [messages, newDividerBefore])
+
+  // Live count of messages sitting below the viewport. Recomputed on scroll,
+  // on messages change, and via a ResizeObserver so appended rows update the
+  // badge even without a scroll event. `0` means the user is at the bottom
+  // (or the list fits entirely in the viewport) — the button hides.
+  const [belowCount, setBelowCount] = useState(0)
+  const recomputeBelow = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) {
+      setBelowCount(0)
       return
     }
-
-    // Only auto-scroll if user is near the bottom (within 150px) or it's
-    // a new message arriving.
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 150
-    if (nearBottom || isNewMessage) {
-      el.scrollTop = el.scrollHeight
+    // Ignore near-bottom noise (a few px off from anti-aliasing / sub-pixel
+    // layout counts as "at bottom"). 8px is well below one line's height.
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    if (distanceFromBottom < 8) {
+      setBelowCount(0)
+      return
     }
-  }, [messages, newDividerBefore])
+    const rows = el.querySelectorAll<HTMLElement>("[data-msg-id]")
+    const viewportBottom = el.scrollTop + el.clientHeight
+    let count = 0
+    for (const row of rows) {
+      if (row.offsetTop >= viewportBottom) count++
+    }
+    setBelowCount(count)
+  }, [])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    recomputeBelow()
+    el.addEventListener("scroll", recomputeBelow, { passive: true })
+    const ro = new ResizeObserver(recomputeBelow)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener("scroll", recomputeBelow)
+      ro.disconnect()
+    }
+  }, [recomputeBelow, messages.length])
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+  }, [])
 
   const jumpTo = (id: string) => {
     setJumped(id)
@@ -143,6 +178,10 @@ export function MessageList({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
+      <ScrollDownButton
+        count={belowCount}
+        onClick={scrollToBottom}
+      />
       <div ref={scrollRef} className="flex-1 overflow-y-auto thin-scrollbar">
         <div className="flex min-h-full flex-col justify-end px-4 py-8">
           <div className="mb-6">
@@ -208,6 +247,33 @@ function cssEscape(id: string): string {
     return CSS.escape(id)
   }
   return id.replace(/[^a-zA-Z0-9_-]/g, "\\$&")
+}
+
+// Floating "↓ N" pill that appears when the user has scrolled up and there
+// are still messages below the viewport. `count === 0` hides the button
+// entirely (fade + slide-down, matches the shared scroll-to-bottom pill's
+// visual language).
+function ScrollDownButton({ count, onClick }: { count: number; onClick: () => void }) {
+  const visible = count > 0
+  return (
+    <div
+      className={`pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 transition-all duration-200 ease-out ${
+        visible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={`Scroll to bottom, ${count} more below`}
+        className={`pointer-events-auto flex h-8 items-center gap-1.5 rounded-full border border-border bg-background/90 pl-2 pr-3 text-xs font-medium text-foreground shadow-(--e1) backdrop-blur-sm transition-colors hover:bg-accent ${
+          visible ? "" : "pointer-events-none"
+        }`}
+      >
+        <ArrowDown className="size-3.5 text-muted-foreground" />
+        <NumberTicker value={count} />
+      </button>
+    </div>
+  )
 }
 
 // Loading placeholder for the message list. Mirrors the cluster layout used

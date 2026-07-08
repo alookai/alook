@@ -8,6 +8,7 @@ import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useFileAttachments } from "@/hooks/use-file-attachments"
 import { Avatar } from "./avatar"
 import { EmojiPickerPopover } from "./emoji-picker"
 import type { Member } from "./_types"
@@ -43,8 +44,18 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
   replyingTo?: string
   onCancelReply?: () => void
 }) {
-  const [pendingFiles, setPendingFiles] = useState<File[]>([])
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const {
+    pendingFiles,
+    setPendingFiles,
+    fileInputRef,
+    handleFileSelect,
+    removePendingFile,
+    dragging,
+    handleDragEnter,
+    handleDragLeave,
+    handleDragOver,
+    handleDrop,
+  } = useFileAttachments()
   const typingTimer = useRef<NodeJS.Timeout | null>(null)
 
   const [mentionPopup, setMentionPopup] = useState<MentionPopupState>(EMPTY_MENTION_STATE)
@@ -160,26 +171,21 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
     if (!editor || (editor.isEmpty && pendingFiles.length === 0)) return
     const markdown = editor.isEmpty ? "" : editor.getText({ blockSeparator: "\n" }).trim()
     const mentionType = detectMentionType(markdown)
-    onSend?.(markdown, pendingFiles.length > 0 ? pendingFiles : undefined, mentionType)
+    const files = pendingFiles.length > 0 ? pendingFiles.map((pf) => pf.file) : undefined
+    onSend?.(markdown, files, mentionType)
     editor.commands.clearContent()
     setPendingFiles([])
     setMentionPopup(EMPTY_MENTION_STATE)
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    if (files.length > 0) {
-      setPendingFiles((prev) => [...prev, ...files])
-    }
-    e.target.value = "" // Reset input to allow same file selection again
-  }
-
-  const removeFile = (index: number) => {
-    setPendingFiles((prev) => prev.filter((_, i) => i !== index))
-  }
-
   return (
-    <div className="relative px-3 pb-3 pt-0">
+    <div
+      className="relative px-3 pb-3 pt-0"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       <CommunityMentionList state={mentionPopup} />
 
       {/* reply context bar — attached above the input */}
@@ -195,14 +201,14 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
       {/* pending attachments preview */}
       {pendingFiles.length > 0 && (
         <div className={`flex flex-wrap gap-2 border-x border-b border-border/40 bg-muted/40 px-4 py-2 ${replyingTo ? "" : "rounded-t-xl border-t"}`}>
-          {pendingFiles.map((file, i) => {
-            const isImage = file.type.startsWith("image/")
+          {pendingFiles.map((pf, i) => {
+            const isImage = pf.file.type.startsWith("image/")
             return (
               <div key={i} className="group relative flex items-center gap-2 rounded border border-border bg-background px-3 py-2 text-xs">
                 {isImage ? <ImageIcon className="size-3.5 text-muted-foreground" /> : <FileIcon className="size-3.5 text-muted-foreground" />}
-                <span className="max-w-30 truncate text-foreground">{file.name}</span>
+                <span className="max-w-30 truncate text-foreground">{pf.file.name}</span>
                 <button
-                  onClick={() => removeFile(i)}
+                  onClick={() => removePendingFile(i)}
                   className="grid size-4 shrink-0 place-items-center rounded-full hover:bg-destructive/10 hover:text-destructive"
                   aria-label="Remove file"
                 >
@@ -215,6 +221,13 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
       )}
 
       <div className={`relative bg-muted shadow-(--e1) ring-1 ring-border/40 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}>
+        {dragging && (
+          <div
+            className={`pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-dashed border-ring bg-background/80 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}
+          >
+            <p className="text-sm font-medium text-muted-foreground">Drop files here</p>
+          </div>
+        )}
         <input
           ref={fileInputRef}
           type="file"

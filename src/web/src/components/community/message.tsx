@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/compon
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
 import { EmojiPickerPopover } from "./emoji-picker"
+import { NumberTicker } from "@/components/ui/number-ticker"
 import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./message-menu"
 import { formatMessageTime } from "./format-time"
 import type { Msg, OpenProfile } from "./_types"
@@ -137,7 +138,7 @@ export function Message({
           )}
 
           {m.attachments && (
-            <div className="mt-2 flex flex-col gap-2">
+            <div className="mt-2 flex flex-col gap-2 pb-2">
               {m.attachments.map((a, i) =>
                 a.kind === "image" ? (
                   <button
@@ -166,7 +167,7 @@ export function Message({
           )}
 
           {m.embeds && m.embeds.length > 0 && (
-            <div className="mt-2 flex flex-col gap-2">
+            <div className="mt-2 flex flex-col gap-2 pb-2">
               {m.embeds.map((embed, ei) => (
                 <article
                   key={ei}
@@ -240,7 +241,7 @@ export function Message({
                   ].join(" ")}
                 >
                   <span>{r.emoji}</span>
-                  <span className="text-xs text-muted-foreground">{r.count}</span>
+                  <NumberTicker value={r.count} className="text-xs text-muted-foreground" />
                 </button>
               ))}
               <EmojiPickerPopover side="top" align="start" onPick={(e) => onReact?.(e)}>

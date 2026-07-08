@@ -121,13 +121,23 @@ function ChannelView() {
   // `getMessage(lastReadMessageId).createdAt === lastReadAt`, so we only need
   // the id to find the anchor. `idx === -1` means the last-read message has
   // scrolled off the top of the fetched window — no divider is shown.
+  //
+  // Skip past runs of viewer-authored messages. The frozen client snapshot
+  // doesn't move mid-mount, but the server DOES advance the sender's own
+  // watermark on every send (see `createMessage` in
+  // `src/shared/src/db/queries/community/message.ts`) — so without this
+  // walk, the divider anchors above the viewer's OWN just-sent message,
+  // which is never "unread" from the sender's perspective.
   const newDividerBefore = useMemo(() => {
     const lastId = readSnapshot?.lastReadMessageId
     if (!lastId) return undefined
     const idx = messages.findIndex((m) => m.id === lastId)
     if (idx === -1) return undefined
-    return messages[idx + 1]?.id
-  }, [messages, readSnapshot])
+    for (let i = idx + 1; i < messages.length; i++) {
+      if (messages[i].authorId !== currentUser.id) return messages[i].id
+    }
+    return undefined
+  }, [messages, readSnapshot, currentUser.id])
 
   // Scroll root of the message list — needed so `useChannelWatermark`'s
   // IntersectionObserver measures against the correct viewport instead of

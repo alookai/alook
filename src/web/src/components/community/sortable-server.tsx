@@ -7,6 +7,7 @@ import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, C
 import { RailIndicator } from "./rail-indicator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { NumberTicker } from "@/components/ui/number-ticker"
 import type { Server } from "./_types"
 
 export function SortableServer({ server, active, onClick, onLeave, onOpenSettings, onOpenInvitePopover, onCreateFolder, groupTarget, inFolder, dragging: isDragActive }: { server: Server; active?: boolean; onClick: () => void; onLeave?: () => void; onOpenSettings?: () => void; onOpenInvitePopover?: () => void; onCreateFolder?: () => void; groupTarget?: boolean; inFolder?: boolean; dragging?: boolean }) {
@@ -44,10 +45,10 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
                 </button>
                 {server.mentions > 0 && (
                   <span
-                    className="pointer-events-none absolute -bottom-1 -right-1 grid min-w-5 place-items-center rounded-full border border-(--d-rail) px-1 text-[11px] font-black tracking-tight tabular-nums leading-4.5 text-white"
+                    className="pointer-events-none absolute -bottom-1 -right-1 grid min-w-5 place-items-center rounded-full border border-(--d-rail) px-1 text-[11px] font-black tracking-tight leading-4.5 text-white"
                     style={{ background: "var(--destructive)", WebkitTextStroke: "0.4px currentColor" }}
                   >
-                    {server.mentions}
+                    <NumberTicker value={server.mentions} />
                   </span>
                 )}
               </div>

@@ -40,6 +40,7 @@ import {
   useDismissForYouEvent,
   useDeleteMention,
   useUpdateProfile,
+  useSendDmMessage,
 } from "@/hooks/community/mutations"
 
 /**
@@ -111,6 +112,7 @@ export function ShellFrame({
   const updateFolderItems = useUpdateFolderItems()
   const createFolderWith = useCreateServerFolderWith()
   const createOrGetDm = useCreateOrGetDm()
+  const sendDmMessage = useSendDmMessage()
   const markAllInboxRead = useMarkAllInboxRead()
   const dismissForYouEvent = useDismissForYouEvent()
   const deleteMention = useDeleteMention()
@@ -333,7 +335,7 @@ export function ShellFrame({
     })
   }, [previewImage, openProfile, goBackMobile])
 
-  const profileMessage = async (name: string) => {
+  const profileMessage = async (name: string, text: string) => {
     setProfile(null)
     const member = members.find((m) => m.name === name)
     const friend = friends.find((f) => f.name === name)
@@ -342,12 +344,37 @@ export function ShellFrame({
       toast(`Could not find user ${name}`)
       return
     }
+    let dmId: string
     try {
       const data = await createOrGetDm.mutateAsync({ userId: targetUserId })
-      router.push(`/community/me/${data.conversation.id}`)
+      dmId = data.conversation.id
     } catch {
       toast("Failed to open DM")
+      return
     }
+    // Await the send BEFORE navigating so the server row exists by the time
+    // the DM page mounts and fires its initial `GET /messages`. Otherwise
+    // the fresh-mount fetch races the send: it returns [], overwrites the
+    // optimistic cache, and the first message silently vanishes. Failure
+    // surfaces as a toast + `failed: true` pill; we still navigate so the
+    // user has the composer to retry.
+    const trimmed = text.trim()
+    if (trimmed) {
+      try {
+        await sendDmMessage.mutateAsync({
+          dmId,
+          content: trimmed,
+          author: {
+            id: currentUser.id,
+            name: currentUser.name,
+            avatar: currentUser.avatar,
+          },
+        })
+      } catch {
+        toast("Failed to send message")
+      }
+    }
+    router.push(`/community/me/${dmId}`)
   }
 
   const openServerChannel = useCallback(

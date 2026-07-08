@@ -76,7 +76,10 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf }: {
               <input
                 value={msg}
                 onChange={(e) => setMsg(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") send() }}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" || e.nativeEvent.isComposing) return
+                  send()
+                }}
                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                 placeholder={`Message @${data.name}`}
               />
