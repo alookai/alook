@@ -86,3 +86,23 @@ export async function getDM(db: Database, dmId: string) {
     .where(eq(communityDmConversation.id, dmId));
   return rows[0] ?? null;
 }
+
+/**
+ * Read-only lookup of an existing DM between two users, in either
+ * user1/user2 order. Returns `null` if the pair has never opened a DM — does
+ * NOT create one (that's `createOrGetDM`). Used by `resolveTargetForMember`
+ * when `createDmIfMissing: false` (every agent route except `send`).
+ */
+export async function getDMBetween(db: Database, userAId: string, userBId: string) {
+  const [user1Id, user2Id] = [userAId, userBId].sort() as [string, string];
+  const rows = await db
+    .select()
+    .from(communityDmConversation)
+    .where(
+      and(
+        eq(communityDmConversation.user1Id, user1Id),
+        eq(communityDmConversation.user2Id, user2Id)
+      )
+    );
+  return rows[0] ?? null;
+}

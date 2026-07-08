@@ -11,8 +11,10 @@
  * endpoint URL and auth headers are host-supplied — no platform is hardcoded.
  *
  * Wire framing is intentionally minimal and host-defined:
- *   - inbound frames are JSON `HostCommand`-shaped (server → host);
- *   - outbound frames are JSON `{ type: "ready" | "agent_session", … }` (host → server).
+ *   - inbound frames are JSON `HostCommand`-shaped (server → host), now just
+ *     `agent:wake` / `agent:stop` / `bot:*` (minimal-wake-queue-unread-notice
+ *     plan §2 — `agent:start`/`agent:deliver` are gone);
+ *   - outbound frames are JSON `{ type: "ready" | "agent_session" | "agent_wake_ack" | "agent_stopped_ack", … }` (host → server).
  * A real server adapter maps these to its own protocol.
  *
  * This is the control plane local dev actually uses: `mock-server`+`daemon` and the
@@ -32,6 +34,7 @@ import type {
   WebSocketLike,
   WebSocketFactory,
 } from "./contract.js";
+import { createLogger, type Logger } from "../logger.js";
 // Re-export so existing importers of these from this module keep working.
 export type { WebSocketLike, WebSocketFactory } from "./contract.js";
 
@@ -58,6 +61,8 @@ export interface WsControlChannelOpts {
    */
   onAuthRejected?: () => void;
   now?: () => number;
+  /** Defaults to `createLogger({ header: "@alook/daemon:ws" })`. */
+  logger?: Logger;
 }
 
 /**
@@ -71,9 +76,12 @@ export interface WsControlChannelOpts {
 /**
  * Command reply protocol — daemon → server. New in v0.2.0.
  *
- * `agent_started_ack` / `agent_stopped_ack` are new frames. `agent_deliver_ack`
- * is additively extended with optional `status` + `error`; existing server-side
- * consumers that read only `{ agentId, deliveryId }` still work.
+ * `agent_wake_ack` means "daemon accepted/handled the `agent:wake` command,"
+ * NOT "process started" — a wake may spawn, notify an already-running
+ * process, or coalesce for later (see `HostControlChannel.reportWakeAck`).
+ * `agent_deliver_ack` / `reportDeliverAck` are retired together with
+ * `agent:deliver` — the server never decides start-vs-deliver, so there is
+ * nothing left for the daemon to ack beyond the wake command itself.
  *
  * Error codes:
  *   - bot_unknown       daemon received a command for a bot not in botsById
@@ -89,14 +97,7 @@ type OutboundFrame =
   | ({ type: "ready" } & HostReady)
   | { type: "agent_session"; agentId: AgentId; sessionId: string; launchId: string }
   | {
-      type: "agent_deliver_ack";
-      agentId: AgentId;
-      deliveryId: string;
-      status?: AgentCommandAckStatus;
-      error?: AgentCommandAckError;
-    }
-  | {
-      type: "agent_started_ack";
+      type: "agent_wake_ack";
       agentId: AgentId;
       launchId: string;
       status: AgentCommandAckStatus;
@@ -112,12 +113,9 @@ type OutboundFrame =
 
 type ResyncProvider = () => { ready: HostReady; sessions: AgentSessionReport[] };
 
-type PendingAck = {
-  agentId: AgentId;
-  deliveryId: string;
-  status?: AgentCommandAckStatus;
-  error?: AgentCommandAckError;
-};
+function describeErr(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 export class WsControlChannel implements HostControlChannel {
   private statusValue: ControlChannelStatus = "idle";
@@ -132,15 +130,11 @@ export class WsControlChannel implements HostControlChannel {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private pongDeadline = 0;
   private resyncProvider: ResyncProvider | null = null;
-  /**
-   * Acks enqueued before the socket is open. Acks (not ready/session) are the
-   * only frames worth buffering across a brief gap — ready/session are instead
-   * regenerated fresh by the resync provider on (re)connect, so stale snapshots
-   * are never replayed.
-   */
-  private pendingAcks: PendingAck[] = [];
+  private readonly log: Logger;
 
-  constructor(private readonly opts: WsControlChannelOpts) {}
+  constructor(private readonly opts: WsControlChannelOpts) {
+    this.log = opts.logger ?? createLogger({ header: "@alook/daemon:ws" });
+  }
 
   get status(): ControlChannelStatus {
     return this.statusValue;
@@ -213,28 +207,18 @@ export class WsControlChannel implements HostControlChannel {
     this.sendFrame({ type: "agent_session", ...info });
   }
 
-  async reportDeliverAck(info: {
-    agentId: AgentId;
-    deliveryId: string;
-    status?: AgentCommandAckStatus;
-    error?: AgentCommandAckError;
-  }): Promise<void> {
-    // Acks must not be lost across a brief disconnect — buffer if not open.
-    if (this.statusValue !== "open" || !this.ws) {
-      this.pendingAcks.push(info);
-      return;
-    }
-    this.ws.send(JSON.stringify({ type: "agent_deliver_ack", ...info }));
-  }
-
-  /** Reply to an `agent:start` HostCommand with the launch outcome. */
-  async reportStartedAck(info: {
+  /**
+   * Reply to an `agent:wake` HostCommand with the wake outcome — "daemon
+   * accepted/handled the wake command", NOT "process started" (see
+   * `HostControlChannel.reportWakeAck`).
+   */
+  async reportWakeAck(info: {
     agentId: AgentId;
     launchId: string;
     status: AgentCommandAckStatus;
     error?: AgentCommandAckError;
   }): Promise<void> {
-    this.sendFrame({ type: "agent_started_ack", ...info });
+    this.sendFrame({ type: "agent_wake_ack", ...info });
   }
 
   /** Reply to an `agent:stop` HostCommand with the stop outcome. */
@@ -259,26 +243,24 @@ export class WsControlChannel implements HostControlChannel {
     // ready/agent_session are point-in-time state; if the socket isn't open we
     // drop them here and let the resync provider regenerate fresh state on the
     // next (re)connect — never replay a stale snapshot.
-    if (this.statusValue !== "open" || !this.ws) return;
+    if (this.statusValue !== "open" || !this.ws) {
+      this.log.debug("frame dropped — socket not open", { type: frame.type });
+      return;
+    }
     this.ws.send(JSON.stringify(frame));
   }
 
   /**
    * On every (re)connect, re-announce the host's CURRENT state: ready handshake
-   * + a fresh agent_session per live agent (from the resync provider), then flush
-   * any buffered acks. This is what lets the server recover this host after a
-   * dropped connection.
+   * + a fresh agent_session per live agent (from the resync provider). This is
+   * what lets the server recover this host after a dropped connection.
    */
   private resyncOnConnect(): void {
     if (this.resyncProvider) {
       const { ready, sessions } = this.resyncProvider();
       this.sendFrame({ type: "ready", ...ready });
       for (const s of sessions) this.sendFrame({ type: "agent_session", ...s });
-    }
-    if (this.pendingAcks.length && this.ws && this.statusValue === "open") {
-      const acks = this.pendingAcks;
-      this.pendingAcks = [];
-      for (const a of acks) this.ws.send(JSON.stringify({ type: "agent_deliver_ack", ...a }));
+      this.log.info("resync sent", { ready: ready.runtimeReport.length, sessions: sessions.length });
     }
     for (const hook of this.resyncHooks) {
       try {
@@ -296,6 +278,7 @@ export class WsControlChannel implements HostControlChannel {
 
     ws.on("open", () => {
       this.statusValue = "open";
+      this.log.info("control channel open", { attempt: this.attempt });
       this.startHeartbeat();
       this.resyncOnConnect();
     });
@@ -303,8 +286,9 @@ export class WsControlChannel implements HostControlChannel {
     ws.on("pong", () => {
       this.attempt = 0;
       this.pongDeadline = this.now() + (this.opts.heartbeat?.pongTimeoutMs ?? 30_000);
+      this.log.debug("heartbeat pong");
     });
-    ws.on("close", () => this.onSocketClosed());
+    ws.on("close", (code?: number, reason?: unknown) => this.onSocketClosed(code, reason));
     // Errors surface via the socket's own close; a host factory may also log.
     ws.on("error", () => {
       /* swallow — close handler drives reconnect */
@@ -322,6 +306,7 @@ export class WsControlChannel implements HostControlChannel {
 
     if (frame.type === "error" && frame.code === "AUTH_REJECTED") {
       this.authRejected = true;
+      this.log.error("AUTH_REJECTED received — machine key rejected, not reconnecting");
       this.opts.onAuthRejected?.();
       return;
     }
@@ -335,16 +320,17 @@ export class WsControlChannel implements HostControlChannel {
       // listener that throws would surface as an unhandled promise rejection
       // and, under Node ≥15 defaults, could terminate the daemon.
       try {
-        Promise.resolve(cb(cmd)).catch(() => {
-          /* listener failure — swallowed, transport keeps going */
+        Promise.resolve(cb(cmd)).catch((err: unknown) => {
+          this.log.warn("command listener threw", { type: cmd.type, err: describeErr(err) });
         });
-      } catch {
-        /* sync throw from a listener — same policy */
+      } catch (err) {
+        this.log.warn("command listener threw synchronously", { type: cmd.type, err: describeErr(err) });
       }
     }
   }
 
-  private onSocketClosed(): void {
+  private onSocketClosed(code?: number, reason?: unknown): void {
+    this.log.warn("control channel closed", { code, reason: reason ? String(reason) : "" });
     this.clearHeartbeat();
     this.ws = null;
     if (this.closedByUser) return;
@@ -369,6 +355,7 @@ export class WsControlChannel implements HostControlChannel {
     this.attempt += 1;
     const delayMs = Math.min(max, base * 2 ** (this.attempt - 1));
     this.statusValue = "reconnecting";
+    this.log.info("reconnecting", { attempt: this.attempt, delayMs });
     // NOTE: do NOT `t.unref()` — this timer is what keeps the daemon alive
     // while it's waiting to reconnect. Unrefing it here caused the daemon
     // to silently exit(0) when the server dropped the socket (no other
@@ -383,9 +370,11 @@ export class WsControlChannel implements HostControlChannel {
     this.pingTimer = setInterval(() => {
       if (this.now() > this.pongDeadline) {
         // Watchdog: no pong in time → treat as dead, force reconnect.
+        this.log.warn("heartbeat pong timeout — forcing reconnect");
         this.ws?.close();
         return;
       }
+      this.log.debug("heartbeat ping");
       this.ws?.ping?.();
     }, interval);
     this.pingTimer.unref?.();

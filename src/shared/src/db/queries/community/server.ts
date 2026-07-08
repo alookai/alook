@@ -168,6 +168,51 @@ export async function listUserServers(db: Database, userId: string) {
     .orderBy(asc(communityServerMember.railOrder));
 }
 
+/**
+ * Resolve a server by ID or NAME, scoped to servers `userId` is a member of.
+ * Returns an ARRAY — the caller decides what "ambiguous" means (0 = not
+ * found/not a member, 1 = resolved, 2+ = ambiguous name — ids are always
+ * unique so only the name-match branch can return >1). Used by
+ * `resolveTargetForMember` (debt #5 — ambiguity is not a hard error, the
+ * agent picks from a hint list).
+ */
+export async function resolveServerByNameForMember(
+  db: Database,
+  userId: string,
+  nameOrId: string
+) {
+  const rows = await db
+    .select({
+      id: communityServer.id,
+      name: communityServer.name,
+    })
+    .from(communityServer)
+    .innerJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityServer.id),
+        eq(communityServerMember.userId, userId)
+      )
+    )
+    .where(eq(communityServer.id, nameOrId));
+  if (rows.length > 0) return rows;
+
+  return db
+    .select({
+      id: communityServer.id,
+      name: communityServer.name,
+    })
+    .from(communityServer)
+    .innerJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityServer.id),
+        eq(communityServerMember.userId, userId)
+      )
+    )
+    .where(eq(communityServer.name, nameOrId));
+}
+
 export async function getServersByIds(db: Database, serverIds: string[]) {
   if (serverIds.length === 0) return [];
   return db.select().from(communityServer).where(inArray(communityServer.id, serverIds));

@@ -5,7 +5,7 @@ import { makeRuntimeConfig } from "../runtimeConfig";
 
 /**
  * The daemon does not invent an agent's identity: when the server downlinks a
- * RuntimeConfig (via agent:start → manager.register), its `instruction` becomes
+ * RuntimeConfig (via agent:wake → manager.register), its `instruction` becomes
  * the description on the LaunchConfig. The driver's `buildSystemPrompt(config)`
  * is called to assemble the full standing prompt — the daemon never passes raw
  * instruction text as the prompt.

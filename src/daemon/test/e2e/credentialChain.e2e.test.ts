@@ -19,7 +19,10 @@ function startBridge(server: MockServer): Promise<{ url: string; seenAgentIds: s
   const seenAgentIds: string[] = [];
   const httpServer = http.createServer((req, res) => {
     void (async () => {
-      const m = /^\/api\/(\w+)$/.exec(req.url ?? "");
+      // The credential proxy rewrites the CLI's bare `/api/*` ops onto the
+      // real server surface at `/api/community/agent/*` (plan §9) before
+      // forwarding upstream — match that rewritten path here.
+      const m = /^\/api\/community\/agent\/(\w+)$/.exec(req.url ?? "");
       if (!m) {
         res.writeHead(404).end();
         return;

@@ -6,7 +6,7 @@
  * whole capability surface is three network faces (all toward the server
  * it was pointed at):
  *
- *   1. control plane (ws):   receive agent:start/deliver/stop, report ready/
+ *   1. control plane (ws):   receive agent:wake/stop, report ready/
  *      session/ack. Connects with `Authorization: Bearer <machineKey>`
  *      (`cmk_`). This is the only path — no URL-token fallback exists.
  *   2. enroll plane (http):  POST /api/community/daemon/enroll-agent
@@ -28,9 +28,10 @@ import { AgentProcessManager, AgentRouter } from "../manager/index.js";
 import { UnknownBotError, BotEnrollFailedError, UnknownRuntimeError } from "../manager/agentRouter.js";
 import { createTimelineRecorder } from "../timeline/index.js";
 import { resolveAlookCliPathWithFallback } from "../discovery.js";
+import { createLogger, type Logger } from "../logger.js";
 import type { Driver, LaunchContext } from "../types.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
-import type { Message, HostCommand } from "../server/contract.js";
+import type { UnreadNotice, HostCommand } from "../server/contract.js";
 
 // Cold-start warmup backoff schedule (ms).
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
@@ -58,7 +59,7 @@ export interface CreateDaemonOptions {
   }>;
   /**
    * Per-agent runtime driver. `runtimeConfig` (server-pushed on
-   * `agent:start`) is passed so callers can dispatch on the actual runtime
+   * `agent:wake`) is passed so callers can dispatch on the actual runtime
    * the agent asked for; tests may omit it and hand back a stub driver.
    */
   driverFor: (agentId: string, runtimeConfig?: RuntimeConfig) => Driver;
@@ -81,6 +82,15 @@ export interface CreateDaemonOptions {
   arch?: string;
   osRelease?: string;
   daemonVersion?: string;
+  /**
+   * Shared logger for the whole daemon process. Defaults to
+   * `createLogger({ header: "@alook/daemon" })`; `.child("ws")` /
+   * `.child("router")` / `.child("manager")` are passed into the respective
+   * collaborators so every line from one daemon process shares one header
+   * family. `daemonStart.ts` passes its own instance here so the process has
+   * exactly one logger tree instead of two independent ones.
+   */
+  logger?: Logger;
 }
 
 export interface RunningDaemon {
@@ -96,6 +106,7 @@ export interface RunningDaemon {
  * the agent manager. The full real code path is exercised — no shortcuts.
  */
 export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDaemon> {
+  const log = opts.logger ?? createLogger({ header: "@alook/daemon" });
   const fallbackBase = (process.env.ALOOK_PROJECT_ROOT || `${homedir()}/.alook`) + "/daemon";
   const workdirFor = (agentId: string) => `${opts.workingDirectoryBase ?? fallbackBase}/${agentId}`;
 
@@ -152,6 +163,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         for (const b of bots) {
           botsById.set(b.id, { name: b.name, description: b.description });
         }
+        log.info("cold-start bot-cache warmup succeeded", { bots: bots.length, attempt });
         return;
       } catch {
         const delay = WARMUP_BACKOFF_MS[Math.min(attempt, WARMUP_BACKOFF_MS.length - 1)];
@@ -159,8 +171,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         attempt++;
       }
     }
-    // Ceiling exhausted — resolve empty. A subsequent `agent:start` /
-    // `agent:deliver` frame will trigger a deferred retry via enrollAgent.
+    // Ceiling exhausted — resolve empty. A subsequent `agent:wake` frame
+    // will trigger a deferred retry via enrollAgent.
+    log.warn("cold-start bot-cache warmup exhausted its ceiling", { ceilingMs: WARMUP_CEILING_MS, attempts: attempt });
   }
 
   const enrollAgent = async (agentId: string): Promise<string> => {
@@ -190,9 +203,12 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       return json.runnerKey;
     } catch (err) {
       if (err instanceof UnknownBotError || err instanceof BotEnrollFailedError) {
+        log.warn("agent enroll failed", { agentId, err: err.message });
         throw err;
       }
-      throw new BotEnrollFailedError(agentId, err);
+      const wrapped = new BotEnrollFailedError(agentId, err);
+      log.warn("agent enroll failed", { agentId, err: wrapped.message });
+      throw wrapped;
     }
   };
 
@@ -201,6 +217,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     headers: { Authorization: `Bearer ${opts.machineKey}` },
     webSocketFactory: opts.webSocketFactory as never,
     onAuthRejected: opts.onAuthRejected,
+    logger: log.child("ws"),
   });
 
   // Cache-side handler for bot:* frames. Runs BEFORE AgentRouter sees them,
@@ -209,6 +226,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     switch (cmd.type) {
       case "bot:added":
         botsById.set(cmd.botId, { name: cmd.name, description: cmd.description });
+        log.debug("bot:added", { botId: cmd.botId, name: cmd.name });
         break;
       case "bot:updated": {
         const prev = botsById.get(cmd.botId);
@@ -218,6 +236,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         // new system prompt. Rename is effective on next spawn, not mid-flight.
         const nameChanged = prev && prev.name !== cmd.name;
         const descChanged = prev && (prev.description ?? "") !== (cmd.description ?? "");
+        log.debug("bot:updated", { botId: cmd.botId, name: cmd.name });
         if (nameChanged || descChanged) {
           void manager.stop(cmd.botId);
         }
@@ -226,6 +245,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       case "bot:removed":
         botsById.delete(cmd.botId);
         enrolledKeys.delete(cmd.botId);
+        log.debug("bot:removed", { botId: cmd.botId });
         void manager.stop(cmd.botId);
         break;
       default:
@@ -281,6 +301,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     onAgentSession: (info) => void channel.reportAgentSession(info),
     timeline,
     wakePromptFooter: "Use `alook inbox pull` to read your messages, then reply with `alook message send`.",
+    logger: log.child("manager"),
   });
   manager.start();
 
@@ -293,6 +314,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     arch: opts.arch,
     osRelease: opts.osRelease,
     daemonVersion: opts.daemonVersion,
+    logger: log.child("router"),
     // onBeforeAgent gate — reject unknown bots BEFORE enroll to keep the
     // failure code stable (`bot_unknown` vs `bot_enroll_failed`).
     onBeforeAgent: async (agentId) => {
@@ -314,8 +336,8 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
       }
       await enrollAgent(agentId);
     },
-    transformWakeText: (message: Message) =>
-      `You have a new message in channel ${message.channel}.`,
+    formatUnreadNoticeText: (notice: UnreadNotice) =>
+      `You have unread messages in channel ${notice.channel}.`,
   });
 
   // Register the bot-cache pre-hook. `onCommand` supports multiple listeners

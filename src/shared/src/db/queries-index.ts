@@ -51,3 +51,4 @@ export * as communityServerFolder from "./queries/community/server-folder";
 export * as communityInbox from "./queries/community/inbox";
 export * as communityMachine from "./queries/community/machine";
 export * as communityBot from "./queries/community/bot";
+export * as communityAgentInbox from "./queries/community/agent-inbox";

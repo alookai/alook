@@ -43,8 +43,8 @@ describe("buildCliSystemPrompt — host-neutral slim default", () => {
   });
 
   it("uses the configured cli name everywhere", () => {
-    const p = buildCliSystemPrompt(baseConfig, { cli: "raft", messageNotificationStyle: "direct" });
-    expect(p).toContain("`raft`");
+    const p = buildCliSystemPrompt(baseConfig, { cli: "mock-cli", messageNotificationStyle: "direct" });
+    expect(p).toContain("`mock-cli`");
     expect(p).not.toContain("`alook`");
   });
 });
@@ -70,7 +70,7 @@ describe("buildCliSystemPrompt — runtime-driven notification section", () => {
 
 describe("buildCliSystemPrompt — host injection points", () => {
   it("appends the host communicationGuide verbatim", () => {
-    const guide = "## Communication\nUse `raft message send` with the [target=…] header.";
+    const guide = "## Communication\nUse `mock-cli message send` with the [target=…] header.";
     const p = buildCliSystemPrompt(baseConfig, { communicationGuide: guide });
     expect(p).toContain(guide);
   });

@@ -3,7 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
-import { requireNotBlocked } from "@/lib/community/permissions"
+import { guardDmOpen } from "@/lib/community/dm-guard"
 import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (_req: NextRequest, ctx) => {
@@ -32,37 +32,11 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   if (!body.userId) return writeError("userId is required", 400)
-  if (body.userId === ctx.userId) return writeError("cannot DM yourself", 400)
 
-  // Make sure the target user exists — otherwise we silently create an
-  // orphan DM row that the recipient never sees. Use `getUserInternal` so we
-  // can gate bot targets on owner ↔ bot relationship.
-  const target = await queries.user.getUserInternal(db, body.userId)
-  if (!target || target.deletedAt !== null) return writeError("user not found", 404)
-
-  // Bot-target gating: caller must be either the bot's owner OR in an
-  // accepted friendship with the bot. Otherwise 404 — indistinguishable from
-  // "user not found" to preserve pass-as-human.
-  if (target.isBot === true) {
-    const isOwner = target.ownerUserId === ctx.userId
-    if (!isOwner) {
-      const areFriends = await queries.communityFriendship.areFriends(
-        db,
-        ctx.userId,
-        body.userId,
-      )
-      if (!areFriends) return writeError("user not found", 404)
-    }
-    // Owners: skip block-check with their own bot (self-block doesn't exist,
-    // but skip the round-trip regardless).
-    if (!isOwner) {
-      const blocked = await requireNotBlocked(db, ctx.userId, body.userId)
-      if (!blocked.ok) return writeError(blocked.error, blocked.status)
-    }
-  } else {
-    const blocked = await requireNotBlocked(db, ctx.userId, body.userId)
-    if (!blocked.ok) return writeError(blocked.error, blocked.status)
-  }
+  // Default callerKind ("human") — 404-on-friend-failure / pass-as-human
+  // preserved exactly as this route's pre-extraction behavior.
+  const guard = await guardDmOpen(db, ctx.userId, body.userId)
+  if (!guard.ok) return writeError(guard.error, guard.status)
 
   const dm = await queries.communityDm.createOrGetDM(db, {
     userId1: ctx.userId,

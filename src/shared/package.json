@@ -5,7 +5,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./crypto": "./src/utils/crypto.ts",
-    "./browser": "./src/browser/index.ts"
+    "./browser": "./src/browser/index.ts",
+    "./community-cli-contract": "./src/community-cli-contract.ts",
+    "./runtime-config": "./src/runtime-config.ts"
   },
   "scripts": {
     "knip": "knip",

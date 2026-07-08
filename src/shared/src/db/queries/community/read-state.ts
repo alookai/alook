@@ -5,7 +5,7 @@ import {
   communityServerMember,
 } from "../../community-schema";
 import type { Database } from "../../index";
-import { getLatestMessagesByChannelIds } from "./message";
+import { getLatestMessagesByChannelIds, getMessageByChannelAndSeq } from "./message";
 
 /**
  * # Community read-state invariant
@@ -69,6 +69,10 @@ function buildTargetFilter(data: {
  * upsert targets the matching partial-unique index
  * (`idx_read_state_user_channel` or `idx_read_state_user_dm`).
  */
+// lastReadSeq intentionally not maintained here — humans only, bot-wake
+// filter never reads a human's row (see plans/community-agent-cli-bridge.md
+// design §4 for the full accounting of which of the four read-state writers
+// do/don't need to thread `lastReadSeq` through).
 export function markReadToMessageBuilder(
   db: Database,
   data: {
@@ -135,6 +139,8 @@ export function markReadToMessageBuilder(
  * The routes don't consume the returned row today — see `PUT /dm/:id/read`
  * and `PUT /threads/:id/read` which respond `{ ok: true }`.
  */
+// lastReadSeq intentionally not maintained here — see comment on
+// `markReadToMessageBuilder` above.
 export async function markReadToMessage(
   db: Database,
   data: {
@@ -161,6 +167,8 @@ export async function markReadToMessage(
  *   channels stay empty in `communityReadState` because the invariant
  *   forbids `lastReadMessageId = null` rows.
  */
+// lastReadSeq intentionally not maintained here — see comment on
+// `markReadToMessageBuilder` above.
 export async function markAllServerChannelsRead(
   db: Database,
   userId: string
@@ -245,6 +253,81 @@ export async function markAllServerChannelsRead(
   return latest.length;
 }
 
+/**
+ * The agent `ack` route's cursor-advance — the ONLY writer of `lastReadSeq`
+ * outside `createMessage`'s author-watermark upsert (design §4). `Cursor =
+ * { channel, seq }` carries no message id, so this first resolves
+ * `(target, seq) → { id, createdAt }` via `getMessageByChannelAndSeq`, then
+ * upserts all three of `lastReadSeq`/`lastReadMessageId`/`lastReadAt`
+ * together — NEVER bump `lastReadSeq` alone, or the table's documented
+ * invariant (`lastReadAt === getMessage(lastReadMessageId).createdAt`)
+ * breaks for any row this touches.
+ *
+ * `MAX(existing, incoming)` semantics on the agent cursor, applied together:
+ * if the resolved message's `seq` is not ahead of the row's current
+ * `lastReadSeq`, the whole bump is a no-op; the existing pointer wins. Never
+ * regress `lastReadSeq`, `lastReadMessageId`, and `lastReadAt` independently
+ * of one another.
+ *
+ * Returns `null` if `seq` doesn't resolve to a real message in that scope
+ * (caller returns 404/ignores per §7's `ack` route spec).
+ */
+export async function bumpReadCursor(
+  db: Database,
+  userId: string,
+  target: { channelId?: string; dmConversationId?: string },
+  seq: number
+): Promise<{ id: string; createdAt: string; seq: number } | null> {
+  const message = await getMessageByChannelAndSeq(db, target, seq);
+  if (!message) return null;
+
+  const existing = await getReadState(db, { userId, ...target });
+
+  // MAX semantics: if the resolved seq is not ahead of what's already
+  // recorded, this is a no-op — never regress any of the three fields.
+  if (existing && existing.lastReadSeq >= seq && existing.lastReadMessageId) {
+    return { id: existing.lastReadMessageId!, createdAt: existing.lastReadAt, seq: existing.lastReadSeq };
+  }
+
+  if (target.channelId) {
+    await db
+      .insert(communityReadState)
+      .values({
+        userId,
+        channelId: target.channelId,
+        dmConversationId: null,
+        lastReadAt: message.createdAt,
+        lastReadMessageId: message.id,
+        lastReadSeq: seq,
+      })
+      .onConflictDoUpdate({
+        target: [communityReadState.userId, communityReadState.channelId],
+        targetWhere: sql`${communityReadState.channelId} IS NOT NULL`,
+        set: { lastReadAt: message.createdAt, lastReadMessageId: message.id, lastReadSeq: seq },
+        setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
+      });
+  } else {
+    await db
+      .insert(communityReadState)
+      .values({
+        userId,
+        channelId: null,
+        dmConversationId: target.dmConversationId!,
+        lastReadAt: message.createdAt,
+        lastReadMessageId: message.id,
+        lastReadSeq: seq,
+      })
+      .onConflictDoUpdate({
+        target: [communityReadState.userId, communityReadState.dmConversationId],
+        targetWhere: sql`${communityReadState.dmConversationId} IS NOT NULL`,
+        set: { lastReadAt: message.createdAt, lastReadMessageId: message.id, lastReadSeq: seq },
+        setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
+      });
+  }
+
+  return { id: message.id, createdAt: message.createdAt, seq };
+}
+
 export async function getReadState(
   db: Database,
   data: {
@@ -258,4 +341,18 @@ export async function getReadState(
     .from(communityReadState)
     .where(buildTargetFilter(data));
   return rows[0] ?? null;
+}
+
+/**
+ * Thin `lastReadSeq` accessor for the unread-wake rebuild path
+ * (`buildUnreadWakeCommand`). No row (bot never read this scope) is "never
+ * read" — same convention `findWakeCandidates` already uses (`?? 0`).
+ */
+export async function getWakeReadSeq(
+  db: Database,
+  botUserId: string,
+  scope: { channelId?: string; dmConversationId?: string }
+): Promise<number> {
+  const state = await getReadState(db, { userId: botUserId, ...scope });
+  return state?.lastReadSeq ?? 0;
 }

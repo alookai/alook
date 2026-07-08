@@ -5,6 +5,7 @@ import {
   communityChannel,
   communityDmConversation,
   communityReadState,
+  communityMessageSeq,
 } from "../../src/db/community-schema";
 
 describe("community/message exports", () => {
@@ -159,25 +160,45 @@ describe("getMessagesByIdsInScope", () => {
  *
  * `insert(table).values(v).returning()` resolves to `[{...v, id: v.id ?? generatedId}]`
  * so the caller can read `msg.createdAt` and `msg.id` off the inserted row.
- * `insert(table).values(v).onConflictDoUpdate(cfg)` resolves to void — the
- * common upsert shape used by the author-read-watermark writes.
+ * `insert(table).values(v).onConflictDoUpdate(cfg)` resolves to void for
+ * every table EXCEPT `communityMessageSeq`, whose upsert is followed by a
+ * `.returning({ nextSeq })` (`claimNextSeq`) — that one resolves to an
+ * incrementing per-scopeKey counter (starting at 1), mirroring the real
+ * `INSERT ... ON CONFLICT DO UPDATE SET next_seq = next_seq + 1` semantics.
  */
 function createCreateMessageDbMock(opts?: { messageId?: string }) {
   const inserts: Array<{ table: unknown; values?: any; onConflict?: any }> = [];
   const updates: Array<{ table: unknown; set?: any; where?: any }> = [];
   const generatedId = opts?.messageId ?? "m_generated";
+  const seqByScope = new Map<string, number>();
 
   const db: any = {
     insert: vi.fn((table: unknown) => {
+      // `claimNextSeq`'s counter-row upsert (`communityMessageSeq`) is
+      // intentionally NOT recorded into `__inserts` — every existing
+      // assertion below indexes `__inserts[0]`/`[1]` assuming exactly the
+      // message row then the read-state upsert, and this call always
+      // precedes both (see `createMessage`'s "Step 0").
+      if (table === communityMessageSeq) {
+        return {
+          values: vi.fn((v: any) => ({
+            onConflictDoUpdate: vi.fn(() => ({
+              returning: vi.fn(() => {
+                const next = (seqByScope.get(v.scopeKey) ?? 0) + 1;
+                seqByScope.set(v.scopeKey, next);
+                return Promise.resolve([{ nextSeq: next }]);
+              }),
+            })),
+          })),
+        };
+      }
       const rec: { table: unknown; values?: any; onConflict?: any } = { table };
       inserts.push(rec);
       return {
         values: vi.fn((v: any) => {
           rec.values = v;
           return {
-            returning: vi.fn(() =>
-              Promise.resolve([{ ...v, id: v.id ?? generatedId }])
-            ),
+            returning: vi.fn(() => Promise.resolve([{ ...v, id: v.id ?? generatedId }])),
             onConflictDoUpdate: vi.fn((cfg: any) => {
               rec.onConflict = cfg;
               return Promise.resolve();
@@ -245,6 +266,7 @@ describe("createMessage — channel path", () => {
       lastReadAt: msg.createdAt,
       lastReadMessageId: msg.id,
     });
+    expect(db.__inserts[1].onConflict.setWhere).toBeDefined();
     // targetWhere pins the partial-unique-index shape so this upsert lands on
     // the channel row, not the DM row (they share `(userId, ...)`).
     expect(db.__inserts[1].onConflict.targetWhere).toBeDefined();
@@ -351,6 +373,7 @@ describe("createMessage — DM path", () => {
       lastReadAt: msg.createdAt,
       lastReadMessageId: msg.id,
     });
+    expect(db.__inserts[1].onConflict.setWhere).toBeDefined();
     expect(db.__inserts[1].onConflict.targetWhere).toBeDefined();
   });
 
@@ -364,6 +387,139 @@ describe("createMessage — DM path", () => {
     expect(db.__updates[0].set.lastMessageAt).toBe(msg.createdAt);
     expect(db.__inserts[1].values.lastReadAt).toBe(msg.createdAt);
     expect(db.__inserts[1].onConflict.set.lastReadAt).toBe(msg.createdAt);
+  });
+});
+
+describe("scopeKeyForTarget", () => {
+  it("prefixes a channelId with 'channel:'", () => {
+    expect(messageQueries.scopeKeyForTarget({ channelId: "c_1" })).toBe("channel:c_1");
+  });
+
+  it("prefixes a dmConversationId with 'dm:'", () => {
+    expect(messageQueries.scopeKeyForTarget({ dmConversationId: "dm_1" })).toBe("dm:dm_1");
+  });
+
+  it("channelId takes precedence when both are somehow set", () => {
+    expect(messageQueries.scopeKeyForTarget({ channelId: "c_1", dmConversationId: "dm_1" })).toBe(
+      "channel:c_1"
+    );
+  });
+
+  it("throws when neither is provided", () => {
+    expect(() => messageQueries.scopeKeyForTarget({})).toThrow();
+  });
+});
+
+describe("createMessage — seq assignment", () => {
+  /**
+   * Records every `insert(communityMessageSeq).values(v).onConflictDoUpdate(cfg)`
+   * call so tests can assert the scope key and upsert shape `claimNextSeq`
+   * sends, independent of the generic `createCreateMessageDbMock` helper
+   * (which only exposes the DERIVED seq number, not the raw upsert args).
+   */
+  function createSeqSpyDbMock(opts?: { messageId?: string; seqSequence?: number[] }) {
+    const base = createCreateMessageDbMock(opts);
+    const seqCalls: Array<{ values: any; onConflict: any }> = [];
+    let seqIdx = 0;
+    const seqSequence = opts?.seqSequence;
+    const originalInsert = base.insert;
+    base.insert = vi.fn((table: unknown) => {
+      if (table === communityMessageSeq) {
+        const rec: { values: any; onConflict: any } = { values: undefined, onConflict: undefined };
+        seqCalls.push(rec);
+        return {
+          values: vi.fn((v: any) => {
+            rec.values = v;
+            return {
+              onConflictDoUpdate: vi.fn((cfg: any) => {
+                rec.onConflict = cfg;
+                return {
+                  returning: vi.fn(() => {
+                    const next = seqSequence ? seqSequence[seqIdx++] : 1;
+                    return Promise.resolve([{ nextSeq: next }]);
+                  }),
+                };
+              }),
+            };
+          }),
+        };
+      }
+      return originalInsert(table);
+    });
+    base.__seqCalls = seqCalls;
+    return base;
+  }
+
+  it("claims the seq scoped to 'channel:<id>' for a channel send", async () => {
+    const db = createSeqSpyDbMock();
+    await messageQueries.createMessage(db, { authorId: "u_1", content: "hi", channelId: "ch_1" });
+    expect(db.__seqCalls).toHaveLength(1);
+    expect(db.__seqCalls[0].values).toEqual({ scopeKey: "channel:ch_1", nextSeq: 1 });
+    expect(db.__seqCalls[0].onConflict.target).toBe(communityMessageSeq.scopeKey);
+  });
+
+  it("claims the seq scoped to 'dm:<id>' for a DM send", async () => {
+    const db = createSeqSpyDbMock();
+    await messageQueries.createMessage(db, { authorId: "u_1", content: "hi", dmConversationId: "dm_1" });
+    expect(db.__seqCalls[0].values).toEqual({ scopeKey: "dm:dm_1", nextSeq: 1 });
+  });
+
+  it("passes the claimed seq through to the message row AND the read-state watermark", async () => {
+    const db = createSeqSpyDbMock({ seqSequence: [5] });
+    const msg = await messageQueries.createMessage(db, {
+      authorId: "u_1",
+      content: "hi",
+      channelId: "ch_1",
+    });
+    expect(msg.seq).toBe(5);
+    expect(db.__inserts[0].values.seq).toBe(5);
+    expect(db.__inserts[1].values.lastReadSeq).toBe(5);
+    expect(db.__inserts[1].onConflict.set.lastReadSeq).toBe(5);
+  });
+
+  it("passes the claimed seq through for the DM read-state watermark too", async () => {
+    const db = createSeqSpyDbMock({ seqSequence: [9] });
+    const msg = await messageQueries.createMessage(db, {
+      authorId: "u_1",
+      content: "hi",
+      dmConversationId: "dm_1",
+    });
+    expect(msg.seq).toBe(9);
+    expect(db.__inserts[1].values.lastReadSeq).toBe(9);
+    expect(db.__inserts[1].onConflict.set.lastReadSeq).toBe(9);
+  });
+
+  it("consecutive sends in the same channel scope get strictly increasing seqs", async () => {
+    const db = createSeqSpyDbMock({ seqSequence: [1, 2, 3] });
+    const first = await messageQueries.createMessage(db, {
+      authorId: "u_1",
+      content: "one",
+      channelId: "ch_1",
+    });
+    const second = await messageQueries.createMessage(db, {
+      authorId: "u_1",
+      content: "two",
+      channelId: "ch_1",
+    });
+    const third = await messageQueries.createMessage(db, {
+      authorId: "u_1",
+      content: "three",
+      channelId: "ch_1",
+    });
+    expect([first.seq, second.seq, third.seq]).toEqual([1, 2, 3]);
+  });
+
+  it("the seq claim (insert into communityMessageSeq) happens before the message row insert", async () => {
+    const order: string[] = [];
+    const db = createSeqSpyDbMock();
+    const originalInsert = db.insert;
+    db.insert = vi.fn((table: unknown) => {
+      order.push(table === communityMessageSeq ? "seq" : "message-or-other");
+      return originalInsert(table);
+    });
+    await messageQueries.createMessage(db, { authorId: "u_1", content: "hi", channelId: "ch_1" });
+    expect(order[0]).toBe("seq");
+    expect(order[1]).toBe("message-or-other");
   });
 });
 
@@ -498,9 +654,19 @@ describe("read-state invariant property — every write path", () => {
   const writes: Capture[] = [];
 
   function makePropertyDb() {
+    let seqCounter = 0;
     const db: any = {
-      insert: vi.fn(() => ({
+      insert: vi.fn((table: unknown) => ({
         values: vi.fn((v: any) => {
+          if (table === communityMessageSeq) {
+            // `claimNextSeq`'s counter row — not a read-state write, doesn't
+            // carry lastReadAt/lastReadMessageId, so it's a no-op for `writes`.
+            return {
+              onConflictDoUpdate: vi.fn(() => ({
+                returning: vi.fn(() => Promise.resolve([{ nextSeq: ++seqCounter }])),
+              })),
+            };
+          }
           if (Array.isArray(v)) {
             for (const row of v) writes.push({
               lastReadAt: row.lastReadAt,
@@ -632,17 +798,20 @@ describe("read-state invariant property — every write path", () => {
       // createMessage generates its own `now` and `msg.id` — capture those
       // by scanning the inserts on dbD and dbE for the message row.
     ]);
-    // Add createMessage-derived valid pairs. The first insert on each of
-    // dbD/dbE is the message row; its `createdAt` is `now` and `id` is
-    // the returned generated id (dbD's mock returns `m_generated`).
+    // Add createMessage-derived valid pairs. `createMessage` now issues an
+    // `insert` for the seq counter (`communityMessageSeq`) BEFORE the message
+    // row, so scan every insert call on dbD/dbE for the one whose payload is
+    // the message row (identified by carrying `content`) rather than
+    // assuming it's the first call.
     const createDbs: any[] = [dbD, dbE];
     for (const cdb of createDbs) {
-      const firstInsertCall = cdb.insert.mock.calls[0];
-      if (!firstInsertCall) continue;
-      const valuesCall = cdb.insert.mock.results[0].value.values.mock.calls[0][0];
-      const id = valuesCall.id ?? "m_generated";
-      const createdAt = valuesCall.createdAt;
-      validPairs.add(`${createdAt}|${id}`);
+      for (const result of cdb.insert.mock.results as Array<{ value: any }>) {
+        const valuesCall = result.value?.values?.mock?.calls?.[0]?.[0];
+        if (!valuesCall || !("content" in valuesCall)) continue;
+        const id = valuesCall.id ?? "m_generated";
+        const createdAt = valuesCall.createdAt;
+        validPairs.add(`${createdAt}|${id}`);
+      }
     }
 
     for (const w of writes) {

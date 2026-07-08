@@ -355,7 +355,7 @@ export type CommunityMachineSummary = {
   /**
    * Last runtime error reported by the daemon. Optional overlay; undefined
    * means "no known error." Optimistically cleared when the DO forwards a
-   * subsequent `agent:start` frame to the daemon.
+   * subsequent `agent:wake` frame to the daemon.
    */
   lastRuntimeError?: {
     requested: string
@@ -392,8 +392,8 @@ export type CommunityMachineRemoved = {
 // ── Bot events ────────────────────────────────────────────────────────────────
 //
 // Server → daemon frames. Colon-namespaced to match the existing HostCommand
-// convention (`agent:start` / `agent:stop` / `agent:deliver`). Delivered to
-// the specific machine's daemon connection via the WS Durable Object.
+// convention (`agent:wake` / `agent:stop`). Delivered to the specific
+// machine's daemon connection via the WS Durable Object.
 
 export type BotAddedFrame = {
   type: "bot:added"

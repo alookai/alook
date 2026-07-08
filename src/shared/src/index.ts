@@ -93,6 +93,7 @@ export {
   DEV_WEB_URL,
   DEV_WS_DO_URL,
   DEV_EMAIL_WORKER_URL,
+  DEV_WAKE_WORKER_URL,
   MeetingStatus,
   TERMINAL_MEETING_STATUSES,
   COMMUNITY_BOT_LIMIT_PER_OWNER,
@@ -249,6 +250,13 @@ export {
   CommunityBotPatchRequestSchema,
   CommunityBotAddToServerRequestSchema,
   CommunityDaemonSendAsBotRequestSchema,
+  CommunityAgentCursorSchema,
+  CommunityAgentSendRequestSchema,
+  CommunityAgentInboxPullRequestSchema,
+  CommunityAgentAckRequestSchema,
+  CommunityAgentReadRequestSchema,
+  CommunityAgentResolveRequestSchema,
+  CommunityAgentListChannelsRequestSchema,
 } from "./schemas";
 
 export type {
@@ -312,7 +320,75 @@ export type {
   CommunityBotPatchRequest,
   CommunityBotAddToServerRequest,
   CommunityDaemonSendAsBotRequest,
+  CommunityAgentCursor,
+  CommunityAgentSendRequest,
+  CommunityAgentInboxPullRequest,
+  CommunityAgentAckRequest,
+  CommunityAgentReadRequest,
+  CommunityAgentResolveRequest,
+  CommunityAgentListChannelsRequest,
 } from "./schemas";
+
+// Community agent CLI bridge contract — lifted from `src/daemon/src/server/contract.ts`.
+// `Message`/`Channel` collide with unrelated `./types` exports above, so those two
+// (plus anything else that could collide) are re-exported under `CommunityCli*`
+// aliases; everything else with no existing collision keeps its bare name.
+export type {
+  Id as CommunityCliId,
+  UserId as CommunityCliUserId,
+  AgentId as CommunityCliAgentId,
+  ServerId as CommunityCliServerId,
+  ChannelId as CommunityCliChannelId,
+  MessageId as CommunityCliMessageId,
+  Seq as CommunityCliSeq,
+  User as CommunityCliUser,
+  Agent as CommunityCliAgent,
+  Server as CommunityCliServer,
+  ChannelKind as CommunityCliChannelKind,
+  Channel as CommunityCliChannel,
+  SenderType as CommunityCliSenderType,
+  Sender as CommunityCliSender,
+  ChannelRef as CommunityCliChannelRef,
+  Target as CommunityCliTarget,
+  MessageContent as CommunityCliMessageContent,
+  Message as CommunityCliMessage,
+  Cursor as CommunityCliCursor,
+  Page as CommunityCliPage,
+  InboxFlag as CommunityCliInboxFlag,
+  InboxRow as CommunityCliInboxRow,
+  InboxSnapshot as CommunityCliInboxSnapshot,
+  InboxPullRequest as CommunityCliInboxPullRequest,
+  InboxPullResponse as CommunityCliInboxPullResponse,
+  AckRequest as CommunityCliAckRequest,
+  SendRequest as CommunityCliSendRequest,
+  SendResponse as CommunityCliSendResponse,
+  ReadRequest as CommunityCliReadRequest,
+  ResolveRequest as CommunityCliResolveRequest,
+  ListChannelsRequest as CommunityCliListChannelsRequest,
+  ServerApi as CommunityCliServerApi,
+  UnreadNotice,
+  HostCommand,
+  HostReadyRuntime,
+  HostReady,
+  SessionErrorFrame as CommunityCliSessionErrorFrame,
+  HostControlChannel,
+  AgentSessionReport,
+  ParsedRef as CommunityCliParsedRef,
+} from "./community-cli-contract";
+export { DM_SERVER, parseRef, formatRef, parseSeq, formatSeq } from "./community-cli-contract";
+
+export type {
+  ReasoningEffort,
+  ModelConfig,
+  ProviderConfig,
+  ModeConfig,
+  RuntimeConfig,
+} from "./runtime-config";
+export { RUNTIME_CONFIG_VERSION, makeRuntimeConfig } from "./runtime-config";
+
+export { sendWakeToMachine, buildUnreadWakeCommand, dispatchOneUnreadWake } from "./community/wake-dispatch";
+export type { DispatchOneWakeResult } from "./community/wake-dispatch";
+export type { WakePayload, BuildUnreadWakeResult } from "./community/wake-dispatch";
 
 export type { CommunityMachineSummary, CommunityMachineRuntime } from "./community-ws-events";
 export type {

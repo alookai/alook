@@ -11,15 +11,16 @@ import type { Database } from "@alook/shared"
 import { fanOutToChannel, fanOutToDM } from "./fanout"
 import { broadcastToUser } from "../broadcast"
 import { mapMessageForWs } from "./message-payload"
+import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "./audit"
 
 export type MessageTarget =
   | { kind: "channel"; channelId: string; serverId: string }
   | {
-      kind: "thread"
-      channelId: string
-      parentChannelId: string
-      serverId: string
-    }
+    kind: "thread"
+    channelId: string
+    parentChannelId: string
+    serverId: string
+  }
   | { kind: "dm"; dmId: string; otherUserId: string }
 
 type IncomingAttachment = {
@@ -77,8 +78,10 @@ export async function createCommunityMessage(params: {
   authorId: string
   target: MessageTarget
   body: IncomingMessageBody
+  /** Provenance tag threaded into the bot-authored audit row's `changes` (plan §10). */
+  source?: "cli" | "daemon-http" | "web"
 }): Promise<CreateMessageResult> {
-  const { db, authorId, target, body } = params
+  const { db, authorId, target, body, source } = params
 
   const content = typeof body.content === "string" ? body.content : ""
   if (!content || content.trim().length === 0) {
@@ -124,16 +127,16 @@ export async function createCommunityMessage(params: {
 
   const attachments: CreatedAttachment[] = incomingAttachments?.length
     ? await Promise.all(
-        incomingAttachments.map((att) =>
-          queries.communityAttachment.createAttachment(db, {
-            messageId: created.id,
-            filename: att.filename,
-            url: att.url,
-            contentType: att.contentType,
-            size: att.size,
-          }),
-        ),
-      )
+      incomingAttachments.map((att) =>
+        queries.communityAttachment.createAttachment(db, {
+          messageId: created.id,
+          filename: att.filename,
+          url: att.url,
+          contentType: att.contentType,
+          size: att.size,
+        }),
+      ),
+    )
     : []
 
   const row = await queries.communityMessage.getMessage(db, created.id)
@@ -141,6 +144,31 @@ export async function createCommunityMessage(params: {
     // createMessage just inserted this row; getMessage returning null means
     // the DB is gone — surface that to the caller instead of inventing data.
     throw new Error("message not found after insert")
+  }
+
+  // Bot-authored audit (plan §10) — moved here from individual call sites
+  // (the daemon bot-message route used to log this itself) so EVERY caller,
+  // present and future (the CLI `send` route included), gets it for free
+  // with no duplicate-call risk. There's no standalone `isBot()` helper in
+  // the repo; this mirrors the check the daemon route did before its own
+  // `logAudit` call was removed. Fire-and-forget — `logAudit` already
+  // swallows its own errors.
+  const author = await queries.user.getUserInternal(db, authorId)
+  if (author?.isBot === true) {
+    logAudit(db, {
+      serverId: target.kind === "dm" ? null : target.serverId,
+      actorId: authorId,
+      action: COMMUNITY_AUDIT_ACTIONS.MESSAGE_AUTHORED_AS_BOT,
+      targetType: "message",
+      targetId: row.id,
+      changes: JSON.stringify({
+        botId: authorId,
+        target: target.kind,
+        targetId: target.kind === "dm" ? target.dmId : target.channelId,
+        messageId: row.id,
+        source: source ?? "web",
+      }),
+    })
   }
 
   // Reply target for mention broadcasts. Scoped at the query level (not a
@@ -229,7 +257,7 @@ export async function createCommunityMessage(params: {
         messageId: row.id,
         ...(channelIdForBroadcast ? { channelId: channelIdForBroadcast } : {}),
         authorName,
-      }).catch(() => {})
+      }).catch(() => { })
     }
   }
 
@@ -245,6 +273,21 @@ export async function createCommunityMessage(params: {
     })),
   })
 
+  // Wake-dispatch row (minimal-wake-queue-unread-notice plan §1/§5) — the
+  // same `row` already fetched above via `getMessage` (which now selects
+  // `seq`). Passed alongside the MESSAGE_CREATE event so
+  // `fanOutToChannel`/`fanOutToDM` can enqueue bot wakes using the SAME
+  // recipient list already resolved for the human-WS broadcast, no second
+  // membership query. Deliberately no `content`/`createdAt` — the queue
+  // payload only ever carries `{ messageId, botUserId }`.
+  const wakeMessageRow = {
+    id: row.id,
+    seq: row.seq,
+    authorId: row.authorId,
+    channelId: row.channelId,
+    dmConversationId: row.dmConversationId,
+  }
+
   if (target.kind === "dm") {
     fanOutToDM(
       target.dmId,
@@ -253,14 +296,14 @@ export async function createCommunityMessage(params: {
         dmConversationId: target.dmId,
         message: messagePayload,
       },
-      { excludeUserId: authorId },
-    ).catch(() => {})
+      { excludeUserId: authorId, wakeMessageRow },
+    ).catch(() => { })
 
     broadcastToUser(target.otherUserId, {
       type: WS_EVENTS.DM_NEW_MESSAGE,
       dmConversationId: target.dmId,
       message: messagePayload,
-    }).catch(() => {})
+    }).catch(() => { })
   } else {
     fanOutToChannel(
       target.channelId,
@@ -269,8 +312,8 @@ export async function createCommunityMessage(params: {
         channelId: target.channelId,
         message: messagePayload,
       },
-      { excludeUserId: authorId },
-    ).catch(() => {})
+      { excludeUserId: authorId, wakeMessageRow },
+    ).catch(() => { })
 
     if (target.kind === "thread") {
       const updated = await queries.communityChannel.getChannel(
@@ -290,7 +333,7 @@ export async function createCommunityMessage(params: {
           },
         },
         { excludeUserId: authorId },
-      ).catch(() => {})
+      ).catch(() => { })
     }
   }
 

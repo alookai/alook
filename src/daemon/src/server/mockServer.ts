@@ -9,6 +9,15 @@
  * Addressing is by `ChannelRef` path strings (`/server/channel`, `/.dm/peer`);
  * messages are located by channel + seq. The agent-facing `Message` is flat:
  * `{ seq:"#N", channel, sender:"@handle", content:{text}, time }`.
+ *
+ * Data/admin/enrollment-only (minimal-wake-queue-unread-notice plan §6) —
+ * this class deliberately carries NO control-plane state or dispatch logic.
+ * The server never decides whether/when a daemon should wake an agent; in
+ * production that decision starts with `src/web`'s wake producer and is
+ * finished by the DAEMON (`AgentRouter`/`AgentProcessManager`), not here.
+ * Tests that need to exercise `agent:wake` push a `HostCommand` directly
+ * through `WsControlServer.pushCommand` / a `LocalControlChannel`, they do
+ * NOT get one synthesized by `postMessage`/`post`.
  */
 import type {
   ServerApi,
@@ -36,7 +45,6 @@ import type {
   User,
   ChannelKind,
   UserId,
-  HostCommand,
   EnrollmentApi,
 } from "./contract.js";
 import { DM_SERVER, parseRef, formatSeq } from "./contract.js";
@@ -84,7 +92,12 @@ export class MockServer implements ServerApi, AdminApi, EnrollmentApi {
   private readonly membership = new Map<string, Set<string>>();
   /** agentId → handle ("@name") for sender stamping. */
   private readonly agentHandles = new Map<string, string>();
-  /** agentId → RuntimeConfig — what `agent:start` will carry. */
+  /**
+   * agentId → RuntimeConfig, as set by `createAgent`. Admin-surface storage
+   * only — a test harness that wants to push an `agent:wake` HostCommand for
+   * this agent reads it back via `getAgentConfig` so the wake's `config`
+   * matches what "the server" told the admin API it created.
+   */
   private readonly agentConfigs = new Map<string, RuntimeConfig>();
   /** channelRef → ordered messages. */
   private readonly log = new Map<ChannelRef, StoredMessage[]>();
@@ -94,14 +107,6 @@ export class MockServer implements ServerApi, AdminApi, EnrollmentApi {
   private readonly readMarks = new Map<string, Map<ChannelRef, Seq>>();
   private seed?: MockServerSeed;
 
-  /** Control-plane sink: a connected host registers here to receive commands. */
-  private commandSink: ((cmd: HostCommand) => void | Promise<void>) | null = null;
-  /** Agents the host has reported as running (so we deliver vs. start). */
-  private readonly runningAgents = new Set<string>();
-  private launchCounter = 0;
-  private deliveryCounter = 0;
-  /** deliveryId → unacked delivery (for at-least-once redelivery on reconnect). */
-  private readonly unackedDeliveries = new Map<string, HostCommand>();
   /** Valid machine keys this server issued on enrollment (tier-1). */
   private readonly machineKeys = new Set<string>();
   /** runnerKey → agentId, so a swapped-in runner key is traceable (tier-2). */
@@ -147,82 +152,33 @@ export class MockServer implements ServerApi, AdminApi, EnrollmentApi {
     return { runnerKey };
   }
 
-  /* ----- control plane (server → host) ----- */
-
-  /** A host attaches its command handler; returns the current running set tracker. */
-  attachHost(sink: (cmd: HostCommand) => void | Promise<void>): void {
-    this.commandSink = sink;
-  }
-  /** Host reports an agent started (so subsequent messages `agent:deliver`). */
-  markRunning(agentId: string): void {
-    this.runningAgents.add(agentId);
-  }
-  markStopped(agentId: string): void {
-    this.runningAgents.delete(agentId);
-  }
   /**
-   * Replace the running set wholesale with what a (re)connecting host reports.
-   * Idempotent refresh — a host that crashed and came back with fewer agents
-   * must not leave stale "running" entries that suppress agent:start.
+   * The RuntimeConfig `createAgent` recorded for this agent, if any. Purely a
+   * convenience for test harnesses assembling an `agent:wake` `HostCommand`
+   * to push through a control-plane fixture — MockServer itself never reads
+   * this to make a dispatch decision.
    */
-  resetRunningAgents(agentIds: string[]): void {
-    this.runningAgents.clear();
-    for (const id of agentIds) this.runningAgents.add(id);
-  }
-
-  /** Compute recipients for a message and push control commands to the host. */
-  private dispatchToRecipients(stored: StoredMessage): void {
-    if (!this.commandSink) return;
-    const message = toAgentMessage(stored);
-    for (const agentId of this.recipientsFor(stored)) {
-      this.deliveryCounter += 1;
-      const deliveryId = `dlv_${this.deliveryCounter}`;
-      let cmd: HostCommand;
-      if (this.runningAgents.has(agentId)) {
-        cmd = { type: "agent:deliver", agentId, message, deliveryId };
-      } else {
-        // Not running → start it (with the triggering message), then it's running.
-        const config = this.agentConfigs.get(agentId) ?? makeRuntimeConfig({ runtime: "mock" });
-        this.launchCounter += 1;
-        cmd = { type: "agent:start", agentId, config, wakeMessage: message, deliveryId, launchId: `launch_${this.launchCounter}` };
-        this.runningAgents.add(agentId);
-      }
-      // Track for at-least-once until the host acks; then push to the host.
-      this.unackedDeliveries.set(deliveryId, cmd);
-      this.commandSink(cmd);
-    }
-  }
-
-  /** Host acked a delivery — retire it so it isn't redelivered. */
-  ackDelivery(deliveryId: string): void {
-    this.unackedDeliveries.delete(deliveryId);
+  getAgentConfig(agentId: AgentId): RuntimeConfig | undefined {
+    return this.agentConfigs.get(agentId);
   }
 
   /**
-   * Re-push every still-unacked delivery to the (reconnected) host. The host
-   * dedups by deliveryId, so redelivering an already-processed message is safe.
+   * Agents that can receive messages posted to `channel`: server members for
+   * a `/server/channel` ref, or the resolved peer for a `/.dm/<handle>` ref.
+   * Pure data query, same class as `listServers`/`listChannels` — NOT a
+   * dispatch decision. A caller standing in for the real wake producer (e.g.
+   * the `mock-server` script, or a test) uses this to decide who to push an
+   * `agent:wake` `HostCommand` for after `postMessage`.
    */
-  redeliverUnacked(): void {
-    if (!this.commandSink) return;
-    for (const cmd of this.unackedDeliveries.values()) this.commandSink(cmd);
-  }
-
-  /**
-   * SERVER-side addressing: who should receive this message? Agents that are
-   * members of the channel's server (for a real channel) or the DM peer (for a
-   * DM), excluding the sender. The host never does this — it's server policy.
-   */
-  private recipientsFor(stored: StoredMessage): string[] {
-    const p = parseRef(stored.channel);
+  membersOf(channelArg: ChannelRef): AgentId[] {
+    const p = parseRef(this.canon(channelArg));
     if (p.server === DM_SERVER) {
-      // DM: deliver to the peer agent if it's a known agent (by handle).
-      const peerAgent = [...this.agentHandles].find(([, h]) => h === `@${p.channel}`)?.[0];
-      return peerAgent && `@${this.agentHandles.get(peerAgent)}` !== stored.senderHandle ? [peerAgent] : peerAgent ? [peerAgent] : [];
+      const handle = p.channel.startsWith("@") ? p.channel : `@${p.channel}`;
+      const peer = [...this.agentHandles].find(([, h]) => h === handle)?.[0];
+      return peer ? [peer] : [];
     }
-    const serverId = this.resolveServerId(p.server);
-    if (!serverId) return [];
-    const members = this.membership.get(serverId) ?? new Set();
-    return [...members].filter((agentId) => this.agentHandles.get(agentId) !== stored.senderHandle);
+    const serverId = this.resolveServerId(p.server) ?? p.server;
+    return [...(this.membership.get(serverId) ?? [])];
   }
 
   private applySeed(seed: MockServerSeed): void {
@@ -297,8 +253,6 @@ export class MockServer implements ServerApi, AdminApi, EnrollmentApi {
     const arr = this.log.get(channel) ?? [];
     arr.push(msg);
     this.log.set(channel, arr);
-    // Control plane: push delivery/start commands to the connected host (if any).
-    this.dispatchToRecipients(msg);
     return msg;
   }
 
@@ -499,7 +453,7 @@ export class MockServer implements ServerApi, AdminApi, EnrollmentApi {
     const agent: Agent = { id: this.mkId("agent"), name: req.name, userId: req.userId };
     this.agentHandles.set(agent.id, `@${req.name}`);
     // The agent's identity (name + instruction) lives in its RuntimeConfig — the
-    // same config downlinked via agent:start — so the daemon gets it from the
+    // same config downlinked via agent:wake — so the daemon gets it from the
     // server, not by inventing it.
     this.agentConfigs.set(
       agent.id,
@@ -530,7 +484,9 @@ export class MockServer implements ServerApi, AdminApi, EnrollmentApi {
   }
 
   async postMessage(req: { channel: ChannelRef; sender: string; text: string }): Promise<{ message: Message }> {
-    // append() handles validation + control-plane dispatch to recipients.
+    // append() only validates + stores; it never dispatches a wake — see the
+    // class doc comment. Callers that want a wake push a HostCommand
+    // themselves (real deployments: via the wake producer/consumer path).
     return { message: this.post({ channel: req.channel, sender: req.sender, text: req.text }) };
   }
 

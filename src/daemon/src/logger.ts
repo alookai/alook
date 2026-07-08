@@ -10,7 +10,10 @@
  *   (e.g. a sub-tag like `@alook/daemon:daemon`) so a line still says where it came
  *   from without each call site hand-prefixing `[daemon]`.
  * - Default level is `info`; `debug` lines are suppressed unless the level is
- *   lowered. `warn`/`error` go to stderr, `info`/`debug` to stdout.
+ *   lowered. `warn`/`error` go to stderr, `info`/`debug` to stdout. When
+ *   `options.level` isn't passed, the `ALOOK_LOG_LEVEL` env var is used as a
+ *   fallback (same 4 values), so one env var controls verbosity for a whole
+ *   daemon process without every call site threading it through explicitly.
  * - Variadic data args are auto-formatted as key=value pairs when objects are
  *   passed, or stringified otherwise. This keeps the injectable-sink design
  *   (test-friendly) while making complex debug output painless.
@@ -44,6 +47,12 @@ export interface LoggerOptions {
 }
 
 const DEFAULT_HEADER = "@alook/daemon";
+const VALID_LEVELS: readonly LogLevel[] = ["debug", "info", "warn", "error"];
+
+function envLevel(): LogLevel | undefined {
+  const raw = process.env.ALOOK_LOG_LEVEL?.toLowerCase();
+  return VALID_LEVELS.includes(raw as LogLevel) ? (raw as LogLevel) : undefined;
+}
 
 function formatData(data: unknown[]): string {
   if (data.length === 0) return "";
@@ -65,7 +74,7 @@ function formatData(data: unknown[]): string {
 
 export function createLogger(options: LoggerOptions = {}): Logger {
   const header = options.header ?? DEFAULT_HEADER;
-  const minRank = LEVEL_RANK[options.level ?? "info"];
+  const minRank = LEVEL_RANK[options.level ?? envLevel() ?? "info"];
   const now = options.now ?? (() => new Date().toISOString());
   const out = options.out ?? ((line) => process.stdout.write(line + "\n"));
   const err = options.err ?? ((line) => process.stderr.write(line + "\n"));

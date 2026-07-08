@@ -110,6 +110,8 @@ concrete message and terminates the process on turn end.
 src/
   types.ts                       # Driver interface + ParsedEvent + lifecycle/capability types
   index.ts                       # public entry point
+  logger.ts                      # tiny structured logger (ALOOK_LOG_LEVEL); wired through
+                                  #   wsControlChannel.ts/agentRouter.ts/managerRuntime.ts too, not just cli/daemonStart.ts
   drivers/
     index.ts                     # getDriver(runtimeId) registry  ← start here
     cliTransport.ts              # shared: state dir, token, decoupling cliName wrapper -> targetCommand, env
@@ -173,9 +175,14 @@ orchestration so it can run agents end-to-end:
   - **data plane** (`ServerApi`): what the `alook` CLI calls — `send` / `inboxPull` /
     `ack` / `read` / `listChannels`, addressed by path-style `ChannelRef`s.
   - **control plane** (`HostCommand` + `HostControlChannel`): server → host commands
-    (`agent:start` / `agent:deliver` / `agent:stop`); the server owns addressing.
-  `mockServer.ts` is a fully in-process `ServerApi`/`AdminApi`. The **control plane
-  runs over a real WebSocket** so local dev exercises the actual transport, not an
+    (`agent:wake` / `agent:stop`; plus `bot:*` lifecycle frames). `agent:wake` carries a
+    bodiless `UnreadNotice` (channel + latest seq, no message content) — the DAEMON
+    (`AgentRouter`/`AgentProcessManager`), not the server, decides whether to spawn a
+    process, notify an already-running one, or coalesce the notice for the next turn.
+  `mockServer.ts` is a fully in-process `ServerApi`/`AdminApi` — data/admin/enrollment
+  only, with **no** control-plane state (`runningAgents`, unacked deliveries, etc.) and
+  no dispatch logic of its own; it never decides when to wake an agent. The **control
+  plane runs over a real WebSocket** so local dev exercises the actual transport, not an
   in-process shortcut: `wsControlServer.ts` (server end) and `wsControlChannel.ts`
   (host end, injectable socket + exponential-backoff reconnect + heartbeat) carry the
   `HostCommand` frames over `ws://127.0.0.1`. `localControlChannel.ts` is kept only for
@@ -183,12 +190,15 @@ orchestration so it can run agents end-to-end:
   real URL — nothing upstream changes.
 
 The e2e test `test/e2e/controlPlane.e2e.test.ts` wires `MockServer →(real ws)→
-AgentRouter → AgentProcessManager` into a complete loop (provision a
-server/agent/channel, post a message, the server dispatches `agent:start`/`agent:deliver`
-over the socket, the agent replies back to the channel) — single process, no real
-runtime, but the control frames cross an actual WebSocket. The `scripts/` dir runs
-the same stack across SEPARATE processes — `mock-server` (the server) and `daemon`
-(machine-key + URL only, no server ref) — with `smoke`/`test-server` as operators.
+AgentRouter → AgentProcessManager` into a complete loop: provision a server/agent/
+channel, post a message, then explicitly push an `agent:wake` `HostCommand` (standing
+in for `src/web`'s wake producer + `src/wake-worker`'s consumer) over the socket — the
+agent replies back to the channel. Single process, no real runtime, but the control
+frames cross an actual WebSocket. The `scripts/` dir runs the same stack across
+SEPARATE processes — `mock-server` (the server, which pushes `agent:wake` to a
+channel's members right after `postMessage` so `smoke`/`test-server` still see replies)
+and `daemon` (machine-key + URL only, no server ref) — with `smoke`/`test-server` as
+operators.
 
 ## Credentials (zero-trust isolation)
 

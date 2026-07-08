@@ -18,6 +18,7 @@ const mockListChildChannels = vi.fn()
 const mockListMessages = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
+const mockGetUserInternal = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
 const mockBroadcastToUser = vi.fn()
@@ -58,6 +59,9 @@ vi.mock("@alook/shared", async () => {
       },
       communityReaction: {
         listReactionsByMessageIds: (...a: unknown[]) => mockListReactionsByMessageIds(...a),
+      },
+      user: {
+        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
       },
     },
   }
@@ -109,6 +113,9 @@ describe("POST /api/community/channels/[id]/messages", () => {
     vi.clearAllMocks()
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockCreateMessage.mockResolvedValue({ id: "m1" })
+    // Human author by default — `createCommunityMessage`'s bot-authored audit
+    // (plan §10) only fires when `isBot === true`, which none of these tests exercise.
+    mockGetUserInternal.mockResolvedValue({ isBot: false, deletedAt: null })
     mockGetMessage.mockResolvedValue({
       id: "m1",
       authorId: "u1",

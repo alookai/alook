@@ -3,10 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore: ['**/*.md']
+    paths-ignore: ["**/*.md"]
   pull_request:
     branches: [main]
-    paths-ignore: ['**/*.md']
+    paths-ignore: ["**/*.md"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [app, cli, email-worker, shared, web, ws-do]
+        module: [app, cli, email-worker, shared, wake-worker, web, ws-do]
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -145,7 +145,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do
+      - run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker
 
   coverage:
     name: Coverage

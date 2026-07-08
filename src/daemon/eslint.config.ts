@@ -5,7 +5,7 @@ const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
   globalIgnores(["dist/**", "coverage/**"]),
   {
-    files: ["src/drivers/**/*.ts", "src/cli/proxyServerApi.ts", "src/server/contract.ts"],
+    files: ["src/drivers/**/*.ts", "src/cli/proxyServerApi.ts", "src/server/contract.ts", "src/server/wsControlServer.ts"],
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],

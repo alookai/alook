@@ -4,10 +4,37 @@ import {
   communityChannel,
   communityDmConversation,
   communityReadState,
+  communityMessageSeq,
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { createLogger } from "../../../logger";
+
+/** `'channel:<id>'` or `'dm:<id>'` — the `community_message_seq` PK. */
+export function scopeKeyForTarget(target: { channelId?: string; dmConversationId?: string }): string {
+  if (target.channelId) return `channel:${target.channelId}`;
+  if (target.dmConversationId) return `dm:${target.dmConversationId}`;
+  throw new Error("scopeKeyForTarget: neither channelId nor dmConversationId provided");
+}
+
+/**
+ * Atomically claim the next seq value for a scope (channel or DM). A single
+ * top-level UPSERT — D1's single-writer serialization makes this race-free
+ * for uniqueness on its own, no CTE/transaction needed (see
+ * plans/community-agent-cli-bridge.md design §3 for why the CTE-fusion
+ * approach is not valid SQLite and was rejected).
+ */
+async function claimNextSeq(db: Database, scopeKey: string): Promise<number> {
+  const rows = await db
+    .insert(communityMessageSeq)
+    .values({ scopeKey, nextSeq: 1 })
+    .onConflictDoUpdate({
+      target: communityMessageSeq.scopeKey,
+      set: { nextSeq: sql`${communityMessageSeq.nextSeq} + 1` },
+    })
+    .returning({ nextSeq: communityMessageSeq.nextSeq });
+  return rows[0]!.nextSeq;
+}
 
 const DEFAULT_LIMIT = 50;
 
@@ -43,6 +70,16 @@ export async function createMessage(
 ) {
   const now = new Date().toISOString();
 
+  // Step 0: atomically claim this scope's next seq (own top-level statement —
+  // see design §3 for why this can't be fused into the INSERT below via a
+  // CTE). Accepted trade-off: if the INSERT below fails after this succeeds,
+  // the counter has a harmless gap — no duplicate seq is ever possible since
+  // this claim is independently atomic under D1's single-writer serialization.
+  // Do NOT wrap these two statements in a transaction to "fix" this — D1
+  // doesn't support one that could express it.
+  const scopeKey = scopeKeyForTarget(data);
+  const seq = await claimNextSeq(db, scopeKey);
+
   // Pass `createdAt: now` explicitly so `msg.createdAt` matches the exact
   // string we write to `channel.lastMessageAt` / `dmConversation.lastMessageAt`
   // and to the author's read-state watermark below. Without this, the schema
@@ -61,6 +98,7 @@ export async function createMessage(
       replyToId: data.replyToId ?? null,
       embeds: data.embeds ?? null,
       createdAt: now,
+      seq,
     })
     .returning();
 
@@ -80,7 +118,10 @@ export async function createMessage(
     // never surfaces the channel the author just sent in. Keep this inline —
     // future readers should see the invariant next to the `lastMessageAt`
     // bump. Upsert against the `idx_read_state_user_channel` partial-unique
-    // index (same shape as `markReadToMessageBuilder`).
+    // index (same shape as `markReadToMessageBuilder`). `lastReadSeq` is
+    // extended here too (design §4) — required for wake-filter correctness:
+    // every author (bot or human) must have its own `lastReadSeq` stay in
+    // lockstep with its sends, or `enqueueBotWakes` sees a stale watermark.
     await db
       .insert(communityReadState)
       .values({
@@ -89,11 +130,13 @@ export async function createMessage(
         dmConversationId: null,
         lastReadAt: now,
         lastReadMessageId: msg.id,
+        lastReadSeq: seq,
       })
       .onConflictDoUpdate({
         target: [communityReadState.userId, communityReadState.channelId],
         targetWhere: sql`${communityReadState.channelId} IS NOT NULL`,
-        set: { lastReadAt: now, lastReadMessageId: msg.id },
+        set: { lastReadAt: now, lastReadMessageId: msg.id, lastReadSeq: seq },
+        setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
       });
   }
 
@@ -106,7 +149,8 @@ export async function createMessage(
     // Author read-watermark (DM path). Upsert against the
     // `idx_read_state_user_dm` partial-unique index. Same invariant as the
     // channel branch: keep the sender's watermark equal to the message they
-    // just sent so their inbox does not flag it as unread.
+    // just sent so their inbox does not flag it as unread. `lastReadSeq`
+    // extended per design §4 — see the channel branch comment above.
     await db
       .insert(communityReadState)
       .values({
@@ -115,11 +159,13 @@ export async function createMessage(
         dmConversationId: data.dmConversationId,
         lastReadAt: now,
         lastReadMessageId: msg.id,
+        lastReadSeq: seq,
       })
       .onConflictDoUpdate({
         target: [communityReadState.userId, communityReadState.dmConversationId],
         targetWhere: sql`${communityReadState.dmConversationId} IS NOT NULL`,
-        set: { lastReadAt: now, lastReadMessageId: msg.id },
+        set: { lastReadAt: now, lastReadMessageId: msg.id, lastReadSeq: seq },
+        setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
       });
   }
 
@@ -322,6 +368,67 @@ export async function getFirstMessageByChannelIds(db: Database, channelIds: stri
   });
 }
 
+/**
+ * Look up a single message by (channel-or-DM scope, seq). `seq === 0` is the
+ * legacy pre-migration sentinel — callers must reject it before calling this
+ * (see `resolve`/`bumpReadCursor` routes), it is never a real, addressable
+ * message.
+ */
+export async function getMessageByChannelAndSeq(
+  db: Database,
+  target: { channelId?: string; dmConversationId?: string },
+  seq: number
+) {
+  const scopeCond = target.channelId
+    ? eq(communityMessage.channelId, target.channelId)
+    : eq(communityMessage.dmConversationId, target.dmConversationId!);
+
+  const rows = await db
+    .select({
+      id: communityMessage.id,
+      authorId: communityMessage.authorId,
+      content: communityMessage.content,
+      createdAt: communityMessage.createdAt,
+      channelId: communityMessage.channelId,
+      dmConversationId: communityMessage.dmConversationId,
+      seq: communityMessage.seq,
+    })
+    .from(communityMessage)
+    .where(and(scopeCond, eq(communityMessage.seq, seq)));
+  return rows[0] ?? null;
+}
+
+/**
+ * Lean by-id lookup for the unread-wake rebuild path
+ * (`buildUnreadWakeCommand`, plan §8/minimal-wake-queue-unread-notice). NO
+ * author join and NO message-body selection — a missing/deleted author row
+ * must not make an otherwise-real message look missing, and the wake
+ * command never carries message content (the daemon prompts `inbox pull`).
+ */
+export async function getWakeMessageScopeById(
+  db: Database,
+  messageId: string
+): Promise<{
+  id: string;
+  seq: number;
+  authorId: string;
+  channelId: string | null;
+  dmConversationId: string | null;
+} | null> {
+  const rows = await db
+    .select({
+      id: communityMessage.id,
+      seq: communityMessage.seq,
+      authorId: communityMessage.authorId,
+      channelId: communityMessage.channelId,
+      dmConversationId: communityMessage.dmConversationId,
+    })
+    .from(communityMessage)
+    .where(eq(communityMessage.id, messageId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 export async function getMessage(db: Database, messageId: string) {
   const rows = await db
     .select({
@@ -336,6 +443,10 @@ export async function getMessage(db: Database, messageId: string) {
       createdAt: communityMessage.createdAt,
       channelId: communityMessage.channelId,
       dmConversationId: communityMessage.dmConversationId,
+      // Needed by the wake producer's `toAgentMessage(messageRow)` (plan §8) —
+      // `enqueueBotWakes` is called from `message-handler.ts` with this exact
+      // row, no separate re-fetch.
+      seq: communityMessage.seq,
       authorName: user.name,
       authorEmail: user.email,
       authorImage: user.image,

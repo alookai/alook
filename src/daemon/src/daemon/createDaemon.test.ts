@@ -1,6 +1,30 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { EventEmitter } from "events";
 import { createDaemon } from "./createDaemon";
 import type { Driver } from "../types";
+import type { Logger } from "../logger";
+
+/** Stub logger — records calls per level, and hands out tagged children that report into the same store. */
+function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "error", Array<[string, string, unknown[]]>> } {
+  const calls: Record<"debug" | "info" | "warn" | "error", Array<[string, string, unknown[]]>> = {
+    debug: [],
+    info: [],
+    warn: [],
+    error: [],
+  };
+  function make(tag: string): Logger {
+    const logger: Logger & { calls: typeof calls } = {
+      calls,
+      debug: (m: string, ...d: unknown[]) => calls.debug.push([tag, m, d]),
+      info: (m: string, ...d: unknown[]) => calls.info.push([tag, m, d]),
+      warn: (m: string, ...d: unknown[]) => calls.warn.push([tag, m, d]),
+      error: (m: string, ...d: unknown[]) => calls.error.push([tag, m, d]),
+      child: (childTag: string) => make(`${tag}:${childTag}`),
+    };
+    return logger;
+  }
+  return make("root") as ReturnType<typeof stubLogger>;
+}
 
 class FakeSocket {
   url: string;
@@ -31,6 +55,27 @@ const fakeDriver: Driver = {
   stop: vi.fn(),
   status: vi.fn(),
 } as unknown as Driver;
+
+/** A driver complete enough for `AgentProcessManager.doSpawn` to actually spawn it. */
+function fullFakeDriver(id: string): Driver {
+  return {
+    id,
+    lifecycle: { kind: "per_turn", start: "immediate", exit: "natural", inFlightWake: "spawn_new" } as never,
+    session: { recovery: "resume_or_fresh" } as never,
+    model: { detectedModelsVerifiedAs: "launchable", toLaunchSpec: () => ({ args: [] }) } as never,
+    supportsStdinNotification: false,
+    busyDeliveryMode: "none",
+    probe: () => ({ status: "healthy" as const, version: "test" }),
+    spawn: async () => {
+      const proc = new EventEmitter() as unknown as { kill: () => void };
+      proc.kill = () => {};
+      return { process: proc as never };
+    },
+    parseLine: () => [],
+    encodeStdinMessage: () => null,
+    buildSystemPrompt: () => "",
+  } as unknown as Driver;
+}
 
 function factory(sockets: FakeSocket[]) {
   return (url: string, headers: Record<string, string>) => {
@@ -105,6 +150,134 @@ describe("createDaemon", () => {
       capabilities: [],
     });
     expect(daemon.proxyUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+/);
+    await daemon.stop();
+  });
+});
+
+describe("createDaemon — logging", () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("threads the shared logger into WsControlChannel/AgentRouter/AgentProcessManager, and logs bot:removed + a successful wake through the manager", async () => {
+    global.fetch = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes("/enroll-agent")) {
+        return new Response(JSON.stringify({ runnerKey: "rk_1" }), { status: 200 });
+      }
+      // Bots warmup — no bots needed, this test seeds botsById directly via bot:added.
+      return new Response(JSON.stringify({ bots: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const sockets: FakeSocket[] = [];
+    const logger = stubLogger();
+    const daemon = await createDaemon({
+      machineKey: "cmk_log",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      capabilities: [],
+      logger,
+    });
+    sockets[0].emit("open");
+    // ws-tagged log proves the channel got `.child("ws")`.
+    expect(logger.calls.info.some(([tag, m]) => tag.includes("ws") && m === "control channel open")).toBe(true);
+
+    sockets[0].emit(
+      "message",
+      JSON.stringify({ type: "bot:added", botId: "bot_1", name: "Bot One" }),
+    );
+    // bot:added is logged directly on the root logger (createDaemon's own tag).
+    expect(logger.calls.debug.some(([, m]) => m === "bot:added")).toBe(true);
+
+    sockets[0].emit(
+      "message",
+      JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "l1",
+        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    // router-tagged log proves AgentRouter got `.child("router")`.
+    expect(logger.calls.info.some(([tag, m]) => tag.includes("router") && m === "agent:wake received")).toBe(true);
+    // manager-tagged log proves AgentProcessManager got `.child("manager")`.
+    expect(logger.calls.info.some(([tag, m]) => tag.includes("manager") && m === "spawning agent")).toBe(true);
+
+    sockets[0].emit("message", JSON.stringify({ type: "bot:removed", botId: "bot_1" }));
+    expect(logger.calls.debug.some(([, m]) => m === "bot:removed")).toBe(true);
+
+    await daemon.stop();
+  });
+
+  it("logs cold-start warmup success with the bot count", async () => {
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ bots: [{ id: "b1", name: "n" }] }), { status: 200 })) as unknown as typeof fetch;
+
+    const sockets: FakeSocket[] = [];
+    const logger = stubLogger();
+    const daemon = await createDaemon({
+      machineKey: "cmk_warmup_ok",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [],
+      driverFor: () => fakeDriver,
+      capabilities: [],
+      logger,
+    });
+    sockets[0].emit("open");
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(
+      logger.calls.info.some(([, m, d]) => m === "cold-start bot-cache warmup succeeded" && (d[0] as any).bots === 1),
+    ).toBe(true);
+    await daemon.stop();
+  });
+
+  it("logs enrollAgent's failure branch (bot known, enroll HTTP call fails)", async () => {
+    global.fetch = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes("/enroll-agent")) {
+        return new Response(JSON.stringify({ error: "server exploded" }), { status: 500 });
+      }
+      return new Response(JSON.stringify({ bots: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const sockets: FakeSocket[] = [];
+    const logger = stubLogger();
+    const daemon = await createDaemon({
+      machineKey: "cmk_enroll_fail",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => fullFakeDriver("codex"),
+      capabilities: [],
+      logger,
+    });
+    sockets[0].emit("open");
+    sockets[0].emit("message", JSON.stringify({ type: "bot:added", botId: "bot_1", name: "Bot One" }));
+    sockets[0].emit(
+      "message",
+      JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "l1",
+        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(
+      logger.calls.warn.some(([, m, d]) => m === "agent enroll failed" && (d[0] as any).agentId === "bot_1"),
+    ).toBe(true);
     await daemon.stop();
   });
 });

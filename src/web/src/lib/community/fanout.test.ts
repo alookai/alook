@@ -38,6 +38,11 @@ vi.mock("../broadcast", () => ({
   broadcastToUser: (...a: unknown[]) => mockBroadcastToUser(...a),
 }))
 
+const mockEnqueueBotWakes = vi.fn()
+vi.mock("./wake-producer", () => ({
+  enqueueBotWakes: (...a: unknown[]) => mockEnqueueBotWakes(...a),
+}))
+
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
 const mockGetChannel = vi.fn()
@@ -107,6 +112,103 @@ describe("fanOutToServerMembers", () => {
     expect(mockListMemberUserIds).toHaveBeenCalledTimes(1)
     expect(mockListMembers).not.toHaveBeenCalled()
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for MESSAGE_CREATE with a wakeMessageRow", () => {
+  const wakeMessageRow = {
+    id: "msg_1",
+    seq: 7,
+    authorId: "u1",
+    channelId: "c1",
+    dmConversationId: null,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
+    mockBroadcastToUser.mockResolvedValue(undefined)
+    mockEnqueueBotWakes.mockResolvedValue(undefined)
+  })
+
+  it("fanOutToChannel enqueues wakes using the same recipient list, minus excludeUserId", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "srv_1" })
+    mockListMemberUserIds.mockResolvedValue(["u1", "u2", "u3"])
+
+    await fanOutToChannel(
+      "c1",
+      { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
+      { excludeUserId: "u1", wakeMessageRow },
+    )
+
+    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
+    expect(mockEnqueueBotWakes).toHaveBeenCalledWith({
+      recipients: ["u2", "u3"],
+      channelId: "c1",
+      messageRow: wakeMessageRow,
+    })
+  })
+
+  it("fanOutToDM enqueues wakes with dmConversationId scope", async () => {
+    mockGetDM.mockResolvedValue({ id: "dm1", user1Id: "u1", user2Id: "u2" })
+
+    await fanOutToDM(
+      "dm1",
+      { type: WS_EVENTS.MESSAGE_CREATE, dmConversationId: "dm1", message: {} as never } as never,
+      { excludeUserId: "u1", wakeMessageRow: { ...wakeMessageRow, channelId: null, dmConversationId: "dm1" } },
+    )
+
+    expect(mockEnqueueBotWakes).toHaveBeenCalledTimes(1)
+    expect(mockEnqueueBotWakes).toHaveBeenCalledWith({
+      recipients: ["u2"],
+      dmConversationId: "dm1",
+      messageRow: { ...wakeMessageRow, channelId: null, dmConversationId: "dm1" },
+    })
+  })
+
+  it("does not enqueue wakes when wakeMessageRow is omitted", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "srv_1" })
+    mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
+
+    await fanOutToChannel("c1", {
+      type: WS_EVENTS.MESSAGE_CREATE,
+      channelId: "c1",
+      message: {} as never,
+    } as never)
+
+    expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
+  })
+
+  it("does not enqueue wakes for non-MESSAGE_CREATE events even with a wakeMessageRow", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "srv_1" })
+    mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
+
+    await fanOutToChannel(
+      "c1",
+      {
+        type: WS_EVENTS.CHILD_CHANNEL_UPDATE,
+        parentChannelId: "parent1",
+        channelId: "c1",
+        changes: { messageCount: 1, lastMessageAt: "2026-01-01T00:00:00.000Z" },
+      } as never,
+      { wakeMessageRow } as never,
+    )
+
+    expect(mockEnqueueBotWakes).not.toHaveBeenCalled()
+  })
+
+  it("a failing enqueueBotWakes does not reject fanOutToChannel", async () => {
+    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "srv_1" })
+    mockListMemberUserIds.mockResolvedValue(["u1"])
+    mockEnqueueBotWakes.mockRejectedValue(new Error("queue down"))
+
+    await expect(
+      fanOutToChannel(
+        "c1",
+        { type: WS_EVENTS.MESSAGE_CREATE, channelId: "c1", message: {} as never } as never,
+        { wakeMessageRow },
+      ),
+    ).resolves.toBeUndefined()
   })
 })
 

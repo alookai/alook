@@ -82,14 +82,14 @@ describe("platformEnv", () => {
   });
 
   it("swaps the prefix", () => {
-    const v = platformEnv("RAFT", {
+    const v = platformEnv("MOCK_CLI", {
       stateHome: "/h",
       agentId: "a",
-      cliName: "raft",
+      cliName: "mock-cli",
       capabilities: [],
     });
-    expect(v.RAFT_ID).toBe("a");
-    expect(v.RAFT_LAUNCH_ID).toBeUndefined(); // omitted optional → undefined (skipped on merge)
+    expect(v.MOCK_CLI_ID).toBe("a");
+    expect(v.MOCK_CLI_LAUNCH_ID).toBeUndefined(); // omitted optional → undefined (skipped on merge)
   });
 });
 

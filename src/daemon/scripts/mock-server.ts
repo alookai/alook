@@ -5,8 +5,11 @@
  * privileged surfaces; the daemon (separate process) can reach it ONLY over the
  * network, exactly as it would a real server:
  *
- *   - control plane (ws):   server → daemon commands (agent:start/deliver/stop),
+ *   - control plane (ws):   server → daemon commands (agent:wake/stop),
  *                           daemon → server reports (ready/session/ack).
+ *                           This mock never decides WHEN to send agent:wake —
+ *                           that's `src/web`/`src/wake-worker`'s job in
+ *                           production. It only logs what the daemon reports.
  *                           Daemons must connect with `Authorization: Bearer
  *                           <machineKey>` — unauthenticated connections are
  *                           refused (`verifyMachineKey`).
@@ -27,6 +30,8 @@
 import { WebSocketServer } from "ws";
 import type { IncomingMessage } from "http";
 import { MockServer, WsControlServer } from "../src/server/index";
+import type { HostCommand } from "../src/server/contract";
+import { makeRuntimeConfig } from "../src/runtimeConfig";
 import { startLocalBridge } from "./localBridge";
 
 const HTTP_PORT = Number(process.env.ALOOK_SERVER_PORT || 4517);
@@ -35,21 +40,15 @@ const WS_PORT = Number(process.env.ALOOK_SERVER_WS_PORT || HTTP_PORT + 1);
 async function main() {
   const server = new MockServer();
 
-  // Wrap resetRunningAgents to log daemon ready reports
-  const originalReset = server.resetRunningAgents.bind(server);
-  server.resetRunningAgents = (agentIds: string[]) => {
-    console.log(`[mock-server] daemon ready — reported ${agentIds.length} running agent(s)${agentIds.length ? `: ${agentIds.join(", ")}` : ""}`);
-    originalReset(agentIds);
-  };
-
   // Enroll THIS machine and surface its key for the daemon (script greps this line).
   const machineKey = server.enrollMachine();
 
   // Control plane: a ws server, authenticated by machine key. The factory adapts
   // `ws`'s (socket, request) connection event into our (socket, meta) shape,
   // pulling the upgrade request's Authorization header through for verification.
+  // This mock never pushes `agent:wake` on its own — it's a pure transport +
+  // data/admin/enroll fixture. Waking a daemon here is manual (see below).
   const wsServer = new WsControlServer({
-    server,
     port: WS_PORT,
     verifyMachineKey: (authHeader) => {
       const ok = server.verifyMachineKey(parseBearer(authHeader));
@@ -60,8 +59,17 @@ async function main() {
       }
       return ok;
     },
+    onReady: (ready) => {
+      console.log(`[mock-server] daemon ready — reported ${ready.runningAgents.length} running agent(s)${ready.runningAgents.length ? `: ${ready.runningAgents.join(", ")}` : ""}`);
+    },
     onAgentSession: (info) => {
       console.log(`[mock-server] agent session: ${info.agentId} → session=${info.sessionId}`);
+    },
+    onWakeAck: (info) => {
+      console.log(`[mock-server] agent_wake_ack: ${info.agentId} launch=${info.launchId} status=${info.status}`);
+    },
+    onStoppedAck: (info) => {
+      console.log(`[mock-server] agent_stopped_ack: ${info.agentId} status=${info.status}`);
     },
     webSocketServerFactory: (port) => {
       const wss = new WebSocketServer({ host: "127.0.0.1", port });
@@ -87,6 +95,28 @@ async function main() {
     },
   });
   wsServer.start();
+
+  // Stand-in for the real wake producer/consumer (src/web + src/wake-worker):
+  // after a message is stored, explicitly push `agent:wake` to every member
+  // of the channel so `pnpm run smoke` still sees replies. MockServer itself
+  // makes no such decision — see its class doc comment.
+  const originalPostMessage = server.postMessage.bind(server);
+  server.postMessage = async (req) => {
+    const result = await originalPostMessage(req);
+    for (const agentId of server.membersOf(req.channel)) {
+      const config = server.getAgentConfig(agentId) ?? makeRuntimeConfig({ runtime: "mock" });
+      const cmd: HostCommand = {
+        type: "agent:wake",
+        agentId,
+        config,
+        launchId: `launch_${agentId}_${result.message.seq}`,
+        unreadNotice: { kind: "unread_notice", channel: req.channel, latestSeq: Number(result.message.seq.replace("#", "")) },
+      };
+      const sent = wsServer.pushCommand(cmd);
+      console.log(`[mock-server] postMessage → agent:wake ${agentId} (${sent ? "sent" : "no daemon connected"})`);
+    }
+    return result;
+  };
 
   // HTTP planes: data (/api), admin (/admin), enroll (/enroll). Same process as
   // the server state — this is the SERVER side; the daemon connects from outside.

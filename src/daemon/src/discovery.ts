@@ -96,7 +96,6 @@ export interface RuntimeInfo {
 
 /**
  * Probe all registered drivers and return which runtimes are available.
- * Mirrors raft's `detectRuntimes()` — called ONCE at daemon startup to report
  * capabilities to the server. Runtime health after startup is mutated live
  * by `AgentRouter.markRuntimeUnhealthy` / `markRuntimeHealthy` — see
  * plans/community-machine-presence-fix.md.

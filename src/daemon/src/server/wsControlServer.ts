@@ -1,27 +1,30 @@
 /**
  * WsControlServer — the SERVER end of the control plane, over a real WebSocket.
  *
- * This is the network counterpart to wiring a host's `LocalControlChannel`
- * directly into a `MockServer` in-process. Instead, the server listens on a ws
- * port; a host connects with a `WsControlChannel`; and the two exchange the same
- * control-plane frames the local path used — only now over a real socket, so
- * local dev exercises the actual transport rather than an in-process shortcut.
+ * This is a thin ws-transport shim: it authenticates a connecting daemon by
+ * machine key, then lets the caller `pushCommand()` a `HostCommand` down the
+ * active socket and observe inbound `ready` / `agent_session` / ack frames.
+ * It does NOT decide when to wake an agent, does NOT track a server-side
+ * "running agents" set, and does NOT retry/redeliver anything — that
+ * server-side control-plane state was retired (minimal-wake-queue-unread-notice
+ * plan §6): the real production path is `src/web`'s wake producer →
+ * `src/wake-worker`'s queue consumer → `sendWakeToMachine`, and the DAEMON
+ * (not this fixture) decides spawn-vs-notify-vs-coalesce for `agent:wake`.
+ * This class exists purely so daemon-side control-plane/e2e tests can drive
+ * `agent:wake`/`agent:stop` over a REAL WebSocket instead of an in-process
+ * shortcut, exercising the same transport (`WsControlChannel`) production
+ * code uses.
  *
  * Frames (symmetric with `WsControlChannel`):
- *   - server → host:  the JSON `HostCommand` (`agent:start` / `agent:deliver` / `agent:stop`)
- *   - host → server:  `{ type:"ready", …HostReady }` | `{ type:"agent_session", … }`
- *
- * The server's command sink (`MockServer.attachHost`) is bridged to the connected
- * socket: every command the server computes is serialized and sent down the wire.
- * Inbound `ready` frames mark the host's running agents; `agent_session` frames
- * are forwarded to an optional observer (a real server would persist them).
+ *   - server → host:  the JSON `HostCommand` (`agent:wake` / `agent:stop` / `bot:*`)
+ *   - host → server:  `{ type:"ready", …HostReady }` | `{ type:"agent_session", … }` |
+ *                      `{ type:"agent_wake_ack" | "agent_stopped_ack", … }`
  *
  * The ws server impl is injected (`WebSocketServerLike`) so this file carries no
  * hard `ws` dependency and stays unit-testable; `mock-server` passes a factory
  * built on the `ws` package.
  */
 import type { HostCommand, HostReady, AgentId, WebSocketLike } from "./contract.js";
-import type { MockServer } from "./mockServer.js";
 // Re-export so existing importers of WebSocketLike from this module keep working.
 export type { WebSocketLike } from "./contract.js";
 
@@ -42,15 +45,17 @@ export interface WebSocketServerLike {
   close(cb?: () => void): void;
 }
 
+type AckStatus = "ok" | "error";
+type AckError = { code: string; message: string };
+
 /** Inbound (host → server) control frames. `ready` fields are spread flat — see `WsControlChannel`. */
 type InboundFrame =
   | ({ type: "ready" } & HostReady)
   | { type: "agent_session"; agentId: AgentId; sessionId: string; launchId: string }
-  | { type: "agent_deliver_ack"; agentId: AgentId; deliveryId: string };
+  | { type: "agent_wake_ack"; agentId: AgentId; launchId: string; status: AckStatus; error?: AckError }
+  | { type: "agent_stopped_ack"; agentId: AgentId; status: AckStatus; error?: AckError };
 
 export interface WsControlServerOpts {
-  /** The server whose control plane is exposed over ws. */
-  server: MockServer;
   /**
    * Build the ws server bound to `port` on loopback. Injected so this module has
    * no hard `ws` dependency; `mock-server` passes a real factory.
@@ -59,6 +64,12 @@ export interface WsControlServerOpts {
   port: number;
   /** Optional: observe agent-session reports (a real server persists for resume). */
   onAgentSession?: (info: { agentId: AgentId; sessionId: string; launchId: string }) => void;
+  /** Optional: observe each inbound `ready` handshake/resync frame. */
+  onReady?: (ready: HostReady) => void;
+  /** Optional: observe `agent_wake_ack` frames (test assertions). */
+  onWakeAck?: (info: { agentId: AgentId; launchId: string; status: AckStatus; error?: AckError }) => void;
+  /** Optional: observe `agent_stopped_ack` frames (test assertions). */
+  onStoppedAck?: (info: { agentId: AgentId; status: AckStatus; error?: AckError }) => void;
   /**
    * Authenticate a connecting daemon by its upgrade `Authorization` header
    * (`Bearer <machineKey>`). Returns true to accept. When provided, a connection
@@ -69,8 +80,11 @@ export interface WsControlServerOpts {
 }
 
 /**
- * Bridges a `MockServer`'s control plane onto a ws server. One connected host at
- * a time (the dev case); a later host replaces the active sink.
+ * Ws-transport shim for exactly one connected host at a time (the dev/test
+ * case); a later host replaces the active socket. Commands are pushed
+ * explicitly via `pushCommand` — there is no automatic dispatch, because
+ * deciding WHEN to wake an agent is now `src/web`/`src/wake-worker`'s job in
+ * production, not this fixture's.
  */
 export class WsControlServer {
   private wss: WebSocketServerLike | null = null;
@@ -93,6 +107,26 @@ export class WsControlServer {
     });
   }
 
+  /** True iff a daemon is currently connected and authenticated. */
+  get isConnected(): boolean {
+    return this.active !== null;
+  }
+
+  /**
+   * Send a `HostCommand` down to the currently connected daemon. Returns
+   * false (no throw) when nothing is connected — callers (tests) decide
+   * whether that's a failure.
+   */
+  pushCommand(cmd: HostCommand): boolean {
+    if (!this.active) return false;
+    try {
+      this.active.send(JSON.stringify(cmd));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private onConnection(socket: WebSocketLike, meta?: WsConnectionMeta): void {
     // Authenticate the daemon by its machine key before wiring anything up. A
     // connection without a valid key never reaches the control plane — this is
@@ -108,17 +142,6 @@ export class WsControlServer {
     }
 
     this.active = socket;
-
-    // Bridge server→host commands onto this socket.
-    this.opts.server.attachHost((cmd: HostCommand) => {
-      if (this.active === socket) {
-        try {
-          socket.send(JSON.stringify(cmd));
-        } catch {
-          /* socket gone; the close handler clears it */
-        }
-      }
-    });
 
     socket.on("message", (data: unknown) => this.onMessage(data));
     socket.on("close", () => {
@@ -138,19 +161,20 @@ export class WsControlServer {
     }
     if (!frame || typeof frame.type !== "string") return;
     if (frame.type === "ready") {
-      // (Re)connect handshake: REPLACE the running set with what the host reports
-      // (idempotent refresh, not additive — a reconnect after a crash may report
-      // fewer agents), then re-push any still-unacked deliveries to the host.
-      this.opts.server.resetRunningAgents(frame.runningAgents);
-      this.opts.server.redeliverUnacked();
+      // Strip the wire-only `type` discriminant — `HostReady` itself has no
+      // `type` field (see `WsControlChannel.reportReady`'s flat-spread frame).
+      const { type: _type, ...ready } = frame;
+      this.opts.onReady?.(ready);
     } else if (frame.type === "agent_session") {
       this.opts.onAgentSession?.({
         agentId: frame.agentId,
         sessionId: frame.sessionId,
         launchId: frame.launchId,
       });
-    } else if (frame.type === "agent_deliver_ack") {
-      this.opts.server.ackDelivery(frame.deliveryId);
+    } else if (frame.type === "agent_wake_ack") {
+      this.opts.onWakeAck?.({ agentId: frame.agentId, launchId: frame.launchId, status: frame.status, error: frame.error });
+    } else if (frame.type === "agent_stopped_ack") {
+      this.opts.onStoppedAck?.({ agentId: frame.agentId, status: frame.status, error: frame.error });
     }
   }
 }

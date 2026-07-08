@@ -187,3 +187,5 @@ export const DEV_PORTS: DevPortProfile = {
 export const DEV_WEB_URL = process.env.ALOOK_SERVER_URL || `http://localhost:${DEV_PORTS.web}`;
 export const DEV_WS_DO_URL = process.env.DEV_WS_DO_URL || `http://localhost:${DEV_PORTS.wsDo}`;
 export const DEV_EMAIL_WORKER_URL = process.env.DEV_EMAIL_WORKER_URL || `http://localhost:${DEV_PORTS.emailWorker}`;
+// `src/wake-worker/wrangler.toml`'s `[dev] port` — see wake-transport.ts.
+export const DEV_WAKE_WORKER_URL = process.env.DEV_WAKE_WORKER_URL || "http://localhost:8790";

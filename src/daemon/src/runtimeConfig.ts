@@ -1,87 +1,34 @@
 /**
  * RuntimeConfig — the structured, versioned agent runtime configuration.
  *
- * This is what the server stores per agent and pushes down in `agent:start`'s
- * `config`. It captures the FULL config surface — which runtime, which model,
- * which provider/endpoint, mode, reasoning effort — as structured data (not bare
- * strings), mirroring how a production daemon models it.
+ * The canonical `RuntimeConfig`/`makeRuntimeConfig` now live in
+ * `@alook/shared/runtime-config` (lifted there so the `src/web` wake producer
+ * and `src/wake-worker` consumer, neither of which can depend on this
+ * CLI/daemon package, can construct the `config` field of an `agent:wake`
+ * `HostCommand` — see `plans/community-agent-cli-bridge.md` §1 and
+ * `plans/minimal-wake-queue-unread-notice.md`). Re-exported here so existing
+ * daemon call sites keep importing from `./runtimeConfig.js` unchanged.
  *
- * The host doesn't act on `RuntimeConfig` directly; it `resolveLaunchFields()`s
- * it into flat launch fields (CLI args + env) that each driver consumes. Config
- * is start-time: changing it means relaunching the agent with a new RuntimeConfig
- * (there is no live-reconfigure path — model/effort are spawn-time args).
+ * This file keeps `resolveLaunchFields`/`ResolvedLaunchFields` — daemon-only,
+ * host-side resolution of a `RuntimeConfig` into flat launch fields (CLI args +
+ * env) that each driver consumes. Config is start-time: changing it means
+ * relaunching the agent with a new RuntimeConfig (there is no live-reconfigure
+ * path — model/effort are spawn-time args).
  */
 
-export const RUNTIME_CONFIG_VERSION = 1;
+export {
+  RUNTIME_CONFIG_VERSION,
+  makeRuntimeConfig,
+} from "@alook/shared/runtime-config";
+export type {
+  ReasoningEffort,
+  ModelConfig,
+  ProviderConfig,
+  ModeConfig,
+  RuntimeConfig,
+} from "@alook/shared/runtime-config";
 
-/** Reasoning/thinking effort. */
-export type ReasoningEffort = "low" | "medium" | "high";
-
-/** Model selection — structured, not a bare string. */
-export type ModelConfig =
-  | { kind: "default" } // use the runtime's default model
-  | { kind: "named"; name: string } // a specific catalog model
-  | { kind: "custom"; name: string }; // a custom/BYO model id
-
-/**
- * Provider / endpoint selection — distinct from model. Lets a host point a
- * runtime at a custom endpoint or a built-in multi-provider (Pi).
- */
-export type ProviderConfig =
-  | { kind: "default" }
-  | { kind: "custom"; apiUrl: string; apiKey: string } // e.g. Claude-compatible endpoint
-  | { kind: "pi-builtin"; providerId: string; apiKey: string }; // Pi multi-provider
-
-/** Execution mode (e.g. fast lane). */
-export type ModeConfig = { kind: "default" | "fast" };
-
-export interface RuntimeConfig {
-  version: number;
-  /** "claude" | "codex" | "gemini" | "kimi" | "pi" | "copilot" | "cursor" | "opencode" | "antigravity" | "mock" */
-  runtime: string;
-  model: ModelConfig;
-  mode: ModeConfig;
-  reasoningEffort?: ReasoningEffort;
-  provider?: ProviderConfig;
-  /** Override the runtime's default executable path. */
-  command?: string;
-  /** Override the runtime's disallowed-tools list. */
-  disallowedTools?: string;
-  /** Extra host-supplied env vars (controlled keys are stripped on resolve). */
-  envVars?: Record<string, string>;
-  /**
-   * Agent identity — the SERVER's truth about who this agent is, carried in the
-   * same config the server downlinks via `agent:start`. The daemon does not
-   * invent these; it fills the LaunchContext from them.
-   */
-  agentName?: string;
-  /** The agent's @mention handle (e.g. "@cindy"). */
-  agentHandle?: string;
-  /** The agent's standing instruction / role (becomes the standing prompt). */
-  instruction?: string;
-}
-
-/* ------------------------------------------------------------------ */
-/* Construction / normalization                                        */
-/* ------------------------------------------------------------------ */
-
-/** Build a fully-defaulted RuntimeConfig from a partial input. */
-export function makeRuntimeConfig(input: Partial<RuntimeConfig> & { runtime: string }): RuntimeConfig {
-  return {
-    version: RUNTIME_CONFIG_VERSION,
-    runtime: input.runtime,
-    model: input.model ?? { kind: "default" },
-    mode: input.mode ?? { kind: "default" },
-    reasoningEffort: input.reasoningEffort,
-    provider: input.provider,
-    command: input.command,
-    disallowedTools: input.disallowedTools,
-    envVars: input.envVars,
-    agentName: input.agentName,
-    agentHandle: input.agentHandle,
-    instruction: input.instruction,
-  };
-}
+import type { ReasoningEffort, RuntimeConfig } from "@alook/shared/runtime-config";
 
 /* ------------------------------------------------------------------ */
 /* Resolution — RuntimeConfig → flat launch fields                     */

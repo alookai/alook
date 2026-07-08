@@ -13,13 +13,24 @@
  */
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, createLogger } from "@alook/shared"
+import { createDb, queries, createLogger, WS_EVENTS } from "@alook/shared"
 import type { CommunityWsEvent } from "@alook/shared"
 import { broadcastToUser } from "../broadcast"
+import { enqueueBotWakes, type WakeMessageRow } from "./wake-producer"
 
 const log = createLogger({ service: "community-fanout" })
 
 type BroadcastableEvent = CommunityWsEvent & { type: string }
+
+/**
+ * Passed by `message-handler.ts` alongside a `MESSAGE_CREATE` event so
+ * `fanOutToChannel`/`fanOutToDM` can trigger the push-wake pipeline (plan
+ * §8) using the SAME recipient list already resolved for the human-WS
+ * broadcast, instead of re-querying membership a second time. Omitted (or
+ * event.type !== MESSAGE_CREATE) → no wake dispatch, e.g.
+ * `CHILD_CHANNEL_UPDATE` never wakes anyone.
+ */
+type WakeOpts = { wakeMessageRow?: WakeMessageRow }
 
 /**
  * Resolves all member user IDs for a server.
@@ -46,13 +57,14 @@ async function getChannelRecipientUserIds(db: ReturnType<typeof createDb>, chann
 export async function fanOutToChannel(
   channelId: string,
   event: BroadcastableEvent,
-  opts?: { excludeUserId?: string }
+  opts?: { excludeUserId?: string } & WakeOpts
 ): Promise<void> {
   try {
     const { env } = getCloudflareContext()
     const db = createDb((env as Env).DB)
     const userIds = await getChannelRecipientUserIds(db, channelId)
     await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+    maybeEnqueueWakes(event, userIds, { channelId }, opts)
   } catch (err) {
     log.warn("fanout_to_channel_failed", {
       eventType: event.type,
@@ -68,7 +80,7 @@ export async function fanOutToChannel(
 export async function fanOutToDM(
   dmConversationId: string,
   event: BroadcastableEvent,
-  opts?: { excludeUserId?: string }
+  opts?: { excludeUserId?: string } & WakeOpts
 ): Promise<void> {
   try {
     const { env } = getCloudflareContext()
@@ -80,6 +92,7 @@ export async function fanOutToDM(
     }
     const userIds = [dm.user1Id, dm.user2Id].filter(Boolean) as string[]
     await broadcastToRecipients(userIds, event, opts?.excludeUserId)
+    maybeEnqueueWakes(event, userIds, { dmConversationId }, opts)
   } catch (err) {
     log.warn("fanout_to_dm_failed", {
       eventType: event.type,
@@ -87,6 +100,30 @@ export async function fanOutToDM(
       err: String(err),
     })
   }
+}
+
+/**
+ * Wake dispatch only fires for real new-message events (plan §8) — reactions,
+ * edits, pins, `CHILD_CHANNEL_UPDATE`, etc. never wake anyone. The sender is
+ * excluded via the SAME `excludeUserId` the human-WS broadcast already used
+ * (a bot never wakes itself off its own send). Never throws — `enqueueBotWakes`
+ * owns its own error handling via `ctx.waitUntil`; this is best-effort on top.
+ */
+function maybeEnqueueWakes(
+  event: BroadcastableEvent,
+  recipients: string[],
+  scope: { channelId: string } | { dmConversationId: string },
+  opts?: { excludeUserId?: string } & WakeOpts
+): void {
+  if (event.type !== WS_EVENTS.MESSAGE_CREATE || !opts?.wakeMessageRow) return
+  const filtered = opts.excludeUserId ? recipients.filter((id) => id !== opts.excludeUserId) : recipients
+  enqueueBotWakes({
+    recipients: filtered,
+    ...scope,
+    messageRow: opts.wakeMessageRow,
+  }).catch((err) => {
+    log.warn("enqueue_bot_wakes_from_fanout_failed", { err: String(err) })
+  })
 }
 
 

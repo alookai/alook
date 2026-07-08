@@ -2,6 +2,7 @@ import { eq, and, asc, desc, isNull, max, inArray } from "drizzle-orm";
 import {
   communityChannel,
   communityServerMember,
+  communityMessage,
 } from "../../community-schema";
 import type { Database } from "../../index";
 import { createLogger } from "../../../logger";
@@ -144,6 +145,150 @@ export async function listServerChannels(db: Database, serverId: string) {
     .where(and(eq(communityChannel.serverId, serverId), isNull(communityChannel.parentChannelId)))
     .orderBy(asc(communityChannel.position));
   return rows.map(mapChannelRow);
+}
+
+/**
+ * `resolveTargetForMember`'s channel-name resolver: matches by ID or NAME
+ * within one server, visibility-scoped to `userId`'s membership in that
+ * server (same gate as `getChannelForMember`). Returns an ARRAY — like
+ * `resolveServerByNameForMember`, ambiguity (2+ name matches) is not an
+ * error; the caller returns a hint list (debt #5).
+ */
+export async function resolveChannelByNameForMember(
+  db: Database,
+  serverId: string,
+  userId: string,
+  nameOrId: string
+) {
+  const byId = await db
+    .select(CHANNEL_COLUMNS)
+    .from(communityChannel)
+    .innerJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityChannel.serverId),
+        eq(communityServerMember.userId, userId)
+      )
+    )
+    .where(and(eq(communityChannel.serverId, serverId), eq(communityChannel.id, nameOrId)));
+  if (byId.length > 0) return byId.map(mapChannelRow);
+
+  const byName = await db
+    .select(CHANNEL_COLUMNS)
+    .from(communityChannel)
+    .innerJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityChannel.serverId),
+        eq(communityServerMember.userId, userId)
+      )
+    )
+    .where(and(eq(communityChannel.serverId, serverId), eq(communityChannel.name, nameOrId)));
+  return byName.map(mapChannelRow);
+}
+
+/**
+ * Top-level channels (no threads — `parentChannelId IS NULL`, mirroring
+ * `listServerChannels`) a bot can see via `listChannels`, scoped to server
+ * membership only — same visibility rule the human server-channels route
+ * uses (no extra private-category filter on read; decided in plan §7 v3).
+ */
+export async function listChannelsForMember(db: Database, serverId: string, userId: string) {
+  const rows = await db
+    .select(CHANNEL_COLUMNS)
+    .from(communityChannel)
+    .innerJoin(
+      communityServerMember,
+      and(
+        eq(communityServerMember.serverId, communityChannel.serverId),
+        eq(communityServerMember.userId, userId)
+      )
+    )
+    .where(and(eq(communityChannel.serverId, serverId), isNull(communityChannel.parentChannelId)))
+    .orderBy(asc(communityChannel.position));
+  return rows.map(mapChannelRow);
+}
+
+/**
+ * Look up an existing thread channel by its `(parentChannelId,
+ * parentMessageId)` pair — the partial UNIQUE index this pair is enforced
+ * against (migration 0052). Used by `resolveTargetForMember`'s thread
+ * resolution (debt #10) both for the initial lookup and, on a
+ * `createThreadChannel` unique-conflict, to fetch the concurrent winner.
+ */
+export async function getThreadChannelByParentMessage(
+  db: Database,
+  parentChannelId: string,
+  parentMessageId: string
+) {
+  const rows = await db
+    .select(CHANNEL_COLUMNS)
+    .from(communityChannel)
+    .where(
+      and(
+        eq(communityChannel.parentChannelId, parentChannelId),
+        eq(communityChannel.parentMessageId, parentMessageId)
+      )
+    );
+  const row = rows[0];
+  return row ? mapChannelRow(row) : null;
+}
+
+/**
+ * Auto-create a thread channel rooted at `parentMessageId` inside
+ * `parentChannelId` (debt #10 — threads ARE channels). `type: "thread"` is
+ * REQUIRED — the column defaults to `"text"` otherwise, which would silently
+ * hide the thread from the human web UI's `listChildChannels(..., {type:
+ * "thread"})` query. `name` is NOT NULL with no human-supplied value here, so
+ * it's derived from the parent message's own content: its first 40
+ * characters, trimmed, falling back to the literal string `"Thread"` when
+ * the parent message has no usable text (empty/attachment-only).
+ *
+ * Concurrency: relies on the partial UNIQUE index
+ * `uq_community_channel_parent_message` (migration 0052) — callers must
+ * catch the unique-conflict error and re-`SELECT` the winner; this function
+ * does not retry internally (see `resolveTargetForMember`).
+ */
+export async function createThreadChannel(
+  db: Database,
+  parentChannelId: string,
+  parentMessageId: string,
+  creatorId: string
+) {
+  const [parentServer, parentMessage] = await Promise.all([
+    db
+      .select({ serverId: communityChannel.serverId })
+      .from(communityChannel)
+      .where(eq(communityChannel.id, parentChannelId)),
+    db
+      .select({ content: communityMessage.content })
+      .from(communityMessage)
+      .where(eq(communityMessage.id, parentMessageId)),
+  ]);
+  const serverId = parentServer[0]?.serverId;
+  if (!serverId) throw new Error(`createThreadChannel: parent channel ${parentChannelId} not found`);
+
+  const rawContent = parentMessage[0]?.content?.trim() ?? "";
+  const name = rawContent.length > 0 ? rawContent.slice(0, 40) : "Thread";
+
+  // `communityChannel` is typed as `SQLiteTableWithColumns<any>` (schema
+  // file), so `.returning()` without an explicit column set loses all type
+  // info. Return just the new id, then re-fetch through `getChannel`'s
+  // properly-typed `CHANNEL_COLUMNS` select instead of casting `any`.
+  const inserted = await db
+    .insert(communityChannel)
+    .values({
+      serverId,
+      name,
+      type: "thread",
+      parentChannelId,
+      parentMessageId,
+      creatorId,
+    })
+    .returning({ id: communityChannel.id });
+  const created = await getChannel(db, inserted[0]!.id);
+  if (!created) throw new Error(`createThreadChannel: failed to re-fetch created channel ${inserted[0]!.id}`);
+  return created;
 }
 
 export async function listChildChannels(

@@ -120,8 +120,8 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       })
     }
 
-    if (url.pathname === "/forward-agent-start" && request.method === "POST") {
-      // Forward an `agent:start` frame to the connected daemon and clear
+    if (url.pathname === "/forward-agent-wake" && request.method === "POST") {
+      // Forward an `agent:wake` frame to the connected daemon and clear
       // any lastRuntimeError overlay optimistically (with a fan-out) so the
       // web card stops rendering the stale error immediately. If the daemon
       // replies with another `session.error`, the overlay is re-stashed on
@@ -578,19 +578,23 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     }
 
     // Agent command ack frames — daemon → server reply protocol. New in v0.2.
-    // `agent_started_ack` / `agent_stopped_ack` / extended `agent_deliver_ack`
-    // carry `status: "ok" | "error"` + optional `{ code, message }`.
-    // No persistent write: there is no `communityAgentRuntime` table (checked)
-    // and adding one is scope creep. Log for observability only; owner-visible
-    // surfacing goes through the daemon-side error propagation to the bot
-    // process (which can DM the owner).
+    // `agent_wake_ack` means "daemon accepted/handled the wake command," NOT
+    // "process started" (a wake may spawn, notify an already-running
+    // process, or coalesce for later — see `HostControlChannel.reportWakeAck`).
+    // `agent_stopped_ack` carries `status: "ok" | "error"` + optional
+    // `{ code, message }`. No persistent write: there is no
+    // `communityAgentRuntime` table (checked) and adding one is scope creep.
+    // Log for observability only; owner-visible surfacing goes through the
+    // daemon-side error propagation to the bot process (which can DM the
+    // owner). `agent_deliver_ack` no longer exists — the server never
+    // decides start-vs-deliver, so there is nothing for the daemon to ack
+    // beyond the wake command itself.
     if (
       parsed && typeof parsed === "object" && "type" in parsed &&
       typeof (parsed as { type: unknown }).type === "string" &&
       (
-        (parsed as { type: string }).type === "agent_started_ack" ||
-        (parsed as { type: string }).type === "agent_stopped_ack" ||
-        (parsed as { type: string }).type === "agent_deliver_ack"
+        (parsed as { type: string }).type === "agent_wake_ack" ||
+        (parsed as { type: string }).type === "agent_stopped_ack"
       )
     ) {
       const ack = parsed as {
@@ -706,7 +710,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   /**
    * Compose a summary + the current DO-local `lastRuntimeError` overlay (if
    * any). The overlay is transient — cleared optimistically when the DO
-   * forwards `agent:start` to the daemon, and on `forceClose`.
+   * forwards `agent:wake` to the daemon, and on `forceClose`.
    */
   private async summaryWithOverlay(
     row: Parameters<typeof queries.communityMachine.toSummary>[0]
@@ -722,9 +726,9 @@ export class WebSocketDurableObject extends DurableObject<Env> {
 
   /**
    * Send a frame to the connected community-machine daemon (if any). Used by
-   * `agent:start` forwarding — the community control plane isn't fully wired
-   * yet, but the surface exists so the eventual emitter routes through here
-   * (and picks up the optimistic overlay clear for free).
+   * `agent:wake` forwarding (minimal-wake-queue-unread-notice plan §3) — the
+   * `alook-wake-worker` consumer POSTs an already-built `agent:wake`
+   * `HostCommand` to `/forward-agent-wake`, which routes here.
    */
   private forwardToCommunityMachine(message: string): number {
     let sent = 0
@@ -753,7 +757,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   /**
    * Fan out a fresh `community:machine.updated` for the row + current
    * overlay state. Used by session.error stash, optimistic clear on
-   * `agent:start`, and forceClose.
+   * `agent:wake`, and forceClose.
    */
   private async fanOutMachineUpdated(userId: string, machineId: string): Promise<void> {
     const db = createDb(this.env.DB)

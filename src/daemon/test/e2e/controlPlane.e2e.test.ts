@@ -1,8 +1,19 @@
 /**
- * E2E: the full control plane over a REAL WebSocket.
+ * E2E: the `agent:wake` control plane over a REAL WebSocket.
  *
- * MockServer (data + control + admin) ─(real ws)─▶ AgentRouter ─▶ AgentProcessManager
- *   ─▶ mock agent session (pulls inbox via ServerApi, replies "hi!").
+ * MockServer (data + admin only) + a manually-pushed `agent:wake` HostCommand
+ * ─(real ws)─▶ AgentRouter ─▶ AgentProcessManager ─▶ mock agent session
+ *   (pulls inbox via ServerApi, replies "hi!").
+ *
+ * Per minimal-wake-queue-unread-notice plan §6, the SERVER (MockServer) no
+ * longer decides when to wake an agent or tracks a running-agents set —
+ * `postMessage` only writes the message. This test drives the control plane
+ * the way production does: something OUTSIDE the daemon (here, the test
+ * itself, standing in for `src/web`'s wake producer + `src/wake-worker`'s
+ * consumer) decides a bot is behind and pushes an `agent:wake` HostCommand
+ * with a bodiless `UnreadNotice`. The DAEMON (AgentRouter/AgentProcessManager)
+ * is what decides spawn-vs-notify-vs-coalesce and turns the notice into an
+ * `alook inbox pull` prompt — never the server.
  *
  * Asserts the round-trip works end to end and that the control frames actually
  * cross a socket (not an in-process shortcut): we point WsControlChannel at the
@@ -13,10 +24,12 @@ import { WebSocketServer, WebSocket } from "ws";
 import { MockServer, WsControlServer, WsControlChannel } from "../../src/server/index";
 import { AgentProcessManager, AgentRouter } from "../../src/manager/index";
 import type { ManagedSession } from "../../src/manager/managerRuntime";
-import type { ServerApi } from "../../src/server/contract";
+import type { ServerApi, HostCommand } from "../../src/server/contract";
+import { makeRuntimeConfig } from "../../src/runtimeConfig";
 
 interface Harness {
   server: MockServer;
+  wsServer: WsControlServer;
   teardown: () => Promise<void>;
 }
 
@@ -32,7 +45,6 @@ async function setup(): Promise<Harness> {
   const wsPort = typeof addr === "object" && addr ? addr.port : 0;
 
   const wsServer = new WsControlServer({
-    server,
     port: wsPort,
     webSocketServerFactory: () => wss, // reuse the already-listening server
   });
@@ -48,21 +60,42 @@ async function setup(): Promise<Harness> {
     sessionFactory: ({ agentId }) => makeMockAgentSession(agentId, api),
     tickIntervalMs: 500,
     onAgentSession: (info) => void channel.reportAgentSession(info),
+    wakePromptFooter: "Use `alook inbox pull` to read your messages, then reply with `alook message send`.",
   });
   manager.start();
   const router = new AgentRouter({ manager, channel, runtimeReport: [{ id: "mock" }] });
   channel.connect();
   await router.start();
   await waitFor(() => channel.status === "open", 3000);
+  await waitFor(() => wsServer.isConnected, 3000);
 
   return {
     server,
+    wsServer,
     teardown: async () => {
       channel.close();
       await wsServer.close();
       await manager.stopAll();
     },
   };
+}
+
+/** Push an `agent:wake` HostCommand for `agentId`, notice pointed at `channel` @ `latestSeq`. */
+function pushWake(
+  wsServer: WsControlServer,
+  server: MockServer,
+  input: { agentId: string; channel: string; latestSeq: number },
+): void {
+  const config = server.getAgentConfig(input.agentId) ?? makeRuntimeConfig({ runtime: "mock" });
+  const cmd: HostCommand = {
+    type: "agent:wake",
+    agentId: input.agentId,
+    config,
+    launchId: `launch_${input.agentId}_${input.latestSeq}`,
+    unreadNotice: { kind: "unread_notice", channel: input.channel, latestSeq: input.latestSeq },
+  };
+  const sent = wsServer.pushCommand(cmd);
+  if (!sent) throw new Error("pushWake: no daemon connected");
 }
 
 /** Mock agent: on wake, pull inbox, ack, reply "hi!" to each message. */
@@ -132,10 +165,10 @@ describe("control plane over real ws (e2e)", () => {
     teardown = undefined;
   });
 
-  it("a posted message drives agent:start over ws and the agent replies", async () => {
+  it("a pushed agent:wake drives the daemon over ws and the agent replies", async () => {
     const h = await setup();
     teardown = h.teardown;
-    const { server } = h;
+    const { server, wsServer } = h;
 
     const { user } = await server.createUser({ name: "me" });
     const { agent } = await server.createAgent({ userId: user.id, name: "cindy", runtime: "mock" });
@@ -144,7 +177,9 @@ describe("control plane over real ws (e2e)", () => {
     const { channel: ch } = await server.createChannel({ server: srv.id, name: "general" });
     const ref = `/${srv.id}/${ch.id}`;
 
-    await server.postMessage({ channel: ref, sender: "@gustavo", text: "cindy, say hi" });
+    const { message } = await server.postMessage({ channel: ref, sender: "@gustavo", text: "cindy, say hi" });
+
+    pushWake(wsServer, server, { agentId: agent.id, channel: ref, latestSeq: Number(message.seq.replace("#", "")) });
 
     // Wait until the agent has replied (its message lands in the channel).
     await waitFor(async () => {
@@ -157,10 +192,10 @@ describe("control plane over real ws (e2e)", () => {
     expect(replies.length).toBe(1);
   });
 
-  it("multiple agents each reply (3/3)", async () => {
+  it("multiple agents each reply (3/3) to their own agent:wake push", async () => {
     const h = await setup();
     teardown = h.teardown;
-    const { server } = h;
+    const { server, wsServer } = h;
 
     const { user } = await server.createUser({ name: "me" });
     const { server: srv } = await server.createServer({ name: "demo" });
@@ -174,7 +209,11 @@ describe("control plane over real ws (e2e)", () => {
       ids.push(agent.id);
     }
 
-    await server.postMessage({ channel: ref, sender: "@gustavo", text: "hello team" });
+    const { message } = await server.postMessage({ channel: ref, sender: "@gustavo", text: "hello team" });
+    const latestSeq = Number(message.seq.replace("#", ""));
+    for (const agentId of ids) {
+      pushWake(wsServer, server, { agentId, channel: ref, latestSeq });
+    }
 
     await waitFor(async () => {
       const page = await server.read({ agentId: ids[0], channel: ref, limit: 20 });

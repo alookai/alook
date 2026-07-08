@@ -10,9 +10,10 @@ interface SeenRequest {
   agentId?: string;
   client?: string;
   capabilities?: string;
+  path?: string;
 }
 
-/** A throwaway upstream that records what headers the proxy forwards. */
+/** A throwaway upstream that records what headers + path the proxy forwards. */
 async function startUpstream(): Promise<{ url: string; seen: SeenRequest[]; close: () => Promise<void> }> {
   const seen: SeenRequest[] = [];
   const server = http.createServer((req, res) => {
@@ -21,6 +22,7 @@ async function startUpstream(): Promise<{ url: string; seen: SeenRequest[]; clos
       agentId: req.headers["x-agent-id"] as string | undefined,
       client: req.headers["x-client"] as string | undefined,
       capabilities: req.headers["x-agent-active-capabilities"] as string | undefined,
+      path: req.url,
     });
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ ok: true }));
@@ -168,6 +170,34 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     const r = await post(proxy.url, reg.voucher, "/tasks/claim");
     expect(r.status).toBe(403);
     expect(upstream.seen.length).toBe(0);
+  });
+
+  it("rewrites /api/* to /api/community/agent/* (design §9)", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker);
+    const reg = broker.mint("agent-1", "l", ["send", "read"], REAL_KEY);
+
+    await post(proxy.url, reg.voucher, "/api/send");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/send");
+
+    await post(proxy.url, reg.voucher, "/api/inboxPull?max=10");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent/inboxPull?max=10");
+
+    await post(proxy.url, reg.voucher, "/api");
+    expect(upstream.seen.at(-1)!.path).toBe("/api/community/agent");
+  });
+
+  it("leaves non-/api paths untouched", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker);
+    const reg = broker.mint("agent-1", "l", ["send"], REAL_KEY);
+
+    await post(proxy.url, reg.voucher, "/send");
+    expect(upstream.seen.at(-1)!.path).toBe("/send");
   });
 
   it("a revoked voucher stops working", async () => {

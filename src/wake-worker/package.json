@@ -1,0 +1,23 @@
+{
+  "name": "@alook/wake-worker",
+  "version": "0.0.149",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --persist-to ../web/.wrangler/state",
+    "deploy": "wrangler deploy",
+    "knip": "knip",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@alook/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260621.1",
+    "@types/node": "^25.9.4",
+    "knip": "^6.17.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9",
+    "wrangler": "^4.103.0"
+  }
+}

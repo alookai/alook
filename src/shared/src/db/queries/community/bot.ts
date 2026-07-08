@@ -30,6 +30,7 @@ import {
   communityMessage,
   communityFriendship,
   communityUserProfile,
+  communityReadState,
 } from "../../community-schema";
 import { communityMachine } from "../../community-machine-schema";
 import type { Database } from "../../index";
@@ -194,6 +195,89 @@ export async function getBotBinding(
     .where(eq(communityBotBinding.userId, botId))
     .limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Wake-dispatch candidate filter (plan §8) — one D1 hit. Given a message's
+ * `recipients` (all fanout recipients, human + bot) and the scope it landed
+ * in (exactly one of `channelId`/`dmConversationId`), returns only the bots
+ * among them that are (a) live (`!deletedAt`), (b) bound to a machine, and
+ * (c) actually behind `newSeq` per their own `lastReadSeq` for that scope
+ * (`NULL` read-state row counts as "never read", i.e. behind). A bot that's
+ * already caught up (e.g. it just authored `newSeq` itself, or acked
+ * out-of-band) is filtered out here so the producer never enqueues a wasted
+ * wake.
+ */
+export async function findWakeCandidates(
+  db: Database,
+  opts: {
+    recipients: string[];
+    channelId?: string;
+    dmConversationId?: string;
+    newSeq: number;
+  }
+): Promise<Array<{ botUserId: string; name: string | null; machineId: string; runtime: string }>> {
+  if (opts.recipients.length === 0) return [];
+  const scopeCond = opts.channelId
+    ? eq(communityReadState.channelId, opts.channelId)
+    : eq(communityReadState.dmConversationId, opts.dmConversationId!);
+
+  const rows = await db
+    .select({
+      botUserId: user.id,
+      name: user.name,
+      machineId: communityBotBinding.machineId,
+      runtime: communityBotBinding.runtime,
+      lastReadSeq: communityReadState.lastReadSeq,
+    })
+    .from(user)
+    .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
+    .leftJoin(communityReadState, and(eq(communityReadState.userId, user.id), scopeCond))
+    .where(
+      and(
+        inArray(user.id, opts.recipients),
+        eq(user.isBot, true),
+        isNull(user.deletedAt)
+      )
+    );
+
+  return rows
+    .filter((r) => (r.lastReadSeq ?? 0) < opts.newSeq)
+    .map((r) => ({ botUserId: r.botUserId, name: r.name, machineId: r.machineId, runtime: r.runtime }));
+}
+
+/**
+ * Discriminated bot-state lookup for the unread-wake rebuild path
+ * (`buildUnreadWakeCommand`). A single D1 hit that distinguishes exactly why
+ * a bot isn't wake-able (missing / soft-deleted / no machine binding) from
+ * the happy path — the caller `ack()`s the queue item for every non-`ready`
+ * state, never `retry()`s a permanent miss.
+ */
+export type BotWakeContext =
+  | { state: "bot_missing" }
+  | { state: "bot_deleted" }
+  | { state: "bot_unbound" }
+  | { state: "ready"; botUserId: string; name: string; machineId: string; runtime: string };
+
+export async function getBotWakeContext(db: Database, botUserId: string): Promise<BotWakeContext> {
+  const rows = await db
+    .select({
+      id: user.id,
+      name: user.name,
+      isBot: user.isBot,
+      deletedAt: user.deletedAt,
+      machineId: communityBotBinding.machineId,
+      runtime: communityBotBinding.runtime,
+    })
+    .from(user)
+    .leftJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
+    .where(eq(user.id, botUserId))
+    .limit(1);
+  const r = rows[0];
+  if (!r || !r.isBot) return { state: "bot_missing" };
+  if (r.deletedAt) return { state: "bot_deleted" };
+  if (!r.machineId || !r.runtime) return { state: "bot_unbound" };
+  return { state: "ready", botUserId: r.id, name: r.name, machineId: r.machineId, runtime: r.runtime };
 }
 
 /** Bots bound to this machine — daemon cold-start warmup uses this. */

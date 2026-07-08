@@ -3,7 +3,6 @@ import { queries, CommunityDaemonSendAsBotRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withCommunityDaemonAuth } from "@/lib/middleware/community-daemon-auth"
 import { createCommunityMessage } from "@/lib/community/message-handler"
-import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 import { requireNotBlocked } from "@/lib/community/permissions"
 
 /**
@@ -67,23 +66,14 @@ export const POST = withCommunityDaemonAuth(async (req: NextRequest, ctx) => {
         mentionType: body.mentionType,
         attachments: body.attachments,
       },
+      source: "daemon-http",
     })
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status })
     }
-    logAudit(db, {
-      serverId: channel.serverId,
-      actorId: botId,
-      action: COMMUNITY_AUDIT_ACTIONS.MESSAGE_AUTHORED_AS_BOT,
-      targetType: "message",
-      targetId: result.row.id,
-      changes: JSON.stringify({
-        botId,
-        target: "channel",
-        targetId: body.targetId,
-        messageId: result.row.id,
-      }),
-    })
+    // MESSAGE_AUTHORED_AS_BOT audit now fires from inside createCommunityMessage
+    // itself (plan §10) — do not re-add a call here, or every bot message gets
+    // audited twice.
     return NextResponse.json({ messageId: result.row.id })
   }
 
@@ -111,22 +101,13 @@ export const POST = withCommunityDaemonAuth(async (req: NextRequest, ctx) => {
       replyToId: body.replyToId,
       attachments: body.attachments,
     },
+    source: "daemon-http",
   })
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status })
   }
-  logAudit(db, {
-    serverId: null,
-    actorId: botId,
-    action: COMMUNITY_AUDIT_ACTIONS.MESSAGE_AUTHORED_AS_BOT,
-    targetType: "message",
-    targetId: result.row.id,
-    changes: JSON.stringify({
-      botId,
-      target: "dm",
-      targetId: dm.id,
-      messageId: result.row.id,
-    }),
-  })
+  // MESSAGE_AUTHORED_AS_BOT audit now fires from inside createCommunityMessage
+  // itself (plan §10) — do not re-add a call here, or every bot message gets
+  // audited twice.
   return NextResponse.json({ messageId: result.row.id })
 })

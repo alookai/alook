@@ -32,6 +32,7 @@
   "license": "Apache-2.0",
   "private": true,
   "dependencies": {
+    "@alook/shared": "workspace:*",
     "commander": "^15.0.0",
     "ws": "^8.21.0"
   },

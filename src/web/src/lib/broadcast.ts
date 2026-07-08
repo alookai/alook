@@ -1,6 +1,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare"
 import type { WsMessage, DaemonPushMessage } from "@alook/shared"
 import { DEV_WS_DO_URL, createLogger } from "@alook/shared"
+import { fetchViaBindingOrDevFallback } from "./dev-binding-fetch"
 
 const log = createLogger({ service: "broadcast" })
 
@@ -12,8 +13,9 @@ const log = createLogger({ service: "broadcast" })
  * non-OK status (5xx), falls through to an HTTP fetch against
  * `env.DEV_WS_DO_URL` (or the shared default in `@alook/shared`).
  *
- * Owns the "try binding → non-OK/throw → HTTP fallback" pattern in one
- * place so callers don't reinvent it (and don't drift on the fallback URL).
+ * Thin wrapper around `fetchViaBindingOrDevFallback` — see that module for
+ * the actual "try binding → non-OK/throw → HTTP fallback" decision tree so
+ * callers (this + `wake-transport.ts`) don't reinvent it.
  *
  * Pass `opts.label` / `opts.type` to enrich the on-call diagnostic emitted
  * when the binding returns non-OK — e.g. `{ label: userId, type: message.type }`.
@@ -24,72 +26,12 @@ export async function wsDoFetch(
   init: RequestInit,
   opts?: { label?: string; type?: string },
 ): Promise<Response> {
-  // Try service binding first.
-  const binding = env.WS_DO_WORKER
-  let bindingAttempted = false
-  if (binding) {
-    bindingAttempted = true
-    try {
-      const res = await binding.fetch(`http://internal${path}`, init)
-      if (res.ok) return res
-      // 4xx = client error — don't retry; fallback will return the same status.
-      if (res.status >= 400 && res.status < 500) {
-        log.warn("broadcast service-binding non-ok (client-error)", {
-          label: opts?.label,
-          type: opts?.type,
-          path,
-          status: res.status,
-        })
-        return res
-      }
-      // 5xx — fall through to HTTP fallback so the message isn't silently dropped.
-      log.warn("broadcast service-binding non-ok", {
-        label: opts?.label,
-        type: opts?.type,
-        path,
-        status: res.status,
-      })
-    } catch (err) {
-      log.warn("broadcast service-binding threw, falling back", {
-        label: opts?.label,
-        type: opts?.type,
-        path,
-        err: String(err),
-      })
-    }
-  }
-
-  // HTTP fallback.
-  const base = env.DEV_WS_DO_URL || DEV_WS_DO_URL
-  try {
-    const res = await fetch(`${base}${path}`, init)
-    if (!res.ok) {
-      log.error("broadcast HTTP fallback non-ok", {
-        label: opts?.label,
-        type: opts?.type,
-        path,
-        status: res.status,
-        url: base,
-      })
-    } else if (bindingAttempted) {
-      // Only meaningful when the fallback rescued a failed binding call.
-      log.info("broadcast HTTP fallback recovered", {
-        label: opts?.label,
-        type: opts?.type,
-        path,
-      })
-    }
-    return res
-  } catch (err) {
-    log.error("broadcast HTTP fallback threw", {
-      label: opts?.label,
-      type: opts?.type,
-      path,
-      url: base,
-      err: String(err),
-    })
-    throw err
-  }
+  return fetchViaBindingOrDevFallback(env.WS_DO_WORKER, env.DEV_WS_DO_URL || DEV_WS_DO_URL, path, init, {
+    logPrefix: "broadcast",
+    log,
+    label: opts?.label,
+    type: opts?.type,
+  })
 }
 
 async function doSend(
@@ -118,11 +60,11 @@ function sendBroadcast(url: string, body: string, opts: { label: string; type: s
   const promise = doSend(url, body, opts)
   try {
     const { ctx } = getCloudflareContext()
-    ctx.waitUntil(promise.catch(() => {}))
+    ctx.waitUntil(promise.catch(() => { }))
   } catch {
     // Not in CF context — promise runs on its own
   }
-  return promise.then(() => {})
+  return promise.then(() => { })
 }
 
 export function broadcastToUser(userId: string, message: WsMessage): Promise<void> {
@@ -144,7 +86,7 @@ export function broadcastToDaemon(daemonId: string, message: DaemonPushMessage):
     // CF worker may terminate before the fetch completes if the response is sent early;
     // waitUntil keeps the isolate alive until the broadcast resolves.
     const { ctx } = getCloudflareContext()
-    ctx.waitUntil(promise.catch(() => {}))
+    ctx.waitUntil(promise.catch(() => { }))
   } catch {
     // Not in CF context — promise runs on its own
   }

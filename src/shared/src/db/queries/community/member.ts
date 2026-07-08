@@ -1,5 +1,5 @@
 import { eq, and, ne, inArray, count, asc, or, gt, like, isNull, sql } from "drizzle-orm";
-import { communityServerMember } from "../../community-schema";
+import { communityServerMember, communityChannel, communityDmConversation } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import {
@@ -369,6 +369,57 @@ export async function removeOwnerBotsFromServer(
   botUserIds: string[],
 ) {
   await removeOwnerBotsFromServerStatement(db, serverId, botUserIds);
+}
+
+/**
+ * Wake-dispatch access re-check (unread-wake rebuild path,
+ * `buildUnreadWakeCommand`) — scoped in SQL before returning, per
+ * AGENTS.md's "scope the queries before, not check ownership after". A
+ * queued wake item can be stale by the time it's consumed (membership
+ * revoked, DM peer changed); this must return false rather than let the
+ * caller wake a bot that lost access to the scope.
+ *
+ * Thread scopes are ordinary `communityChannel` rows (own id, own
+ * `serverId`) — the same server-membership check as a top-level channel
+ * covers them, no separate thread-membership concept exists.
+ */
+export async function canBotReadWakeScope(
+  db: Database,
+  botUserId: string,
+  scope: { channelId?: string; dmConversationId?: string }
+): Promise<boolean> {
+  if (scope.channelId) {
+    const rows = await db
+      .select({ serverId: communityChannel.serverId })
+      .from(communityChannel)
+      .innerJoin(
+        communityServerMember,
+        and(
+          eq(communityServerMember.serverId, communityChannel.serverId),
+          eq(communityServerMember.userId, botUserId)
+        )
+      )
+      .where(eq(communityChannel.id, scope.channelId))
+      .limit(1);
+    return rows.length > 0;
+  }
+  if (scope.dmConversationId) {
+    const rows = await db
+      .select({ id: communityDmConversation.id })
+      .from(communityDmConversation)
+      .where(
+        and(
+          eq(communityDmConversation.id, scope.dmConversationId),
+          or(
+            eq(communityDmConversation.user1Id, botUserId),
+            eq(communityDmConversation.user2Id, botUserId)
+          )
+        )
+      )
+      .limit(1);
+    return rows.length > 0;
+  }
+  return false;
 }
 
 export async function getCoMemberUserIds(db: Database, userId: string): Promise<string[]> {

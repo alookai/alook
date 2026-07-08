@@ -5,6 +5,7 @@ packages:
   - "src/web"
   - "src/email-worker"
   - "src/ws-do"
+  - "src/wake-worker"
   - "src/app"
   - "src/desktop"
   - "tests/utils"

@@ -115,6 +115,12 @@ export const communityMessage = sqliteTable(
       () => communityDmConversation.id,
       { onDelete: "cascade" }
     ),
+    // Per-scope (channel or DM) monotonic sequence, assigned atomically via
+    // `community_message_seq` (see queries/community/message.ts `createMessage`).
+    // 0 is a legacy sentinel for pre-migration rows — never addressable by
+    // seq. Uniqueness enforced by partial indexes in migration 0052 (excluded
+    // here since Drizzle doesn't support partial indexes in the schema DSL).
+    seq: integer("seq").notNull().default(0),
   },
   (t) => [
     index("idx_message_channel_created").on(t.channelId, t.createdAt),
@@ -126,6 +132,14 @@ export const communityMessage = sqliteTable(
     index("idx_message_dm_created").on(t.dmConversationId, t.createdAt),
   ]
 );
+
+// 6. community_message_seq — atomic per-scope sequence counter.
+// See plans/community-agent-cli-bridge.md design §3. `nextSeq` holds the most
+// recently issued value (not "the next value to hand out" despite the name).
+export const communityMessageSeq = sqliteTable("community_message_seq", {
+  scopeKey: text("scope_key").primaryKey(), // 'channel:<id>' or 'dm:<id>'
+  nextSeq: integer("next_seq").notNull(),
+});
 
 // 7. community_server_member
 export const communityServerMember = sqliteTable(
@@ -264,6 +278,13 @@ export const communityReadState = sqliteTable(
     // INVARIANT: non-null whenever the row exists. Route writes through
     // `markReadToMessageBuilder` — never null out.
     lastReadMessageId: text("last_read_message_id"),
+    // Shared per-user cursor for humans AND bots (bots ARE users invariant).
+    // Populated by: the author read-watermark upsert inside `createMessage`
+    // (every author, bot or human), and `bumpReadCursor` (agent `ack` route
+    // only). NOT maintained by the human-only read routes
+    // (`markReadToMessageBuilder`/`markReadToMessage`/`markAllServerChannelsRead`)
+    // — an explicit, documented gap, see plans/community-agent-cli-bridge.md §4.
+    lastReadSeq: integer("last_read_seq").notNull().default(0),
   },
   (t) => [index("idx_read_state_user").on(t.userId)]
 );

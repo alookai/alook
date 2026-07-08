@@ -16,6 +16,7 @@ const mockListReactionsByMessageIds = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
 const mockCreateAttachment = vi.fn()
+const mockGetUserInternal = vi.fn()
 
 const mockFanOutToDM = vi.fn()
 const mockBroadcastToUser = vi.fn()
@@ -58,6 +59,9 @@ vi.mock("@alook/shared", async () => {
       communityReaction: {
         listReactionsByMessageIds: (...a: unknown[]) =>
           mockListReactionsByMessageIds(...a),
+      },
+      user: {
+        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
       },
     },
   }
@@ -115,6 +119,9 @@ describe("POST /api/community/dm/[id]/messages", () => {
       lastMessageAt: null,
       createdAt: "2026-06-30T00:00:00.000Z",
     })
+    // Human author by default — `createCommunityMessage`'s bot-authored audit
+    // (plan §10) only fires when `isBot === true`, which none of these tests exercise.
+    mockGetUserInternal.mockResolvedValue({ isBot: false, deletedAt: null })
     mockFanOutToDM.mockResolvedValue(undefined)
     mockBroadcastToUser.mockResolvedValue(undefined)
     mockCheckMessageRateLimit.mockResolvedValue({ allowed: true })

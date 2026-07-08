@@ -3,14 +3,15 @@ import { createMockDONamespace } from "./__mocks__/cf"
 
 // Mock ws-durable so the router import doesn't pull in cloudflare:workers
 vi.mock("./ws-durable", () => ({
-  WebSocketDurableObject: class {},
+  WebSocketDurableObject: class { },
 }))
 
 const mockHashCredential = vi.fn(async (bearer: string) => `sha256:${bearer}`)
 const mockDoNameFromHash = vi.fn((hash: string) => hash.slice(0, 32))
+const mockGetActiveDoNamesForMachine = vi.fn(async (_db: unknown, _machineId: string) => [] as string[])
 
 vi.mock("@alook/shared", () => {
-  const noopLogger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, child(){ return this } }
+  const noopLogger = { debug: () => { }, info: () => { }, warn: () => { }, error: () => { }, child() { return this } }
   return {
     createDb: () => ({}),
     createLogger: () => noopLogger,
@@ -18,6 +19,7 @@ vi.mock("@alook/shared", () => {
       communityMachine: {
         hashCredential: (bearer: string) => mockHashCredential(bearer),
         doNameFromHash: (hash: string) => mockDoNameFromHash(hash),
+        getActiveDoNamesForMachine: (db: unknown, machineId: string) => mockGetActiveDoNamesForMachine(db, machineId),
       },
     },
   }
@@ -257,6 +259,145 @@ describe("ws-do router", () => {
       // credential-hash path or touch a DO under community-machine:*.
       expect(mockHashCredential).not.toHaveBeenCalled()
       expect(res.status).toBe(400)
+    })
+  })
+
+  describe("POST /community-machine/by-id/:machineId/forward-agent-wake", () => {
+    beforeEach(() => {
+      mockGetActiveDoNamesForMachine.mockReset()
+      mockGetActiveDoNamesForMachine.mockResolvedValue([])
+    })
+
+    it("zero active doNames → { sent: 0 } without touching any DO", async () => {
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
+        method: "POST",
+        body: JSON.stringify({ type: "agent:wake" }),
+      })
+      const res = await handler.fetch(req, env as any)
+
+      expect(mockGetActiveDoNamesForMachine).toHaveBeenCalledWith({}, "machine-1")
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 0 })
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
+    })
+
+    it("single active doName, daemon connected → forwards and aggregates sent count", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
+      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "agent:wake", agentId: "bot-1" }),
+      })
+      const res = await handler.fetch(req, env as any)
+
+      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:do-abc")
+      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
+      expect(stubReq.url).toBe("http://internal/forward-agent-wake")
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 1 })
+    })
+
+    it("daemon offline (DO reports { sent: 0 }) → does not count as delivered", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-abc"])
+      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ sent: 0 }), { status: 200 }))
+
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
+        method: "POST",
+        body: JSON.stringify({ type: "agent:wake" }),
+      })
+      const res = await handler.fetch(req, env as any)
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 0 })
+    })
+
+    it("multi-doName fan-out: both DOs hit, aggregate sums delivered counts", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a", "do-b"])
+      let call = 0
+      doMock.stubFetch.mockImplementation(() => {
+        call++
+        const sent = call === 1 ? 0 : 1
+        return Promise.resolve(new Response(JSON.stringify({ sent }), { status: 200 }))
+      })
+
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
+        method: "POST",
+        body: JSON.stringify({ type: "agent:wake" }),
+      })
+      const res = await handler.fetch(req, env as any)
+
+      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:do-a")
+      expect(doMock.idFromName).toHaveBeenCalledWith("community-machine:do-b")
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 1 })
+    })
+
+    it("DO fetch throws — tolerated, other doNames still evaluated", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a", "do-b"])
+      let call = 0
+      doMock.stubFetch.mockImplementation(() => {
+        call++
+        if (call === 1) return Promise.reject(new Error("network error"))
+        return Promise.resolve(new Response(JSON.stringify({ sent: 1 }), { status: 200 }))
+      })
+
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
+        method: "POST",
+        body: JSON.stringify({ type: "agent:wake" }),
+      })
+      const res = await handler.fetch(req, env as any)
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ sent: 1 })
+    })
+
+    it("DO fetch throws with no delivery → retryable 503", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a"])
+      doMock.stubFetch.mockRejectedValue(new Error("network error"))
+
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
+        method: "POST",
+        body: JSON.stringify({ type: "agent:wake" }),
+      })
+      const res = await handler.fetch(req, env as any)
+
+      expect(res.status).toBe(503)
+      expect(await res.json()).toEqual({ error: "failed to forward agent wake" })
+    })
+
+    it("non-2xx or malformed DO responses with no delivery → retryable 503", async () => {
+      mockGetActiveDoNamesForMachine.mockResolvedValue(["do-a", "do-b"])
+      let call = 0
+      doMock.stubFetch.mockImplementation(() => {
+        call++
+        if (call === 1) return Promise.resolve(new Response("oops", { status: 502 }))
+        return Promise.resolve(new Response(JSON.stringify({ sent: "bad" }), { status: 200 }))
+      })
+
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
+        method: "POST",
+        body: JSON.stringify({ type: "agent:wake" }),
+      })
+      const res = await handler.fetch(req, env as any)
+
+      expect(res.status).toBe(503)
+      expect(await res.json()).toEqual({ error: "failed to forward agent wake" })
+    })
+
+    it("DB lookup failure → retryable 503, not offline { sent: 0 }", async () => {
+      mockGetActiveDoNamesForMachine.mockRejectedValue(new Error("d1 unreachable"))
+
+      const req = new Request("http://localhost/community-machine/by-id/machine-1/forward-agent-wake", {
+        method: "POST",
+        body: JSON.stringify({ type: "agent:wake" }),
+      })
+      const res = await handler.fetch(req, env as any)
+
+      expect(res.status).toBe(503)
+      expect(await res.json()).toEqual({ error: "failed to resolve machine" })
+      expect(doMock.stubFetch).not.toHaveBeenCalled()
     })
   })
 

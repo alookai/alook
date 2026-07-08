@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
+import { MAX_MESSAGE_CONTENT_LENGTH } from "./constants/community";
 
 // ---------------------------------------------------------------------------
 // Task status
@@ -868,7 +869,7 @@ export const CommunityMachineSummarySchema = z.object({
   availableRuntimes: z.array(CommunityMachineRuntimeSchema).default([]),
   /**
    * Last runtime error reported by the daemon (optimistically cleared on
-   * subsequent `agent:start` forward). Optional so pre-error summaries
+   * subsequent `agent:wake` forward). Optional so pre-error summaries
    * omit the field entirely — undefined == "no known error."
    */
   lastRuntimeError: z
@@ -1036,4 +1037,69 @@ export const CommunityDaemonSendAsBotRequestSchema = z.object({
 });
 export type CommunityDaemonSendAsBotRequest = z.infer<
   typeof CommunityDaemonSendAsBotRequestSchema
+>;
+
+// ---------------------------------------------------------------------------
+// Community agent CLI bridge — `withAgentRunnerAuth`-mounted `/api/community/agent/*`
+// request/response validators. Mirror the lifted `@alook/shared/community-cli-contract`
+// wire types verbatim (see `community-cli-contract.ts`). `agentId` is deliberately
+// OMITTED from every request schema below — identity comes from the `crk_` bearer
+// via `withAgentRunnerAuth`, never a client-supplied field (see plan §2/§7).
+// ---------------------------------------------------------------------------
+
+const CommunityAgentMessageContentSchema = z
+  .object({ text: z.string().min(1).max(MAX_MESSAGE_CONTENT_LENGTH) })
+  .catchall(z.unknown());
+
+const CommunityAgentSeqSchema = z.number().int().min(0);
+const CommunityAgentPositiveSeqSchema = z.number().int().min(1);
+
+export const CommunityAgentCursorSchema = z.object({
+  channel: z.string().min(1),
+  seq: CommunityAgentPositiveSeqSchema,
+});
+export type CommunityAgentCursor = z.infer<typeof CommunityAgentCursorSchema>;
+
+export const CommunityAgentSendRequestSchema = z.object({
+  channel: z.string().min(1),
+  content: CommunityAgentMessageContentSchema,
+  seenUpToSeq: CommunityAgentSeqSchema.optional(),
+});
+export type CommunityAgentSendRequest = z.infer<typeof CommunityAgentSendRequestSchema>;
+
+export const CommunityAgentInboxPullRequestSchema = z.object({
+  max: z.number().int().min(1).max(200).optional(),
+});
+export type CommunityAgentInboxPullRequest = z.infer<typeof CommunityAgentInboxPullRequestSchema>;
+
+export const CommunityAgentAckRequestSchema = z.object({
+  cursors: z.array(CommunityAgentCursorSchema).min(1),
+});
+export type CommunityAgentAckRequest = z.infer<typeof CommunityAgentAckRequestSchema>;
+
+export const CommunityAgentReadRequestSchema = z
+  .object({
+    channel: z.string().min(1),
+    before: CommunityAgentSeqSchema.optional(),
+    after: CommunityAgentSeqSchema.optional(),
+    around: CommunityAgentSeqSchema.optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  })
+  .refine(
+    (v) => [v.before, v.after, v.around].filter((x) => x !== undefined).length <= 1,
+    { message: "at most one of before/after/around may be supplied" }
+  );
+export type CommunityAgentReadRequest = z.infer<typeof CommunityAgentReadRequestSchema>;
+
+export const CommunityAgentResolveRequestSchema = z.object({
+  channel: z.string().min(1),
+  seq: CommunityAgentSeqSchema,
+});
+export type CommunityAgentResolveRequest = z.infer<typeof CommunityAgentResolveRequestSchema>;
+
+export const CommunityAgentListChannelsRequestSchema = z.object({
+  server: z.string().min(1).optional(),
+});
+export type CommunityAgentListChannelsRequest = z.infer<
+  typeof CommunityAgentListChannelsRequestSchema
 >;

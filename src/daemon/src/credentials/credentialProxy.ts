@@ -315,7 +315,7 @@ export async function startCredentialProxy(
         hostname: upstream.hostname,
         port: upstream.port || (upstream.protocol === "https:" ? 443 : 80),
         method: req.method,
-        path: joinPath(upstream.pathname, req.url ?? "/"),
+        path: joinPath(upstream.pathname, rewriteAgentPath(req.url ?? "/")),
         headers: outHeaders,
       },
       (upstreamRes) => {
@@ -372,4 +372,19 @@ function joinPath(basePath: string, reqUrl: string): string {
   const base = basePath.replace(/\/+$/, "");
   const reqPath = reqUrl.startsWith("/") ? reqUrl : `/${reqUrl}`;
   return (base + reqPath) || "/";
+}
+
+/**
+ * Rewrite the CLI's bare `/api/*` ops (`/api/send`, `/api/inboxPull`, …) onto
+ * the real server surface at `/api/community/agent/*` (design §9). This is a
+ * brand-new API — no prior contract to preserve back-compat for — so the
+ * rewrite is unconditional for anything under `/api/`; every other path
+ * passes through untouched.
+ */
+function rewriteAgentPath(reqUrl: string): string {
+  const url = new URL(reqUrl, "http://placeholder");
+  if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+    url.pathname = `/api/community/agent${url.pathname.slice("/api".length)}`;
+  }
+  return url.pathname + url.search;
 }
