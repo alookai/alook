@@ -62,7 +62,9 @@ export default async function BlogPostPage({
   const prevPost = currentIndex < posts.length - 1 ? posts[currentIndex + 1] : null;
   const nextPost = currentIndex > 0 ? posts[currentIndex - 1] : null;
 
-  const { default: PostContent } = await import(`@/content/${slug}.mdx`);
+  const { default: PostContent, jsonLd } = await import(
+    `@/content/${slug}.mdx`
+  );
 
   const blogPostingJsonLd = {
     "@context": "https://schema.org",
@@ -88,6 +90,16 @@ export default async function BlogPostPage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(blogPostingJsonLd) }}
       />
+      {jsonLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(
+              Array.isArray(jsonLd) ? jsonLd : [jsonLd]
+            ),
+          }}
+        />
+      )}
       <article className="mx-auto max-w-3xl px-6 pt-12 sm:pt-24 pb-28">
         <Link
           href="/blog"
