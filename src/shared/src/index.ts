@@ -89,6 +89,7 @@ export {
   AGENT_HANDLE_MIN_LENGTH,
   MAX_TASKS_PER_TRACE,
   DEV_PASSWORD,
+  DEV_PORTS,
   DEV_WEB_URL,
   DEV_WS_DO_URL,
   DEV_EMAIL_WORKER_URL,
@@ -162,6 +163,7 @@ export type {
   IssueStatusType,
   MessageRoleType,
   MeetingStatusType,
+  DevPortProfile,
 } from "./constants";
 
 // Schemas

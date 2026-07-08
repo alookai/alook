@@ -502,6 +502,9 @@ importers:
 
   tests/utils:
     dependencies:
+      '@alook/shared':
+        specifier: workspace:*
+        version: link:../../src/shared
       better-sqlite3:
         specifier: ^12.11.1
         version: 12.11.1

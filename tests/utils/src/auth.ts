@@ -1,6 +1,7 @@
+import { DEV_PORTS } from "@alook/shared"
 import { fetchWithRetry } from "./fetch"
 
-const APP_URL = process.env.APP_URL ?? "http://localhost:3000"
+const APP_URL = process.env.APP_URL ?? `http://localhost:${DEV_PORTS.web}`
 
 export async function signUp(email: string, password: string, name: string) {
   return fetch(`${APP_URL}/api/auth/sign-up/email`, {

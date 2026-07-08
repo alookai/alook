@@ -159,7 +159,31 @@ export function isSelfBotFriendship(id: string): boolean {
 // Dev mode auth (shared between web frontend and @alook/app CLI)
 export const DEV_PASSWORD = "dev-password-000";
 
+/**
+ * Shape shared by every "which port does each service run on" profile in the
+ * monorepo — the monorepo-local dev profile below (`DEV_PORTS`) and the
+ * self-hosted `@alook/app` profile (`DEFAULT_PORTS` in
+ * src/app/src/lib/constants.ts, which uses the 1521x range so it doesn't
+ * collide with a developer's own `pnpm dev` checkout). Same format, two
+ * separate value sets on purpose.
+ */
+export interface DevPortProfile {
+  web: number;
+  emailWorker: number;
+  wsDo: number;
+}
+
+// Ports used by `pnpm dev:*` / `wrangler dev` in this monorepo — must match
+// src/ws-do/wrangler.toml and src/email-worker/wrangler.toml's [dev] port.
+// Single source of truth for the fallback URLs below and every other
+// hardcoded "8789"/"8787"/"3000" default across web/cli/daemon.
+export const DEV_PORTS: DevPortProfile = {
+  web: 3000,
+  emailWorker: 8787,
+  wsDo: 8789,
+};
+
 // Local dev URLs (used for service-binding fallbacks)
-export const DEV_WEB_URL = process.env.ALOOK_SERVER_URL || "http://localhost:3000";
-export const DEV_WS_DO_URL = process.env.DEV_WS_DO_URL || "http://localhost:8789";
-export const DEV_EMAIL_WORKER_URL = process.env.DEV_EMAIL_WORKER_URL || "http://localhost:8787";
+export const DEV_WEB_URL = process.env.ALOOK_SERVER_URL || `http://localhost:${DEV_PORTS.web}`;
+export const DEV_WS_DO_URL = process.env.DEV_WS_DO_URL || `http://localhost:${DEV_PORTS.wsDo}`;
+export const DEV_EMAIL_WORKER_URL = process.env.DEV_EMAIL_WORKER_URL || `http://localhost:${DEV_PORTS.emailWorker}`;

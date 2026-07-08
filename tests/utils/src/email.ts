@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto"
+import { DEV_PORTS } from "@alook/shared"
 import { fetchWithRetry } from "./fetch"
 
-const EMAIL_WORKER_URL = process.env.EMAIL_WORKER_URL ?? "http://localhost:8787"
+const EMAIL_WORKER_URL = process.env.EMAIL_WORKER_URL ?? `http://localhost:${DEV_PORTS.emailWorker}`
 
 export function rawEmail(from: string, to: string, subject: string, body: string): string {
   const msgId = `<${randomUUID()}@e2e.test>`

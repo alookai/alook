@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { resolveMode, cliCommand, updateCommand, daemonCommand, isTauri, isMobile, type AlookMode } from "@alook/shared"
+import { resolveMode, cliCommand, updateCommand, daemonCommand, isTauri, isMobile, DEV_PORTS, type AlookMode } from "@alook/shared"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -23,6 +23,13 @@ export function getAppMode(): AlookMode {
 export function isLocalMode(): boolean {
   return getMode() !== "production"
 }
+
+// The local dev WS Durable Object port (see src/ws-do/wrangler.toml's [dev]
+// port, sourced from @alook/shared's DEV_PORTS). Browser-side constant
+// shared by every hook/component that dials ws-do directly in local dev —
+// keep this the single definition instead of re-reading
+// NEXT_PUBLIC_WS_DO_PORT in each call site.
+export const WS_DO_PORT_DEFAULT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || DEV_PORTS.wsDo
 
 export function cliCmd(): string {
   return cliCommand(getMode())

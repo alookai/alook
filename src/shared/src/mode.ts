@@ -1,3 +1,5 @@
+import { DEV_PORTS } from "./constants";
+
 export type AlookMode = "production" | "dev" | "app" | "desktop" | "mobile";
 
 export interface ModeSignals {
@@ -108,7 +110,7 @@ export interface BaseUrlSignals {
 }
 
 const DEFAULT_BASE_URL = "https://alook.ai";
-const DEV_BASE_URL = "http://localhost:3000";
+const DEV_BASE_URL = `http://localhost:${DEV_PORTS.web}`;
 
 export function getBaseUrl(signals: BaseUrlSignals): string {
   if (signals.serverUrl) return signals.serverUrl;

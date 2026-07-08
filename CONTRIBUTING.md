@@ -107,7 +107,7 @@ Tests run on both Ubuntu and Windows in CI.
 | `pnpm dev` | Start all dev servers (except CLI) |
 | `pnpm dev:web` | Next.js on :3000 |
 | `pnpm dev:cli` | CLI daemon |
-| `pnpm dev:email` | Email worker on :8788 |
+| `pnpm dev:email` | Email worker on :8787 |
 | `pnpm typecheck` | Typecheck all packages |
 | `pnpm lint` | Lint all packages |
 | `pnpm test` | Run all tests |
