@@ -243,7 +243,7 @@ function Marker({
       ].join(" ")}
     >
       {spinning && (
-        <span className="absolute inset-[-3px] rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+        <span className="absolute -inset-0.75 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
       )}
       {n}
     </span>

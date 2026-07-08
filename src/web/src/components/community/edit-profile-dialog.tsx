@@ -64,7 +64,9 @@ export function UserSettings({ onClose, userName, aboutMe, onSave, onLogout }: {
   const [tab, setTab] = useState("profile")
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const onSaveRef = useRef(onSave)
-  onSaveRef.current = onSave
+  useEffect(() => {
+    onSaveRef.current = onSave
+  }, [onSave])
 
   const debouncedSave = useCallback((data: { name?: string; aboutMe?: string }) => {
     if (timerRef.current) clearTimeout(timerRef.current)

@@ -302,9 +302,11 @@ export function communityWsSendTyping(target: {
 export function useCommunityWs(options?: UseCommunityWsOptions) {
   const queryClient = useQueryClient()
   const viewerUserIdRef = useRef<string | null>(options?.viewerUserId ?? null)
-  viewerUserIdRef.current = options?.viewerUserId ?? null
   const callbacksRef = useRef<CommunityWsCallbacks>(options ?? {})
-  callbacksRef.current = options ?? {}
+  useEffect(() => {
+    viewerUserIdRef.current = options?.viewerUserId ?? null
+    callbacksRef.current = options ?? {}
+  })
 
   // #3: the previous WS-driven auto-mark-read (a `useMarkChannelRead()` call
   // fired on every foreign-authored message in the focused channel) has
@@ -776,7 +778,6 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
     // === send` check below). Whoever added the second mount site should
     // co-locate them under a single root-level `useCommunityWs()` call.
     if (activeSend !== null && activeSend !== send) {
-      // eslint-disable-next-line no-console
       console.warn(
         "[useCommunityWs] Multiple instances detected — mount this hook once at the tree root.",
       )

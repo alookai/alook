@@ -141,7 +141,9 @@ export function useAgentChat(
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesSnapshotRef = useRef<Message[]>([]);
-  messagesSnapshotRef.current = messages;
+  useEffect(() => {
+    messagesSnapshotRef.current = messages;
+  });
   const [sending, setSending] = useState(false);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [taskMessages, setTaskMessages] = useState<TaskMessageResponse[]>([]);
@@ -156,7 +158,9 @@ export function useAgentChat(
   // `listArtifacts` from creating a new array reference that cascades through
   // `agentArtifacts` → `timeline` → every MessageItem re-render.
   const artifactsRef = useRef(artifacts);
-  artifactsRef.current = artifacts;
+  useEffect(() => {
+    artifactsRef.current = artifacts;
+  });
   const setArtifacts = useCallback((next: Artifact[] | ((prev: Artifact[]) => Artifact[])) => {
     setArtifactsRaw((prev) => {
       const resolved = typeof next === "function" ? next(prev) : next;
@@ -1908,7 +1912,7 @@ export function useAgentChat(
           setSending(false);
         });
     },
-    [failedSends, conversation, sending, workspaceId, startPolling],
+    [failedSends, conversation, sending, workspaceId, startPolling, setArtifacts, persistArtifactsToCache, preloadThenCleanPending],
   );
 
   const handleRetryTask = useCallback(async () => {

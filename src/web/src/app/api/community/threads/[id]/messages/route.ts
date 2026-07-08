@@ -15,7 +15,6 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const auth = await requireChannelMember(db, channelId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
-  const channel = auth.value
 
   const cursor = parseCursor(req.nextUrl.searchParams.get("cursor"))
   const pageSize = parsePageSize(req.nextUrl.searchParams.get("limit"))

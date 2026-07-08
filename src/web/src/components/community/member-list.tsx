@@ -103,6 +103,8 @@ export function MemberList({
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
 
+  // TanStack Virtual returns unstable function refs — React Compiler skips memoization.
+  // eslint-disable-next-line react-hooks/incompatible-library -- library limitation
   const rowVirtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollRef.current,

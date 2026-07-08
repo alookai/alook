@@ -19,6 +19,13 @@ type Callbacks = {
 
 const GROUP_DELAY = 300
 
+function computeRailOrder(railServerIds: string[], folders: CommunityFolder[]): string[] {
+  const inFolder = new Set(folders.flatMap((f) => f.servers.map((s) => s.id)))
+  const serverItems = railServerIds.filter((id) => !inFolder.has(id))
+  const folderItems = [...folders].sort((a, b) => a.position - b.position).map((f) => folderId(f.id))
+  return [...serverItems, ...folderItems]
+}
+
 /**
  * Multi-folder rail order hook.
  *
@@ -33,17 +40,7 @@ export function useRailOrder(
 ) {
   // Build initial rail order: servers not in any folder + folder keys sorted by position
   const folderServerSet = useRef(new Set<string>())
-  const buildRailOrder = useCallback(() => {
-    const inFolder = new Set(folders.flatMap((f) => f.servers.map((s) => s.id)))
-    folderServerSet.current = inFolder
-    const serverItems = railServerIds.filter((id) => !inFolder.has(id))
-    // Copy before sort — `folders` may be a frozen fallback while the query
-    // is loading; mutating it in place would throw.
-    const folderItems = [...folders].sort((a, b) => a.position - b.position).map((f) => folderId(f.id))
-    return [...serverItems, ...folderItems]
-  }, [railServerIds, folders])
-
-  const [railOrder, setRailOrder] = useState<string[]>(buildRailOrder)
+  const [railOrder, setRailOrder] = useState<string[]>(() => computeRailOrder(railServerIds, folders))
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set())
   const [groupTarget, setGroupTarget] = useState<string | null>(null)
 
