@@ -3,7 +3,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare"
 import { queries } from "@alook/shared"
 import { getDb } from "@/lib/db"
 
-export interface AgentRunnerAuthContext {
+interface AgentRunnerAuthContext {
   env: Env
   /** The BOT's own user id — `row.agentId` from `findActiveAgentRunnerKeyByBearer`. */
   botUserId: string
