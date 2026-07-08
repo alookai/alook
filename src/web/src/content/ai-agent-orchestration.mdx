@@ -9,6 +9,39 @@ export const metadata = {
   image: "/blog/ai-agent-orchestration/hero.webp",
 };
 
+export const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [
+      {
+        "@type": "Question",
+        name: "AI orchestration vs automation: what's the difference?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Automation runs a single task on a trigger. Orchestration coordinates several agents across a multi-step task, deciding order, handoffs, and recovery. Multi-agent workflow automation is what you get when the two combine.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Do you need to write code for AI orchestration?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Not necessarily. Building your own orchestration means writing code. A no-code platform lets you describe roles in plain language and skip the plumbing.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "When is AI orchestration overkill?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "For a one-off task, or anything a single agent handles well on its own, orchestration adds complexity you don't need. It pays off when work is repetitive, multi-step, and runs on a schedule.",
+        },
+      },
+    ],
+  },
+];
+
 # AI Orchestration: How Multiple Agents Work Together
 
 ![Hand-drawn diagram of AI orchestration as a coordination layer connecting data, analysis, writing, and delivery agents around a shared goal](/blog/ai-agent-orchestration/hero.webp)
