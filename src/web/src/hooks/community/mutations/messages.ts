@@ -914,7 +914,12 @@ export function useMarkAllInboxRead() {
       ])
     },
     onMutate: async () => {
-      queryClient.setQueryData(communityKeys.inboxUnreads(), { servers: [] })
+      // DMs live under `inboxUnreads` too — clear both keys so the popover's
+      // "caught up" empty state renders while the mutation is in flight. The
+      // `read-all` route only marks server channels; DM unread counts will
+      // re-populate on the next refetch. Users mostly hit this to clear
+      // mention/channel noise, so the brief DM flash is acceptable.
+      queryClient.setQueryData(communityKeys.inboxUnreads(), { servers: [], dms: [] })
       queryClient.setQueryData(communityKeys.inboxMentions(), { mentions: [] })
     },
     onSuccess: () => {

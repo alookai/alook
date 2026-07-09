@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import * as inboxQueries from "../../src/db/queries/community/inbox";
-import { isChannelUnread } from "../../src/db/queries/community/inbox";
+import { isChannelUnread, isDmUnread } from "../../src/db/queries/community/inbox";
 
 // These tests pin the shape of the public API; SQL behavior is covered by
 // integration runs against D1. The fact that this file imports cleanly
@@ -12,6 +12,12 @@ describe("community/inbox exports", () => {
   });
   it("exports isChannelUnread", () => {
     expect(typeof inboxQueries.isChannelUnread).toBe("function");
+  });
+  it("exports listUnreadDms", () => {
+    expect(typeof inboxQueries.listUnreadDms).toBe("function");
+  });
+  it("exports isDmUnread", () => {
+    expect(typeof inboxQueries.isDmUnread).toBe("function");
   });
 });
 
@@ -226,6 +232,129 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
       },
     ]);
     const result = await inboxQueries.listUnreadChannels(db, "u_1");
+    expect(result).toEqual([]);
+  });
+});
+
+describe("isDmUnread — predicate", () => {
+  it("no lastMessageAt → false (empty conversation)", () => {
+    expect(isDmUnread({ lastMessageAt: null, lastReadAt: null })).toBe(false);
+  });
+
+  it("no read-state, has message → true (counterparty never opened)", () => {
+    expect(
+      isDmUnread({ lastMessageAt: "2026-07-06T00:00:00.000Z", lastReadAt: null })
+    ).toBe(true);
+  });
+
+  it("lastMessageAt === lastReadAt → false (author's own send)", () => {
+    const t = "2026-07-06T00:00:00.000Z";
+    expect(isDmUnread({ lastMessageAt: t, lastReadAt: t })).toBe(false);
+  });
+
+  it("lastMessageAt > lastReadAt → true", () => {
+    expect(
+      isDmUnread({
+        lastMessageAt: "2026-07-06T00:00:05.000Z",
+        lastReadAt: "2026-07-06T00:00:00.000Z",
+      })
+    ).toBe(true);
+  });
+
+  it("lastMessageAt < lastReadAt → false", () => {
+    expect(
+      isDmUnread({
+        lastMessageAt: "2026-07-06T00:00:00.000Z",
+        lastReadAt: "2026-07-06T00:00:05.000Z",
+      })
+    ).toBe(false);
+  });
+});
+
+describe("listUnreadDms — read-watermark behaviour", () => {
+  function createUnreadDmRowMock(rows: any[]) {
+    // select → from → innerJoin → leftJoin → where
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.innerJoin = vi.fn(() => chain);
+    chain.leftJoin = vi.fn(() => chain);
+    chain.where = vi.fn(() => Promise.resolve(rows));
+    return chain;
+  }
+
+  it("returns DMs where lastMessageAt > lastReadAt", async () => {
+    const db = createUnreadDmRowMock([
+      {
+        dmConversationId: "dm_1",
+        user1Id: "u_viewer",
+        user2Id: "u_alice",
+        lastMessageAt: "2026-07-06T00:00:05.000Z",
+        lastReadAt: "2026-07-06T00:00:00.000Z",
+        otherUserId: "u_alice",
+        otherUserName: "Alice",
+        otherUserImage: null,
+      },
+    ]);
+    const result = await inboxQueries.listUnreadDms(db, "u_viewer");
+    expect(result).toHaveLength(1);
+    expect(result[0]!.dmConversationId).toBe("dm_1");
+    expect(result[0]!.otherUserId).toBe("u_alice");
+  });
+
+  it("filters out DMs where author's watermark equals lastMessageAt", async () => {
+    const ts = "2026-07-06T00:00:00.000Z";
+    const db = createUnreadDmRowMock([
+      {
+        dmConversationId: "dm_1",
+        user1Id: "u_viewer",
+        user2Id: "u_alice",
+        lastMessageAt: ts,
+        lastReadAt: ts, // viewer sent last, watermark aligned
+        otherUserId: "u_alice",
+        otherUserName: "Alice",
+        otherUserImage: null,
+      },
+    ]);
+    const result = await inboxQueries.listUnreadDms(db, "u_viewer");
+    expect(result).toEqual([]);
+  });
+
+  it("returns DM the viewer has never opened (lastReadAt null, lastMessageAt set)", async () => {
+    const db = createUnreadDmRowMock([
+      {
+        dmConversationId: "dm_1",
+        user1Id: "u_alice",
+        user2Id: "u_viewer",
+        lastMessageAt: "2026-07-06T00:00:00.000Z",
+        lastReadAt: null,
+        otherUserId: "u_alice",
+        otherUserName: "Alice",
+        otherUserImage: "https://cdn/a.png",
+      },
+    ]);
+    const result = await inboxQueries.listUnreadDms(db, "u_viewer");
+    expect(result).toHaveLength(1);
+    expect(result[0]!.otherUserImage).toBe("https://cdn/a.png");
+  });
+
+  it("skips empty conversations (lastMessageAt null)", async () => {
+    // The WHERE clause filters this on the DB side (`isNotNull(lastMessageAt)`),
+    // but the JS predicate is defensive — pinning both layers together lets us
+    // catch a regression where either drops the guard.
+    const db = createUnreadDmRowMock([
+      {
+        dmConversationId: "dm_1",
+        user1Id: "u_viewer",
+        user2Id: "u_alice",
+        lastMessageAt: null,
+        lastReadAt: null,
+        otherUserId: "u_alice",
+        otherUserName: "Alice",
+        otherUserImage: null,
+      },
+    ]);
+    const result = await inboxQueries.listUnreadDms(db, "u_viewer");
     expect(result).toEqual([]);
   });
 });

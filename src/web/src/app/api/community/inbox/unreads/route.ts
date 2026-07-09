@@ -7,6 +7,7 @@ import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON } from "@/lib/middleware/helpers"
 import { parseBoundedInt } from "@/lib/community/messages"
+import { avatarInitial } from "@/lib/community/avatar"
 
 export const GET = withAuth(async (req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -17,10 +18,11 @@ export const GET = withAuth(async (req, ctx) => {
     MAX_INBOX_PAGE_SIZE,
   )
 
-  const [unread, settings, mentions] = await Promise.all([
+  const [unread, settings, mentions, unreadDms] = await Promise.all([
     queries.communityInbox.listUnreadChannels(db, ctx.userId),
     queries.communityNotificationSetting.getSettings(db, ctx.userId),
     queries.communityMention.listUnreadMentions(db, ctx.userId),
+    queries.communityInbox.listUnreadDms(db, ctx.userId),
   ])
 
   const mutedServers = new Set<string>()
@@ -88,5 +90,21 @@ export const GET = withAuth(async (req, ctx) => {
   }
   const truncated = total < allServers.reduce((n, s) => n + s.channels.length, 0)
 
-  return writeJSON({ servers, limit, truncated })
+  // DMs are a flat list sorted most-recent first. DM notification settings
+  // don't exist today (`communityNotificationSetting` scopes are server/channel
+  // only), so no muting pass — every unread DM the viewer participates in
+  // surfaces. Blocked-user filtering intentionally stays off: DM messages
+  // route gates on `requireDMParticipant`; an unread from a blocked user is
+  // still the viewer's DM and should appear here.
+  const dms = unreadDms
+    .map((d) => ({
+      dmConversationId: d.dmConversationId,
+      otherUserId: d.otherUserId,
+      otherUserName: d.otherUserName,
+      otherUserAvatar: d.otherUserImage ?? avatarInitial(d.otherUserName),
+      lastMessageAt: d.lastMessageAt,
+    }))
+    .sort((a, b) => (a.lastMessageAt < b.lastMessageAt ? 1 : -1))
+
+  return writeJSON({ servers, dms, limit, truncated })
 })

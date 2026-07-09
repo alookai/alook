@@ -3,10 +3,11 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
-import type { UnreadServer, Mention } from "@/components/community/_types"
+import type { UnreadServer, UnreadDm, Mention } from "@/components/community/_types"
 
 // Frozen empty fallbacks — see `use-servers.ts` for the rationale.
 const EMPTY_UNREADS: readonly UnreadServer[] = Object.freeze([])
+const EMPTY_DMS: readonly UnreadDm[] = Object.freeze([])
 const EMPTY_MENTIONS: readonly Mention[] = Object.freeze([])
 
 /**
@@ -22,13 +23,14 @@ const EMPTY_MENTIONS: readonly Mention[] = Object.freeze([])
  *   refresh doesn't re-render the other).
  */
 
-export type UnreadsResponse = { servers: UnreadServer[] }
+export type UnreadsResponse = { servers: UnreadServer[]; dms: UnreadDm[] }
 
 export const inboxUnreadsQueryFn = () =>
   apiFetch<UnreadsResponse>("/api/community/inbox/unreads")
 
 export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   servers: UnreadServer[]
+  dms: UnreadDm[]
 } {
   const query = useQuery({
     queryKey: communityKeys.inboxUnreads(),
@@ -37,6 +39,7 @@ export function useInboxUnreads(): UseQueryResult<UnreadsResponse> & {
   return {
     ...query,
     servers: query.data?.servers ?? (EMPTY_UNREADS as UnreadServer[]),
+    dms: query.data?.dms ?? (EMPTY_DMS as UnreadDm[]),
   }
 }
 

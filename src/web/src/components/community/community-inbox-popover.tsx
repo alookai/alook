@@ -4,17 +4,36 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { EmptyState } from "./empty-state"
-import type { Mention, UnreadServer } from "./_types"
+import type { Mention, UnreadDm, UnreadServer } from "./_types"
 
-function UnreadsTab({ servers, loading, onOpenChannel }: {
+function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
   servers: UnreadServer[]
+  dms: UnreadDm[]
   loading?: boolean
   onOpenChannel?: (serverId: string, channelId: string) => void
+  onOpenDm?: (dmId: string) => void
 }) {
+  const nothingUnread = servers.length === 0 && dms.length === 0
   return (
     <div className="h-full overflow-y-auto thin-scrollbar p-3">
-      {loading && servers.length === 0 && <InboxUnreadsSkeleton />}
-      {!loading && servers.length === 0 && <EmptyState icon={Inbox} label="Caught up" />}
+      {loading && nothingUnread && <InboxUnreadsSkeleton />}
+      {!loading && nothingUnread && <EmptyState icon={Inbox} label="Caught up" />}
+      {dms.length > 0 && (
+        <div className="mb-3">
+          <div className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Direct Messages</div>
+          {dms.map((d) => (
+            <button
+              key={d.dmConversationId}
+              onClick={() => onOpenDm?.(d.dmConversationId)}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
+            >
+              <Avatar label={d.otherUserAvatar} size={24} />
+              <span className="min-w-0 flex-1 truncate">{d.otherUserName}</span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+            </button>
+          ))}
+        </div>
+      )}
       {servers.map((s) => (
         <div key={s.serverId} className="mb-3">
           <div className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{s.serverName}</div>
@@ -81,22 +100,27 @@ function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention }: {
 
 export function InboxPopover({
   unreads,
+  unreadDms,
   mentions,
   loading,
   onOpenChannel,
+  onOpenDm,
   onOpenMention,
   onDeleteMention,
   onMarkAllRead,
 }: {
   unreads: UnreadServer[]
+  unreadDms: UnreadDm[]
   mentions: Mention[]
   loading?: boolean
   onOpenChannel?: (serverId: string, channelId: string) => void
+  onOpenDm?: (dmId: string) => void
   onOpenMention?: (m: Mention) => void
   onDeleteMention?: (id: string) => void
   onMarkAllRead?: () => void
 }) {
-  const hasAnything = unreads.length > 0 || mentions.length > 0
+  const hasUnreads = unreads.length > 0 || unreadDms.length > 0
+  const hasAnything = hasUnreads || mentions.length > 0
   return (
     <Tabs defaultValue="unreads" className="flex h-112 flex-col">
       <div className="flex items-center gap-2 px-3 pt-4">
@@ -116,7 +140,7 @@ export function InboxPopover({
         <TabsTrigger value="unreads">
           <span className="inline-flex items-center gap-2">
             Unreads
-            {unreads.length > 0 && <span className="size-1.5 rounded-full bg-primary" />}
+            {hasUnreads && <span className="size-1.5 rounded-full bg-primary" />}
           </span>
         </TabsTrigger>
         <TabsTrigger value="mentions">
@@ -127,7 +151,7 @@ export function InboxPopover({
         </TabsTrigger>
       </TabsList>
       <TabsContent value="unreads" className="min-h-0 flex-1">
-        <UnreadsTab servers={unreads} loading={loading} onOpenChannel={onOpenChannel} />
+        <UnreadsTab servers={unreads} dms={unreadDms} loading={loading} onOpenChannel={onOpenChannel} onOpenDm={onOpenDm} />
       </TabsContent>
       <TabsContent value="mentions" className="min-h-0 flex-1">
         <MentionsTab mentions={mentions} loading={loading} onOpenMention={onOpenMention} onDeleteMention={onDeleteMention} />

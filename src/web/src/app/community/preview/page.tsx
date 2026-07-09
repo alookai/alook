@@ -115,6 +115,7 @@ export default function CommunityPreview() {
     inbox: (
       <InboxPopover
         unreads={unreadFeed}
+        unreadDms={[]}
         mentions={MENTIONS}
         onOpenChannel={openServerChannel}
         onMarkAllRead={() => {}}

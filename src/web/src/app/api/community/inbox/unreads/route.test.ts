@@ -4,6 +4,7 @@ import { NextRequest } from "next/server"
 const mockListUnreadChannels = vi.fn()
 const mockGetSettings = vi.fn()
 const mockListUnreadMentions = vi.fn()
+const mockListUnreadDms = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -18,6 +19,7 @@ vi.mock("@alook/shared", async () => {
     queries: {
       communityInbox: {
         listUnreadChannels: (...args: unknown[]) => mockListUnreadChannels(...args),
+        listUnreadDms: (...args: unknown[]) => mockListUnreadDms(...args),
       },
       communityNotificationSetting: {
         getSettings: (...args: unknown[]) => mockGetSettings(...args),
@@ -63,6 +65,7 @@ describe("GET /api/community/inbox/unreads", () => {
     vi.clearAllMocks()
     mockGetSettings.mockResolvedValue([])
     mockListUnreadMentions.mockResolvedValue([])
+    mockListUnreadDms.mockResolvedValue([])
   })
 
   it("groups channels by server", async () => {
@@ -143,5 +146,44 @@ describe("GET /api/community/inbox/unreads", () => {
     const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads?limit=10"))
     const body = await res.json()
     expect(body.truncated).toBe(false)
+  })
+
+  it("returns unread DMs sorted most-recent first", async () => {
+    mockListUnreadChannels.mockResolvedValue([])
+    mockListUnreadDms.mockResolvedValue([
+      { dmConversationId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserImage: null, lastMessageAt: "2026-06-25T09:00:00Z" },
+      { dmConversationId: "dm_2", otherUserId: "u3", otherUserName: "Bob", otherUserImage: "https://cdn/b.png", lastMessageAt: "2026-06-25T11:00:00Z" },
+    ])
+
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.dms).toHaveLength(2)
+    expect(body.dms[0].dmConversationId).toBe("dm_2")
+    expect(body.dms[0].otherUserAvatar).toBe("https://cdn/b.png")
+    expect(body.dms[1].dmConversationId).toBe("dm_1")
+    // No cdn image → avatar falls back to the initial letter.
+    expect(body.dms[1].otherUserAvatar).toBe("A")
+  })
+
+  it("returns empty dms array when only channels are unread", async () => {
+    mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
+    mockListUnreadDms.mockResolvedValue([])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.dms).toEqual([])
+    expect(body.servers).toHaveLength(1)
+  })
+
+  it("returns dms alongside servers when both have unreads", async () => {
+    mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
+    mockListUnreadDms.mockResolvedValue([
+      { dmConversationId: "dm_1", otherUserId: "u2", otherUserName: "Alice", otherUserImage: null, lastMessageAt: "2026-06-25T12:00:00Z" },
+    ])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.servers).toHaveLength(1)
+    expect(body.dms).toHaveLength(1)
   })
 })

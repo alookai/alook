@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
+import { communityKeys } from "@/lib/query-keys"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { AppSurface } from "@/components/ui/app-surface"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -96,8 +98,10 @@ export function ShellFrame({
   const inboxUnreads = useInboxUnreads()
   const inboxMentions = useInboxMentions()
   const unreadFeed = inboxUnreads.servers
+  const unreadDms = inboxUnreads.dms
   const mentions = inboxMentions.mentions
   const inboxLoading = inboxUnreads.isLoading || inboxMentions.isLoading
+  const queryClient = useQueryClient()
 
   // Mutations wired through the shell.
   const createServer = useCreateServer()
@@ -395,12 +399,34 @@ export function ShellFrame({
     [router],
   )
 
+  const openInboxDm = useCallback(
+    (dmId: string) => {
+      // Mirrors the DM sidebar's `enterDm` (see app/community/me/layout.tsx):
+      // client-only optimistic clear on `communityKeys.dms()` — no eager
+      // mark-read PUT. Eagerly aligning the read pointer to the tail here
+      // would resolve the DM's read-state snapshot at tail on mount and
+      // suppress the NEW divider. The DM page's IntersectionObserver
+      // (`useDmWatermark`) is authoritative for advancing the server pointer.
+      queryClient.setQueryData(
+        communityKeys.dms(),
+        (prev: { conversations: { id: string; unread?: boolean }[] } | undefined) =>
+          prev
+            ? { ...prev, conversations: prev.conversations.map((d) => (d.id === dmId ? { ...d, unread: false } : d)) }
+            : prev,
+      )
+      router.push(`/community/me/${dmId}`)
+    },
+    [router, queryClient],
+  )
+
   const inboxElement = (
     <InboxPopover
       unreads={unreadFeed}
+      unreadDms={unreadDms}
       mentions={mentions}
       loading={inboxLoading}
       onOpenChannel={openServerChannel}
+      onOpenDm={openInboxDm}
       onOpenMention={(mention) => {
         if (mention.serverId && mention.channelId) openServerChannel(mention.serverId, mention.channelId)
       }}
@@ -409,7 +435,7 @@ export function ShellFrame({
     />
   )
   const inboxHasUnread =
-    (unreadFeed?.length ?? 0) > 0 || (mentions?.length ?? 0) > 0
+    (unreadFeed?.length ?? 0) > 0 || (unreadDms?.length ?? 0) > 0 || (mentions?.length ?? 0) > 0
 
   const userSettingsDialog = (
     <Dialog open={editingProfile} onOpenChange={(o) => { if (!o) setEditingProfile(false) }}>

@@ -236,5 +236,15 @@ export type UnreadServer = {
   }>
 }
 
+// "Unreads" — DMs with unread messages, rendered as a flat sibling section
+// under the same Unreads tab as channels.
+export type UnreadDm = {
+  dmConversationId: string
+  otherUserId: string
+  otherUserName: string
+  otherUserAvatar: string
+  lastMessageAt: string
+}
+
 // Shared callback signature for opening a user's profile card at a click point.
 export type OpenProfile = (name: string, e: React.MouseEvent) => void

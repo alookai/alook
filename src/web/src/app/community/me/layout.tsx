@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { usePathname, useRouter, useParams } from "next/navigation"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ShellFrame } from "@/components/community/shell-frame"
@@ -9,7 +10,7 @@ import type { MobileZone } from "@/components/community/_types"
 import { useCommunityStore, useCurrentChannelId } from "@/stores/community"
 import { useDms } from "@/hooks/community/use-dms"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
-import { useMarkDmRead } from "@/hooks/community/mutations"
+import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
 
 // DM-side layout. The DM subtree has no server settings, no channel sidebar,
@@ -33,7 +34,7 @@ export default function MeLayout({ children }: { children: ReactNode }) {
   )
   const { blocked } = useFriends()
   const currentChannelId = useCurrentChannelId()
-  const markDmRead = useMarkDmRead()
+  const queryClient = useQueryClient()
 
   // Clear the active server when entering the DM home. `currentServerId ===
   // null` is the canonical "no server focused" state — no need for a "@me"
@@ -61,11 +62,30 @@ export default function MeLayout({ children }: { children: ReactNode }) {
 
   const [mobileZone, setMobileZone] = useState<MobileZone>(() => (hasDm ? "messages" : "nav"))
 
+  // Mirror channel sidebar-click behavior (channels/layout.tsx:226-236): do
+  // NOT eagerly mark the DM read on click. That fires a bodyless
+  // `PUT /dm/:id/read` which the server aligns to the DM's tail (see
+  // api/community/dm/[id]/read/route.ts) — the read-state snapshot then
+  // resolves at the tail on mount and `newDividerBefore` computes to
+  // `undefined`, so unread DMs open at the bottom with no NEW divider.
+  //
+  // Instead: client-only optimistic tint on the DM sidebar row so the badge
+  // fades on click (matches the pre-fix UX). The IntersectionObserver in
+  // `useDmWatermark` is authoritative — it advances the server pointer as the
+  // viewer actually looks at messages. If the user opens then leaves without
+  // scrolling to the new messages, the server watermark stays put and the
+  // badge re-appears on the next refetch, which is the correct behavior.
   const enterDm = useCallback((id: string) => {
-    markDmRead.mutate({ dmId: id })
+    queryClient.setQueryData(
+      communityKeys.dms(),
+      (prev: { conversations: { id: string; unread?: boolean }[] } | undefined) =>
+        prev
+          ? { ...prev, conversations: prev.conversations.map((d) => (d.id === id ? { ...d, unread: false } : d)) }
+          : prev,
+    )
     router.push(`/community/me/${id}`)
     if (bp === "mobile") setMobileZone("messages")
-  }, [markDmRead, router, bp])
+  }, [queryClient, router, bp])
 
   const onShowFriends = useCallback(() => {
     useCommunityStore.getState().setCurrentChannelId(null)

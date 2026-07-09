@@ -938,7 +938,7 @@ describe("useMarkAllInboxRead", () => {
     const mod = await loadMod()
     mod.useMarkAllInboxRead()
     await runMutation<void>(undefined as unknown as void)
-    expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toEqual({ servers: [] })
+    expect(capturedQc.getQueryData(communityKeys.inboxUnreads())).toEqual({ servers: [], dms: [] })
     expect(capturedQc.getQueryData(communityKeys.inboxMentions())).toEqual({ mentions: [] })
   })
 

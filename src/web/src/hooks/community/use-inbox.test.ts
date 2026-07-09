@@ -13,13 +13,13 @@ beforeEach(() => {
 
 describe("useInboxUnreads / inboxUnreadsQueryFn", () => {
   it("fetches /inbox/unreads and populates queryClient at communityKeys.inboxUnreads()", async () => {
-    apiFetchMock.mockResolvedValueOnce({ servers: [] })
+    apiFetchMock.mockResolvedValueOnce({ servers: [], dms: [] })
     const { inboxUnreadsQueryFn } = await import("./use-inbox")
     const qc = new QueryClient()
     const key = communityKeys.inboxUnreads()
     await qc.fetchQuery({ queryKey: key, queryFn: inboxUnreadsQueryFn })
     expect(apiFetchMock).toHaveBeenCalledWith("/api/community/inbox/unreads")
-    expect(qc.getQueryData(key)).toEqual({ servers: [] })
+    expect(qc.getQueryData(key)).toEqual({ servers: [], dms: [] })
   })
 })
 
@@ -40,7 +40,7 @@ describe("useInboxMentions / inboxMentionsQueryFn", () => {
 describe("communityKeys.inbox() prefix invalidation", () => {
   it("invalidates both inbox queries in a single call", async () => {
     apiFetchMock
-      .mockResolvedValueOnce({ servers: [] })
+      .mockResolvedValueOnce({ servers: [], dms: [] })
       .mockResolvedValueOnce({ mentions: [] })
     const { inboxUnreadsQueryFn, inboxMentionsQueryFn } = await import(
       "./use-inbox"
