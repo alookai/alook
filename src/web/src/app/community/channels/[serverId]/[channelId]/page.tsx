@@ -152,8 +152,18 @@ function ChannelView() {
   // walk, the divider anchors above the viewer's OWN just-sent message,
   // which is never "unread" from the sender's perspective.
   const newDividerBefore = useMemo(() => {
-    const lastId = readSnapshot?.lastReadMessageId
-    if (!lastId) return undefined
+    if (!readSnapshot) return undefined
+    const lastId = readSnapshot.lastReadMessageId
+    // First-visit case (viewer never read this channel): anchor the
+    // divider on the first non-self message so users landing from
+    // inbox / rail see "here's what you missed" instead of the bottom.
+    // Mirrors the DM view for parity.
+    if (!lastId) {
+      for (const m of messages) {
+        if (m.authorId !== currentUser.id) return m.id
+      }
+      return undefined
+    }
     const idx = messages.findIndex((m) => m.id === lastId)
     if (idx === -1) return undefined
     for (let i = idx + 1; i < messages.length; i++) {

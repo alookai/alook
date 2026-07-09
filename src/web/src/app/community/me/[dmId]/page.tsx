@@ -97,8 +97,19 @@ function DmView() {
   // own watermark on POST, so anchoring above the viewer's own row would
   // never be "unread" from the sender's perspective).
   const newDividerBefore = useMemo(() => {
-    const lastId = readSnapshot?.lastReadMessageId
-    if (!lastId) return undefined
+    if (!readSnapshot) return undefined
+    const lastId = readSnapshot.lastReadMessageId
+    // First-visit case: viewer never opened this DM (no read-state row
+    // yet). The inbox surfaces the DM as unread, so the whole loaded
+    // window is unread from the viewer's perspective — anchor the
+    // divider on the first non-self message so the user lands centered
+    // on "here's what you missed" instead of the bottom.
+    if (!lastId) {
+      for (const m of messages) {
+        if (m.authorId !== currentUser.id) return m.id
+      }
+      return undefined
+    }
     const idx = messages.findIndex((m) => m.id === lastId)
     if (idx === -1) return undefined
     for (let i = idx + 1; i < messages.length; i++) {
