@@ -33,6 +33,7 @@ import { createLogger, type Logger } from "../logger.js";
 import type { Driver, LaunchContext } from "../types.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import type { UnreadNotice, HostCommand } from "../server/contract.js";
+import { formatHandle } from "@alook/shared/lib/discriminator";
 
 // Cold-start warmup backoff schedule (ms).
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
@@ -137,10 +138,10 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   //
   // Note: `cmk_`-rotation-implies-re-pair is documented as an assumption;
   // runtime code doesn't handle rotation.
-  const botsById = new Map<string, { name: string; description?: string }>();
+  const botsById = new Map<string, { name: string; discriminator: string; description?: string }>();
 
   async function listMyBotsHttp(): Promise<
-    Array<{ id: string; name: string; description?: string }>
+    Array<{ id: string; name: string; discriminator: string; description?: string }>
   > {
     const res = await fetch(`${opts.serverUrl}/api/community/daemon/bots`, {
       method: "GET",
@@ -148,7 +149,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     });
     if (!res.ok) throw new Error(`listMyBots ${res.status}`);
     const json = (await res.json()) as {
-      bots?: Array<{ id: string; name: string; description?: string }>;
+      bots?: Array<{ id: string; name: string; discriminator: string; description?: string }>;
     };
     return json.bots ?? [];
   }
@@ -162,7 +163,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         // Server snapshot wins — reconcile the cache.
         botsById.clear();
         for (const b of bots) {
-          botsById.set(b.id, { name: b.name, description: b.description });
+          botsById.set(b.id, { name: b.name, discriminator: b.discriminator, description: b.description });
         }
         log.info("cold-start bot-cache warmup succeeded", { bots: bots.length, attempt });
         return;
@@ -251,12 +252,12 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   function handleBotFrame(cmd: HostCommand): void {
     switch (cmd.type) {
       case "bot:added":
-        botsById.set(cmd.botId, { name: cmd.name, description: cmd.description });
+        botsById.set(cmd.botId, { name: cmd.name, discriminator: cmd.discriminator, description: cmd.description });
         log.debug("bot:added", { botId: cmd.botId, name: cmd.name });
         break;
       case "bot:updated": {
         const prev = botsById.get(cmd.botId);
-        botsById.set(cmd.botId, { name: cmd.name, description: cmd.description });
+        botsById.set(cmd.botId, { name: cmd.name, discriminator: cmd.discriminator, description: cmd.description });
         // If a subprocess is running for this bot AND name/description changed,
         // stop it so the next wake trigger spawns a fresh subprocess with the
         // new system prompt. Rename is effective on next spawn, not mid-flight.
@@ -319,6 +320,9 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         agentCliPath: resolvedCliPath ?? opts.agentCliPath,
         config: {
           ...(botMeta?.name ? { agentName: botMeta.name } : {}),
+          ...(botMeta?.name && botMeta?.discriminator
+            ? { agentHandle: `@${formatHandle(botMeta.name, botMeta.discriminator)}` }
+            : {}),
           ...(botMeta?.description ? { description: botMeta.description } : {}),
         } as LaunchContext["config"],
       } as Omit<LaunchContext, "prompt" | "standingPrompt"> & { config?: LaunchContext["config"] };
@@ -354,7 +358,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         try {
           const bots = await listMyBotsHttp();
           for (const b of bots) {
-            botsById.set(b.id, { name: b.name, description: b.description });
+            botsById.set(b.id, { name: b.name, discriminator: b.discriminator, description: b.description });
           }
         } catch {
           // Fall through — still treat as unknown below.

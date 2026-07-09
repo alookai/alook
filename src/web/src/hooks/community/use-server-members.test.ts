@@ -78,6 +78,16 @@ describe("applyJoinEvent", () => {
     const next = applyJoinEvent(prev, joinEvent("a"), false)
     expect(next).toBe(prev)
   })
+
+  it("carries the discriminator from the event onto the produced Member", () => {
+    const prev = [m("a")]
+    const event: CommunityMemberJoin = {
+      ...joinEvent("c"),
+      member: { ...joinEvent("c").member, discriminator: "0042" },
+    }
+    const next = applyJoinEvent(prev, event, false)
+    expect(next.find((x) => x.id === "c")?.discriminator).toBe("0042")
+  })
 })
 
 describe("applyLeaveEvent", () => {

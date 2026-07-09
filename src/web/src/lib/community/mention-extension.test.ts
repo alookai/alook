@@ -9,10 +9,11 @@ import {
   type MentionPopupState,
 } from "./mention-extension"
 
-const member = (id: string, name: string): Member => ({
+const member = (id: string, name: string, discriminator?: string): Member => ({
   id,
   userId: id,
   name,
+  discriminator,
   avatar: name[0],
   status: "online",
   sub: name,
@@ -112,6 +113,35 @@ describe("rankMentionItems", () => {
     const memberIds = items.filter((i) => i.kind === "member").map((i) => i.id)
     expect(memberIds).toEqual(["m_al", "m_mal"])
   })
+
+  it("appends #0042 to the label when two ranked members share a name", () => {
+    const dupes = [
+      member("u1", "Alex", "0001"),
+      member("u2", "Alex", "0002"),
+      member("u3", "Bob", "0003"),
+    ]
+    const items = rankMentionItems(dupes, "channel", "al")
+    const labels = items.filter((i) => i.kind === "member").map((i) => i.label)
+    expect(labels.sort()).toEqual(["Alex#0001", "Alex#0002"])
+  })
+
+  it("leaves a unique name's label bare even when other names collide", () => {
+    const mixed = [
+      member("u1", "Alex", "0001"),
+      member("u2", "Alex", "0002"),
+      member("u3", "Bob", "0003"),
+    ]
+    const items = rankMentionItems(mixed, "channel", "")
+    const bob = items.find((i) => i.kind === "member" && i.id === "u3")
+    expect(bob?.label).toBe("Bob")
+  })
+
+  it("leaves the label bare when a colliding member has no discriminator", () => {
+    const noDisc = [member("u1", "Alex"), member("u2", "Alex", "0002")]
+    const items = rankMentionItems(noDisc, "channel", "")
+    const labels = items.filter((i) => i.kind === "member").map((i) => i.label)
+    expect(labels.sort()).toEqual(["Alex", "Alex#0002"])
+  })
 })
 
 // Reach into the extension the same way the composer does — read
@@ -128,6 +158,62 @@ function getItemsCallback(
   return items
 }
 
+// Same access pattern as `getItemsCallback` above — reach into the configured
+// `renderText`/`renderHTML` options rather than the tag's declared defaults.
+type RenderNodeProps = {
+  options?: { HTMLAttributes?: Record<string, unknown> }
+  node: { attrs: { label?: string | null; id?: string | null } }
+}
+
+function getRenderFns(ext: ReturnType<typeof buildCommunityMentionExtension>): {
+  renderText: (props: RenderNodeProps) => string
+  renderHTML: (props: RenderNodeProps) => unknown
+} {
+  const config = (ext as unknown as {
+    config: { addOptions?: () => { renderText?: unknown; renderHTML?: unknown } }
+  }).config
+  const opts =
+    config.addOptions?.() ??
+    (ext as unknown as { options?: { renderText?: unknown; renderHTML?: unknown } }).options
+  const renderText = opts?.renderText as ((props: RenderNodeProps) => string) | undefined
+  const renderHTML = opts?.renderHTML as ((props: RenderNodeProps) => unknown) | undefined
+  if (!renderText || !renderHTML) throw new Error("renderText/renderHTML not found")
+  return { renderText, renderHTML }
+}
+
+describe("buildCommunityMentionExtension — renderText/renderHTML", () => {
+  const build = () =>
+    buildCommunityMentionExtension({
+      membersRef: { current: [] as Member[] },
+      contextRef: { current: "channel" as MentionContext },
+      popupRef: { current: EMPTY_MENTION_STATE as MentionPopupState },
+      setPopup: () => { },
+    })
+
+  it("renderText keeps the full disambiguated label — the server needs #0042 to resolve exactly", () => {
+    const { renderText } = getRenderFns(build())
+    expect(renderText({ node: { attrs: { label: "Alex#0002", id: "m1" } } })).toBe("@Alex#0002")
+  })
+
+  it("renderHTML strips the discriminator — the in-editor chip never shows the number", () => {
+    const { renderHTML } = getRenderFns(build())
+    const spec = renderHTML({ options: { HTMLAttributes: {} }, node: { attrs: { label: "Alex#0002", id: "m1" } } })
+    expect(spec).toEqual(["span", {}, "@Alex"])
+  })
+
+  it("renderHTML leaves a bare (non-colliding) label untouched", () => {
+    const { renderHTML } = getRenderFns(build())
+    const spec = renderHTML({ options: { HTMLAttributes: {} }, node: { attrs: { label: "Bob", id: "m2" } } })
+    expect(spec).toEqual(["span", {}, "@Bob"])
+  })
+
+  it("renderHTML falls back to id when label is missing", () => {
+    const { renderHTML } = getRenderFns(build())
+    const spec = renderHTML({ options: { HTMLAttributes: {} }, node: { attrs: { label: null, id: "m3" } } })
+    expect(spec).toEqual(["span", {}, "@m3"])
+  })
+})
+
 describe("buildCommunityMentionExtension — suggestion.items callback", () => {
   it("fires onSearchMembersRef.current with the current query on each items() call", () => {
     const membersRef = { current: [] as Member[] }
@@ -139,7 +225,7 @@ describe("buildCommunityMentionExtension — suggestion.items callback", () => {
       membersRef,
       contextRef,
       popupRef,
-      setPopup: () => {},
+      setPopup: () => { },
       onSearchMembersRef,
       queryRef,
     })
@@ -161,7 +247,7 @@ describe("buildCommunityMentionExtension — suggestion.items callback", () => {
       membersRef,
       contextRef,
       popupRef,
-      setPopup: () => {},
+      setPopup: () => { },
       queryRef,
     })
     const items = getItemsCallback(ext)
@@ -181,7 +267,7 @@ describe("buildCommunityMentionExtension — suggestion.items callback", () => {
       membersRef,
       contextRef,
       popupRef,
-      setPopup: () => {},
+      setPopup: () => { },
     })
     const items = getItemsCallback(ext)
     expect(items({ query: "anything" })).toEqual([])
@@ -197,7 +283,7 @@ describe("buildCommunityMentionExtension — suggestion.items callback", () => {
       membersRef,
       contextRef,
       popupRef,
-      setPopup: () => {},
+      setPopup: () => { },
     })
     const items = getItemsCallback(ext)
     // Live refs — mutate the roster after the extension is built. items()

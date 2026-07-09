@@ -12,7 +12,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
 vi.mock("@alook/shared", () => ({
   createDb: vi.fn(() => ({})),
   queries: {
-    user: { getUser: (...args: unknown[]) => mockGetUser(...args) },
+    user: { getUserSelf: (...args: unknown[]) => mockGetUser(...args) },
   },
 }));
 

@@ -643,6 +643,10 @@ export async function getMessage(db: Database, messageId: string) {
 
 // No ordering guarantee — callers build a Map<id, row> and hydrate by id.
 // Unknown ids silently drop out via the natural WHERE id IN (...) semantics.
+//
+// `seq` is included so callers resolving a thread's parent message (e.g. the
+// threads route, plan community-channel-ref.md §3) can surface the parent's
+// per-channel sequence without a separate lookup.
 export async function getMessagesByIds(db: Database, ids: string[]) {
   if (ids.length === 0) return [];
   const rows = await db
@@ -658,6 +662,7 @@ export async function getMessagesByIds(db: Database, ids: string[]) {
       createdAt: communityMessage.createdAt,
       channelId: communityMessage.channelId,
       dmConversationId: communityMessage.dmConversationId,
+      seq: communityMessage.seq,
       authorName: user.name,
       authorEmail: user.email,
       authorImage: user.image,

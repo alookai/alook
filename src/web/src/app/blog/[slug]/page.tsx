@@ -20,6 +20,8 @@ export async function generateMetadata({
   const post = await getPostBySlug(slug);
   if (!post) return {};
 
+  const ogImage = post.image ?? `/og?title=${encodeURIComponent(post.title)}`;
+
   return {
     title: `${post.title} — Alook Blog`,
     description: post.excerpt,
@@ -33,7 +35,7 @@ export async function generateMetadata({
       authors: [post.author],
       images: [
         {
-          url: `/og?title=${encodeURIComponent(post.title)}`,
+          url: ogImage,
           width: 1200,
           height: 630,
         },
@@ -43,7 +45,7 @@ export async function generateMetadata({
       card: "summary_large_image",
       title: post.title,
       description: post.excerpt,
-      images: [`/og?title=${encodeURIComponent(post.title)}`],
+      images: [ogImage],
     },
   };
 }
@@ -62,7 +64,9 @@ export default async function BlogPostPage({
   const prevPost = currentIndex < posts.length - 1 ? posts[currentIndex + 1] : null;
   const nextPost = currentIndex > 0 ? posts[currentIndex - 1] : null;
 
-  const { default: PostContent } = await import(`@/content/${slug}.mdx`);
+  const { default: PostContent, jsonLd } = await import(
+    `@/content/${slug}.mdx`
+  );
 
   const blogPostingJsonLd = {
     "@context": "https://schema.org",
@@ -80,6 +84,7 @@ export default async function BlogPostPage({
       url: "https://alook.ai",
     },
     url: `https://alook.ai/blog/${post.slug}`,
+    ...(post.image && { image: `https://alook.ai${post.image}` }),
   };
 
   return (
@@ -88,6 +93,14 @@ export default async function BlogPostPage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(blogPostingJsonLd) }}
       />
+      {jsonLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(Array.isArray(jsonLd) ? jsonLd : [jsonLd]),
+          }}
+        />
+      )}
       <article className="mx-auto max-w-3xl px-6 pt-12 sm:pt-24 pb-28">
         <Link
           href="/blog"

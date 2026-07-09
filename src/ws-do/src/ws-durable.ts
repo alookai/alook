@@ -34,11 +34,11 @@ type ConnectionState =
   | { type: "user"; userId: string; authenticated: boolean }
   | { type: "daemon"; daemonId: string; userId: string; authenticated: boolean }
   | {
-      type: "community-machine"
-      machineId: string
-      userId: string
-      authenticated: boolean
-    }
+    type: "community-machine"
+    machineId: string
+    userId: string
+    authenticated: boolean
+  }
 
 /**
  * Persisted identity for the community-machine connection. Written once at
@@ -93,6 +93,24 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     }
 
     if (url.pathname === "/check-user-online") {
+      // This DO instance is keyed by `user:<targetUserId>` (see `idFromName`
+      // at every call site below), but a DO can't recover its own name from
+      // `ctx` on this worker's pinned compatibility_date (see
+      // plans/community-account-debt-fixes.md Fix 3) — so the caller passes
+      // the id explicitly instead. A bot has no WebSocket of its own; its
+      // "online" is `isBotOnline` (bound machine's status), not a live-socket
+      // check.
+      const targetUserId = url.searchParams.get("userId")
+      if (targetUserId) {
+        const db = createDb(this.env.DB)
+        const target = await queries.user.getUserInternal(db, targetUserId)
+        if (target?.isBot) {
+          const online = await queries.communityMachine.isBotOnline(db, targetUserId)
+          return new Response(JSON.stringify({ online }), {
+            headers: { "Content-Type": "application/json" },
+          })
+        }
+      }
       const hasAuthUser = this.ctx.getWebSockets().some(ws => {
         const s = ws.deserializeAttachment() as ConnectionState
         return s?.type === "user" && s.authenticated
@@ -128,7 +146,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       // the next inbound frame.
       const body = await request.text()
       const sent = this.forwardToCommunityMachine(body)
-      await this.clearRuntimeErrorOverlay().catch(() => {})
+      await this.clearRuntimeErrorOverlay().catch(() => { })
       return new Response(JSON.stringify({ sent }), {
         headers: { "Content-Type": "application/json" },
       })
@@ -245,7 +263,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     // If we knew the user, clear any stale lastRuntimeError overlay from the
     // web card by re-fanning the summary with no overlay.
     if (identity && hadError) {
-      await this.fanOutMachineUpdated(identity.userId, identity.machineId).catch(() => {})
+      await this.fanOutMachineUpdated(identity.userId, identity.machineId).catch(() => { })
     }
     return closed
   }
@@ -292,7 +310,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         log.info("daemon websocket authenticated", { daemonId: msg.daemonId })
         ws.send(JSON.stringify({ type: "auth.ok" }))
 
-        this.notifyUserDO(authResult.userId, { type: "runtime.status", status: "online", daemonId: msg.daemonId }).catch(() => {})
+        this.notifyUserDO(authResult.userId, { type: "runtime.status", status: "online", daemonId: msg.daemonId }).catch(() => { })
         return
       }
 
@@ -311,10 +329,10 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       log.info("websocket authenticated", { userId })
       ws.send(JSON.stringify({ type: "auth.ok" }))
       if (!wasOnline) {
-        this.broadcastPresence(userId, true).catch(() => {})
+        this.broadcastPresence(userId, true).catch(() => { })
       }
       // Send presence snapshot of online co-members + friends
-      this.sendPresenceSnapshot(ws, userId).catch(() => {})
+      this.sendPresenceSnapshot(ws, userId).catch(() => { })
       return
     }
 
@@ -402,12 +420,12 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     const state = ws.deserializeAttachment() as ConnectionState
     if (state?.type === "daemon" && state.authenticated) {
       log.info("daemon websocket closed", { daemonId: state.daemonId })
-      this.notifyUserDO(state.userId, { type: "runtime.status", status: "offline", daemonId: state.daemonId }).catch(() => {})
+      this.notifyUserDO(state.userId, { type: "runtime.status", status: "offline", daemonId: state.daemonId }).catch(() => { })
     }
     if (state?.type === "user" && state.authenticated) {
       const remaining = this.countAuthenticatedUserConnections(state.userId) - 1
       if (remaining <= 0) {
-        this.broadcastPresence(state.userId, false).catch(() => {})
+        this.broadcastPresence(state.userId, false).catch(() => { })
       }
     }
     if (state?.type === "community-machine" && state.authenticated) {
@@ -441,7 +459,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
             machineId: identity.machineId,
             status: "offline",
             lastSeenAt: flipped.lastSeenAt ?? new Date().toISOString(),
-          }).catch(() => {})
+          }).catch(() => { })
           await this.ctx.storage.deleteAlarm()
           await this.ctx.storage.delete(HANDLE_KEY)
           await this.ctx.storage.delete(IDENTITY_KEY)
@@ -493,7 +511,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
                 machineId: identity.machineId,
                 status: "online",
                 lastSeenAt: backfilled.lastSeenAt ?? new Date().toISOString(),
-              }).catch(() => {})
+              }).catch(() => { })
             }
           } catch (err) {
             log.warn("markMachineOnlineIfOffline (alarm live-WS) failed", { err: String(err) })
@@ -541,7 +559,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
               machineId: stored.machineId,
               status: "offline",
               lastSeenAt: flipped.lastSeenAt ?? new Date().toISOString(),
-            }).catch(() => {})
+            }).catch(() => { })
           }
         } catch (err) {
           log.warn("markMachineOffline (alarm stale-flip) failed", { err: String(err) })
@@ -557,7 +575,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           machineId: stored.machineId,
           status: "offline",
           lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
-        }).catch(() => {})
+        }).catch(() => { })
       }
       // In either branch, this DO's presence lifecycle is done. Drop storage
       // so a future connection on the same DO name starts clean.
@@ -632,7 +650,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       const available = availableRaw.filter((v): v is string => typeof v === "string")
       const overlay = { requested, available, at: new Date().toISOString() }
       await this.ctx.storage.put(RUNTIME_ERROR_KEY, overlay)
-      await this.fanOutMachineUpdated(identity.userId, identity.machineId).catch(() => {})
+      await this.fanOutMachineUpdated(identity.userId, identity.machineId).catch(() => { })
       return
     }
 
@@ -689,7 +707,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         machineId: machine.id,
         status: "online",
         lastSeenAt: machine.lastSeenAt ?? new Date().toISOString(),
-      }).catch(() => {})
+      }).catch(() => { })
     }
 
     // Runtime-drift diff. Canonicalized form now includes status/lastError
@@ -701,7 +719,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       await this.notifyUserDO(identity.userId, {
         type: "community:machine.updated",
         machine: summary,
-      }).catch(() => {})
+      }).catch(() => { })
     }
 
     await this.scheduleHeartbeatAlarm()
@@ -751,7 +769,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
     await this.ctx.storage.delete(RUNTIME_ERROR_KEY)
     const identity = await this.ctx.storage.get<CommunityMachineIdentity>(IDENTITY_KEY)
     if (!identity) return
-    await this.fanOutMachineUpdated(identity.userId, identity.machineId).catch(() => {})
+    await this.fanOutMachineUpdated(identity.userId, identity.machineId).catch(() => { })
   }
 
   /**
@@ -772,7 +790,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
 
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     log.error("websocket error", { err: error instanceof Error ? error : String(error) })
-    try { ws.close(1011, "Internal error") } catch {}
+    try { ws.close(1011, "Internal error") } catch { }
   }
 
   private broadcast(message: string): number {
@@ -783,7 +801,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         try {
           ws.send(message)
           sent++
-        } catch {}
+        } catch { }
       }
     }
     return sent
@@ -796,6 +814,43 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       method: "POST",
       body: JSON.stringify(payload),
     }))
+
+    // Single choke point for every `community:machine.status` emission (see
+    // plans/community-account-debt-fixes.md Fix 3) — a bot has no WS of its
+    // own, so its online/offline flip otherwise only ever reaches its owner
+    // via the fetch above. Fan the same transition out through the exact
+    // audience-based pipeline human presence already uses, for every bot
+    // bound to this machine.
+    //
+    // Every one of the 5 call sites wraps this whole method in
+    // `.catch(() => {})` (fire-and-forget — a presence hiccup must never
+    // block the machine-status write it rides on), which means an
+    // unhandled throw here vanishes with zero trace. Own try/catch + log so
+    // a real failure (bad query, DO unreachable, etc.) is at least visible
+    // instead of silently degrading to "you have to refresh to see your bot
+    // come online."
+    try {
+      const status = this.machineStatusPayload(payload)
+      if (!status) return
+      const db = createDb(this.env.DB)
+      const bots = await queries.communityBot.listBotsForMachine(db, status.machineId)
+      if (bots.length === 0) return
+      await Promise.allSettled(
+        bots.map((bot) => this.broadcastPresence(bot.id, status.online))
+      )
+    } catch (err) {
+      log.error("notifyUserDO: bot presence fan-out failed", { err: String(err), userId })
+    }
+  }
+
+  /** Runtime type-guard — `notifyUserDO`'s `payload` is `unknown` by design. */
+  private machineStatusPayload(payload: unknown): { machineId: string; online: boolean } | null {
+    if (typeof payload !== "object" || payload === null) return null
+    const p = payload as { type?: unknown; machineId?: unknown; status?: unknown }
+    if (p.type !== "community:machine.status") return null
+    if (typeof p.machineId !== "string") return null
+    if (p.status !== "online" && p.status !== "offline") return null
+    return { machineId: p.machineId, online: p.status === "online" }
   }
 
   private async getDaemonIdForUser(userId: string): Promise<string | null> {
@@ -881,7 +936,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           return stub.fetch(new Request("http://internal/broadcast", {
             method: "POST",
             body: event,
-          })).catch(() => {})
+          })).catch(() => { })
         })
       )
     }
@@ -931,10 +986,14 @@ export class WebSocketDurableObject extends DurableObject<Env> {
 
   /**
    * Who should learn about `userId`'s online/offline flips: server
-   * co-members AND accepted friends. Friends are the common case that a
-   * co-members-only audience misses entirely — two people can be friends
-   * without ever sharing a server, which is the whole point of a friends
-   * list. Deduped so a friend who's also a co-member gets one fetch, not two.
+   * co-members AND accepted friends — where "friends" (`getFriendUserIds`)
+   * already includes the owner↔own-bot implicit friendship (see
+   * `queries/community/friendship.ts`), so a fresh bot with zero servers
+   * still reaches its owner with no `isBot` branch needed here. Friends are
+   * also the common case that a co-members-only audience misses entirely —
+   * two people can be friends without ever sharing a server, which is the
+   * whole point of a friends list. Deduped so a friend who's also a
+   * co-member gets one fetch, not two.
    */
   private async getPresenceAudience(userId: string): Promise<string[]> {
     const [coMembers, friends] = await Promise.all([
@@ -954,7 +1013,9 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         batch.map(async (memberId) => {
           const doId = this.env.WS_DO.idFromName("user:" + memberId)
           const stub = this.env.WS_DO.get(doId)
-          const resp = await stub.fetch(new Request("http://internal/check-user-online"))
+          const resp = await stub.fetch(
+            new Request(`http://internal/check-user-online?userId=${encodeURIComponent(memberId)}`)
+          )
           const { online } = await resp.json() as { online: boolean }
           return online ? memberId : null
         })

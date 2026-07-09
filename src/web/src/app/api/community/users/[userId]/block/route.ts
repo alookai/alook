@@ -11,7 +11,7 @@ export const POST = withAuth(async (_req, ctx) => {
   if (!targetId) return writeError("userId is required", 400)
   if (targetId === ctx.userId) return writeError("cannot block yourself", 400)
 
-  const target = await queries.user.getUser(db, targetId)
+  const target = await queries.user.getUserPublic(db, targetId)
   if (!target) return writeError("user not found", 404)
 
   const result = await queries.communityFriendship.block(db, {

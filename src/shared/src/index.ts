@@ -258,6 +258,8 @@ export {
   CommunityAgentReadRequestSchema,
   CommunityAgentResolveRequestSchema,
   CommunityAgentListChannelsRequestSchema,
+  CommunityAgentListMembersRequestSchema,
+  CommunityAgentJoinServerRequestSchema,
 } from "./schemas";
 
 export type {
@@ -327,6 +329,8 @@ export type {
   CommunityAgentReadRequest,
   CommunityAgentResolveRequest,
   CommunityAgentListChannelsRequest,
+  CommunityAgentListMembersRequest,
+  CommunityAgentJoinServerRequest,
 } from "./schemas";
 
 // Community agent CLI bridge contract — lifted from `src/daemon/src/server/contract.ts`.
@@ -365,6 +369,7 @@ export type {
   ReadRequest as CommunityCliReadRequest,
   ResolveRequest as CommunityCliResolveRequest,
   ListChannelsRequest as CommunityCliListChannelsRequest,
+  ServerMember as CommunityCliServerMember,
   ServerApi as CommunityCliServerApi,
   UnreadNotice,
   HostCommand,
@@ -459,7 +464,8 @@ export { parseIcs } from "./lib/ics-parser";
 export type { MeetingInfo } from "./lib/ics-parser";
 export { buildMimeMessage, extractAttachmentMeta, filterDownloadableAttachments } from "./lib/mime";
 export type { MimeAttachment, BuildMimeOptions, InboundAttachmentMeta } from "./lib/mime";
-export { computeDiscriminator, parseNameAndTag } from "./lib/discriminator";
+export { computeDiscriminator, parseNameAndTag, formatHandle } from "./lib/discriminator";
+export { parseInviteToken } from "./lib/invite-link";
 export {
   addRepeatInterval,
   computeNextScheduledAt,

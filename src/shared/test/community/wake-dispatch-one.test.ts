@@ -42,6 +42,7 @@ const BOT_READY = {
   state: "ready" as const,
   botUserId: "bot_1",
   name: "zoe",
+  discriminator: "0042",
   machineId: "machine_1",
   runtime: "claude",
 };

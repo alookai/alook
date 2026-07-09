@@ -6,6 +6,7 @@ import {
   unique,
   primaryKey,
   foreignKey,
+  type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -15,10 +16,14 @@ import { TASK_TYPES } from "../constants";
 // Better Auth tables
 // ---------------------------------------------------------------------------
 
-// NOTE: `ownerUserId` FK is `ON DELETE NO ACTION` (the DB will refuse to delete
-// an owner while they still have bot rows). Any future user-delete path MUST
-// call `assertNoLiveBots` (see `queries/community/bot.ts`) to fail early with
-// a clear error before hitting the FK.
+// `ownerUserId` is a real, already-applied self-referencing FK — see
+// `src/web/migrations/0050_community_bots.sql` (`ownerUserId TEXT REFERENCES
+// user(id)`, no `ON DELETE` clause, so SQLite/D1 default to `NO ACTION`: the
+// DB refuses to delete an owner while they still have bot rows pointing at
+// them). `.references()` below is a type-level sync with that DDL, not a new
+// constraint — do not generate a migration for it. Any future user-delete
+// path should still call `assertNoLiveBots` (see `queries/community/bot.ts`)
+// to fail early with a clear error before hitting the FK.
 export const user = sqliteTable(
   "user",
   {
@@ -30,7 +35,7 @@ export const user = sqliteTable(
     createdAt: text("createdAt").notNull().$defaultFn(() => new Date().toISOString()),
     updatedAt: text("updatedAt").notNull().$defaultFn(() => new Date().toISOString()),
     isBot: integer("isBot", { mode: "boolean" }).notNull().default(false),
-    ownerUserId: text("ownerUserId"),
+    ownerUserId: text("ownerUserId").references((): AnySQLiteColumn => user.id, { onDelete: "no action" }),
     deletedAt: text("deletedAt"),
     discriminator: text("discriminator").notNull().default("0000"),
   },

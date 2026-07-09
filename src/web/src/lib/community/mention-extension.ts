@@ -4,19 +4,31 @@ import type { Member } from "@/components/community/_types"
 
 export type MentionContext = "channel" | "thread" | "dm"
 
+type MemberMentionItem = {
+  kind: "member"
+  id: string
+  label: string
+  avatar: string
+  status: "online" | "offline"
+}
+
 export type MentionItem =
   | { kind: MentionType; id: MentionType; label: MentionType }
-  | {
-      kind: "member"
-      id: string
-      label: string
-      avatar: string
-      status: "online" | "offline"
-    }
+  | MemberMentionItem
 
 const VIRTUAL_ITEMS: MentionItem[] = MENTION_TYPES.map((t) => ({ kind: t, id: t, label: t }))
 
 const MENTION_LIMIT = 8
+
+// The disambiguated label (`Alex#0002`, set by `rankMentionItems` below) is
+// what gets serialized into the message text via `renderText` — the backend
+// needs it to resolve the exact user instead of falling back to a first-match
+// guess. Humans should never see the number though, so the in-editor chip
+// (`renderHTML`) and the rendered pill (message-markdown.tsx) both strip it
+// for display only.
+function mentionDisplayLabel(label: string): string {
+  return label.replace(/#\d{4}$/, "")
+}
 
 // Pure ranker — exported for tests. Items are everyone/here followed by
 // members, ranked prefix-first then substring. Returns an empty list for DMs:
@@ -33,11 +45,11 @@ export function rankMentionItems(
   const q = query.toLowerCase()
   const virtual = VIRTUAL_ITEMS.filter((v) => !q || v.label.startsWith(q))
 
-  const sw: MentionItem[] = []
-  const inc: MentionItem[] = []
+  const sw: MemberMentionItem[] = []
+  const inc: MemberMentionItem[] = []
   for (const m of members) {
     const name = m.name.toLowerCase()
-    const item: MentionItem = {
+    const item: MemberMentionItem = {
       kind: "member",
       id: m.id,
       label: m.name,
@@ -48,7 +60,28 @@ export function rankMentionItems(
     else if (name.includes(q)) inc.push(item)
   }
 
-  return [...virtual, ...sw, ...inc].slice(0, MENTION_LIMIT)
+  // Disambiguate same-name members within the ranked window: append the
+  // `#0042` discriminator to the label (which is also what gets inserted
+  // into the message, via `renderText`) so picking either one resolves to
+  // the exact user server-side instead of the backend's first-match
+  // fallback. Unique names stay plain — no visual noise for the common
+  // case.
+  const ranked = [...sw, ...inc]
+  const nameCounts = new Map<string, number>()
+  for (const item of ranked) {
+    const key = item.label.toLowerCase()
+    nameCounts.set(key, (nameCounts.get(key) ?? 0) + 1)
+  }
+  const membersByLabel = new Map(members.map((m) => [m.id, m]))
+  const disambiguated = ranked.map((item) => {
+    const key = item.label.toLowerCase()
+    if ((nameCounts.get(key) ?? 0) < 2) return item
+    const discriminator = membersByLabel.get(item.id)?.discriminator
+    if (!discriminator) return item
+    return { ...item, label: `${item.label}#${discriminator}` }
+  })
+
+  return [...virtual, ...disambiguated].slice(0, MENTION_LIMIT)
 }
 
 // Popup state. `rect` is `clientRect()` from @tiptap/suggestion — it's the
@@ -107,6 +140,8 @@ export function buildCommunityMentionExtension(opts: {
   return Mention.configure({
     HTMLAttributes: { class: "mention-highlight" },
     renderText: ({ node }) => `@${node.attrs.label ?? node.attrs.id}`,
+    renderHTML: ({ options, node }) =>
+      ["span", options.HTMLAttributes, `@${mentionDisplayLabel(node.attrs.label ?? node.attrs.id ?? "")}`],
     suggestion: {
       char: "@",
       items: ({ query }: { query: string }) => {

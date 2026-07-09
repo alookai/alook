@@ -5,6 +5,7 @@ import {
   communityMachine,
   communityMachineCredential,
   communityAgentRunnerKey,
+  communityBotBinding,
 } from "../../community-machine-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -240,18 +241,31 @@ export interface MachineRow {
  * Upsert-by-machine-id — the runtime path used by every `ready` frame and
  * every /activate reconnect. First-pair /activate calls `insertMachineRow`
  * instead (below) so the machine.id is minted by the insert.
+ *
+ * `markOnline` (default true) gates the `status: "online"` / `lastSeenAt`
+ * write. The WS `ready`-frame handler is the only caller that actually KNOWS
+ * there's a live socket, so it uses the default. /activate reconnect calls
+ * this with `markOnline: false` — HTTP activation happens before the
+ * daemon's WS connects, so flipping status here would make the row already
+ * "online" by the time the real `ready` frame lands, and the DO's
+ * `priorStatus !== 'online'` broadcast guard (which gates the bot-presence
+ * fan-out, see `ws-durable.ts` `notifyUserDO`) would silently skip the
+ * notification. Leaving status untouched here mirrors `insertMachineRow`,
+ * which already withholds `lastSeenAt` for the same reason on first pair.
  */
 export async function upsertMachineByMachineId(
   db: Database,
   userId: string,
   machineId: string,
-  meta: MachineMetadataInput
+  meta: MachineMetadataInput,
+  opts: { markOnline?: boolean } = {}
 ): Promise<{
   machine: MachineRow;
   priorLastSeenAt: string | null;
   priorAvailableRuntimes: CommunityMachineRuntime[];
   priorStatus: "online" | "offline";
 } | null> {
+  const markOnline = opts.markOnline ?? true;
   const existing = await db
     .select()
     .from(communityMachine)
@@ -281,11 +295,7 @@ export async function upsertMachineByMachineId(
         meta.availableRuntimes !== undefined
           ? meta.availableRuntimes
           : prior.availableRuntimes,
-      // The daemon just sent a `ready` frame — we KNOW there is a live WS,
-      // so flip status to online unconditionally. The DO gates its
-      // `community:machine.status online` broadcast on `priorStatus !== 'online'`.
-      status: "online",
-      lastSeenAt: nowIso,
+      ...(markOnline ? { status: "online" as const, lastSeenAt: nowIso } : {}),
       updatedAt: nowIso,
     })
     .where(eq(communityMachine.id, prior.id))
@@ -437,7 +447,13 @@ export async function activateMachineCredential(
   try {
     let machine: MachineRow;
     if (tok.machineId) {
-      const existing = await upsertMachineByMachineId(db, tok.userId, tok.machineId, meta);
+      // `markOnline: false` — this runs before the daemon's WS connects, so
+      // the real `ready` frame (not this HTTP call) must be the one that
+      // flips status and fires the online/bot-presence broadcast. See
+      // `upsertMachineByMachineId`'s doc comment.
+      const existing = await upsertMachineByMachineId(db, tok.userId, tok.machineId, meta, {
+        markOnline: false,
+      });
       if (!existing) {
         // Machine was deleted between mint and activate. Don't roll the
         // token back to `pending` — that would loop the daemon forever and
@@ -878,6 +894,27 @@ export async function markMachineOffline(
     )
     .returning();
   return rows.length ? (rows[0] as MachineRow) : null;
+}
+
+/**
+ * Read-path counterpart to `listBotsForMachine` (`bot.ts`) — given a bot's
+ * `user.id`, answer whether it's currently online by following its
+ * `communityBotBinding` to the bound machine's `status` column. A bot has no
+ * WebSocket of its own (see `ws-durable.ts`'s `/check-user-online`), so
+ * `status` on the bound machine IS the bot's presence, unlike a human where
+ * presence is a live-socket check.
+ */
+export async function isBotOnline(db: Database, botUserId: string): Promise<boolean> {
+  const rows = await db
+    .select({ status: communityMachine.status })
+    .from(communityBotBinding)
+    .innerJoin(communityMachine, eq(communityMachine.id, communityBotBinding.machineId))
+    .innerJoin(user, eq(user.id, communityBotBinding.userId))
+    // Mirrors `listBotsForMachine`'s soft-delete guard: a tombstoned bot must
+    // never read back as online, even if its machine binding row is still live.
+    .where(and(eq(communityBotBinding.userId, botUserId), isNull(user.deletedAt)))
+    .limit(1);
+  return rows.length > 0 && rows[0]!.status === "online";
 }
 
 /**

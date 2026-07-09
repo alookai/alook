@@ -26,7 +26,7 @@ vi.mock("@alook/shared", async () => {
         getMemberByUserAndWorkspace: (...args: unknown[]) => mockGetMemberByUserAndWorkspace(...args),
       },
       user: {
-        getUser: (...args: unknown[]) => mockGetUser(...args),
+        getUserSelf: (...args: unknown[]) => mockGetUser(...args),
       },
       conversation: {
         getConversation: (...args: unknown[]) => mockGetConversation(...args),

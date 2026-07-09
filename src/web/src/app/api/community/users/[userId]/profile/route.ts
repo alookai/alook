@@ -10,7 +10,7 @@ export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
 
   // Get target user basic info
-  const targetUser = await queries.user.getUser(db, id)
+  const targetUser = await queries.user.getUserPublic(db, id)
   if (!targetUser) return writeError("user not found", 404)
 
   // Get profile data

@@ -43,3 +43,13 @@ export function parseNameAndTag(
   if (!name) return null;
   return { name, discriminator };
 }
+
+/**
+ * Build the canonical global-handle string, `name#0042`. The ONE place this
+ * string is assembled — every call site (system prompt, `agentHandle`,
+ * message wire `sender`/`latestSender`, DM refs) goes through this instead of
+ * hand-rolling the template literal, so the format can't drift.
+ */
+export function formatHandle(name: string, discriminator: string): string {
+  return `${name}#${discriminator}`;
+}

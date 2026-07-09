@@ -16,7 +16,7 @@ vi.mock("@alook/shared", async () => {
   return {
     ...actual,
     queries: {
-      user: { getUser: (...a: unknown[]) => mockGetUser(...a) },
+      user: { getUserPublic: (...a: unknown[]) => mockGetUser(...a) },
       communityUserProfile: { getProfile: (...a: unknown[]) => mockGetProfile(...a) },
       communityMember: {
         listMemberServerIds: (...a: unknown[]) => mockListMemberServerIds(...a),
@@ -80,5 +80,13 @@ describe("GET /api/community/users/[userId]/profile", () => {
       bannerColor: "#123456",
       mutualServers: 1,
     })
+  })
+
+  it("404s when the target doesn't exist or is soft-deleted — getUserPublic excludes deleted rows unconditionally", async () => {
+    mockGetUser.mockResolvedValue(null)
+    const res = await GET(req(), ctx())
+    expect(res.status).toBe(404)
+    const body = await res.json() as Record<string, unknown>
+    expect(body.error).toBe("user not found")
   })
 })

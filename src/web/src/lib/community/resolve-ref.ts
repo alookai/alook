@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { queries, parseRef, DM_SERVER } from "@alook/shared"
+import { queries, parseRef, DM_SERVER, parseNameAndTag } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { isUniqueConstraintError } from "@alook/shared"
 import { guardDmOpen } from "./dm-guard"
@@ -20,7 +20,7 @@ export interface ResolveTargetOpts {
 
 /**
  * Resolve a CLI path ref (`ChannelRef`, e.g. `/studio/general`,
- * `/studio/general/#42`, `/.dm/user_123`) to a concrete channel/DM id,
+ * `/studio/general/#42`, `/.dm/gusye#1231`) to a concrete channel/DM id,
  * scoped to `userId`'s memberships. Threads flatten to `{ kind: "channel",
  * channelId: <thread's own id> }` (debt #10 — threads ARE channels); the
  * caller (the `send` route) is responsible for reconstructing the full
@@ -62,11 +62,15 @@ export async function resolveTargetForMember(
       return { error: 404, message: "DM threads are not supported" }
     }
 
-    const peerId = parsed.channel
-    const peer = await queries.user.getUserInternal(db, peerId)
-    if (!peer || peer.deletedAt !== null) {
+    const handle = parseNameAndTag(parsed.channel)
+    if (!handle) {
+      return { error: 400, message: "invalid DM handle, expected name#0042" }
+    }
+    const peer = await queries.user.getUserByNameAndDiscriminator(db, handle.name, handle.discriminator)
+    if (!peer) {
       return { error: 404, message: "user not found" }
     }
+    const peerId = peer.id
 
     if (opts?.createDmIfMissing) {
       const guard = await guardDmOpen(db, userId, peerId, { callerKind: opts.callerKind })

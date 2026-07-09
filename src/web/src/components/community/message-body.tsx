@@ -1,3 +1,4 @@
+import { useMemo } from "react"
 import { Streamdown } from "streamdown"
 import { mermaid, cjk, math } from "@/lib/streamdown-plugins"
 import {
@@ -6,9 +7,10 @@ import {
   extractInviteTokens,
   MD_ALLOWED_TAGS,
   MD_LITERAL_TAGS,
-  MD_COMPONENTS,
+  buildMdComponents,
 } from "./message-markdown"
 import { CommunityInviteCard } from "./community-invite-card"
+import type { OpenProfile } from "./_types"
 
 // Message body renderer. Standard markdown (bold/italic/strike/code/codeblock/quote)
 // is rendered natively by streamdown (GFM, matching agent-chat). The shared
@@ -21,8 +23,9 @@ import { CommunityInviteCard } from "./community-invite-card"
 // URL stays as a plain auto-linked <a> in the message body, and a rich join
 // card renders BELOW it. Both surfaces coexist so users can still copy/share
 // the raw link even when the card is present.
-export function MessageBody({ text }: { text: string }) {
+export function MessageBody({ text, onOpenProfile }: { text: string; onOpenProfile?: OpenProfile }) {
   const inviteTokens = extractInviteTokens(text)
+  const components = useMemo(() => buildMdComponents(onOpenProfile), [onOpenProfile])
   return (
     <div className="markdown text-[15px] leading-snug">
       <Streamdown
@@ -35,7 +38,7 @@ export function MessageBody({ text }: { text: string }) {
         }}
         allowedTags={MD_ALLOWED_TAGS}
         literalTagContent={MD_LITERAL_TAGS}
-        components={MD_COMPONENTS}
+        components={components}
       >
         {preprocessMarkdown(escapeHtml(text))}
       </Streamdown>

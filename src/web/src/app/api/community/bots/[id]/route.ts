@@ -42,6 +42,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
       type: "bot:updated",
       botId: id,
       name: updated.name,
+      discriminator: updated.discriminator,
       description: updated.description || undefined,
     })
   }

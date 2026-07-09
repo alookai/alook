@@ -8,6 +8,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
 const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
 const mockGetUserInternal = vi.fn()
+const mockGetUserByNameAndDiscriminator = vi.fn()
 const mockGetBotBinding = vi.fn()
 const mockResolveServerByNameForMember = vi.fn()
 const mockResolveChannelByNameForMember = vi.fn()
@@ -24,7 +25,10 @@ vi.mock("@alook/shared", async () => {
     queries: {
       ...actual.queries,
       communityMachine: { findActiveAgentRunnerKeyByBearer: (...a: unknown[]) => mockFindActiveAgentRunnerKeyByBearer(...a) },
-      user: { getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a) },
+      user: {
+        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
+        getUserByNameAndDiscriminator: (...a: unknown[]) => mockGetUserByNameAndDiscriminator(...a),
+      },
       communityBot: { getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a) },
       communityFriendship: { isBlocked: (...a: unknown[]) => mockIsBlocked(...a) },
       communityServer: { resolveServerByNameForMember: (...a: unknown[]) => mockResolveServerByNameForMember(...a) },
@@ -119,6 +123,7 @@ describe("POST /api/community/agent/ack", () => {
   })
 
   it("200 { ok: true } advances the cursor for every scope in the request, channel and DM alike", async () => {
+    mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
     mockGetUserInternal.mockImplementation((_db: unknown, id: string) =>
       Promise.resolve(id === "peer_1" ? { id: "peer_1", isBot: false, deletedAt: null } : { isBot: true, deletedAt: null })
     )
@@ -131,7 +136,7 @@ describe("POST /api/community/agent/ack", () => {
         {
           cursors: [
             { channel: "/studio/general", seq: 3 },
-            { channel: "/.dm/peer_1", seq: 1 },
+            { channel: "/.dm/peer#0001", seq: 1 },
           ],
         },
         { Authorization: "Bearer crk_abc" }
@@ -142,5 +147,13 @@ describe("POST /api/community/agent/ack", () => {
     expect(mockBumpReadCursor).toHaveBeenCalledTimes(2)
     expect(mockBumpReadCursor).toHaveBeenNthCalledWith(1, expect.anything(), "bot_1", { channelId: "ch_1" }, 3)
     expect(mockBumpReadCursor).toHaveBeenNthCalledWith(2, expect.anything(), "bot_1", { dmConversationId: "dm_1" }, 1)
+  })
+
+  it("400 invalid DM handle when a cursor's channel segment has no #0042 tag", async () => {
+    const res = await POST(
+      req({ cursors: [{ channel: "/.dm/peer_1", seq: 1 }] }, { Authorization: "Bearer crk_abc" })
+    )
+    expect(res.status).toBe(400)
+    expect(mockBumpReadCursor).not.toHaveBeenCalled()
   })
 })

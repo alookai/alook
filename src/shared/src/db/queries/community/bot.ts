@@ -35,7 +35,7 @@ import {
 import { communityMachine } from "../../community-machine-schema";
 import type { Database } from "../../index";
 import { communityBotSyntheticEmail } from "../../../constants";
-import { computeDiscriminator } from "../../../lib/discriminator";
+import { withUniqueDiscriminator } from "../user";
 import { nanoid } from "nanoid";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -257,13 +257,14 @@ export type BotWakeContext =
   | { state: "bot_missing" }
   | { state: "bot_deleted" }
   | { state: "bot_unbound" }
-  | { state: "ready"; botUserId: string; name: string; machineId: string; runtime: string };
+  | { state: "ready"; botUserId: string; name: string; discriminator: string; machineId: string; runtime: string };
 
 export async function getBotWakeContext(db: Database, botUserId: string): Promise<BotWakeContext> {
   const rows = await db
     .select({
       id: user.id,
       name: user.name,
+      discriminator: user.discriminator,
       isBot: user.isBot,
       deletedAt: user.deletedAt,
       machineId: communityBotBinding.machineId,
@@ -277,14 +278,21 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
   if (!r || !r.isBot) return { state: "bot_missing" };
   if (r.deletedAt) return { state: "bot_deleted" };
   if (!r.machineId || !r.runtime) return { state: "bot_unbound" };
-  return { state: "ready", botUserId: r.id, name: r.name, machineId: r.machineId, runtime: r.runtime };
+  return {
+    state: "ready",
+    botUserId: r.id,
+    name: r.name,
+    discriminator: r.discriminator,
+    machineId: r.machineId,
+    runtime: r.runtime,
+  };
 }
 
 /** Bots bound to this machine — daemon cold-start warmup uses this. */
 export async function listBotsForMachine(
   db: Database,
   machineId: string
-): Promise<Array<{ id: string; name: string; description: string }>> {
+): Promise<Array<{ id: string; name: string; discriminator: string; description: string }>> {
   // Guard against orphaned bots: if a future flow soft-deletes an owner user
   // without cascading their bots, don't hand them to the daemon for warmup.
   const owner = aliasedTable(user, "owner");
@@ -292,6 +300,7 @@ export async function listBotsForMachine(
     .select({
       id: user.id,
       name: user.name,
+      discriminator: user.discriminator,
       description: communityUserProfile.aboutMe,
     })
     .from(user)
@@ -312,6 +321,7 @@ export async function listBotsForMachine(
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
+    discriminator: r.discriminator,
     description: r.description ?? "",
   }));
 }
@@ -376,51 +386,62 @@ export type CreateBotInput = {
  *   2. INSERT `community_bot_binding` (machineId + runtime).
  *   3. INSERT `community_user_profile` (aboutMe = description).
  *
- * Batched so all commit or none. Returns the bot row.
+ * Batched so all commit or none. `withUniqueDiscriminator` wraps the WHOLE
+ * batch (not just statement 1) — a discriminator collision retries all three
+ * statements together so the binding/profile rows always land alongside the
+ * user row that actually won the discriminator. Returns the bot row.
  */
 export async function createBot(
   db: Database,
   data: CreateBotInput
-): Promise<{ botId: string; name: string; description: string; image: string | null }> {
+): Promise<{ botId: string; name: string; discriminator: string; description: string; image: string | null }> {
   const botId = nanoid();
   const email = communityBotSyntheticEmail(botId);
   const nowIso = new Date().toISOString();
   const description = data.description ?? "";
 
-  // Three-statement batch. D1 rolls back all on any error.
-  const stmt1 = db.insert(user).values({
-    id: botId,
-    name: data.name,
-    email,
-    emailVerified: true,
-    image: data.image ?? null,
-    isBot: true,
-    ownerUserId: data.ownerId,
-    discriminator: computeDiscriminator(botId),
-    createdAt: nowIso,
-    updatedAt: nowIso,
-  });
-  const stmt2 = db.insert(communityBotBinding).values({
-    userId: botId,
-    machineId: data.machineId,
-    runtime: data.runtime,
-    createdAt: nowIso,
-  });
-  // Match updateBot's upsert semantics — reincarnation paths (nanoid collision
-  // aside, future flows that recycle a botId) shouldn't roll the batch back on
-  // a profile PK conflict.
-  const stmt3 = db
-    .insert(communityUserProfile)
-    .values({ userId: botId, aboutMe: description })
-    .onConflictDoUpdate({
-      target: communityUserProfile.userId,
-      set: { aboutMe: description },
-    });
-  await db.batch([stmt1, stmt2, stmt3] as any);
+  const discriminator = await withUniqueDiscriminator(
+    db,
+    { id: botId, name: data.name },
+    async (discriminator) => {
+      // Three-statement batch. D1 rolls back all on any error.
+      const stmt1 = db.insert(user).values({
+        id: botId,
+        name: data.name,
+        email,
+        emailVerified: true,
+        image: data.image ?? null,
+        isBot: true,
+        ownerUserId: data.ownerId,
+        discriminator,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      });
+      const stmt2 = db.insert(communityBotBinding).values({
+        userId: botId,
+        machineId: data.machineId,
+        runtime: data.runtime,
+        createdAt: nowIso,
+      });
+      // Match updateBot's upsert semantics — reincarnation paths (nanoid collision
+      // aside, future flows that recycle a botId) shouldn't roll the batch back on
+      // a profile PK conflict.
+      const stmt3 = db
+        .insert(communityUserProfile)
+        .values({ userId: botId, aboutMe: description })
+        .onConflictDoUpdate({
+          target: communityUserProfile.userId,
+          set: { aboutMe: description },
+        });
+      await db.batch([stmt1, stmt2, stmt3] as any);
+      return discriminator;
+    }
+  );
 
   return {
     botId,
     name: data.name,
+    discriminator,
     description,
     image: data.image ?? null,
   };
@@ -436,7 +457,7 @@ export async function updateBot(
   botId: string,
   ownerId: string,
   data: { name?: string; description?: string; image?: string | null }
-): Promise<{ botId: string; name: string; description: string; image: string | null } | null> {
+): Promise<{ botId: string; name: string; discriminator: string; description: string; image: string | null } | null> {
   const set: { name?: string; image?: string | null; updatedAt: string } = {
     updatedAt: new Date().toISOString(),
   };
@@ -447,7 +468,7 @@ export async function updateBot(
   // concurrent softDeleteBot can't slip in between and leave a fresh description
   // on a tombstoned bot. The upsert INSERT branch is safe (createBot writes the
   // profile row); it only fires for legacy rows that pre-date the profile write.
-  let rows: Array<{ id: string; name: string; image: string | null }>;
+  let rows: Array<{ id: string; name: string; discriminator: string; image: string | null }>;
   if (data.description !== undefined) {
     const s1 = db
       .update(user)
@@ -460,7 +481,7 @@ export async function updateBot(
           isNull(user.deletedAt)
         )
       )
-      .returning({ id: user.id, name: user.name, image: user.image });
+      .returning({ id: user.id, name: user.name, discriminator: user.discriminator, image: user.image });
     const s2 = db
       .insert(communityUserProfile)
       .values({ userId: botId, aboutMe: data.description })
@@ -482,7 +503,7 @@ export async function updateBot(
           isNull(user.deletedAt)
         )
       )
-      .returning({ id: user.id, name: user.name, image: user.image });
+      .returning({ id: user.id, name: user.name, discriminator: user.discriminator, image: user.image });
   }
 
   if (rows.length === 0) return null;
@@ -500,6 +521,7 @@ export async function updateBot(
   return {
     botId: rows[0]!.id,
     name: rows[0]!.name,
+    discriminator: rows[0]!.discriminator,
     description,
     image: rows[0]!.image,
   };

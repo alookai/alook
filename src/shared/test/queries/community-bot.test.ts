@@ -87,6 +87,72 @@ describe("createBot", () => {
     expect(botUser.discriminator).toMatch(/^\d{4}$/)
     expect(db.batch).toHaveBeenCalledOnce()
   })
+
+  it("on a discriminator collision, retries the WHOLE 3-statement batch with a salted discriminator", async () => {
+    // Every statement in the batch (`user`, `communityBotBinding`,
+    // `communityUserProfile`) gets rebuilt per attempt, so all three of an
+    // attempt's `.values(...)` payloads must carry the SAME (salted)
+    // discriminator that attempt used — not just the user row.
+    const userValues: Array<{ id: string; discriminator: string }> = []
+    const uniqueErr = Object.assign(new Error("UNIQUE constraint failed: user.name, user.discriminator"), {
+      code: "SQLITE_CONSTRAINT_UNIQUE",
+    })
+    const batch = vi.fn().mockRejectedValueOnce(uniqueErr).mockResolvedValueOnce([])
+    const db = {
+      insert: vi.fn(() => ({
+        values: vi.fn((values: unknown) => {
+          userValues.push(values as { id: string; discriminator: string })
+          return {
+            onConflictDoUpdate: vi.fn(() => ({ __stmt: "profile" })),
+          }
+        }),
+      })),
+      batch,
+    }
+
+    const result = await q.createBot(db as never, {
+      ownerId: "owner_1",
+      name: "helper",
+      description: "does things",
+      machineId: "machine_1",
+      runtime: "codex",
+    })
+
+    // 2 attempts × 3 statements (user, binding, profile) each pushing values.
+    expect(userValues).toHaveLength(6)
+    expect(batch).toHaveBeenCalledTimes(2)
+
+    const botId = result.botId
+    const firstAttemptDiscriminator = userValues[0]!.discriminator
+    const secondAttemptDiscriminator = userValues[3]!.discriminator
+    expect(firstAttemptDiscriminator).toBe(computeDiscriminator(botId))
+    expect(secondAttemptDiscriminator).toBe(computeDiscriminator(`${botId}:1`))
+    expect(secondAttemptDiscriminator).not.toBe(firstAttemptDiscriminator)
+
+    // The winning (second) attempt's discriminator is what's returned.
+    expect(result.discriminator).toBe(secondAttemptDiscriminator)
+  })
+
+  it("rethrows a non-unique-constraint db.batch failure without retrying", async () => {
+    const otherErr = new Error("D1_ERROR: disk I/O error")
+    const db = {
+      insert: vi.fn(() => ({
+        values: vi.fn(() => ({ onConflictDoUpdate: vi.fn(() => ({ __stmt: "profile" })) })),
+      })),
+      batch: vi.fn().mockRejectedValue(otherErr),
+    }
+
+    await expect(
+      q.createBot(db as never, {
+        ownerId: "owner_1",
+        name: "helper",
+        description: "does things",
+        machineId: "machine_1",
+        runtime: "codex",
+      }),
+    ).rejects.toBe(otherErr)
+    expect(db.batch).toHaveBeenCalledOnce()
+  })
 })
 
 describe("bot limits", () => {

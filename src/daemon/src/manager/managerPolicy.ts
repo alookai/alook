@@ -19,10 +19,21 @@
  *     threshold, terminate it for restart.
  *
  * Per-runtime delivery nuance (gated steering, etc.) is delegated to the
- * existing `apmStateMachine` / `RuntimeTurnState` reducers; this layer is the
- * higher-level lifecycle/queue orchestrator above them.
+ * existing `apmStateMachine` reducers (read-only; see `onRuntimeSignal` below)
+ * — this layer is the higher-level lifecycle/queue orchestrator above them.
+ * See plans/wire-gated-busy-steering-daemon.md for how gating is wired up.
  */
 import type { BusyDeliveryMode, DriverLifecycle } from "../types.js";
+import {
+  type ApmGatedSteeringState,
+  createInitialApmGatedSteeringState,
+  reduceApmGatedToolUse,
+  reduceApmGatedCompaction,
+  reduceApmGatedReview,
+  reduceApmGatedError,
+  reduceApmGatedFlushReadiness,
+  reduceApmGatedRecentEvent,
+} from "../runtime/apmStateMachine.js";
 
 export type AgentStatus = "idle" | "starting" | "running" | "stopping";
 
@@ -51,6 +62,13 @@ export interface AgentState {
   lastProgressAt: number;
   /** ms timestamp since which the agent has been idle (running, no turn, empty inbox); null if not idle. */
   idleSince: number | null;
+  /**
+   * Coarse gated-steering phase (tool/compaction/review boundaries). Only
+   * meaningfully consulted when `caps.busyDeliveryMode === "gated"`; kept on
+   * every agent (harmless/unused otherwise) so the reducer set never needs a
+   * null-check.
+   */
+  apm: ApmGatedSteeringState;
 }
 
 export interface ManagerState {
@@ -77,13 +95,26 @@ export type ManagerEvent =
   | { type: "progress"; agentId: string; nowMs: number }
   | { type: "turn_end"; agentId: string; nowMs: number }
   | { type: "exit"; agentId: string }
-  | { type: "tick"; nowMs: number };
+  | { type: "tick"; nowMs: number }
+  /**
+   * Generic passthrough of a `ParsedEvent`'s `kind` string, forwarded for
+   * EVERY runtime event (not just the ones the reducer acts on) so the
+   * gated-steering diagnostics ring buffer (`reduceApmGatedRecentEvent`) sees
+   * a complete history. See `onRuntimeSignal`.
+   */
+  | { type: "runtime_signal"; agentId: string; kind: string; nowMs: number };
 
 export type ManagerEffect =
   | { type: "spawn"; agentId: string; prompt: string; resumeSessionId: string | null }
   | { type: "send"; agentId: string; text: string; mode: "busy" | "idle" }
   | { type: "stop"; agentId: string; reason: string }
-  | { type: "terminate_stalled"; agentId: string };
+  | { type: "terminate_stalled"; agentId: string }
+  /**
+   * Pure observability: a gated agent has a non-empty inbox but nothing was
+   * actually sent — either a mid-turn wake was held, or a boundary flush
+   * attempt was still blocked. Never emitted for `direct`/`none` drivers.
+   */
+  | { type: "gated_hold"; agentId: string; reason: string; blockedReason: string | null; recentEvents: string[] };
 
 /** Default thresholds (ms). */
 export const DEFAULT_STALE_THRESHOLD_MS = 120_000;
@@ -139,6 +170,9 @@ export function reduceManager(state: ManagerState, event: ManagerEvent): ReduceR
 
     case "tick":
       return onTick(state, event.nowMs);
+
+    case "runtime_signal":
+      return onRuntimeSignal(state, event.agentId, event.kind);
   }
 }
 
@@ -171,6 +205,22 @@ function onWake(state: ManagerState, agentId: string, message: AgentMsg): Reduce
   if (agent.status === "running") {
     // Persistent + can take stdin ⇒ steer/deliver into the live process.
     if (agent.caps.lifecycleKind === "persistent" && agent.caps.supportsStdinNotification) {
+      // Gated + mid-turn: a raw stdin write right now could collide with an
+      // in-flight tool call / signed thinking block / compaction / review.
+      // The message is already enqueued above — hold instead of draining it;
+      // `onRuntimeSignal` flushes it at the next safe boundary.
+      const isGatedMidTurn = agent.caps.busyDeliveryMode === "gated" && agent.turnActive;
+      if (isGatedMidTurn) {
+        return commit(state, agent, [
+          {
+            type: "gated_hold",
+            agentId,
+            reason: "mid_turn_wake",
+            blockedReason: agent.apm.phase,
+            recentEvents: agent.apm.recentEvents,
+          },
+        ]);
+      }
       const text = drainInboxToPrompt(agent);
       const mode = agent.turnActive ? "busy" : "idle";
       return commit(state, agent, [{ type: "send", agentId, text, mode }]);
@@ -189,6 +239,10 @@ function onTurnEnd(state: ManagerState, agentId: string, nowMs: number): ReduceR
   const agent = clone(existing);
   agent.turnActive = false;
   agent.lastProgressAt = nowMs;
+  // Fresh turn ⇒ fresh gated phase; prevents a stale compacting/reviewing/
+  // outstandingToolUses flag from one turn silently blocking a flush in the
+  // next turn.
+  agent.apm = createInitialApmGatedSteeringState();
 
   // Per-turn runtimes exit on their own; the process will emit "exit".
   if (agent.caps.lifecycleKind === "per_turn") {
@@ -205,6 +259,95 @@ function onTurnEnd(state: ManagerState, agentId: string, nowMs: number): ReduceR
   // Nothing pending ⇒ idle; start the idle-hibernation clock.
   agent.idleSince = nowMs;
   return commit(state, agent, []);
+}
+
+/**
+ * Handles one forwarded `ParsedEvent.kind` for gated-steering phase tracking
+ * and boundary flush attempts. Only meaningfully acts when the agent is
+ * `running`, `turnActive`, and declares `busyDeliveryMode: "gated"` —
+ * otherwise it's a no-op (still records `recentEvents` for diagnostics via
+ * `reduceApmGatedRecentEvent`, cheap and harmless).
+ *
+ * Pinned execution order per branch (deliberately different from
+ * `session-runner.ts`, which calls `reduceApmGatedRecentEvent` first — here
+ * it runs last so the ring buffer reflects the phase actually reached, not
+ * the incoming phase):
+ *   1. Run the kind-specific reducer and assign its `nextState`.
+ *   2. Run `reduceApmGatedRecentEvent` and assign its `nextState` again.
+ *   3. If the branch calls for it, attempt a flush via
+ *      `reduceApmGatedFlushReadiness`, reading the now-fully-updated `apm`.
+ */
+function onRuntimeSignal(state: ManagerState, agentId: string, kind: string): ReduceResult {
+  const existing = state.agents[agentId];
+  if (!existing) return { state, effects: [] };
+  const agent = clone(existing);
+
+  const isGatedActive =
+    agent.status === "running" && agent.turnActive && agent.caps.busyDeliveryMode === "gated";
+  if (!isGatedActive) {
+    // Still record the event for diagnostics — cheap and harmless even when
+    // not gated (the ring buffer is unused unless busyDeliveryMode is gated).
+    agent.apm = reduceApmGatedRecentEvent(agent.apm, { event: kind }).nextState;
+    return commit(state, agent, []);
+  }
+
+  let attemptFlushReason: string | null = null;
+  switch (kind) {
+    case "tool_call":
+      agent.apm = reduceApmGatedToolUse(agent.apm, { kind }).nextState;
+      break;
+    case "tool_output":
+      agent.apm = reduceApmGatedToolUse(agent.apm, { kind }).nextState;
+      attemptFlushReason = "tool_batch_complete";
+      break;
+    case "compaction_started":
+    case "compaction_finished":
+      agent.apm = reduceApmGatedCompaction(agent.apm, { kind }).nextState;
+      if (kind === "compaction_finished") attemptFlushReason = "compaction_finished";
+      break;
+    case "review_started":
+    case "review_finished":
+      agent.apm = reduceApmGatedReview(agent.apm, { kind }).nextState;
+      if (kind === "review_finished") attemptFlushReason = "review_finished";
+      break;
+    case "error":
+      agent.apm = reduceApmGatedError(agent.apm, { disableToolBoundaryFlush: true }).nextState;
+      break;
+    default:
+      // "text" / "thinking" / "internal_progress" / "runtime_diagnostic" /
+      // "telemetry" / "session_init" / "turn_end" — no phase change here;
+      // "turn_end" is already handled by onTurnEnd via its own event.
+      break;
+  }
+
+  agent.apm = reduceApmGatedRecentEvent(agent.apm, { event: kind }).nextState;
+
+  if (attemptFlushReason === null) return commit(state, agent, []);
+  // Attempting a flush on every tool_output is intentional (not just when
+  // the last outstanding tool just closed): it lets `reduceApmGatedFlushReadiness`
+  // be the single source of truth for "is it safe", and surfaces a
+  // `gated_hold` for "one of several nested tool calls just closed" too.
+  if (agent.inbox.length === 0) return commit(state, agent, []);
+
+  const readiness = reduceApmGatedFlushReadiness(agent.apm, {
+    isGated: true,
+    hasSession: agent.sessionId != null,
+    inboxLength: agent.inbox.length,
+    reason: attemptFlushReason,
+  });
+  if (readiness.shouldNotify) {
+    const text = drainInboxToPrompt(agent);
+    return commit(state, agent, [{ type: "send", agentId, text, mode: "busy" }]);
+  }
+  return commit(state, agent, [
+    {
+      type: "gated_hold",
+      agentId,
+      reason: attemptFlushReason,
+      blockedReason: readiness.blockedReason,
+      recentEvents: agent.apm.recentEvents,
+    },
+  ]);
 }
 
 function onExit(state: ManagerState, agentId: string): ReduceResult {
@@ -277,6 +420,7 @@ function freshAgent(agentId: string, caps: AgentRuntimeCaps): AgentState {
     turnActive: false,
     lastProgressAt: 0,
     idleSince: null,
+    apm: createInitialApmGatedSteeringState(),
   };
 }
 
@@ -295,7 +439,12 @@ function drainInboxToPrompt(agent: AgentState): string {
 }
 
 function clone(a: AgentState): AgentState {
-  return { ...a, inbox: [...a.inbox], caps: { ...a.caps } };
+  return {
+    ...a,
+    inbox: [...a.inbox],
+    caps: { ...a.caps },
+    apm: { ...a.apm, recentEvents: [...a.apm.recentEvents] },
+  };
 }
 
 function commit(state: ManagerState, agent: AgentState, effects: ManagerEffect[]): ReduceResult {

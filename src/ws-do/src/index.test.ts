@@ -110,6 +110,22 @@ describe("ws-do router", () => {
       expect(await res.json()).toEqual({ online: [] })
     })
 
+    it("passes ?userId=<id> on every /check-user-online request — the target DO can't recover its own name from ctx (Fix 3)", async () => {
+      doMock.stubFetch.mockResolvedValue(new Response(JSON.stringify({ online: true }), { status: 200 }))
+
+      const req = new Request("http://localhost/presence/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ["bot-1", "human-2"] }),
+      })
+
+      await handler.fetch(req, env as any)
+
+      const urls = doMock.stubFetch.mock.calls.map(([r]: [Request]) => r.url)
+      expect(urls).toContain("http://internal/check-user-online?userId=bot-1")
+      expect(urls).toContain("http://internal/check-user-online?userId=human-2")
+    })
+
     it("returns 400 on malformed body — missing ids", async () => {
       const req = new Request("http://localhost/presence/users", {
         method: "POST",
@@ -193,6 +209,8 @@ describe("ws-do router", () => {
       expect(doMock.idFromName).toHaveBeenCalledWith("user:user-789")
       expect(res.status).toBe(200)
       expect(await res.json()).toEqual({ online: true })
+      const stubReq = doMock.stubFetch.mock.calls[0][0] as Request
+      expect(stubReq.url).toBe("http://internal/check-user-online?userId=user-789")
     })
   })
 

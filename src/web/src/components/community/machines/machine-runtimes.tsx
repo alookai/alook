@@ -14,9 +14,14 @@ export function MachineRuntimes({ runtimes }: { runtimes: CommunityMachineRuntim
   // still be missing this field. Do not throw; render nothing.
   const list = runtimes ?? []
   if (list.length === 0) return null
+  // Available (healthy) chips first, unhealthy ones trail — `toSorted` keeps
+  // relative order stable within each group instead of reshuffling ids.
+  const sorted = list.toSorted((a, b) =>
+    Number(a.status === "unhealthy") - Number(b.status === "unhealthy")
+  )
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {list.map((r) => (
+      {sorted.map((r) => (
         <RuntimeChip key={r.id} runtime={r} />
       ))}
     </div>

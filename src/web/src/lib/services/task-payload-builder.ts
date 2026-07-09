@@ -85,7 +85,7 @@ export class TaskPayloadBuilder {
           const u = await cached(
             cacheKeys.user(agent.ownerId),
             1800,
-            () => queries.user.getUser(this.db, agent.ownerId!),
+            () => queries.user.getUserSelf(this.db, agent.ownerId!),
           );
           userCache.set(agent.ownerId, u ? { name: u.name, email: u.email } : null);
         }
@@ -101,7 +101,7 @@ export class TaskPayloadBuilder {
           const u = await cached(
             cacheKeys.user(convo.userId),
             1800,
-            () => queries.user.getUser(this.db, convo!.userId!),
+            () => queries.user.getUserSelf(this.db, convo!.userId!),
           );
           userCache.set(convo.userId, u ? { name: u.name, email: u.email } : null);
         }

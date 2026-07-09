@@ -8,7 +8,8 @@
  * object on stdout, shape `{ success?, error?, hint? }`:
  *   - `success` carries the command's structured result;
  *   - `error` is a human-readable failure message (mutually exclusive with success);
- *   - `hint` is reserved for "what to do next" (always null for now);
+ *   - `hint` is an optional "what to do next" recovery hint, surfaced when a
+ *     rejected command carries one (e.g. `server join`'s owner-mismatch);
  *   - NULL fields are OMITTED, never printed (no wasted tokens).
  * There is no meaningful exit code — the process exits 0 and the JSON envelope is
  * the sole result channel.
@@ -17,6 +18,7 @@ import { Command, CommanderError } from "commander";
 import type { ServerApi, Cursor, Message } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
 import { daemonStart, daemonStop, daemonList } from "./daemonStart.js";
+import { parseInviteToken } from "@alook/shared/lib/invite-link";
 
 /** The mandatory output envelope. Null/undefined fields are stripped on print. */
 interface Envelope {
@@ -112,6 +114,33 @@ async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
   return { messages: messages as Message[], hasMore, acked };
 }
 
+async function cmdServerList(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const agent = agentId(opts);
+  const { servers } = await api.listServers({ agentId: agent });
+  return { servers };
+}
+
+async function cmdServerMember(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const agent = agentId(opts);
+  const server = opts.server as string;
+  if (!server) throw new CliError("server member: --server <name> is required");
+  const { members } = await api.listMembers({ agentId: agent, server });
+  return { members };
+}
+
+async function cmdServerJoin(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const agent = agentId(opts);
+  const raw = opts.invite as string;
+  if (!raw) throw new CliError("server join: --invite <link> is required");
+  const token = parseInviteToken(raw);
+  if (!token) throw new CliError(`server join: could not find an invite token in "${raw}"`);
+  const { server } = await api.joinServer({ agentId: agent, invite: token });
+  return { server };
+}
+
 /* ------------------------------------------------------------------ */
 /* Program definition                                                  */
 /* ------------------------------------------------------------------ */
@@ -158,6 +187,47 @@ function buildProgram(): Command {
       const localOpts = this.opts();
       const globalOpts = program.opts();
       const result = await cmdInboxPull({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
+  const server = program.command("server").description("server operations").exitOverride();
+  server.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+
+  server
+    .command("list")
+    .description("list servers this agent is a member of")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      const globalOpts = program.opts();
+      const result = await cmdServerList({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
+  server
+    .command("member")
+    .description("list members of a server")
+    .option("--server <id-or-name>", "server id or name (from `server list`)")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      const globalOpts = program.opts();
+      const result = await cmdServerMember({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
+  server
+    .command("join")
+    .description("join a server via an invite link or token")
+    .option("--invite <link>", "invite URL or bare token")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      const globalOpts = program.opts();
+      const result = await cmdServerJoin({ ...globalOpts, ...localOpts });
       printEnvelope({ success: result });
     });
 
@@ -233,9 +303,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         printEnvelope({ error: err.message });
       }
     } else if (err instanceof CliError) {
-      printEnvelope({ error: err.message });
+      printEnvelope({ error: err.message, hint: (err as { hint?: string }).hint });
     } else {
-      printEnvelope({ error: (err as Error).message });
+      printEnvelope({ error: (err as Error).message, hint: (err as { hint?: string }).hint });
     }
   }
   return 0;

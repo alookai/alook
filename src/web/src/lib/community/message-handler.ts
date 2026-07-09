@@ -218,7 +218,7 @@ export async function createCommunityMessage(params: {
       if (row.content) {
         const candidates = members
           .filter((m) => m.userId !== authorId && m.userName)
-          .map((m) => ({ userId: m.userId, name: m.userName as string }))
+          .map((m) => ({ userId: m.userId, name: m.userName as string, discriminator: m.discriminator }))
         for (const id of extractMentionedUserIds(row.content, candidates)) {
           mentionTargets.add(id)
         }

@@ -1401,6 +1401,15 @@
   text-decoration-color: var(--primary-foreground);
 }
 
+/* Channel-ref chip (composer `/`-autocomplete) — same underline treatment
+   as `.mention-highlight` so the two in-editor pills read consistently. */
+.channel-ref-highlight {
+  text-decoration: underline;
+  text-decoration-color: var(--foreground);
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1.5px;
+}
+
 /* User bubble markdown — inherit text color from primary-foreground parent */
 .markdown-user,
 .markdown-user code:not(pre code) {

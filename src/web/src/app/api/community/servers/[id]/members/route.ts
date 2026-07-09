@@ -51,6 +51,7 @@ export const GET = withAuth(async (req, ctx) => {
       id: r.id,
       userId: r.userId,
       name: display,
+      discriminator: r.discriminator ?? undefined,
       avatar: r.userImage ?? avatarInitial(display),
       status: (r.userId === ctx.userId ? "online" : "offline") as "online" | "offline",
       sub: "",

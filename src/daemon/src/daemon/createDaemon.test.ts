@@ -188,7 +188,7 @@ describe("createDaemon — logging", () => {
 
     sockets[0].emit(
       "message",
-      JSON.stringify({ type: "bot:added", botId: "bot_1", name: "Bot One" }),
+      JSON.stringify({ type: "bot:added", botId: "bot_1", name: "Bot One", discriminator: "4821" }),
     );
     // bot:added is logged directly on the root logger (createDaemon's own tag).
     expect(logger.calls.debug.some(([, m]) => m === "bot:added")).toBe(true);
@@ -212,6 +212,90 @@ describe("createDaemon — logging", () => {
 
     sockets[0].emit("message", JSON.stringify({ type: "bot:removed", botId: "bot_1" }));
     expect(logger.calls.debug.some(([, m]) => m === "bot:removed")).toBe(true);
+
+    await daemon.stop();
+  });
+
+  it("baseContextFor builds config.agentHandle from the botsById cache's name+discriminator, and bot:updated refreshes it", async () => {
+    global.fetch = vi.fn(async (url: string | URL) => {
+      const href = String(url);
+      if (href.includes("/enroll-agent")) {
+        return new Response(JSON.stringify({ runnerKey: "rk_1" }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ bots: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const seenConfigs: Array<{ agentName?: string; agentHandle?: string }> = [];
+    const driver: Driver = {
+      ...fullFakeDriver("codex"),
+      buildSystemPrompt: (config: { agentName?: string; agentHandle?: string }) => {
+        seenConfigs.push(config);
+        return "";
+      },
+    } as unknown as Driver;
+
+    const sockets: FakeSocket[] = [];
+    const daemon = await createDaemon({
+      machineKey: "cmk_handle",
+      serverUrl: "http://localhost:9999",
+      serverWsUrl: "ws://x",
+      webSocketFactory: factory(sockets) as any,
+      runtimeReport: [{ id: "codex" }],
+      driverFor: () => driver,
+      capabilities: [],
+    });
+    sockets[0].emit("open");
+    // Let cold-start warmup's async fetch (bots: []) settle first — it
+    // `botsById.clear()`s on resolve, which would otherwise wipe out the
+    // bot:added entry below if it lands first.
+    await new Promise((r) => setTimeout(r, 20));
+
+    sockets[0].emit(
+      "message",
+      JSON.stringify({ type: "bot:added", botId: "bot_1", name: "Bot One", discriminator: "4821" }),
+    );
+    sockets[0].emit(
+      "message",
+      JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_1",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "l1",
+        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 1 },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(seenConfigs).toContainEqual(
+      expect.objectContaining({ agentName: "Bot One", agentHandle: "@Bot One#4821" }),
+    );
+
+    // A second bot, added then immediately corrected via bot:updated BEFORE
+    // its first spawn — proves bot:updated's discriminator/name land in the
+    // cache the next spawn reads from (not just bot:added's).
+    sockets[0].emit(
+      "message",
+      JSON.stringify({ type: "bot:added", botId: "bot_2", name: "Wrong Name", discriminator: "0000" }),
+    );
+    sockets[0].emit(
+      "message",
+      JSON.stringify({ type: "bot:updated", botId: "bot_2", name: "Bot Two", discriminator: "1111" }),
+    );
+    sockets[0].emit(
+      "message",
+      JSON.stringify({
+        type: "agent:wake",
+        agentId: "bot_2",
+        config: { version: 1, runtime: "codex", model: { kind: "default" }, mode: { kind: "default" } },
+        launchId: "l2",
+        unreadNotice: { kind: "unread_notice", channel: "/demo/general", latestSeq: 2 },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(seenConfigs).toContainEqual(
+      expect.objectContaining({ agentName: "Bot Two", agentHandle: "@Bot Two#1111" }),
+    );
 
     await daemon.stop();
   });

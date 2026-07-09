@@ -141,7 +141,7 @@ describe("createServer", () => {
     expect(result.ownerMember.userImage).toBeNull();
   });
 
-  it("seeds category 'Text Channels', channel 'general' (text), and exactly one owner member row with railOrder=0", async () => {
+  it("seeds category 'All', channel 'general' (text), and exactly one owner member row with railOrder=0", async () => {
     const { db, insertCalls } = createDbMock({
       insertReturns: [[serverRow], [categoryRow], [], [memberRow]],
       selectReturns: [[{ name: "Alice" }]],
@@ -167,7 +167,7 @@ describe("createServer", () => {
     expect(insertCalls[1].table).toBe(communityCategory);
     expect(insertCalls[1].values).toMatchObject({
       serverId: "srv_1",
-      name: "Text Channels",
+      name: "All",
       position: 0,
     });
 

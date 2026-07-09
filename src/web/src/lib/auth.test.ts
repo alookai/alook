@@ -10,7 +10,27 @@ vi.mock("better-auth/plugins", () => ({
   bearer: vi.fn(() => ({ __plugin: "bearer" })),
 }))
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }));
+// `probeAvailableDiscriminator` (called from the `user.create.before` hook)
+// does a real `getUserByNameAndDiscriminator` SELECT against `getDb(env.DB)`
+// — stub `getDb` to return a minimal drizzle-chain fake instead of `{}` so
+// hook tests don't need a real `Database`. Each `.select(...).from(...)
+// .where(...).limit(1)` call resolves to the next queued response (FIFO);
+// defaults to "no collision" (empty rows) so every existing hook test keeps
+// getting `computeDiscriminator(id)` verbatim on the first attempt, same as
+// before this hook started probing the DB.
+let selectResponses: unknown[][] = []
+function queueSelectResponse(rows: unknown[]) {
+  selectResponses.push(rows)
+}
+function makeFakeDb() {
+  const chain = {
+    from: () => chain,
+    where: () => chain,
+    limit: async () => selectResponses.shift() ?? [],
+  }
+  return { select: () => chain }
+}
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => makeFakeDb()) }));
 
 vi.mock("@alook/shared", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@alook/shared")>()
@@ -324,7 +344,10 @@ describe("createAuth databaseHooks — user.create.after", () => {
 })
 
 describe("createAuth databaseHooks — user.create.before", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    selectResponses = []
+  })
 
   it("coalesces empty name to email prefix", async () => {
     const createAuth = await loadCreateAuth()
@@ -378,5 +401,23 @@ describe("createAuth databaseHooks — user.create.before", () => {
     expect(a.data.discriminator).toBe(b.data.discriminator)
     expect(a.data.discriminator).toBe(computeDiscriminator("u_fixed_id"))
     expect(a.data.discriminator).not.toBe("0000")
+  })
+
+  it("salts past a pre-existing (name, discriminator) collision via probeAvailableDiscriminator", async () => {
+    const createAuth = await loadCreateAuth()
+    const opts = (createAuth(makeEnv({ NODE_ENV: "production" }) as never) as { __options: AuthOptions }).__options
+    const beforeHook = opts.databaseHooks!.user!.create!.before!
+    const { computeDiscriminator } = await import("@alook/shared")
+    const unsalted = computeDiscriminator("u_collide")
+    // First probe (unsalted discriminator) reports a live collision; the
+    // salted retry's probe reports the coast is clear.
+    queueSelectResponse([{ id: "existing_user" }])
+    queueSelectResponse([])
+
+    const result = await beforeHook({ id: "u_collide", name: "dana", email: "dana@example.com" })
+
+    expect(result.data.discriminator).not.toBe(unsalted)
+    expect(result.data.discriminator).toBe(computeDiscriminator("u_collide:1"))
+    expect(result.data.discriminator).toMatch(/^\d{4}$/)
   })
 })

@@ -10,11 +10,20 @@
  * Identifier characters are `[A-Za-z0-9_]`, so a name ending or starting in
  * those plus the next-char rule covers normal punctuation, spaces, and
  * newlines as boundaries. Names containing whitespace are supported.
+ *
+ * When a candidate carries a `discriminator`, an exact `@Name#0042` match is
+ * tried FIRST at each `@` site (so a channel with two "Alex"es can be
+ * disambiguated), falling back to the existing longest-bare-name match when
+ * no `#0042` suffix is present or it doesn't match anyone.
  */
+
+import { formatHandle } from "../lib/discriminator";
 
 export interface MentionCandidate {
   userId: string;
   name: string;
+  /** 4-digit tag (`computeDiscriminator`). Enables exact `@Name#0042` matching. */
+  discriminator?: string;
 }
 
 /**
@@ -49,7 +58,18 @@ export function extractMentionedUserIds(
     if (!byName.has(key)) byName.set(key, c);
   }
   const sorted = [...byName.values()].sort((a, b) => b.name.length - a.name.length);
-  if (sorted.length === 0) return [];
+
+  // Exact `@Name#0042` handles, tried FIRST at each `@` site — longest-handle
+  // first (mirrors the bare-name ordering). Built from ALL candidates (not
+  // the de-duped-by-name map above) since a handle is already unambiguous
+  // per-candidate; de-duping by name would arbitrarily drop one of the two
+  // "Alex"es a handle exists specifically to disambiguate.
+  const handled = candidates
+    .filter((c): c is MentionCandidate & { discriminator: string } => !!c.name && !!c.discriminator)
+    .map((c) => ({ candidate: c, handle: formatHandle(c.name, c.discriminator).toLowerCase() }))
+    .sort((a, b) => b.handle.length - a.handle.length);
+
+  if (sorted.length === 0 && handled.length === 0) return [];
 
   const lower = content.toLowerCase();
   const found = new Set<string>();
@@ -64,18 +84,31 @@ export function extractMentionedUserIds(
       continue;
     }
     let matched: MentionCandidate | undefined;
-    for (const cand of sorted) {
-      const nameLen = cand.name.length;
-      const slice = lower.slice(at + 1, at + 1 + nameLen);
-      if (slice !== cand.name.toLowerCase()) continue;
-      const after = content[at + 1 + nameLen];
+    let matchedLen = 0;
+    for (const { candidate, handle } of handled) {
+      const slice = lower.slice(at + 1, at + 1 + handle.length);
+      if (slice !== handle) continue;
+      const after = content[at + 1 + handle.length];
       if (!isBoundaryChar(after)) continue;
-      matched = cand;
+      matched = candidate;
+      matchedLen = handle.length;
       break;
+    }
+    if (!matched) {
+      for (const cand of sorted) {
+        const nameLen = cand.name.length;
+        const slice = lower.slice(at + 1, at + 1 + nameLen);
+        if (slice !== cand.name.toLowerCase()) continue;
+        const after = content[at + 1 + nameLen];
+        if (!isBoundaryChar(after)) continue;
+        matched = cand;
+        matchedLen = nameLen;
+        break;
+      }
     }
     if (matched) {
       found.add(matched.userId);
-      i = at + 1 + matched.name.length;
+      i = at + 1 + matchedLen;
     } else {
       i = at + 1;
     }

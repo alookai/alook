@@ -61,7 +61,7 @@ vi.mock("@alook/shared", async () => {
         getConversationsByIds: (...args: unknown[]) => mockGetConversationsByIds(...args),
       },
       user: {
-        getUser: (...args: unknown[]) => mockGetUser(...args),
+        getUserSelf: (...args: unknown[]) => mockGetUser(...args),
       },
       emailAccount: {
         getEmailAccountsByAgents: (...args: unknown[]) => mockGetAllEmailAccountsForWorkspace(...args),

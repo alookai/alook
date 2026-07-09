@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { ChevronLeft, Monitor } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -20,12 +21,15 @@ import { apiFetch } from "@/lib/api/client"
 import { MachineCard } from "./machine-card"
 import { PairMachineSheet, type PairMachineSheetMode } from "./pair-machine-sheet"
 import { useMachines, type MachinesResponse } from "@/hooks/community/use-machines"
+import { useBots } from "@/hooks/community/use-bots"
 import { useCommunityStore, usePendingMachineTokenId } from "@/stores/community"
 import { communityKeys } from "@/lib/query-keys"
 
 export function MachineList({ onBack }: { onBack?: () => void } = {}) {
+  const router = useRouter()
   const queryClient = useQueryClient()
   const { machines, isLoading: machinesLoading } = useMachines()
+  const { bots } = useBots()
   const pendingMachineTokenId = usePendingMachineTokenId()
   const [pairOpen, setPairOpen] = useState(false)
   const [pairMode, setPairMode] = useState<PairMachineSheetMode>({ kind: "pair" })
@@ -81,6 +85,10 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     const id = confirmDelete.id
     setConfirmDelete(null)
     try {
+      // Never sends `cascade: true` — deleting a machine with live bots on
+      // it is blocked (see the dialog below, which swaps the destructive
+      // action out for "Manage bots" whenever `botsToDelete` is non-empty).
+      // This call only fires for a machine we already know has zero bots.
       await apiFetch(`/api/community/machines/${id}`, { method: "DELETE" })
       // Optimistically drop the row from the machines cache. WS
       // `machine.removed` fans out and reconciles, but the same-tab actor
@@ -90,8 +98,17 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
         (prev) =>
           prev ? { ...prev, machines: prev.machines.filter((m) => m.id !== id) } : prev,
       )
-    } catch {
-      toast.error("Couldn't delete the machine")
+    } catch (err) {
+      // MACHINE_HAS_BOTS can still happen here despite the client-side
+      // guard above — e.g. a bot was created on this machine from another
+      // tab between opening the dialog and confirming.
+      const message =
+        err instanceof Error && err.message === "MACHINE_HAS_BOTS"
+          ? "This machine now has bots on it — delete or move them first"
+          : err instanceof Error && err.message
+            ? err.message
+            : "Couldn't delete the machine"
+      toast.error(message)
     }
   }, [confirmDelete, queryClient])
 
@@ -99,6 +116,10 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     setPendingTokenId(tokenId)
     useCommunityStore.getState().setPendingMachineTokenId(tokenId)
   }, [])
+
+  const botsToDelete = confirmDelete
+    ? bots.filter((b) => b.machineId === confirmDelete.id)
+    : []
 
   const backBar = onBack ? (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
@@ -190,20 +211,57 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete {confirmDelete?.hostname || "machine"}?
+              {botsToDelete.length > 0
+                ? `Can't delete ${confirmDelete?.hostname || "machine"}`
+                : `Delete ${confirmDelete?.hostname || "machine"}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              The daemon will be disconnected immediately and the pairing key revoked.
+              {botsToDelete.length > 0 ? (
+                <>
+                  This machine still has{" "}
+                  {botsToDelete.length === 1
+                    ? `a bot ("${botsToDelete[0].name}")`
+                    : `${botsToDelete.length} bots (${botsToDelete
+                      .map((b) => b.name)
+                      .join(", ")})`}{" "}
+                  bound to it. Delete {botsToDelete.length === 1 ? "it " : "them "} from the
+                  Bots page first — machines can&apos;t be deleted while they still have
+                  bots on them.
+                </>
+              ) : (
+                "The daemon will be disconnected immediately and the pairing key revoked."
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={onConfirmDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
+            {botsToDelete.length > 0 ? (
+              <>
+                <AlertDialogCancel>Close</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    const machineId = confirmDelete?.id
+                    setConfirmDelete(null)
+                    router.push(
+                      machineId
+                        ? `/community/me/bots?machineId=${machineId}`
+                        : "/community/me/bots"
+                    )
+                  }}
+                >
+                  Manage bots
+                </AlertDialogAction>
+              </>
+            ) : (
+              <>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={onConfirmDelete}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete
+                </AlertDialogAction>
+              </>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

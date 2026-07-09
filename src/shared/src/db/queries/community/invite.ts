@@ -96,7 +96,7 @@ export async function useInvite(
   // Join the joined-user row so WS listeners can render name/avatar without
   // waiting for the next /members refetch.
   const userRows = await db
-    .select({ name: user.name, image: user.image })
+    .select({ name: user.name, image: user.image, discriminator: user.discriminator })
     .from(user)
     .where(eq(user.id, userId));
   const userRow = userRows[0];
@@ -107,6 +107,7 @@ export async function useInvite(
       ...insertedMember,
       userName: userRow?.name ?? "",
       userImage: userRow?.image ?? null,
+      discriminator: userRow?.discriminator ?? null,
     },
   };
 }

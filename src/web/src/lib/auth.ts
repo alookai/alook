@@ -7,7 +7,6 @@ import {
   resolveMode,
   queries,
   COMMUNITY_BOT_EMAIL_DOMAIN,
-  computeDiscriminator,
   RATE_LIMITS,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
@@ -107,9 +106,15 @@ export function createAuth(env: Env) {
             // of the id) in the same INSERT — the schema default of "0000"
             // otherwise sticks and a backfill has to catch it.
             const id = (user as { id?: string }).id ?? nanoid()
-            const discriminator = computeDiscriminator(id)
             const trimmed = (user.name ?? "").trim()
             const name = trimmed || user.email?.split("@")[0]?.trim() || user.name
+            // Better Auth's adapter inserts AFTER this hook returns — there's no
+            // insert call here to wrap in a catch/retry like `withUniqueDiscriminator`
+            // does. `probeAvailableDiscriminator` is a best-effort SELECT pre-check
+            // instead (see its doc comment for the accepted residual race window;
+            // the partial unique index is the actual backstop).
+            const db = getDb(env.DB)
+            const discriminator = await queries.user.probeAvailableDiscriminator(db, { id, name: name ?? "" })
             return { data: { ...user, id, name, discriminator } }
           },
           after: async (user, ctx) => {

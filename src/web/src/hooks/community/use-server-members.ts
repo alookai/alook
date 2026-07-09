@@ -46,6 +46,7 @@ export function applyJoinEvent(
       id: event.member.id,
       userId: event.member.userId,
       name: event.member.name,
+      discriminator: event.member.discriminator,
       avatar: event.member.avatar ?? avatarInitial(event.member.name),
       status: "online",
       sub: "",
@@ -88,12 +89,12 @@ type SearchEnvelope = {
 // apiFetch without going through React.
 export const membersPageQueryFn =
   (serverId: string) =>
-  async ({ pageParam }: { pageParam: string | null | undefined }): Promise<MembersEnvelope> => {
-    const params = new URLSearchParams()
-    if (pageParam) params.set("cursor", pageParam)
-    const url = `/api/community/servers/${serverId}/members${params.toString() ? `?${params}` : ""}`
-    return apiFetch<MembersEnvelope>(url)
-  }
+    async ({ pageParam }: { pageParam: string | null | undefined }): Promise<MembersEnvelope> => {
+      const params = new URLSearchParams()
+      if (pageParam) params.set("cursor", pageParam)
+      const url = `/api/community/servers/${serverId}/members${params.toString() ? `?${params}` : ""}`
+      return apiFetch<MembersEnvelope>(url)
+    }
 
 // ── Cache mutation helpers (also used by the WS handler in Step 3) ──────────
 
@@ -241,7 +242,7 @@ export function dispatchMemberOverlayEvent(ev: MemberOverlayEvent): void {
 export function subscribeMemberOverlayEvents(
   listener: (ev: MemberOverlayEvent) => void,
 ): () => void {
-  if (!memberOverlayBus) return () => {}
+  if (!memberOverlayBus) return () => { }
   const handler = (e: Event) => {
     const detail = (e as CustomEvent<MemberOverlayEvent>).detail
     if (detail) listener(detail)

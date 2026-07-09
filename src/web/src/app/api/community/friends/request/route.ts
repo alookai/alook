@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { queries, WS_EVENTS, isUniqueConstraintError } from "@alook/shared"
+import { queries, WS_EVENTS, isUniqueConstraintError, parseNameAndTag } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -19,11 +19,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   let targetUserId = body.userId
   if (!targetUserId && body.username) {
-    const targetUser = await queries.user.getUserByNameCaseInsensitive(
-      db,
-      body.username,
-      { excludeDeleted: true },
-    )
+    // `name#0042` exact match first — same-name users can't get friended by
+    // mistake once a discriminator is given. Falls back to the existing
+    // case-insensitive bare-name match when no `#dddd` suffix is present.
+    const handle = parseNameAndTag(body.username)
+    const targetUser = handle
+      ? await queries.user.getUserByNameAndDiscriminator(db, handle.name, handle.discriminator)
+      : await queries.user.getUserByNameCaseInsensitive(db, body.username)
     if (!targetUser) return writeError("user not found", 404)
     targetUserId = targetUser.id
   }

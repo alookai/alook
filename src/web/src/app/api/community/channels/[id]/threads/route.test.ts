@@ -116,6 +116,7 @@ describe("GET /api/community/channels/[id]/threads", () => {
         content: "parent-content",
         authorName: "Alice",
         authorEmail: "a@t.com",
+        seq: 7,
       },
     ])
     mockGetUsersByIds.mockResolvedValue([
@@ -128,13 +129,18 @@ describe("GET /api/community/channels/[id]/threads", () => {
 
     const res = await GET(req(), ctx)
     expect(res.status).toBe(200)
-    const body = await res.json() as { threads: Array<{ id: string; parent: { authorName: string; text: string } }> }
+    const body = await res.json() as { threads: Array<{ id: string; parent: { authorName: string; text: string }; parentSeq?: number }> }
 
     expect(body.threads).toEqual([
-      { id: "t-A", name: "A", kind: "thread", messageCount: 3, lastMessageAt: "2026-06-30T01:00:00.000Z", parent: { authorName: "Alice", text: "parent-content" } },
+      { id: "t-A", name: "A", kind: "thread", messageCount: 3, lastMessageAt: "2026-06-30T01:00:00.000Z", parent: { authorName: "Alice", text: "parent-content" }, parentSeq: 7 },
       { id: "t-B", name: "B", kind: "thread", messageCount: 2, lastMessageAt: "2026-06-30T00:00:00.000Z", parent: { authorName: "Bob", text: "first-in-B" } },
       { id: "t-C", name: "C", kind: "thread", messageCount: 1, lastMessageAt: "2026-06-30T00:00:00.000Z", parent: { authorName: "Carol", text: "" } },
     ])
+    // t-B/t-C were created from a creator (no parent message) — parentSeq
+    // must be omitted, not `undefined`-valued, so a naive `"parentSeq" in
+    // thread` check on the client can't be fooled by an explicit undefined.
+    expect(Object.keys(body.threads[1])).not.toContain("parentSeq")
+    expect(Object.keys(body.threads[2])).not.toContain("parentSeq")
 
     expect(mockGetMessagesByIds).toHaveBeenCalledTimes(1)
     expect(mockGetUsersByIds).toHaveBeenCalledTimes(1)

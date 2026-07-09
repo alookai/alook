@@ -94,6 +94,26 @@ describe("POST /api/community/invites/[token]/join", () => {
     expect(event.member.joinedAt).toBe("2026-07-03T00:00:00.000Z")
   })
 
+  it("includes the user's discriminator on the emitted member.join event", async () => {
+    mockUseInvite.mockResolvedValue({
+      invite: { id: "inv_1", serverId: "srv_1" },
+      member: {
+        id: "mem_1",
+        userId: "u_caller",
+        role: "member",
+        nickname: null,
+        joinedAt: "2026-07-03T00:00:00.000Z",
+        userName: "Alice",
+        userImage: null,
+        discriminator: "0042",
+      },
+    })
+
+    await callPOST("tok_abc")
+    const [, event] = mockFanOut.mock.calls[0]!
+    expect(event.member.discriminator).toBe("0042")
+  })
+
   it("prefers nickname over userName when set", async () => {
     mockUseInvite.mockResolvedValue({
       invite: { id: "inv_1", serverId: "srv_1" },
@@ -133,9 +153,9 @@ describe("POST /api/community/invites/[token]/join", () => {
     // message only. isUniqueConstraintError walks the cause chain; this
     // regression test guards that behaviour.
     const wrapped = new Error("failed query: insert into community_member")
-    ;(wrapped as { cause?: unknown }).cause = new Error(
-      "UNIQUE constraint failed: community_member.user_id",
-    )
+      ; (wrapped as { cause?: unknown }).cause = new Error(
+        "UNIQUE constraint failed: community_member.user_id",
+      )
     mockUseInvite.mockRejectedValue(wrapped)
     const res = await callPOST("tok_abc")
     expect(res.status).toBe(400)
@@ -145,7 +165,7 @@ describe("POST /api/community/invites/[token]/join", () => {
   it("returns 400 when the driver reports SQLITE_CONSTRAINT_UNIQUE via .code", async () => {
     // Only reachable via the helper — the old substring hack would rethrow.
     const codeErr = new Error("constraint violation")
-    ;(codeErr as { code?: string }).code = "SQLITE_CONSTRAINT_UNIQUE"
+      ; (codeErr as { code?: string }).code = "SQLITE_CONSTRAINT_UNIQUE"
     mockUseInvite.mockRejectedValue(codeErr)
     const res = await callPOST("tok_abc")
     expect(res.status).toBe(400)

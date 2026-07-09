@@ -4,6 +4,10 @@ import { user } from "../schema";
 import type { Database } from "../index";
 import { escapeLikePattern } from "../../utils/sql-like";
 import { computeDiscriminator } from "../../lib/discriminator";
+import { isUniqueConstraintError } from "../../utils/db-errors";
+
+/** Bounded retry ceiling for `withUniqueDiscriminator`/`probeAvailableDiscriminator` salting. */
+const MAX_DISCRIMINATOR_ATTEMPTS = 5;
 
 // ─── Column projections ──────────────────────────────────────────────────────
 //
@@ -55,48 +59,53 @@ export type InternalUserFields = {
 
 export type InternalUser = PublicUser & InternalUserFields;
 
-// ─── Caller audit (as of 2026-07-06) ────────────────────────────────────────
+// ─── Public vs. self lookups (as of 2026-07-09) ─────────────────────────────
 //
-// `excludeDeleted` defaults to `false` for backward compatibility — flipping
-// the default would silently break admin, session, and history-hydration
-// paths. Every current caller is enumerated below with its decision:
+// Every lookup below is one of exactly two kinds, and the function name is
+// now the only contract — there is no boolean flag left for a caller to
+// forget to pass:
 //
-//   getUser:
-//     - api/me                                      → false (own row, keep)
-//     - api/community/dm  (target lookup)           → true  (listing surface)
-//     - api/community/users/[id]/block/profile      → true  (public surface)
-//     - api/community/friends/request               → true  (must not friend deleted users)
-//     - api/community/channels/.../posts (create)   → false (self hydration)
-//     - services/email-dispatch, calendar, payload  → false (identity lookup)
+//   - "Public" lookups (`getUserPublic`, `getUserByNameCaseInsensitive`,
+//     `getUserByNameAndDiscriminator`, `searchUsersByName`) always exclude
+//     soft-deleted rows. Used to resolve *someone else's* identity from a
+//     public-facing surface (profile, block, search, friend-request-by-
+//     username, DM-ref resolution) — a tombstoned account must never appear
+//     live on any of these.
+//   - "Self" lookups (`getUserSelf`, `getUsersByIds`, `getUserByEmail`) never
+//     filter `deletedAt`. Used for the caller's own row, or for hydrating
+//     already-known ids/emails from an internal/identity/history context
+//     (own profile, own post/DM creation, Better-Auth adapter, email
+//     dispatch, calendar, task payload building, tombstone rendering in
+//     channel history) — none of these are "is this account still live"
+//     checks, so there is nothing to filter.
 //
-//   getUsersByIds:
-//     - channel threads/posts creator hydration     → false (history, tombstone renders)
-//
-//   getUserByEmail:
-//     - (Better-Auth adapter path, indirect)        → false
-//
-//   getUserByNameCaseInsensitive / searchUsersByName:
-//     - api/community/friends/request (username)    → true  (send to live users only)
-//     - api/community/users/search                  → true  (user picker surface)
-//
-// The call-sites above are updated to pass `{ excludeDeleted: true }` where
-// the plan requires filtering deleted users. All others rely on the default.
+// This previously lived behind a shared `excludeDeleted?: boolean` option
+// with a `false` default. Two real call sites (`users/[userId]/profile`,
+// `users/[userId]/block`) silently relied on that default and rendered a
+// soft-deleted account as if it were live; `users/search` had the same bug
+// via `searchUsersByName`. Splitting into named functions with no option
+// closes that hole structurally instead of asking every future caller to
+// remember a flag.
 
-function withDeletedFilter(condition: unknown, excludeDeleted: boolean) {
-  if (!excludeDeleted) return condition as any;
-  return and(condition as any, isNull(user.deletedAt));
-}
-
-export async function getUser(
+export async function getUserPublic(
   db: Database,
-  id: string,
-  opts?: { excludeDeleted?: boolean }
+  id: string
 ): Promise<PublicUser | null> {
-  const excludeDeleted = opts?.excludeDeleted === true;
   const rows = await db
     .select(publicUserColumns)
     .from(user)
-    .where(withDeletedFilter(eq(user.id, id), excludeDeleted));
+    .where(and(eq(user.id, id), isNull(user.deletedAt)));
+  return (rows[0] as PublicUser | undefined) ?? null;
+}
+
+export async function getUserSelf(
+  db: Database,
+  id: string
+): Promise<PublicUser | null> {
+  const rows = await db
+    .select(publicUserColumns)
+    .from(user)
+    .where(eq(user.id, id));
   return (rows[0] as PublicUser | undefined) ?? null;
 }
 
@@ -111,57 +120,54 @@ export async function getUserInternal(
   return (rows[0] as InternalUser | undefined) ?? null;
 }
 
+/** Self/internal — history + tombstone rendering (channel threads/posts creator hydration). */
 export async function getUsersByIds(
   db: Database,
-  ids: string[],
-  opts?: { excludeDeleted?: boolean }
+  ids: string[]
 ): Promise<PublicUser[]> {
   if (ids.length === 0) return [];
-  const excludeDeleted = opts?.excludeDeleted === true;
   return db
     .select(publicUserColumns)
     .from(user)
-    .where(withDeletedFilter(inArray(user.id, ids), excludeDeleted)) as Promise<PublicUser[]>;
+    .where(inArray(user.id, ids)) as Promise<PublicUser[]>;
 }
 
+/** Self/internal — Better-Auth adapter path. */
 export async function getUserByEmail(
   db: Database,
-  email: string,
-  opts?: { excludeDeleted?: boolean }
+  email: string
 ): Promise<PublicUser | null> {
-  const excludeDeleted = opts?.excludeDeleted === true;
   const rows = await db
     .select(publicUserColumns)
     .from(user)
-    .where(withDeletedFilter(eq(user.email, email), excludeDeleted));
+    .where(eq(user.email, email));
   return (rows[0] as PublicUser | undefined) ?? null;
 }
 
+/** Public — bare-name fallback path (e.g. friend-request-by-username with no `#tag`). */
 export async function getUserByNameCaseInsensitive(
   db: Database,
-  name: string,
-  opts?: { excludeDeleted?: boolean }
+  name: string
 ): Promise<PublicUser | null> {
-  const excludeDeleted = opts?.excludeDeleted === true;
   const rows = await db
     .select(publicUserColumns)
     .from(user)
-    .where(withDeletedFilter(like(user.name, name), excludeDeleted));
+    .where(and(like(user.name, name), isNull(user.deletedAt)));
   return (rows[0] as PublicUser | undefined) ?? null;
 }
 
+/** Public — user picker / add-friend search surface. Always excludes deleted rows. */
 export async function searchUsersByName(
   db: Database,
   name: string,
   opts?: {
     excludeUserId?: string;
     limit?: number;
-    excludeDeleted?: boolean;
     /** When set, filter to an exact name + discriminator match (`name#0042`). */
     discriminator?: string;
   }
 ): Promise<PublicUser[]> {
-  const conditions: any[] = [];
+  const conditions: any[] = [isNull(user.deletedAt)];
   if (opts?.discriminator !== undefined) {
     // Exact match — used by the `name#0042` add-friend search path.
     conditions.push(eq(user.name, name));
@@ -173,14 +179,98 @@ export async function searchUsersByName(
   if (opts?.excludeUserId) {
     conditions.push(ne(user.id, opts.excludeUserId));
   }
-  if (opts?.excludeDeleted) {
-    conditions.push(isNull(user.deletedAt));
-  }
   return db
     .select(publicUserColumns)
     .from(user)
     .where(and(...conditions))
     .limit(opts?.limit ?? 20) as Promise<PublicUser[]>;
+}
+
+/**
+ * Exact `name#0042` lookup — case-insensitive on `name` (matching
+ * `getUserByNameCaseInsensitive`'s existing behavior so a caller switching
+ * from bare-name to `name#tag` lookup doesn't regress case handling), exact
+ * match on `discriminator`. Used by DM-ref resolution and mention/friend
+ * disambiguation, where the pair must resolve to exactly one user. Public —
+ * always excludes deleted rows.
+ */
+export async function getUserByNameAndDiscriminator(
+  db: Database,
+  name: string,
+  discriminator: string
+): Promise<PublicUser | null> {
+  const rows = await db
+    .select(publicUserColumns)
+    .from(user)
+    .where(
+      and(like(user.name, name), eq(user.discriminator, discriminator), isNull(user.deletedAt))
+    )
+    .limit(1);
+  return (rows[0] as PublicUser | undefined) ?? null;
+}
+
+/**
+ * Wrap an insert that writes `computeDiscriminator(id)` so a collision
+ * against the partial unique index (`idx_user_name_discriminator`, migration
+ * 0055) self-heals instead of failing the caller's whole request. Calls
+ * `insertFn(discriminator)`; on `isUniqueConstraintError` retries with
+ * `computeDiscriminator(id + ":" + attempt)` and a FRESH `insertFn` call
+ * (the caller's `insertFn` closure re-reads the salted discriminator each
+ * time — see `createUser`/`createBot`), bounded to
+ * `MAX_DISCRIMINATOR_ATTEMPTS`. Throws past the bound rather than looping
+ * forever — a persistent failure past a handful of attempts is almost
+ * certainly not actually a discriminator collision.
+ */
+export async function withUniqueDiscriminator<T>(
+  _db: Database,
+  input: { id: string; name: string },
+  insertFn: (discriminator: string) => Promise<T>
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_DISCRIMINATOR_ATTEMPTS; attempt++) {
+    const discriminator =
+      attempt === 0
+        ? computeDiscriminator(input.id)
+        : computeDiscriminator(`${input.id}:${attempt}`);
+    try {
+      return await insertFn(discriminator);
+    } catch (err) {
+      if (!isUniqueConstraintError(err)) throw err;
+      lastErr = err;
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Best-effort SELECT-based pre-check for callers that can't wrap their own
+ * insert (Better Auth's `user.create.before` hook — the adapter inserts
+ * AFTER the hook returns, so there's no insert call here to retry). Returns
+ * an available discriminator, salting past a live `(name, discriminator)`
+ * collision the same way `withUniqueDiscriminator` does. This is weaker than
+ * `withUniqueDiscriminator`: a concurrent signup of the exact same name at
+ * the exact same instant can still race past this check. The partial unique
+ * index is the actual backstop for that residual window — a double-loss
+ * fails Better Auth's insert, the signup surfaces a generic error, and the
+ * user's retry mints a fresh id/discriminator pair. Self-healing, not
+ * silently broken; not full parity with the insert-wrapped paths.
+ */
+export async function probeAvailableDiscriminator(
+  db: Database,
+  input: { id: string; name: string }
+): Promise<string> {
+  for (let attempt = 0; attempt < MAX_DISCRIMINATOR_ATTEMPTS; attempt++) {
+    const discriminator =
+      attempt === 0
+        ? computeDiscriminator(input.id)
+        : computeDiscriminator(`${input.id}:${attempt}`);
+    const existing = await getUserByNameAndDiscriminator(db, input.name, discriminator);
+    if (!existing) return discriminator;
+  }
+  // Ceiling exhausted — hand back the last candidate anyway; the partial
+  // unique index (not this function) is what makes a true double-collision
+  // impossible to persist.
+  return computeDiscriminator(`${input.id}:${MAX_DISCRIMINATOR_ATTEMPTS - 1}`);
 }
 
 export async function createUser(
@@ -191,16 +281,18 @@ export async function createUser(
   // Generate the id up-front so the discriminator (an FNV-1a hash of the id)
   // can be written in the same INSERT — no separate UPDATE round-trip.
   const id = nanoid();
-  const rows = await db
-    .insert(user)
-    .values({
-      id,
-      name: data.name,
-      email: data.email,
-      discriminator: computeDiscriminator(id),
-    })
-    .returning(publicUserColumns);
-  return rows[0] as PublicUser;
+  return withUniqueDiscriminator(db, { id, name: data.name }, async (discriminator) => {
+    const rows = await db
+      .insert(user)
+      .values({
+        id,
+        name: data.name,
+        email: data.email,
+        discriminator,
+      })
+      .returning(publicUserColumns);
+    return rows[0] as PublicUser;
+  });
 }
 
 /** omit a field to leave it unchanged; pass image: null to explicitly clear it. */

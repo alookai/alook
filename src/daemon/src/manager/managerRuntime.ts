@@ -303,6 +303,16 @@ export class AgentProcessManager {
         this.logSessionEnded(effect.agentId, effect.type === "stop" ? "stopped" : "terminate_stalled");
         break;
       }
+      case "gated_hold":
+        // Pure observability — no behavioral effect. Emitted whenever a
+        // gated agent has a non-empty inbox but nothing was actually sent.
+        this.log.info("gated busy message held", {
+          agentId: effect.agentId,
+          reason: effect.reason,
+          blockedReason: effect.blockedReason,
+          recentEvents: effect.recentEvents,
+        });
+        break;
     }
   }
 
@@ -484,6 +494,10 @@ export class AgentProcessManager {
     }
     // Any event is progress for stall detection.
     this.dispatch({ type: "progress", agentId, nowMs: this.now() });
+    // Forward every parsed event's kind for gated-steering phase tracking
+    // (tool/compaction/review boundaries). No-ops in the reducer for kinds
+    // it doesn't care about, aside from the diagnostics ring buffer.
+    this.dispatch({ type: "runtime_signal", agentId, kind: ev.kind, nowMs: this.now() });
     if (ev.kind === "turn_end") {
       this.logSessionEnded(agentId, "turn_end");
       this.dispatch({ type: "turn_end", agentId, nowMs: this.now() });

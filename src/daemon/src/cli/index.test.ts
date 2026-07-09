@@ -28,6 +28,8 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     send: async () => ({ state: "sent", message: { seq: "#1", channel: "/s/c", sender: "@a", content: { text: "" }, time: "" } }),
     read: async () => ({ items: [], hasMore: false }),
     resolve: async () => null,
+    listMembers: async () => ({ members: [] }),
+    joinServer: async () => ({ server: { id: "s", name: "s" } }),
     ...over,
   } as ServerApi;
 }
@@ -135,5 +137,135 @@ describe("inbox pull", () => {
     const env = parseEnvelope(cap.lines()) as { success: { acked: number } };
     expect(ackSpy).not.toHaveBeenCalled();
     expect(env.success.acked).toBe(0);
+  });
+});
+
+describe("server list", () => {
+  it("prints {success:{servers:[...]}} from a stubbed listServers", async () => {
+    setApiForTesting(
+      stubApi({ listServers: async () => ({ servers: [{ id: "srv_1", name: "Design Studio" }] }) }),
+    );
+    await main(["server", "list"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ success: { servers: [{ id: "srv_1", name: "Design Studio" }] } });
+  });
+
+  it("prints an empty array when the bot is in no servers", async () => {
+    setApiForTesting(stubApi({ listServers: async () => ({ servers: [] }) }));
+    await main(["server", "list"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ success: { servers: [] } });
+  });
+});
+
+describe("server member", () => {
+  it("prints {success:{members:[...]}} from a stubbed listMembers", async () => {
+    const listMembersSpy = vi.fn(async () => ({
+      members: [{ handle: "gustavo#4821", role: "owner" }],
+    }));
+    setApiForTesting(stubApi({ listMembers: listMembersSpy }));
+    await main(["server", "member", "--server", "Design Studio"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ success: { members: [{ handle: "gustavo#4821", role: "owner" }] } });
+    expect(listMembersSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ server: "Design Studio" }),
+    );
+  });
+
+  it("missing --server → error, listMembers never called", async () => {
+    const listMembersSpy = vi.fn(async () => ({ members: [] }));
+    setApiForTesting(stubApi({ listMembers: listMembersSpy }));
+    await main(["server", "member"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ error: "server member: --server <name> is required" });
+    expect(listMembersSpy).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an ambiguous-name error verbatim as {error: <message>}", async () => {
+    const message = 'ambiguous server name "studio" — matches 2 servers: srv_1 ("Design Studio"), srv_2 ("Studio Ops")';
+    setApiForTesting(
+      stubApi({
+        listMembers: async () => {
+          throw new Error(message);
+        },
+      }),
+    );
+    await main(["server", "member", "--server", "studio"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ error: message });
+    expect("hint" in env).toBe(false);
+  });
+});
+
+describe("server join", () => {
+  it("extracts the token from a full URL and calls joinServer with the bare token only", async () => {
+    const joinServerSpy = vi.fn(async () => ({ server: { id: "srv_1", name: "Design Studio" } }));
+    setApiForTesting(stubApi({ joinServer: joinServerSpy }));
+    await main(["server", "join", "--invite", "https://alook.dev/community/invite/AbC123XyZ0"]);
+    expect(joinServerSpy).toHaveBeenCalledWith(expect.objectContaining({ invite: "AbC123XyZ0" }));
+  });
+
+  it("passes a bare token through unchanged", async () => {
+    const joinServerSpy = vi.fn(async () => ({ server: { id: "srv_1", name: "Design Studio" } }));
+    setApiForTesting(stubApi({ joinServer: joinServerSpy }));
+    await main(["server", "join", "--invite", "AbC123XyZ0"]);
+    expect(joinServerSpy).toHaveBeenCalledWith(expect.objectContaining({ invite: "AbC123XyZ0" }));
+  });
+
+  it("missing --invite → error", async () => {
+    setApiForTesting(stubApi());
+    await main(["server", "join"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ error: "server join: --invite <link> is required" });
+  });
+
+  it("unparseable --invite value → descriptive error, joinServer never called", async () => {
+    const joinServerSpy = vi.fn(async () => ({ server: { id: "srv_1", name: "Design Studio" } }));
+    setApiForTesting(stubApi({ joinServer: joinServerSpy }));
+    await main(["server", "join", "--invite", "not an invite at all"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env.error).toContain("could not find an invite token");
+    expect(joinServerSpy).not.toHaveBeenCalled();
+  });
+
+  it("a thrown rejection (not found / expired / already a member / owner mismatch) surfaces as {error: <message>}", async () => {
+    setApiForTesting(
+      stubApi({
+        joinServer: async () => {
+          throw new Error("Already a member");
+        },
+      }),
+    );
+    await main(["server", "join", "--invite", "AbC123XyZ0"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ error: "Already a member" });
+  });
+
+  it("a thrown error carrying .hint prints {error, hint}", async () => {
+    setApiForTesting(
+      stubApi({
+        joinServer: async () => {
+          const err = new Error("This invite was not created by your owner — refusing to join.");
+          (err as { hint?: string }).hint = "Ask your owner to send an invite link they created themselves.";
+          throw err;
+        },
+      }),
+    );
+    await main(["server", "join", "--invite", "AbC123XyZ0"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({
+      error: "This invite was not created by your owner — refusing to join.",
+      hint: "Ask your owner to send an invite link they created themselves.",
+    });
+  });
+
+  it("success prints {success:{server:{id,name}}} (no `joined` key)", async () => {
+    setApiForTesting(
+      stubApi({ joinServer: async () => ({ server: { id: "srv_1", name: "Design Studio" } }) }),
+    );
+    await main(["server", "join", "--invite", "AbC123XyZ0"]);
+    const env = parseEnvelope(cap.lines());
+    expect(env).toEqual({ success: { server: { id: "srv_1", name: "Design Studio" } } });
+    expect(env.success as object).not.toHaveProperty("joined");
   });
 });

@@ -28,24 +28,20 @@ export const SEEN_MESSAGE_MAX = 500
 export const SEEN_MESSAGE_TRIM_TO = 400
 
 export type CommunityWsStoreState = {
-  /** Human users online right now. Fed by `community:presence.update` WS. */
-  onlineUserIds: Set<string>
   /**
-   * Owner's own bots that are online right now. A bot is "online" iff its
-   * bound machine's daemon is connected. Fed by `use-bot-presence.ts` which
-   * derives from `useMachines()` + `useBots()` and reconciles on `machine.status`
-   * WS events. Stored separately so the two data streams don't collide.
+   * Everyone online right now — human or bot. The server pushes
+   * `community:presence.update` identically for both (see
+   * plans/community-account-debt-fixes.md Fix 3: a bot's bound-machine
+   * connect/disconnect fans out through the same audience-based pipeline as
+   * a human WS connect/disconnect), so there's a single stream to store.
    */
-  onlineBotUserIds: Set<string>
+  onlineUserIds: Set<string>
   seenMessageIds: Set<string>
 
   setPresence: (userId: string, online: boolean) => void
   /** Atomic bulk seed — one notification for N users. Use on server switch. */
   hydratePresence: (userIds: readonly string[]) => void
   resetPresence: () => void
-  /** Atomic bulk seed of bot presence. Content-equality guarded like `hydratePresence`. */
-  hydrateBotPresence: (botUserIds: readonly string[]) => void
-  resetBotPresence: () => void
   hasSeenMessage: (id: string) => boolean
   markSeenMessage: (id: string) => void
   reset: () => void
@@ -53,10 +49,9 @@ export type CommunityWsStoreState = {
 
 const initialState = (): Pick<
   CommunityWsStoreState,
-  "onlineUserIds" | "onlineBotUserIds" | "seenMessageIds"
+  "onlineUserIds" | "seenMessageIds"
 > => ({
   onlineUserIds: new Set(),
-  onlineBotUserIds: new Set(),
   seenMessageIds: new Set(),
 })
 
@@ -86,22 +81,6 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
     set({ onlineUserIds: new Set() })
   },
 
-  hydrateBotPresence: (botUserIds) => {
-    const current = get().onlineBotUserIds
-    if (
-      current.size === botUserIds.length &&
-      botUserIds.every((id) => current.has(id))
-    ) {
-      return
-    }
-    set({ onlineBotUserIds: new Set(botUserIds) })
-  },
-
-  resetBotPresence: () => {
-    if (get().onlineBotUserIds.size === 0) return
-    set({ onlineBotUserIds: new Set() })
-  },
-
   hasSeenMessage: (id) => get().seenMessageIds.has(id),
 
   markSeenMessage: (id) => {
@@ -123,24 +102,12 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
 
 // ── Selectors ────────────────────────────────────────────────────────────────
 
-import { useMemo } from "react"
-
 /**
- * Presence unions users + own-bots — every consumer that asks "is X online?"
- * gets the right answer regardless of whether X is a human friend or an
- * owner's own bot.
- *
- * Returned Set is memoized on the two slice identities, so consumers used as
- * effect deps don't retrigger unless a real presence change happened.
+ * Every consumer that asks "is X online?" reads this — the server already
+ * pushes bot presence into the same `onlineUserIds` stream as human
+ * presence (see the store-level comment above), so this is a direct
+ * passthrough, not a union of two sources.
  */
 export const useOnlineUserIds = (): ReadonlySet<string> => {
-  const users = useCommunityWsStore((s) => s.onlineUserIds)
-  const bots = useCommunityWsStore((s) => s.onlineBotUserIds)
-  return useMemo(() => {
-    if (bots.size === 0) return users
-    if (users.size === 0) return bots
-    const merged = new Set<string>(users)
-    for (const id of bots) merged.add(id)
-    return merged
-  }, [users, bots])
+  return useCommunityWsStore((s) => s.onlineUserIds)
 }

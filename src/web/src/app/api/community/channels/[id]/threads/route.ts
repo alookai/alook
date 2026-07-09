@@ -54,6 +54,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const threads = childChannels.map((t) => {
     let parent = { authorName: "", text: "" }
+    let parentSeq: number | undefined
     if (t.parentMessageId) {
       const msg = parentMessageMap.get(t.parentMessageId)
       if (msg) {
@@ -61,6 +62,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
           authorName: msg.authorName,
           text: (msg.content ?? "").slice(0, 100),
         }
+        parentSeq = msg.seq
       }
     } else if (t.creatorId) {
       const creator = creatorMap.get(t.creatorId)
@@ -77,6 +79,7 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
       messageCount: t.messageCount ?? 0,
       lastMessageAt: t.lastMessageAt ?? t.createdAt,
       parent,
+      ...(parentSeq !== undefined ? { parentSeq } : {}),
     }
   })
 

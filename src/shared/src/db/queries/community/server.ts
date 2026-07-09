@@ -36,7 +36,7 @@ export async function createServer(
     .insert(communityCategory)
     .values({
       serverId: server!.id,
-      name: "Text Channels",
+      name: "All",
       position: 0,
     })
     .returning();

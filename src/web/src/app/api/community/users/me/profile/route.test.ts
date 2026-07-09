@@ -22,7 +22,7 @@ vi.mock("@alook/shared", async () => {
         updateProfile: (...a: unknown[]) => updateProfile(...a),
       },
       user: {
-        getUser: (...a: unknown[]) => getUser(...a),
+        getUserSelf: (...a: unknown[]) => getUser(...a),
         updateUser: (...a: unknown[]) => updateUser(...a),
       },
     },

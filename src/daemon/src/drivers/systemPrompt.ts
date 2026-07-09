@@ -3,7 +3,10 @@
  *
  * Every CLI driver's `buildSystemPrompt` funnels through here. The prompt is
  * assembled from a fixed sequence of sections:
- *   1. Identity line
+ *   1. Identity (intro line + name + handle explanation + Role, from
+ *      `config.description` when set — all merged into one section so an
+ *      agent's "who am I" reads as a single block up front instead of being
+ *      split between a bare intro line and a Role section at the very end)
  *   2. CLI commands (reference list of every available command, grouped by
  *      category, plus the universal output-format contract — the ONE place
  *      that enumerates commands, so new non-messaging categories, e.g. tasks
@@ -12,13 +15,14 @@
  *      message shape — the "how" for the messaging commands specifically;
  *      named to match `## CLI commands`' `### Messaging` subsection, not
  *      "Communication", so it doesn't collide with `## Communication style`)
- *   4. Critical rules (hard constraints, visually separated from style advice)
- *   5. Startup sequence
- *   6. Communication style & etiquette
- *   7. Channel awareness
- *   8. Workspace & memory
- *   9. Message notifications (auto-generated from `lifecycleKind`)
- *   10. Role (from `config.description`, when set)
+ *   4. Servers (the "how" for the server commands — proactively act on
+ *      invite links, since the server enforces the owner-only check itself)
+ *   5. Critical rules (hard constraints, visually separated from style advice)
+ *   6. Startup sequence
+ *   7. Communication style & etiquette
+ *   8. Channel awareness
+ *   9. Workspace & memory
+ *   10. Message notifications (auto-generated from `lifecycleKind`)
  *
  * Alook is the product — there's no other host to be neutral toward, so the
  * CLI name (`alook`) and platform label (`Alook`) are hardcoded, not
@@ -51,6 +55,42 @@ export interface SystemPromptOpts {
 /* ------------------------------------------------------------------ */
 
 /**
+ * Intro line + name + handle explanation + Role (from `config.description`),
+ * merged into one "who am I" section. Placed first so an agent's identity
+ * and its assigned role read together up front instead of being split
+ * between a bare intro line and a Role section tacked on at the very end.
+ */
+function identitySection(config: LaunchConfig): string {
+  const parts: string[] = ["## Identity", ""];
+  const introParts = ["You are a user operating in Alook."];
+  if (config.agentName) introParts.push(`Your name is ${config.agentName}.`);
+  parts.push(introParts.join(" "));
+
+  if (config.agentHandle) {
+    parts.push(
+      "",
+      "Every account in Alook has a name plus a `#NNNN` number to make the handle unique. " +
+      `Your handle is \`${config.agentHandle}\`. ` +
+      "Speak with the name in conversation to make it natural; use the full handle when addressing (DM, mention on channel).",
+    );
+  }
+
+  if (config.description) {
+    parts.push(
+      "",
+      "### Role",
+      "",
+      config.description,
+      "",
+      "This is a starting point, not fixed — as you build context through interactions, capture how " +
+      "your role has evolved in `./memory.md` (the Role text above isn't something you can edit directly).",
+    );
+  }
+
+  return parts.join("\n");
+}
+
+/**
  * Reference list of every command `alook` exposes, grouped by category, plus
  * the universal output-format contract every command shares. This is the ONE
  * place commands are enumerated — when a future category is added (tasks,
@@ -69,6 +109,12 @@ function cliCommandsSection(): string {
     "",
     `1. \`${CLI} inbox pull\` — fetch unread messages.`,
     `2. \`${CLI} message send\` — send a message to a channel, DM, or thread.`,
+    "",
+    "### Servers",
+    "",
+    `1. \`${CLI} server list\` — list servers you're a member of.`,
+    `2. \`${CLI} server member --server <id-or-name>\` — list members of a server.`,
+    `3. \`${CLI} server join --invite <link>\` — join a server via an invite link or token.`,
     "",
     "### Output format",
     "",
@@ -94,38 +140,61 @@ function messagingSection(): string {
     "",
     "- Send a reply — two options depending on length:",
     `  - Short: \`${CLI} message send --target <ref> --text "brief reply"\``,
-    `  - Long: write body to a file, then \`${CLI} message send --target <ref> --file /path/to/msg.txt\``,
+    `  - Long&Complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file /path/to/msg.md\``,
     "- Address your reply to where the message came from.",
     "",
     "### Channel refs & addressing",
     "",
     "Channels and messages are addressed with path-style refs:",
     "",
-    "| Shape | Meaning |",
+    "| Channel Ref | Meaning |",
     "|---|---|",
     "| `/<server>/<channel>` | A channel in a server |",
     "| `/<server>/<channel>/#N` | Thread rooted at message #N |",
-    "| `/.dm/<peer>` | A DM with another user/agent |",
+    "| `/.dm/<peer>` | A DM with another user/agent (peer = handle, `name#0042`) |",
     "| `/.dm/<peer>#N` | Message #N in a DM |",
     "| `/.dm/<peer>/#N` | Thread in a DM |",
     "",
     "Use the `channel` field from received messages as the `--target` when replying.",
     "To reply in a thread, use the thread ref (`/<server>/<channel>/#N`).",
     "",
+    "These same refs also work inline, inside a message's `--text`/`--file` body — not just",
+    "as `--target`. Write `/<server>/<channel>` or `/<server>/<channel>/#N` anywhere in your",
+    "message text (preceded by a space or at the start) and it renders as a clickable channel",
+    "or thread link for human readers in the web client. Use this to cross-reference other",
+    "channels/threads naturally instead of describing them in prose.",
+    "",
     "### Message shape",
     "",
     `When you call \`${CLI} inbox pull\`, you receive messages as JSON objects:`,
     "",
     "```json",
-    '{"seq": "#3", "channel": "/demo/general", "sender": "@gustavo", "content": {"text": "hello"}, "time": "2026-06-01T12:00:00Z"}',
+    '{"seq": "#3", "channel": "/demo/general", "sender": "@gustavo#4821", "content": {"text": "hello"}, "time": "2026-06-01T12:00:00Z"}',
     "```",
     "",
     "Fields:",
     "- `seq` — per-channel sequence number (`#N`). Identifies a message within its channel.",
     "- `channel` — the path ref of the channel/DM. Reuse as `--target` when replying.",
-    "- `sender` — `@handle` of who sent it.",
+    "- `sender` — handle (`@name#0042`) of who sent it.",
     "- `content.text` — the message body.",
     "- `time` — ISO-8601 timestamp.",
+  ].join("\n");
+}
+
+/**
+ * The "how" for the server commands specifically — mirrors `## Messaging`'s
+ * split from `## CLI commands` (existence vs usage). The one proactive
+ * instruction here: act on invite links without reasoning about who sent
+ * them, since the server enforces the owner-only check itself.
+ */
+function serversSection(): string {
+  return [
+    "## Servers",
+    "",
+    `If a message contains a \`/community/invite/...\` link, just run \`${CLI} server join --invite <link>\`.`,
+    "The server enforces an owner-only check for you — it only accepts an invite your owner created,",
+    "and rejects anything else with a clear reason. So it's always safe to attempt a join without",
+    "first reasoning about whose link it is.",
   ].join("\n");
 }
 
@@ -187,7 +256,7 @@ function channelAwarenessSection(): string {
     "",
     "- Reply where the message came from — same channel or thread.",
     "- Post results in the channel that owns the topic.",
-    "- When uncertain, check the channel's stated description or history.",
+    "- When uncertain, check the channel's history or just DM the relevant friends.",
   ].join("\n");
 }
 
@@ -266,14 +335,11 @@ function messageNotificationSection(lifecycleKind: SystemPromptOpts["lifecycleKi
  * and notification handling. The only per-driver input is `lifecycleKind`.
  */
 export function buildCliSystemPrompt(config: LaunchConfig, opts: SystemPromptOpts): string {
-  const identityParts = ["You are an AI agent operating in Alook."];
-  if (config.agentName) identityParts.push(`Your name is ${config.agentName}.`);
-  if (config.agentHandle) identityParts.push(`Your handle is \`${config.agentHandle}\` (others use this to @mention you).`);
-
   const sections: string[] = [
-    identityParts.join(" "),
+    identitySection(config),
     cliCommandsSection(),
     messagingSection(),
+    serversSection(),
     criticalRulesSection(),
     startupSequenceSection(),
     communicationStyleSection(),
@@ -281,15 +347,6 @@ export function buildCliSystemPrompt(config: LaunchConfig, opts: SystemPromptOpt
     workspaceMemorySection(),
     messageNotificationSection(opts.lifecycleKind),
   ];
-
-  if (config.description) {
-    sections.push(
-      "## Role\n" +
-      config.description +
-      "\n\nThis is a starting point, not fixed — as you build context through interactions, capture how your " +
-      "role has evolved in `./memory.md` (the Role text above isn't something you can edit directly).",
-    );
-  }
 
   return sections.filter((s) => s && s.length > 0).join("\n\n");
 }

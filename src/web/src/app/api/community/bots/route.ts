@@ -84,6 +84,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     type: "bot:added",
     botId: created.botId,
     name: created.name,
+    discriminator: created.discriminator,
     description: created.description || undefined,
   })
 

@@ -81,6 +81,7 @@ function buildMember(i: number) {
     userName: `User ${i}`,
     userEmail: `u${i}@x.com`,
     userImage: null,
+    discriminator: String(i).padStart(4, "0"),
   };
 }
 
@@ -164,6 +165,12 @@ describe("listMembersPaginated", () => {
     await memberQueries.listMembersPaginated(db, "srv_1", {});
     expect(db.limit).toHaveBeenCalledWith(DEFAULT_MEMBERS_PAGE_SIZE + 1);
   });
+
+  it("rows carry the user's discriminator", async () => {
+    const db = createSelectMock([buildMember(1), buildMember(2)]);
+    const result = await memberQueries.listMembersPaginated(db, "srv_1", { limit: 5 });
+    expect(result.members.map((r) => r.discriminator)).toEqual(["0001", "0002"]);
+  });
 });
 
 describe("searchMembers", () => {
@@ -243,6 +250,15 @@ describe("searchMembers", () => {
     ]);
     const res = await memberQueries.searchMembers(db, "srv_1", "Ali");
     expect(res.map((r) => r.id)).toEqual(["m1", "m2"]);
+  });
+
+  it("rows carry the user's discriminator", async () => {
+    const db = createSearchMock([
+      { id: "m1", userName: "Alex", discriminator: "0001" },
+      { id: "m2", userName: "Alex", discriminator: "0002" },
+    ]);
+    const res = await memberQueries.searchMembers(db, "srv_1", "Alex");
+    expect(res.map((r) => r.discriminator)).toEqual(["0001", "0002"]);
   });
 });
 

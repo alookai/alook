@@ -8,6 +8,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
 const mockFindActiveAgentRunnerKeyByBearer = vi.fn()
 const mockGetUserInternal = vi.fn()
+const mockGetUserByNameAndDiscriminator = vi.fn()
 const mockGetBotBinding = vi.fn()
 const mockResolveServerByNameForMember = vi.fn()
 const mockResolveChannelByNameForMember = vi.fn()
@@ -28,7 +29,10 @@ vi.mock("@alook/shared", async () => {
     queries: {
       ...actual.queries,
       communityMachine: { findActiveAgentRunnerKeyByBearer: (...a: unknown[]) => mockFindActiveAgentRunnerKeyByBearer(...a) },
-      user: { getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a) },
+      user: {
+        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
+        getUserByNameAndDiscriminator: (...a: unknown[]) => mockGetUserByNameAndDiscriminator(...a),
+      },
       communityBot: { getBotBinding: (...a: unknown[]) => mockGetBotBinding(...a) },
       communityFriendship: {
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
@@ -189,6 +193,7 @@ describe("POST /api/community/agent/send", () => {
   })
 
   it("200 happy path for a DM send, auto-creating the DM row via createDmIfMissing", async () => {
+    mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
     mockGetUserInternal.mockImplementation((_db: unknown, id: string) =>
       Promise.resolve(id === "peer_1" ? { id: "peer_1", isBot: false, deletedAt: null } : { isBot: true, deletedAt: null })
     )
@@ -197,7 +202,7 @@ describe("POST /api/community/agent/send", () => {
     mockGetDM.mockResolvedValue({ id: "dm_new", user1Id: "bot_1", user2Id: "peer_1", lastMessageAt: null, createdAt: "t" })
     mockCreateCommunityMessage.mockResolvedValue({ ok: true, row: { id: "m_dm", seq: 1, content: "hey" } })
     const res = await POST(
-      req({ channel: "/.dm/peer_1", content: { text: "hey" } }, { Authorization: "Bearer crk_abc" })
+      req({ channel: "/.dm/peer#0001", content: { text: "hey" } }, { Authorization: "Bearer crk_abc" })
     )
     expect(res.status).toBe(200)
     expect(mockCreateCommunityMessage).toHaveBeenCalledWith(
@@ -206,15 +211,24 @@ describe("POST /api/community/agent/send", () => {
   })
 
   it("403 blocked propagates from guardDmOpen when trying to auto-create a DM with a blocking peer", async () => {
+    mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
     mockGetUserInternal.mockImplementation((_db: unknown, id: string) =>
       Promise.resolve(id === "peer_1" ? { id: "peer_1", isBot: false, deletedAt: null } : { isBot: true, deletedAt: null })
     )
     mockIsBlocked.mockResolvedValue(true)
     const res = await POST(
-      req({ channel: "/.dm/peer_1", content: { text: "hey" } }, { Authorization: "Bearer crk_abc" })
+      req({ channel: "/.dm/peer#0001", content: { text: "hey" } }, { Authorization: "Bearer crk_abc" })
     )
     expect(res.status).toBe(403)
     expect(mockCreateOrGetDM).not.toHaveBeenCalled()
+    expect(mockCreateCommunityMessage).not.toHaveBeenCalled()
+  })
+
+  it("400 invalid DM handle when the channel segment has no #0042 tag", async () => {
+    const res = await POST(
+      req({ channel: "/.dm/peer_1", content: { text: "hey" } }, { Authorization: "Bearer crk_abc" })
+    )
+    expect(res.status).toBe(400)
     expect(mockCreateCommunityMessage).not.toHaveBeenCalled()
   })
 })

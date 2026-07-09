@@ -5,6 +5,7 @@ import { CSS } from "@dnd-kit/utilities"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu"
 import { RailIndicator } from "./rail-indicator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import { serverGradient } from "./server-gradient"
 import type { FolderServer } from "./_types"
 
 export function RailFolder({
@@ -45,7 +46,14 @@ export function RailFolder({
               {Array.from({ length: 4 }).map((_, i) => {
                 const s = folderServers[i]
                 return s ? (
-                  <span key={s.id} className="grid aspect-square place-items-center overflow-hidden rounded-sm bg-card text-[7px] font-semibold text-muted-foreground">
+                  <span
+                    key={s.id}
+                    style={s.icon ? undefined : { background: serverGradient(s.id) }}
+                    className={[
+                      "grid aspect-square place-items-center overflow-hidden rounded-sm text-[7px] font-semibold",
+                      s.icon ? "bg-card text-muted-foreground" : "text-white [text-shadow:0_1px_1px_rgb(0_0_0/0.35)]",
+                    ].join(" ")}
+                  >
                     {s.icon ? <img src={s.icon} alt={s.name} className="size-full object-cover" /> : s.initial}
                   </span>
                 ) : (

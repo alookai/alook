@@ -9,7 +9,7 @@
  * `sessionFactory`, bypassing real process/SDK spawning) to assert the
  * orchestration contract each profile is supposed to get.
  *
- * Why this exists: `PiDriver` and `CodexDriver` both declare
+ * Why this exists: `PiDriver` and `KimiDriver` both declare
  * `{kind: "persistent", stdin: "direct", inFlightWake: "steer"}` +
  * `busyDeliveryMode: "direct"`. A real production bug shipped because
  * `SdkManagedSession.start()` (Pi's session adapter) used to await the
@@ -21,13 +21,16 @@
  * That fix lives in `sdkManagedSession.ts`/`pi.ts` and is regression-tested
  * in `sdkManagedSession.test.ts` — but that only protects Pi. This file
  * protects the *manager's* half of the contract for EVERY driver sharing
- * that capability profile today (Pi, Codex) and any future one, without
+ * that capability profile today (Pi and Kimi declare direct/steer; Codex
+ * joins Claude in the gated/queue bucket — see
+ * plans/wire-gated-busy-steering-daemon.md) and any future one, without
  * needing driver-specific test plumbing.
  */
 import { describe, it, expect } from "vitest";
 import { AgentProcessManager, type ManagedSession, type SessionFactory } from "./managerRuntime.js";
 import { listRuntimeIds, getDriver } from "../drivers/index.js";
 import type { Driver, LaunchContext } from "../types.js";
+import type { Logger } from "../logger.js";
 
 interface CapabilityProfile {
   lifecycleKind: "persistent" | "per_turn";
@@ -120,7 +123,28 @@ function fakeSession(): FakeSession {
   return s;
 }
 
-function makeManager(driver: Driver, session: FakeSession) {
+/** Stub logger — records calls per level for assertions (copied from
+ * `managerRuntime.test.ts`; kept local so these two test files don't need to
+ * import from each other). */
+function stubLogger(): Logger & { calls: Record<"debug" | "info" | "warn" | "error", Array<[string, unknown[]]>> } {
+  const calls: Record<"debug" | "info" | "warn" | "error", Array<[string, unknown[]]>> = {
+    debug: [],
+    info: [],
+    warn: [],
+    error: [],
+  };
+  const logger = {
+    calls,
+    debug: (m: string, ...d: unknown[]) => calls.debug.push([m, d]),
+    info: (m: string, ...d: unknown[]) => calls.info.push([m, d]),
+    warn: (m: string, ...d: unknown[]) => calls.warn.push([m, d]),
+    error: (m: string, ...d: unknown[]) => calls.error.push([m, d]),
+    child: () => logger,
+  };
+  return logger;
+}
+
+function makeManager(driver: Driver, session: FakeSession, logger?: Logger) {
   const factory: SessionFactory = () => session;
   const mgr = new AgentProcessManager({
     driverFor: () => driver,
@@ -131,6 +155,7 @@ function makeManager(driver: Driver, session: FakeSession) {
       config: {} as LaunchContext["config"],
     }),
     sessionFactory: factory,
+    logger,
   });
   mgr.register("a1");
   return mgr;
@@ -194,45 +219,92 @@ describe("AgentProcessManager capability contract — persistent/gated/queue run
     const label = bucket.driverIds.join(", ");
 
     /**
-     * KNOWN GAP — not the bug this plan set out to fix, but found while
-     * writing a contract test that assumed `lifecycle.stdin: "gated"` /
-     * `inFlightWake: "queue"` changed the manager's delivery timing the way
-     * Claude's own doc comment implies ("held until a safe boundary — see
-     * runtime/apmStateMachine and runtime/turnState"). It doesn't:
-     * `managerPolicy.ts::onWake`'s "running" branch only checks
-     * `lifecycleKind === "persistent" && supportsStdinNotification` — it
-     * never reads `inFlightWake` or `busyDeliveryMode` — so a gated driver's
-     * mid-turn wake is sent exactly as immediately as a direct/steer one.
-     * `ChildProcessRuntimeSession.send()` also writes to stdin unconditionally,
-     * regardless of mode. `apmStateMachine.ts`/`turnState.ts` exist in this
-     * package (exported from `index.ts`) but have ZERO call sites in
-     * `managerRuntime.ts`/`runtimeSession.ts` — they're a real, tested reducer
-     * that's wired up in the OTHER daemon implementation
-     * (`src/cli/daemon/session-runner.ts` branches on `busyMode === "gated"`
-     * and drives `apmStateMachine`/`turnState` for real) but were never
-     * connected here. This test asserts what ACTUALLY happens today (not
-     * what the naming implies) precisely so it breaks loudly — instead of
-     * silently drifting further — if/when gating is either wired up for
-     * real or intentionally dropped from the type model.
+     * FIXED (see plans/wire-gated-busy-steering-daemon.md) — a mid-turn wake
+     * on a gated driver is HELD, not sent immediately. `managerPolicy.ts`'s
+     * `onWake` running branch now checks `busyDeliveryMode === "gated" &&
+     * turnActive` and emits `gated_hold` instead of draining the inbox. The
+     * message flows to stdin only once a safe boundary is reached — here, a
+     * `tool_call`→`tool_output` pair closing the last outstanding tool use —
+     * and only once a `session_init` runtime event has landed (`hasSession`
+     * is a `reduceApmGatedFlushReadiness` prerequisite). This test drives
+     * that whole path through the public `AgentProcessManager` + a fake
+     * session (not just the pure reducer), proving the executor's
+     * `runtime_signal` forwarding AND the `gated_hold` logging path (via an
+     * injected logger spy) both work end to end.
      */
-    it(`[${label}] TODAY sends a mid-turn wake immediately (mode:"busy"), identically to a direct/steer runtime — "gated" delivery is declared but not wired up in this package's ManagedSession path`, async () => {
+    it(`[${label}] holds a mid-turn wake until a safe boundary (session_init, then tool_call/tool_output) instead of sending immediately`, async () => {
       const session = fakeSession();
-      const mgr = makeManager(bucket.sample, session);
+      const logger = stubLogger();
+      const mgr = makeManager(bucket.sample, session, logger);
 
       mgr.deliver("a1", { seq: 1, text: "first" });
       session.startResolver?.();
       await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "sess_1" });
 
       mgr.deliver("a1", { seq: 2, text: "mid-turn wake" });
+
+      // Held, not sent — and a gated_hold was logged for the mid-turn wake.
+      expect(session.sendCalls).toEqual([]);
+      expect(
+        logger.calls.info.some(
+          ([m, d]) => m === "gated busy message held" && (d[0] as any).reason === "mid_turn_wake",
+        ),
+      ).toBe(true);
+
+      // A tool_call/tool_output pair is the next safe boundary — the
+      // single outstanding tool closes, readiness passes, the held message
+      // flushes as mode:"busy".
+      session.fire("runtime_event", { kind: "tool_call", name: "shell", input: {} });
+      session.fire("runtime_event", { kind: "tool_output", name: "shell" });
 
       expect(session.sendCalls).toEqual([{ text: "mid-turn wake", mode: "busy" }]);
     });
   }
 });
 
+describe("AgentProcessManager capability contract — Codex fileChange tool_call/tool_output fix (§9c)", () => {
+  /**
+   * Proves 9c's fix end to end, not just its `ParsedEvent` shape (that part
+   * is covered by `codexEventNormalizer.test.ts`): before the fix,
+   * `handleItemCompleted` had no `fileChange` case, so a `fileChange`
+   * `tool_call` would open `outstandingToolUses` and it would never close —
+   * permanently blocking mid-turn flushes for the rest of that turn. Uses
+   * the real `CodexDriver` capability profile via the same fake-session
+   * harness as the gated/queue bucket tests above.
+   */
+  it("a fileChange tool_call immediately followed by its tool_output closes outstandingToolUses back to 0 and unblocks a held message", async () => {
+    const codexDriver = getDriver("codex");
+    const session = fakeSession();
+    const mgr = makeManager(codexDriver, session);
+
+    mgr.deliver("a1", { seq: 1, text: "first" });
+    session.startResolver?.();
+    await Promise.resolve();
+    session.fire("runtime_event", { kind: "session_init", sessionId: "sess_1" });
+
+    mgr.deliver("a1", { seq: 2, text: "mid-turn wake" });
+    expect(session.sendCalls).toEqual([]); // held — gated mid-turn wake
+
+    session.fire("runtime_event", { kind: "tool_call", name: "file_change", input: {} });
+    session.fire("runtime_event", { kind: "tool_output", name: "file_change" });
+
+    expect(session.sendCalls).toEqual([{ text: "mid-turn wake", mode: "busy" }]);
+  });
+});
+
 describe("AgentProcessManager capability contract — bucket sanity", () => {
   it("the registered drivers still contain at least one direct/steer profile and one gated/queue profile (catches an accidental capability drift silently disabling the contracts above)", () => {
     expect(directSteerBuckets.length).toBeGreaterThan(0);
     expect(gatedQueueBuckets.length).toBeGreaterThan(0);
+  });
+
+  it("the gated/queue bucket contains BOTH claude and codex, sharing one identical profile (see plans/wire-gated-busy-steering-daemon.md §9a) — catches a future capability drift between the two silently splitting the bucket", () => {
+    expect(gatedQueueBuckets).toHaveLength(1);
+    expect(gatedQueueBuckets[0]!.driverIds.slice().sort()).toEqual(["claude", "codex"]);
+  });
+
+  it("the direct/steer bucket contains exactly pi and kimi — codex moved to gated/queue, NOT just pi alone", () => {
+    expect(directSteerBuckets.flatMap((b) => b.driverIds).sort()).toEqual(["kimi", "pi"]);
   });
 });

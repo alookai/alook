@@ -5,5 +5,6 @@ export type BlogPost = {
   author: string;
   excerpt: string;
   readingTime: string;
+  image?: string;
   draft?: boolean;
 };

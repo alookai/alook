@@ -1,7 +1,8 @@
 "use client"
 
-import { useState } from "react"
-import { ChevronLeft, Bot as BotIcon, MoreVertical, Plus } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { ChevronLeft, Bot as BotIcon, Monitor, MoreVertical, Plus } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -25,6 +26,7 @@ import { AgentAvatar } from "@/components/avatar"
 import { ProviderLogo } from "@/components/provider-logo"
 import { useMachines } from "@/hooks/community/use-machines"
 import { useBots, useDeleteBot, type BotSummary } from "@/hooks/community/use-bots"
+import { useCreateOrGetDm } from "@/hooks/community/mutations"
 import { useOnlineUserIds } from "@/stores/community/ws"
 import { CreateBotDialog } from "./create-bot-dialog"
 import { EditBotDialog } from "./edit-bot-dialog"
@@ -38,23 +40,74 @@ import { EditBotDialog } from "./edit-bot-dialog"
  * empty state so users don't learn two idioms.
  */
 export function BotList({ onBack }: { onBack?: () => void } = {}) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { bots, isLoading } = useBots()
   const { machines } = useMachines()
-  // Presence read: single API for humans + bots. The community-shell bridge
-  // hydrates own-bot ids into the same set, so a bot row's "online" pill
-  // uses the same signal every other surface (DM sidebar, friend list,
-  // mention popover) reads from — no code-path divergence.
+  // Presence read: single API for humans + bots, server-pushed identically
+  // (see plans/community-account-debt-fixes.md Fix 3 — the owner is always
+  // part of its own bots' presence audience, even for a bot not yet in any
+  // shared server, so this pill uses the same signal every other surface
+  // (DM sidebar, friend list, mention popover) reads from — no divergence).
   const onlineUserIds = useOnlineUserIds()
   const [createOpen, setCreateOpen] = useState(false)
   const [editing, setEditing] = useState<BotSummary | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<BotSummary | null>(null)
   const del = useDeleteBot()
+  const createOrGetDm = useCreateOrGetDm()
+
+  const chatWithBot = async (bot: BotSummary) => {
+    try {
+      const data = await createOrGetDm.mutateAsync({ userId: bot.id })
+      router.push(`/community/me/${data.conversation.id}`)
+    } catch {
+      toast.error("Failed to open chat")
+    }
+  }
 
   const machineName = (id: string): string => {
     const m = machines.find((x) => x.id === id)
     if (!m) return "Unknown machine"
     return m.displayName?.trim() || m.hostname?.trim() || "Unnamed machine"
   }
+
+  // Group bots by their bound machine, ordered to match the Machines page
+  // (any bot whose machine no longer resolves — deleted/unbound — sorts
+  // into a trailing "Unknown machine" group instead of disappearing).
+  const groups = useMemo(() => {
+    const byMachine = new Map<string, BotSummary[]>()
+    for (const bot of bots) {
+      const list = byMachine.get(bot.machineId)
+      if (list) list.push(bot)
+      else byMachine.set(bot.machineId, [bot])
+    }
+    const orderedIds = [
+      ...machines.map((m) => m.id).filter((id) => byMachine.has(id)),
+      ...[...byMachine.keys()].filter((id) => !machines.some((m) => m.id === id)),
+    ]
+    return orderedIds.map((machineId) => ({
+      machineId,
+      machine: machines.find((m) => m.id === machineId) ?? null,
+      bots: byMachine.get(machineId)!,
+    }))
+  }, [bots, machines])
+
+  // Deep-link from the machine-delete dialog's "Manage bots" action
+  // (`?machineId=`) — scroll to that group and flash a highlight so the
+  // user immediately sees which bots block the delete.
+  const targetMachineId = searchParams.get("machineId")
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  const groupRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const scrolledForRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!targetMachineId || bots.length === 0) return
+    if (scrolledForRef.current === targetMachineId) return
+    scrolledForRef.current = targetMachineId
+    groupRefs.current[targetMachineId]?.scrollIntoView({ behavior: "smooth", block: "start" })
+    setHighlightId(targetMachineId)
+    const t = setTimeout(() => setHighlightId(null), 2000)
+    return () => clearTimeout(t)
+  }, [targetMachineId, bots.length])
 
   const backBar = onBack ? (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border/40 px-6">
@@ -123,69 +176,100 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
           </Button>
         </header>
 
-        <div className="flex flex-col gap-3">
-          {bots.map((bot) => {
-            const online = onlineUserIds.has(bot.id)
+        <div className="flex flex-col gap-6">
+          {groups.map(({ machineId, machine, bots: machineBots }) => {
+            const machineOnline = machine?.status === "online"
             return (
-              <Card key={bot.id} className="flex flex-col gap-3 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-start gap-3">
-                    <AgentAvatar name={bot.name} avatarUrl={bot.image} size={40} />
-                    <div className="flex min-w-0 flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-[15px] font-medium text-foreground">
-                          {bot.name}
-                        </span>
-                        <span
-                          className={[
-                            "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium",
-                            online
-                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                              : "bg-muted text-muted-foreground",
-                          ].join(" ")}
-                        >
-                          <span
-                            className={[
-                              "inline-block size-1.5 rounded-full",
-                              online ? "bg-emerald-500" : "bg-muted-foreground/40",
-                            ].join(" ")}
-                          />
-                          {online ? "Online" : "Offline"}
-                        </span>
-                      </div>
-                      <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
-                        <ProviderLogo provider={bot.runtime} className="size-3.5 shrink-0" />
-                        <span className="truncate">
-                          {bot.runtime} · {machineName(bot.machineId)}
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <button
-                          aria-label="Bot actions"
-                          className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                        >
-                          <MoreVertical className="size-4" />
-                        </button>
-                      }
-                    />
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => setEditing(bot)}>
-                        Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onClick={() => setConfirmDelete(bot)}
-                      >
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+              <div
+                key={machineId}
+                ref={(el) => {
+                  groupRefs.current[machineId] = el
+                }}
+                className={[
+                  "flex flex-col gap-3 rounded-lg p-1 transition-colors duration-500",
+                  highlightId === machineId ? "bg-primary/5 ring-2 ring-primary/40" : "",
+                ].join(" ")}
+              >
+                <div className="flex items-center gap-2 px-1">
+                  <Monitor className="size-3.5 text-muted-foreground" />
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {machineName(machineId)}
+                  </span>
+                  <span
+                    className={[
+                      "inline-block size-1.5 rounded-full",
+                      machineOnline ? "bg-emerald-500" : "bg-muted-foreground/40",
+                    ].join(" ")}
+                  />
                 </div>
-              </Card>
+                <div className="flex flex-col gap-3">
+                  {machineBots.map((bot) => {
+                    const online = onlineUserIds.has(bot.id)
+                    return (
+                      <Card key={bot.id} className="flex flex-col gap-3 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <AgentAvatar name={bot.name} avatarUrl={bot.image} size={40} />
+                            <div className="flex min-w-0 flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-[15px] font-medium text-foreground">
+                                  {bot.name}
+                                </span>
+                                <span
+                                  className={[
+                                    "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium",
+                                    online
+                                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                      : "bg-muted text-muted-foreground",
+                                  ].join(" ")}
+                                >
+                                  <span
+                                    className={[
+                                      "inline-block size-1.5 rounded-full",
+                                      online ? "bg-emerald-500" : "bg-muted-foreground/40",
+                                    ].join(" ")}
+                                  />
+                                  {online ? "Online" : "Offline"}
+                                </span>
+                              </div>
+                              <span className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+                                <ProviderLogo provider={bot.runtime} className="size-3.5 shrink-0" />
+                                <span className="truncate">{bot.runtime}</span>
+                              </span>
+                            </div>
+                          </div>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger
+                              render={
+                                <button
+                                  aria-label="Bot actions"
+                                  className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                                >
+                                  <MoreVertical className="size-4" />
+                                </button>
+                              }
+                            />
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => chatWithBot(bot)}>
+                                Chat
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setEditing(bot)}>
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onClick={() => setConfirmDelete(bot)}
+                              >
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </Card>
+                    )
+                  })}
+                </div>
+              </div>
             )
           })}
         </div>

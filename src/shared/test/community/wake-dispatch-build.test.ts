@@ -42,6 +42,7 @@ const BOT_READY = {
   state: "ready" as const,
   botUserId: "bot_1",
   name: "zoe",
+  discriminator: "0042",
   machineId: "machine_1",
   runtime: "claude",
 };
@@ -82,7 +83,7 @@ describe("buildUnreadWakeCommand", () => {
     });
     expect(typeof result.command.launchId).toBe("string");
     expect(result.command.launchId.length).toBeGreaterThan(0);
-    expect(result.command).toMatchObject({ config: { runtime: "claude" } });
+    expect(result.command).toMatchObject({ config: { runtime: "claude", agentHandle: "@zoe#0042" } });
 
     // Every downstream query is scoped with the SAME messageId/botUserId/scope.
     expect(mockGetWakeMessageScopeById).toHaveBeenCalledWith(fakeDb, "msg_1");
@@ -93,9 +94,13 @@ describe("buildUnreadWakeCommand", () => {
   });
 
   it("ready: resolves a DM scope when the message has no channelId", async () => {
+    // "/.dm/@gustavo" was never actually valid production output — prod never
+    // puts "@" in a ref segment. `resolveUnreadNoticeChannel` now produces a
+    // bare `name#0042` handle segment (mocked here, but shaped like the real
+    // thing) since DM refs address peers by handle, not raw user id.
     seedHappyPath({
       message: { channelId: null, dmConversationId: "dm_1" },
-      channel: "/.dm/@gustavo",
+      channel: "/.dm/gustavo#0042",
     });
 
     const result = await buildUnreadWakeCommand(fakeDb, { messageId: "msg_1", botUserId: "bot_1" });
@@ -104,7 +109,7 @@ describe("buildUnreadWakeCommand", () => {
     if (result.state !== "ready") throw new Error("expected ready");
     expect(result.command.unreadNotice).toEqual({
       kind: "unread_notice",
-      channel: "/.dm/@gustavo",
+      channel: "/.dm/gustavo#0042",
       latestSeq: 7,
     });
     expect(mockCanBotReadWakeScope).toHaveBeenCalledWith(fakeDb, "bot_1", { dmConversationId: "dm_1" });

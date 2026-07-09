@@ -104,6 +104,19 @@ describe("MachineRuntimes", () => {
     expect(triggerRender.props["aria-label"]).toBe("codex unavailable")
   })
 
+  it("sorts unhealthy runtimes after healthy ones, preserving relative order within each group", () => {
+    const tree = MachineRuntimes({
+      runtimes: [
+        { id: "codex", status: "unhealthy" as const },
+        { id: "claude" },
+        { id: "pi", status: "unhealthy" as const },
+        { id: "gemini" },
+      ],
+    })
+    const chips = collectChips(tree)
+    expect(chips.map((c) => c.key)).toEqual([".$claude", ".$gemini", ".$codex", ".$pi"])
+  })
+
   it("unhealthy without lastError falls back to a generic 'Unavailable — check daemon logs' tooltip", () => {
     const tree = MachineRuntimes({
       runtimes: [{ id: "codex", status: "unhealthy" as const }],

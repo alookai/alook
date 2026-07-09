@@ -3,6 +3,8 @@ import { NextRequest } from "next/server"
 
 const getUser = vi.fn()
 const getUserInternal = vi.fn()
+const getUserByNameAndDiscriminator = vi.fn()
+const getUserByNameCaseInsensitive = vi.fn()
 const isBlocked = vi.fn()
 const sendRequest = vi.fn()
 const broadcastToUser = vi.fn()
@@ -17,7 +19,8 @@ vi.mock("@alook/shared", async () => {
       user: {
         getUser: (...a: unknown[]) => getUser(...a),
         getUserInternal: (...a: unknown[]) => getUserInternal(...a),
-        getUserByNameCaseInsensitive: vi.fn(),
+        getUserByNameAndDiscriminator: (...a: unknown[]) => getUserByNameAndDiscriminator(...a),
+        getUserByNameCaseInsensitive: (...a: unknown[]) => getUserByNameCaseInsensitive(...a),
       },
       communityFriendship: {
         sendRequest: (...a: unknown[]) => sendRequest(...a),
@@ -164,9 +167,9 @@ describe("POST /api/community/friends/request", () => {
     // hack manually concatenated `err.cause.message` — this test guards that
     // the helper preserves that behaviour.
     const wrapped = new Error("failed query: insert into community_friendship")
-    ;(wrapped as { cause?: unknown }).cause = new Error(
-      "UNIQUE constraint failed: community_friendship.requester_id",
-    )
+      ; (wrapped as { cause?: unknown }).cause = new Error(
+        "UNIQUE constraint failed: community_friendship.requester_id",
+      )
     sendRequest.mockRejectedValue(wrapped)
     const res = await POST(postReq({ userId: "u2" }), {} as never)
     expect(res.status).toBe(409)
@@ -176,7 +179,7 @@ describe("POST /api/community/friends/request", () => {
     // Only reachable through the helper — the old substring hack would have
     // rethrown this because "UNIQUE" is not in the message.
     const codeErr = new Error("constraint violation")
-    ;(codeErr as { code?: string }).code = "SQLITE_CONSTRAINT_UNIQUE"
+      ; (codeErr as { code?: string }).code = "SQLITE_CONSTRAINT_UNIQUE"
     sendRequest.mockRejectedValue(codeErr)
     const res = await POST(postReq({ userId: "u2" }), {} as never)
     expect(res.status).toBe(409)
@@ -201,5 +204,55 @@ describe("POST /api/community/friends/request", () => {
     const res = await POST(postReq({ userId: "u2" }), {} as never)
     expect(res.status).toBe(403)
     expect(sendRequest).not.toHaveBeenCalled()
+  })
+
+  describe("username resolution (name#0042 exact match, else case-insensitive bare-name fallback)", () => {
+    it("resolves a name#0042 handle via getUserByNameAndDiscriminator, skipping the bare-name fallback", async () => {
+      getUserByNameAndDiscriminator.mockResolvedValue({ id: "u2" })
+      sendRequest.mockResolvedValue({
+        kind: "created",
+        friendship: { id: "f1", requesterId: "u1", addresseeId: "u2", status: "pending" },
+      })
+
+      const res = await POST(postReq({ username: "Alex#0002" }), {} as never)
+
+      expect(res.status).toBe(201)
+      expect(getUserByNameAndDiscriminator).toHaveBeenCalledWith({}, "Alex", "0002")
+      expect(getUserByNameCaseInsensitive).not.toHaveBeenCalled()
+      expect(sendRequest).toHaveBeenCalledWith({}, { requesterId: "u1", addresseeId: "u2" })
+    })
+
+    it("404s when the name#0042 handle doesn't resolve to anyone (no bare-name fallback on a well-formed handle)", async () => {
+      getUserByNameAndDiscriminator.mockResolvedValue(null)
+
+      const res = await POST(postReq({ username: "Alex#0002" }), {} as never)
+
+      expect(res.status).toBe(404)
+      expect(getUserByNameCaseInsensitive).not.toHaveBeenCalled()
+      expect(sendRequest).not.toHaveBeenCalled()
+    })
+
+    it("falls back to case-insensitive bare-name match when no #dddd suffix is present", async () => {
+      getUserByNameCaseInsensitive.mockResolvedValue({ id: "u2" })
+      sendRequest.mockResolvedValue({
+        kind: "created",
+        friendship: { id: "f1", requesterId: "u1", addresseeId: "u2", status: "pending" },
+      })
+
+      const res = await POST(postReq({ username: "alex" }), {} as never)
+
+      expect(res.status).toBe(201)
+      expect(getUserByNameAndDiscriminator).not.toHaveBeenCalled()
+      expect(getUserByNameCaseInsensitive).toHaveBeenCalledWith({}, "alex")
+    })
+
+    it("404s when the bare-name fallback finds no one", async () => {
+      getUserByNameCaseInsensitive.mockResolvedValue(null)
+
+      const res = await POST(postReq({ username: "nobody" }), {} as never)
+
+      expect(res.status).toBe(404)
+      expect(sendRequest).not.toHaveBeenCalled()
+    })
   })
 })

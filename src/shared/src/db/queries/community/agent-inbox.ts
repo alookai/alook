@@ -22,6 +22,7 @@ import {
 import { user } from "../../schema";
 import type { Database } from "../../index";
 import { formatRef, formatSeq, DM_SERVER, type Message, type Seq, type ChannelRef } from "../../../community-cli-contract";
+import { formatHandle } from "../../../lib/discriminator";
 
 type RawAgentMessage = {
   id: string;
@@ -85,6 +86,25 @@ async function resolveScopeRefs(
   const channelById = new Map(channels.map((c) => [c.id, c]));
   const dmById = new Map(dms.map((d) => [d.id, d]));
 
+  // DM peer ids → the OTHER party of each dm relative to viewerId — resolved
+  // to name+discriminator so the DM ref is a handle (`/.dm/<peer#0042>`), not
+  // a raw user id. Batched alongside the author-id fetch below (a separate
+  // Promise.all slot, not a second round-trip per dm).
+  const dmPeerIds = [
+    ...new Set(
+      dms
+        .map((dm) => (dm.user1Id === viewerId ? dm.user2Id : dm.user1Id))
+        .filter((x): x is string => !!x)
+    ),
+  ];
+  const dmPeerUsers = dmPeerIds.length
+    ? await db
+      .select({ id: user.id, name: user.name, discriminator: user.discriminator })
+      .from(user)
+      .where(inArray(user.id, dmPeerIds))
+    : [];
+  const dmPeerById = new Map(dmPeerUsers.map((u) => [u.id, u]));
+
   const parentChannelIds = [
     ...new Set(channels.map((c) => c.parentChannelId).filter((x): x is string => !!x)),
   ];
@@ -130,7 +150,9 @@ async function resolveScopeRefs(
   }
   for (const dm of dms) {
     const peerId = dm.user1Id === viewerId ? dm.user2Id : dm.user1Id;
-    out.set(`dm:${dm.id}`, { ref: formatRef({ server: DM_SERVER, channel: peerId || "unknown" }), isThread: false });
+    const peer = peerId ? dmPeerById.get(peerId) : undefined;
+    const peerSegment = peer ? formatHandle(peer.name, peer.discriminator) : peerId || "unknown";
+    out.set(`dm:${dm.id}`, { ref: formatRef({ server: DM_SERVER, channel: peerSegment }), isThread: false });
   }
   return out;
 }
@@ -157,20 +179,21 @@ export async function toAgentMessages(
   const [refs, users] = await Promise.all([
     resolveScopeRefs(db, rows, viewerId),
     db
-      .select({ id: user.id, name: user.name })
+      .select({ id: user.id, name: user.name, discriminator: user.discriminator })
       .from(user)
       .where(inArray(user.id, [...new Set(rows.map((r) => r.authorId))])),
   ]);
-  const userNameById = new Map(users.map((u) => [u.id, u.name]));
+  const userById = new Map(users.map((u) => [u.id, u]));
 
   return rows.map((r) => {
     const scope = refs.get(scopeRefKey(r));
     const channel = scope?.ref ?? `/unknown/${scopeRefKey(r)}`;
-    const senderName = userNameById.get(r.authorId) ?? r.authorId;
+    const author = userById.get(r.authorId);
+    const sender = author ? formatHandle(author.name, author.discriminator) : r.authorId;
     return {
       seq: formatSeq(r.seq),
       channel,
-      sender: `@${senderName}`,
+      sender: `@${sender}`,
       content: { text: r.content },
       time: r.createdAt,
     };
@@ -243,7 +266,18 @@ export async function resolveUnreadNoticeChannel(
     if (!dm) return null;
     const peerId = dm.user1Id === botUserId ? dm.user2Id : dm.user1Id;
     if (!peerId) return null;
-    return formatRef({ server: DM_SERVER, channel: peerId });
+    const peerRows = await db
+      .select({ name: user.name, discriminator: user.discriminator })
+      .from(user)
+      .where(eq(user.id, peerId))
+      .limit(1);
+    const peer = peerRows[0];
+    // A wake command's notice channel must NEVER be a placeholder (see this
+    // function's doc comment) — a peer that no longer resolves to a
+    // name+discriminator is `notice_channel_unresolvable`, same as any other
+    // missing-scope case, not a bare-peerId ref the agent can't act on.
+    if (!peer) return null;
+    return formatRef({ server: DM_SERVER, channel: formatHandle(peer.name, peer.discriminator) });
   }
 
   return null;
@@ -402,19 +436,25 @@ export async function getInboxSnapshotForAgent(db: Database, botUserId: string):
 
   const senderIds = [...new Set(rows.map((r) => r.latestSenderId).filter(Boolean))];
   const users = senderIds.length
-    ? await db.select({ id: user.id, name: user.name }).from(user).where(inArray(user.id, senderIds))
+    ? await db
+      .select({ id: user.id, name: user.name, discriminator: user.discriminator })
+      .from(user)
+      .where(inArray(user.id, senderIds))
     : [];
-  const nameById = new Map(users.map((u) => [u.id, u.name]));
+  const userById = new Map(users.map((u) => [u.id, u]));
 
-  return rows.map((r) => ({
-    channelId: r.channelId,
-    dmConversationId: r.dmConversationId,
-    pendingCount: r.pendingCount,
-    firstPendingSeq: r.firstPendingSeq,
-    latestSeq: r.latestSeq,
-    latestSender: `@${nameById.get(r.latestSenderId) ?? r.latestSenderId}`,
-    hasMention: r.mentionCount > 0,
-  }));
+  return rows.map((r) => {
+    const sender = userById.get(r.latestSenderId);
+    return {
+      channelId: r.channelId,
+      dmConversationId: r.dmConversationId,
+      pendingCount: r.pendingCount,
+      firstPendingSeq: r.firstPendingSeq,
+      latestSeq: r.latestSeq,
+      latestSender: `@${sender ? formatHandle(sender.name, sender.discriminator) : r.latestSenderId}`,
+      hasMention: r.mentionCount > 0,
+    };
+  });
 }
 
 /**

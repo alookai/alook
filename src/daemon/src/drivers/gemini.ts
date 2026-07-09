@@ -7,11 +7,11 @@
  * boundary. No mid-session input is possible (`encodeStdinMessage` → null), so
  * new messages mean a brand-new process and the agent polls the inbox.
  */
-import { spawn } from "child_process";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
+import { spawnAgentProcess } from "../runtime/killTree.js";
 
 export function buildGeminiArgs(config: LaunchConfig): string[] {
   const f = resolveLaunchFieldsOrDefault(config.runtimeConfig);
@@ -58,9 +58,8 @@ export class GeminiDriver implements Driver {
 
     // Cross-platform spawn: on Windows the gemini entry is often a `.cmd` shim.
     const spec = resolveSpawnSpec("gemini", buildGeminiArgs(ctx.config));
-    const proc = spawn(spec.command, spec.args, {
+    const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
-      stdio: ["pipe", "pipe", "pipe"],
       env: spawnEnv,
       shell: spec.shell,
     });

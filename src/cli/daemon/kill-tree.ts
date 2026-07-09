@@ -35,27 +35,32 @@ export function isAlive(pid: number): boolean {
   }
 }
 
-/** Send `signal` to the whole process group; fall back to the plain pid. */
+/**
+ * Send `signal` to the whole process group, ALWAYS ALSO followed by a direct
+ * pid signal — regardless of whether the group signal succeeded, threw
+ * `ESRCH` (no such process group — e.g. a driver stopped passing `detached`),
+ * or threw anything else. A group-signal failure must never be read as "the
+ * pid is dead": that conflates two unrelated failure modes and was the root
+ * cause of a sibling bug in `src/daemon/src/runtime/killTree.ts` where
+ * stopped agents kept running forever (see
+ * plans/fix-daemon-agent-process-kill.md). Signaling an already-dead pid is
+ * safe — it just throws too, caught and ignored below.
+ */
 function signalTree(pid: number, signal: NodeJS.Signals): void {
-  if (isPosix) {
-    try {
-      // Negative pid = the process group led by `pid`.
-      process.kill(-pid, signal);
-      return;
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException)?.code;
-      if (code === "ESRCH") return; // group already gone
-      // EPERM / no-group (legacy non-detached spawn): fall through to plain pid.
-    }
-  }
   if (!isPosix) {
     try {
       execSync(`taskkill /PID ${pid} /T /F`, { stdio: "ignore" });
-      return;
     } catch {
       // process may already be dead
     }
     return;
+  }
+  try {
+    // Negative pid = the process group led by `pid`.
+    process.kill(-pid, signal);
+  } catch {
+    // No such process group (not detached, or already gone) — fall through
+    // to signal the pid directly.
   }
   try {
     process.kill(pid, signal);

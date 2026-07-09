@@ -141,7 +141,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   })
 
   // Resolve author info for response
-  const creator = await queries.user.getUser(db, ctx.userId)
+  const creator = await queries.user.getUserSelf(db, ctx.userId)
   const authorName = creator ? creator.name : ""
   const authorAvatar = creator?.image ?? avatarInitial(authorName)
 

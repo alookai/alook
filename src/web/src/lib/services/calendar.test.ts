@@ -27,7 +27,7 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       agent: { getAgent: (...args: unknown[]) => mockGetAgent(...args) },
-      user: { getUser: (...args: unknown[]) => mockGetUser(...args) },
+      user: { getUserSelf: (...args: unknown[]) => mockGetUser(...args) },
       conversation: {
         createConversation: (...args: unknown[]) => mockCreateConv(...args),
       },

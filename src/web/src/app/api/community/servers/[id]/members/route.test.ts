@@ -59,6 +59,7 @@ function buildRow(i: number) {
     userName: `User ${i}`,
     userEmail: `u${i}@x.com`,
     userImage: null,
+    discriminator: String(i).padStart(4, "0"),
   }
 }
 
@@ -160,6 +161,16 @@ describe("GET /api/community/servers/[id]/members — cursor envelope", () => {
     const res = await GET(getReq(), ctx)
     const body = await res.json() as { limit: number }
     expect(body.limit).toBe(DEFAULT_MEMBERS_PAGE_SIZE)
+  })
+
+  it("includes each member's discriminator in the response", async () => {
+    const rows = [buildRow(1), buildRow(2)]
+    mockListMembersPaginated.mockResolvedValue({ members: rows, hasMore: false, cursor: undefined })
+    mockCountMembers.mockResolvedValue(2)
+
+    const res = await GET(getReq(), ctx)
+    const body = await res.json() as { members: Array<{ discriminator?: string }> }
+    expect(body.members.map((m) => m.discriminator)).toEqual(["0001", "0002"])
   })
 
   it("returns 403 for non-members (permission check ahead of the query)", async () => {

@@ -63,7 +63,12 @@ export interface RuntimeConfig {
    * invent these; it fills the LaunchContext from them.
    */
   agentName?: string;
-  /** The agent's @mention handle (e.g. "@cindy"). */
+  /**
+   * The agent's global @mention handle, `@name#0042` (e.g. "@cindy#4821").
+   * Every account in Alook — human or agent — has a name plus a 4-digit
+   * discriminator; this is the `@`-prefixed pair, unique even when names
+   * collide.
+   */
   agentHandle?: string;
   /** The agent's standing instruction / role (becomes the standing prompt). */
   instruction?: string;

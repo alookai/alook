@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useFileAttachments } from "@/hooks/use-file-attachments"
 import { ALLOWED_ATTACHMENT_MIME_PREFIXES, MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
 import { Avatar } from "./avatar"
+import { ChannelIcon } from "./channel-icon"
 import { EmojiPickerPopover } from "./emoji-picker"
 import type { Member } from "./_types"
 import type { MentionType } from "@alook/shared"
@@ -23,13 +24,20 @@ import {
   type MentionItem,
   type MentionPopupState,
 } from "@/lib/community/mention-extension"
+import {
+  buildCommunityChannelRefExtension,
+  EMPTY_CHANNEL_REF_STATE,
+  rankChannelRefItems,
+  type ChannelRefCandidate,
+  type ChannelRefPopupState,
+} from "@/lib/community/channel-ref-extension"
 
 // Composer — plain-text TipTap editor with a chat-style @-mention popover.
 // Users type raw markdown which MessageBody/Streamdown renders on display.
 // Enter sends, Shift+Enter adds a newline; while the mention popover is open
 // Enter/Tab/Arrow keys drive selection instead. @everyone / @here are virtual
 // candidates in channel + thread contexts (hidden in DM).
-export function Composer({ channel, context, members, onSearchMembers, onSend, onCreateThread, onTyping, replyingTo, onCancelReply, autoFocus = false }: {
+export function Composer({ channel, context, members, onSearchMembers, channelRefCandidates = [], onSend, onCreateThread, onTyping, replyingTo, onCancelReply, autoFocus = false }: {
   channel: string
   context: MentionContext
   members: Member[]
@@ -38,6 +46,11 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
   // and hits `/servers/:id/members/search`. Undefined for surfaces that don't
   // have a server roster (DM composer).
   onSearchMembers?: (query: string) => void
+  // `/`-autocomplete candidates. Single-server list for channel/thread
+  // composers; cross-server flattened list (via `useChannelRefDirectory()`)
+  // for DM composers. Always provided by the caller — empty array is fine,
+  // the popup just shows nothing on `/`.
+  channelRefCandidates?: ChannelRefCandidate[]
   onSend?: (markdown: string, attachments?: File[], mentionType?: MentionType) => void
   onCreateThread?: () => void
   onTyping?: () => void
@@ -72,6 +85,10 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
   const mentionPopupRef = useRef(mentionPopup)
   useEffect(() => { mentionPopupRef.current = mentionPopup }, [mentionPopup])
 
+  const [channelRefPopup, setChannelRefPopup] = useState<ChannelRefPopupState>(EMPTY_CHANNEL_REF_STATE)
+  const channelRefPopupRef = useRef(channelRefPopup)
+  useEffect(() => { channelRefPopupRef.current = channelRefPopup }, [channelRefPopup])
+
   // The mention extension is built ONCE — its suggestion callbacks read refs
   // at runtime so live `members`/`context` updates are visible without
   // rebuilding the editor (which would reset its state).
@@ -104,6 +121,21 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
     }),
   )
 
+  // Same "built once, refs read at runtime" pattern as the mention extension.
+  const channelRefCandidatesRef = useRef(channelRefCandidates)
+  const channelRefQueryRef = useRef<string>("")
+  useEffect(() => { channelRefCandidatesRef.current = channelRefCandidates }, [channelRefCandidates])
+
+  // eslint-disable-next-line react-hooks/refs -- refs read in runtime callbacks, not render
+  const [channelRefExtension] = useState(() =>
+    buildCommunityChannelRefExtension({
+      candidatesRef: channelRefCandidatesRef,
+      popupRef: channelRefPopupRef,
+      setPopup: setChannelRefPopup,
+      queryRef: channelRefQueryRef,
+    }),
+  )
+
   // Re-rank + push a new popup state whenever `members` changes AND the popup
   // is open. Without this, tiptap's `suggestion.items` only fires on
   // caret/query updates — so remote-arrival changes to `members` (e.g. a
@@ -129,6 +161,19 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
     })
   }, [members, context])
 
+  // Same re-rank-on-candidates-change effect, mirrored for the channel-ref popup.
+  useEffect(() => {
+    const cur = channelRefPopupRef.current
+    if (!cur.command) return
+    const next = rankChannelRefItems(channelRefCandidates, channelRefQueryRef.current)
+    if (channelRefItemsEqual(cur.items, next)) return
+    setChannelRefPopup({
+      ...cur,
+      items: next,
+      selectedIndex: cur.selectedIndex < next.length ? cur.selectedIndex : 0,
+    })
+  }, [channelRefCandidates])
+
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [
@@ -148,6 +193,7 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
       }),
       Placeholder.configure({ placeholder: context === "channel" ? `Message /${channel}` : `Message ${channel}` }),
       mentionExtension,
+      channelRefExtension,
     ],
     editorProps: {
       attributes: {
@@ -162,7 +208,9 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
         // the suggestion plugin gets Enter/Arrow/Tab/Esc as designed.
         const mentionOpen =
           mentionPopupRef.current.items.length > 0 && mentionPopupRef.current.command !== null
-        if (mentionOpen) return false
+        const channelRefOpen =
+          channelRefPopupRef.current.items.length > 0 && channelRefPopupRef.current.command !== null
+        if (mentionOpen || channelRefOpen) return false
 
         if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
           event.preventDefault()
@@ -186,6 +234,7 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
     editor.commands.clearContent()
     setPendingFiles([])
     setMentionPopup(EMPTY_MENTION_STATE)
+    setChannelRefPopup(EMPTY_CHANNEL_REF_STATE)
   }
 
   // Auto-focus on mount + on channel switch. `<Composer>` is not remounted
@@ -213,6 +262,7 @@ export function Composer({ channel, context, members, onSearchMembers, onSend, o
       onDrop={handleDrop}
     >
       <CommunityMentionList state={mentionPopup} />
+      <ChannelRefList state={channelRefPopup} />
 
       {/* reply context bar — attached above the input */}
       {replyingTo && (
@@ -358,10 +408,10 @@ function CommunityMentionList({ state }: { state: MentionPopupState }) {
 
   return createPortal(
     <div
-      className="fixed z-100 w-64 overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-(--e2)"
+      className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
       style={{ top: rect.top - 4, left: clampedLeft, transform: "translateY(-100%)" }}
     >
-      <div ref={listRef} className="max-h-60 overflow-y-auto thin-scrollbar py-1">
+      <div ref={listRef} className="max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar">
         {items.map((item, i) => {
           const selected = i === selectedIndex
           return (
@@ -380,6 +430,94 @@ function CommunityMentionList({ state }: { state: MentionPopupState }) {
   )
 }
 
+// Structural equality on the channel-ref popup's `items` array — same
+// no-op-skip purpose as `itemsEqual` above.
+function channelRefItemsEqual(a: ChannelRefCandidate[], b: ChannelRefCandidate[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].id !== b[i].id || a[i].name !== b[i].name || a[i].serverId !== b[i].serverId) return false
+  }
+  return true
+}
+
+// Portal-rendered `/`-ref popup. Mirrors `CommunityMentionList` — anchored
+// above the caret via clientRect(), highlighted row synced to hover.
+function ChannelRefList({ state }: { state: ChannelRefPopupState }) {
+  const listRef = useRef<HTMLDivElement>(null)
+  const { items, selectedIndex, command, rect } = state
+
+  useEffect(() => {
+    if (!listRef.current) return
+    const el = listRef.current.children[selectedIndex] as HTMLElement | undefined
+    el?.scrollIntoView({ block: "nearest" })
+  }, [selectedIndex])
+
+  if (!rect || items.length === 0 || !command) return null
+
+  const POPUP_WIDTH = 256
+  const VIEWPORT_MARGIN = 8
+  const maxLeft = typeof window !== "undefined"
+    ? Math.max(VIEWPORT_MARGIN, window.innerWidth - POPUP_WIDTH - VIEWPORT_MARGIN)
+    : rect.left
+  const clampedLeft = Math.min(rect.left, maxLeft)
+
+  // The list spans multiple servers (the DM case) when any two candidates
+  // differ on serverId — only then does each row show its "serverName /"
+  // prefix, so same-server lists stay clean.
+  const spansMultipleServers = items.some((it) => it.serverId !== items[0]?.serverId)
+
+  return createPortal(
+    <div
+      className="fixed z-100 w-64 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-(--e2)"
+      style={{ top: rect.top - 4, left: clampedLeft, transform: "translateY(-100%)" }}
+    >
+      <div ref={listRef} className="max-h-60 overflow-x-hidden overflow-y-auto thin-scrollbar">
+        {items.map((item, i) => (
+          <ChannelRefRow
+            key={item.id}
+            item={item}
+            selected={i === selectedIndex}
+            showServerPrefix={spansMultipleServers}
+            onSelect={() => command({ id: item.id, label: item.name, serverId: item.serverId })}
+          />
+        ))}
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function ChannelRefRow({ item, selected, showServerPrefix, onSelect }: {
+  item: ChannelRefCandidate
+  selected: boolean
+  showServerPrefix: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      className={[
+        "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
+        selected ? "bg-accent" : "hover:bg-accent/50",
+      ].join(" ")}
+      onMouseDown={(e) => {
+        // mousedown (not click) — same rationale as MentionRow.
+        e.preventDefault()
+        onSelect()
+      }}
+    >
+      <ChannelIcon className="size-3.5 text-muted-foreground" />
+      <span className="font-medium">
+        {showServerPrefix && <span className="text-muted-foreground">{item.serverName} / </span>}
+        {item.name}
+      </span>
+    </button>
+  )
+}
+
 function MentionRow({ item, selected, showMembersHeader, onSelect }: {
   item: MentionItem
   selected: boolean
@@ -389,14 +527,14 @@ function MentionRow({ item, selected, showMembersHeader, onSelect }: {
   return (
     <>
       {showMembersHeader && (
-        <div className="border-t border-border/60 px-3 pt-1.5 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Members</div>
+        <div className="-mx-1 mt-1 border-t border-border/60 px-2 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Members</div>
       )}
       <button
         type="button"
         role="option"
         aria-selected={selected}
         className={[
-          "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
+          "flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors",
           selected ? "bg-accent" : "hover:bg-accent/50",
         ].join(" ")}
         onMouseDown={(e) => {

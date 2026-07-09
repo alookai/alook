@@ -43,7 +43,8 @@ export async function updateRole(db: Database, memberId: string, role: string) {
 export async function listMembers(db: Database, serverId: string) {
   // deletedAt filter — a bot (or a soft-deleted human) is hidden from every
   // member list. History surfaces still hydrate cached name/avatar via
-  // `getUsersByIds` without excludeDeleted, so tombstone rendering still works.
+  // `getUsersByIds` (which never filters `deletedAt`), so tombstone rendering
+  // still works.
   // Return type MUST NOT include isBot/ownerUserId — the route response
   // projection is responsible for owner-scoped `isBot` gating.
   return db
@@ -59,6 +60,7 @@ export async function listMembers(db: Database, serverId: string) {
       userImage: user.image,
       userIsBot: user.isBot,
       userOwnerUserId: user.ownerUserId,
+      discriminator: user.discriminator,
     })
     .from(communityServerMember)
     .innerJoin(user, eq(communityServerMember.userId, user.id))
@@ -146,6 +148,7 @@ export async function listMembersPaginated(
     userImage: string | null;
     userIsBot: boolean;
     userOwnerUserId: string | null;
+    discriminator: string | null;
   }>;
   hasMore: boolean;
   cursor: { joinedAt: string; id: string } | undefined;
@@ -184,6 +187,7 @@ export async function listMembersPaginated(
       userImage: user.image,
       userIsBot: user.isBot,
       userOwnerUserId: user.ownerUserId,
+      discriminator: user.discriminator,
     })
     .from(communityServerMember)
     .innerJoin(user, eq(communityServerMember.userId, user.id))
@@ -231,6 +235,7 @@ export async function searchMembers(
       userName: user.name,
       userEmail: user.email,
       userImage: user.image,
+      discriminator: user.discriminator,
     })
     .from(communityServerMember)
     .innerJoin(user, eq(communityServerMember.userId, user.id))

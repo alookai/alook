@@ -40,6 +40,7 @@ export type {
   ReadRequest,
   ResolveRequest,
   ListChannelsRequest,
+  ServerMember,
   ServerApi,
   UnreadNotice,
   HostCommand,

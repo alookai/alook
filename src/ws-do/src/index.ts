@@ -101,7 +101,9 @@ export default {
         ids.map((id) => {
           const doId = env.WS_DO.idFromName("user:" + id)
           const stub = env.WS_DO.get(doId)
-          return stub.fetch(new Request("http://internal/check-user-online"))
+          return stub.fetch(
+            new Request(`http://internal/check-user-online?userId=${encodeURIComponent(id)}`)
+          )
         })
       )
       const online: string[] = []
@@ -122,7 +124,9 @@ export default {
       const uid = presenceCheck[1]
       const doId = env.WS_DO.idFromName("user:" + uid)
       const stub = env.WS_DO.get(doId)
-      return stub.fetch(new Request("http://internal/check-user-online"))
+      return stub.fetch(
+        new Request(`http://internal/check-user-online?userId=${encodeURIComponent(uid)}`)
+      )
     }
 
     // POST /community-machine/by-id/<machineId>/push — push a bot event

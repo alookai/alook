@@ -214,6 +214,43 @@ describe("claimPairingToken", () => {
   });
 });
 
+describe("isBotOnline", () => {
+  function makeJoinChain(rows: unknown[]) {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.innerJoin = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve(rows));
+    return chain;
+  }
+
+  it("returns true when the bound machine is online", async () => {
+    const chain = makeJoinChain([{ status: "online" }]);
+    expect(await q.isBotOnline(chain, "bot_1")).toBe(true);
+  });
+
+  it("returns false when the bound machine is offline", async () => {
+    const chain = makeJoinChain([{ status: "offline" }]);
+    expect(await q.isBotOnline(chain, "bot_1")).toBe(false);
+  });
+
+  it("returns false when the bot has no machine binding", async () => {
+    const chain = makeJoinChain([]);
+    expect(await q.isBotOnline(chain, "bot_1")).toBe(false);
+  });
+
+  it("joins the user table so a soft-deleted bot's row is excluded (mirrors listBotsForMachine's guard)", async () => {
+    // A real DB would filter the join itself; this mock always returns the
+    // row, so the assertion is structural — the query must join `user` at
+    // all, not just `communityBotBinding`/`communityMachine`, so a
+    // `deletedAt` filter has somewhere to apply.
+    const chain = makeJoinChain([{ status: "online" }]);
+    await q.isBotOnline(chain, "bot_1");
+    expect(chain.innerJoin).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("findActiveToken", () => {
   it("returns null when no row matches", async () => {
     const chain: any = {};
@@ -475,6 +512,38 @@ describe("upsertMachineByMachineId", () => {
     const res = await q.upsertMachineByMachineId(chain, "u_1", "cm_1", {});
     expect(res?.priorStatus).toBe("online");
   });
+
+  it("leaves status/lastSeenAt untouched when markOnline=false (HTTP /activate reconnect)", async () => {
+    // /activate runs before the daemon's WS connects — it must not flip
+    // status itself, or the later `ready`-frame's `priorStatus !== 'online'`
+    // guard would wrongly see 'online' and skip the broadcast (incl. bot
+    // presence fan-out). Only the real ready-frame call (default
+    // markOnline=true) may set status.
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    chain.limit = vi.fn(() => Promise.resolve([priorRow]));
+    chain.update = vi.fn(() => chain);
+    chain.set = vi.fn(() => chain);
+    chain.returning = vi.fn(() => Promise.resolve([priorRow]));
+    const res = await q.upsertMachineByMachineId(
+      chain,
+      "u_1",
+      "cm_1",
+      { hostname: "host2" },
+      { markOnline: false }
+    );
+    expect(chain.set).toHaveBeenCalledWith(
+      expect.not.objectContaining({ status: expect.anything() })
+    );
+    const setArg = chain.set.mock.calls[0][0];
+    expect(setArg).not.toHaveProperty("status");
+    expect(setArg).not.toHaveProperty("lastSeenAt");
+    // priorStatus still reflects the pre-upsert row (offline), unaffected
+    // by markOnline — it's purely about what gets WRITTEN.
+    expect(res?.priorStatus).toBe("offline");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -709,6 +778,15 @@ describe("activateMachineCredential — success paths", () => {
     // Update was called at least twice — once for machine, once for revoking
     // prior credentials.
     expect(chain.update).toHaveBeenCalled();
+    // Reconnect activation must not flip status/lastSeenAt itself — that's
+    // reserved for the real WS `ready` frame (see upsertMachineByMachineId's
+    // markOnline doc comment). Find the machine-row `.set()` call (the one
+    // touching `hostname`) and assert it carries no status.
+    const machineSetCall = chain.set.mock.calls.find(
+      (args: any[]) => args[0] && "hostname" in args[0]
+    );
+    expect(machineSetCall?.[0]).not.toHaveProperty("status");
+    expect(machineSetCall?.[0]).not.toHaveProperty("lastSeenAt");
   });
 
   it("leaves the token revoked (not rolled back) when the reconnect target machine is missing", async () => {

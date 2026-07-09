@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const mockGetUserInternal = vi.fn()
+const mockGetUserByNameAndDiscriminator = vi.fn()
 const mockAreFriends = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockCreateOrGetDM = vi.fn()
@@ -18,7 +19,10 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     isUniqueConstraintError: (...a: unknown[]) => mockIsUniqueConstraintError(...a),
     queries: {
-      user: { getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a) },
+      user: {
+        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
+        getUserByNameAndDiscriminator: (...a: unknown[]) => mockGetUserByNameAndDiscriminator(...a),
+      },
       communityFriendship: {
         areFriends: (...a: unknown[]) => mockAreFriends(...a),
         isBlocked: (...a: unknown[]) => mockIsBlocked(...a),
@@ -62,47 +66,56 @@ describe("resolveTargetForMember", () => {
     expect((res as { message: string }).message).toMatch(/must not pin/)
   })
 
-  describe("DM refs (/.dm/<peer>)", () => {
+  describe("DM refs (/.dm/<peer#0042>)", () => {
     it("404 DM threads are not supported", async () => {
-      const res = await resolveTargetForMember(db, "u_1", "/.dm/peer_1/#3")
+      const res = await resolveTargetForMember(db, "u_1", "/.dm/peer#0001/#3")
       expect(res).toEqual({ error: 404, message: "DM threads are not supported" })
     })
 
-    it("404 user not found when peer is missing or soft-deleted", async () => {
-      mockGetUserInternal.mockResolvedValue(null)
+    it("400 invalid DM handle when the segment has no #0042 tag", async () => {
       const res = await resolveTargetForMember(db, "u_1", "/.dm/peer_1")
+      expect(res).toEqual({ error: 400, message: "invalid DM handle, expected name#0042" })
+      expect(mockGetUserByNameAndDiscriminator).not.toHaveBeenCalled()
+    })
+
+    it("404 user not found when peer is missing or soft-deleted", async () => {
+      mockGetUserByNameAndDiscriminator.mockResolvedValue(null)
+      const res = await resolveTargetForMember(db, "u_1", "/.dm/peer#0001")
       expect(res).toEqual({ error: 404, message: "user not found" })
+      expect(mockGetUserByNameAndDiscriminator).toHaveBeenCalledWith(db, "peer", "0001")
     })
 
     it("without createDmIfMissing: 404 dm not found when no existing DM row", async () => {
-      mockGetUserInternal.mockResolvedValue({ id: "peer_1", deletedAt: null })
+      mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
       mockGetDMBetween.mockResolvedValue(null)
-      const res = await resolveTargetForMember(db, "u_1", "/.dm/peer_1")
+      const res = await resolveTargetForMember(db, "u_1", "/.dm/peer#0001")
       expect(res).toEqual({ error: 404, message: "dm not found" })
       expect(mockCreateOrGetDM).not.toHaveBeenCalled()
     })
 
     it("without createDmIfMissing: resolves an existing DM without calling guardDmOpen", async () => {
-      mockGetUserInternal.mockResolvedValue({ id: "peer_1", deletedAt: null })
+      mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
       mockGetDMBetween.mockResolvedValue({ id: "dm_1" })
-      const res = await resolveTargetForMember(db, "u_1", "/.dm/peer_1")
+      const res = await resolveTargetForMember(db, "u_1", "/.dm/peer#0001")
       expect(res).toEqual({ kind: "dm", dmConversationId: "dm_1", otherUserId: "peer_1" })
       expect(mockIsBlocked).not.toHaveBeenCalled()
     })
 
     it("with createDmIfMissing: blocked by guardDmOpen surfaces the guard's status/error", async () => {
+      mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
       mockGetUserInternal.mockResolvedValue({ id: "peer_1", deletedAt: null })
       mockIsBlocked.mockResolvedValue(true)
-      const res = await resolveTargetForMember(db, "u_1", "/.dm/peer_1", { createDmIfMissing: true })
+      const res = await resolveTargetForMember(db, "u_1", "/.dm/peer#0001", { createDmIfMissing: true })
       expect(res).toEqual({ error: 403, message: "blocked" })
       expect(mockCreateOrGetDM).not.toHaveBeenCalled()
     })
 
     it("with createDmIfMissing: creates/gets the DM when guard passes", async () => {
+      mockGetUserByNameAndDiscriminator.mockResolvedValue({ id: "peer_1", discriminator: "0001" })
       mockGetUserInternal.mockResolvedValue({ id: "peer_1", deletedAt: null })
       mockIsBlocked.mockResolvedValue(false)
       mockCreateOrGetDM.mockResolvedValue({ id: "dm_new" })
-      const res = await resolveTargetForMember(db, "u_1", "/.dm/peer_1", { createDmIfMissing: true })
+      const res = await resolveTargetForMember(db, "u_1", "/.dm/peer#0001", { createDmIfMissing: true })
       expect(res).toEqual({ kind: "dm", dmConversationId: "dm_new", otherUserId: "peer_1" })
       expect(mockCreateOrGetDM).toHaveBeenCalledWith(db, { userId1: "u_1", userId2: "peer_1" })
     })

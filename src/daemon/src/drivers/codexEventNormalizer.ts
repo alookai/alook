@@ -13,20 +13,12 @@
  */
 import type { ParsedEvent } from "../types.js";
 import { mapCodexTelemetry } from "./codexTelemetrySidecar.js";
-import { RuntimeTurnState } from "../runtime/turnState.js";
 
 export class CodexEventNormalizer {
   private threadId: string | null = null;
-  /** Tracks turn/tool boundaries so the driver can answer `canSteerBusy`. */
-  readonly turnState = new RuntimeTurnState();
 
   get currentSessionId(): string | null {
     return this.threadId;
-  }
-
-  /** Safe to inject a busy (steering) message right now? */
-  get canSteerBusy(): boolean {
-    return this.turnState.canSteerBusy;
   }
 
   adoptThreadId(threadId: string | null): void {
@@ -63,16 +55,13 @@ export class CodexEventNormalizer {
         return this.threadId ? [{ kind: "session_init", sessionId: this.threadId }] : [];
 
       case "turn/started":
-        this.turnState.markTurnStarted(params?.turnId ?? this.threadId ?? undefined);
         return [{ kind: "thinking", text: "" }];
 
       case "item/reasoning/textDelta":
       case "item/reasoning/summaryTextDelta":
-        this.turnState.markProgress();
         return [{ kind: "thinking", text: params?.delta ?? "" }];
 
       case "item/agentMessage/delta":
-        this.turnState.markProgress();
         return [{ kind: "text", text: params?.delta ?? "" }];
 
       case "item/started":
@@ -83,7 +72,6 @@ export class CodexEventNormalizer {
 
       // A raw response item is a liveness signal (no user-visible content).
       case "rawResponseItem/completed":
-        this.turnState.markProgress();
         return [{ kind: "internal_progress", source: "codex_raw_item", itemType: "rawResponseItem" }];
 
       // Non-fatal diagnostics surfaced by Codex.
@@ -96,7 +84,6 @@ export class CodexEventNormalizer {
         ];
 
       case "turn/completed":
-        this.turnState.markTurnCompleted();
         if (params?.status === "failed") return [{ kind: "error", message: "Codex turn failed" }];
         if (params?.status === "interrupted") {
           return [{ kind: "error", message: "Codex turn interrupted" }, { kind: "turn_end", sessionId: this.threadId ?? undefined }];
@@ -117,10 +104,6 @@ export class CodexEventNormalizer {
 
   private handleItemStarted(params: any): ParsedEvent[] {
     const t = params?.item?.type ?? params?.type;
-    // A started tool item closes the steering gate until it completes.
-    if (t === "commandExecution" || t === "fileChange" || t === "mcpToolCall" || t === "webSearch" || t === "collabAgentToolCall") {
-      this.turnState.markToolBoundary();
-    }
     switch (t) {
       case "commandExecution":
         return [{ kind: "tool_call", name: "shell", input: params?.item }];
@@ -143,10 +126,6 @@ export class CodexEventNormalizer {
 
   private handleItemCompleted(params: any): ParsedEvent[] {
     const t = params?.item?.type ?? params?.type;
-    // A completed tool item is a boundary that reopens steering.
-    if (t === "commandExecution" || t === "mcpToolCall") {
-      this.turnState.markProgress();
-    }
     switch (t) {
       case "commandExecution":
         return [{ kind: "tool_output", name: "shell" }];
@@ -154,8 +133,14 @@ export class CodexEventNormalizer {
         return [{ kind: "compaction_finished" }];
       case "exitedReviewMode":
         return [{ kind: "review_finished" }];
+      case "fileChange":
+        return [{ kind: "tool_output", name: "file_change" }];
       case "mcpToolCall":
         return [{ kind: "tool_output", name: `mcp_${params?.item?.name ?? "tool"}` }];
+      case "webSearch":
+        return [{ kind: "tool_output", name: "web_search" }];
+      case "collabAgentToolCall":
+        return [{ kind: "tool_output", name: "collab_tool_call" }];
       case "agentMessage":
         return [{ kind: "text", text: params?.item?.text ?? "" }];
       case "reasoning":

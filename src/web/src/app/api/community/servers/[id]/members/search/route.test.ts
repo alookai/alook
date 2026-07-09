@@ -58,6 +58,7 @@ function buildRow(i: number, name: string) {
     userName: name,
     userEmail: `${name.toLowerCase()}@x.com`,
     userImage: null,
+    discriminator: String(i).padStart(4, "0"),
   }
 }
 
@@ -74,6 +75,13 @@ describe("GET /api/community/servers/[id]/members/search", () => {
     const body = await res.json() as { members: Array<{ id: string; name: string }>; limit: number }
     expect(body.members.map((m) => m.name)).toEqual(["Alice", "Alicia"])
     expect(body.limit).toBe(MAX_MEMBERS_PAGE_SIZE)
+  })
+
+  it("includes each member's discriminator in the response", async () => {
+    mockSearchMembers.mockResolvedValue([buildRow(1, "Alex"), buildRow(2, "Alex")])
+    const res = await GET(getReq("?q=Alex"), ctx)
+    const body = await res.json() as { members: Array<{ discriminator?: string }> }
+    expect(body.members.map((m) => m.discriminator)).toEqual(["0001", "0002"])
   })
 
   it("rejects empty q with 400", async () => {

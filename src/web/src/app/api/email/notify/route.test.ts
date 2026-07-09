@@ -45,7 +45,7 @@ vi.mock("@alook/shared", async () => {
         createMapping: (...args: unknown[]) => mockCreateMapping(...args),
       },
       user: {
-        getUser: (...args: unknown[]) => mockGetUser(...args),
+        getUserSelf: (...args: unknown[]) => mockGetUser(...args),
       },
     },
   };

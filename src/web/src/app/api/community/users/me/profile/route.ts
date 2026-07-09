@@ -13,7 +13,7 @@ export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const [profile, viewer] = await Promise.all([
     queries.communityUserProfile.getProfile(db, ctx.userId),
-    queries.user.getUser(db, ctx.userId),
+    queries.user.getUserSelf(db, ctx.userId),
   ])
   return writeJSON({
     aboutMe: profile?.aboutMe ?? "",

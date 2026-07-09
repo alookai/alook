@@ -19,9 +19,36 @@ describe("parseRef", () => {
   });
 
   it('parses "/.dm/user_123" as a DM ref (server === DM_SERVER)', () => {
+    // Legacy/no-discriminator id form: no "#" in the segment, so it round-trips
+    // through the PARSER unchanged — see Design §1. Resolution (not parsing) is
+    // what changes once `resolve-ref.ts` requires a `name#0042` handle; this
+    // parser-level case documents that the shape itself still parses fine.
     const parsed = parseRef("/.dm/user_123");
     expect(parsed).toEqual({ server: DM_SERVER, channel: "user_123" });
     expect(parsed.server).toBe(".dm");
+  });
+
+  it('parses "/.dm/gusye#1231" as a bare handle (no seq stripped)', () => {
+    expect(parseRef("/.dm/gusye#1231")).toEqual({ server: DM_SERVER, channel: "gusye#1231" });
+  });
+
+  it('parses "/.dm/gusye#1231#42" as a pinned message on a handle peer', () => {
+    expect(parseRef("/.dm/gusye#1231#42")).toEqual({ server: DM_SERVER, channel: "gusye#1231", seq: 42 });
+  });
+
+  it('parses "/.dm/gusye#1231/#42" as a thread rooted on a handle peer', () => {
+    expect(parseRef("/.dm/gusye#1231/#42")).toEqual({
+      server: DM_SERVER,
+      channel: "gusye#1231",
+      threadRootSeq: 42,
+    });
+  });
+
+  it('parses "/.dm/a#b#0042" (name itself contains "#") with the documented ambiguity: peer="a#b", seq=42, NOT peer="a#b#0042"', () => {
+    // Known, accepted footgun from the Breaking Changes section — asserting
+    // it here means a future change to this behavior is a deliberate diff,
+    // not a silent regression.
+    expect(parseRef("/.dm/a#b#0042")).toEqual({ server: DM_SERVER, channel: "a#b", seq: 42 });
   });
 
   it("throws when the ref doesn't start with /", () => {

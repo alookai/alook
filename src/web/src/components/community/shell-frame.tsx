@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
+import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { AppSurface } from "@/components/ui/app-surface"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -81,6 +81,7 @@ export function ShellFrame({
 }) {
   const router = useRouter()
   const bp = useBreakpoint()
+  const queryClient = useQueryClient()
   const currentUser = useCurrentUser()
   const setCurrentUser = useSetCurrentUser()
 
@@ -101,7 +102,6 @@ export function ShellFrame({
   const unreadDms = inboxUnreads.dms
   const mentions = inboxMentions.mentions
   const inboxLoading = inboxUnreads.isLoading || inboxMentions.isLoading
-  const queryClient = useQueryClient()
 
   // Mutations wired through the shell.
   const createServer = useCreateServer()
@@ -282,7 +282,7 @@ export function ShellFrame({
   // enriches with the profile API. Registered with the community store so
   // pages can trigger this from anywhere via `useCommunityStore.uiHandlers`.
   const openProfile = useCallback(
-    (name: string, e: React.MouseEvent) => {
+    (name: string, e: React.MouseEvent, discriminator?: string) => {
       const isSelf = name === currentUser.name
       if (isSelf) {
         const data: Profile = {
@@ -297,7 +297,14 @@ export function ShellFrame({
         setProfile({ data, x: e.clientX, y: e.clientY })
         return
       }
-      const member = (members ?? []).find((m) => m.name === name)
+      // A `#0042`-tagged mention pill disambiguates an exact same-named
+      // member/friend; without a tag (author-name/avatar clicks, plain
+      // `@name` mentions), fall back to the first name match as before.
+      const member = (discriminator
+        ? (members ?? []).find((m) => m.name === name && m.discriminator === discriminator)
+        ?? (friends ?? []).find((f) => f.name === name && f.discriminator === discriminator)
+        : undefined)
+        ?? (members ?? []).find((m) => m.name === name)
         ?? (friends ?? []).find((f) => f.name === name)
       const role: string = member && "role" in member ? (member as { role: string }).role : "member"
       const about: string = member && "sub" in member && (member as { sub: string }).sub ? (member as { sub: string }).sub : ""
@@ -314,26 +321,34 @@ export function ShellFrame({
       setProfile({ data, x: e.clientX, y: e.clientY })
       const userId = member && "userId" in member ? (member as { userId: string }).userId : member?.id
       if (userId) {
-        apiFetch<{ aboutMe?: string; mutualServers?: number; discriminator?: string }>(`/api/community/users/${userId}/profile`)
+        // Cached under `communityKeys.profile(userId)` — a re-click on the
+        // same person within `PROFILE_STALE_TIME_MS` resolves from memory
+        // instead of re-hitting the network (see plans/profile-card-memory-cache.md).
+        queryClient
+          .fetchQuery({
+            queryKey: communityKeys.profile(userId),
+            queryFn: userProfileQueryFn(userId),
+            staleTime: PROFILE_STALE_TIME_MS,
+          })
           .then((p) => {
             setProfile((prev) =>
               prev
                 ? {
-                    ...prev,
-                    data: {
-                      ...prev.data,
-                      about: p.aboutMe ?? prev.data.about,
-                      mutual: p.mutualServers ?? 0,
-                      discriminator: p.discriminator ?? prev.data.discriminator,
-                    },
-                  }
+                  ...prev,
+                  data: {
+                    ...prev.data,
+                    about: p.aboutMe ?? prev.data.about,
+                    mutual: p.mutualServers ?? 0,
+                    discriminator: p.discriminator ?? prev.data.discriminator,
+                  },
+                }
                 : prev,
             )
           })
-          .catch(() => {})
+          .catch(() => { })
       }
     },
-    [currentUser, members, friends],
+    [currentUser, members, friends, queryClient],
   )
 
   const previewImage = useCallback((url: string) => setPreview(url), [])

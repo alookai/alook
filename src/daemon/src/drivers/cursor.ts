@@ -5,11 +5,11 @@
  * --trust <prompt>` is launched per wake. Emits Anthropic-style stream-json
  * (system/assistant/result envelopes) and exits.
  */
-import { spawn } from "child_process";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
+import { spawnAgentProcess } from "../runtime/killTree.js";
 
 export class CursorDriver implements Driver {
   readonly id = "cursor";
@@ -46,9 +46,8 @@ export class CursorDriver implements Driver {
     // Cross-platform spawn: on Windows the cursor-agent entry is often a
     // `.cmd` shim, which `child_process.spawn` can't exec without a shell.
     const spec = resolveSpawnSpec("cursor-agent", args);
-    const proc = spawn(spec.command, spec.args, {
+    const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
-      stdio: ["pipe", "pipe", "pipe"],
       env: spawnEnv,
       shell: spec.shell,
     });

@@ -68,7 +68,7 @@ type CommunitySubscription = {
 
 type CommunityUiHandlers = {
   previewImage?: (url: string) => void
-  openProfile?: (name: string, e: React.MouseEvent) => void
+  openProfile?: (name: string, e: React.MouseEvent, discriminator?: string) => void
   goBackMobile?: () => void
 }
 
@@ -218,7 +218,8 @@ export const useCurrentChannelMeta = () =>
  */
 const stableUiHandlers: CommunityUiHandlers = {
   previewImage: (url) => useCommunityStore.getState().uiHandlers.previewImage?.(url),
-  openProfile: (name, e) => useCommunityStore.getState().uiHandlers.openProfile?.(name, e),
+  openProfile: (name, e, discriminator) =>
+    useCommunityStore.getState().uiHandlers.openProfile?.(name, e, discriminator),
   goBackMobile: () => useCommunityStore.getState().uiHandlers.goBackMobile?.(),
 }
 export const useUiHandlers = () => stableUiHandlers

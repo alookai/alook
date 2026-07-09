@@ -53,7 +53,7 @@ export async function dispatchEmailToAgent(
     if (conv) {
       conversationType = conv.type
       if (conv.type === TASK_TYPES.USER_DM_MESSAGE && conv.userId) {
-        const u = await queries.user.getUser(db, conv.userId)
+        const u = await queries.user.getUserSelf(db, conv.userId)
         if (u) dmUser = { name: u.name, email: u.email }
       }
     }

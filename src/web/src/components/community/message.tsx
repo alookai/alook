@@ -134,7 +134,7 @@ export function Message({
             </div>
           )}
           {m.content && (
-            <MessageBody text={m.content} />
+            <MessageBody text={m.content} onOpenProfile={onOpenProfile} />
           )}
 
           {m.attachments && (

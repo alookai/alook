@@ -69,17 +69,18 @@ describe("toAgentMessages", () => {
     //  1. resolveScopeRefs' `channels` query (channelIds=[ch_1])
     //  2. toAgentMessages' own author-name query (outer Promise.all's 2nd slot)
     //  3. resolveScopeRefs' `servers` query (serverIds=[srv_1]; parentChannelIds/
-    //     parentMessageIds/dmIds are all empty here, so those selects are skipped)
+    //     parentMessageIds/dmIds are all empty here, so those selects — including
+    //     the DM-peer lookup — are skipped)
     const db = createSequentialDb([
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
-      [{ id: "u_1", name: "Alice" }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
       [{ id: "srv_1", name: "studio" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(db, [rawMsg()], "viewer_1");
     expect(msg).toEqual({
       seq: formatSeq(1),
       channel: formatRef({ server: "studio", channel: "general" }),
-      sender: "@Alice",
+      sender: "@Alice#1234",
       content: { text: "hello" },
       time: "2026-07-01T00:00:00.000Z",
     });
@@ -104,20 +105,24 @@ describe("toAgentMessages", () => {
     expect(msg!.channel).toBe(formatRef({ server: "studio", channel: "general", threadRootSeq: 7 }));
   });
 
-  it("hydrates a DM message, addressing the OTHER party relative to viewerId", async () => {
+  it("hydrates a DM message, addressing the OTHER party (as a name#0042 handle) relative to viewerId", async () => {
     // Call order: 1. dms query (channels query skipped, channelIds empty),
-    // 2. author names (parentChannels/servers/parentMessages all skipped —
-    // no channel scopes at all).
+    // 2. author names (outer Promise.all's 2nd slot — evaluated synchronously
+    // right after resolveScopeRefs' own internal await yields), 3. the DM-peer
+    // name+discriminator lookup (resolveScopeRefs, after its first internal
+    // Promise.all resolves — parentChannels/servers/parentMessages stay
+    // skipped, no channel scopes at all).
     const db = createSequentialDb([
       [{ id: "dm_1", user1Id: "viewer_1", user2Id: "peer_1" }],
-      [{ id: "u_1", name: "Alice" }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
+      [{ id: "peer_1", name: "Bob", discriminator: "9999" }],
     ]);
     const [msg] = await agentInbox.toAgentMessages(
       db,
       [rawMsg({ channelId: null, dmConversationId: "dm_1" })],
       "viewer_1"
     );
-    expect(msg!.channel).toBe(formatRef({ server: DM_SERVER, channel: "peer_1" }));
+    expect(msg!.channel).toBe(formatRef({ server: DM_SERVER, channel: "Bob#9999" }));
   });
 
   it("falls back to /unknown/<key> when the scope can't be resolved (e.g. deleted channel)", async () => {
@@ -145,11 +150,11 @@ describe("toAgentMessage", () => {
   it("returns the single hydrated message (convenience wrapper)", async () => {
     const db = createSequentialDb([
       [{ id: "ch_1", name: "general", serverId: "srv_1", parentChannelId: null, parentMessageId: null }],
-      [{ id: "u_1", name: "Alice" }],
+      [{ id: "u_1", name: "Alice", discriminator: "1234" }],
       [{ id: "srv_1", name: "studio" }],
     ]);
     const msg = await agentInbox.toAgentMessage(db, rawMsg(), "viewer_1");
-    expect(msg.sender).toBe("@Alice");
+    expect(msg.sender).toBe("@Alice#1234");
   });
 });
 
@@ -218,6 +223,33 @@ describe("getLatestUnreadMessageForAgent", () => {
   });
 });
 
+describe("resolveUnreadNoticeChannel", () => {
+  it("DM scope: produces a handle-based ref (/.dm/name#0042), not a raw peerId", async () => {
+    // Call order: 1. the dm-conversation row, 2. the peer's name+discriminator.
+    const db = createSequentialDb([
+      [{ id: "dm_1", user1Id: "bot_1", user2Id: "peer_1" }],
+      [{ name: "Bob", discriminator: "9999" }],
+    ]);
+    const result = await agentInbox.resolveUnreadNoticeChannel(db, { dmConversationId: "dm_1" }, "bot_1");
+    expect(result).toBe(formatRef({ server: DM_SERVER, channel: "Bob#9999" }));
+  });
+
+  it("DM scope: null when the dm conversation itself doesn't resolve", async () => {
+    const db = createSequentialDb([[]]);
+    const result = await agentInbox.resolveUnreadNoticeChannel(db, { dmConversationId: "dm_gone" }, "bot_1");
+    expect(result).toBeNull();
+  });
+
+  it("DM scope: null (never a bare-peerId placeholder) when the peer no longer resolves to a name+discriminator", async () => {
+    const db = createSequentialDb([
+      [{ id: "dm_1", user1Id: "bot_1", user2Id: "peer_1" }],
+      [], // peer row missing (e.g. hard-deleted)
+    ]);
+    const result = await agentInbox.resolveUnreadNoticeChannel(db, { dmConversationId: "dm_1" }, "bot_1");
+    expect(result).toBeNull();
+  });
+});
+
 describe("getInboxSnapshotForAgent", () => {
   it("returns [] and skips the user-name lookup when there's no pending unread", async () => {
     const db = createSequentialDb([[]]);
@@ -249,8 +281,8 @@ describe("getInboxSnapshotForAgent", () => {
         },
       ],
       [
-        { id: "u_1", name: "Alice" },
-        { id: "u_2", name: "Bob" },
+        { id: "u_1", name: "Alice", discriminator: "1234" },
+        { id: "u_2", name: "Bob", discriminator: "5678" },
       ],
     ]);
     const result = await agentInbox.getInboxSnapshotForAgent(db, "bot_1");
@@ -261,7 +293,7 @@ describe("getInboxSnapshotForAgent", () => {
         pendingCount: 3,
         firstPendingSeq: 5,
         latestSeq: 7,
-        latestSender: "@Alice",
+        latestSender: "@Alice#1234",
         hasMention: true,
       },
       {
@@ -270,7 +302,7 @@ describe("getInboxSnapshotForAgent", () => {
         pendingCount: 1,
         firstPendingSeq: 9,
         latestSeq: 9,
-        latestSender: "@Bob",
+        latestSender: "@Bob#5678",
         hasMention: false,
       },
     ]);
@@ -319,17 +351,20 @@ describe("toInboxRows", () => {
       },
     ];
     // Call order: 1. channels query (channelIds=[thread_1]), 2. dms query
-    // (dmIds=[dm_1]), 3. parentChannels, 4. servers, 5. parentMessages.
+    // (dmIds=[dm_1]), 3. DM-peer name+discriminator lookup (dmPeerIds=[peer_1],
+    // awaited right after the first internal Promise.all resolves — NOT part
+    // of that Promise.all itself), 4. parentChannels, 5. servers, 6. parentMessages.
     const db = createSequentialDb([
       [{ id: "thread_1", name: "thread-x", serverId: "srv_1", parentChannelId: "ch_parent", parentMessageId: "m_root" }],
       [{ id: "dm_1", user1Id: "viewer_1", user2Id: "peer_1" }],
+      [{ id: "peer_1", name: "Bob", discriminator: "9999" }],
       [{ id: "ch_parent", name: "general" }],
       [{ id: "srv_1", name: "studio" }],
       [{ id: "m_root", seq: 3 }],
     ]);
     const result = await agentInbox.toInboxRows(db, rows, "viewer_1");
     expect(result[0]).toMatchObject({
-      channel: formatRef({ server: DM_SERVER, channel: "peer_1" }),
+      channel: formatRef({ server: DM_SERVER, channel: "Bob#9999" }),
       flags: ["dm", "mention"],
     });
     expect(result[1]).toMatchObject({

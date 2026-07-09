@@ -61,7 +61,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       targetId: botId,
       changes: JSON.stringify({ botId, serverId, kind: "owner_added" }),
     })
-    const bot = await queries.user.getUser(db, botId)
+    const bot = await queries.user.getUserSelf(db, botId)
     const joinEvent: CommunityMemberJoin = {
       type: WS_EVENTS.MEMBER_JOIN,
       serverId,

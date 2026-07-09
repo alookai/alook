@@ -211,6 +211,9 @@ export type CommunityMemberJoin = {
     id: string
     userId: string
     name: string
+    // 4-digit discriminator (`"0042"`) — optional so older/mock payloads
+    // that predate the column keep type-checking.
+    discriminator?: string
     avatar?: string
     role: string
     joinedAt: string
@@ -399,6 +402,8 @@ export type BotAddedFrame = {
   type: "bot:added"
   botId: string
   name: string
+  /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
+  discriminator: string
   description?: string
 }
 
@@ -406,6 +411,8 @@ export type BotUpdatedFrame = {
   type: "bot:updated"
   botId: string
   name: string
+  /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
+  discriminator: string
   description?: string
 }
 

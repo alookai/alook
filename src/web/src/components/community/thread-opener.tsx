@@ -80,7 +80,7 @@ export function ThreadOpener({
             </span>
           </div>
 
-          {msg.content && <MessageBody text={msg.content} />}
+          {msg.content && <MessageBody text={msg.content} onOpenProfile={onOpenProfile} />}
 
           {msg.attachments && msg.attachments.length > 0 && (
             <div className="mt-2 flex flex-col gap-2">

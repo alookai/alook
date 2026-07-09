@@ -33,7 +33,23 @@ describe("parseRef", () => {
     expect(parseRef("/demo/general/#5")).toEqual({ server: "demo", channel: "general", threadRootSeq: 5 });
   });
   it("parses a DM ref", () => {
+    // No "#" in the segment — legacy/no-discriminator id form, round-trips
+    // through the parser unchanged. Resolution (not parsing) is what changes
+    // once the server requires a `name#0042` handle for DM refs.
     expect(parseRef("/.dm/gustavo")).toEqual({ server: DM_SERVER, channel: "gustavo" });
+  });
+  it("parses a DM ref that's a bare name#0042 handle (no seq stripped)", () => {
+    expect(parseRef("/.dm/gusye#1231")).toEqual({ server: DM_SERVER, channel: "gusye#1231" });
+  });
+  it("parses a pinned message on a handle peer (/.dm/name#0042#N)", () => {
+    expect(parseRef("/.dm/gusye#1231#42")).toEqual({ server: DM_SERVER, channel: "gusye#1231", seq: 42 });
+  });
+  it("parses a thread on a handle peer (/.dm/name#0042/#N)", () => {
+    expect(parseRef("/.dm/gusye#1231/#42")).toEqual({
+      server: DM_SERVER,
+      channel: "gusye#1231",
+      threadRootSeq: 42,
+    });
   });
   it("rejects refs not starting with '/'", () => {
     expect(() => parseRef("demo/general")).toThrow(/must start with/);

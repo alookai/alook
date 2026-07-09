@@ -20,6 +20,8 @@ export const COMMUNITY_AUDIT_ACTIONS = {
   BOT_JOIN_REQUESTED: "community.bot.join_requested",
   BOT_JOIN_APPROVED: "community.bot.join_approved",
   BOT_JOIN_DENIED: "community.bot.join_denied",
+  /** A bot joined a server via `alook server join --invite <link>` (owner-initiated CLI join). */
+  BOT_JOINED_VIA_INVITE: "community.bot.joined_via_invite",
   BOT_FRIEND_REQUESTED: "community.bot.friend_requested",
   BOT_FRIEND_APPROVED: "community.bot.friend_approved",
   BOT_FRIEND_DENIED: "community.bot.friend_denied",

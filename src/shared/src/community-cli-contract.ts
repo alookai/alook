@@ -104,7 +104,11 @@ export const DM_SERVER = ".dm";
  *     /<server>/<channel>            a channel
  *     /<server>/<channel>#N          the N-th message (seq) in that channel
  *     /<server>/<channel>/#N         the thread rooted at message #N
- *     /.dm/<peer>                    a DM (DM is the standalone `.dm` server)
+ *     /.dm/<peer>                    a DM (DM is the standalone `.dm` server);
+ *                                    <peer> is the peer's global handle
+ *                                    (`name#0042`, e.g. `/.dm/gusye#1231`),
+ *                                    NOT a raw user id — see `parseRef`'s
+ *                                    `.dm`-specific branch below.
  *     /.dm/<peer>#N , /.dm/<peer>/#N a DM message / DM thread
  *
  * A message is located by **channel + seq** (`<channelRef>#N`) — there is no id.
@@ -118,7 +122,7 @@ export type ChannelRef = string;
  */
 export type Target =
   | { server: ServerId; kind: "channel"; channel: ChannelId | string }
-  | { server: typeof DM_SERVER; kind: "dm"; peer: AgentId | UserId | string }
+  | { server: typeof DM_SERVER; kind: "dm"; peer: AgentId | UserId | string /** global handle (`name#0042`) on the wire; resolved server-side to a real id */ }
   | {
     server: ServerId | typeof DM_SERVER;
     kind: "thread";
@@ -136,8 +140,8 @@ export type Target =
  * The flat, agent-facing message. This is exactly what the agent sees (one JSON
  * object per line, JSONL). Deliberately minimal:
  *   - `seq`     — "#N", the per-channel sequence (locate via channel + seq).
- *   - `channel` — the path ref, e.g. "/demo-workspace/general" or "/.dm/gustavo".
- *   - `sender`  — "@handle" (no id, no human/agent/system type).
+ *   - `channel` — the path ref, e.g. "/demo-workspace/general" or "/.dm/gustavo#4821".
+ *   - `sender`  — "@handle" (`name#0042`, no id, no human/agent/system type).
  *   - `content` — `{ text }` today; an object (not a bare string) so future
  *                 content kinds (attachments, embeds, …) can be added without
  *                 breaking the shape.
@@ -155,7 +159,7 @@ export interface Message {
   seq: string;
   /** Path ref of the containing channel/DM. */
   channel: ChannelRef;
-  /** Sender handle, e.g. "@gustavo". */
+  /** Sender global handle (`name#0042`), e.g. "@gustavo#4821". */
   sender: string;
   content: MessageContent;
   /** ISO-8601. */
@@ -274,6 +278,15 @@ export interface ListChannelsRequest {
   server?: ServerId;
 }
 
+/** One server member, as surfaced to the agent CLI (`server member`). */
+export interface ServerMember {
+  /** "name#0042" — always via `formatHandle`, never a bare name. */
+  handle: string;
+  /** "owner" | "admin" | "member" — never null on the wire (defaults to "member"). */
+  role: string;
+  nickname?: string;
+}
+
 /* ------------------------------------------------------------------ */
 /* The ServerApi contract                                              */
 /* ------------------------------------------------------------------ */
@@ -313,6 +326,12 @@ export interface ServerApi {
 
   /** Look up a single message by channel + seq. */
   resolve(req: ResolveRequest): Promise<{ message: Message }>;
+
+  /** Members of a server, resolved by id-or-name (never id-only, never name-only). */
+  listMembers(req: { agentId: AgentId; server: string }): Promise<{ members: ServerMember[] }>;
+
+  /** Join a server via an invite link/token. Throws on any rejection — see plan's I/O contract. */
+  joinServer(req: { agentId: AgentId; invite: string }): Promise<{ server: Server }>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -376,12 +395,16 @@ export type HostCommand =
     type: "bot:added";
     botId: AgentId;
     name: string;
+    /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
+    discriminator: string;
     description?: string;
   }
   | {
     type: "bot:updated";
     botId: AgentId;
     name: string;
+    /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
+    discriminator: string;
     description?: string;
   }
   | {
@@ -556,6 +579,8 @@ export interface AdminApi {
   createChannel(req: { server: ServerId; name: string; kind?: ChannelKind }): Promise<{ channel: Channel }>;
   /** Inject a message into a channel (as a human/agent), triggering delivery. */
   postMessage(req: { channel: ChannelRef; sender: string; text: string }): Promise<{ message: Message }>;
+  /** Provisioning/test surface: mint an invite token for `server join` to consume. */
+  createInvite(req: { server: ServerId; createdBy: UserId }): Promise<{ token: string }>;
   /**
    * Observability-only read of a channel's transcript, for test/provisioning
    * tooling (e.g. asserting what agents replied). This is NOT an agent action:
@@ -630,7 +655,12 @@ export interface ParsedRef {
  *   /<server>/<channel>          → { server, channel }
  *   /<server>/<channel>#N        → { server, channel, seq:N }
  *   /<server>/<channel>/#N       → { server, channel, threadRootSeq:N }
- *   /.dm/<peer>[...]             → DM (server = ".dm", channel = peer)
+ *   /.dm/<peer>[...]             → DM (server = ".dm", channel = peer, a
+ *                                  `name#0042` handle) — see the `.dm`-specific
+ *                                  branch below, which differs from the
+ *                                  generic channel-ref `#`-split (a handle's
+ *                                  `#0042` suffix must NOT be mistaken for a
+ *                                  pinned-message seq).
  */
 export function parseRef(ref: ChannelRef): ParsedRef {
   if (!ref.startsWith("/")) throw new Error(`ref must start with "/": ${ref}`);
@@ -647,8 +677,28 @@ export function parseRef(ref: ChannelRef): ParsedRef {
     threadRootSeq = parseSeq(parts[parts.length - 1]);
     return { server, channel: parts[1], threadRootSeq };
   }
-  // Message form: /server/channel#N (channel segment carries the #N).
   const chSeg = parts[1];
+
+  // DM-specific branch: a DM peer segment is a `name#0042` handle, not a bare
+  // channel name — the generic "first #" split below would mis-parse
+  // `gusye#1231` as peer="gusye", seq=1231. Find the LAST "#" instead: if
+  // there's exactly one "#" in the segment and the tail is exactly 4 digits,
+  // the WHOLE segment is the handle (the common case). Otherwise (2+ "#"s,
+  // or a non-4-digit tail) the text after the last "#" is a seq/thread root,
+  // matching `gusye#1231#42` (pin) / `gusye#1231/#42` (thread, handled by the
+  // thread-form branch above) — see plan §1 for the accepted `a#b` ambiguity.
+  if (server === DM_SERVER) {
+    const lastHash = chSeg.lastIndexOf("#");
+    if (lastHash < 0) return { server, channel: chSeg };
+    const firstHash = chSeg.indexOf("#");
+    const tail = chSeg.slice(lastHash + 1);
+    const isBareHandle = firstHash === lastHash && /^\d{4}$/.test(tail);
+    if (isBareHandle) return { server, channel: chSeg };
+    seq = parseSeq(tail);
+    return { server, channel: chSeg.slice(0, lastHash), seq };
+  }
+
+  // Message form: /server/channel#N (channel segment carries the #N).
   const hashIdx = chSeg.indexOf("#");
   if (hashIdx >= 0) {
     seq = parseSeq(chSeg.slice(hashIdx));

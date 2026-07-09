@@ -85,7 +85,7 @@ export async function promoteDueCalendarEventsForWorkspace(
       });
 
       if (!ownerCache.has(agent.ownerId)) {
-        const u = await queries.user.getUser(db, agent.ownerId);
+        const u = await queries.user.getUserSelf(db, agent.ownerId);
         ownerCache.set(agent.ownerId, u ? { name: u.name, email: u.email } : null);
       }
       const ownerInfo = ownerCache.get(agent.ownerId)!;

@@ -44,7 +44,7 @@ globalThis.WebSocketPair = class {
 
 // WebSocketRequestResponsePair — used for the ping/pong auto-response
 globalThis.WebSocketRequestResponsePair = class {
-  constructor(public request: string, public response: string) {}
+  constructor(public request: string, public response: string) { }
 } as unknown as typeof WebSocketRequestResponsePair
 
 // --- Module mocks ---
@@ -79,6 +79,9 @@ const mockGetFriendUserIds = vi.fn<(db: unknown, userId: string) => Promise<stri
 const mockGetChannelForMember = vi.fn()
 const mockGetDM = vi.fn()
 const mockListMembers = vi.fn()
+const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
+const mockIsBotOnline = vi.fn<(db: unknown, botUserId: string) => Promise<boolean>>().mockResolvedValue(false)
+const mockGetUserInternal = vi.fn<(db: unknown, id: string) => Promise<{ isBot: boolean; ownerUserId: string | null } | null>>().mockResolvedValue(null)
 // mockToSummary now returns row.status verbatim — status is the source of
 // truth on the column, not a derivation from lastSeenAt. See
 // plans/community-machine-presence-fix.md.
@@ -99,10 +102,10 @@ const mockToSummary = vi.fn((row: any) => ({
 
 vi.mock("@alook/shared", () => {
   const noopLogger = {
-    debug: () => {},
-    info: () => {},
-    warn: () => {},
-    error: () => {},
+    debug: () => { },
+    info: () => { },
+    warn: () => { },
+    error: () => { },
     child: () => noopLogger,
   }
   // Bare-minimum safeParse stubs — the DO only calls `.safeParse(msg)` and
@@ -170,6 +173,7 @@ vi.mock("@alook/shared", () => {
         markMachineOffline: (...a: any[]) => mockMarkMachineOffline(...a),
         markMachineOnlineIfOffline: (...a: any[]) => mockMarkMachineOnlineIfOffline(...a),
         toSummary: (row: any) => mockToSummary(row),
+        isBotOnline: (...a: [unknown, string]) => mockIsBotOnline(...a),
       },
       communityMember: {
         getCoMemberUserIds: (...a: [unknown, string]) => mockGetCoMemberUserIds(...a),
@@ -183,6 +187,12 @@ vi.mock("@alook/shared", () => {
       },
       communityDm: {
         getDM: (...a: any[]) => mockGetDM(...a),
+      },
+      communityBot: {
+        listBotsForMachine: (...a: [unknown, string]) => mockListBotsForMachine(...a),
+      },
+      user: {
+        getUserInternal: (...a: [unknown, string]) => mockGetUserInternal(...a),
       },
     },
   }
@@ -217,6 +227,9 @@ describe("WebSocketDurableObject", () => {
     // don't leak state into unrelated auth-flow tests.
     mockGetCoMemberUserIds.mockResolvedValue([])
     mockGetFriendUserIds.mockResolvedValue([])
+    mockListBotsForMachine.mockResolvedValue([])
+    mockIsBotOnline.mockResolvedValue(false)
+    mockGetUserInternal.mockResolvedValue(null)
   })
 
   describe("fetch — WebSocket upgrade", () => {
@@ -264,7 +277,7 @@ describe("WebSocketDurableObject", () => {
       wsAuth.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
       const wsUnauth = createMockWebSocket()
       wsUnauth.serializeAttachment({ type: "user", userId: "", authenticated: false })
-      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth, wsUnauth])
+        ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth, wsUnauth])
 
       const req = new Request("http://internal/broadcast", {
         method: "POST",
@@ -283,7 +296,7 @@ describe("WebSocketDurableObject", () => {
 
     it("returns sent: 0 when no connections exist", async () => {
       const { durable, ctx } = createDO()
-      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([])
+        ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([])
 
       const req = new Request("http://internal/broadcast", {
         method: "POST",
@@ -304,7 +317,7 @@ describe("WebSocketDurableObject", () => {
       const wsClosed = createMockWebSocket(WebSocket.CLOSED)
       wsClosed.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
       wsClosed.send.mockImplementation(() => { throw new Error("Connection closed") })
-      ;(ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsOpen, wsClosed])
+        ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsOpen, wsClosed])
 
       const req = new Request("http://internal/broadcast", {
         method: "POST",
@@ -316,6 +329,60 @@ describe("WebSocketDurableObject", () => {
       expect(wsOpen.send).toHaveBeenCalled()
       expect(wsClosed.send).toHaveBeenCalled()
       expect(await res.json()).toEqual({ sent: 1 })
+    })
+  })
+
+  describe("fetch — /check-user-online (bot-aware, keyed by ?userId=)", () => {
+    // This DO instance is keyed by `user:<id>` (idFromName) but can't read
+    // its own name back off `ctx` on this worker's pinned compatibility_date
+    // — see plans/community-account-debt-fixes.md Fix 3 — so every caller
+    // passes `?userId=` explicitly and the handler branches on it.
+    it("answers via isBotOnline for a bot id, bypassing the live-socket check entirely", async () => {
+      const { durable, ctx } = createDO()
+      mockGetUserInternal.mockResolvedValue({ isBot: true } as any)
+      mockIsBotOnline.mockResolvedValue(true)
+        ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([])
+
+      const res = await durable.fetch(new Request("http://internal/check-user-online?userId=bot-1"))
+
+      expect(await res.json()).toEqual({ online: true })
+      expect(mockGetUserInternal).toHaveBeenCalledWith({}, "bot-1")
+      expect(mockIsBotOnline).toHaveBeenCalledWith({}, "bot-1")
+    })
+
+    it("answers false for a bot id with no bound machine or an offline one", async () => {
+      const { durable } = createDO()
+      mockGetUserInternal.mockResolvedValue({ isBot: true } as any)
+      mockIsBotOnline.mockResolvedValue(false)
+
+      const res = await durable.fetch(new Request("http://internal/check-user-online?userId=bot-1"))
+
+      expect(await res.json()).toEqual({ online: false })
+    })
+
+    it("falls back to the live-socket check for a human id (regression: query-param change must not break humans)", async () => {
+      const { durable, ctx } = createDO()
+      mockGetUserInternal.mockResolvedValue({ isBot: false } as any)
+      const wsAuth = createMockWebSocket()
+      wsAuth.serializeAttachment({ type: "user", userId: "human-1", authenticated: true })
+        ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth])
+
+      const res = await durable.fetch(new Request("http://internal/check-user-online?userId=human-1"))
+
+      expect(await res.json()).toEqual({ online: true })
+      expect(mockIsBotOnline).not.toHaveBeenCalled()
+    })
+
+    it("falls back to the live-socket check when userId is missing entirely", async () => {
+      const { durable, ctx } = createDO()
+      const wsAuth = createMockWebSocket()
+      wsAuth.serializeAttachment({ type: "user", userId: "u1", authenticated: true })
+        ; (ctx.getWebSockets as ReturnType<typeof vi.fn>).mockReturnValue([wsAuth])
+
+      const res = await durable.fetch(new Request("http://internal/check-user-online"))
+
+      expect(await res.json()).toEqual({ online: true })
+      expect(mockGetUserInternal).not.toHaveBeenCalled()
     })
   })
 
@@ -495,6 +562,117 @@ describe("WebSocketDurableObject", () => {
         JSON.stringify({ type: "community:presence.update", userId: "friend-c", online: true }),
       )
     })
+
+    // Regression (post-Fix-3 hotfix): a fresh bot has no server membership,
+    // so co-members alone can be empty for it even while its bound machine
+    // is genuinely online. The fix lives one layer down, in
+    // `getFriendUserIds` itself (see `community-friendship.test.ts`) — the
+    // owner↔own-bot implicit friendship it already returns for `listFriends`
+    // /`areFriends` now also flows through here, so `getPresenceAudience`
+    // needs no bot-specific branch at all; it just trusts whatever
+    // `getFriendUserIds` (mocked as `mockGetFriendUserIds` above) says.
+  })
+
+  describe("notifyUserDO — bot fan-out on community:machine.status (Fix 3)", () => {
+    // `notifyUserDO` is private; every `community:machine.status` emission in
+    // this file funnels through it (the single choke point the plan calls
+    // for), so exercising it directly here covers all 5 call sites without
+    // duplicating their individual setup.
+    type NotifyInternals = { notifyUserDO(userId: string, payload: unknown): Promise<void> }
+
+    /** Collects `{ url, body }` for every `mockStubFetch` call so far. */
+    async function capturedRequests(): Promise<Array<{ url: string; body: string }>> {
+      return Promise.all(
+        mockStubFetch.mock.calls.map(async ([req]) => ({
+          url: (req as Request).url,
+          body: await (req as Request).clone().text(),
+        }))
+      )
+    }
+
+    it("fans out community:presence.update(online: true) to every bot bound to the machine, beyond the owner notify", async () => {
+      const { durable, env } = createDO()
+      mockListBotsForMachine.mockResolvedValue([
+        { id: "bot-1", name: "Bot One", discriminator: "0001", description: "" },
+        { id: "bot-2", name: "Bot Two", discriminator: "0002", description: "" },
+      ])
+      mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+      mockGetFriendUserIds.mockResolvedValue([])
+      mockStubFetch.mockClear()
+
+      await (durable as unknown as NotifyInternals).notifyUserDO("owner-1", {
+        type: "community:machine.status",
+        machineId: "m1",
+        status: "online",
+        lastSeenAt: "2026-01-01T00:00:00.000Z",
+      })
+
+      expect(mockListBotsForMachine).toHaveBeenCalledWith({}, "m1")
+      expect(env.WS_DO.idFromName).toHaveBeenCalledWith("user:owner-1")
+      expect(env.WS_DO.idFromName).toHaveBeenCalledWith("user:viewer-1")
+
+      const requests = await capturedRequests()
+      // 1 owner notify (raw payload) + 1 broadcastPresence fetch per bot to the shared viewer.
+      expect(requests).toHaveLength(3)
+      expect(requests.filter((r) => r.body.includes('"userId":"bot-1"') && r.body.includes('"online":true'))).toHaveLength(1)
+      expect(requests.filter((r) => r.body.includes('"userId":"bot-2"') && r.body.includes('"online":true'))).toHaveLength(1)
+    })
+
+    it("broadcasts online: false for every bound bot on a machine-offline transition", async () => {
+      const { durable } = createDO()
+      mockListBotsForMachine.mockResolvedValue([
+        { id: "bot-1", name: "Bot One", discriminator: "0001", description: "" },
+      ])
+      mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+      mockGetFriendUserIds.mockResolvedValue([])
+      mockStubFetch.mockClear()
+
+      await (durable as unknown as NotifyInternals).notifyUserDO("owner-1", {
+        type: "community:machine.status",
+        machineId: "m1",
+        status: "offline",
+        lastSeenAt: "2026-01-01T00:00:00.000Z",
+      })
+
+      const requests = await capturedRequests()
+      expect(requests.some((r) => r.body.includes('"userId":"bot-1"') && r.body.includes('"online":false'))).toBe(true)
+    })
+
+    it("a machine bound to zero bots triggers no extra broadcast beyond the owner notify", async () => {
+      const { durable } = createDO()
+      mockListBotsForMachine.mockResolvedValue([])
+      mockStubFetch.mockClear()
+
+      await (durable as unknown as NotifyInternals).notifyUserDO("owner-1", {
+        type: "community:machine.status",
+        machineId: "m1",
+        status: "online",
+        lastSeenAt: "2026-01-01T00:00:00.000Z",
+      })
+
+      expect(mockStubFetch).toHaveBeenCalledTimes(1) // owner notify only
+    })
+
+    it("does not call listBotsForMachine for a payload that isn't a community:machine.status transition", async () => {
+      const { durable } = createDO()
+      mockStubFetch.mockClear()
+
+      await (durable as unknown as NotifyInternals).notifyUserDO("owner-1", {
+        type: "community:machine.updated",
+        machine: { id: "m1" },
+      })
+
+      expect(mockListBotsForMachine).not.toHaveBeenCalled()
+      expect(mockStubFetch).toHaveBeenCalledTimes(1) // owner notify only
+    })
+
+    it("does not throw and skips the bot fan-out on a malformed/non-object payload", async () => {
+      const { durable } = createDO()
+      await expect(
+        (durable as unknown as NotifyInternals).notifyUserDO("owner-1", "not-an-object")
+      ).resolves.toBeUndefined()
+      expect(mockListBotsForMachine).not.toHaveBeenCalled()
+    })
   })
 
   describe("webSocketMessage — daemon auth flow", () => {
@@ -591,7 +769,7 @@ describe("WebSocketDurableObject", () => {
       mockGetLatestTokenForUser.mockResolvedValue({ hostname: "MyMachine.local" })
 
       const aliveStub = { fetch: vi.fn().mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ alive: true }))) }
-      ;(env.WS_DO as any).get = vi.fn().mockReturnValue(aliveStub)
+        ; (env.WS_DO as any).get = vi.fn().mockReturnValue(aliveStub)
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
@@ -609,7 +787,7 @@ describe("WebSocketDurableObject", () => {
       mockGetLatestTokenForUser.mockResolvedValue({ hostname: "MyMachine.local" })
 
       const deadStub = { fetch: vi.fn().mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ alive: false }))) }
-      ;(env.WS_DO as any).get = vi.fn().mockReturnValue(deadStub)
+        ; (env.WS_DO as any).get = vi.fn().mockReturnValue(deadStub)
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "user-42", authenticated: true })
@@ -929,8 +1107,8 @@ describe("WebSocketDurableObject", () => {
         authenticated: true,
       })
 
-      // Clear any setAlarm calls made during createDO setup.
-      ;(ctx.storage.setAlarm as any).mockClear?.()
+        // Clear any setAlarm calls made during createDO setup.
+        ; (ctx.storage.setAlarm as any).mockClear?.()
 
       await durable.webSocketClose(ws as any)
 

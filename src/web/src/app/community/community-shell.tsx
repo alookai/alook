@@ -10,7 +10,6 @@ import {
   type CurrentUser,
 } from "@/contexts/community/current-user"
 import { useCommunityWs } from "@/hooks/community/use-community-ws"
-import { useBotPresenceBridge } from "@/hooks/community/use-bot-presence"
 
 /**
  * Client wrapper that provides the QueryClient, CurrentUser, and the
@@ -57,11 +56,6 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
   // flag stuck at false for the viewer's own reactions.
   useCommunityWs({ viewerUserId: currentUser.id })
 
-  // Seed own-bot presence into the WS presence store. Runs once for the whole
-  // community subtree so every consumer reads bot presence through the same
-  // `useOnlineUserIds()` API as human presence — no per-page overlay code.
-  useBotPresenceBridge()
-
   // Hydrate `aboutMe` — the community identity holds email/name/avatar from
   // the session, but the free-text "about me" lives on the community profile
   // row. Fetch it once so the settings dialog opens pre-filled.
@@ -74,7 +68,7 @@ function CommunityBootstrap({ children }: { children: ReactNode }) {
           discriminator: data.discriminator,
         })),
       )
-      .catch(() => {})
+      .catch(() => { })
   }, [setCurrentUser])
 
   return <>{children}</>

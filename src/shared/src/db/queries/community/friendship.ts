@@ -314,28 +314,54 @@ export async function listFriends(db: Database, userId: string) {
 }
 
 /**
- * Ids-only variant of `listFriends` — no `user` join, no own-bot rows. Used
- * on hot paths that only need "who is this user's friend" (WS presence
- * fan-out, presence bulk-check route) and would rather not pay for name/
- * email/image columns they're going to throw away.
+ * Ids-only variant of `listFriends` — no name/email/image columns. Used on
+ * hot paths that only need "who is this user's friend" (WS presence
+ * fan-out via `ws-durable.ts`'s `getPresenceAudience`, and the
+ * `/friends/presence` bulk-check route).
+ *
+ * DOES include the owner↔own-bot implicit friendship (same rule as
+ * `areFriends`/`listFriends` — no real `communityFriendship` row exists for
+ * the pair, but they act like friends everywhere), because both real
+ * callers are presence checks and a bot's presence is meaningless without
+ * its owner in the audience. An earlier revision deliberately excluded
+ * these rows here (to match `listFriends`' "no join" cost-saving, not
+ * realizing that trimmed the whole reason a bot's owner needs to be in this
+ * list) — that's what caused a bot's owner to never learn about its own
+ * presence, see plans/community-account-debt-fixes.md Fix 3 hotfix.
  */
 export async function getFriendUserIds(db: Database, userId: string): Promise<string[]> {
-  const rows = await db
-    .select({
-      requesterId: communityFriendship.requesterId,
-      addresseeId: communityFriendship.addresseeId,
-    })
-    .from(communityFriendship)
-    .where(
-      and(
-        eq(communityFriendship.status, "accepted"),
-        or(
-          eq(communityFriendship.requesterId, userId),
-          eq(communityFriendship.addresseeId, userId),
+  const [rows, selfBotRows] = await Promise.all([
+    db
+      .select({
+        requesterId: communityFriendship.requesterId,
+        addresseeId: communityFriendship.addresseeId,
+      })
+      .from(communityFriendship)
+      .where(
+        and(
+          eq(communityFriendship.status, "accepted"),
+          or(
+            eq(communityFriendship.requesterId, userId),
+            eq(communityFriendship.addresseeId, userId),
+          ),
         ),
       ),
-    );
-  return rows.map((r) => (r.requesterId === userId ? r.addresseeId : r.requesterId));
+    db
+      .select({ id: user.id, ownerUserId: user.ownerUserId })
+      .from(user)
+      .where(
+        and(
+          eq(user.isBot, true),
+          or(eq(user.id, userId), eq(user.ownerUserId, userId)),
+          isNull(user.deletedAt)
+        )
+      ),
+  ]);
+  const friendIds = rows.map((r) => (r.requesterId === userId ? r.addresseeId : r.requesterId));
+  const selfBotIds = selfBotRows
+    .map((r) => (r.id === userId ? r.ownerUserId : r.id))
+    .filter((id): id is string => !!id);
+  return [...new Set([...friendIds, ...selfBotIds])];
 }
 
 /**

@@ -8,6 +8,7 @@ import { RailIndicator } from "./rail-indicator"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { NumberTicker } from "@/components/ui/number-ticker"
+import { serverGradient } from "./server-gradient"
 import type { Server } from "./_types"
 
 export function SortableServer({ server, active, onClick, onLeave, onOpenSettings, onOpenInvitePopover, onCreateFolder, groupTarget, inFolder, dragging: isDragActive }: { server: Server; active?: boolean; onClick: () => void; onLeave?: () => void; onOpenSettings?: () => void; onOpenInvitePopover?: () => void; onCreateFolder?: () => void; groupTarget?: boolean; inFolder?: boolean; dragging?: boolean }) {
@@ -32,9 +33,13 @@ export function SortableServer({ server, active, onClick, onLeave, onOpenSetting
                   onClick={active ? undefined : onClick}
                   {...attributes}
                   {...listeners}
+                  style={server.icon ? undefined : { background: serverGradient(server.id) }}
                   className={[
                     "grid size-10 touch-none place-items-center overflow-hidden text-sm font-semibold transition-all duration-150 active:cursor-grabbing",
-                    active ? "cursor-default rounded-xl bg-primary text-primary-foreground" : "cursor-pointer rounded-[18px] bg-card hover:rounded-xl hover:bg-primary hover:text-primary-foreground",
+                    active ? "cursor-default rounded-xl" : "cursor-pointer rounded-[18px] hover:rounded-xl",
+                    server.icon
+                      ? active ? "bg-primary text-primary-foreground" : "bg-card hover:bg-primary hover:text-primary-foreground"
+                      : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)] hover:brightness-110",
                   ].join(" ")}
                 >
                   {server.icon ? (

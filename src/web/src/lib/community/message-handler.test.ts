@@ -179,3 +179,54 @@ describe("createCommunityMessage — audit relocation (plan §10)", () => {
     })
   })
 })
+
+describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCreateMessage.mockResolvedValue({ id: "msg_1" })
+    mockFanOutToChannel.mockResolvedValue(undefined)
+    mockFanOutToDM.mockResolvedValue(undefined)
+    mockBroadcastToUser.mockResolvedValue(undefined)
+    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
+    mockListMembers.mockResolvedValue([
+      { userId: "author_1", userName: "Author", discriminator: "1111" },
+      { userId: "alex_1", userName: "Alex", discriminator: "0001" },
+      { userId: "alex_2", userName: "Alex", discriminator: "0002" },
+    ])
+  })
+
+  it("disambiguates two same-named members via the @Name#0042 handle in the message body", async () => {
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Alex#0002, over here" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hey @Alex#0002, over here" },
+    })
+
+    expect(mockListMembers).toHaveBeenCalledWith({}, "srv_1")
+    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
+      messageId: "msg_1",
+      userIds: ["alex_2"],
+      kind: "mention",
+    })
+  })
+
+  it("passes each member's discriminator through as a mention candidate", async () => {
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Alex#0001" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hey @Alex#0001" },
+    })
+
+    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
+      messageId: "msg_1",
+      userIds: ["alex_1"],
+      kind: "mention",
+    })
+  })
+})

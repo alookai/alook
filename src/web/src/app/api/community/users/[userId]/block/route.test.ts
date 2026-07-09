@@ -12,7 +12,7 @@ vi.mock("@alook/shared", async () => {
   return {
     ...actual,
     queries: {
-      user: { getUser: (...a: unknown[]) => getUser(...a) },
+      user: { getUserPublic: (...a: unknown[]) => getUser(...a) },
       communityFriendship: { block: (...a: unknown[]) => block(...a) },
     },
   }

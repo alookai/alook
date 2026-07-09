@@ -23,8 +23,20 @@ const ADMIN_METHODS = new Set([
   "createChannel",
   "postMessage",
   "readChannel",
+  "createInvite",
 ]);
-const API_METHODS = new Set(["inboxPull", "inboxSnapshot", "ack", "send", "read", "resolve", "listServers", "listChannels"]);
+const API_METHODS = new Set([
+  "inboxPull",
+  "inboxSnapshot",
+  "ack",
+  "send",
+  "read",
+  "resolve",
+  "listServers",
+  "listChannels",
+  "listMembers",
+  "joinServer",
+]);
 
 export interface BridgeDeps {
   admin: AdminApi;

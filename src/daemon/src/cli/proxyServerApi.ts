@@ -28,6 +28,7 @@ import type {
   ReadRequest,
   ResolveRequest,
   ListChannelsRequest,
+  ServerMember,
   Page,
   Message,
   Server,
@@ -75,10 +76,14 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
       },
       body: JSON.stringify(wire),
     });
-    const json = (await res.json()) as T & { error?: string; code?: string };
+    const json = (await res.json()) as T & { error?: string; code?: string; hint?: string };
     if (!res.ok) {
       const e = new Error(json?.error ?? `proxy api/${method} failed (${res.status})`);
       (e as { code?: string }).code = json?.code;
+      // Copy `hint` onto the thrown Error the same way `.code` is copied —
+      // without this the owner-mismatch hint never leaves this file (see
+      // plan's "Hint propagation" note).
+      (e as { hint?: string }).hint = json?.hint;
       throw e;
     }
     return json;
@@ -93,5 +98,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     send: (r: SendRequest) => call<SendResponse>("send", r),
     read: (r: ReadRequest) => call<Page<Message>>("read", r),
     resolve: (r: ResolveRequest) => call<{ message: Message }>("resolve", r),
+    listMembers: (r: { agentId: AgentId; server: string }) => call<{ members: ServerMember[] }>("listMembers", r),
+    joinServer: (r: { agentId: AgentId; invite: string }) => call<{ server: Server }>("joinServer", r),
   };
 }

@@ -20,6 +20,7 @@ import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
 import { useDmReadStateSnapshot } from "@/hooks/community/use-dm-read-state"
 import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
+import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
 import {
   useSendDmMessage,
   useToggleReactionApi,
@@ -90,6 +91,17 @@ function DmView() {
       ? undefined
       : (readSnapshot?.lastReadMessageId ?? null),
   })
+  // DM composer has no "current server" — flatten every member server's
+  // channels into one cross-server candidate list so a `/`-ref can be
+  // dropped into a DM (see plan community-channel-ref.md §6).
+  const { directory: channelRefDirectory } = useChannelRefDirectory()
+  const channelRefCandidates = useMemo(
+    () =>
+      channelRefDirectory.flatMap((s) =>
+        s.channels.map((ch) => ({ id: ch.id, name: ch.name, serverId: s.id, serverName: s.name })),
+      ),
+    [channelRefDirectory],
+  )
   // Anchor of the "New" divider: the first non-self message after
   // `lastReadMessageId` inside the currently-loaded window. Mirrors the
   // channel-view logic exactly — see channel page for why we skip past
@@ -133,6 +145,7 @@ function DmView() {
     const diff = latestSeq - seenSeq
     return diff > 0 ? diff : 0
   }, [latestSeq, readSnapshot])
+
 
   const typingUsers = useCommunityStore((s) => s.typingUsers)
   const sendDmMessage = useSendDmMessage()
@@ -337,6 +350,7 @@ function DmView() {
             // no candidate pool needed. Passing [] keeps the Member[] typing
             // honest without shimming friends into a member shape.
             members={[]}
+            channelRefCandidates={channelRefCandidates}
             onSend={sendDmMsg}
             onTyping={handleTyping}
             replyingTo={replyTo?.authorName}
