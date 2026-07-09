@@ -8,10 +8,13 @@ import { useCurrentUser } from "@/contexts/community/current-user"
 
 /**
  * Threshold at which a message must be visible before it counts as "read".
- * 0.75 mirrors Slack — the whole message row must be substantially on
- * screen; a single-pixel intersection is not "the user looked at it".
+ * 0.2 = Discord-style: a message counts as read as soon as any meaningful
+ * portion enters the viewport. Higher values (0.75, Slack-style) forced
+ * users to scroll a full row PAST the viewport bottom before the watermark
+ * would move — badges only cleared "when you dragged the message to the
+ * very bottom." 0.2 clears them the moment a message is genuinely visible.
  */
-const READ_VISIBILITY_THRESHOLD = 0.75
+const READ_VISIBILITY_THRESHOLD = 0.2
 
 /**
  * Slack-style progressive read watermark. Observes every rendered message

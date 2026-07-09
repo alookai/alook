@@ -154,7 +154,7 @@ beforeEach(() => {
 })
 
 describe("useChannelWatermark — visibility gate", () => {
-  it("advances the watermark when a row hits >=0.75 visibility", async () => {
+  it("advances the watermark when a row hits >=0.2 visibility", async () => {
     const useHook = await loadHook()
     const root = makeRoot()
     const row = makeRow("m_1")
@@ -167,11 +167,11 @@ describe("useChannelWatermark — visibility gate", () => {
       scrollRootEl: root,
     })
     flushEffects()
-    fireIntersections([{ target: row, isIntersecting: true, intersectionRatio: 0.9 }])
+    fireIntersections([{ target: row, isIntersecting: true, intersectionRatio: 0.3 }])
     expect(advanceSpy).toHaveBeenCalledWith("ch_1", "m_1")
   })
 
-  it("does NOT advance when ratio is below 0.75", async () => {
+  it("does NOT advance when ratio is below 0.2", async () => {
     const useHook = await loadHook()
     const root = makeRoot()
     const row = makeRow("m_1")
@@ -184,7 +184,7 @@ describe("useChannelWatermark — visibility gate", () => {
       scrollRootEl: root,
     })
     flushEffects()
-    fireIntersections([{ target: row, isIntersecting: true, intersectionRatio: 0.5 }])
+    fireIntersections([{ target: row, isIntersecting: true, intersectionRatio: 0.1 }])
     expect(advanceSpy).not.toHaveBeenCalled()
   })
 

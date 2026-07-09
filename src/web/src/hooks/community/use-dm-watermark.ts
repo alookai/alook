@@ -7,11 +7,10 @@ import type { Msg } from "@/components/community/_types"
 import { useCurrentUser } from "@/contexts/community/current-user"
 
 /**
- * Threshold at which a message must be visible before it counts as "read".
- * 0.75 mirrors Slack — the whole message row must be substantially on
- * screen; a single-pixel intersection is not "the user looked at it".
+ * See `use-channel-watermark.ts` for the rationale — mirrors channel side.
+ * MUST stay identical or DM and channel divider timing drifts.
  */
-const READ_VISIBILITY_THRESHOLD = 0.75
+const READ_VISIBILITY_THRESHOLD = 0.2
 
 /**
  * Slack-style progressive read watermark for DMs. Behaves identically to
