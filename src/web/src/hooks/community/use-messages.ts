@@ -303,7 +303,7 @@ function useMessagesInner(
     queryKey,
   ])
 
-  // Fix 4 — staleness invalidate.
+  // Fix 4 — staleness invalidate on mount / scope switch ONLY.
   //
   // When the cache is hydrated from IDB, `dataUpdatedAt` reflects the last
   // fetch of the previous session. TanStack won't refetch on mount for
@@ -314,22 +314,27 @@ function useMessagesInner(
   // the fresh `latestSeq` in the server response drives `unreadCount` and
   // `hasMoreNewer` to the truth without any client bookkeeping.
   //
-  // 30s is chosen to be short enough that a returning tab sees fresh data
-  // but long enough to skip the invalidation during rapid channel switching
-  // (where the cache is only seconds old and the reconnect handler will
-  // fire on its own if the socket has been dropped).
-  const hasInvalidatedStaleCacheRef = useRef<string | null>(null)
+  // Fires EXACTLY ONCE per scope (channelId / dmId), gated by a scopeId ref.
+  // Previously the effect had `query.dataUpdatedAt` in its dep list, which
+  // re-evaluated on every fetch complete — including AFTER an optimistic
+  // send stayed in-place past 30s of stillness. Any such re-eval could
+  // invalidate the cache, refetch server pages, and drop the just-sent
+  // (already reconciled) row visually before the WS broadcast caught up.
+  // Locking to "one shot per scope" preserves the mount-time invariant
+  // (hydrated-and-stale gets refreshed) without ever firing again for the
+  // same open scope. WS reconnect + user-initiated navigation cover any
+  // subsequent freshness needs.
+  const staleCacheCheckedScopeRef = useRef<string | null>(null)
   useEffect(() => {
     if (!enabled) return
     if (!scopeId) return
+    if (staleCacheCheckedScopeRef.current === scopeId) return
     if (query.isFetching) return
     if (query.isPending) return
     const updatedAt = query.dataUpdatedAt
     if (!updatedAt) return
-    const key = `${scopeId}::${updatedAt}`
-    if (hasInvalidatedStaleCacheRef.current === key) return
+    staleCacheCheckedScopeRef.current = scopeId
     if (Date.now() - updatedAt < STALE_HYDRATED_CACHE_MS) return
-    hasInvalidatedStaleCacheRef.current = key
     void queryClient.invalidateQueries({ queryKey })
   }, [
     enabled,
