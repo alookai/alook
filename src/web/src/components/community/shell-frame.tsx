@@ -416,6 +416,7 @@ export function ShellFrame({
       <DialogContent className="flex h-[calc(100vh-4rem)] w-[calc(100vw-4rem)] sm:max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0" showCloseButton={false}>
         <UserSettings
           onClose={() => setEditingProfile(false)}
+          userId={currentUser.id}
           userName={currentUser.name}
           aboutMe={currentUser.aboutMe ?? ""}
           onSave={async (data) => {
