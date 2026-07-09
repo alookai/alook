@@ -910,9 +910,21 @@ export async function isBotOnline(db: Database, botUserId: string): Promise<bool
     .from(communityBotBinding)
     .innerJoin(communityMachine, eq(communityMachine.id, communityBotBinding.machineId))
     .innerJoin(user, eq(user.id, communityBotBinding.userId))
-    // Mirrors `listBotsForMachine`'s soft-delete guard: a tombstoned bot must
-    // never read back as online, even if its machine binding row is still live.
-    .where(and(eq(communityBotBinding.userId, botUserId), isNull(user.deletedAt)))
+    // Mirrors `listBotsForMachine`'s guards: a tombstoned or non-bot user
+    // must never read back as online even if the binding row is still live.
+    // The `isBot=true` check is defense-in-depth against a data-integrity
+    // slip (nanoid re-issue, migration bug) putting a human user id into
+    // `communityBotBinding` — the binding rows are supposed to be
+    // bot-only, and this predicate should fail-closed if that invariant
+    // ever slips rather than silently misattributing machine presence to
+    // a human.
+    .where(
+      and(
+        eq(communityBotBinding.userId, botUserId),
+        isNull(user.deletedAt),
+        eq(user.isBot, true),
+      ),
+    )
     .limit(1);
   return rows.length > 0 && rows[0]!.status === "online";
 }

@@ -673,6 +673,38 @@ describe("WebSocketDurableObject", () => {
       ).resolves.toBeUndefined()
       expect(mockListBotsForMachine).not.toHaveBeenCalled()
     })
+
+    it("resolves cleanly when the owner-notify stub fetch rejects — the whole method is under try/catch, callers never see the throw", async () => {
+      // Regression guard: the owner-notify `userStub.fetch(...)` used to
+      // sit OUTSIDE the method's try/catch. A stub-fetch throw would
+      // propagate through every caller's `.catch(() => {})` and skip the
+      // bot fan-out entirely, contradicting the comment that claims the
+      // failure would "at least be visible."
+      const { durable } = createDO()
+      mockStubFetch.mockClear()
+      // First call is the owner notify — reject it. Subsequent calls
+      // (bot fan-out per-audience-member) should still fire.
+      mockStubFetch.mockRejectedValueOnce(new Error("stub unreachable"))
+      mockListBotsForMachine.mockResolvedValue([
+        { id: "bot-1", name: "Bot One", discriminator: "0001", description: "" },
+      ])
+      mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+      mockGetFriendUserIds.mockResolvedValue([])
+
+      await expect(
+        (durable as unknown as NotifyInternals).notifyUserDO("owner-1", {
+          type: "community:machine.status",
+          machineId: "m1",
+          status: "online",
+          lastSeenAt: "2026-01-01T00:00:00.000Z",
+        })
+      ).resolves.toBeUndefined()
+
+      // Owner notify was attempted (and failed) — bot fan-out still ran.
+      expect(mockListBotsForMachine).toHaveBeenCalledWith({}, "m1")
+      // Owner notify + at least one broadcastPresence fetch to viewer-1.
+      expect(mockStubFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
+    })
   })
 
   describe("webSocketMessage — daemon auth flow", () => {

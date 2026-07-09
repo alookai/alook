@@ -3,7 +3,7 @@ import { queries, ROLES, WS_EVENTS, isUniqueConstraintError, CommunityAgentJoinS
 import type { CommunityMemberJoin } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAgentRunnerAuth } from "@/lib/middleware/community-agent-runner-auth"
-import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
 
 /**
@@ -87,6 +87,15 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   }
 
   fanOutToServerMembers(result.invite.serverId, memberEvent, { excludeUserId: ctx.botUserId })
+
+  // The bot's OWNER isn't necessarily a member of the server the bot just
+  // joined, so `fanOutToServerMembers` (scoped to existing members) will
+  // never reach them. Send the same event directly to the owner so their
+  // bot-list / server-rail reflects the join without a hard refresh. If
+  // the owner IS also a member, `patchCacheJoin` in
+  // `use-server-members.ts` dedupes by userId (`total` bump is a no-op on
+  // re-delivery), so double-delivery is safe.
+  broadcastToUserSafe(ctx.ownerUserId, memberEvent)
 
   const server = await queries.communityServer.getServer(db, result.invite.serverId)
   return NextResponse.json({ server: { id: server!.id, name: server!.name } })

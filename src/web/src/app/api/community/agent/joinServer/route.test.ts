@@ -13,6 +13,7 @@ const mockGetInviteByToken = vi.fn()
 const mockUseInvite = vi.fn()
 const mockGetServer = vi.fn()
 const mockFanOutToServerMembers = vi.fn()
+const mockBroadcastToUserSafe = vi.fn()
 const mockLogAudit = vi.fn()
 
 vi.mock("@alook/shared", async () => {
@@ -35,6 +36,7 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToServerMembers: (...a: unknown[]) => mockFanOutToServerMembers(...a),
+  broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 vi.mock("@/lib/community/audit", async () => {
   const actual = await vi.importActual<typeof import("@/lib/community/audit")>("@/lib/community/audit")
@@ -121,6 +123,14 @@ describe("POST /api/community/agent/joinServer", () => {
       "srv_1",
       expect.objectContaining({ serverId: "srv_1" }),
       { excludeUserId: "bot_1" },
+    )
+    // The bot's owner isn't necessarily a server member, so the fan-out
+    // above can't reach them. The route must ALSO notify the owner
+    // directly so their bot-list / server-rail updates without a hard
+    // refresh — regression guard for review finding #7.
+    expect(mockBroadcastToUserSafe).toHaveBeenCalledWith(
+      "owner_1",
+      expect.objectContaining({ serverId: "srv_1" }),
     )
     expect(mockLogAudit).toHaveBeenCalledWith(
       expect.anything(),

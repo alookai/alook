@@ -49,6 +49,22 @@ function conditionReferencesColumn(node: unknown, columnName: string, seen = new
   return false;
 }
 
+function conditionContainsString(node: unknown, needle: string, seen = new Set<unknown>()): boolean {
+  if (typeof node === "string") return node.includes(needle);
+  if (node === null || typeof node !== "object") return false;
+  if (seen.has(node)) return false;
+  seen.add(node);
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (key === "table") continue;
+    if (Array.isArray(value)) {
+      if (value.some((v) => conditionContainsString(v, needle, seen))) return true;
+    } else if (conditionContainsString(value, needle, seen)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 describe("user exports", () => {
   it("exports getUserPublic", () => { expect(typeof userQueries.getUserPublic).toBe("function"); });
   it("exports getUserSelf", () => { expect(typeof userQueries.getUserSelf).toBe("function"); });
@@ -126,6 +142,18 @@ describe("getUserByNameAndDiscriminator", () => {
     await userQueries.getUserByNameAndDiscriminator(chain, "alice", "1234");
     expect(conditionReferencesColumn(chain.where.mock.calls[0][0], "deletedAt")).toBe(true);
   });
+
+  it("escapes SQL LIKE metacharacters in name — `_` in input is a literal, not a wildcard", async () => {
+    const chain = createSelectLimitMock([]);
+    await userQueries.getUserByNameAndDiscriminator(chain, "A_ex", "0001");
+    const where = chain.where.mock.calls[0][0];
+    // Fragment must include an ESCAPE clause so the `\_` produced by
+    // escapeLikePattern is honored (without it, SQLite ignores the
+    // backslash and `_` remains a wildcard).
+    expect(conditionContainsString(where, "ESCAPE")).toBe(true);
+    // Escaped pattern (`A\_ex`) must be a parameter of the fragment.
+    expect(conditionContainsString(where, "A\\_ex")).toBe(true);
+  });
 });
 
 describe("getUserByNameCaseInsensitive", () => {
@@ -145,6 +173,14 @@ describe("getUserByNameCaseInsensitive", () => {
     const chain = createSelectMock([{ id: "u_1" }]);
     await userQueries.getUserByNameCaseInsensitive(chain, "alice");
     expect(conditionReferencesColumn(chain.where.mock.calls[0][0], "deletedAt")).toBe(true);
+  });
+
+  it("escapes SQL LIKE metacharacters in name — `%` in input is a literal, not a wildcard", async () => {
+    const chain = createSelectMock([]);
+    await userQueries.getUserByNameCaseInsensitive(chain, "admin%");
+    const where = chain.where.mock.calls[0][0];
+    expect(conditionContainsString(where, "ESCAPE")).toBe(true);
+    expect(conditionContainsString(where, "admin\\%")).toBe(true);
   });
 });
 
@@ -242,6 +278,61 @@ describe("withUniqueDiscriminator", () => {
       userQueries.withUniqueDiscriminator({} as any, { id: "u_x", name: "Alice" }, insertFn),
     ).rejects.toBe(otherErr);
     expect(insertFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("probeAvailableDiscriminator", () => {
+  it("returns a NON-collision fallback when all salted probes come back taken", async () => {
+    // Every SELECT resolves to a non-null row → the loop sees every salt
+    // (`id`, `id:1`, `id:2`, `id:3`, `id:4`) taken. The final returned
+    // discriminator MUST correspond to a salt the loop did NOT probe —
+    // otherwise Better Auth's INSERT is guaranteed to collide the very
+    // same instant.
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    // Every probe returns a "taken" row.
+    chain.limit = vi.fn(() => Promise.resolve([{ id: "u_other" }]));
+
+    const returned = await userQueries.probeAvailableDiscriminator(chain, {
+      id: "u_collide",
+      name: "Alice",
+    });
+
+    // Collect the salts the loop probed — computeDiscriminator("u_collide"),
+    // "u_collide:1", …, "u_collide:4". The returned value must not equal
+    // any of them; specifically, it should match the "one salt past the
+    // ceiling" (`:5`).
+    const probed = [
+      computeDiscriminator("u_collide"),
+      computeDiscriminator("u_collide:1"),
+      computeDiscriminator("u_collide:2"),
+      computeDiscriminator("u_collide:3"),
+      computeDiscriminator("u_collide:4"),
+    ];
+    expect(probed).not.toContain(returned);
+    expect(returned).toBe(computeDiscriminator("u_collide:5"));
+  });
+
+  it("returns the first free salt on the happy path", async () => {
+    // First probe returns "taken", second probe returns "free" → the
+    // second salt's discriminator is what the caller gets.
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => chain);
+    let calls = 0;
+    chain.limit = vi.fn(() => {
+      calls += 1;
+      return Promise.resolve(calls === 1 ? [{ id: "u_other" }] : []);
+    });
+
+    const returned = await userQueries.probeAvailableDiscriminator(chain, {
+      id: "u_ok",
+      name: "Alice",
+    });
+    expect(returned).toBe(computeDiscriminator("u_ok:1"));
   });
 });
 

@@ -114,7 +114,17 @@ export function buildCommunityChannelRefExtension(opts: {
 
   return ChannelRefNode.configure({
     HTMLAttributes: { class: "channel-ref-highlight" },
-    renderText: ({ node }) => `/${node.attrs.serverId}/${node.attrs.id}`,
+    // `serverId` has `default: null`; paste-from-HTML, drag-drop, or any
+    // future flow that commits the node without setting it would otherwise
+    // emit the literal string `"/null/<channelId>"` on the wire. Fall back
+    // to the visible label so the recipient reads a real word instead of
+    // a broken pill — degraded, but not misleading. The command flow that
+    // DOES set both fields (Enter/Tab on a suggestion) is unaffected.
+    renderText: ({ node }) => {
+      const { serverId, id, label } = node.attrs as { serverId?: string | null; id?: string; label?: string }
+      if (!serverId || !id) return label ? `/${label}` : ""
+      return `/${serverId}/${id}`
+    },
     renderHTML: ({ options, node }) => ["span", options.HTMLAttributes, `/${node.attrs.label ?? node.attrs.id}`],
     suggestion: {
       char: "/",

@@ -9,11 +9,21 @@ import { user } from "../../src/db/schema";
  * `.from(table)` to its own canned rows so the two queries don't bleed into
  * each other.
  */
-function createDb(opts: { friendshipRows?: unknown[]; selfBotRows?: unknown[] } = {}) {
+function createDb(opts: {
+  friendshipRows?: unknown[];
+  selfBotRows?: unknown[];
+  /** Live-owner filter query: which of the resolved "other-side" ids
+   *  survive the `isNull(user.deletedAt)` guard. If omitted, defaults
+   *  to "all ids returned by the selfBot query are live" (i.e., the
+   *  filter is a no-op — historical behavior). */
+  liveOtherIds?: string[];
+} = {}) {
   const friendshipRows = opts.friendshipRows ?? [];
   const selfBotRows = opts.selfBotRows ?? [];
+  const liveOtherIds = opts.liveOtherIds;
   const selectCalls: unknown[] = [];
   const whereCalls: unknown[] = [];
+  let userSelectCount = 0;
   const db: any = {
     select: vi.fn((cols: unknown) => {
       selectCalls.push(cols);
@@ -21,7 +31,21 @@ function createDb(opts: { friendshipRows?: unknown[]; selfBotRows?: unknown[] } 
       chain.from = vi.fn((table: unknown) => {
         chain.where = vi.fn((cond: unknown) => {
           whereCalls.push(cond);
-          return Promise.resolve(table === user ? selfBotRows : friendshipRows);
+          if (table !== user) return Promise.resolve(friendshipRows);
+          // Two possible `user`-table queries:
+          //   1. selfBotRows (isBot=true, either self or owner match)
+          //   2. live-owner filter (inArray + isNull(deletedAt))
+          // They fire in that order.
+          userSelectCount += 1;
+          if (userSelectCount === 1) return Promise.resolve(selfBotRows);
+          // Live-owner filter — default is "all live" (return each other-side id).
+          if (liveOtherIds === undefined) {
+            const allOtherIds = (selfBotRows as Array<{ id: string; ownerUserId: string | null }>)
+              .flatMap((r) => [r.id, r.ownerUserId])
+              .filter((id): id is string => !!id);
+            return Promise.resolve(allOtherIds.map((id) => ({ id })));
+          }
+          return Promise.resolve(liveOtherIds.map((id) => ({ id })));
         });
         return chain;
       });
@@ -63,11 +87,34 @@ describe("getFriendUserIds", () => {
     expect(result).toEqual([]);
   });
 
-  it("issues exactly one `where` per sub-query (real friendships + self-bot), no extra unfiltered fetch", async () => {
+  it("issues exactly one `where` per sub-query (real friendships + self-bot), no extra unfiltered fetch — no self-bot pair means no 3rd query", async () => {
     const db = createDb();
     await q.getFriendUserIds(db, "u_me");
     expect(db.__whereCalls).toHaveLength(2);
     expect(db.select).toHaveBeenCalledTimes(2);
+  });
+
+  it("adds a THIRD query (live-owner filter) when a self-bot pair exists — needed to filter tombstoned owners", async () => {
+    const db = createDb({ selfBotRows: [{ id: "bot-1", ownerUserId: "owner-1" }] });
+    await q.getFriendUserIds(db, "bot-1");
+    expect(db.__whereCalls).toHaveLength(3);
+    expect(db.select).toHaveBeenCalledTimes(3);
+  });
+
+  it("filters out a soft-deleted OWNER from the returned audience (regression guard)", async () => {
+    // Bot binding still points at a live bot row; the owner has been
+    // soft-deleted. The bot query above (`selfBotRows`) filters
+    // `isNull(user.deletedAt)` on the BOT row only. Without the added
+    // live-owner filter, the tombstoned owner id stays in the returned
+    // audience forever, and every presence flip fires a DO fetch to a
+    // dead account.
+    const db = createDb({
+      selfBotRows: [{ id: "bot-1", ownerUserId: "owner-1" }],
+      liveOtherIds: [], // owner-1 does NOT come back from the live filter
+    });
+    const result = await q.getFriendUserIds(db, "bot-1");
+    expect(result).not.toContain("owner-1");
+    expect(result).toEqual([]);
   });
 
   // Owner↔own-bot implicit friendship — see `areFriends`/`listFriends`: no

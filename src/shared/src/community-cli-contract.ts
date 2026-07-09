@@ -694,6 +694,14 @@ export function parseRef(ref: ChannelRef): ParsedRef {
     const tail = chSeg.slice(lastHash + 1);
     const isBareHandle = firstHash === lastHash && /^\d{4}$/.test(tail);
     if (isBareHandle) return { server, channel: chSeg };
+    // A non-numeric tail after the last `#` isn't a valid seq — rather
+    // than throwing (which crashes every caller not wrapped in
+    // try/catch), fall back to treating the whole segment as the
+    // channel/handle. The resolution layer (`parseNameAndTag` in
+    // `resolve-ref.ts`) still rejects the shape cleanly with a 400,
+    // instead of a 500 from a raw throw.
+    const tailNum = Number(tail.startsWith("#") ? tail.slice(1) : tail);
+    if (!Number.isFinite(tailNum)) return { server, channel: chSeg };
     seq = parseSeq(tail);
     return { server, channel: chSeg.slice(0, lastHash), seq };
   }

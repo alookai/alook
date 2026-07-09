@@ -249,6 +249,31 @@ describe("isBotOnline", () => {
     await q.isBotOnline(chain, "bot_1");
     expect(chain.innerJoin).toHaveBeenCalledTimes(2);
   });
+
+  it("filters on `user.isBot` in the WHERE — defense-in-depth against a human user id sneaking into `communityBotBinding`", async () => {
+    // Walk the where-condition graph looking for a drizzle column whose
+    // name is `isBot`. Uses the same seen-set traversal
+    // `user.test.ts::conditionReferencesColumn` uses.
+    function referencesColumn(node: unknown, columnName: string, seen = new Set<unknown>()): boolean {
+      if (node === null || typeof node !== "object") return false;
+      if (seen.has(node)) return false;
+      seen.add(node);
+      if ((node as { name?: unknown }).name === columnName) return true;
+      for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+        if (key === "table") continue;
+        if (Array.isArray(value)) {
+          if (value.some((v) => referencesColumn(v, columnName, seen))) return true;
+        } else if (referencesColumn(value, columnName, seen)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    const chain = makeJoinChain([{ status: "online" }]);
+    await q.isBotOnline(chain, "bot_1");
+    expect(referencesColumn(chain.where.mock.calls[0][0], "isBot")).toBe(true);
+    expect(referencesColumn(chain.where.mock.calls[0][0], "deletedAt")).toBe(true);
+  });
 });
 
 describe("findActiveToken", () => {

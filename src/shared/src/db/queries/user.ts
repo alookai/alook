@@ -1,4 +1,4 @@
-import { eq, inArray, like, sql, and, ne, isNull } from "drizzle-orm";
+import { eq, inArray, sql, and, ne, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { user } from "../schema";
 import type { Database } from "../index";
@@ -149,10 +149,11 @@ export async function getUserByNameCaseInsensitive(
   db: Database,
   name: string
 ): Promise<PublicUser | null> {
+  const pattern = escapeLikePattern(name);
   const rows = await db
     .select(publicUserColumns)
     .from(user)
-    .where(and(like(user.name, name), isNull(user.deletedAt)));
+    .where(and(sql`${user.name} LIKE ${pattern} ESCAPE '\\'`, isNull(user.deletedAt)));
   return (rows[0] as PublicUser | undefined) ?? null;
 }
 
@@ -199,11 +200,16 @@ export async function getUserByNameAndDiscriminator(
   name: string,
   discriminator: string
 ): Promise<PublicUser | null> {
+  const pattern = escapeLikePattern(name);
   const rows = await db
     .select(publicUserColumns)
     .from(user)
     .where(
-      and(like(user.name, name), eq(user.discriminator, discriminator), isNull(user.deletedAt))
+      and(
+        sql`${user.name} LIKE ${pattern} ESCAPE '\\'`,
+        eq(user.discriminator, discriminator),
+        isNull(user.deletedAt)
+      )
     )
     .limit(1);
   return (rows[0] as PublicUser | undefined) ?? null;
@@ -267,10 +273,12 @@ export async function probeAvailableDiscriminator(
     const existing = await getUserByNameAndDiscriminator(db, input.name, discriminator);
     if (!existing) return discriminator;
   }
-  // Ceiling exhausted — hand back the last candidate anyway; the partial
-  // unique index (not this function) is what makes a true double-collision
-  // impossible to persist.
-  return computeDiscriminator(`${input.id}:${MAX_DISCRIMINATOR_ATTEMPTS - 1}`);
+  // Ceiling exhausted — hand back a salt PAST the ones the loop just
+  // probed, not the last-tried value. `id:${MAX-1}` would be guaranteed
+  // to collide (the loop just saw it taken); `id:${MAX}` has NOT been
+  // probed, so the caller's INSERT still has a chance. The partial unique
+  // index is the real backstop for a true concurrent double-collision.
+  return computeDiscriminator(`${input.id}:${MAX_DISCRIMINATOR_ATTEMPTS}`);
 }
 
 export async function createUser(

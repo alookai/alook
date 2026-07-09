@@ -58,6 +58,17 @@ describe("parseRef", () => {
   it("throws when the ref has fewer than 2 segments", () => {
     expect(() => parseRef("/studio")).toThrow();
   });
+
+  it('falls back to a plain-channel result for a DM ref with a non-numeric tail after "#" — does NOT throw', () => {
+    // Regression guard: previously `parseRef("/.dm/foo#bar")` fell into
+    // the `parseSeq(tail)` path and threw `bad seq: bar`, crashing any
+    // caller not wrapped in try/catch (`mockServer.ts` in tests,
+    // future callers in production). Now the whole segment is treated
+    // as the channel/handle and the resolution layer
+    // (`parseNameAndTag`) rejects the shape cleanly at its own boundary.
+    expect(() => parseRef("/.dm/foo#bar")).not.toThrow();
+    expect(parseRef("/.dm/foo#bar")).toEqual({ server: DM_SERVER, channel: "foo#bar" });
+  });
 });
 
 describe("formatRef", () => {

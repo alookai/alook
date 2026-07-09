@@ -58,6 +58,27 @@ describe("preprocessMarkdown", () => {
     expect(preprocessMarkdown("text/studio/general")).toBe("text/studio/general")
   })
 
+  it("does NOT wrap a 3+-segment docs-style path — trailing `/segment` fails the terminator boundary", () => {
+    // Regression guard: `CHANNEL_REF_REGEX` used to greedily eat `/api/user`
+    // out of a docs URL, orphaning `/123` as broken trailing text next to a
+    // muted pill. The trailing boundary lookahead rejects this — a real
+    // 2-segment ref must sit alone (space, EOS, or punctuation after it).
+    expect(preprocessMarkdown("look at /api/user/123")).toBe("look at /api/user/123")
+    expect(preprocessMarkdown("hit /docs/api/v1 first")).toBe("hit /docs/api/v1 first")
+  })
+
+  it("still wraps a 2-segment ref followed by punctuation (period, comma, close-paren)", () => {
+    expect(preprocessMarkdown("see /studio/general.")).toBe(
+      "see <channelref>/studio/general</channelref>.",
+    )
+    expect(preprocessMarkdown("visit /studio/general, ok?")).toBe(
+      "visit <channelref>/studio/general</channelref>, ok?",
+    )
+    expect(preprocessMarkdown("(see /studio/general)")).toBe(
+      "(see <channelref>/studio/general</channelref>)",
+    )
+  })
+
   it("wraps the thread form /studio/general/#42", () => {
     expect(preprocessMarkdown("see /studio/general/#42")).toBe(
       "see <channelref>/studio/general/#42</channelref>",

@@ -10,7 +10,13 @@ import { ChannelRefPill } from "./channel-ref-pill"
 // spaces/punctuation can't round-trip through this regex (same limitation the
 // legacy `#channel-name` chip had). The pinned-message form (`#N` directly, no
 // slash) is intentionally not matched — see plan §1 for why.
-const CHANNEL_REF_REGEX = /(^|\s)(\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+(?:\/#\d+)?)/g
+//
+// Trailing `(?=\s|$|[.,;:!?)\]])` boundary lookahead: a 2-segment path
+// followed by ANOTHER `/segment` (e.g. `/api/user/123` in a docs URL) must
+// NOT match — otherwise CHANNEL_REF_REGEX greedily takes `/api/user` and
+// orphans `/123` as trailing text next to a broken pill. Requiring a
+// terminator forces the match to sit ONLY on a real leaf ref.
+const CHANNEL_REF_REGEX = /(^|\s)(\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+(?:\/#\d+)?)(?=\s|$|[.,;:!?)\]])/g
 
 // Sentinels for stashing code spans/fences (private-use chars — won't collide with
 // real text or markdown punctuation).

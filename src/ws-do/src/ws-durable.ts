@@ -808,38 +808,50 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   }
 
   private async notifyUserDO(userId: string, payload: unknown): Promise<void> {
-    const userDoId = this.env.WS_DO.idFromName("user:" + userId)
-    const userStub = this.env.WS_DO.get(userDoId)
-    await userStub.fetch(new Request("http://internal/broadcast", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }))
-
-    // Single choke point for every `community:machine.status` emission (see
-    // plans/community-account-debt-fixes.md Fix 3) — a bot has no WS of its
-    // own, so its online/offline flip otherwise only ever reaches its owner
-    // via the fetch above. Fan the same transition out through the exact
-    // audience-based pipeline human presence already uses, for every bot
-    // bound to this machine.
-    //
     // Every one of the 5 call sites wraps this whole method in
     // `.catch(() => {})` (fire-and-forget — a presence hiccup must never
     // block the machine-status write it rides on), which means an
-    // unhandled throw here vanishes with zero trace. Own try/catch + log so
-    // a real failure (bad query, DO unreachable, etc.) is at least visible
-    // instead of silently degrading to "you have to refresh to see your bot
-    // come online."
+    // unhandled throw ANYWHERE inside vanishes with zero trace. Own
+    // try/catch + log around the WHOLE body — including the primary owner
+    // notify — so a real failure is at least visible instead of silently
+    // degrading to "you have to refresh to see the update."
+    //
+    // The primary owner notify (`userStub.fetch`) and the bot-presence
+    // fan-out below are independent: a failed owner notify must NOT skip
+    // the bot fan-out, and vice versa. Each has its own inner try so one
+    // can't cascade into the other.
     try {
-      const status = this.machineStatusPayload(payload)
-      if (!status) return
-      const db = createDb(this.env.DB)
-      const bots = await queries.communityBot.listBotsForMachine(db, status.machineId)
-      if (bots.length === 0) return
-      await Promise.allSettled(
-        bots.map((bot) => this.broadcastPresence(bot.id, status.online))
-      )
+      const userDoId = this.env.WS_DO.idFromName("user:" + userId)
+      const userStub = this.env.WS_DO.get(userDoId)
+      try {
+        await userStub.fetch(new Request("http://internal/broadcast", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }))
+      } catch (err) {
+        log.error("notifyUserDO: owner notify failed", { err: String(err), userId })
+      }
+
+      // Single choke point for every `community:machine.status` emission (see
+      // plans/community-account-debt-fixes.md Fix 3) — a bot has no WS of its
+      // own, so its online/offline flip otherwise only ever reaches its owner
+      // via the fetch above. Fan the same transition out through the exact
+      // audience-based pipeline human presence already uses, for every bot
+      // bound to this machine.
+      try {
+        const status = this.machineStatusPayload(payload)
+        if (!status) return
+        const db = createDb(this.env.DB)
+        const bots = await queries.communityBot.listBotsForMachine(db, status.machineId)
+        if (bots.length === 0) return
+        await Promise.allSettled(
+          bots.map((bot) => this.broadcastPresence(bot.id, status.online))
+        )
+      } catch (err) {
+        log.error("notifyUserDO: bot presence fan-out failed", { err: String(err), userId })
+      }
     } catch (err) {
-      log.error("notifyUserDO: bot presence fan-out failed", { err: String(err), userId })
+      log.error("notifyUserDO: unexpected failure", { err: String(err), userId })
     }
   }
 

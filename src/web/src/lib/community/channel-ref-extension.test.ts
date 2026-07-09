@@ -144,6 +144,31 @@ describe("buildCommunityChannelRefExtension — renderText/renderHTML", () => {
     const spec = renderHTML({ options: { HTMLAttributes: {} }, node: { attrs: { label: null, id: "chn_abc" } } })
     expect(spec).toEqual(["span", {}, "/chn_abc"])
   })
+
+  it("renderText NEVER emits a literal `/null/<id>` when serverId is unset (regression guard)", () => {
+    // The `serverId` attribute default is `null`; a paste-from-HTML,
+    // drag-drop, or future keyboard flow that commits a node without
+    // setting `serverId` used to produce `"/null/chn_abc"` on the wire,
+    // rendering as literal broken text to every recipient. Fall back to
+    // the visible `/label` (matching renderHTML's own fallback) so the
+    // ref stays readable even in this degraded path.
+    const { ext } = build()
+    const { renderText } = getRenderFns(ext)
+    expect(
+      renderText({ node: { attrs: { id: "chn_abc", serverId: null, label: "general" } } }),
+    ).not.toContain("null")
+    expect(
+      renderText({ node: { attrs: { id: "chn_abc", serverId: null, label: "general" } } }),
+    ).toBe("/general")
+  })
+
+  it("renderText emits empty string when neither serverId nor label is present", () => {
+    const { ext } = build()
+    const { renderText } = getRenderFns(ext)
+    expect(
+      renderText({ node: { attrs: { id: "chn_abc", serverId: null, label: null } } }),
+    ).toBe("")
+  })
 })
 
 describe("buildCommunityChannelRefExtension — keyboard callback", () => {

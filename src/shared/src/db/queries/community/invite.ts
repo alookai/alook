@@ -76,13 +76,11 @@ export async function useInvite(
     return null;
   }
 
-  // Atomic increment uses
-  await db
-    .update(communityServerInvite)
-    .set({ uses: sql`${communityServerInvite.uses} + 1` })
-    .where(eq(communityServerInvite.id, invite.id));
-
-  // Insert new server member
+  // Insert new server member FIRST — the `(serverId, userId)` UNIQUE
+  // constraint may reject this ("already a member") or D1 may transiently
+  // fail. Incrementing `uses` before the insert would burn an invite slot
+  // on every rejected attempt (bots retrying a failed join can exhaust
+  // `maxUses` without a single successful join).
   const memberRows = await db
     .insert(communityServerMember)
     .values({
@@ -92,6 +90,12 @@ export async function useInvite(
     })
     .returning();
   const insertedMember = memberRows[0]!;
+
+  // Atomic increment uses — only after the insert has committed.
+  await db
+    .update(communityServerInvite)
+    .set({ uses: sql`${communityServerInvite.uses} + 1` })
+    .where(eq(communityServerInvite.id, invite.id));
 
   // Join the joined-user row so WS listeners can render name/avatar without
   // waiting for the next /members refetch.

@@ -1,4 +1,4 @@
-import { eq, and, or, isNull } from "drizzle-orm";
+import { eq, and, or, isNull, inArray } from "drizzle-orm";
 import { communityFriendship } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -361,7 +361,25 @@ export async function getFriendUserIds(db: Database, userId: string): Promise<st
   const selfBotIds = selfBotRows
     .map((r) => (r.id === userId ? r.ownerUserId : r.id))
     .filter((id): id is string => !!id);
-  return [...new Set([...friendIds, ...selfBotIds])];
+
+  // Filter out any side of the implicit friendship whose OWNER is
+  // soft-deleted. The `selfBotRows` query already skips soft-deleted
+  // BOT rows via `isNull(user.deletedAt)`, but a bot's owner may be
+  // soft-deleted while the bot itself lives on. Without this second
+  // filter, `getPresenceAudience(botId)` would keep including the
+  // tombstoned owner's id forever — every presence flip would fire a
+  // DO fetch to a dead account for the life of the binding.
+  const otherSideIds = selfBotIds.filter((id) => id !== userId);
+  if (otherSideIds.length === 0) {
+    return [...new Set([...friendIds, ...selfBotIds])];
+  }
+  const liveOthers = await db
+    .select({ id: user.id })
+    .from(user)
+    .where(and(inArray(user.id, otherSideIds), isNull(user.deletedAt)));
+  const liveOtherSet = new Set(liveOthers.map((r) => r.id));
+  const liveSelfBotIds = selfBotIds.filter((id) => liveOtherSet.has(id));
+  return [...new Set([...friendIds, ...liveSelfBotIds])];
 }
 
 /**
