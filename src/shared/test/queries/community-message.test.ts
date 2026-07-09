@@ -222,6 +222,11 @@ function createCreateMessageDbMock(opts?: { messageId?: string }) {
         }),
       };
     }),
+    // `createMessage` now composes (insert msg, update scope) into a single
+    // `db.batch(...)` for atomicity. The mock's `.returning()` / `.where()`
+    // above already resolve to Promises, so we just await each one and
+    // collect the per-statement result.
+    batch: vi.fn(async (stmts: unknown[]) => Promise.all(stmts as Promise<unknown>[])),
     __inserts: inserts,
     __updates: updates,
   };
@@ -902,6 +907,10 @@ describe("read-state invariant property — every write path", () => {
         chain.where = vi.fn(() => Promise.resolve([]));
         return chain;
       }),
+      // `createMessage` composes (insert msg, update scope) into a single
+      // `db.batch(...)` — insert/update chains above already resolve to
+      // Promises, so await each and collect per-statement results.
+      batch: vi.fn(async (stmts: unknown[]) => Promise.all(stmts as Promise<unknown>[])),
     };
     return db;
   }

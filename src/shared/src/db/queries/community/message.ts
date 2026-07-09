@@ -76,7 +76,9 @@ export async function createMessage(
   // the counter has a harmless gap — no duplicate seq is ever possible since
   // this claim is independently atomic under D1's single-writer serialization.
   // Do NOT wrap these two statements in a transaction to "fix" this — D1
-  // doesn't support one that could express it.
+  // doesn't support one that could express it. Kept outside the batch below
+  // because D1 `batch()` cannot feed one statement's `.returning()` into a
+  // later statement's values.
   const scopeKey = scopeKeyForTarget(data);
   const seq = await claimNextSeq(db, scopeKey);
 
@@ -86,7 +88,7 @@ export async function createMessage(
   // `$defaultFn` fires a microsecond later and the timestamps diverge — the
   // inbox predicate `lastMessageAt > lastReadAt` would then wrongly fire for
   // the author's own send on a cold read.
-  const rows = await db
+  const insertMsg = db
     .insert(communityMessage)
     .values({
       authorId: data.authorId,
@@ -102,72 +104,69 @@ export async function createMessage(
     })
     .returning();
 
-  const msg = rows[0]!;
+  // Message insert + scope counter/timestamp bump commit atomically via
+  // `db.batch(...)`. Table CHECK guarantees exactly one of channelId /
+  // dmConversationId is set, so the branch is mutually exclusive.
+  const scopeUpdate = data.channelId
+    ? db
+        .update(communityChannel)
+        .set({
+          lastMessageAt: now,
+          messageCount: sql`${communityChannel.messageCount} + 1`,
+        })
+        .where(eq(communityChannel.id, data.channelId))
+    : db
+        .update(communityDmConversation)
+        .set({ lastMessageAt: now })
+        .where(eq(communityDmConversation.id, data.dmConversationId!));
 
-  if (data.channelId) {
-    await db
-      .update(communityChannel)
-      .set({
-        lastMessageAt: now,
-        messageCount: sql`${communityChannel.messageCount} + 1`,
-      })
-      .where(eq(communityChannel.id, data.channelId));
+  type InsertedMessage = Awaited<typeof insertMsg>[number];
+  const results = (await db.batch([insertMsg, scopeUpdate] as any)) as any[];
+  const msg = (results[0] as InsertedMessage[])[0]!;
 
-    // Author read-watermark: advance the sender's own read-state to this
-    // message so `listUnreadChannels` (predicate: lastMessageAt > lastReadAt)
-    // never surfaces the channel the author just sent in. Keep this inline —
-    // future readers should see the invariant next to the `lastMessageAt`
-    // bump. Upsert against the `idx_read_state_user_channel` partial-unique
-    // index (same shape as `markReadToMessageBuilder`). `lastReadSeq` is
-    // extended here too (design §4) — required for wake-filter correctness:
-    // every author (bot or human) must have its own `lastReadSeq` stay in
-    // lockstep with its sends, or `enqueueBotWakes` sees a stale watermark.
-    await db
-      .insert(communityReadState)
-      .values({
-        userId: data.authorId,
-        channelId: data.channelId,
-        dmConversationId: null,
-        lastReadAt: now,
-        lastReadMessageId: msg.id,
-        lastReadSeq: seq,
-      })
-      .onConflictDoUpdate({
-        target: [communityReadState.userId, communityReadState.channelId],
-        targetWhere: sql`${communityReadState.channelId} IS NOT NULL`,
-        set: { lastReadAt: now, lastReadMessageId: msg.id, lastReadSeq: seq },
-        setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
-      });
-  }
-
-  if (data.dmConversationId) {
-    await db
-      .update(communityDmConversation)
-      .set({ lastMessageAt: now })
-      .where(eq(communityDmConversation.id, data.dmConversationId));
-
-    // Author read-watermark (DM path). Upsert against the
-    // `idx_read_state_user_dm` partial-unique index. Same invariant as the
-    // channel branch: keep the sender's watermark equal to the message they
-    // just sent so their inbox does not flag it as unread. `lastReadSeq`
-    // extended per design §4 — see the channel branch comment above.
-    await db
-      .insert(communityReadState)
-      .values({
-        userId: data.authorId,
-        channelId: null,
-        dmConversationId: data.dmConversationId,
-        lastReadAt: now,
-        lastReadMessageId: msg.id,
-        lastReadSeq: seq,
-      })
-      .onConflictDoUpdate({
-        target: [communityReadState.userId, communityReadState.dmConversationId],
-        targetWhere: sql`${communityReadState.dmConversationId} IS NOT NULL`,
-        set: { lastReadAt: now, lastReadMessageId: msg.id, lastReadSeq: seq },
-        setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
-      });
-  }
+  // Author read-watermark: advance the sender's own read-state to this
+  // message so `listUnreadChannels` (predicate: lastMessageAt > lastReadAt)
+  // never surfaces the channel/DM the author just sent in. Kept inline
+  // (NOT folded into `markReadToMessageBuilder`, which is deliberately
+  // "humans only" — see its comment) because this path must write
+  // `lastReadSeq` per design §4 — every author (bot or human) must have
+  // its own `lastReadSeq` stay in lockstep with its sends, or
+  // `enqueueBotWakes` sees a stale watermark. Runs as a separate await
+  // because it needs `msg.id` from the batch result.
+  const readStateStmt = data.channelId
+    ? db
+        .insert(communityReadState)
+        .values({
+          userId: data.authorId,
+          channelId: data.channelId,
+          dmConversationId: null,
+          lastReadAt: now,
+          lastReadMessageId: msg.id,
+          lastReadSeq: seq,
+        })
+        .onConflictDoUpdate({
+          target: [communityReadState.userId, communityReadState.channelId],
+          targetWhere: sql`${communityReadState.channelId} IS NOT NULL`,
+          set: { lastReadAt: now, lastReadMessageId: msg.id, lastReadSeq: seq },
+          setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
+        })
+    : db
+        .insert(communityReadState)
+        .values({
+          userId: data.authorId,
+          channelId: null,
+          dmConversationId: data.dmConversationId!,
+          lastReadAt: now,
+          lastReadMessageId: msg.id,
+          lastReadSeq: seq,
+        })
+        .onConflictDoUpdate({
+          target: [communityReadState.userId, communityReadState.dmConversationId],
+          targetWhere: sql`${communityReadState.dmConversationId} IS NOT NULL`,
+          set: { lastReadAt: now, lastReadMessageId: msg.id, lastReadSeq: seq },
+          setWhere: sql`${communityReadState.lastReadSeq} < ${seq}`,
+        });
+  await readStateStmt;
 
   return msg;
 }
