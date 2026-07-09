@@ -661,23 +661,49 @@ export type ScheduleMarkReadOpts = {
    * that message's `(createdAt, id)`. Omit for the mass mark-read case
    * (no body). The mutation layer trusts whatever value the caller passes
    * most recently; monotonicity is the caller's responsibility (see
-   * `useChannelWatermark`). Body key matches the DM + thread read routes.
+   * `useChannelWatermark` / `useDmWatermark`). Body key matches the DM +
+   * thread read routes.
    */
   messageId?: string
   onDone: () => void
 }
 
 /**
- * Debounce a mark-channel-read PUT. Same-channel re-invokes within the
- * 500ms window replace the pending intent (previous `messageId` and
- * `onDone` are dropped; the new pair takes over). Nothing is left "hanging"
- * because `mutationFn` no longer awaits the debounced work.
+ * Resolve a schedule key to a target read-endpoint URL. The debounce key
+ * is a string namespace so `channelId` and `dm:<dmId>` coexist in the same
+ * `pendingReads` map without ever aliasing each other — a channel and a
+ * DM with the same underlying id would otherwise share a debounce slot
+ * and clobber each other's pointers.
+ *
+ * Channel keys are bare ids (legacy — the debounce was channel-only
+ * before B2). DM keys are prefixed with `"dm:"` so the map stays keyed by
+ * unique strings without a discriminated-union tag on `PendingRead`.
+ */
+function resolveReadEndpoint(key: string): string {
+  if (key.startsWith("dm:")) {
+    const dmId = key.slice(3)
+    return `/api/community/dm/${dmId}/read`
+  }
+  return `/api/community/channels/${key}/read`
+}
+
+/**
+ * Debounce a mark-read PUT. Same-key re-invokes within the 500ms window
+ * replace the pending intent (previous `messageId` and `onDone` are
+ * dropped; the new pair takes over). Nothing is left "hanging" because
+ * `mutationFn` no longer awaits the debounced work.
+ *
+ * `key` is a string namespace: a bare `channelId` for channel/thread reads
+ * (legacy contract — every existing call site passes a channel id
+ * directly) or `"dm:<dmId>"` for DM reads. `resolveReadEndpoint` maps the
+ * key back to the target URL. Consumers should never build the DM
+ * namespace directly — call `useAdvanceDmWatermark` which handles it.
  */
 export function scheduleMarkRead(
-  channelId: string,
+  key: string,
   opts: ScheduleMarkReadOpts,
 ): void {
-  const existing = pendingReads.get(channelId)
+  const existing = pendingReads.get(key)
   if (existing) clearTimeout(existing.timer)
   // `entry` is captured inside `fire` so it can read the freshest
   // `messageId` at the moment the PUT actually issues — even if a later
@@ -692,16 +718,16 @@ export function scheduleMarkRead(
       // scheduling replaced us), do nothing. This is what makes it safe for
       // both the timer AND `flushPendingReads()` to call `fire` in the same
       // tick — only the first wins.
-      const cur = pendingReads.get(channelId)
+      const cur = pendingReads.get(key)
       if (cur !== entry) return
-      pendingReads.delete(channelId)
+      pendingReads.delete(key)
       const body = entry.messageId
         ? JSON.stringify({ lastReadMessageId: entry.messageId })
         : undefined
       const init: RequestInit = body
         ? { method: "PUT", body }
         : { method: "PUT" }
-      void apiFetch(`/api/community/channels/${channelId}/read`, init)
+      void apiFetch(resolveReadEndpoint(key), init)
         .then(() => opts.onDone())
         .catch(() => {
           // Silent — the inbox will reconcile once the WS invalidate fires.
@@ -709,7 +735,7 @@ export function scheduleMarkRead(
     },
   }
   entry.timer = setTimeout(entry.fire, MARK_CHANNEL_READ_DEBOUNCE_MS)
-  pendingReads.set(channelId, entry)
+  pendingReads.set(key, entry)
 }
 
 export type MarkChannelReadArgs = { channelId: string }
@@ -802,6 +828,36 @@ export function useAdvanceChannelWatermark(): (
       onDone: () => {
         void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
         void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
+      },
+    })
+  }
+}
+
+// ── Advance DM watermark (progressive read) ───────────────────────────────
+
+/**
+ * DM sibling of `useAdvanceChannelWatermark` — a thin wrapper that PUTs
+ * `{ lastReadMessageId }` to `/api/community/dm/:id/read`. Same debounce
+ * primitive underneath (`scheduleMarkRead`), keyed by `"dm:<dmId>"` so
+ * DM and channel schedules never alias each other in the shared pending
+ * map.
+ *
+ * Invalidations: `communityKeys.inbox()` for the top-of-app unread badge
+ * and `communityKeys.dms()` for the sidebar DM list (its `unread`
+ * flag). No `servers()` invalidate — DMs don't feed the server-rail
+ * badge.
+ */
+export function useAdvanceDmWatermark(): (
+  dmId: string,
+  messageId: string,
+) => void {
+  const queryClient = useQueryClient()
+  return (dmId, messageId) => {
+    scheduleMarkRead(`dm:${dmId}`, {
+      messageId,
+      onDone: () => {
+        void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+        void queryClient.invalidateQueries({ queryKey: communityKeys.dms() })
       },
     })
   }

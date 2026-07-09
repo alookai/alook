@@ -18,6 +18,8 @@ import { useOnlineUserIds } from "@/stores/community/ws"
 import { useDms } from "@/hooks/community/use-dms"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
+import { useDmReadStateSnapshot } from "@/hooks/community/use-dm-read-state"
+import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
 import {
   useSendDmMessage,
   useToggleReactionApi,
@@ -62,11 +64,16 @@ function DmView() {
       })),
     [rawFriends, onlineUserIds],
   )
-  // DM read-state hook doesn't exist yet (Commit B2), so pass a resolved
-  // `null` anchor — hook goes straight to newest-mode, matching pre-A2 DM
-  // behaviour. Bi-directional plumbing is still wired below so the moment
-  // B2 lights up we only add the snapshot fetch, not the message-list
-  // props.
+  // Frozen-once snapshot of the viewer's DM read pointer — the anchor for
+  // the "New" divider AND the initial-page mode. Mirrors the channel-view
+  // wiring so both surfaces open with the same anchor-window UX.
+  const { snapshot: readSnapshot, isFetching: readSnapshotFetching } =
+    useDmReadStateSnapshot(dmId)
+
+  // Anchor the initial page on the viewer's read pointer. Pass `undefined`
+  // (not `null`) while the snapshot resolves — the hook's initialPageParam
+  // gate treats `undefined` as "not-yet-decided" and stays disabled, so we
+  // don't fire a newest-mode fetch that would immediately be superseded.
   const {
     messages,
     isLoading: messagesLoading,
@@ -77,7 +84,45 @@ function DmView() {
     fetchOlder: fetchOlderMessages,
     fetchNewer: fetchNewerMessages,
     jumpToPresent,
-  } = useDmMessages(dmId, { lastReadMessageId: null })
+    latestSeq,
+  } = useDmMessages(dmId, {
+    lastReadMessageId: readSnapshotFetching
+      ? undefined
+      : (readSnapshot?.lastReadMessageId ?? null),
+  })
+  // Anchor of the "New" divider: the first non-self message after
+  // `lastReadMessageId` inside the currently-loaded window. Mirrors the
+  // channel-view logic exactly — see channel page for why we skip past
+  // runs of viewer-authored messages (the server advances the sender's
+  // own watermark on POST, so anchoring above the viewer's own row would
+  // never be "unread" from the sender's perspective).
+  const newDividerBefore = useMemo(() => {
+    const lastId = readSnapshot?.lastReadMessageId
+    if (!lastId) return undefined
+    const idx = messages.findIndex((m) => m.id === lastId)
+    if (idx === -1) return undefined
+    for (let i = idx + 1; i < messages.length; i++) {
+      if (messages[i].authorId !== currentUser.id) return messages[i].id
+    }
+    return undefined
+  }, [messages, readSnapshot, currentUser.id])
+
+  // Scroll root of the message list — needed so `useDmWatermark`'s
+  // IntersectionObserver measures against the correct viewport rather
+  // than the page viewport. Set once by `MessageList` via `onScrollRoot`.
+  const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
+  useDmWatermark({ dmId, messages, scrollRootEl })
+
+  // `↓ N` unread count. Same math as channel: server truth is
+  // `latestSeq - viewerLastReadSeq`. Clamp to 0 in case the read pointer
+  // overshoots (e.g. a race between the read-state snapshot and a fresh
+  // `latestSeq` fetch).
+  const unreadCount = useMemo(() => {
+    const seenSeq = readSnapshot?.lastReadSeq ?? 0
+    const diff = latestSeq - seenSeq
+    return diff > 0 ? diff : 0
+  }, [latestSeq, readSnapshot])
+
   const typingUsers = useCommunityStore((s) => s.typingUsers)
   const sendDmMessage = useSendDmMessage()
   const toggleReaction = useToggleReactionApi()
@@ -228,6 +273,7 @@ function DmView() {
           channel={dm.name}
           messages={messages}
           loading={messagesLoading}
+          newDividerBefore={newDividerBefore}
           typingUsers={typingUsers.map((id) => friends.find((f) => f.userId === id)?.name ?? id)}
           onOpenThread={() => {}}
           onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
@@ -239,7 +285,12 @@ function DmView() {
           onDownloadFile={messageActions.onDownloadFile}
           onOpenProfile={openProfile}
           resolveUserName={resolveUserName}
+          onScrollRoot={setScrollRootEl}
           viewerUserId={currentUser.id}
+          // Delay initial scroll until the read-state snapshot resolves —
+          // otherwise the effect fires with `newDividerBefore` still
+          // undefined and snaps to bottom before the anchor is known.
+          initialScrollReady={!readSnapshotFetching}
           hasMore={hasMoreMessages}
           isFetchingOlder={isFetchingOlderMessages}
           onLoadOlder={fetchOlderMessages}
@@ -247,6 +298,7 @@ function DmView() {
           isFetchingNewer={isFetchingNewerMessages}
           onLoadNewer={fetchNewerMessages}
           onJumpToPresent={jumpToPresent}
+          unreadCount={unreadCount}
           hero={
             <>
               <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={64} /></div>

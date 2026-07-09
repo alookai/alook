@@ -63,6 +63,11 @@ export const communityKeys = {
   // anchored while the watermark advances.
   channelReadStateSnapshot: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "read-state-snapshot"] as const,
+  // DM sibling of `channelReadStateSnapshot`. Same freeze semantics — the
+  // hook latches the first non-null response so the "New" divider anchor
+  // stays put while the progressive watermark advances.
+  dmReadStateSnapshot: (dmId: string) =>
+    [...communityKeys.all, "dm", dmId, "read-state-snapshot"] as const,
 
   // Single hydrated message (opener block, deep-link previews).
   message: (messageId: string) =>
