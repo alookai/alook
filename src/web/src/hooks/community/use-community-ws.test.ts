@@ -961,6 +961,105 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
       }),
     ).toBe(true)
   })
+
+  it("invalidates the focused channel's message + read-state queries + inbox on reconnect", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_focus" })
+
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    expect(capturedOnReconnect).not.toBeNull()
+    capturedOnReconnect!()
+
+    const invalidatedKeys = spy.mock.calls.map(
+      (c) => c[0]?.queryKey as unknown[] | undefined,
+    )
+    // Focused channel messages
+    expect(
+      invalidatedKeys.some(
+        (k) =>
+          Array.isArray(k) &&
+          k[0] === "community" &&
+          k[1] === "channel" &&
+          k[2] === "ch_focus" &&
+          k[3] === "messages",
+      ),
+    ).toBe(true)
+    // Focused channel read-state snapshot
+    expect(
+      invalidatedKeys.some(
+        (k) =>
+          Array.isArray(k) &&
+          k[0] === "community" &&
+          k[1] === "channel" &&
+          k[2] === "ch_focus" &&
+          k[3] === "read-state-snapshot",
+      ),
+    ).toBe(true)
+    // Inbox
+    expect(
+      invalidatedKeys.some(
+        (k) => Array.isArray(k) && k[0] === "community" && k[1] === "inbox",
+      ),
+    ).toBe(true)
+  })
+
+  it("invalidates the focused DM's message + read-state queries on reconnect", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ dmConversationId: "dm_focus" })
+
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    expect(capturedOnReconnect).not.toBeNull()
+    capturedOnReconnect!()
+
+    const invalidatedKeys = spy.mock.calls.map(
+      (c) => c[0]?.queryKey as unknown[] | undefined,
+    )
+    expect(
+      invalidatedKeys.some(
+        (k) =>
+          Array.isArray(k) &&
+          k[0] === "community" &&
+          k[1] === "dm" &&
+          k[2] === "dm_focus" &&
+          k[3] === "messages",
+      ),
+    ).toBe(true)
+    expect(
+      invalidatedKeys.some(
+        (k) =>
+          Array.isArray(k) &&
+          k[0] === "community" &&
+          k[1] === "dm" &&
+          k[2] === "dm_focus" &&
+          k[3] === "read-state-snapshot",
+      ),
+    ).toBe(true)
+  })
+
+  it("only invalidates the focused scope — no channel invalidation when only a DM is focused", async () => {
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ dmConversationId: "dm_focus" })
+
+    await mountHook()
+    const spy = vi.spyOn(capturedQueryClient, "invalidateQueries")
+
+    expect(capturedOnReconnect).not.toBeNull()
+    capturedOnReconnect!()
+
+    const invalidatedKeys = spy.mock.calls.map(
+      (c) => c[0]?.queryKey as unknown[] | undefined,
+    )
+    // No channel-scoped message invalidation should have fired.
+    expect(
+      invalidatedKeys.some(
+        (k) => Array.isArray(k) && k[1] === "channel" && k[3] === "messages",
+      ),
+    ).toBe(false)
+  })
 })
 
 // ── Regression #15 — double-mount guard warns ───────────────────────────

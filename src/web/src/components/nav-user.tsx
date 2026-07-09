@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
 import { clearAllCache } from "@/lib/chat-cache";
+import { clearPersistedCache } from "@/lib/query-persister";
 import { useCommunityStore } from "@/stores/community";
 import { useCommunityWsStore } from "@/stores/community/ws";
 import {
@@ -78,6 +79,9 @@ export function NavUser() {
               useCommunityStore.getState().reset();
               useCommunityWsStore.getState().reset();
               await clearAllCache();
+              // Drop the persisted IDB blob so the next user on this machine
+              // doesn't inherit the previous session's cached message rows.
+              await clearPersistedCache(user.id).catch(() => {});
               await signOut();
               router.push("/sign-in");
             }}

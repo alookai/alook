@@ -799,8 +799,40 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
   // (`contexts/agent-context.tsx`): resync the machines query on every
   // reconnect so a missed transition self-corrects within the reconnect
   // window instead of requiring a manual reload.
+  //
+  // Same rationale for the focused channel/DM message stream after Commit C:
+  // the IDB persister rehydrates the cache from the last session, but the
+  // socket may have dropped WS `message.create` events while we were offline
+  // (or the tab was suspended). Invalidating the focused scope's message
+  // query on reconnect fires a top-up refetch — TanStack re-runs every
+  // page's `pageParam`, so anchor windows and newest-tail windows both
+  // catch up without any client-side `?since` bookkeeping. Read-state
+  // snapshots (also persisted) are invalidated too so the NEW divider
+  // matches the fresh server watermark on reconnect.
   const handleReconnect = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: communityKeys.machines() })
+    const sub = useCommunityStore.getState().subscription
+    if (sub.channelId) {
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.channelMessages(sub.channelId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.channelReadStateSnapshot(sub.channelId),
+      })
+    }
+    if (sub.dmConversationId) {
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.dmMessages(sub.dmConversationId),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: communityKeys.dmReadStateSnapshot(sub.dmConversationId),
+      })
+    }
+    // Inbox counts also need a refetch — unreads and mentions could have
+    // grown while offline and the live invalidator only fires on incoming
+    // `message.create` events, none of which arrive while the socket is
+    // down.
+    void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
   }, [queryClient])
   const { send } = useUserWs(handleMessage, { onReconnect: handleReconnect })
 

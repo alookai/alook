@@ -18,6 +18,7 @@ import { ProfileCard } from "./profile-card"
 import { ImageLightbox } from "./image-lightbox"
 import type { MobileZone, Profile, View } from "./_types"
 import { signOut } from "@/lib/auth-client"
+import { clearPersistedCache } from "@/lib/query-persister"
 import { useCommunityStore } from "@/stores/community"
 import { useCommunityWsStore } from "@/stores/community/ws"
 import { useCurrentUser, useSetCurrentUser } from "@/contexts/community/current-user"
@@ -430,6 +431,9 @@ export function ShellFrame({
             // the debounce window — covers every sign-out path uniformly.
             useCommunityStore.getState().reset()
             useCommunityWsStore.getState().reset()
+            // Drop the persisted IDB blob so the next user on this machine
+            // doesn't see the previous session's cached message rows.
+            await clearPersistedCache(currentUser.id).catch(() => {})
             await signOut()
             router.push("/sign-in")
           }}
