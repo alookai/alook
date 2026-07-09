@@ -110,7 +110,13 @@ function ChannelView() {
   const isChildChannel = !channelInServer && !!currentServer?.categories
 
   const messagesQuery = useMessages(channelId)
-  const { messages, isLoading: messagesLoading } = messagesQuery
+  const {
+    messages,
+    isLoading: messagesLoading,
+    hasMore: hasMoreMessages,
+    isFetchingOlder: isFetchingOlderMessages,
+    fetchOlder: fetchOlderMessages,
+  } = messagesQuery
 
   // Frozen-once snapshot of the viewer's read pointer for this channel — the
   // anchor for the "New" divider AND the mount-time initial scroll target.
@@ -520,6 +526,9 @@ function ChannelView() {
             scrollToMessageId={scrollToMessageId}
             hero={opener}
             viewerUserId={currentUser.id}
+            hasMore={hasMoreMessages}
+            isFetchingOlder={isFetchingOlderMessages}
+            onLoadOlder={fetchOlderMessages}
           />
           <Composer
             channel={channelName}
@@ -630,6 +639,9 @@ function ChannelView() {
           // otherwise the effect fires with newDividerBefore still stale
           // and snaps to bottom before the anchor is known.
           initialScrollReady={!readSnapshotFetching}
+          hasMore={hasMoreMessages}
+          isFetchingOlder={isFetchingOlderMessages}
+          onLoadOlder={fetchOlderMessages}
         />
         <Composer
           channel={channelName}

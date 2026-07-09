@@ -18,6 +18,7 @@ export function MessageList({
   onToggleReaction, onReact,
   onReply, onPin, onCreateThread, onCopy, onRetry, onPreviewImage, onDownloadFile,
   resolveUserName, scrollToMessageId, hero, onScrollRoot, viewerUserId, initialScrollReady = true,
+  hasMore, isFetchingOlder, onLoadOlder,
 }: {
   channel: string
   messages: Msg[]
@@ -56,6 +57,14 @@ export function MessageList({
   // stale `newDividerBefore = undefined` and snaps to bottom before the
   // anchor is known.
   initialScrollReady?: boolean
+  // Reverse-infinite scroll. When `hasMore` is true a top sentinel is
+  // rendered; when it enters the viewport (via IntersectionObserver on the
+  // scroll root) `onLoadOlder()` fires. The prepended rows are scroll-
+  // anchored below (see the useLayoutEffect on head-id changes) so the
+  // user's visual position stays fixed.
+  hasMore?: boolean
+  isFetchingOlder?: boolean
+  onLoadOlder?: () => void
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -169,6 +178,79 @@ export function MessageList({
     return watchAsyncGrowth(el, action)
   }, [messages, viewerUserId])
 
+  // Reverse-infinite scroll anchor. When older messages prepend (head id
+  // changes but tail id stays put), the browser's default is to keep
+  // `scrollTop` constant, which visually shoves the user's current row down
+  // by the height of the newly-inserted content. We snapshot the pre-commit
+  // `scrollHeight` before the messages array updates and, once the DOM
+  // reflects the new rows, add the height delta to `scrollTop` so the
+  // user's current view stays fixed.
+  //
+  // Only fires after the mount-time initial scroll has landed
+  // (`didInitialScrollRef.current === true`) — otherwise we'd fight the
+  // one-shot snap on first mount. Skipped when the tail id changed (that's
+  // a self-send or a peer send, handled elsewhere) or when `messages`
+  // shrank (channel switch, handled by the length===0 reset above).
+  const prevHeadIdRef = useRef<string | null>(null)
+  const prevScrollHeightRef = useRef<number>(0)
+  const prevMessagesLenRef = useRef<number>(0)
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) {
+      prevHeadIdRef.current = messages[0]?.id ?? null
+      prevMessagesLenRef.current = messages.length
+      prevScrollHeightRef.current = 0
+      return
+    }
+    const prevHead = prevHeadIdRef.current
+    const prevLen = prevMessagesLenRef.current
+    const prevHeight = prevScrollHeightRef.current
+    const nextHead = messages[0]?.id ?? null
+    const nextLen = messages.length
+    const nextHeight = el.scrollHeight
+
+    // Only preserve position when older rows were prepended: head id moved,
+    // list grew, and the initial mount-scroll already landed. Every other
+    // path leaves `scrollTop` alone.
+    if (
+      didInitialScrollRef.current &&
+      prevHead !== null &&
+      nextHead !== null &&
+      prevHead !== nextHead &&
+      nextLen > prevLen &&
+      prevHeight > 0
+    ) {
+      const delta = nextHeight - prevHeight
+      if (delta > 0) el.scrollTop = el.scrollTop + delta
+    }
+
+    prevHeadIdRef.current = nextHead
+    prevMessagesLenRef.current = nextLen
+    prevScrollHeightRef.current = nextHeight
+  }, [messages])
+
+  // Top sentinel — when it intersects the scroll root's viewport, request the
+  // next older page. Mirrors the pattern in member-list.tsx: root is the
+  // scroll container (NOT the page viewport), rootMargin `200px` so the
+  // fetch kicks in before the user hits the true edge.
+  const topSentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!onLoadOlder || !hasMore) return
+    const el = topSentinelRef.current
+    const root = scrollRef.current
+    if (!el || !root) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !isFetchingOlder) onLoadOlder()
+        }
+      },
+      { root, rootMargin: "200px" },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [onLoadOlder, hasMore, isFetchingOlder])
+
   // Live count of messages sitting below the viewport. Recomputed on scroll,
   // on messages change, and via a ResizeObserver so appended rows update the
   // badge even without a scroll event. `0` means the user is at the bottom
@@ -259,17 +341,33 @@ export function MessageList({
       <TypingIndicator names={typingUsers ?? []} />
       <div ref={scrollRef} className="flex-1 overflow-y-auto thin-scrollbar">
         <div className="flex min-h-full flex-col justify-end px-4 py-8">
-          <div className="mb-6">
-            {hero ?? (
-              <>
-                <div className="mb-2 grid size-12 place-items-center rounded-full bg-muted/60">
-                  <ChannelIcon className="text-xl text-muted-foreground" />
-                </div>
-                <h2 className="text-xl font-semibold leading-tight">{channel}</h2>
-                <p className="mt-2 text-sm text-muted-foreground">Beginning of the channel. Say hello, share what you&apos;re working on, or drop a link.</p>
-              </>
-            )}
-          </div>
+          {/*
+            When `hasMore` is true the hero's "Beginning of …" copy would
+            lie — there's more history above — so we swap it for the top
+            sentinel + inline "Loading older messages…" indicator. Once
+            the last page loads (`hasMore === false`) the hero returns
+            and reads as "you've reached the top".
+          */}
+          {hasMore ? (
+            <div
+              ref={topSentinelRef}
+              className="mb-6 flex h-8 items-center justify-center text-xs text-muted-foreground"
+            >
+              {isFetchingOlder ? "Loading older messages…" : ""}
+            </div>
+          ) : (
+            <div className="mb-6">
+              {hero ?? (
+                <>
+                  <div className="mb-2 grid size-12 place-items-center rounded-full bg-muted/60">
+                    <ChannelIcon className="text-xl text-muted-foreground" />
+                  </div>
+                  <h2 className="text-xl font-semibold leading-tight">{channel}</h2>
+                  <p className="mt-2 text-sm text-muted-foreground">Beginning of the channel. Say hello, share what you&apos;re working on, or drop a link.</p>
+                </>
+              )}
+            </div>
+          )}
 
           {clusters.map((cluster, ci) => (
             <div key={cluster.messages[0].m.id ?? ci}>

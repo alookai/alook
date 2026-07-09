@@ -65,6 +65,9 @@ function DmView() {
   const {
     messages,
     isLoading: messagesLoading,
+    hasMore: hasMoreMessages,
+    isFetchingOlder: isFetchingOlderMessages,
+    fetchOlder: fetchOlderMessages,
   } = useDmMessages(dmId)
   const typingUsers = useCommunityStore((s) => s.typingUsers)
   const sendDmMessage = useSendDmMessage()
@@ -212,6 +215,9 @@ function DmView() {
           onOpenProfile={openProfile}
           resolveUserName={resolveUserName}
           viewerUserId={currentUser.id}
+          hasMore={hasMoreMessages}
+          isFetchingOlder={isFetchingOlderMessages}
+          onLoadOlder={fetchOlderMessages}
           hero={
             <>
               <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={64} /></div>
