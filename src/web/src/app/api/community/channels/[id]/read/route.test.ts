@@ -171,8 +171,8 @@ describe("PUT /api/community/channels/[id]/read", () => {
     expect(mockBatch).not.toHaveBeenCalled()
   })
 
-  // ── #3: PUT body carries `lastMessageId` ─────────────────────────────────
-  describe("PUT with { lastMessageId } body — progressive watermark", () => {
+  // ── #3: PUT body carries `lastReadMessageId` ─────────────────────────────────
+  describe("PUT with { lastReadMessageId } body — progressive watermark", () => {
     it("writes the message's createdAt/id via markReadToMessageBuilder when the message belongs to the channel", async () => {
       mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
       mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
@@ -182,7 +182,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
         createdAt: "2026-07-01T12:00:00.000Z",
       })
 
-      const res = await PUT(putReq({ lastMessageId: "m_42" }), { params: { id: "c1" } } as any)
+      const res = await PUT(putReq({ lastReadMessageId: "m_42" }), { params: { id: "c1" } } as any)
       expect(res.status).toBe(200)
       expect(mockGetMessage).toHaveBeenCalledWith(expect.anything(), "m_42")
       // The builder must receive the message's own timestamp + id — that's
@@ -206,7 +206,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
         createdAt: "2026-07-01T12:00:00.000Z",
       })
 
-      const res = await PUT(putReq({ lastMessageId: "m_42" }), { params: { id: "c1" } } as any)
+      const res = await PUT(putReq({ lastReadMessageId: "m_42" }), { params: { id: "c1" } } as any)
       expect(res.status).toBe(400)
       expect(mockMarkReadToMessageBuilder).not.toHaveBeenCalled()
       expect(mockBatch).not.toHaveBeenCalled()
@@ -217,7 +217,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
       mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
       mockGetMessage.mockResolvedValue(null)
 
-      const res = await PUT(putReq({ lastMessageId: "m_ghost" }), { params: { id: "c1" } } as any)
+      const res = await PUT(putReq({ lastReadMessageId: "m_ghost" }), { params: { id: "c1" } } as any)
       expect(res.status).toBe(404)
       expect(mockMarkReadToMessageBuilder).not.toHaveBeenCalled()
       expect(mockBatch).not.toHaveBeenCalled()
@@ -231,7 +231,7 @@ describe("PUT /api/community/channels/[id]/read", () => {
         createdAt: "2026-07-05T10:00:00.000Z",
       })
 
-      // Empty string body — treated as no lastMessageId.
+      // Empty string body — treated as no lastReadMessageId.
       const res = await PUT(putReq(""), { params: { id: "c1" } } as any)
       expect(res.status).toBe(200)
       // getMessage never fetched because there's no id to check.

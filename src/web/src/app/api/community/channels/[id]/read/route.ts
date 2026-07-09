@@ -14,11 +14,14 @@ import { requireChannelMember } from "@/lib/community/permissions"
  *   `lastReadMessageId = msg.id`. Empty channels are a no-op — no row
  *   written — because the read-state invariant forbids
  *   `lastReadMessageId = null` rows.
- * - Body `{ lastMessageId }` → Slack-style progressive mark-read. Verifies
- *   the message exists AND belongs to this channel, then writes the
- *   message's `createdAt` + `id` as the new pointer. Rejects when the
+ * - Body `{ lastReadMessageId }` → Slack-style progressive mark-read.
+ *   Verifies the message exists AND belongs to this channel, then writes
+ *   the message's `createdAt` + `id` as the new pointer. Rejects when the
  *   message belongs to another channel (400) — protects against confused-
  *   deputy watermark advances.
+ *
+ * The body key matches DM (`PUT /dm/:id/read`) and thread
+ * (`PUT /threads/:id/read`) — all three routes accept `lastReadMessageId`.
  *
  * Mention clear still fires in one D1 batch on non-empty channels. On an
  * empty channel we short-circuit before writing anything — there are no
@@ -40,26 +43,26 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
   if (!auth.ok) return writeError(auth.error, auth.status)
 
   // Parse the body — best-effort. An empty body is legal (mass mark-read).
-  let lastMessageId: string | undefined
+  let lastReadMessageId: string | undefined
   try {
     // A truly empty body throws in `req.json()`; catch and treat as `{}`.
     const raw = await req.text()
     if (raw.trim().length > 0) {
-      const body = JSON.parse(raw) as { lastMessageId?: unknown }
-      if (typeof body?.lastMessageId === "string" && body.lastMessageId.length > 0) {
-        lastMessageId = body.lastMessageId
+      const body = JSON.parse(raw) as { lastReadMessageId?: unknown }
+      if (typeof body?.lastReadMessageId === "string" && body.lastReadMessageId.length > 0) {
+        lastReadMessageId = body.lastReadMessageId
       }
     }
   } catch {
-    // Malformed JSON — fall through with `lastMessageId` unset. The mass
+    // Malformed JSON — fall through with `lastReadMessageId` unset. The mass
     // mark-read semantics are the safe fallback.
   }
 
   // Resolve the target message. Both branches align (lastReadAt, lastReadMessageId)
   // to a real message — that's the read-state invariant.
   let target: { id: string; createdAt: string } | null
-  if (lastMessageId) {
-    const msg = await queries.communityMessage.getMessage(db, lastMessageId)
+  if (lastReadMessageId) {
+    const msg = await queries.communityMessage.getMessage(db, lastReadMessageId)
     if (!msg) return writeError("message not found", 404)
     // Scope check — a message from another channel MUST NOT advance THIS
     // channel's watermark.

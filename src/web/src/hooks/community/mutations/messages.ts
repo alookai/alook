@@ -657,11 +657,11 @@ export function flushPendingReads() {
 
 export type ScheduleMarkReadOpts = {
   /**
-   * When set, PUT `{ lastMessageId }` — advances the read pointer to that
-   * message's `(createdAt, id)`. Omit for the mass mark-read case (no body).
-   * The mutation layer trusts whatever value the caller passes most
-   * recently; monotonicity is the caller's responsibility (see
-   * `useChannelWatermark`).
+   * When set, PUT `{ lastReadMessageId }` — advances the read pointer to
+   * that message's `(createdAt, id)`. Omit for the mass mark-read case
+   * (no body). The mutation layer trusts whatever value the caller passes
+   * most recently; monotonicity is the caller's responsibility (see
+   * `useChannelWatermark`). Body key matches the DM + thread read routes.
    */
   messageId?: string
   onDone: () => void
@@ -696,7 +696,7 @@ export function scheduleMarkRead(
       if (cur !== entry) return
       pendingReads.delete(channelId)
       const body = entry.messageId
-        ? JSON.stringify({ lastMessageId: entry.messageId })
+        ? JSON.stringify({ lastReadMessageId: entry.messageId })
         : undefined
       const init: RequestInit = body
         ? { method: "PUT", body }

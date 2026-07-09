@@ -658,7 +658,7 @@ describe("useMarkChannelRead — #13 debounced read stampede", () => {
 
 // ── scheduleMarkRead — extended signature (with messageId body) ──────────
 describe("scheduleMarkRead — with messageId body", () => {
-  it("posts { lastMessageId } when a messageId is passed", async () => {
+  it("posts { lastReadMessageId } when a messageId is passed", async () => {
     vi.useFakeTimers()
     try {
       apiFetchMock.mockResolvedValue(undefined)
@@ -670,7 +670,7 @@ describe("scheduleMarkRead — with messageId body", () => {
         (c) => (c[1] as { method?: string })?.method === "PUT",
       )
       expect(put).toBeDefined()
-      expect((put![1] as RequestInit).body).toBe(JSON.stringify({ lastMessageId: "m_42" }))
+      expect((put![1] as RequestInit).body).toBe(JSON.stringify({ lastReadMessageId: "m_42" }))
     } finally {
       vi.useRealTimers()
     }
@@ -690,7 +690,7 @@ describe("scheduleMarkRead — with messageId body", () => {
         (c) => (c[1] as { method?: string })?.method === "PUT",
       )
       expect(puts).toHaveLength(1)
-      expect((puts[0][1] as RequestInit).body).toBe(JSON.stringify({ lastMessageId: "m_fresh" }))
+      expect((puts[0][1] as RequestInit).body).toBe(JSON.stringify({ lastReadMessageId: "m_fresh" }))
     } finally {
       vi.useRealTimers()
     }
@@ -716,7 +716,7 @@ describe("scheduleMarkRead — with messageId body", () => {
 
 // ── useAdvanceChannelWatermark — thin wrapper for viewport advances ─────
 describe("useAdvanceChannelWatermark", () => {
-  it("returns a callable that PUTs { lastMessageId } after the debounce", async () => {
+  it("returns a callable that PUTs { lastReadMessageId } after the debounce", async () => {
     vi.useFakeTimers()
     try {
       apiFetchMock.mockResolvedValue(undefined)
@@ -730,7 +730,7 @@ describe("useAdvanceChannelWatermark", () => {
       )
       expect(put).toBeDefined()
       expect((put![0] as string)).toBe("/api/community/channels/ch_1/read")
-      expect((put![1] as RequestInit).body).toBe(JSON.stringify({ lastMessageId: "m_42" }))
+      expect((put![1] as RequestInit).body).toBe(JSON.stringify({ lastReadMessageId: "m_42" }))
     } finally {
       vi.useRealTimers()
     }

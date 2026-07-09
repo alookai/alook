@@ -116,6 +116,10 @@ function DmView() {
       toggleReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
     onReact: (id: string, emoji: string) =>
       toggleReaction({ dmId, messageId: id, emoji, userId: currentUser.id }),
+    onReply: (id: string) => {
+      const m = messages.find((x) => x.id === id)
+      if (m) setReplyTo({ id: m.id, authorName: m.authorName ?? "", text: m.content ?? "" })
+    },
     onCopy: (id: string) => {
       const m = messages.find((x) => x.id === id)
       if (m?.content) { navigator.clipboard?.writeText(m.content); toast("Copied to clipboard") }
@@ -134,7 +138,16 @@ function DmView() {
         })
       }
     },
-  }), [toggleReaction, dmId, currentUser.id, currentUser.name, currentUser.avatar, messages, sendDmMessage])
+    onPreviewImage: (url: string) => {
+      uiHandlers.previewImage?.(url)
+    },
+    onDownloadFile: (url: string) => {
+      const a = document.createElement("a")
+      a.href = url
+      a.download = url.split("/").pop() ?? "file"
+      a.click()
+    },
+  }), [toggleReaction, dmId, currentUser.id, currentUser.name, currentUser.avatar, messages, sendDmMessage, uiHandlers])
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.
@@ -210,8 +223,11 @@ function DmView() {
           onOpenThread={() => {}}
           onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
           onReact={dmBlocked ? undefined : messageActions.onReact}
+          onReply={dmBlocked ? undefined : messageActions.onReply}
           onCopy={messageActions.onCopy}
           onRetry={dmBlocked ? undefined : messageActions.onRetry}
+          onPreviewImage={messageActions.onPreviewImage}
+          onDownloadFile={messageActions.onDownloadFile}
           onOpenProfile={openProfile}
           resolveUserName={resolveUserName}
           viewerUserId={currentUser.id}
