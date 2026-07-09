@@ -7,8 +7,8 @@ import { parseRef } from "@alook/shared"
  * (`resolveServerByNameForMember`/`resolveChannelByNameForMember`), scoped to
  * whatever servers/channels the client already has loaded.
  */
-export type ChannelRefDirectoryChannel = { id: string; name: string }
-export type ChannelRefDirectoryServer = {
+type ChannelRefDirectoryChannel = { id: string; name: string }
+type ChannelRefDirectoryServer = {
   id: string
   name: string
   channels: ChannelRefDirectoryChannel[]

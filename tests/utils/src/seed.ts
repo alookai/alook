@@ -38,7 +38,7 @@ export function seedTestData(): TestSeed {
   const now = new Date().toISOString()
   const slug = `test-${nanoid()}`
 
-  sqlRun(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)`, userId, 'Test User', `${userId}@test.local`, now, now)
+  sqlRun(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)`, userId, `Test User ${userId}`, `${userId}@test.local`, now, now)
   sqlRun(`INSERT INTO workspace (id, name, slug, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, workspaceId, 'Test Workspace', slug, now, now)
   sqlRun(`INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)`, memberId, workspaceId, userId, 'owner', now)
   sqlRun(`INSERT INTO machine (daemon_id, workspace_id, device_info, last_seen_at, created_at, updated_at, owner_id) VALUES (?, ?, ?, ?, ?, ?, ?)`, daemonId, workspaceId, 'test-device', now, now, now, userId)
@@ -92,7 +92,7 @@ export function seedSecondaryUser(workspaceId: string, role = "member"): Seconda
   const memberId = `mb_${nanoid()}`
   const now = new Date().toISOString()
 
-  sqlRun(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)`, userId, 'Secondary User', `${userId}@test.local`, now, now)
+  sqlRun(`INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)`, userId, `Secondary User ${userId}`, `${userId}@test.local`, now, now)
   sqlRun(`INSERT INTO member (id, workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?, ?)`, memberId, workspaceId, userId, role, now)
 
   return { userId, memberId }

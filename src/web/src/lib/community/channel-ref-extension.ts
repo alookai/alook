@@ -13,7 +13,7 @@ export type ChannelRefCandidate = {
 // comment on the `name` → `label` mapping). Mirrors
 // `MentionPopupState.command`'s own mapped-shape typing in
 // `mention-extension.ts`.
-export type ChannelRefCommandProps = { id: string; label: string; serverId: string }
+type ChannelRefCommandProps = { id: string; label: string; serverId: string }
 
 export interface ChannelRefPopupState {
   items: ChannelRefCandidate[]

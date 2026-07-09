@@ -2,7 +2,7 @@ import "fake-indexeddb/auto"
 import { describe, expect, it, beforeEach } from "vitest"
 import { get } from "idb-keyval"
 import { QueryClient } from "@tanstack/react-query"
-import type { PersistedClient } from "@tanstack/query-persist-client-core"
+import type { PersistedClient } from "@tanstack/react-query-persist-client"
 import { communityKeys } from "@/lib/query-keys"
 import {
   clearPersistedCache,
