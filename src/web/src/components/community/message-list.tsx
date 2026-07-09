@@ -19,6 +19,7 @@ export function MessageList({
   onReply, onPin, onCreateThread, onCopy, onRetry, onPreviewImage, onDownloadFile,
   resolveUserName, scrollToMessageId, hero, onScrollRoot, viewerUserId, initialScrollReady = true,
   hasMore, isFetchingOlder, onLoadOlder,
+  hasMoreNewer, isFetchingNewer, onLoadNewer, onJumpToPresent, unreadCount,
 }: {
   channel: string
   messages: Msg[]
@@ -65,6 +66,22 @@ export function MessageList({
   hasMore?: boolean
   isFetchingOlder?: boolean
   onLoadOlder?: () => void
+  // Forward-infinite scroll (bi-directional pagination — A2). When the
+  // initial page is an anchor window in the middle of history, the tail is
+  // NOT the newest message; a bottom sentinel is rendered until the user
+  // scrolls into it to request newer rows. Legacy newest-attached mode
+  // leaves `hasMoreNewer` undefined/false — no bottom sentinel.
+  hasMoreNewer?: boolean
+  isFetchingNewer?: boolean
+  onLoadNewer?: () => void
+  // `↓ N` pill — when there are messages further ahead than the loaded
+  // window, clicking jumps back to the present. Falls back to the DOM
+  // `belowCount` scroll-to-bottom when we're already tail-attached.
+  onJumpToPresent?: () => void
+  // Server-derived unread count (`latestSeq - viewerLastReadSeq`). Drives
+  // the `↓ N` badge when `hasMoreNewer` is true — DOM math can't see rows
+  // that haven't been fetched yet.
+  unreadCount?: number
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -251,6 +268,30 @@ export function MessageList({
     return () => observer.disconnect()
   }, [onLoadOlder, hasMore, isFetchingOlder])
 
+  // Bottom sentinel — symmetric to the top one. Only mounted when the loaded
+  // window is not tail-attached (`hasMoreNewer === true`). Appended rows from
+  // a newer-fetch prepend to `pages[0]` in cache order → after the sort in
+  // `mergeMessagesPages` they land at the natural tail of `messages`, which
+  // grows the container downward and leaves the viewer's scrollTop untouched.
+  // No compensating scroll needed.
+  const bottomSentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!onLoadNewer || !hasMoreNewer) return
+    const el = bottomSentinelRef.current
+    const root = scrollRef.current
+    if (!el || !root) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !isFetchingNewer) onLoadNewer()
+        }
+      },
+      { root, rootMargin: "200px" },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [onLoadNewer, hasMoreNewer, isFetchingNewer])
+
   // Live count of messages sitting below the viewport. Recomputed on scroll,
   // on messages change, and via a ResizeObserver so appended rows update the
   // badge even without a scroll event. `0` means the user is at the bottom
@@ -332,11 +373,27 @@ export function MessageList({
   // All hooks must run before any conditional return — rule-of-hooks.
   if (loading && messages.length === 0) return <MessageListSkeleton dm={!!hero} />
 
+  // ↓ N pill precedence:
+  //   - When there are messages the client hasn't fetched yet
+  //     (`hasMoreNewer`), show the server-derived `unreadCount` (may be
+  //     larger than the DOM `belowCount`) and click → `onJumpToPresent`
+  //     resets the query to newest, cutting out multi-RTT page walks.
+  //   - Otherwise fall back to `belowCount` and `scrollToBottom` — the
+  //     tail-attached path unchanged from pre-A2.
+  const jumpMode = !!hasMoreNewer
+  const pillCount = jumpMode
+    ? ((unreadCount ?? belowCount) || 0)
+    : belowCount
+  const pillOnClick = jumpMode
+    ? (onJumpToPresent ?? scrollToBottom)
+    : scrollToBottom
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <ScrollDownButton
-        count={belowCount}
-        onClick={scrollToBottom}
+        count={pillCount}
+        mode={jumpMode ? "jump" : "scroll"}
+        onClick={pillOnClick}
       />
       <TypingIndicator names={typingUsers ?? []} />
       <div ref={scrollRef} className="flex-1 overflow-y-auto thin-scrollbar">
@@ -401,6 +458,15 @@ export function MessageList({
               ))}
             </div>
           ))}
+
+          {hasMoreNewer && (
+            <div
+              ref={bottomSentinelRef}
+              className="mt-6 flex h-8 items-center justify-center text-xs text-muted-foreground"
+            >
+              {isFetchingNewer ? "Loading newer messages…" : ""}
+            </div>
+          )}
 
         </div>
       </div>
@@ -490,8 +556,23 @@ function cssEscape(id: string): string {
 // are still messages below the viewport. `count === 0` hides the button
 // entirely (fade + slide-down, matches the shared scroll-to-bottom pill's
 // visual language).
-function ScrollDownButton({ count, onClick }: { count: number; onClick: () => void }) {
+//
+// `mode="jump"` — the loaded window is not tail-attached (bi-directional
+// pagination has more newer rows to fetch); click jumps to present rather
+// than a plain scroll. `mode="scroll"` — legacy tail-attached path.
+function ScrollDownButton({
+  count,
+  mode = "scroll",
+  onClick,
+}: {
+  count: number
+  mode?: "scroll" | "jump"
+  onClick: () => void
+}) {
   const visible = count > 0
+  const aria = mode === "jump"
+    ? `Jump to present, ${count} unread below`
+    : `Scroll to bottom, ${count} more below`
   return (
     <div
       className={`pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 transition-all duration-200 ease-out ${
@@ -501,7 +582,7 @@ function ScrollDownButton({ count, onClick }: { count: number; onClick: () => vo
       <button
         type="button"
         onClick={onClick}
-        aria-label={`Scroll to bottom, ${count} more below`}
+        aria-label={aria}
         className={`pointer-events-auto flex h-8 items-center gap-1.5 rounded-full border border-border bg-background/90 pl-2 pr-3 text-xs font-medium text-foreground shadow-(--e1) backdrop-blur-sm transition-colors hover:bg-accent ${
           visible ? "" : "pointer-events-none"
         }`}

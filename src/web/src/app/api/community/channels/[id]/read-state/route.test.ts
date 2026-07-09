@@ -67,7 +67,7 @@ describe("GET /api/community/channels/[id]/read-state", () => {
     const res = await GET(getReq(), { params: { id: "c1" } } as any)
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body).toEqual({ lastReadMessageId: null, lastReadAt: null })
+    expect(body).toEqual({ lastReadMessageId: null, lastReadAt: null, lastReadSeq: 0 })
     // Args to getReadState should scope by (userId, channelId).
     expect(mockGetReadState).toHaveBeenCalledWith(expect.anything(), {
       userId: "u1",
@@ -75,12 +75,13 @@ describe("GET /api/community/channels/[id]/read-state", () => {
     })
   })
 
-  it("returns the actual (lastReadMessageId, lastReadAt) pair when a row exists", async () => {
+  it("returns the actual (lastReadMessageId, lastReadAt, lastReadSeq) tuple when a row exists", async () => {
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockGetReadState.mockResolvedValue({
       lastReadMessageId: "m_42",
       lastReadAt: "2026-07-01T00:00:00.000Z",
+      lastReadSeq: 42,
     })
 
     const res = await GET(getReq(), { params: { id: "c1" } } as any)
@@ -89,6 +90,7 @@ describe("GET /api/community/channels/[id]/read-state", () => {
     expect(body).toEqual({
       lastReadMessageId: "m_42",
       lastReadAt: "2026-07-01T00:00:00.000Z",
+      lastReadSeq: 42,
     })
   })
 

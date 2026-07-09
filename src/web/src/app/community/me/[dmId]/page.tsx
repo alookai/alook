@@ -62,13 +62,22 @@ function DmView() {
       })),
     [rawFriends, onlineUserIds],
   )
+  // DM read-state hook doesn't exist yet (Commit B2), so pass a resolved
+  // `null` anchor — hook goes straight to newest-mode, matching pre-A2 DM
+  // behaviour. Bi-directional plumbing is still wired below so the moment
+  // B2 lights up we only add the snapshot fetch, not the message-list
+  // props.
   const {
     messages,
     isLoading: messagesLoading,
-    hasMore: hasMoreMessages,
+    hasMoreOlder: hasMoreMessages,
+    hasMoreNewer: hasMoreNewerMessages,
     isFetchingOlder: isFetchingOlderMessages,
+    isFetchingNewer: isFetchingNewerMessages,
     fetchOlder: fetchOlderMessages,
-  } = useDmMessages(dmId)
+    fetchNewer: fetchNewerMessages,
+    jumpToPresent,
+  } = useDmMessages(dmId, { lastReadMessageId: null })
   const typingUsers = useCommunityStore((s) => s.typingUsers)
   const sendDmMessage = useSendDmMessage()
   const toggleReaction = useToggleReactionApi()
@@ -234,6 +243,10 @@ function DmView() {
           hasMore={hasMoreMessages}
           isFetchingOlder={isFetchingOlderMessages}
           onLoadOlder={fetchOlderMessages}
+          hasMoreNewer={hasMoreNewerMessages}
+          isFetchingNewer={isFetchingNewerMessages}
+          onLoadNewer={fetchNewerMessages}
+          onJumpToPresent={jumpToPresent}
           hero={
             <>
               <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={64} /></div>

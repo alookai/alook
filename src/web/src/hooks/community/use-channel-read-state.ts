@@ -13,6 +13,11 @@ import { communityKeys } from "@/lib/query-keys"
 export type ChannelReadStateSnapshot = {
   lastReadMessageId: string | null
   lastReadAt: string | null
+  // Numeric equivalent of `lastReadMessageId` — the seq of the row that
+  // pointer refers to. Server returns `0` when the viewer has never read
+  // this channel; consumers subtract from `latestSeq` for the unread-count
+  // pill without needing to walk loaded rows.
+  lastReadSeq: number
 }
 
 /**

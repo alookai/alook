@@ -38,5 +38,11 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   return writeJSON({
     lastReadMessageId: row?.lastReadMessageId ?? null,
     lastReadAt: row?.lastReadAt ?? null,
+    // Seq is the numeric equivalent of the (createdAt, id) pointer — used
+    // client-side to compute the `↓ N` unread count without walking the
+    // loaded rows (`latestSeq - lastReadSeq`). Falls back to 0 when the
+    // viewer has never visited: `latestSeq - 0` = all-messages-are-new,
+    // matching what the divider anchor implies.
+    lastReadSeq: row?.lastReadSeq ?? 0,
   })
 })

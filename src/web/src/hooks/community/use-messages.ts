@@ -2,10 +2,11 @@
 
 import {
   useInfiniteQuery,
+  useQueryClient,
   type UseInfiniteQueryResult,
   type InfiniteData,
 } from "@tanstack/react-query"
-import { useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { Msg } from "@/components/community/_types"
@@ -14,12 +15,16 @@ import { flushPendingReads } from "@/hooks/community/mutations/messages"
 /**
  * Fetches paginated messages for a community channel.
  *
- * Uses `useInfiniteQuery` with a cursor pageParam matching the server's
- * `?cursor=` param (format `createdAt|id`, materialised by
- * `lib/community/messages.ts:parseCursor`). Each fetched page prepends
- * older-than-cursor rows before the current messages; consumers concatenate
- * `data.pages.flatMap(p => p.messages)` in the order the server returned
- * (already reversed to chronological ascending inside the route).
+ * Bi-directional after A2: an anchor window centred on the viewer's
+ * `lastReadMessageId` (or a jump-target id) may sit in the middle of history,
+ * so pagination now flows both up (older, via `fetchOlder`) and down (newer,
+ * via `fetchNewer`). Legacy "newest page" behaviour is preserved for the case
+ * where no anchor is provided.
+ *
+ * TanStack convention: `fetchNextPage` appends to `pages`, `fetchPreviousPage`
+ * prepends. We map "next" → older (further into the past = further along the
+ * infinite scroll direction) and "previous" → newer, then expose them under
+ * `fetchOlder` / `fetchNewer` so callers never see the TanStack naming.
  *
  * The query key nests under `communityKeys.channelMessages(channelId)` so a
  * single `invalidateQueries({ queryKey: communityKeys.channelMessages(id) })`
@@ -27,33 +32,272 @@ import { flushPendingReads } from "@/hooks/community/mutations/messages"
  */
 export type MessagesPage = {
   messages: Msg[]
-  hasMore: boolean
+  latestSeq?: number
+  // Anchor / since mode
+  hasMoreOlder?: boolean
+  hasMoreNewer?: boolean
+  olderCursor?: string
+  newerCursor?: string
+  // Legacy (newest + older continuation) mode
+  hasMore?: boolean
   cursor?: string
+}
+
+// Discriminated pageParam. The queryFn dispatches on `mode` — the URL param
+// map is: newest → no param, older → cursor, newer/since → since, anchor →
+// anchor. Since is reserved for future direct catch-up (Commit C); A2 never
+// fires it, but the type covers it so the server contract stays honest.
+export type MessagesPageParam =
+  | { mode: "newest" }
+  | { mode: "anchor"; anchor: string }
+  | { mode: "since"; since: string }
+  | { mode: "older"; cursor: string }
+  | { mode: "newer"; cursor: string }
+
+function buildMessagesUrl(base: string, pageParam: MessagesPageParam): string {
+  const params = new URLSearchParams()
+  switch (pageParam.mode) {
+    case "newest":
+      break
+    case "older":
+      params.set("cursor", pageParam.cursor)
+      break
+    case "newer":
+      params.set("since", pageParam.cursor)
+      break
+    case "since":
+      params.set("since", pageParam.since)
+      break
+    case "anchor":
+      params.set("anchor", pageParam.anchor)
+      break
+  }
+  const qs = params.toString()
+  return qs ? `${base}?${qs}` : base
 }
 
 export const channelMessagesQueryFn =
   (channelId: string) =>
-  async ({ pageParam }: { pageParam: string | null | undefined }): Promise<MessagesPage> => {
-    const params = new URLSearchParams()
-    if (pageParam) params.set("cursor", pageParam)
-    const url = `/api/community/channels/${channelId}/messages${params.toString() ? `?${params}` : ""}`
-    return apiFetch<MessagesPage>(url)
+  async ({ pageParam }: { pageParam: MessagesPageParam }): Promise<MessagesPage> => {
+    return apiFetch<MessagesPage>(
+      buildMessagesUrl(`/api/community/channels/${channelId}/messages`, pageParam),
+    )
   }
 
 export const dmMessagesQueryFn =
   (dmId: string) =>
-  async ({ pageParam }: { pageParam: string | null | undefined }): Promise<MessagesPage> => {
-    const params = new URLSearchParams()
-    if (pageParam) params.set("cursor", pageParam)
-    const url = `/api/community/dm/${dmId}/messages${params.toString() ? `?${params}` : ""}`
-    return apiFetch<MessagesPage>(url)
+  async ({ pageParam }: { pageParam: MessagesPageParam }): Promise<MessagesPage> => {
+    return apiFetch<MessagesPage>(
+      buildMessagesUrl(`/api/community/dm/${dmId}/messages`, pageParam),
+    )
   }
 
-type MessagesReturn = UseInfiniteQueryResult<InfiniteData<MessagesPage>, Error> & {
+/**
+ * Merge all pages into a single chronological ASC list, deduping by id.
+ * Extracted so tests can drive the reducer without spinning up a full hook.
+ *
+ * Pages arrive out of order — the initial page may be an anchor window in the
+ * middle of history, then older pages append below and newer pages prepend
+ * above. Sort once at the end so the visible order is always correct
+ * regardless of fetch sequence. Bounded by loaded rows (typically < 500) —
+ * O(n log n) is fine here.
+ */
+export function mergeMessagesPages(pages: MessagesPage[]): Msg[] {
+  const all: Msg[] = []
+  for (const p of pages) {
+    for (const m of p.messages) all.push(m)
+  }
+  all.sort((a, b) => {
+    const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0
+    const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0
+    if (ta !== tb) return ta - tb
+    if (a.id < b.id) return -1
+    if (a.id > b.id) return 1
+    return 0
+  })
+  const seen = new Set<string>()
+  const out: Msg[] = []
+  for (const m of all) {
+    if (seen.has(m.id)) continue
+    seen.add(m.id)
+    out.push(m)
+  }
+  return out
+}
+
+type PageCache = InfiniteData<MessagesPage, MessagesPageParam>
+
+type MessagesReturn = UseInfiniteQueryResult<PageCache, Error> & {
   messages: Msg[]
-  hasMore: boolean
-  fetchOlder: () => void
+  latestSeq: number
+  hasMoreOlder: boolean
+  hasMoreNewer: boolean
   isFetchingOlder: boolean
+  isFetchingNewer: boolean
+  fetchOlder: () => void
+  fetchNewer: () => void
+  jumpToPresent: () => void
+  // Legacy alias — mirrors `hasMoreOlder`. Kept so consumers not yet migrated
+  // off the older-only API still compile until every call site is updated.
+  hasMore: boolean
+}
+
+type MessagesOpts = {
+  /**
+   * Anchor for the initial fetch. Undefined = read-state not resolved yet;
+   * the hook stays disabled until this becomes a value or `null`. `null`
+   * = no anchor (never read / DM without snapshot); goes straight to
+   * newest-mode. A string = fetch `?anchor=<id>` on the first page.
+   */
+  lastReadMessageId?: string | null
+}
+
+// Shared pagination + reducer used by both channel and DM hooks. Kept inline
+// as a hook because both variants need the same TanStack setup — factoring
+// out a plain function would leak query internals; a hook stays clean.
+function useMessagesInner(
+  scopeId: string | null,
+  queryKey: readonly unknown[],
+  queryFn: ({ pageParam }: { pageParam: MessagesPageParam }) => Promise<MessagesPage>,
+  opts: MessagesOpts | undefined,
+): MessagesReturn {
+  const queryClient = useQueryClient()
+
+  // `undefined` = anchor snapshot is still resolving; gate the query on it
+  // being a resolved value (string OR null). Owners without a snapshot
+  // (currently DM) pass `null` explicitly.
+  const anchorResolved = opts?.lastReadMessageId !== undefined
+  const anchorId = opts?.lastReadMessageId ?? null
+  const enabled = !!scopeId && anchorResolved
+
+  // Force-newest override — flipped by `jumpToPresent`. Held in state so
+  // React re-renders with the new options before the reset fires (see the
+  // useEffect below). Cleared once the first newest page arrives.
+  const [forceNewest, setForceNewest] = useState(false)
+
+  const initialPageParam = useMemo<MessagesPageParam>(() => {
+    if (forceNewest) return { mode: "newest" }
+    if (anchorId) return { mode: "anchor", anchor: anchorId }
+    return { mode: "newest" }
+  }, [forceNewest, anchorId])
+
+  const query = useInfiniteQuery<
+    MessagesPage,
+    Error,
+    PageCache,
+    typeof queryKey,
+    MessagesPageParam
+  >({
+    queryKey,
+    queryFn: enabled
+      ? queryFn
+      : () => Promise.reject(new Error("disabled")),
+    initialPageParam,
+    // "next" = older side. `fetchNextPage` appends to `data.pages`, so the
+    // LAST entry in `pages` is the oldest window we've loaded — that's the
+    // page whose cursor gets consulted for the next older fetch.
+    getNextPageParam: (last) => {
+      const has = last.hasMoreOlder ?? last.hasMore ?? false
+      if (!has) return undefined
+      const cursor = last.olderCursor ?? last.cursor
+      if (!cursor) return undefined
+      return { mode: "older", cursor }
+    },
+    // "previous" = newer side. `fetchPreviousPage` prepends to `data.pages`,
+    // so the FIRST entry is the newest window loaded. In legacy (newest)
+    // mode `hasMoreNewer` is absent → falsy → no previous page.
+    getPreviousPageParam: (first) => {
+      if (!first.hasMoreNewer) return undefined
+      const cursor = first.newerCursor
+      if (!cursor) return undefined
+      return { mode: "newer", cursor }
+    },
+    enabled,
+  })
+
+  // Flush any pending mark-read on scope switch / unmount so the 500ms
+  // debounce doesn't strand the last-read pointer when the user hops
+  // scopes mid-window. Same as the pre-A2 behaviour.
+  useEffect(() => {
+    if (!scopeId) return
+    return () => {
+      flushPendingReads()
+    }
+  }, [scopeId])
+
+  // Two-phase reset: setForceNewest triggers a render that updates
+  // `initialPageParam` to newest. THIS effect fires on that render and
+  // actually clears the query, so the refetch reads the newest-mode options
+  // rather than the pre-flip anchor options.
+  useEffect(() => {
+    if (!forceNewest) return
+    void queryClient.resetQueries({ queryKey })
+  }, [forceNewest, queryClient, queryKey])
+
+  // Clear the flag once a newest-shape page lands — anchor pages carry
+  // `hasMoreOlder`/`hasMoreNewer`; legacy newest carries `hasMore`. If the
+  // first cached page reads as legacy, the jump succeeded.
+  useEffect(() => {
+    if (!forceNewest) return
+    const first = query.data?.pages[0]
+    if (!first) return
+    const isNewestShape = first.hasMore !== undefined && first.hasMoreOlder === undefined
+    if (isNewestShape) setForceNewest(false)
+  }, [forceNewest, query.data])
+
+  const messages = useMemo<Msg[]>(() => {
+    if (!query.data) return []
+    return mergeMessagesPages(query.data.pages)
+  }, [query.data])
+
+  const latestSeq = useMemo<number>(() => {
+    if (!query.data) return 0
+    let max = 0
+    for (const p of query.data.pages) {
+      const s = p.latestSeq ?? 0
+      if (s > max) max = s
+    }
+    return max
+  }, [query.data])
+
+  const pages = query.data?.pages ?? []
+  const oldestPage = pages[pages.length - 1]
+  const newestPage = pages[0]
+  const hasMoreOlder = (oldestPage?.hasMoreOlder ?? oldestPage?.hasMore) ?? false
+  const hasMoreNewer = newestPage?.hasMoreNewer ?? false
+
+  // Callbacks depend on `query.*` fields that TanStack refreshes on every
+  // internal state change — closing over the whole query object keeps the
+  // exhaustive-deps rule happy without spelling every subfield.
+  const fetchOlder = useCallback(() => {
+    if (!query.hasNextPage) return
+    if (query.isFetchingNextPage) return
+    void query.fetchNextPage()
+  }, [query])
+
+  const fetchNewer = useCallback(() => {
+    if (!query.hasPreviousPage) return
+    if (query.isFetchingPreviousPage) return
+    void query.fetchPreviousPage()
+  }, [query])
+
+  const jumpToPresent = useCallback(() => {
+    setForceNewest(true)
+  }, [])
+
+  return {
+    ...query,
+    messages,
+    latestSeq,
+    hasMoreOlder,
+    hasMoreNewer,
+    isFetchingOlder: query.isFetchingNextPage,
+    isFetchingNewer: query.isFetchingPreviousPage,
+    fetchOlder,
+    fetchNewer,
+    jumpToPresent,
+    hasMore: hasMoreOlder,
+  }
 }
 
 /**
@@ -62,107 +306,31 @@ type MessagesReturn = UseInfiniteQueryResult<InfiniteData<MessagesPage>, Error> 
  * Pass `null` for "no active channel" — the query stays disabled. DM views
  * should call `useDmMessages` instead of this hook.
  */
-export function useMessages(channelId: string | null): MessagesReturn {
-  const enabled = !!channelId
+export function useMessages(
+  channelId: string | null,
+  opts?: MessagesOpts,
+): MessagesReturn {
   const queryKey = communityKeys.channelMessages(channelId ?? "__none__")
-  const query = useInfiniteQuery<
-    MessagesPage,
-    Error,
-    InfiniteData<MessagesPage>,
-    typeof queryKey,
-    string | null | undefined
-  >({
+  return useMessagesInner(
+    channelId,
     queryKey,
-    queryFn: enabled
-      ? channelMessagesQueryFn(channelId!)
-      : (() => Promise.reject(new Error("disabled"))),
-    initialPageParam: null,
-    getNextPageParam: (last) => (last.hasMore ? (last.cursor ?? null) : undefined),
-    enabled,
-  })
-
-  // Flush any pending mark-channel-read on channel switch / unmount so the
-  // 500ms debounce doesn't strand the last-read pointer when the user hops
-  // channels mid-window.
-  useEffect(() => {
-    if (!channelId) return
-    return () => {
-      flushPendingReads()
-    }
-  }, [channelId])
-
-  const messages = useMemo<Msg[]>(() => {
-    if (!query.data) return []
-    // Pages are returned newest-first cursor-wise; the server reverses inside
-    // each page so each page's messages are already ASC. Concatenating in
-    // page order gives chronological ASC across the whole stream — matches
-    // what the context previously produced by prepending older rows.
-    const out: Msg[] = []
-    for (let i = query.data.pages.length - 1; i >= 0; i--) {
-      out.push(...query.data.pages[i].messages)
-    }
-    return out
-  }, [query.data])
-
-  const lastPage = query.data?.pages[query.data.pages.length - 1]
-  const hasMore = lastPage?.hasMore ?? false
-
-  return {
-    ...query,
-    messages,
-    hasMore,
-    fetchOlder: () => {
-      if (!query.hasNextPage) return
-      if (query.isFetchingNextPage) return
-      void query.fetchNextPage()
-    },
-    isFetchingOlder: query.isFetchingNextPage,
-  }
+    channelMessagesQueryFn(channelId ?? "__none__"),
+    opts,
+  )
 }
 
 /**
  * DM-scoped sibling of `useMessages`. Same pagination shape, different route.
  */
-export function useDmMessages(dmId: string | null): MessagesReturn {
-  const enabled = !!dmId
+export function useDmMessages(
+  dmId: string | null,
+  opts?: MessagesOpts,
+): MessagesReturn {
   const queryKey = communityKeys.dmMessages(dmId ?? "__none__")
-  const query = useInfiniteQuery<
-    MessagesPage,
-    Error,
-    InfiniteData<MessagesPage>,
-    typeof queryKey,
-    string | null | undefined
-  >({
+  return useMessagesInner(
+    dmId,
     queryKey,
-    queryFn: enabled
-      ? dmMessagesQueryFn(dmId!)
-      : (() => Promise.reject(new Error("disabled"))),
-    initialPageParam: null,
-    getNextPageParam: (last) => (last.hasMore ? (last.cursor ?? null) : undefined),
-    enabled,
-  })
-
-  const messages = useMemo<Msg[]>(() => {
-    if (!query.data) return []
-    const out: Msg[] = []
-    for (let i = query.data.pages.length - 1; i >= 0; i--) {
-      out.push(...query.data.pages[i].messages)
-    }
-    return out
-  }, [query.data])
-
-  const lastPage = query.data?.pages[query.data.pages.length - 1]
-  const hasMore = lastPage?.hasMore ?? false
-
-  return {
-    ...query,
-    messages,
-    hasMore,
-    fetchOlder: () => {
-      if (!query.hasNextPage) return
-      if (query.isFetchingNextPage) return
-      void query.fetchNextPage()
-    },
-    isFetchingOlder: query.isFetchingNextPage,
-  }
+    dmMessagesQueryFn(dmId ?? "__none__"),
+    opts,
+  )
 }
