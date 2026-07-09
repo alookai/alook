@@ -247,6 +247,101 @@ describe("useCommunityWs — message.create", () => {
     expect(ids[0]).toBe("seed_1")
   })
 
+  it("flips hasMore/hasMoreOlder to true when the head-slice discards history (legacy shape)", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    const MAX_LIVE_PAGE_MESSAGES = 500
+    const seeded = Array.from({ length: MAX_LIVE_PAGE_MESSAGES }, (_, i) => ({
+      id: `seed_${i}`,
+      content: "x",
+      createdAt: "2026-07-03T00:00:00.000Z",
+    }))
+    // Legacy newest-mode envelope: only `hasMore` is defined.
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
+      pages: [{ messages: seeded, hasMore: false }],
+      pageParams: [null],
+    })
+
+    capturedOnMessage!(messageCreate("ch_1", "new_message"))
+
+    const cache = capturedQueryClient.getQueryData<{
+      pages: { messages: { id: string }[]; hasMore?: boolean; hasMoreOlder?: boolean }[]
+    }>(communityKeys.channelMessages("ch_1"))
+    // Head-slice discarded seed_0; the "Load older" affordance must re-arm
+    // via `hasMore: true` (legacy shape had no `hasMoreOlder` so we don't
+    // synthesize it).
+    expect(cache?.pages[0].hasMore).toBe(true)
+    expect(cache?.pages[0].hasMoreOlder).toBeUndefined()
+  })
+
+  it("flips hasMoreOlder to true on head-slice for anchor-mode envelopes", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    const MAX_LIVE_PAGE_MESSAGES = 500
+    const seeded = Array.from({ length: MAX_LIVE_PAGE_MESSAGES }, (_, i) => ({
+      id: `seed_${i}`,
+      content: "x",
+      createdAt: "2026-07-03T00:00:00.000Z",
+    }))
+    // Anchor-mode envelope: hasMoreOlder + hasMoreNewer, no `hasMore`.
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
+      pages: [{ messages: seeded, hasMoreOlder: false, hasMoreNewer: false, latestSeq: 42 }],
+      pageParams: [{ mode: "anchor", anchor: "seed_0" }],
+    })
+
+    capturedOnMessage!(messageCreate("ch_1", "new_message"))
+
+    const cache = capturedQueryClient.getQueryData<{
+      pages: { messages: { id: string }[]; hasMore?: boolean; hasMoreOlder?: boolean; hasMoreNewer?: boolean }[]
+    }>(communityKeys.channelMessages("ch_1"))
+    expect(cache?.pages[0].hasMoreOlder).toBe(true)
+    // We must NOT invent a legacy `hasMore` flag on an anchor envelope —
+    // the two shapes are mutually exclusive.
+    expect(cache?.pages[0].hasMore).toBeUndefined()
+    // `hasMoreNewer` untouched.
+    expect(cache?.pages[0].hasMoreNewer).toBe(false)
+  })
+
+  it("does not touch hasMore flags when the page hasn't been trimmed", async () => {
+    await mountHook()
+    const { useCommunityStore } = await import("@/stores/community")
+    useCommunityStore.getState().subscribe({ channelId: "ch_1" })
+    refCounter = 0
+    stateCounter = 0
+    callbackCounter = 0
+    await mountHook()
+
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
+      pages: [
+        {
+          messages: [{ id: "seed_0", content: "x", createdAt: "t" }],
+          hasMoreOlder: false,
+          hasMoreNewer: false,
+          latestSeq: 1,
+        },
+      ],
+      pageParams: [null],
+    })
+    capturedOnMessage!(messageCreate("ch_1", "m_new"))
+    const cache = capturedQueryClient.getQueryData<{
+      pages: { hasMoreOlder?: boolean; hasMoreNewer?: boolean }[]
+    }>(communityKeys.channelMessages("ch_1"))
+    expect(cache?.pages[0].hasMoreOlder).toBe(false)
+    expect(cache?.pages[0].hasMoreNewer).toBe(false)
+  })
+
   it("does not drop below the cap when the page isn't at capacity yet", async () => {
     await mountHook()
     const { useCommunityStore } = await import("@/stores/community")

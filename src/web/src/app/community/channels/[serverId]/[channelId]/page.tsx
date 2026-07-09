@@ -45,6 +45,7 @@ import {
   useKickMember,
   useSetChannelNotif,
   useUploadFile,
+  type SendMessageResult,
 } from "@/hooks/community/mutations"
 import {
   communityWsSubscribe,
@@ -295,20 +296,32 @@ function ChannelView() {
   }
 
   // ── Message actions ─────────────────────────────────────────────────────
+  //
+  // Swallow send failures at the caller boundary. `useSendMessage`'s `onError`
+  // already marks the optimistic row `failed: true` AND fires the rate-limit
+  // toast; we don't need the raw rejection to propagate any further. Letting
+  // it escape via `mutateAsync` would surface a bare `ApiError` in the Next.js
+  // error overlay (rate-limit path was the reproducer). Returning `null`
+  // instead lets thread-create + retry callers detect failure without a
+  // try/catch each.
   const doSend = useCallback(
-    (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }) => {
-      return sendMessageMut.mutateAsync({
-        channelId,
-        content,
-        replyToId: opts?.replyToId,
-        mentionType: opts?.mentionType,
-        attachments: opts?.attachments,
-        author: {
-          id: currentUser.id,
-          name: currentUser.name,
-          avatar: currentUser.avatar,
-        },
-      })
+    async (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }): Promise<SendMessageResult | null> => {
+      try {
+        return await sendMessageMut.mutateAsync({
+          channelId,
+          content,
+          replyToId: opts?.replyToId,
+          mentionType: opts?.mentionType,
+          attachments: opts?.attachments,
+          author: {
+            id: currentUser.id,
+            name: currentUser.name,
+            avatar: currentUser.avatar,
+          },
+        })
+      } catch {
+        return null
+      }
     },
     [sendMessageMut, channelId, currentUser.id, currentUser.name, currentUser.avatar],
   )

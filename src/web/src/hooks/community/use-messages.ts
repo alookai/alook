@@ -6,7 +6,7 @@ import {
   type UseInfiniteQueryResult,
   type InfiniteData,
 } from "@tanstack/react-query"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { apiFetch } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { Msg } from "@/components/community/_types"
@@ -124,6 +124,13 @@ export function mergeMessagesPages(pages: MessagesPage[]): Msg[] {
   }
   return out
 }
+
+// Fix 4 window: how stale a hydrated cache may be before a mount fires an
+// invalidate. Short enough that a returning tab picks up fresh data on the
+// first paint, long enough that rapid channel switching within a single
+// session doesn't churn the network — the reconnect handler in
+// `useCommunityWs` covers longer offline gaps on its own.
+const STALE_HYDRATED_CACHE_MS = 30_000
 
 type PageCache = InfiniteData<MessagesPage, MessagesPageParam>
 
@@ -244,6 +251,95 @@ function useMessagesInner(
     const isNewestShape = first.hasMore !== undefined && first.hasMoreOlder === undefined
     if (isNewestShape) setForceNewest(false)
   }, [forceNewest, query.data])
+
+  // Fix 3 — anchor re-validation.
+  //
+  // When a persisted cache is rehydrated, TanStack uses the cached `pages`
+  // even if `initialPageParam` says "anchor at m_42". If m_42 isn't in the
+  // hydrated window (e.g. the persisted cache was a newest-tail and the
+  // read pointer has since advanced past it), `newDividerBefore` computes
+  // to `undefined` and the list snaps to bottom — no NEW divider, wrong
+  // position.
+  //
+  // Detect that shape and reset the query so it refetches under the correct
+  // anchor pageParam. Fire exactly once per (scopeId, anchorId) pair via a
+  // ref — a subsequent watermark tick that advances lastReadMessageId is a
+  // different pair and gets its own single reset opportunity.
+  const anchorResetKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!enabled) return
+    if (!anchorId) return
+    if (query.isFetching) return
+    if (query.isPending) return
+    const pages = query.data?.pages
+    if (!pages || pages.length === 0) return
+    let messageCount = 0
+    let anchorFound = false
+    for (const p of pages) {
+      messageCount += p.messages.length
+      if (!anchorFound) {
+        for (const m of p.messages) {
+          if (m.id === anchorId) {
+            anchorFound = true
+            break
+          }
+        }
+      }
+    }
+    if (messageCount === 0) return
+    if (anchorFound) return
+    const resetKey = `${scopeId ?? ""}::${anchorId}`
+    if (anchorResetKeyRef.current === resetKey) return
+    anchorResetKeyRef.current = resetKey
+    void queryClient.resetQueries({ queryKey })
+  }, [
+    enabled,
+    anchorId,
+    scopeId,
+    query.data,
+    query.isFetching,
+    query.isPending,
+    queryClient,
+    queryKey,
+  ])
+
+  // Fix 4 — staleness invalidate.
+  //
+  // When the cache is hydrated from IDB, `dataUpdatedAt` reflects the last
+  // fetch of the previous session. TanStack won't refetch on mount for
+  // infinite queries by default, so the client keeps rendering the stale
+  // window even though `latestSeq` on the server may have advanced. On
+  // mount, if the hydrated window is older than the freshness window, kick
+  // off an invalidation — TanStack re-runs every persisted `pageParam` and
+  // the fresh `latestSeq` in the server response drives `unreadCount` and
+  // `hasMoreNewer` to the truth without any client bookkeeping.
+  //
+  // 30s is chosen to be short enough that a returning tab sees fresh data
+  // but long enough to skip the invalidation during rapid channel switching
+  // (where the cache is only seconds old and the reconnect handler will
+  // fire on its own if the socket has been dropped).
+  const hasInvalidatedStaleCacheRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!enabled) return
+    if (!scopeId) return
+    if (query.isFetching) return
+    if (query.isPending) return
+    const updatedAt = query.dataUpdatedAt
+    if (!updatedAt) return
+    const key = `${scopeId}::${updatedAt}`
+    if (hasInvalidatedStaleCacheRef.current === key) return
+    if (Date.now() - updatedAt < STALE_HYDRATED_CACHE_MS) return
+    hasInvalidatedStaleCacheRef.current = key
+    void queryClient.invalidateQueries({ queryKey })
+  }, [
+    enabled,
+    scopeId,
+    query.dataUpdatedAt,
+    query.isFetching,
+    query.isPending,
+    queryClient,
+    queryKey,
+  ])
 
   const messages = useMemo<Msg[]>(() => {
     if (!query.data) return []

@@ -180,12 +180,29 @@ function insertMessageIntoCache(
   const merged = [...first.messages, rendered]
   // Drop from the head (oldest end of this page) once the live tail grows
   // past the cap — keeps the newest messages, sheds the oldest.
-  const messages = merged.length > MAX_LIVE_PAGE_MESSAGES
+  const trimmed = merged.length > MAX_LIVE_PAGE_MESSAGES
+  const messages = trimmed
     ? merged.slice(merged.length - MAX_LIVE_PAGE_MESSAGES)
     : merged
+  // When we drop rows off the head of the live page we've forgotten history
+  // that the server still has. Flip both the anchor-mode and the legacy
+  // `hasMore` flags to `true` so the older-pagination affordance re-arms —
+  // otherwise `hasMoreOlder ?? hasMore ?? false` collapses to `false` for
+  // the trimmed page and the UI stops offering "Load more" even though
+  // there's still history to fetch. Only touch the flags that already
+  // existed on the page so we don't accidentally invent an anchor-mode
+  // envelope on a legacy newest cache (or vice versa).
+  const nextFirst = trimmed
+    ? {
+        ...first,
+        messages,
+        ...(first.hasMoreOlder !== undefined ? { hasMoreOlder: true } : {}),
+        ...(first.hasMore !== undefined ? { hasMore: true } : {}),
+      }
+    : { ...first, messages }
   return {
     ...cache,
-    pages: [{ ...first, messages }, ...cache.pages.slice(1)],
+    pages: [nextFirst, ...cache.pages.slice(1)],
   }
 }
 

@@ -50,6 +50,10 @@ export function useDmReadStateSnapshot(dmId: string | null | undefined): {
     // is the only reliable way to force a real refetch on remount when
     // `staleTime: Infinity` treats the cached anchor as fresh forever.
     gcTime: 0,
+    // Belt-and-braces alongside `gcTime: 0` — see channel sibling for the
+    // rationale. The `snapshotRef` freeze semantics still hold because the
+    // ref latches only the first non-null resolution.
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     retry: 1,

@@ -8,7 +8,7 @@ import {
   createIdbPersister,
   PERSIST_BUSTER,
   PERSIST_MAX_AGE_MS,
-  shouldPersistQueryKey,
+  shouldPersistQuery,
 } from "@/lib/query-persister"
 
 /**
@@ -48,12 +48,17 @@ export function QueryProvider({
         buster: PERSIST_BUSTER,
         dehydrateOptions: {
           shouldDehydrateQuery: (query) => {
-            // Only persist message queries + read-state snapshots. Everything
-            // else (presence, live server list, DM list, member roster) is
-            // cheap to refetch on mount and would introduce staleness hazards
-            // if it survived a page load.
+            // Two-stage filter:
+            // 1. Key must be in the persisted allowlist (only message queries
+            //    are persisted — presence/servers/etc. refetch on mount).
+            // 2. For message queries, `pages[0]` must be a trusted
+            //    newest-tail shape. A since-mode or older-only envelope has
+            //    no `hasMore` flag on page 0 → the next mount reads
+            //    `hasMoreOlder ?? hasMore ?? false` as false and silently
+            //    loses history. Filter these out at write time so the
+            //    self-healing invariant holds across sessions.
             if (query.state.status !== "success") return false
-            return shouldPersistQueryKey(query.queryKey)
+            return shouldPersistQuery(query.queryKey, query.state.data)
           },
         },
       }}

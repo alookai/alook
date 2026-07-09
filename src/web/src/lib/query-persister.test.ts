@@ -7,6 +7,8 @@ import { communityKeys } from "@/lib/query-keys"
 import {
   clearPersistedCache,
   createIdbPersister,
+  isTrustedMessagesPageZero,
+  shouldPersistQuery,
   shouldPersistQueryKey,
 } from "@/lib/query-persister"
 import type { MessagesPage } from "@/hooks/community/use-messages"
@@ -22,16 +24,16 @@ describe("shouldPersistQueryKey", () => {
     expect(shouldPersistQueryKey(communityKeys.dmMessages("dm_1"))).toBe(true)
   })
 
-  it("persists channel read-state snapshot", () => {
+  it("does NOT persist channel read-state snapshot (refetched on every mount)", () => {
     expect(
       shouldPersistQueryKey(communityKeys.channelReadStateSnapshot("ch_1")),
-    ).toBe(true)
+    ).toBe(false)
   })
 
-  it("persists DM read-state snapshot", () => {
+  it("does NOT persist DM read-state snapshot (refetched on every mount)", () => {
     expect(
       shouldPersistQueryKey(communityKeys.dmReadStateSnapshot("dm_1")),
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it("does NOT persist server list, presence, members, or machines", () => {
@@ -157,9 +159,27 @@ describe("createIdbPersister — serialize filter", () => {
     expect(data.pages[0].messages.map((m) => m.id)).toEqual(["m_ok"])
   })
 
-  it("leaves non-message queries untouched", async () => {
+  it("drops message queries whose pages[0] is a since-mode envelope (no hasMore flag on tail)", async () => {
+    const qc = new QueryClient()
+    // Simulate a since-mode envelope: only `hasMoreNewer` / `newerCursor` /
+    // `latestSeq` — no `hasMore`, no `hasMoreOlder`. If we persisted this,
+    // the next mount would compute `hasMoreOlder ?? hasMore ?? false === false`
+    // and silently claim there's no more history.
+    qc.setQueryData(communityKeys.channelMessages("ch_since"), {
+      pages: [
+        {
+          messages: [
+            { id: "m_1", content: "x", createdAt: "2026-07-01T00:00:00.000Z" },
+          ],
+          hasMoreNewer: true,
+          newerCursor: "cur_new",
+          latestSeq: 42,
+        },
+      ],
+      pageParams: [{ mode: "since", since: "cur_since" }],
+    })
+
     const persister = createIdbPersister("u_1")
-    const snapshotKey = communityKeys.channelReadStateSnapshot("ch_1")
     await persister.persistClient({
       timestamp: Date.now(),
       buster: "v1",
@@ -167,36 +187,174 @@ describe("createIdbPersister — serialize filter", () => {
         mutations: [],
         queries: [
           {
-            queryKey: snapshotKey,
-            queryHash: JSON.stringify(snapshotKey),
-            state: {
-              data: { lastReadMessageId: "m_42", lastReadAt: null, lastReadSeq: 12 },
-              // Enough to satisfy the persister's `state` shape; TanStack
-              // ignores fields it doesn't recognise on restore.
-              dataUpdateCount: 1,
-              dataUpdatedAt: Date.now(),
-              error: null,
-              errorUpdateCount: 0,
-              errorUpdatedAt: 0,
-              fetchFailureCount: 0,
-              fetchFailureReason: null,
-              fetchMeta: null,
-              isInvalidated: false,
-              status: "success",
-              fetchStatus: "idle",
-            } as unknown as Parameters<typeof persister.persistClient>[0]["clientState"]["queries"][number]["state"],
+            queryKey: communityKeys.channelMessages("ch_since"),
+            queryHash: JSON.stringify(communityKeys.channelMessages("ch_since")),
+            state: qc.getQueryState(communityKeys.channelMessages("ch_since"))!,
           },
         ],
       },
     })
 
     const blob = await readPersistedBlob("u_1")
-    const data = blob.clientState.queries[0].state.data as {
-      lastReadMessageId: string
-      lastReadSeq: number
-    }
-    expect(data.lastReadMessageId).toBe("m_42")
-    expect(data.lastReadSeq).toBe(12)
+    // The whole query was dropped by scrubDehydratedClient — nothing to
+    // rehydrate, so the next mount refetches from scratch (self-healing).
+    expect(blob.clientState.queries).toHaveLength(0)
+  })
+
+  it("keeps message queries whose pages[0] is anchor-mode with tail attached (hasMoreNewer=false)", async () => {
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.channelMessages("ch_anchor"), {
+      pages: [
+        {
+          messages: [
+            { id: "m_1", content: "x", createdAt: "2026-07-01T00:00:00.000Z" },
+          ],
+          hasMoreOlder: true,
+          olderCursor: "cur_older",
+          hasMoreNewer: false,
+          latestSeq: 42,
+        },
+      ],
+      pageParams: [{ mode: "anchor", anchor: "m_1" }],
+    })
+
+    const persister = createIdbPersister("u_1")
+    await persister.persistClient({
+      timestamp: Date.now(),
+      buster: "v1",
+      clientState: {
+        mutations: [],
+        queries: [
+          {
+            queryKey: communityKeys.channelMessages("ch_anchor"),
+            queryHash: JSON.stringify(communityKeys.channelMessages("ch_anchor")),
+            state: qc.getQueryState(communityKeys.channelMessages("ch_anchor"))!,
+          },
+        ],
+      },
+    })
+
+    const blob = await readPersistedBlob("u_1")
+    expect(blob.clientState.queries).toHaveLength(1)
+  })
+
+  it("keeps message queries whose pages[0] is legacy newest-mode (hasMore defined, no anchor flags)", async () => {
+    const qc = new QueryClient()
+    qc.setQueryData(communityKeys.channelMessages("ch_legacy"), {
+      pages: [
+        makePage([
+          { id: "m_1", content: "x", createdAt: "2026-07-01T00:00:00.000Z" },
+        ]),
+      ],
+      pageParams: [{ mode: "newest" }],
+    })
+
+    const persister = createIdbPersister("u_1")
+    await persister.persistClient({
+      timestamp: Date.now(),
+      buster: "v1",
+      clientState: {
+        mutations: [],
+        queries: [
+          {
+            queryKey: communityKeys.channelMessages("ch_legacy"),
+            queryHash: JSON.stringify(communityKeys.channelMessages("ch_legacy")),
+            state: qc.getQueryState(communityKeys.channelMessages("ch_legacy"))!,
+          },
+        ],
+      },
+    })
+
+    const blob = await readPersistedBlob("u_1")
+    expect(blob.clientState.queries).toHaveLength(1)
+  })
+})
+
+// ── isTrustedMessagesPageZero + shouldPersistQuery invariants ────────────
+
+describe("isTrustedMessagesPageZero", () => {
+  it("trusts legacy newest-mode envelopes (hasMore defined, no anchor flags)", () => {
+    expect(
+      isTrustedMessagesPageZero({ messages: [], hasMore: false, latestSeq: 0 }),
+    ).toBe(true)
+    expect(
+      isTrustedMessagesPageZero({ messages: [], hasMore: true, latestSeq: 0 }),
+    ).toBe(true)
+  })
+
+  it("trusts anchor-mode envelopes with the tail attached (hasMoreNewer=false)", () => {
+    expect(
+      isTrustedMessagesPageZero({
+        messages: [],
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+        latestSeq: 0,
+      }),
+    ).toBe(true)
+  })
+
+  it("rejects since-mode envelopes (no hasMore flag on tail)", () => {
+    expect(
+      isTrustedMessagesPageZero({
+        messages: [],
+        hasMoreNewer: true,
+        newerCursor: "c",
+        latestSeq: 0,
+      }),
+    ).toBe(false)
+  })
+
+  it("rejects anchor-mode envelopes that still have newer history above (hasMoreNewer=true)", () => {
+    expect(
+      isTrustedMessagesPageZero({
+        messages: [],
+        hasMoreOlder: false,
+        hasMoreNewer: true,
+        latestSeq: 0,
+      }),
+    ).toBe(false)
+  })
+
+  it("rejects undefined pages", () => {
+    expect(isTrustedMessagesPageZero(undefined)).toBe(false)
+  })
+})
+
+describe("shouldPersistQuery", () => {
+  it("returns true for a message query with a trusted page[0]", () => {
+    expect(
+      shouldPersistQuery(communityKeys.channelMessages("ch_1"), {
+        pages: [{ messages: [], hasMore: false, latestSeq: 0 }],
+        pageParams: [],
+      }),
+    ).toBe(true)
+  })
+
+  it("returns false for a message query with an untrusted page[0]", () => {
+    expect(
+      shouldPersistQuery(communityKeys.channelMessages("ch_1"), {
+        pages: [{ messages: [], hasMoreNewer: true, newerCursor: "c", latestSeq: 0 }],
+        pageParams: [],
+      }),
+    ).toBe(false)
+  })
+
+  it("returns false for message queries with empty pages", () => {
+    expect(
+      shouldPersistQuery(communityKeys.channelMessages("ch_1"), {
+        pages: [],
+        pageParams: [],
+      }),
+    ).toBe(false)
+  })
+
+  it("returns false for keys outside the allowlist regardless of data", () => {
+    expect(shouldPersistQuery(communityKeys.servers(), undefined)).toBe(false)
+    expect(
+      shouldPersistQuery(communityKeys.channelReadStateSnapshot("ch_1"), {
+        lastReadMessageId: "m_1",
+      }),
+    ).toBe(false)
   })
 })
 

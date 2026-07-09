@@ -65,6 +65,13 @@ export function useChannelReadStateSnapshot(channelId: string | null | undefined
     // old position because TanStack's `staleTime: Infinity` treats cached
     // data as fresh and refuses to refetch on remount.
     gcTime: 0,
+    // Belt-and-braces alongside `gcTime: 0`. If a persisted or hydrated
+    // snapshot ever lands in the cache (e.g. a future feature flips this
+    // key back into the persist allowlist), `refetchOnMount: "always"` still
+    // fires a network fetch on mount. The `snapshotRef` below latches only
+    // the FIRST non-null resolution, so the refetched value is what gets
+    // frozen — the freeze semantics are preserved.
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     // Snapshot is one-shot; even if TanStack retries a failed fetch, the
