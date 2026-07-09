@@ -285,7 +285,14 @@ function DmView() {
           messages={messages}
           loading={messagesLoading}
           newDividerBefore={newDividerBefore}
-          typingUsers={typingUsers.map((id) => friends.find((f) => f.userId === id)?.name ?? id)}
+          typingUsers={typingUsers.map((id) => {
+            // In a DM there are only two participants — if the typing id
+            // matches the DM's counterpart, use their DM display name.
+            // Fall back to friends list (adds names for friend-typers in
+            // group DMs when we add them) and finally to the raw id.
+            if (dm && id === dm.userId) return dm.name
+            return friends.find((f) => f.userId === id)?.name ?? id
+          })}
           onOpenThread={() => {}}
           onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
           onReact={dmBlocked ? undefined : messageActions.onReact}
