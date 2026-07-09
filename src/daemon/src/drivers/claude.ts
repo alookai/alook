@@ -8,7 +8,6 @@
  * delivery is `gated` — held until a safe boundary (see runtime/apmStateMachine
  * and runtime/turnState).
  */
-import { spawn } from "child_process";
 import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt, DEFAULT_CLI_CONFIG } from "./cliTransport.js";
 import { buildClaudeProviderIsolationEnv } from "./claudeProviderIsolation.js";
@@ -19,6 +18,7 @@ import {
 } from "./claudeLaunch.js";
 import { ClaudeEventNormalizer } from "./claudeEventNormalizer.js";
 import { probeClaude } from "./probe.js";
+import { spawnAgentProcess } from "../runtime/killTree.js";
 
 export class ClaudeDriver implements Driver {
   readonly id = "claude";
@@ -54,9 +54,8 @@ export class ClaudeDriver implements Driver {
 
     const claudeCommand = resolveClaudeLaunchCommand(ctx.config);
     const spawnSpec = buildClaudeSpawnSpec(claudeCommand);
-    const proc = spawn(spawnSpec.command, args, {
+    const proc = spawnAgentProcess(spawnSpec.command, args, {
       cwd: ctx.workingDirectory,
-      stdio: ["pipe", "pipe", "pipe"],
       env: spawnEnv,
       shell: spawnSpec.shell,
     });

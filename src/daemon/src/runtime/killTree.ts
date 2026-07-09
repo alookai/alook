@@ -1,17 +1,50 @@
 /**
- * Process-tree termination with SIGKILL escalation.
+ * Agent process spawn + process-tree termination with SIGKILL escalation.
  *
- * Agent CLIs are spawned detached on POSIX, so each becomes the leader of its
- * own process group (pgid = pid). Signalling the negative pid reaches the whole
- * group — the CLI plus any MCP servers / tool subprocesses it spawned — instead
- * of just the leader. A plain positive-pid SIGTERM leaves grandchildren orphaned.
+ * These two live together on purpose: they're opposite ends of the SAME
+ * contract. `spawnAgentProcess` is the ONLY way a driver may start an agent
+ * CLI — it always spawns `detached` on POSIX, making the child the leader of
+ * its own process group (pgid = pid). That's what lets `killProcessTree`
+ * signal the negative pid to reach the whole group — the CLI plus any MCP
+ * servers / tool subprocesses it spawns — instead of just the leader, which
+ * would otherwise leave grandchildren orphaned.
+ *
+ * Driver files must NOT call `child_process.spawn` directly for the agent CLI
+ * — always go through `spawnAgentProcess` here, so the detached contract
+ * can't be silently skipped by a new (or edited) driver.
  *
  * SIGTERM is a request; after a grace window we escalate to SIGKILL.
  */
+import { spawn, type ChildProcess } from "child_process";
 
 const POLL_MS = 100;
 const DEFAULT_GRACE_MS = 2000;
 const isPosix = process.platform !== "win32";
+
+export interface AgentSpawnOptions {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  /** Run through a shell — needed on Windows for `.cmd`/`.bat` shims. */
+  shell?: boolean;
+}
+
+/**
+ * The only sanctioned way to spawn an agent CLI child process. Always pipes
+ * stdio and (on POSIX) spawns `detached` so the child becomes its own
+ * process-group leader — required for `killProcessTree`'s group signal to
+ * actually reach it (and its grandchildren) instead of silently no-oping.
+ * See the module doc comment above for why this must be the single spawn
+ * entry point rather than each driver calling `child_process.spawn` itself.
+ */
+export function spawnAgentProcess(command: string, args: string[], opts: AgentSpawnOptions): ChildProcess {
+  return spawn(command, args, {
+    cwd: opts.cwd,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: opts.env,
+    shell: opts.shell ?? false,
+    detached: isPosix,
+  });
+}
 
 export function isAlive(pid: number): boolean {
   try {
@@ -22,14 +55,24 @@ export function isAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Best-effort group signal, ALWAYS followed by a direct pid signal —
+ * regardless of whether the group signal succeeded, threw `ESRCH` (no such
+ * process group — e.g. the child wasn't spawned detached), or threw anything
+ * else. A group signal failure must never be mistaken for "the pid is dead":
+ * that conflates two unrelated failure semantics and was the root cause of a
+ * bug where stopped agents kept running forever (see
+ * plans/fix-daemon-agent-process-kill.md). Signaling an already-dead pid is
+ * safe — it just throws ESRCH too, caught and ignored below.
+ */
 function signalTree(pid: number, signal: NodeJS.Signals): void {
   if (isPosix) {
     try {
       process.kill(-pid, signal);
-      return;
-    } catch (e) {
-      const code = (e as NodeJS.ErrnoException)?.code;
-      if (code === "ESRCH") return;
+    } catch {
+      // Most commonly ESRCH (no such process group — not detached, or
+      // already gone), but any failure here falls through the same way:
+      // never treat it as proof the pid itself is dead.
     }
   }
   try {

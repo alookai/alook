@@ -6,11 +6,11 @@
  * `text` event unless it matches an error pattern. Models are suggestion-only
  * (not passed at launch). The prompt is written to stdin then closed.
  */
-import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import type { Driver, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
+import { spawnAgentProcess } from "../runtime/killTree.js";
 
 const ERROR_LINE_PATTERNS: RegExp[] = [/^error[:\s]/i, /\bfatal\b/i, /\bpanic\b/i, /unable to/i];
 
@@ -60,9 +60,8 @@ export class AntigravityDriver implements Driver {
     // Cross-platform spawn: on Windows the agy entry is often a `.cmd`
     // shim, which `child_process.spawn` can't exec without a shell.
     const spec = resolveSpawnSpec("agy", buildAntigravityArgs(ctx));
-    const proc = spawn(spec.command, spec.args, {
+    const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
-      stdio: ["pipe", "pipe", "pipe"],
       env: spawnEnv,
       shell: spec.shell,
     });

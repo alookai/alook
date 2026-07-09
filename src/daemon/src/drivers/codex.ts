@@ -13,13 +13,13 @@
  * Handshake (queued on spawn): `initialize` → then `thread/start` (or
  * `thread/resume` with the prior threadId). The thread id is the session id.
  */
-import { spawn } from "child_process";
 import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { CodexEventNormalizer } from "./codexEventNormalizer.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveCodexHomeRootFromEnv } from "./codexHome.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
+import { spawnAgentProcess } from "../runtime/killTree.js";
 
 /** True if a resume error means the prior thread rollout is gone. */
 export function isCodexMissingRolloutError(message: string): boolean {
@@ -85,9 +85,8 @@ export class CodexDriver implements Driver {
     this.codexHomeRoot = resolveCodexHomeRootFromEnv(spawnEnv, { cwd: ctx.workingDirectory });
     // Cross-platform spawn: on Windows the codex entry is often a `.cmd` shim.
     const spec = resolveSpawnSpec("codex", ["app-server", "--listen", "stdio://"]);
-    const proc = spawn(spec.command, spec.args, {
+    const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
-      stdio: ["pipe", "pipe", "pipe"],
       env: spawnEnv,
       shell: spec.shell,
     });

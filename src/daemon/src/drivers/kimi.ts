@@ -7,12 +7,12 @@
  * workdir (Kimi auto-reads it from cwd). On spawn we send `initialize` then a
  * `prompt`; thereafter idle messages are `prompt` and busy messages are `steer`.
  */
-import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import type { Driver, EncodeOpts, LaunchConfig, LaunchContext, ParsedEvent, SpawnResult } from "../types.js";
 import { prepareCliTransport, buildCliTransportSystemPrompt } from "./cliTransport.js";
 import { probeCliRuntime, resolveSpawnSpec } from "./probe.js";
 import { resolveLaunchFieldsOrDefault } from "../runtimeConfig.js";
+import { spawnAgentProcess } from "../runtime/killTree.js";
 
 function parseToolArguments(args: unknown): unknown {
   if (typeof args !== "string") return args ?? {};
@@ -58,9 +58,8 @@ export class KimiDriver implements Driver {
     // Cross-platform spawn: on Windows the kimi entry is often a `.cmd`
     // shim, which `child_process.spawn` can't exec without a shell.
     const spec = resolveSpawnSpec("kimi", args);
-    const proc = spawn(spec.command, spec.args, {
+    const proc = spawnAgentProcess(spec.command, spec.args, {
       cwd: ctx.workingDirectory,
-      stdio: ["pipe", "pipe", "pipe"],
       env: spawnEnv,
       shell: spec.shell,
     });
