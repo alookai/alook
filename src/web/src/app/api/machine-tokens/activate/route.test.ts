@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 const mockGetMachineTokenByToken = vi.fn();
 const mockActivateMachineToken = vi.fn();
 const mockUpsertMachine = vi.fn();
-const mockUpsertAgentRuntime = vi.fn();
+const mockBatchUpsertAgentRuntimes = vi.fn();
 const mockBroadcastToUser = vi.fn();
 
 function sharedMocks() {
@@ -23,7 +23,7 @@ function sharedMocks() {
           upsertMachine: (...a: any[]) => mockUpsertMachine(...a),
         },
         runtime: {
-          upsertAgentRuntime: (...a: any[]) => mockUpsertAgentRuntime(...a),
+          batchUpsertAgentRuntimes: (...a: any[]) => mockBatchUpsertAgentRuntimes(...a),
         },
       },
       ActivateTokenRequestSchema: (await import("@alook/shared"))
@@ -95,7 +95,7 @@ describe("POST /api/machine-tokens/activate", () => {
 
     mockGetMachineTokenByToken.mockResolvedValue(pendingToken);
     mockUpsertMachine.mockResolvedValue(undefined);
-    mockUpsertAgentRuntime.mockResolvedValue({ id: "rt_1", provider: "claude" });
+    mockBatchUpsertAgentRuntimes.mockResolvedValue([{ id: "rt_1", provider: "claude" }]);
     mockActivateMachineToken.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
 
@@ -115,14 +115,16 @@ describe("POST /api/machine-tokens/activate", () => {
       ownerId: "u1",
     });
 
-    expect(mockUpsertAgentRuntime).toHaveBeenCalledWith(expect.anything(), {
-      workspaceId: "ws_1",
-      daemonId: "TestMachine.local",
-      runtimeMode: "local",
-      provider: "claude",
-      deviceInfo: "TestMachine.local",
-      metadata: { version: "2.1.0" },
-    });
+    expect(mockBatchUpsertAgentRuntimes).toHaveBeenCalledWith(expect.anything(), [
+      {
+        workspaceId: "ws_1",
+        daemonId: "TestMachine.local",
+        runtimeMode: "local",
+        provider: "claude",
+        deviceInfo: "TestMachine.local",
+        metadata: { version: "2.1.0" },
+      },
+    ]);
 
     expect(mockActivateMachineToken).toHaveBeenCalledWith(
       expect.anything(),
@@ -136,7 +138,7 @@ describe("POST /api/machine-tokens/activate", () => {
 
     mockGetMachineTokenByToken.mockResolvedValue(pendingToken);
     mockUpsertMachine.mockResolvedValue(undefined);
-    mockUpsertAgentRuntime.mockResolvedValue({ id: "rt_1", provider: "claude" });
+    mockBatchUpsertAgentRuntimes.mockResolvedValue([{ id: "rt_1", provider: "claude" }]);
     mockActivateMachineToken.mockResolvedValue(undefined);
     mockBroadcastToUser.mockResolvedValue(undefined);
 

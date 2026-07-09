@@ -127,7 +127,7 @@ export function LinkSidecar({
           Edit relationship between {sourceAgent?.name} and {targetAgent?.name}
         </SheetTitle>
 
-        <SheetHeader className="border-b px-5 py-4">
+        <SheetHeader className="border-b px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="flex items-center">
@@ -161,7 +161,7 @@ export function LinkSidecar({
           </p>
         </SheetHeader>
 
-        <div className="flex-1 overflow-y-auto thin-scrollbar px-5 py-4">
+        <div className="flex-1 overflow-y-auto thin-scrollbar px-4 py-4">
           <MarkdownEditor
             variant="seamless"
             contentType="markdown"

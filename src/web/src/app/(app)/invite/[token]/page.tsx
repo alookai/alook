@@ -66,7 +66,7 @@ export default function InvitePage() {
               </p>
             </div>
 
-            <div className="rounded-md border border-border/50 px-4 py-3 text-left space-y-0.5">
+            <div className="rounded-md border border-border/50 px-4 py-3 text-left space-y-1">
               <p className="text-sm font-medium">{info.workspace_name}</p>
               <p className="text-xs text-muted-foreground">Workspace</p>
             </div>

@@ -1,0 +1,48 @@
+{
+  "name": "@alook/daemon",
+  "version": "0.1.0",
+  "description": "Alook agent daemon — host-side runtime backend, process manager, credential proxy, and control plane.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "alook": "dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/cli/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "mock-server": "tsx scripts/mock-server.ts",
+    "daemon": "tsx scripts/daemon.ts",
+    "test-server": "tsx scripts/test-server.ts",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "license": "Apache-2.0",
+  "private": true,
+  "dependencies": {
+    "@alook/shared": "workspace:*",
+    "commander": "^15.0.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.18.1",
+    "eslint": "^10.3.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.61.1",
+    "vitest": "^4.1.9"
+  }
+}

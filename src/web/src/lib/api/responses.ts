@@ -4,7 +4,6 @@ import {
 } from "@/lib/middleware/helpers";
 import { TaskApiBaseSchema, isOnline, TASK_TYPES, schema, type Message } from "@alook/shared";
 
-type UserRow = typeof schema.user.$inferSelect;
 type WorkspaceRow = typeof schema.workspace.$inferSelect;
 type AgentRow = typeof schema.agent.$inferSelect;
 type EmailRow = typeof schema.emails.$inferSelect;
@@ -18,9 +17,15 @@ type MeetingSessionRow = typeof schema.meetingSession.$inferSelect;
 type AgentLinkRow = typeof schema.agentLink.$inferSelect;
 type CalendarEventRow = typeof schema.calendarEvent.$inferSelect;
 type IssueRow = typeof schema.issue.$inferSelect;
-type AgentTaskQueueRow = typeof schema.agentTaskQueue.$inferSelect;
 
-export function userToResponse(u: UserRow) {
+export function userToResponse(u: {
+  id: string;
+  name: string;
+  email: string;
+  image: string | null;
+  createdAt: string;
+  updatedAt: string;
+}) {
   return {
     id: u.id,
     name: u.name,

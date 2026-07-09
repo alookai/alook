@@ -88,13 +88,13 @@ export function EmailCard({
             {direction === "inbound" ? "from " : "to "}
             {address}
           </span>
-          <span className="shrink-0 flex flex-col items-end gap-0.5">
+          <span className="shrink-0 flex flex-col items-end gap-1">
             {timestamp && (
               <span className="text-[0.62rem] font-mono text-muted-foreground/65">
                 {relativeTime(timestamp)}
               </span>
             )}
-            <span className="text-[0.5rem] font-bold uppercase tracking-wider text-(--te) px-1 py-0.5 rounded-[3px] border-[1.5px] border-(--te) opacity-45 -rotate-3">
+            <span className="text-[0.5rem] font-bold uppercase tracking-wider text-(--te) px-1 py-1 rounded-[3px] border-[1.5px] border-(--te) opacity-45 -rotate-3">
               {direction === "inbound" ? "Inbound" : "Sent"}
             </span>
           </span>
@@ -105,7 +105,7 @@ export function EmailCard({
       </span>
       {isInternal && resolvedAgent && targetConvId && (
         <span
-          className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 translate-y-1 opacity-0 group-hover/ecard:opacity-100 group-hover/ecard:translate-y-0 transition-all duration-200 ease-out pointer-events-none group-hover/ecard:pointer-events-auto z-10"
+          className="absolute -bottom-2 left-1/2 -translate-x-1/2 translate-y-1 opacity-0 group-hover/ecard:opacity-100 group-hover/ecard:translate-y-0 transition-all duration-200 ease-out pointer-events-none group-hover/ecard:pointer-events-auto z-10"
         >
           <span
             role="button"
@@ -120,13 +120,13 @@ export function EmailCard({
                 if (targetConvId && targetAgentId) onAgentChatOpen?.(targetAgentId, targetConvId);
               }
             }}
-            className="flex items-center gap-1.5 py-0.5 pl-0.5 pr-2 bg-(--paper) border border-(--border) rounded-full shadow-md hover:bg-(--secondary) cursor-pointer whitespace-nowrap"
+            className="flex items-center gap-2 py-1 pl-0.5 pr-2 bg-(--paper) border border-(--border) rounded-full shadow-md hover:bg-(--secondary) cursor-pointer whitespace-nowrap"
           >
             {resolvedAgent.avatarConfig && (
               <AnimatedAvatar config={resolvedAgent.avatarConfig} size={20} isHovered={false} className="rounded-full" />
             )}
             <span className="text-[0.62rem] font-semibold opacity-80">{resolvedAgent.name}</span>
-            <ChevronRight className="w-2.5 h-2.5 text-muted-foreground/45 -ml-0.5" />
+            <ChevronRight className="w-2.5 h-2.5 text-muted-foreground/45 -ml-1" />
           </span>
         </span>
       )}

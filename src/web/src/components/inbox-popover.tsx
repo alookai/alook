@@ -28,7 +28,7 @@ function InboxPopoverRow({
     <a
       href={`/w/${slug}/agents/${item.agent_id}?conv=${item.id}`}
       onClick={onClick}
-      className="block w-full py-1.5 px-2 hover:bg-muted rounded-md transition-colors cursor-pointer"
+      className="block w-full py-2 px-2 hover:bg-muted rounded-md transition-colors cursor-pointer"
     >
       <div className="flex items-center gap-2">
         <AgentAvatar name={item.agent_name} avatarUrl={item.agent_avatar_url} size={24} />
@@ -41,7 +41,7 @@ function InboxPopoverRow({
               {relativeTime(item.latest_response_at)}
             </span>
           </div>
-          <p className="text-xs text-muted-foreground truncate mt-0.5">
+          <p className="text-xs text-muted-foreground truncate mt-1">
             {item.root_prompt ?? item.title}
           </p>
         </div>
@@ -121,7 +121,7 @@ export function InboxPopover({
         >
           <Inbox className="size-4" />
           {inboxCount > 0 && (
-            <span className="absolute top-1 right-1 flex items-center justify-center min-w-3.5 h-3.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-0.5">
+            <span className="absolute top-1 right-1 flex items-center justify-center min-w-3.5 h-3.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold px-1">
               {inboxCount > 99 ? "99+" : inboxCount}
             </span>
           )}
@@ -146,14 +146,14 @@ export function InboxPopover({
           {loading ? (
             <div className="space-y-1">
               {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="py-1.5 px-2">
+                <div key={i} className="py-2 px-2">
                   <div className="flex items-center gap-2">
                     <Skeleton className="size-6 rounded-full shrink-0" />
                     <Skeleton className="h-3 w-20" />
                     <div className="flex-1" />
                     <Skeleton className="h-2.5 w-8" />
                   </div>
-                  <Skeleton className="h-3 w-3/4 mt-1.5 ml-8" />
+                  <Skeleton className="h-3 w-3/4 mt-2 ml-8" />
                 </div>
               ))}
             </div>

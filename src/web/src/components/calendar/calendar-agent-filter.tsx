@@ -22,7 +22,7 @@ export function CalendarAgentFilter({
   onToggle,
 }: CalendarAgentFilterProps) {
   return (
-    <div className="flex min-h-6 items-center gap-1.5 overflow-x-auto flex-nowrap scrollbar-none sm:flex-wrap sm:overflow-x-visible">
+    <div className="flex min-h-6 items-center gap-2 overflow-x-auto flex-nowrap scrollbar-none sm:flex-wrap sm:overflow-x-visible">
       {agents.length === 0 ? (
         <>
           <Skeleton className="h-6 w-20 rounded-full" />
@@ -38,7 +38,7 @@ export function CalendarAgentFilter({
               key={a.id}
               onClick={() => onToggle(a.id)}
               className={cn(
-                "flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-medium transition-colors",
+                "flex h-6 shrink-0 items-center gap-2 rounded-full px-2 text-[11px] font-medium transition-colors",
                 on
                   ? "bg-foreground text-background"
                   : "bg-transparent text-muted-foreground border border-border hover:bg-accent"

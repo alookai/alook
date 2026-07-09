@@ -1,11 +1,13 @@
 {
   "name": "@alook/shared",
-  "version": "0.0.149",
+  "version": "0.0.151",
   "private": true,
   "exports": {
     ".": "./src/index.ts",
     "./crypto": "./src/utils/crypto.ts",
-    "./browser": "./src/browser/index.ts"
+    "./browser": "./src/browser/index.ts",
+    "./community-cli-contract": "./src/community-cli-contract.ts",
+    "./runtime-config": "./src/runtime-config.ts"
   },
   "scripts": {
     "knip": "knip",
@@ -14,14 +16,14 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
-    "nanoid": "^5.1.15",
+    "nanoid": "^5.1.16",
     "zod": "^4.4"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260621.1",
+    "@cloudflare/workers-types": "^4.20260702.1",
     "@types/node": "^25.9.4",
-    "knip": "^6.17.1",
-    "playwright-core": "^1.61.0",
+    "knip": "^6.24.0",
+    "playwright-core": "^1.61.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   }

@@ -82,7 +82,7 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
                 <SheetTitle className="truncate flex-1">
                   {selectedArtifact.filename}
                   {duplicateFilenames.has(selectedArtifact.filename) && (
-                    <span className="ml-1.5 text-xs text-muted-foreground bg-muted rounded-full px-1.5 py-0.5 font-normal">
+                    <span className="ml-2 text-xs text-muted-foreground bg-muted rounded-full px-2 py-1 font-normal">
                       v{versionMap.get(selectedArtifact.id) ?? 1}
                     </span>
                   )}
@@ -130,14 +130,14 @@ export function ArtifactSheet({ open, onOpenChange, artifacts, workspaceId, init
                     <button
                       key={a.id}
                       onClick={() => setSelectedArtifact(a)}
-                      className="flex items-center gap-3 w-full rounded-lg px-3 py-2.5 text-left hover:bg-muted/50 transition-colors"
+                      className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-left hover:bg-muted/50 transition-colors"
                     >
                       <FileText className="size-4 shrink-0 text-muted-foreground" />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">
                           {a.filename}
                           {duplicateFilenames.has(a.filename) && (
-                            <span className="ml-1.5 text-xs text-muted-foreground bg-muted rounded-full px-1.5 py-0.5 font-normal">
+                            <span className="ml-2 text-xs text-muted-foreground bg-muted rounded-full px-2 py-1 font-normal">
                               v{versionMap.get(a.id) ?? 1}
                             </span>
                           )}

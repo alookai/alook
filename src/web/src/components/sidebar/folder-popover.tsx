@@ -103,7 +103,7 @@ export function FolderPopover({
           sideOffset={8}
           align="start"
         >
-          <Popover.Popup className="z-50 bg-popover border rounded-xl shadow-md p-1.5 animate-in fade-in-0 zoom-in-95 outline-none">
+          <Popover.Popup className="z-50 bg-popover border rounded-xl shadow-md p-2 animate-in fade-in-0 zoom-in-95 outline-none">
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
@@ -137,7 +137,7 @@ export function FolderPopover({
                           <ContextMenuItem
                             onClick={() => onRemoveFromFolder(agent.id)}
                           >
-                            <PinOffIcon className="size-3.5 mr-1.5" />
+                            <PinOffIcon className="size-3.5 mr-2" />
                             Remove from group
                           </ContextMenuItem>
                         }

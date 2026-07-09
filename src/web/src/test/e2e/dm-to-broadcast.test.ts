@@ -5,17 +5,15 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { randomUUID } from "crypto"
+import { DEV_WS_DO_URL } from "@alook/shared"
 import { seedTestData, cleanupTestData, type TestSeed, tokenRequest } from "@alook/test-utils"
-
-const WS_DO_PORT = Number(process.env.NEXT_PUBLIC_WS_DO_PORT) || 8789
-const WS_DO_HTTP = `http://localhost:${WS_DO_PORT}`
 
 let seed: TestSeed
 let wsAvailable = false
 
 async function checkWsAvailable(): Promise<boolean> {
   try {
-    const res = await fetch(WS_DO_HTTP, { method: "GET" })
+    const res = await fetch(DEV_WS_DO_URL, { method: "GET" })
     return res.status < 500
   } catch {
     return false
@@ -109,7 +107,7 @@ describe("cross-service: DM → task lifecycle → WS broadcast", () => {
     if (!wsAvailable) return
 
     const payload = { type: "task.completed", taskId: `test_${randomUUID().slice(0, 8)}`, conversationId }
-    const broadcastRes = await fetch(`${WS_DO_HTTP}/broadcast/user/${seed.userId}`, {
+    const broadcastRes = await fetch(`${DEV_WS_DO_URL}/broadcast/user/${seed.userId}`, {
       method: "POST",
       body: JSON.stringify(payload),
     })

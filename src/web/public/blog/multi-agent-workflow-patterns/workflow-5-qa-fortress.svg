@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1200" height="600" viewBox="0 0 1200 600" xmlns="http://www.w3.org/2000/svg">
+  <!-- QA Fortress Diagram - Circular Flow -->
+  <defs>
+    <linearGradient id="goldGrad5" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#CD9200;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#B08000;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="fortressGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#0F0A07;stop-opacity:0.1" />
+      <stop offset="100%" style="stop-color:#CD9200;stop-opacity:0.05" />
+    </linearGradient>
+    <filter id="shadow5" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="2" dy="2" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.2"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="600" fill="#FEFDFB"/>
+
+  <!-- Title -->
+  <text x="600" y="40" font-family="Arial, sans-serif" font-size="24" font-weight="bold" text-anchor="middle" fill="#0F0A07">QA Fortress</text>
+  <text x="600" y="65" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#666">Continuous protection through defensive layers</text>
+
+  <!-- Fortress Background Circle -->
+  <circle cx="600" cy="320" r="200" fill="url(#fortressGrad)" stroke="#CD9200" stroke-width="2" stroke-dasharray="10,5" opacity="0.3"/>
+  <circle cx="600" cy="320" r="150" fill="none" stroke="#EDE7DD" stroke-width="1" stroke-dasharray="5,3" opacity="0.5"/>
+  <circle cx="600" cy="320" r="100" fill="none" stroke="#EDE7DD" stroke-width="1" stroke-dasharray="5,3" opacity="0.5"/>
+
+  <!-- Center Shield Icon -->
+  <path d="M 600 270 L 580 280 L 580 310 Q 580 340 600 350 Q 620 340 620 310 L 620 280 Z" fill="#CD9200" opacity="0.2"/>
+  <text x="600" y="310" font-family="Arial, sans-serif" font-size="12" font-weight="bold" text-anchor="middle" fill="#CD9200">QA</text>
+
+  <!-- Agent Positions (Circular) -->
+  <!-- Test Generator (Top) -->
+  <rect x="520" y="120" width="160" height="80" rx="10" fill="url(#goldGrad5)" filter="url(#shadow5)"/>
+  <text x="600" y="155" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Test</text>
+  <text x="600" y="175" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Generator</text>
+
+  <!-- Test Runner (Right) -->
+  <rect x="750" y="280" width="160" height="80" rx="10" fill="url(#goldGrad5)" filter="url(#shadow5)"/>
+  <text x="830" y="315" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Test</text>
+  <text x="830" y="335" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Runner</text>
+
+  <!-- Bug Reporter (Bottom Right) -->
+  <rect x="650" y="440" width="160" height="80" rx="10" fill="url(#goldGrad5)" filter="url(#shadow5)"/>
+  <text x="730" y="475" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Bug</text>
+  <text x="730" y="495" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Reporter</text>
+
+  <!-- Fix Suggester (Bottom Left) -->
+  <rect x="390" y="440" width="160" height="80" rx="10" fill="url(#goldGrad5)" filter="url(#shadow5)"/>
+  <text x="470" y="475" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Fix</text>
+  <text x="470" y="495" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Suggester</text>
+
+  <!-- Regression Guardian (Left) -->
+  <rect x="290" y="280" width="160" height="80" rx="10" fill="url(#goldGrad5)" filter="url(#shadow5)"/>
+  <text x="370" y="315" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Regression</text>
+  <text x="370" y="335" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Guardian</text>
+
+  <!-- Circular Flow Arrows -->
+  <!-- Generator to Runner -->
+  <path d="M 680 160 Q 750 160, 790 240" stroke="#CD9200" stroke-width="3" fill="none"/>
+  <polygon points="785,240 795,245 790,235" fill="#CD9200"/>
+
+  <!-- Runner to Reporter -->
+  <path d="M 830 360 Q 830 400, 780 440" stroke="#CD9200" stroke-width="3" fill="none"/>
+  <polygon points="780,435 780,445 775,440" fill="#CD9200"/>
+
+  <!-- Reporter to Suggester -->
+  <path d="M 650 480 L 550 480" stroke="#CD9200" stroke-width="3" fill="none"/>
+  <polygon points="550,475 540,480 550,485" fill="#CD9200"/>
+
+  <!-- Suggester to Guardian -->
+  <path d="M 440 440 Q 370 400, 370 360" stroke="#CD9200" stroke-width="3" fill="none"/>
+  <polygon points="365,360 370,350 375,360" fill="#CD9200"/>
+
+  <!-- Guardian back to Runner (Circular) -->
+  <path d="M 450 320 Q 600 240, 750 320" stroke="#CD9200" stroke-width="2" stroke-dasharray="5,3" fill="none"/>
+  <polygon points="745,315 755,320 745,325" fill="#CD9200"/>
+
+  <!-- Process Icons and Labels -->
+  <circle cx="600" cy="160" r="15" fill="white" stroke="#CD9200" stroke-width="2"/>
+  <text x="600" y="165" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#CD9200">+</text>
+  <text x="600" y="95" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Create Tests</text>
+
+  <circle cx="830" cy="320" r="15" fill="white" stroke="#CD9200" stroke-width="2"/>
+  <text x="830" y="326" font-family="Arial, sans-serif" font-size="16" text-anchor="middle" fill="#CD9200">▶</text>
+  <text x="950" y="325" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Execute</text>
+
+  <circle cx="730" cy="480" r="15" fill="white" stroke="#CD9200" stroke-width="2"/>
+  <text x="730" y="485" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#CD9200">!</text>
+  <text x="730" y="545" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Document Issues</text>
+
+  <circle cx="470" cy="480" r="15" fill="white" stroke="#CD9200" stroke-width="2"/>
+  <text x="470" y="485" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#CD9200">✓</text>
+  <text x="470" y="545" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Propose Fixes</text>
+
+  <circle cx="370" cy="320" r="15" fill="white" stroke="#CD9200" stroke-width="2"/>
+  <text x="370" y="325" font-family="Arial, sans-serif" font-size="12" text-anchor="middle" fill="#CD9200">↻</text>
+  <text x="250" y="325" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Guard</text>
+
+  <!-- Defense Layers Labels -->
+  <text x="600" y="520" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#999">OUTER LAYER</text>
+  <text x="600" y="420" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#999">MIDDLE LAYER</text>
+  <text x="600" y="320" font-family="Arial, sans-serif" font-size="10" text-anchor="middle" fill="#999">CORE</text>
+
+  <!-- Key message -->
+  <text x="600" y="570" font-family="Arial, sans-serif" font-size="12" font-style="italic" text-anchor="middle" fill="#999">Continuous testing cycle ensures no bug escapes the fortress</text>
+</svg>

@@ -4,8 +4,8 @@ export function writeJSON(data: unknown, status = 200): NextResponse {
   return NextResponse.json(data, { status });
 }
 
-export function writeError(message: string, status: number): NextResponse {
-  return NextResponse.json({ error: message }, { status });
+export function writeError(message: string, status: number, headers?: Record<string, string>): NextResponse {
+  return NextResponse.json({ error: message }, { status, ...(headers ? { headers } : {}) });
 }
 
 /** Format a Date or ISO string as RFC 3339 without sub-second precision (matching Go output). */

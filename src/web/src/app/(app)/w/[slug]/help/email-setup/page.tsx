@@ -119,16 +119,16 @@ const PROVIDERS = [
 export default function EmailSetupHelpPage() {
   return (
     <>
-      <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5 gap-3">
+      <div className="flex items-center justify-between border-b border-border/50 px-3 sm:px-4 py-2 gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <h1 className="text-sm font-medium">Email Setup Guide</h1>
-          <p className="text-xs text-muted-foreground hidden md:block">
+          <p className="text-xs text-muted-foreground hidden sm:block">
             How to get IMAP/SMTP credentials for your email provider
           </p>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-6">
         <div className="mx-auto max-w-2xl">
           <Tabs defaultValue="gmail">
             <TabsList className="flex-wrap h-auto gap-1">
@@ -143,11 +143,11 @@ export default function EmailSetupHelpPage() {
               <TabsContent key={provider.id} value={provider.id} className="space-y-4 pt-4">
                 {provider.imap && provider.smtp && (
                   <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div className="rounded-md border border-border/50 px-3 py-2 space-y-0.5">
+                    <div className="rounded-md border border-border/50 px-3 py-2 space-y-1">
                       <span className="font-medium text-muted-foreground">IMAP</span>
                       <div className="font-mono">{provider.imap.host}:{provider.imap.port}</div>
                     </div>
-                    <div className="rounded-md border border-border/50 px-3 py-2 space-y-0.5">
+                    <div className="rounded-md border border-border/50 px-3 py-2 space-y-1">
                       <span className="font-medium text-muted-foreground">SMTP</span>
                       <div className="font-mono">{provider.smtp.host}:{provider.smtp.port}</div>
                     </div>

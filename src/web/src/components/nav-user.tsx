@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession, signOut } from "@/lib/auth-client";
 import { clearAllCache } from "@/lib/chat-cache";
+import { useCommunityStore } from "@/stores/community";
+import { useCommunityWsStore } from "@/stores/community/ws";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,7 +31,7 @@ export function NavUser() {
   if (!mounted || isPending || !user)
     return <Skeleton className="size-10 rounded-xl" />;
 
-  const firstLetter = (user.name || user.email || "?").charAt(0).toUpperCase();
+  const firstLetter = (user.name || "?").charAt(0).toUpperCase();
 
   return (
     <DropdownMenu>
@@ -37,7 +39,7 @@ export function NavUser() {
         render={
           <button
             type="button"
-            title={user.name ?? user.email ?? "Account"}
+            title={user.name}
             className="flex items-center justify-center size-10 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors duration-200 cursor-pointer"
           />
         }
@@ -52,13 +54,13 @@ export function NavUser() {
       >
         <DropdownMenuGroup>
           <DropdownMenuLabel className="p-0 font-normal">
-            <div className="flex items-center gap-2 px-2 py-1.5 text-left text-sm">
+            <div className="flex items-center gap-2 px-2 py-2 text-left text-sm">
               <div className="flex items-center justify-center size-7 rounded-full bg-primary text-primary-foreground text-xs font-medium shrink-0">
                 {firstLetter}
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">
-                  {user.name ?? "User"}
+                  {user.name}
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
                   {user.email}
@@ -71,6 +73,10 @@ export function NavUser() {
         <DropdownMenuGroup>
           <DropdownMenuItem
             onClick={async () => {
+              // Clear community-local state (timers, subscription) so no
+              // WS handler timers survive past sign-out.
+              useCommunityStore.getState().reset();
+              useCommunityWsStore.getState().reset();
               await clearAllCache();
               await signOut();
               router.push("/sign-in");

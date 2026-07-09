@@ -140,7 +140,7 @@ export function GeneralTab() {
       <section className="space-y-4">
         <h2 className="text-sm font-medium">Workspace</h2>
         <div className="space-y-3">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="workspace-name">Name</Label>
             <Input
               id="workspace-name"
@@ -162,7 +162,7 @@ export function GeneralTab() {
               </p>
             )}
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="workspace-slug">Slug</Label>
             <Input
               id="workspace-slug"
@@ -204,7 +204,7 @@ export function GeneralTab() {
             Deleting this workspace is permanent and cannot be undone. All agents,
             conversations, and data will be lost.
           </p>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="delete-confirm" className="text-xs">
               Type <span className="font-medium text-foreground">{savedWorkspaceName}</span> to confirm
             </Label>

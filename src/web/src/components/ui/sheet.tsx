@@ -41,14 +41,16 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  showOverlay = true,
   ...props
 }: SheetPrimitive.Popup.Props & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  showOverlay?: boolean
 }) {
   return (
     <SheetPortal>
-      <SheetOverlay forceRender />
+      {showOverlay && <SheetOverlay forceRender />}
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
@@ -87,7 +89,7 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-header"
-      className={cn("flex flex-col gap-1 border-b px-4 sm:px-6 py-5", className)}
+      className={cn("flex flex-col gap-1 border-b px-4 sm:px-6 py-4", className)}
       {...props}
     />
   )
@@ -97,7 +99,7 @@ function SheetBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="sheet-body"
-      className={cn("flex-1 overflow-y-auto thin-scrollbar px-4 sm:px-6 py-5", className)}
+      className={cn("flex-1 overflow-y-auto thin-scrollbar px-4 sm:px-6 py-4", className)}
       {...props}
     />
   )

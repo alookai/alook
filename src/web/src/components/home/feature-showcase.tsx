@@ -279,7 +279,7 @@ function FlipCard({ feature }: { feature: Feature }) {
               "0 4px 16px oklch(0.15 0.01 55 / 15%), inset 0 1px 0 oklch(0.95 0.01 80 / 40%)",
           }}
         >
-          <div className="crt-panel-inner p-5">
+          <div className="crt-panel-inner p-4">
             <div className="flex items-center justify-center min-h-35">
               <AnimatedArt lines={feature.terminal} />
             </div>
@@ -299,7 +299,7 @@ function FlipCard({ feature }: { feature: Feature }) {
           }}
         >
           <p
-            className="mb-5 text-center text-sm"
+            className="mb-4 text-center text-sm"
             style={{
               fontFamily: "var(--font-crt)",
               color: "var(--landing-phosphor)",
@@ -310,7 +310,7 @@ function FlipCard({ feature }: { feature: Feature }) {
           </p>
           <a
             href={feature.cta.href}
-            className="inline-flex items-center gap-2 px-5 py-2.5 text-xs uppercase tracking-widest transition-opacity hover:opacity-80"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity hover:opacity-80"
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--landing-crt-bg)",

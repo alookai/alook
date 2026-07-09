@@ -395,6 +395,7 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
   const notificationState = new RuntimeNotificationState();
   const progressState = new RuntimeProgressState();
   const pendingSteeredTasks = new Set<string>();
+  const pendingAcks: { seq: string; sessionId: string }[] = [];
   let hasReceivedProgressEvent = false;
 
   if (input.steeringEnabled && input.steeringMailboxDir && task.contextKey) {
@@ -466,10 +467,19 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
                     reason: "tool_batch_complete",
                   });
                   if (readiness.shouldNotify) {
+                    let allSent = true;
                     for (const msg of apmState.pendingMessages) {
-                      session.send(msg, "busy");
+                      const sendResult = session.send(msg, "busy");
+                      if (!sendResult.ok) { allSent = false; break; }
                     }
-                    apmState = { ...apmState, pendingMessages: [] };
+                    if (allSent) {
+                      apmState = { ...apmState, pendingMessages: [] };
+                      for (const ack of pendingAcks) {
+                        notificationState.recordNoticeWritten(String(ack.seq), ack.sessionId, [{ id: String(ack.seq) }]);
+                        writeAck(agentBaseDir, task.contextKey!, ack.seq);
+                      }
+                      pendingAcks.length = 0;
+                    }
                   }
                 }
                 break;
@@ -486,10 +496,19 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
                     reason: "compaction_finished",
                   });
                   if (readiness.shouldNotify) {
+                    let allSent = true;
                     for (const msg of apmState.pendingMessages) {
-                      session.send(msg, "busy");
+                      const sendResult = session.send(msg, "busy");
+                      if (!sendResult.ok) { allSent = false; break; }
                     }
-                    apmState = { ...apmState, pendingMessages: [] };
+                    if (allSent) {
+                      apmState = { ...apmState, pendingMessages: [] };
+                      for (const ack of pendingAcks) {
+                        notificationState.recordNoticeWritten(String(ack.seq), ack.sessionId, [{ id: String(ack.seq) }]);
+                        writeAck(agentBaseDir, task.contextKey!, ack.seq);
+                      }
+                      pendingAcks.length = 0;
+                    }
                   }
                 }
                 break;
@@ -501,29 +520,53 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
                   hasSession: !!earlySessionId,
                 });
                 apmState = result.nextState;
+                let flushedOk = false;
                 for (const eff of result.effects) {
                   if (eff.kind === "deliver_stdin" && session.send) {
+                    let allSent = true;
                     for (const msg of apmState.pendingMessages) {
-                      session.send(msg, eff.stdinMode);
+                      const sendResult = session.send(msg, eff.stdinMode);
+                      if (!sendResult.ok) {
+                        log.warn("steering: send failed during turn_end flush", { reason: sendResult.reason });
+                        allSent = false;
+                        break;
+                      }
                     }
-                    apmState = { ...apmState, pendingMessages: [] };
+                    if (allSent) {
+                      apmState = { ...apmState, pendingMessages: [] };
+                      flushedOk = true;
+                    }
                   }
                 }
-                // Complete any pending steered tasks
-                for (const steeredId of pendingSteeredTasks) {
-                  client.completeTask(token, steeredId, { output: "" }).catch((e) => {
-                    log.debug(`steering: failed to complete steered task ${steeredId}`, e);
-                  });
+                // Write deferred acks only after successful flush
+                if (flushedOk && pendingAcks.length > 0) {
+                  for (const ack of pendingAcks) {
+                    notificationState.recordNoticeWritten(String(ack.seq), ack.sessionId, [{ id: String(ack.seq) }]);
+                    writeAck(agentBaseDir, task.contextKey!, ack.seq);
+                  }
+                  pendingAcks.length = 0;
                 }
-                pendingSteeredTasks.clear();
+                // Complete pending steered tasks only after successful delivery
+                if (flushedOk || apmState.pendingMessages.length === 0) {
+                  for (const steeredId of pendingSteeredTasks) {
+                    client.completeTask(token, steeredId, { output: "" }).catch((e) => {
+                      log.debug(`steering: failed to complete steered task ${steeredId}`, e);
+                    });
+                  }
+                  pendingSteeredTasks.clear();
+                }
                 turnState.markTurnCompleted();
                 break;
               }
             }
           }
-        } catch { /* stream ended */ }
+        } catch (err) {
+          log.warn("steering: consumeParsedEvents error", { err: err instanceof Error ? err.message : String(err) });
+        }
       };
-      consumeParsedEvents();
+      consumeParsedEvents().catch((err) => {
+        log.error("steering: consumeParsedEvents unhandled error", { err: err instanceof Error ? err.message : String(err) });
+      });
     }
 
     // Stalled recovery + startup timeout timer
@@ -601,15 +644,25 @@ export async function runSession(input: SessionRunnerInput): Promise<void> {
               reason: "enqueue",
             });
             if (readiness.shouldNotify) {
+              let allSent = true;
               for (const msg of apmState.pendingMessages) {
-                session.send(msg, "busy");
+                const sendResult = session.send(msg, "busy");
+                if (!sendResult.ok) { allSent = false; break; }
               }
-              apmState = { ...apmState, pendingMessages: [] };
+              if (allSent) {
+                apmState = { ...apmState, pendingMessages: [] };
+              }
             }
           }
 
-          notificationState.recordNoticeWritten(String(seq), sessionId, [{ id: String(seq) }]);
-          writeAck(agentBaseDir, task.contextKey!, seq);
+          // Ack only if already flushed (no pending), otherwise defer ack to flush time
+          if (apmState.pendingMessages.length === 0) {
+            notificationState.recordNoticeWritten(String(seq), sessionId, [{ id: String(seq) }]);
+            writeAck(agentBaseDir, task.contextKey!, seq);
+          } else {
+            // Track pending acks to write on successful flush
+            pendingAcks.push({ seq, sessionId });
+          }
           delivered = true;
         } else {
           writeNack(agentBaseDir, task.contextKey!, seq, "unsupported backend");

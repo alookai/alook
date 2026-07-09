@@ -10,6 +10,7 @@ Alook's main purpose is to make the cli agent always on, and give it a email add
 - `src/ws-do`: WebSocket Durable Object worker
 
 ## MUST
+- Don't write comment: comment may be outdated, code never. Unless the comment are specs and rules.
 - run `pnpm typecheck`, `pnpm test` as the final check when you think the code is ready.
 - service must be STATELESS! All the state must be in DB or local, never put important states in memory.
 - scope the queries before, not check the ownership after. don't query data then check if the data belongs to a workspace, use workspace id ahead to query the data.
@@ -88,6 +89,20 @@ isNotNull(agentTaskQueue.sessionId)
 // Atomic increment — no ORM equivalent
 .set({ attempts: sql`${verificationCode.attempts} + 1` })
 ```
+
+## Blog posts
+
+Posts live in `src/web/src/content/<slug>.mdx`; images live in `src/web/public/blog/<slug>/`.
+
+### Frontmatter
+Use `export const metadata = { ... }` — NOT YAML `---` frontmatter. The loader does a dynamic import and reads `mod.metadata`; MDX config has no `remark-frontmatter` plugin, so YAML blocks render as literal text and the post disappears from the listing.
+
+Required fields (see `src/web/src/lib/blog/types.ts`): `slug`, `title`, `date`, `author`, `excerpt`, `readingTime`. Missing any → post is skipped with a warning.
+
+### Images
+- Path: `src/web/public/blog/<slug>/<name>.<ext>`, referenced from MDX as `/blog/<slug>/<name>.<ext>`.
+- Naming: short semantic names (`hero.png`, `timeline.png`, `workflow-1-dev-team-pipeline.svg`). No date prefix. Don't repeat the slug — the parent directory already carries it.
+- Format: `png` for photos/screenshots, `svg` for diagrams, `webp` when compression matters. Pick one; don't mix formats for the same purpose in one post.
 
 ## Scrollbar
 

@@ -1,0 +1,43 @@
+name = "alook-wake-worker"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[observability.logs]
+invocation_logs = true
+head_sampling_rate = 0.1
+destinations = ["grafana-logs"]
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.05
+destinations = ["grafana-traces"]
+
+# Must match DEV_PORTS.wakeWorker in src/shared/src/constants.ts
+[dev]
+port = 8790
+inspector_port = 9232
+
+[[services]]
+binding = "WS_DO_WORKER"
+service = "alook-ws-do"
+
+# Same `alook-app` database `src/web/wrangler.toml` binds as `DB`
+# (minimal-wake-queue-unread-notice plan §3) — the consumer re-derives the
+# `agent:wake` command from current D1 state at consume time instead of
+# trusting a possibly-stale queue-carried command.
+[[d1_databases]]
+binding = "DB"
+database_id = "1593b87c-d8a8-4cdf-b6c0-c80d94442654"
+database_name = "alook-app"
+
+[[queues.consumers]]
+queue = "alook-wake"
+max_batch_size = 25
+max_retries = 3
+dead_letter_queue = "alook-wake-dlq"

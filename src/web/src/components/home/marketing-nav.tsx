@@ -13,7 +13,7 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
         borderBottom: "1px solid var(--landing-border)",
       }}
     >
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-2.5">
+      <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-2">
         <Link href="/" className="flex items-center gap-1">
           <Image src="/alook.svg" alt="Alook" width={22} height={22} />
           <span
@@ -31,7 +31,7 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
         <div className="flex items-center gap-3">
           <Link
             href="/templates"
-            className="hidden sm:block px-3 py-1.5 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
+            className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--landing-text)",
@@ -41,7 +41,7 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
           </Link>
           <Link
             href="/blog"
-            className="hidden sm:block px-3 py-1.5 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
+            className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--landing-text)",
@@ -53,7 +53,7 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
             href="https://github.com/alookai/alook"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center p-1.5 transition-opacity duration-150 hover:opacity-70"
+            className="flex items-center justify-center p-2 transition-opacity duration-150 hover:opacity-70"
             aria-label="GitHub"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--landing-text)">
@@ -64,7 +64,7 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
             href="https://discord.alook.ai"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center p-1.5 transition-opacity duration-150 hover:opacity-70"
+            className="flex items-center justify-center p-2 transition-opacity duration-150 hover:opacity-70"
             aria-label="Discord"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--landing-text)">
@@ -75,7 +75,7 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
             href="https://x.com/alook_ai"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center p-1.5 transition-opacity duration-150 hover:opacity-70"
+            className="flex items-center justify-center p-2 transition-opacity duration-150 hover:opacity-70"
             aria-label="Follow us on X"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="var(--landing-text)">
@@ -85,7 +85,7 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
           {isLoggedIn ? (
             <Link
               href="/workspaces?auto"
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-text)",
@@ -109,7 +109,7 @@ export function MarketingNav({ isLoggedIn }: { isLoggedIn: boolean }) {
           ) : (
             <a
               href="/sign-in"
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--landing-bg)",

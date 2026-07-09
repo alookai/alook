@@ -67,6 +67,35 @@ const mockGetMachineTokenByToken = vi.fn()
 const mockGetLatestTokenForUser = vi.fn()
 const mockGetRuntimeIdsByDaemon = vi.fn()
 const mockCreateDb = vi.fn().mockReturnValue({})
+const mockHashCredential = vi.fn(async (bearer: string) => `hash:${bearer}`)
+const mockFindCredentialByHash = vi.fn()
+const mockGetMachineByIdForUser = vi.fn()
+const mockUpsertMachineByMachineId = vi.fn()
+const mockTouchMachineHeartbeat = vi.fn()
+const mockMarkMachineOffline = vi.fn()
+const mockMarkMachineOnlineIfOffline = vi.fn()
+const mockGetCoMemberUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
+const mockGetFriendUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
+const mockGetChannelForMember = vi.fn()
+const mockGetDM = vi.fn()
+const mockListMembers = vi.fn()
+// mockToSummary now returns row.status verbatim — status is the source of
+// truth on the column, not a derivation from lastSeenAt. See
+// plans/community-machine-presence-fix.md.
+const mockToSummary = vi.fn((row: any) => ({
+  id: row.id,
+  hostname: row.hostname ?? "",
+  displayName: row.displayName ?? row.hostname ?? "",
+  platform: row.platform ?? "",
+  arch: row.arch ?? "",
+  osRelease: row.osRelease ?? "",
+  daemonVersion: row.daemonVersion ?? "",
+  lastSeenAt: row.lastSeenAt ?? null,
+  status: (row.status as "online" | "offline") ?? "offline",
+  availableRuntimes: row.availableRuntimes ?? [],
+  createdAt: row.createdAt ?? "",
+  updatedAt: row.updatedAt ?? "",
+}))
 
 vi.mock("@alook/shared", () => {
   const noopLogger = {
@@ -76,9 +105,55 @@ vi.mock("@alook/shared", () => {
     error: () => {},
     child: () => noopLogger,
   }
+  // Bare-minimum safeParse stubs — the DO only calls `.safeParse(msg)` and
+  // reads `.success` / `.data`. Enough to route the test frames correctly
+  // without pulling in zod (which isn't a direct dep of @alook/ws-do).
+  const SessionErrorFrameSchema = {
+    safeParse(v: unknown) {
+      const m = v as { type?: unknown; code?: unknown; agentId?: unknown; payload?: unknown }
+      if (m?.type !== "session.error" || m?.code !== "runtime_not_available") {
+        return { success: false } as const
+      }
+      return {
+        success: true as const,
+        data: {
+          type: "session.error" as const,
+          code: "runtime_not_available" as const,
+          agentId: typeof m.agentId === "string" ? (m.agentId as string) : undefined,
+          payload: (m.payload as Record<string, unknown> | undefined) ?? undefined,
+        },
+      }
+    },
+  }
+  // Mirror the shared HostReadyMessageSchema: the daemon's ready frame must be
+  // FLAT (fields at top level), not wrapped in a `ready` key. A wrapped frame
+  // is rejected — regression guard against the wire-shape mismatch we hit
+  // when the daemon sent `{type:"ready", ready:{...}}` while the DO expected
+  // flat top-level fields.
+  const HostReadyMessageSchema = {
+    safeParse(v: unknown) {
+      const m = v as { type?: unknown; runtimeReport?: unknown; runningAgents?: unknown }
+      if (m?.type !== "ready") return { success: false } as const
+      if (!Array.isArray(m?.runtimeReport)) return { success: false } as const
+      const data: Record<string, unknown> = {
+        type: "ready",
+        runtimeReport: m.runtimeReport,
+        runningAgents: Array.isArray(m.runningAgents) ? m.runningAgents : [],
+      }
+      for (const k of ["hostname", "platform", "arch", "osRelease", "daemonVersion"]) {
+        const val = (m as Record<string, unknown>)[k]
+        if (typeof val === "string") data[k] = val
+      }
+      return { success: true as const, data }
+    },
+  }
   return {
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
+    COMMUNITY_MACHINE_HEARTBEAT_MS: 60_000,
+    COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS: 120_000,
+    SessionErrorFrameSchema,
+    HostReadyMessageSchema,
     queries: {
       session: { getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token) },
       machineToken: {
@@ -86,6 +161,29 @@ vi.mock("@alook/shared", () => {
         getLatestTokenForUser: (...a: any[]) => mockGetLatestTokenForUser(...a),
       },
       runtime: { getRuntimeIdsByDaemon: (...a: any[]) => mockGetRuntimeIdsByDaemon(...a) },
+      communityMachine: {
+        hashCredential: (bearer: string) => mockHashCredential(bearer),
+        findCredentialByHash: (...a: any[]) => mockFindCredentialByHash(...a),
+        getMachineByIdForUser: (...a: any[]) => mockGetMachineByIdForUser(...a),
+        upsertMachineByMachineId: (...a: any[]) => mockUpsertMachineByMachineId(...a),
+        touchMachineHeartbeat: (...a: any[]) => mockTouchMachineHeartbeat(...a),
+        markMachineOffline: (...a: any[]) => mockMarkMachineOffline(...a),
+        markMachineOnlineIfOffline: (...a: any[]) => mockMarkMachineOnlineIfOffline(...a),
+        toSummary: (row: any) => mockToSummary(row),
+      },
+      communityMember: {
+        getCoMemberUserIds: (...a: [unknown, string]) => mockGetCoMemberUserIds(...a),
+        listMembers: (...a: any[]) => mockListMembers(...a),
+      },
+      communityFriendship: {
+        getFriendUserIds: (...a: [unknown, string]) => mockGetFriendUserIds(...a),
+      },
+      communityChannel: {
+        getChannelForMember: (...a: any[]) => mockGetChannelForMember(...a),
+      },
+      communityDm: {
+        getDM: (...a: any[]) => mockGetDM(...a),
+      },
     },
   }
 })
@@ -97,7 +195,7 @@ const mockStubFetch = vi.fn().mockResolvedValue(new (globalThis.Response as any)
 const mockCheckAliveFetch = vi.fn().mockResolvedValue(new (globalThis.Response as any)(JSON.stringify({ alive: true })))
 
 function createDO() {
-  const { ctx, getWebSockets } = createMockCtx()
+  const { ctx, getWebSockets, storage, store } = createMockCtx()
   const stubGet = vi.fn().mockReturnValue({ fetch: mockStubFetch })
   const env = {
     DB: {} as D1Database,
@@ -105,14 +203,20 @@ function createDO() {
       idFromName: vi.fn().mockReturnValue("mock-do-id"),
       get: stubGet,
     } as unknown as DurableObjectNamespace,
+    RATE_LIMIT_DO: {} as DurableObjectNamespace,
   }
   const durable = new WebSocketDurableObject(ctx, env)
-  return { durable, ctx, getWebSockets, env, stubGet }
+  return { durable, ctx, getWebSockets, env, stubGet, storage, store }
 }
 
 describe("WebSocketDurableObject", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // `clearAllMocks` doesn't undo a `mockResolvedValue` set by a prior test —
+    // re-pin these two to their empty default so presence-audience tests
+    // don't leak state into unrelated auth-flow tests.
+    mockGetCoMemberUserIds.mockResolvedValue([])
+    mockGetFriendUserIds.mockResolvedValue([])
   })
 
   describe("fetch — WebSocket upgrade", () => {
@@ -316,6 +420,83 @@ describe("WebSocketDurableObject", () => {
     })
   })
 
+  describe("presence audience — co-members ∪ friends (deduped)", () => {
+    // Presence fan-out must reach friends who share no server, not just
+    // co-members — that's the whole point of a friends list. Exercised
+    // directly against the private helper/methods (bypassing the
+    // fire-and-forget `.catch(() => {})` call sites in the auth flow) so
+    // these assertions aren't racing an un-awaited promise.
+    type PresenceInternals = {
+      getPresenceAudience(userId: string): Promise<string[]>
+      broadcastPresence(userId: string, online: boolean): Promise<void>
+      sendPresenceSnapshot(ws: WebSocket, userId: string): Promise<void>
+    }
+
+    it("getPresenceAudience merges co-members and friends without duplicates", async () => {
+      const { durable } = createDO()
+      mockGetCoMemberUserIds.mockResolvedValue(["member-a", "shared-b"])
+      mockGetFriendUserIds.mockResolvedValue(["shared-b", "friend-c"])
+
+      const audience = await (durable as unknown as PresenceInternals).getPresenceAudience("user-1")
+
+      expect(new Set(audience)).toEqual(new Set(["member-a", "shared-b", "friend-c"]))
+      expect(audience).toHaveLength(3)
+      expect(mockGetCoMemberUserIds).toHaveBeenCalledWith({}, "user-1")
+      expect(mockGetFriendUserIds).toHaveBeenCalledWith({}, "user-1")
+    })
+
+    it("getPresenceAudience returns [] when the user has no co-members and no friends", async () => {
+      const { durable } = createDO()
+      mockGetCoMemberUserIds.mockResolvedValue([])
+      mockGetFriendUserIds.mockResolvedValue([])
+
+      const audience = await (durable as unknown as PresenceInternals).getPresenceAudience("user-1")
+
+      expect(audience).toEqual([])
+    })
+
+    it("broadcastPresence fans out to a friend who shares no server", async () => {
+      const { durable, env } = createDO()
+      mockGetCoMemberUserIds.mockResolvedValue([])
+      mockGetFriendUserIds.mockResolvedValue(["friend-c"])
+      mockStubFetch.mockClear()
+
+      await (durable as unknown as PresenceInternals).broadcastPresence("user-1", true)
+
+      expect(env.WS_DO.idFromName).toHaveBeenCalledWith("user:friend-c")
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
+      const [req] = mockStubFetch.mock.calls[0] as [Request]
+      expect(req.url).toBe("http://internal/broadcast")
+    })
+
+    it("broadcastPresence no-ops (no fetches) when co-members and friends are both empty", async () => {
+      const { durable } = createDO()
+      mockGetCoMemberUserIds.mockResolvedValue([])
+      mockGetFriendUserIds.mockResolvedValue([])
+      mockStubFetch.mockClear()
+
+      await (durable as unknown as PresenceInternals).broadcastPresence("user-1", true)
+
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("sendPresenceSnapshot reports an online friend who shares no server", async () => {
+      const { durable } = createDO()
+      mockGetCoMemberUserIds.mockResolvedValue([])
+      mockGetFriendUserIds.mockResolvedValue(["friend-c"])
+      mockStubFetch.mockResolvedValue(
+        new (globalThis.Response as any)(JSON.stringify({ online: true })),
+      )
+      const ws = createMockWebSocket()
+
+      await (durable as unknown as PresenceInternals).sendPresenceSnapshot(ws as any, "user-1")
+
+      expect(ws.send).toHaveBeenCalledWith(
+        JSON.stringify({ type: "community:presence.update", userId: "friend-c", online: true }),
+      )
+    })
+  })
+
   describe("webSocketMessage — daemon auth flow", () => {
     it("rejects daemon with pending token (not yet activated)", async () => {
       const { durable } = createDO()
@@ -460,6 +641,582 @@ describe("WebSocketDurableObject", () => {
       await durable.webSocketError(ws as any, new Error("boom"))
 
       expect(ws.close).toHaveBeenCalledWith(1011, "Internal error")
+    })
+  })
+
+  describe("community-machine — session.error overlay + optimistic clear", () => {
+    beforeEach(() => {
+      mockFindCredentialByHash.mockReset()
+      mockGetMachineByIdForUser.mockReset()
+      mockStubFetch.mockClear()
+    })
+
+    it("stashes lastRuntimeError overlay + fans out on session.error{runtime_not_available}", async () => {
+      const { durable, store } = createDO()
+      // Prime cached identity as if accept already ran.
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetMachineByIdForUser.mockResolvedValue({
+        id: "cm_1",
+        hostname: "host",
+        availableRuntimes: [{ id: "codex" }],
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({
+        type: "session.error",
+        code: "runtime_not_available",
+        agentId: "a1",
+        payload: { requested: "gemini", available: ["codex"] },
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      const overlay = store.get("community-machine-runtime-error") as
+        | { requested: string; available: string[]; at: string }
+        | undefined
+      expect(overlay).toBeDefined()
+      expect(overlay?.requested).toBe("gemini")
+      expect(overlay?.available).toEqual(["codex"])
+
+      // Fan-out went to the user DO with the overlay attached.
+      expect(mockStubFetch).toHaveBeenCalled()
+      const call = mockStubFetch.mock.calls.find((c: any[]) =>
+        (c[0] as Request).url.endsWith("/broadcast")
+      )
+      const body = JSON.parse(await (call![0] as Request).clone().text()) as {
+        type: string
+        machine: { lastRuntimeError?: { requested: string; available: string[] } }
+      }
+      expect(body.type).toBe("community:machine.updated")
+      expect(body.machine.lastRuntimeError).toMatchObject({
+        requested: "gemini",
+        available: ["codex"],
+      })
+    })
+
+    it("forceClose closes attachments and clears identity+overlay", async () => {
+      const { durable, ctx, store, getWebSockets } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+      store.set("community-machine-runtime-error", {
+        requested: "gemini",
+        available: [],
+        at: "2026-07-06T00:00:00.000Z",
+      })
+      mockGetMachineByIdForUser.mockResolvedValue({
+        id: "cm_1",
+        hostname: "host",
+        availableRuntimes: [],
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+      getWebSockets.mockReturnValue([ws])
+
+      const req = new Request("http://internal/force-close", { method: "POST" })
+      const res = await durable.fetch(req)
+      expect(res.status).toBe(200)
+      expect(ws.send).toHaveBeenCalled()
+      expect(ws.close).toHaveBeenCalledWith(1008, "Revoked")
+
+      // Cached identity + handle + overlay all cleared.
+      expect(store.get("community-machine-identity")).toBeUndefined()
+      expect(store.get("community-machine-handle")).toBeUndefined()
+      expect(store.get("community-machine-runtime-error")).toBeUndefined()
+    })
+  })
+
+  describe("community-machine — ready frame wire shape", () => {
+    beforeEach(() => {
+      mockUpsertMachineByMachineId.mockReset()
+      mockStubFetch.mockClear()
+    })
+
+    // Regression guard: the daemon (WsControlChannel.reportReady) spreads
+    // HostReady fields at the TOP LEVEL of the frame. If it ever regresses to
+    // wrapping them under `ready:{...}`, the DO would silently drop every
+    // ready and `last_seen_at` would never refresh. This test drives the exact
+    // shape the daemon emits.
+    it("accepts a flat daemon-shaped ready frame and calls upsertMachineByMachineId", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockUpsertMachineByMachineId.mockResolvedValue({
+        machine: {
+          id: "cm_1",
+          hostname: "host",
+          availableRuntimes: [{ id: "claude" }],
+          status: "online",
+          lastSeenAt: "2026-07-06T00:00:00.000Z",
+        },
+        priorLastSeenAt: "2026-07-05T00:00:00.000Z",
+        priorAvailableRuntimes: [{ id: "claude" }],
+        priorStatus: "offline",
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      // The wire frame the daemon actually sends — see WsControlChannel.reportReady.
+      const frame = JSON.stringify({
+        type: "ready",
+        runtimeReport: [{ id: "claude", version: "1.0.0" }],
+        runningAgents: [],
+        hostname: "my-mac",
+        platform: "darwin",
+        arch: "arm64",
+        osRelease: "23.0.0",
+        daemonVersion: "0.1.0",
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockUpsertMachineByMachineId).toHaveBeenCalledTimes(1)
+      const [, userId, machineId, meta] = mockUpsertMachineByMachineId.mock.calls[0]
+      expect(userId).toBe("u_1")
+      expect(machineId).toBe("cm_1")
+      expect(meta).toMatchObject({
+        hostname: "my-mac",
+        platform: "darwin",
+        arch: "arm64",
+        osRelease: "23.0.0",
+        daemonVersion: "0.1.0",
+        availableRuntimes: [{ id: "claude", version: "1.0.0" }],
+      })
+    })
+
+    it("silently drops a wrapped `{ready:{...}}` frame (legacy shape — regression guard)", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      // The (broken) wrapped shape — schema rejects → DO drops → no DB write.
+      const frame = JSON.stringify({
+        type: "ready",
+        ready: {
+          runtimeReport: [{ id: "claude" }],
+          runningAgents: [],
+          hostname: "my-mac",
+        },
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockUpsertMachineByMachineId).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("community-machine — webSocketClose presence lifecycle", () => {
+    // These tests cover the "graceful daemon quit → immediate offline" fix.
+    // See plans/community-machine-presence-fix.md § Server transitions.
+    it("flips status=offline via credential-scoped markMachineOffline and broadcasts on real transition", async () => {
+      const { durable, store, ctx } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      // Arm a placeholder alarm so we can check deleteAlarm ran.
+      await ctx.storage.setAlarm(Date.now() + 90_000)
+      mockMarkMachineOffline.mockResolvedValueOnce({
+        id: "cm_1",
+        userId: "u_1",
+        status: "offline",
+        lastSeenAt: "2026-07-06T00:00:00.000Z",
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      await durable.webSocketClose(ws as any)
+
+      expect(mockMarkMachineOffline).toHaveBeenCalledTimes(1)
+      const [, args] = mockMarkMachineOffline.mock.calls[0]!
+      expect(args).toMatchObject({
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      // Broadcast fired via notifyUserDO → user DO's /broadcast endpoint.
+      expect(mockStubFetch).toHaveBeenCalled()
+      // Alarm was cleaned up and storage keys deleted.
+      expect(ctx.storage.deleteAlarm).toHaveBeenCalled()
+      expect(store.has("community-machine-identity")).toBe(false)
+      expect(store.has("community-machine-handle")).toBe(false)
+    })
+
+    it("null return (credential revoked or already offline) does NOT broadcast and leaves the alarm armed", async () => {
+      const { durable, store, ctx } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "revoked",
+      })
+      mockMarkMachineOffline.mockResolvedValueOnce(null)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      mockStubFetch.mockClear()
+      await durable.webSocketClose(ws as any)
+
+      expect(mockMarkMachineOffline).toHaveBeenCalledTimes(1)
+      // No broadcast fired — the guarded UPDATE returned zero rows.
+      expect(mockStubFetch).not.toHaveBeenCalled()
+      // Alarm armed as the safety-net fallback (setAlarm was called; not deleted).
+      expect(ctx.storage.setAlarm).toHaveBeenCalled()
+      expect(ctx.storage.deleteAlarm).not.toHaveBeenCalled()
+      // Storage keys retained — a different DO instance may own the row now.
+      expect(store.has("community-machine-identity")).toBe(true)
+    })
+
+    it("missing IDENTITY_KEY (never fully accepted) is a clean no-op — no markMachineOffline, no alarm", async () => {
+      const { durable, store, ctx } = createDO()
+      // No identity in storage.
+      expect(store.has("community-machine-identity")).toBe(false)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      // Clear any setAlarm calls made during createDO setup.
+      ;(ctx.storage.setAlarm as any).mockClear?.()
+
+      await durable.webSocketClose(ws as any)
+
+      expect(mockMarkMachineOffline).not.toHaveBeenCalled()
+      // No alarm armed — with no identity there's nothing recoverable to do.
+      // HANDLE_KEY is written alongside IDENTITY_KEY, so if identity is gone
+      // the alarm has no state to act on either.
+      expect(ctx.storage.setAlarm).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("community-machine — alarm presence + backfill", () => {
+    it("live-WS + status=offline row: markMachineOnlineIfOffline flips it back online and broadcasts (post-deploy backfill)", async () => {
+      const { durable, store, getWebSockets, ctx } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "abc",
+      })
+
+      // Attach a live authenticated community-machine WS.
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+      getWebSockets.mockReturnValue([ws])
+
+      mockTouchMachineHeartbeat.mockResolvedValueOnce({
+        lastSeenAt: "now",
+        priorLastSeenAt: "earlier",
+      })
+      mockMarkMachineOnlineIfOffline.mockResolvedValueOnce({
+        id: "cm_1",
+        userId: "u_1",
+        status: "online",
+        lastSeenAt: "now",
+      })
+
+      mockStubFetch.mockClear()
+      await durable.alarm()
+
+      expect(mockTouchMachineHeartbeat).toHaveBeenCalledTimes(1)
+      expect(mockMarkMachineOnlineIfOffline).toHaveBeenCalledTimes(1)
+      // Broadcast fired for the offline→online transition.
+      expect(mockStubFetch).toHaveBeenCalled()
+      // Alarm rescheduled for the next heartbeat tick.
+      expect(ctx.storage.setAlarm).toHaveBeenCalled()
+    })
+
+    it("live-WS + status=online row (steady state): no broadcast fires (double-broadcast regression guard)", async () => {
+      const { durable, store, getWebSockets, ctx } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "abc",
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+      getWebSockets.mockReturnValue([ws])
+
+      mockTouchMachineHeartbeat.mockResolvedValueOnce({
+        lastSeenAt: "now",
+        priorLastSeenAt: "earlier",
+      })
+      // Guarded UPDATE returns zero rows — row is already online.
+      mockMarkMachineOnlineIfOffline.mockResolvedValueOnce(null)
+
+      mockStubFetch.mockClear()
+      await durable.alarm()
+
+      expect(mockTouchMachineHeartbeat).toHaveBeenCalledTimes(1)
+      // No broadcast — the guarded UPDATE returned zero rows.
+      expect(mockStubFetch).not.toHaveBeenCalled()
+      // Alarm rescheduled.
+      expect(ctx.storage.setAlarm).toHaveBeenCalled()
+    })
+
+    it("no-live-WS + stale row: markMachineOffline flips + broadcasts + cleans HANDLE_KEY / IDENTITY_KEY", async () => {
+      const { durable, store, getWebSockets, ctx } = createDO()
+      // No live WS.
+      getWebSockets.mockReturnValue([])
+      store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "abc",
+      })
+      // Stale row — lastSeenAt is more than 120s (mocked threshold) ago.
+      mockGetMachineByIdForUser.mockResolvedValueOnce({
+        id: "cm_1",
+        userId: "u_1",
+        status: "online",
+        lastSeenAt: new Date(Date.now() - 200_000).toISOString(),
+        availableRuntimes: [],
+      })
+      mockMarkMachineOffline.mockResolvedValueOnce({
+        id: "cm_1",
+        userId: "u_1",
+        status: "offline",
+        lastSeenAt: "now",
+      })
+
+      mockStubFetch.mockClear()
+      await durable.alarm()
+
+      expect(mockMarkMachineOffline).toHaveBeenCalledTimes(1)
+      expect(mockStubFetch).toHaveBeenCalled()
+      expect(store.has("community-machine-handle")).toBe(false)
+      expect(store.has("community-machine-identity")).toBe(false)
+      // No further alarm reschedule after the terminal offline flip.
+      // (setAlarm may have been called on the earlier setup path; we assert
+      // deleteAlarm was NOT called since alarm() doesn't need to explicitly
+      // delete — it just doesn't reschedule.)
+      expect(ctx.storage.deleteAlarm).not.toHaveBeenCalled()
+    })
+
+    it("no-live-WS + stale row + no identity (mid-lifecycle wipe): still broadcasts offline using stored handle so UI sees the transition", async () => {
+      const { durable, store, getWebSockets, ctx } = createDO()
+      getWebSockets.mockReturnValue([])
+      // HANDLE_KEY is present (written at accept) but IDENTITY_KEY was
+      // wiped mid-lifecycle. The stale-flip branch can't run the
+      // credential-scoped UPDATE, but must still broadcast so the UI
+      // reflects the transition.
+      store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+      expect(store.has("community-machine-identity")).toBe(false)
+
+      mockGetMachineByIdForUser.mockResolvedValueOnce({
+        id: "cm_1",
+        userId: "u_1",
+        status: "online",
+        lastSeenAt: new Date(Date.now() - 200_000).toISOString(),
+        availableRuntimes: [],
+      })
+
+      mockStubFetch.mockClear()
+      await durable.alarm()
+
+      // DB flip skipped (no identity to scope the credential guard).
+      expect(mockMarkMachineOffline).not.toHaveBeenCalled()
+      // But the UI broadcast MUST still fire — otherwise the machine
+      // chip stays green until reload.
+      expect(mockStubFetch).toHaveBeenCalled()
+      // Storage keys dropped — this DO's presence lifecycle is done.
+      expect(store.has("community-machine-handle")).toBe(false)
+      expect(ctx.storage.deleteAlarm).not.toHaveBeenCalled()
+    })
+
+    it("no-live-WS + fresh row: reschedules alarm to exact stale moment, no broadcast, no DB flip", async () => {
+      const { durable, store, getWebSockets, ctx } = createDO()
+      getWebSockets.mockReturnValue([])
+      store.set("community-machine-handle", { userId: "u_1", machineId: "cm_1" })
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "abc",
+      })
+      // Fresh row — lastSeenAt is 10s ago.
+      mockGetMachineByIdForUser.mockResolvedValueOnce({
+        id: "cm_1",
+        userId: "u_1",
+        status: "online",
+        lastSeenAt: new Date(Date.now() - 10_000).toISOString(),
+        availableRuntimes: [],
+      })
+
+      mockStubFetch.mockClear()
+      await durable.alarm()
+
+      expect(mockMarkMachineOffline).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+      // Storage keys retained; alarm rescheduled precisely to the stale moment.
+      expect(store.has("community-machine-handle")).toBe(true)
+      expect(store.has("community-machine-identity")).toBe(true)
+      expect(ctx.storage.setAlarm).toHaveBeenCalled()
+    })
+  })
+
+  describe("webSocketMessage — community:typing.start authz (fanOutTyping)", () => {
+    // fanOutTyping runs fire-and-forget (`.catch()`, not awaited) inside
+    // webSocketMessage, so `await durable.webSocketMessage(...)` alone
+    // doesn't guarantee its internal DB-then-broadcast chain has settled.
+    // Flush a macrotask so all pending microtasks (getDM/getChannelForMember
+    // → listMembers → Promise.all(fetch)) drain before asserting.
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+    it("does not fan out or broadcast when sender is not a member of the target channel", async () => {
+      const { durable, env } = createDO()
+      mockGetChannelForMember.mockResolvedValueOnce(null)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-private" }),
+      )
+      await flush()
+
+      expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "chan-private", "attacker")
+      expect(mockListMembers).not.toHaveBeenCalled()
+      expect((env.WS_DO as any).get).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("fans out to other server members when sender IS a channel member", async () => {
+      const { durable, env } = createDO()
+      mockGetChannelForMember.mockResolvedValueOnce({ id: "chan-1", serverId: "server-1" })
+      mockListMembers.mockResolvedValueOnce([
+        { userId: "member-1" },
+        { userId: "member-2" },
+        { userId: "sender-1" },
+      ])
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-1" }),
+      )
+      await flush()
+
+      expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "chan-1", "sender-1")
+      expect(mockListMembers).toHaveBeenCalledWith(expect.anything(), "server-1")
+      // Sender is excluded from recipients — only the other 2 members get a broadcast POST.
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-1")
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-2")
+      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
+      expect(mockStubFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it("does not fan out when sender is not a participant of the target DM", async () => {
+      const { durable, env } = createDO()
+      mockGetDM.mockResolvedValueOnce({
+        id: "dm-1",
+        user1Id: "alice",
+        user2Id: "bob",
+        lastMessageAt: null,
+        createdAt: "",
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "attacker", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", dmConversationId: "dm-1" }),
+      )
+      await flush()
+
+      expect(mockGetDM).toHaveBeenCalledWith(expect.anything(), "dm-1")
+      expect((env.WS_DO as any).get).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("fans out to the other participant when sender IS a DM participant", async () => {
+      const { durable, env } = createDO()
+      mockGetDM.mockResolvedValueOnce({
+        id: "dm-1",
+        user1Id: "alice",
+        user2Id: "bob",
+        lastMessageAt: null,
+        createdAt: "",
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "alice", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", dmConversationId: "dm-1" }),
+      )
+      await flush()
+
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:bob")
+      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:alice")
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })
   })
 })

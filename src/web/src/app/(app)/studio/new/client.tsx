@@ -274,7 +274,7 @@ export function StudioOnboardingClient({
             className="text-xs text-muted-foreground"
             onClick={() => router.push("/workspaces")}
           >
-            <LayoutGrid className="size-3 mr-1.5" />
+            <LayoutGrid className="size-3 mr-2" />
             Workspaces
           </Button>
         }
@@ -285,7 +285,7 @@ export function StudioOnboardingClient({
             className="text-xs text-muted-foreground"
             onClick={async () => { await clearAllCache(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
           >
-            <LogOut className="size-3 mr-1.5" />
+            <LogOut className="size-3 mr-2" />
             Sign out
           </Button>
         }
@@ -333,7 +333,7 @@ export function StudioOnboardingClient({
             className="text-xs text-muted-foreground"
             onClick={() => router.push("/workspaces")}
           >
-            <LayoutGrid className="size-3 mr-1.5" />
+            <LayoutGrid className="size-3 mr-2" />
             Workspaces
           </Button>
           <span className="text-muted-foreground/40">/</span>
@@ -343,7 +343,7 @@ export function StudioOnboardingClient({
             className="text-xs text-muted-foreground"
             onClick={() => setScenarioId(null)}
           >
-            <ArrowLeft className="size-3 mr-1.5" />
+            <ArrowLeft className="size-3 mr-2" />
             Back
           </Button>
         </>
@@ -355,7 +355,7 @@ export function StudioOnboardingClient({
           className="text-xs text-muted-foreground"
           onClick={async () => { await clearAllCache(); signOut({ fetchOptions: { onSuccess: () => router.push("/sign-in") } }); }}
         >
-          <LogOut className="size-3 mr-1.5" />
+          <LogOut className="size-3 mr-2" />
           Sign out
         </Button>
       }
@@ -397,7 +397,7 @@ export function StudioOnboardingClient({
                     <p className="text-xs text-muted-foreground">
                       Your company needs a connected computer to run tasks.
                     </p>
-                    <div className="rounded-xl bg-muted/40 p-5">
+                    <div className="rounded-xl bg-muted/40 p-4">
                       <ConnectMachineSteps
                         generatedToken={generatedToken}
                         generatingToken={generatingToken}

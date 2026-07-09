@@ -81,7 +81,7 @@ export function MarketingFooter() {
           </span>
         </div>
 
-        <nav className="flex items-center gap-5" aria-label="Footer navigation">
+        <nav className="flex items-center gap-4" aria-label="Footer navigation">
           {footerLinks.map((link) =>
             link.external ? (
               <a

@@ -502,10 +502,10 @@ export default function CalendarPage() {
 
   return (
     <>
-      <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5 gap-3">
+      <div className="flex items-center justify-between border-b border-border/50 px-3 sm:px-4 py-2 gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <h1 className="text-sm font-medium">Calendar</h1>
-          <p className="text-xs text-muted-foreground hidden md:block">
+          <p className="text-xs text-muted-foreground hidden sm:block">
             Schedule recurring and one-time tasks for your agents.
           </p>
         </div>
@@ -528,7 +528,7 @@ export default function CalendarPage() {
       </div>
 
       <div className={cn(
-        "flex flex-1 flex-col gap-4 px-3 py-3 sm:px-5 sm:py-5",
+        "flex flex-1 flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4",
         view === "week" ? "min-h-0 overflow-hidden" : "overflow-y-auto"
       )}>
         <CalendarAgentFilter

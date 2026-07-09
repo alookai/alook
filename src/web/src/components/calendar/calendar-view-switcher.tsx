@@ -20,7 +20,7 @@ export function CalendarViewSwitcher({ view, onChange }: CalendarViewSwitcherPro
     <div
       role="radiogroup"
       aria-label="Calendar view"
-      className="inline-flex items-center rounded-md border border-border bg-background p-0.5"
+      className="inline-flex items-center rounded-md border border-border bg-background p-1"
     >
       {(["month", "week", "agenda"] as const).map((v) => {
         const active = view === v;
@@ -32,7 +32,7 @@ export function CalendarViewSwitcher({ view, onChange }: CalendarViewSwitcherPro
             aria-checked={active}
             onClick={() => onChange(v)}
             className={cn(
-              "h-6 px-2.5 rounded text-xs font-medium transition-colors capitalize",
+              "h-6 px-2 rounded text-xs font-medium transition-colors capitalize",
               active
                 ? "bg-foreground text-background"
                 : "text-muted-foreground hover:text-foreground"

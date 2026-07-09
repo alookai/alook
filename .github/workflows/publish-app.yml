@@ -59,7 +59,7 @@ jobs:
 
       - name: Build packages
         if: steps.check.outputs.skip == 'false'
-        run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do
+        run: pnpm build --filter=@alook/shared --filter=@alook/web --filter=@alook/cli --filter=@alook/email-worker --filter=@alook/ws-do --filter=@alook/wake-worker
 
       - name: Bundle app (pre-build workers)
         if: steps.check.outputs.skip == 'false'

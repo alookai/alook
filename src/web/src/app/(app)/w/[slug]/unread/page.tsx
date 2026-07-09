@@ -46,7 +46,7 @@ function TypeBadge({ type }: { type: string | null }) {
   if (!type) return null;
   const label = TYPE_LABELS[type] ?? type;
   return (
-    <span className="text-[10px] leading-none px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+    <span className="text-[10px] leading-none px-2 py-1 rounded-full bg-muted text-muted-foreground font-medium">
       {label}
     </span>
   );
@@ -75,7 +75,7 @@ function InboxRow({ item, slug, onClick }: { item: InboxItem; slug: string; onCl
               <TooltipContent>{new Date(item.latest_response_at).toLocaleString()}</TooltipContent>
             </Tooltip>
           </div>
-          <div className="flex items-center gap-1.5 mt-0.5">
+          <div className="flex items-center gap-2 mt-1">
             {item.agent_name && (
               <>
                 <span className="text-xs font-medium text-muted-foreground">{item.agent_name}</span>
@@ -102,11 +102,11 @@ function SkeletonRow({ promptWidth }: { promptWidth: string }) {
         <Skeleton className="size-8 rounded-full shrink-0" />
         <div className="flex-1">
           <Skeleton className="h-3.5 rounded" style={{ width: promptWidth }} />
-          <div className="flex items-center gap-1.5 mt-1.5">
+          <div className="flex items-center gap-2 mt-2">
             <Skeleton className="h-2.5 w-16 rounded" />
             <Skeleton className="h-2.5 w-8 rounded" />
           </div>
-          <Skeleton className="h-2.5 w-3/4 rounded mt-1.5" />
+          <Skeleton className="h-2.5 w-3/4 rounded mt-2" />
         </div>
       </div>
     </div>
@@ -235,10 +235,10 @@ export default function InboxPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5 gap-3">
+      <div className="flex items-center justify-between border-b border-border/50 px-3 sm:px-4 py-2 gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <h1 className="text-sm font-medium">Unread</h1>
-          <p className="text-xs text-muted-foreground hidden md:block">
+          <p className="text-xs text-muted-foreground hidden sm:block">
             Unread responses from your agents.
           </p>
         </div>

@@ -88,7 +88,7 @@ export function UpcomingEventsFloat() {
       <button
         type="button"
         onClick={() => setExpanded(true)}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-background/90 backdrop-blur-sm ring-1 ring-foreground/8 shadow-sm text-xs font-medium text-muted-foreground hover:text-foreground transition-colors animate-[fade-up_300ms_ease-out_both]"
+        className="flex items-center gap-2 px-2 py-1 rounded-full bg-background/90 backdrop-blur-sm ring-1 ring-foreground/8 shadow-sm text-xs font-medium text-muted-foreground hover:text-foreground transition-colors animate-[fade-up_300ms_ease-out_both]"
       >
         <CalendarDays className="size-3" />
         {count} upcoming
@@ -122,7 +122,7 @@ export function UpcomingEventsFloat() {
           <Link
             key={summary.agentId}
             href={`/w/${slug}/calendar`}
-            className="flex items-center gap-2.5 px-3 py-2 hover:bg-accent/50 transition-colors cursor-pointer rounded-md"
+            className="flex items-center gap-2 px-3 py-2 hover:bg-accent/50 transition-colors cursor-pointer rounded-md"
           >
             <AgentAvatar name={summary.agentName} avatarUrl={summary.avatarUrl} size={22} />
             <span className="flex-1 text-sm truncate">{summary.agentName}</span>

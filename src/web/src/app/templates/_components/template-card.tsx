@@ -37,7 +37,7 @@ export function TemplateCard({
   return (
     <Link
       href={detailUrl}
-      className="group relative flex flex-col rounded-xl bg-card p-5 transition-all duration-200 hover:bg-accent/40 border border-transparent hover:border-border"
+      className="group relative flex flex-col rounded-xl bg-card p-4 transition-all duration-200 hover:bg-accent/40 border border-transparent hover:border-border"
     >
       {/* Icon */}
       <span className="flex size-10 items-center justify-center rounded-lg bg-muted/60 text-xl">
@@ -63,7 +63,7 @@ export function TemplateCard({
               className={`size-2 rounded-full ${ROLE_DOT_COLORS[member.role] || "bg-muted-foreground/40"}`}
             />
           ))}
-          <span className="ml-1.5 text-xs text-muted-foreground">
+          <span className="ml-2 text-xs text-muted-foreground">
             {template.members.length} agents
           </span>
         </div>
@@ -76,7 +76,7 @@ export function TemplateCard({
             trackTemplateUsed({ template_id: template.id, template_name: template.name });
             router.push(href);
           }}
-          className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-muted-foreground opacity-0 transition-all duration-150 group-hover:opacity-100 group-hover:bg-foreground group-hover:text-background"
+          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground opacity-0 transition-all duration-150 group-hover:opacity-100 group-hover:bg-foreground group-hover:text-background"
         >
           Use
           <ArrowUpRight className="size-3" />

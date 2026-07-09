@@ -142,7 +142,7 @@ function TaskNode({ node, slug }: { node: TreeNode; slug: string }) {
               <TooltipContent>{new Date(node.created_at).toLocaleString()}</TooltipContent>
             </Tooltip>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             {node.agent?.name && (
               <>
                 <span className="text-xs font-medium text-muted-foreground">{node.agent.name}</span>
@@ -192,10 +192,10 @@ export default function TraceDetailPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2.5 border-b border-border/30">
+      <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 border-b border-border/30">
         <Link
           href={`/w/${slug}/traces`}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="size-3.5" />
         </Link>
@@ -212,7 +212,7 @@ export default function TraceDetailPage() {
                   <Skeleton className="h-3.5 rounded" style={{ width: `${w}%` }} />
                   <Skeleton className="h-2.5 w-10 rounded shrink-0 ml-auto" />
                 </div>
-                <div className="flex items-center gap-1.5 mt-1 ml-5.5">
+                <div className="flex items-center gap-2 mt-1 ml-6">
                   <Skeleton className="h-2.5 w-20 rounded-full" />
                 </div>
               </div>

@@ -49,18 +49,17 @@ export const POST = withEnv(async (req: NextRequest, ctx) => {
     ownerId: mt.userId,
   });
 
-  const results = [];
-  for (const rt of runtimes) {
-    const result = await queries.runtime.upsertAgentRuntime(db, {
+  const results = await queries.runtime.batchUpsertAgentRuntimes(
+    db,
+    runtimes.map((rt) => ({
       workspaceId,
       daemonId,
       runtimeMode: "local",
       provider: rt.type,
       deviceInfo: hostname,
       metadata: { version: rt.version || "" },
-    });
-    results.push({ ...result, machineLastSeenAt: null });
-  }
+    })),
+  ).then((rows) => rows.map((result) => ({ ...result, machineLastSeenAt: null })))
 
   await queries.machineToken.activateMachineToken(db, mt.id, hostname);
 

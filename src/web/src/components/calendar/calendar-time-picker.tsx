@@ -71,7 +71,7 @@ export function CalendarTimePicker({
         className={cn(
           iconOnly
             ? "inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-input bg-transparent text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            : "flex h-7 items-center gap-1.5 rounded-md border border-input bg-transparent px-2 text-xs text-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+            : "flex h-7 items-center gap-2 rounded-md border border-input bg-transparent px-2 text-xs text-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
           className
         )}
       >

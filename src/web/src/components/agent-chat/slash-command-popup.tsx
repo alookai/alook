@@ -25,7 +25,7 @@ function SkillRow({
       type="button"
       data-slash-item
       className={cn(
-        "flex w-full flex-col gap-0.5 px-3 py-1.5 text-left text-sm transition-colors",
+        "flex w-full flex-col gap-1 px-3 py-2 text-left text-sm transition-colors",
         isSelected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
       )}
       onMouseDown={(e) => {
@@ -36,7 +36,7 @@ function SkillRow({
       <span className="flex w-full items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-medium">/{skill.name}</span>
         {skill.isGlobal && (
-          <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium bg-muted text-muted-foreground">
+          <span className="shrink-0 rounded px-1 py-1 text-[10px] font-medium bg-muted text-muted-foreground">
             Global
           </span>
         )}

@@ -104,7 +104,7 @@ function EmailFieldsForm({ fields, applyPreset, errors, onClearError }: {
 }) {
   return (
     <>
-      <div className="flex gap-1.5">
+      <div className="flex gap-2">
         {Object.keys(PRESETS).map((name) => (
           <Button key={name} type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2"
             onClick={() => applyPreset(name)}>
@@ -345,7 +345,7 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
         </div>
         {!isCreateMode && existing ? (
           <span className={cn(
-            "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0",
+            "inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full font-medium shrink-0",
             existing.status === "active" ? "bg-green-500/10 text-green-600" :
             existing.status === "error" ? "bg-red-500/10 text-red-600" :
             "bg-yellow-500/10 text-yellow-600"
@@ -391,7 +391,7 @@ export function CustomEmailForm({ agentId, workspaceId, onDataChange, getDataRef
 
             {!isCreateMode && existing ? (
               <div className="space-y-4">
-                <div className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2.5">
+                <div className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <Mail className="size-3.5 text-muted-foreground shrink-0" />
                     <span className="text-sm truncate">{existing.email_address}</span>

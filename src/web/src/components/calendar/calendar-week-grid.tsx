@@ -153,7 +153,7 @@ export function CalendarWeekGrid({
           <div className="border-b border-border/30 shrink-0" style={{ display: "grid", gridTemplateColumns: skelCols }}>
             <div className="h-8" />
             {Array.from({ length: 7 }).map((_, i) => (
-              <Skeleton key={i} className="h-5 mx-2 my-1.5" />
+              <Skeleton key={i} className="h-5 mx-2 my-2" />
             ))}
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
@@ -202,7 +202,7 @@ export function CalendarWeekGrid({
               size="sm"
               onClick={onJumpToToday}
               disabled={isCurrentWeek}
-              className="h-7 px-2.5 text-xs"
+              className="h-7 px-2 text-xs"
             >
               Today
             </Button>
@@ -265,7 +265,7 @@ export function CalendarWeekGrid({
                 >
                   <span
                     className={cn(
-                      "px-1.5 py-0.5 rounded-md",
+                      "px-2 py-1 rounded-md",
                       isToday && "bg-foreground text-background"
                     )}
                   >
@@ -290,7 +290,7 @@ export function CalendarWeekGrid({
                     className="flex items-start justify-end pr-2 text-[10px] text-muted-foreground tabular-nums"
                     style={{ height: hourHeight }}
                   >
-                    <span className="-mt-1.5">
+                    <span className="-mt-2">
                       {hour === 0 ? "" : formatHourLabel(hour, compact)}
                     </span>
                   </div>
@@ -326,7 +326,7 @@ export function CalendarWeekGrid({
                         style={{ top: currentFractionalHour * hourHeight }}
                       >
                         <div className="h-px bg-foreground/40" />
-                        <div className="absolute -left-0.5 -top-0.75 size-1.75 rounded-full bg-foreground/40" />
+                        <div className="absolute -left-1 -top-0.75 size-1.75 rounded-full bg-foreground/40" />
                       </div>
                     )}
 
@@ -359,7 +359,7 @@ export function CalendarWeekGrid({
                           }}
                           className={cn(
                             "absolute rounded-sm font-medium truncate text-left transition-colors hover:opacity-80 cursor-pointer",
-                            compact ? "text-[9px] px-1" : "text-[10px] px-1.5",
+                            compact ? "text-[9px] px-1" : "text-[10px] px-2",
                             agentColor(event.agent_id)
                           )}
                           style={{
@@ -374,7 +374,7 @@ export function CalendarWeekGrid({
                         >
                           {event.title}
                           {event.collapsed_count != null && event.collapsed_count > 1 && (
-                            <span className="ml-0.5 opacity-70">&times;{event.collapsed_count}</span>
+                            <span className="ml-1 opacity-70">&times;{event.collapsed_count}</span>
                           )}
                         </button>
                       );

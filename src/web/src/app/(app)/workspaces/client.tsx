@@ -78,7 +78,7 @@ export function WorkspaceListClient({
               className="cursor-pointer transition-colors duration-200 hover:bg-accent/50"
               onClick={() => router.push(`/w/${ws.slug}/home`)}
             >
-              <CardContent className="flex items-center justify-between px-3 py-1.5">
+              <CardContent className="flex items-center justify-between px-3 py-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <p className="text-sm font-medium truncate">{ws.name}</p>
                   <p className="text-xs text-muted-foreground">{ws.slug}</p>

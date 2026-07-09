@@ -167,9 +167,19 @@ export function watchInbox(
       const files = readdirSync(inbox).filter((f) => f.endsWith(".json") && !f.endsWith(".tmp")).sort();
       for (const file of files) {
         if (seen.has(file)) continue;
-        seen.add(file);
         const seq = file.replace(/\.json$/, "");
-        const msg = readSteerMessage(join(inbox, file));
+        // Atomic claim: rename to .processing before reading to prevent redelivery on restart
+        const srcPath = join(inbox, file);
+        const claimPath = join(inbox, `${seq}.processing`);
+        try {
+          renameSync(srcPath, claimPath);
+        } catch {
+          continue; // Another process claimed it
+        }
+        seen.add(file);
+        const msg = readSteerMessage(claimPath);
+        // Remove claimed file after read
+        try { unlinkSync(claimPath); } catch { /* best-effort */ }
         if (msg) {
           onMessage(seq, msg);
         }

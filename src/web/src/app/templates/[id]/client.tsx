@@ -37,27 +37,27 @@ export function TemplateDetailClient({
         <>
           <Link
             href="/templates"
-            className="hidden sm:block px-3 py-1.5 text-xs uppercase tracking-widest font-mono transition-opacity hover:opacity-70"
+            className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest font-mono transition-opacity hover:opacity-70"
           >
             Templates
           </Link>
           <Link
             href="/blog"
-            className="hidden sm:block px-3 py-1.5 text-xs uppercase tracking-widest font-mono transition-opacity hover:opacity-70"
+            className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest font-mono transition-opacity hover:opacity-70"
           >
             Blog
           </Link>
           {isLoggedIn ? (
             <Link
               href="/workspaces?auto"
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs uppercase tracking-widest font-mono border border-current transition-opacity hover:opacity-70"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono border border-current transition-opacity hover:opacity-70"
             >
               App
             </Link>
           ) : (
             <Link
               href="/sign-in"
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs uppercase tracking-widest font-mono bg-foreground text-background transition-opacity hover:opacity-70"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono bg-foreground text-background transition-opacity hover:opacity-70"
             >
               Get Started
             </Link>
@@ -67,7 +67,7 @@ export function TemplateDetailClient({
     >
       <div className="mx-auto max-w-4xl px-6 py-10">
         {/* Breadcrumb */}
-        <nav className="mb-8 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <nav className="mb-8 flex items-center gap-2 text-xs text-muted-foreground">
           <Link href="/templates" className="hover:text-foreground transition-colors">
             Templates
           </Link>
@@ -87,19 +87,19 @@ export function TemplateDetailClient({
                   {template.category}
                 </p>
                 <h1
-                  className="mt-0.5 text-2xl font-semibold tracking-tight"
+                  className="mt-1 text-2xl font-semibold tracking-tight"
                   style={{ fontFamily: "var(--font-news)" }}
                 >
                   {template.name}
                 </h1>
               </div>
             </div>
-            <p className="mt-5 text-sm leading-relaxed text-muted-foreground max-w-xl">
+            <p className="mt-4 text-sm leading-relaxed text-muted-foreground max-w-xl">
               {template.longDescription}
             </p>
-            <div className="mt-4 flex flex-wrap gap-1.5">
+            <div className="mt-4 flex flex-wrap gap-2">
               {template.tags.map((tag) => (
-                <span key={tag} className="rounded-full bg-muted/60 px-2.5 py-0.5 text-xs text-muted-foreground">
+                <span key={tag} className="rounded-full bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
                   {tag}
                 </span>
               ))}
@@ -111,7 +111,7 @@ export function TemplateDetailClient({
             <Link href={href} className={buttonVariants({ size: "default" }) + " w-full sm:w-auto"}>
               Use This Template
             </Link>
-            <p className="mt-1.5 text-center text-xs text-muted-foreground sm:text-right">
+            <p className="mt-2 text-center text-xs text-muted-foreground sm:text-right">
               Free to deploy
             </p>
           </div>
@@ -123,10 +123,10 @@ export function TemplateDetailClient({
         {/* Features */}
         <section className="max-w-2xl">
           <h2 className="text-base font-semibold tracking-tight">What it does</h2>
-          <ul className="mt-4 space-y-2.5">
+          <ul className="mt-4 space-y-2">
             {template.features.map((feature) => (
-              <li key={feature} className="flex items-start gap-2.5 text-sm text-foreground/80">
-                <Check className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" strokeWidth={2.5} />
+              <li key={feature} className="flex items-start gap-2 text-sm text-foreground/80">
+                <Check className="mt-1 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" strokeWidth={2.5} />
                 <span>{feature}</span>
               </li>
             ))}
@@ -140,7 +140,7 @@ export function TemplateDetailClient({
             {template.useCases.map((uc) => (
               <div key={uc.title} className="rounded-lg bg-muted/40 p-4">
                 <h3 className="text-sm font-medium">{uc.title}</h3>
-                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                   {uc.description}
                 </p>
               </div>
@@ -170,7 +170,7 @@ export function TemplateDetailClient({
         <div className="mt-16 flex items-center justify-between rounded-xl bg-muted/40 p-6">
           <div>
             <p className="text-sm font-medium">Ready to deploy?</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               Customize the agent instructions after setup.
             </p>
           </div>

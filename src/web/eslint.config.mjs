@@ -21,6 +21,7 @@ const eslintConfig = defineConfig([
       "react-hooks/set-state-in-effect": "off",
       "react-hooks/preserve-manual-memoization": "off",
       "react-hooks/refs": "warn",
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", destructuredArrayIgnorePattern: "^_" }],
       "@typescript-eslint/no-explicit-any": "warn",
       "tailwind-canonical-classes/tailwind-canonical-classes": [
         "warn",

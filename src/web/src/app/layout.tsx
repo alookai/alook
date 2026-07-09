@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import {
   DM_Sans,
   DM_Mono,
+  Instrument_Serif,
   Caveat,
   VT323,
   Literata,
@@ -17,13 +18,20 @@ import "./globals.css";
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700", "800", "900"],
 });
 
 const dmMono = DM_Mono({
   variable: "--font-dm-mono",
   subsets: ["latin"],
   weight: ["400"],
+});
+
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-instrument-serif",
+  subsets: ["latin"],
+  weight: ["400"],
+  style: ["normal", "italic"],
 });
 
 const caveat = Caveat({
@@ -118,7 +126,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${dmSans.variable} ${dmMono.variable} ${caveat.variable} ${vt323.variable} ${literata.variable} h-full antialiased`}
+      className={`${dmSans.variable} ${dmMono.variable} ${instrumentSerif.variable} ${caveat.variable} ${vt323.variable} ${literata.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>

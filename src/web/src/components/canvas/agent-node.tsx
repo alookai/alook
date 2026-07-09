@@ -32,7 +32,7 @@ function AgentNodeInner({ data, selected, dragging }: NodeProps) {
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className={cn(
-        "bg-background rounded-xl ring-1 ring-foreground/8 shadow-sm transition-[box-shadow,ring-color,opacity,transform] duration-200 py-3 px-3.5 group",
+        "bg-background rounded-xl ring-1 ring-foreground/8 shadow-sm transition-[box-shadow,ring-color,opacity,transform] duration-200 py-3 px-4 group",
         selected && "ring-2 ring-primary/20 shadow-md",
         !selected && "hover:ring-foreground/15 hover:shadow-md",
         dragging && "shadow-lg scale-[1.02] cursor-grabbing",

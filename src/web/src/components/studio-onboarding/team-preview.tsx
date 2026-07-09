@@ -51,7 +51,7 @@ export function TeamPreview({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-base font-semibold tracking-tight">Your company</h2>
-        <Button variant="ghost" size="sm" onClick={onShuffle} className="h-7 text-xs gap-1.5">
+        <Button variant="ghost" size="sm" onClick={onShuffle} className="h-7 text-xs gap-2">
           <RefreshCw className="size-3" />
           Shuffle
         </Button>
@@ -60,8 +60,8 @@ export function TeamPreview({
         className={cn(
           "grid gap-3 grid-cols-1",
           members.length === 2 && "sm:grid-cols-2",
-          members.length === 3 && "sm:grid-cols-2 md:grid-cols-3",
-          members.length >= 4 && "sm:grid-cols-2 md:grid-cols-4",
+          members.length === 3 && "sm:grid-cols-2 sm:grid-cols-3",
+          members.length >= 4 && "sm:grid-cols-2 sm:grid-cols-4",
         )}
       >
         {members.map((m, i) => {
@@ -69,7 +69,7 @@ export function TeamPreview({
           return (
             <Card key={i} size="sm" className="flex flex-col px-3 py-4 gap-2 h-full">
               {/* Header: avatar + name/badge */}
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 {avatarConfig ? (
                   <AvatarRenderer config={avatarConfig} size={36} className="rounded-xl shrink-0" />
                 ) : (
@@ -77,9 +77,9 @@ export function TeamPreview({
                     {m.name.charAt(0)}
                   </div>
                 )}
-                <div className="flex flex-col items-start gap-0.5">
+                <div className="flex flex-col items-start gap-1">
                   <span className="text-sm font-medium">{m.name}</span>
-                  <span className="text-[10px] text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] text-muted-foreground bg-muted/60 px-2 py-1 rounded">
                     {ROLE_LABELS[m.role]}
                   </span>
                 </div>
@@ -99,7 +99,7 @@ export function TeamPreview({
                   <div className="mt-1">
                     <Select value={m.runtimeId} onValueChange={(val) => { if (val) onAssignRuntime(i, val); }}>
                       <SelectTrigger className="h-7 text-[11px]">
-                        <div className="flex items-center gap-1.5 truncate">
+                        <div className="flex items-center gap-2 truncate">
                           {selectedRt && <ProviderLogo provider={selectedRt.provider || ""} className="size-3 shrink-0" />}
                           <span className="truncate">{selectedRt?.provider || selectedRt?.runtime_mode || "Select"}</span>
                         </div>

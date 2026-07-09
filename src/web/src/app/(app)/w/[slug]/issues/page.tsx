@@ -97,15 +97,15 @@ function IssueCard({
           <div className="flex items-start justify-between gap-2">
             <div className="line-clamp-2 min-w-0 text-sm font-medium leading-5 text-foreground">{issue.title}</div>
             {issue.status === "in_progress" && (
-              <span className="flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              <span className="flex shrink-0 items-center gap-1 rounded bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary">
                 <Loader2 className="size-2.5 animate-spin" /> Working
               </span>
             )}
             {issue.status === "review" && (
-              <span className="shrink-0 rounded bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-medium text-yellow-600 dark:text-yellow-400">Review</span>
+              <span className="shrink-0 rounded bg-yellow-500/10 px-2 py-1 text-[10px] font-medium text-yellow-600 dark:text-yellow-400">Review</span>
             )}
             {issue.status === "failed" && (
-              <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">Failed</span>
+              <span className="shrink-0 rounded bg-destructive/10 px-2 py-1 text-[10px] font-medium text-destructive">Failed</span>
             )}
           </div>
           {issue.description ? (
@@ -117,12 +117,12 @@ function IssueCard({
             {threadAgents && threadAgents.length >= 2 ? (
               <span className="flex items-center">
                 {threadAgents.slice(0, 3).map((a, i) => (
-                  <span key={a.id} className={cn("rounded-full border-2 border-background", i > 0 && "-ml-1.5")}>
+                  <span key={a.id} className={cn("rounded-full border-2 border-background", i > 0 && "-ml-2")}>
                     <AgentAvatar agent={a} size={16} />
                   </span>
                 ))}
                 {threadAgents.length > 3 && (
-                  <span className="flex items-center justify-center rounded-full border-2 border-background bg-muted text-[9px] font-medium text-muted-foreground -ml-1.5" style={{ width: 16, height: 16 }}>
+                  <span className="flex items-center justify-center rounded-full border-2 border-background bg-muted text-[9px] font-medium text-muted-foreground -ml-2" style={{ width: 16, height: 16 }}>
                     +{threadAgents.length - 3}
                   </span>
                 )}
@@ -142,7 +142,7 @@ function IssueCard({
       {onDelete && (
         <ContextMenuContent>
           <ContextMenuItem className="text-destructive" onClick={onDelete}>
-            <Trash2 className="size-3.5 mr-1.5" />
+            <Trash2 className="size-3.5 mr-2" />
             Delete
           </ContextMenuItem>
         </ContextMenuContent>
@@ -606,7 +606,7 @@ export default function IssuesPage() {
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-background/30">
-      <div className="flex shrink-0 flex-col gap-3 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
+      <div className="flex shrink-0 flex-col gap-3 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-4">
         <div className="min-w-0">
           <h1 className="text-base font-semibold tracking-normal">Issues</h1>
         </div>
@@ -656,7 +656,7 @@ export default function IssuesPage() {
                   <DroppableColumn key={col.id} id={col.id}>
                     <div className="flex shrink-0 items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-2 text-xs font-medium text-muted-foreground">
                       <span>{col.label}</span>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
                         <span>{columnIssues.length}</span>
                         {col.id === "completed" && (
                           <Tooltip>
@@ -667,7 +667,7 @@ export default function IssuesPage() {
                                   aria-label="Hide completed column"
                                   disabled={!!activeDragId}
                                   onClick={() => setShowCompleted(false)}
-                                  className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-muted-foreground disabled:opacity-40"
+                                  className="rounded p-1 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-muted-foreground disabled:opacity-40"
                                 />
                               }
                             >
@@ -730,7 +730,7 @@ export default function IssuesPage() {
                 </div>
               </div>
             ))}
-            <div className="rounded-lg border border-dashed border-border/60 px-3 py-2.5">
+            <div className="rounded-lg border border-dashed border-border/60 px-3 py-2">
               <Skeleton className="h-4 w-32" />
             </div>
           </div>
@@ -750,7 +750,7 @@ export default function IssuesPage() {
                 <section key={col.id} className="rounded-lg border border-border/60 bg-card/60">
                   <div className="flex items-center justify-between border-b border-border/50 px-3 py-2 text-sm font-medium">
                     <span>{col.label}</span>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-2">
                       <Badge variant="outline">{columnIssues.length}</Badge>
                       {col.id === "completed" && (
                         <Tooltip>
@@ -760,7 +760,7 @@ export default function IssuesPage() {
                                 type="button"
                                 aria-label="Hide completed column"
                                 onClick={() => setShowCompleted(false)}
-                                className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-muted-foreground"
+                                className="rounded p-1 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-muted-foreground"
                               />
                             }
                           >
@@ -786,7 +786,7 @@ export default function IssuesPage() {
                 aria-label="Show completed issues"
                 onClick={() => setShowCompleted(true)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setShowCompleted(true); } }}
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted/30"
+                className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted/30"
               >
                 <Eye className="size-3.5" />
                 <span>Show Completed ({issues.filter(i => (COLUMNS[3].statuses as readonly string[]).includes(i.status)).length})</span>

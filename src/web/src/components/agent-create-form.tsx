@@ -214,7 +214,7 @@ export function AgentCreateForm({
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto thin-scrollbar">
-      <form onSubmit={handleSubmit} noValidate className="mx-auto max-w-md flex flex-col gap-5 px-8 pt-8 pb-6">
+      <form onSubmit={handleSubmit} noValidate className="mx-auto max-w-md flex flex-col gap-4 px-8 pt-8 pb-6">
         <AvatarPickerDialog
           config={avatarConfig}
           onChange={setAvatarConfig}

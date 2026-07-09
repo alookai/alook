@@ -94,7 +94,7 @@ export default async function BlogPage() {
                     <h2 className="font-news text-xl sm:text-2xl font-semibold tracking-tight group-hover:translate-x-0.5 transition-transform duration-200">
                       {post.title}
                     </h2>
-                    <p className="mt-1.5 text-sm text-muted-foreground">
+                    <p className="mt-2 text-sm text-muted-foreground">
                       {new Date(post.date).toLocaleDateString("en-US", {
                         year: "numeric",
                         month: "long",

@@ -76,7 +76,7 @@ function RuntimeTab({
 }) {
   return (
     <>
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label className="text-xs text-muted-foreground">Runtime</Label>
         <RuntimeSelect
           value={runtimeId}
@@ -92,7 +92,7 @@ function RuntimeTab({
         />
       </div>
 
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <Label className="text-xs text-muted-foreground">Model</Label>
         <Input
           value={model}
@@ -280,14 +280,14 @@ export function AgentEditForm({
 
   return (
     <div className="flex flex-1 min-h-0">
-      <nav className="w-48 shrink-0 border-r border-border/50 py-3 px-2 hidden md:block">
+      <nav className="w-48 shrink-0 border-r border-border/50 py-3 px-2 hidden sm:block">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id)}
             className={cn(
-              "w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
+              "w-full rounded-md px-2 py-2 text-left text-sm transition-colors",
               activeTab === tab.id
                 ? "bg-accent text-foreground font-medium"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -299,7 +299,7 @@ export function AgentEditForm({
       </nav>
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <div className="px-4 pt-2 md:hidden">
+        <div className="px-4 pt-2 sm:hidden">
           <Tabs
             className="items-center"
             value={activeTab}
@@ -335,7 +335,7 @@ export function AgentEditForm({
             </div>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto thin-scrollbar px-5 py-6">
+          <div className="flex-1 overflow-y-auto thin-scrollbar px-4 py-6">
             {isFormTab ? (
               <form
                 onSubmit={handleSubmit}
@@ -376,7 +376,7 @@ export function AgentEditForm({
                 {activeTab === "email" && (
                   <>
                     <div className="rounded-lg border border-border/50 bg-muted/30 px-4 py-3">
-                      <div className="mb-2.5 flex items-center gap-1.5">
+                      <div className="mb-2 flex items-center gap-2">
                         <LockIcon className="size-3 text-muted-foreground/60" />
                         <span className="text-xs font-medium text-muted-foreground/60">
                           Set at creation

@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1200" height="600" viewBox="0 0 1200 600" xmlns="http://www.w3.org/2000/svg">
+  <!-- Support Swarm Diagram - Hub and Spoke Pattern -->
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#CD9200;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#B08000;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="warmGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#EDE7DD;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#D4C9BE;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="2" dy="2" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.2"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="600" fill="#FEFDFB"/>
+
+  <!-- Title -->
+  <text x="600" y="40" font-family="Arial, sans-serif" font-size="24" font-weight="bold" text-anchor="middle" fill="#0F0A07">Support Swarm</text>
+  <text x="600" y="65" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#666">Parallel specialization for faster resolution</text>
+
+  <!-- Customer Ticket (Entry Point) -->
+  <rect x="50" y="250" width="140" height="80" rx="10" fill="#0F0A07" filter="url(#shadow)"/>
+  <text x="120" y="285" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Customer</text>
+  <text x="120" y="305" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">Ticket</text>
+
+  <!-- Arrow to Triage -->
+  <path d="M 190 290 L 290 290" stroke="#CD9200" stroke-width="3" fill="none"/>
+  <polygon points="290,285 300,290 290,295" fill="#CD9200"/>
+
+  <!-- Triage Agent (Central Hub) -->
+  <circle cx="400" cy="290" r="80" fill="url(#goldGrad)" filter="url(#shadow)"/>
+  <text x="400" y="285" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Triage</text>
+  <text x="400" y="305" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Agent</text>
+
+  <!-- Specialist Agents (Spokes) -->
+  <!-- Billing Agent (Top) -->
+  <rect x="320" y="100" width="160" height="80" rx="10" fill="url(#warmGrad)" filter="url(#shadow)"/>
+  <text x="400" y="135" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0F0A07">Billing</text>
+  <text x="400" y="155" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0F0A07">Agent</text>
+
+  <!-- Technical Agent (Bottom Left) -->
+  <rect x="220" y="420" width="160" height="80" rx="10" fill="url(#warmGrad)" filter="url(#shadow)"/>
+  <text x="300" y="455" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0F0A07">Technical</text>
+  <text x="300" y="475" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0F0A07">Agent</text>
+
+  <!-- Feature Agent (Bottom Right) -->
+  <rect x="420" y="420" width="160" height="80" rx="10" fill="url(#warmGrad)" filter="url(#shadow)"/>
+  <text x="500" y="455" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0F0A07">Feature</text>
+  <text x="500" y="475" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="#0F0A07">Agent</text>
+
+  <!-- Arrows from Triage to Specialists -->
+  <path d="M 400 210 L 400 180" stroke="#CD9200" stroke-width="2" stroke-dasharray="5,5" fill="none"/>
+  <polygon points="395,180 400,170 405,180" fill="#CD9200"/>
+
+  <path d="M 350 340 L 320 380" stroke="#CD9200" stroke-width="2" stroke-dasharray="5,5" fill="none"/>
+  <polygon points="315,375 310,385 325,385" fill="#CD9200"/>
+
+  <path d="M 450 340 L 480 380" stroke="#CD9200" stroke-width="2" stroke-dasharray="5,5" fill="none"/>
+  <polygon points="475,375 490,385 485,375" fill="#CD9200"/>
+
+  <!-- Response Agent -->
+  <rect x="720" y="250" width="160" height="80" rx="10" fill="url(#goldGrad)" filter="url(#shadow)"/>
+  <text x="800" y="285" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Response</text>
+  <text x="800" y="305" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Agent</text>
+
+  <!-- Arrows from Specialists to Response -->
+  <path d="M 480 140 L 720 265" stroke="#CD9200" stroke-width="2" fill="none"/>
+  <polygon points="715,260 725,265 720,270" fill="#CD9200"/>
+
+  <path d="M 380 460 L 720 320" stroke="#CD9200" stroke-width="2" fill="none"/>
+  <polygon points="715,315 725,320 720,325" fill="#CD9200"/>
+
+  <path d="M 580 460 L 750 330" stroke="#CD9200" stroke-width="2" fill="none"/>
+  <polygon points="745,325 755,330 750,335" fill="#CD9200"/>
+
+  <!-- QA Agent -->
+  <rect x="970" y="250" width="160" height="80" rx="10" fill="url(#goldGrad)" filter="url(#shadow)"/>
+  <text x="1050" y="285" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">QA</text>
+  <text x="1050" y="305" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle" fill="white">Agent</text>
+
+  <!-- Arrow from Response to QA -->
+  <path d="M 880 290 L 960 290" stroke="#CD9200" stroke-width="3" fill="none"/>
+  <polygon points="960,285 970,290 960,295" fill="#CD9200"/>
+
+  <!-- Labels -->
+  <text x="240" y="275" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Analyze</text>
+  <text x="400" y="195" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Route</text>
+  <text x="340" y="370" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Route</text>
+  <text x="460" y="370" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Route</text>
+  <text x="640" y="275" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Converge</text>
+  <text x="920" y="275" font-family="Arial, sans-serif" font-size="11" text-anchor="middle" fill="#666">Verify</text>
+
+  <!-- Key message -->
+  <text x="600" y="550" font-family="Arial, sans-serif" font-size="12" font-style="italic" text-anchor="middle" fill="#999">Multiple specialists work in parallel, then converge to unified response</text>
+</svg>

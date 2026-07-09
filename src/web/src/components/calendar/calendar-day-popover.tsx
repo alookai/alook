@@ -52,12 +52,12 @@ export function CalendarDayPopover({
       <PopoverTrigger
         aria-label={`${hiddenCount} more event${hiddenCount === 1 ? "" : "s"}`}
         onClick={(e) => e.stopPropagation()}
-        className="w-full truncate rounded-sm px-1.5 py-0.5 text-left text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        className="w-full truncate rounded-sm px-2 py-1 text-left text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
       >
         +{hiddenCount} more
       </PopoverTrigger>
       <PopoverContent className="w-64" align="start">
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <p className="px-1 pb-1 text-[11px] font-medium text-muted-foreground">
             {dateLabel}
           </p>
@@ -72,7 +72,7 @@ export function CalendarDayPopover({
                     onOpenChange(false);
                     onSelectEvent(ev);
                   }}
-                  className="flex items-center gap-2 rounded-sm px-1.5 py-1 text-left text-[11px] font-medium text-foreground/85 hover:bg-accent/60 transition-colors"
+                  className="flex items-center gap-2 rounded-sm px-2 py-1 text-left text-[11px] font-medium text-foreground/85 hover:bg-accent/60 transition-colors"
                   title={`${isRecurring ? "Recurring · " : ""}${ev.title}${
                     agentNameById.get(ev.agent_id)
                       ? ` — ${agentNameById.get(ev.agent_id)}`

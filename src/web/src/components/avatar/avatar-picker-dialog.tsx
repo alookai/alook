@@ -35,7 +35,7 @@ export function AvatarPickerDialog({ config, onChange }: AvatarPickerDialogProps
           render={
             <button
               type="button"
-              className="rounded-2xl bg-background p-1.5 shadow-sm border border-border hover:border-primary/40 transition-colors cursor-pointer"
+              className="rounded-2xl bg-background p-2 shadow-sm border border-border hover:border-primary/40 transition-colors cursor-pointer"
             />
           }
         >

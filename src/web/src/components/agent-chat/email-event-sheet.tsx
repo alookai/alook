@@ -122,11 +122,11 @@ export function EmailEventSheet({ open, onOpenChange, emailId, workspaceId }: Em
 
               {email.attachments && email.attachments.length > 0 && (
                 <div className="border-t pt-3">
-                  <div className="flex items-center gap-1.5 mb-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
                     <Paperclip className="size-3" />
                     {email.attachments.length} attachment{email.attachments.length > 1 ? "s" : ""}
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-2">
                     {email.attachments.map((att, i) => (
                       <a
                         key={att.key}
@@ -134,7 +134,7 @@ export function EmailEventSheet({ open, onOpenChange, emailId, workspaceId }: Em
                         target="_blank"
                         rel="noopener noreferrer"
                         download={att.filename}
-                        className="flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/50 px-2.5 py-1.5 text-xs hover:bg-muted transition-colors cursor-pointer"
+                        className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-2 py-2 text-xs hover:bg-muted transition-colors cursor-pointer"
                       >
                         <FileIcon className="size-3 text-muted-foreground shrink-0" />
                         <span className="truncate max-w-45">{att.filename}</span>

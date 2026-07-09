@@ -27,21 +27,21 @@ export default function SettingsPage() {
 
   return (
     <>
-      <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5 gap-3">
+      <div className="flex items-center justify-between border-b border-border/50 px-3 sm:px-4 py-2 gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <h1 className="text-sm font-medium">Settings</h1>
         </div>
       </div>
 
       <div className="flex flex-1 min-h-0">
-        <nav className="w-48 shrink-0 border-r border-border/50 py-3 px-2 hidden md:flex md:flex-col">
+        <nav className="w-48 shrink-0 border-r border-border/50 py-3 px-2 hidden sm:flex sm:flex-col">
           <div className="flex-1">
             {TABS.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  "w-full rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
+                  "w-full rounded-md px-2 py-2 text-left text-sm transition-colors",
                   activeTab === tab.id
                     ? "bg-accent text-foreground font-medium"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -52,14 +52,14 @@ export default function SettingsPage() {
             ))}
           </div>
           {process.env.NEXT_PUBLIC_APP_VERSION && (
-            <div className="px-2.5 pt-3 border-t border-border/50 text-[11px] text-muted-foreground/60">
+            <div className="px-2 pt-3 border-t border-border/50 text-[11px] text-muted-foreground/60">
               v{process.env.NEXT_PUBLIC_APP_VERSION}
             </div>
           )}
         </nav>
 
         <div className="flex-1 min-w-0 flex flex-col">
-          <div className="px-4 pt-2 md:hidden">
+          <div className="px-4 pt-2 sm:hidden">
             <Tabs className="items-center" value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)}>
               <TabsList className="h-auto gap-1">
                 {TABS.map((tab) => (
@@ -73,7 +73,7 @@ export default function SettingsPage() {
 
           <div className={cn(
             "flex-1 overflow-y-auto thin-scrollbar",
-            activeTab !== "instruction" && "px-5 py-5"
+            activeTab !== "instruction" && "px-4 py-4"
           )}>
             {activeTab === "instruction" ? (
               <InstructionTab />
@@ -89,7 +89,7 @@ export default function SettingsPage() {
             )}
           </div>
           {process.env.NEXT_PUBLIC_APP_VERSION && (
-            <div className="px-4 py-2 text-[11px] text-muted-foreground/60 md:hidden">
+            <div className="px-4 py-2 text-[11px] text-muted-foreground/60 sm:hidden">
               v{process.env.NEXT_PUBLIC_APP_VERSION}
             </div>
           )}

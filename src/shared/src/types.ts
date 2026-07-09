@@ -1,4 +1,5 @@
 import type { TaskApi, WorkspaceFileEntry, FileRequestItem, PollMeetingItem } from "./schemas";
+import type { CommunityWsEvent } from "./community-ws-events";
 
 export type EmailDirection = "inbound" | "outbound";
 
@@ -298,6 +299,7 @@ export type WsMessage =
   | { type: "workspace.files"; agentId: string; requestId: string; requestType: "tree" | "read"; result: WorkspaceFileResult }
   | { type: "thread.created"; conversationId: string; threadConversationId: string; parentMessageId: string; threadTitle: string }
   | { type: "thread.reply"; conversationId: string; threadConversationId: string; parentMessageId: string; replyCount: number }
+  | CommunityWsEvent
 
 export interface WorkspaceFileResult {
   entries?: WorkspaceFileEntry[];

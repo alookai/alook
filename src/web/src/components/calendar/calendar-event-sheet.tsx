@@ -126,11 +126,11 @@ function normalizedDescription(value: string | null | undefined): string {
 }
 
 const GHOST_CONTROL =
-  "h-7 border-0 bg-transparent px-1.5 text-sm text-foreground hover:bg-accent transition-colors -ml-1.5";
+  "h-7 border-0 bg-transparent px-2 text-sm text-foreground hover:bg-accent transition-colors -ml-2";
 
 
 const TIME_INPUT =
-  "h-7 w-12 border-0 bg-transparent px-0.5 text-sm tabular-nums text-foreground rounded-md outline-none focus-visible:ring-0";
+  "h-7 w-12 border-0 bg-transparent px-1 text-sm tabular-nums text-foreground rounded-md outline-none focus-visible:ring-0";
 
 interface PropertyRowProps {
   icon?: React.ReactNode;
@@ -183,7 +183,7 @@ function RecurringScopeDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-1.5 py-1">
+        <div className="flex flex-col gap-2 py-1">
           {(
             [
               { value: "this", label: "This event only" },
@@ -542,7 +542,7 @@ export function CalendarEventSheet({
     : title.trim() || "New calendar event";
 
   const titleInput = readonly ? (
-    <p className="w-full px-0 py-1 font-news text-xl sm:text-2xl md:text-3xl font-medium leading-[1.2] tracking-tight">
+    <p className="w-full px-0 py-1 font-news text-xl sm:text-2xl sm:text-3xl font-medium leading-[1.2] tracking-tight">
       {title || "Untitled event"}
     </p>
   ) : (
@@ -560,7 +560,7 @@ export function CalendarEventSheet({
       autoFocus={mode === "create"}
       rows={1}
       className={cn(
-        "w-full rounded-none border-0 bg-transparent px-0 py-1 font-news text-xl sm:text-2xl md:text-3xl font-medium leading-[1.2] tracking-tight",
+        "w-full rounded-none border-0 bg-transparent px-0 py-1 font-news text-xl sm:text-2xl sm:text-3xl font-medium leading-[1.2] tracking-tight",
         "shadow-none outline-none focus-visible:border-0 focus-visible:ring-0 focus-visible:ring-offset-0",
         "placeholder:text-muted-foreground/40 placeholder:font-normal"
       )}
@@ -568,7 +568,7 @@ export function CalendarEventSheet({
   );
 
   const properties = readonly ? (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <PropertyRow icon={<CalendarDays className="size-3.5" />}>
         <span className="text-sm text-foreground">
           {dateValue.toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
@@ -591,14 +591,14 @@ export function CalendarEventSheet({
       )}
     </div>
   ) : (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       <PropertyRow icon={<User className="size-3.5" />}>
         <Select
           value={agentId}
           onValueChange={(val) => { if (val) setAgentId(val); }}
           items={agents.map((a) => ({ value: a.id, label: a.name }))}
         >
-          <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
+          <SelectTrigger className="h-7 w-auto border-none bg-transparent px-2 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
             <SelectValue placeholder={agents.length === 0 ? "No agents" : "Select agent"} />
           </SelectTrigger>
           <SelectContent>
@@ -670,7 +670,7 @@ export function CalendarEventSheet({
               { value: "__custom__", label: "Custom…" },
             ]}
           >
-            <SelectTrigger className="h-7 w-auto border-none bg-transparent px-1.5 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
+            <SelectTrigger className="h-7 w-auto border-none bg-transparent px-2 shadow-none text-sm text-foreground hover:bg-accent transition-colors rounded-md">
               <SelectValue placeholder="Does not repeat" />
             </SelectTrigger>
             <SelectContent>
@@ -684,7 +684,7 @@ export function CalendarEventSheet({
             </SelectContent>
           </Select>
         ) : (
-          <div className="-ml-1.5 flex items-center gap-0.5">
+          <div className="-ml-2 flex items-center gap-1">
             <span className="px-1 text-sm text-foreground">Every</span>
             <input
               type="text"

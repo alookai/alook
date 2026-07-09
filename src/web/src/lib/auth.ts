@@ -1,14 +1,25 @@
 import { betterAuth } from "better-auth"
 import { emailOTP, deviceAuthorization, bearer } from "better-auth/plugins"
-import { createLogger, DEV_EMAIL_WORKER_URL, resolveMode } from "@alook/shared"
+import { nanoid } from "nanoid"
+import {
+  createLogger,
+  DEV_EMAIL_WORKER_URL,
+  resolveMode,
+  queries,
+  COMMUNITY_BOT_EMAIL_DOMAIN,
+  computeDiscriminator,
+  RATE_LIMITS,
+} from "@alook/shared"
+import { getDb } from "@/lib/db"
+import { checkRateLimit } from "@/lib/rate-limit"
 import { getOtpSubject, renderOtpEmail } from "./email-templates"
 
 const log = createLogger({ service: "auth" })
 
-const OTP_RATE_LIMIT_PATH = "/email-otp/send-verification-otp"
-const DEFAULT_OTP_RATE_LIMIT_MAX = 5
-const DEFAULT_OTP_RATE_LIMIT_WINDOW_SEC = 60
-const KV_MIN_TTL_SEC = 60
+const DEFAULT_OTP_RATE_LIMIT_MAX = RATE_LIMITS["auth:otpSend"].max
+const DEFAULT_OTP_RATE_LIMIT_WINDOW_SEC = Math.round(
+  RATE_LIMITS["auth:otpSend"].windowMs / 1000,
+)
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback
@@ -24,8 +35,6 @@ export function createAuth(env: Env) {
     env.AUTH_OTP_RATE_LIMIT_WINDOW_SEC,
     DEFAULT_OTP_RATE_LIMIT_WINDOW_SEC,
   )
-  const kvTtl = Math.max(KV_MIN_TTL_SEC, otpWindow)
-
   const validateClient = (clientId: string) => {
     const allowed = (env.DEVICE_CLIENT_IDS || "").split(",").map((s) => s.trim()).filter(Boolean)
     return allowed.includes(clientId)
@@ -51,6 +60,15 @@ export function createAuth(env: Env) {
       enabled: !isProd,
       requireEmailVerification: false,
     },
+    user: {
+      additionalFields: {
+        discriminator: {
+          type: "string",
+          required: false,
+          input: false,
+        },
+      },
+    },
     socialProviders: {
       github: {
         clientId: env.GITHUB_CLIENT_ID,
@@ -61,24 +79,39 @@ export function createAuth(env: Env) {
         clientSecret: env.GOOGLE_CLIENT_SECRET,
       },
     },
+    // Better-auth's built-in rate limiter is intentionally OFF — we run our
+    // own DO-backed limiter inside `sendVerificationOTP` below. That gives
+    // the OTP path strong consistency (better-auth's `customStorage`
+    // adapter would still be a `get → mutate → put` sequence, race-prone
+    // against KV; our DO handles the counter atomically) AND keeps every
+    // rate limit going through the shared `RATE_LIMITS` registry.
     rateLimit: {
-      enabled: isProd,
-      customRules: {
-        [OTP_RATE_LIMIT_PATH]: { window: otpWindow, max: otpMax },
-      },
-      customStorage: {
-        get: async (key) => {
-          const raw = await env.RATE_LIMIT_KV.get(key)
-          return raw ? JSON.parse(raw) : undefined
-        },
-        set: async (key, value) => {
-          await env.RATE_LIMIT_KV.put(key, JSON.stringify(value), { expirationTtl: kvTtl })
-        },
-      },
+      enabled: false,
     },
     databaseHooks: {
       user: {
         create: {
+          before: async (user) => {
+            // Reserve the bot synthetic-email domain (and every subdomain) so
+            // a real signup can't collide with a bot row's UNIQUE(email). Only
+            // bot creation should ever mint an address here; a public signup
+            // means someone is impersonating or the domain assumption is wrong.
+            const emailDomain = user.email?.split("@")[1]?.toLowerCase()
+            if (
+              emailDomain === COMMUNITY_BOT_EMAIL_DOMAIN ||
+              emailDomain?.endsWith("." + COMMUNITY_BOT_EMAIL_DOMAIN)
+            ) {
+              return false as unknown as { data: typeof user }
+            }
+            // Mint the id here so we can seed `discriminator` (an FNV-1a hash
+            // of the id) in the same INSERT — the schema default of "0000"
+            // otherwise sticks and a backfill has to catch it.
+            const id = (user as { id?: string }).id ?? nanoid()
+            const discriminator = computeDiscriminator(id)
+            const trimmed = (user.name ?? "").trim()
+            const name = trimmed || user.email?.split("@")[0]?.trim() || user.name
+            return { data: { ...user, id, name, discriminator } }
+          },
           after: async (user, ctx) => {
             if (!ctx) return
             const path = ctx.request?.url ? new URL(ctx.request.url).pathname : ""
@@ -98,6 +131,25 @@ export function createAuth(env: Env) {
       },
       session: {
         create: {
+          // Belt-and-braces: refuse to mint a session for a bot user row.
+          // Non-goal per plan: "logging in as a bot" — no UI, no session
+          // token; enforced structurally here so a future flow that reaches
+          // `session.create` can't accidentally hand a bot a cookie.
+          before: async (session) => {
+            try {
+              const db = getDb(env.DB)
+              const target = await queries.user.getUserInternal(db, session.userId)
+              if (target?.isBot === true || target?.deletedAt !== null) {
+                // Returning `false` cancels the create per Better-Auth API.
+                return false as unknown as { data: typeof session }
+              }
+              return { data: session }
+            } catch {
+              // Best-effort — fall through and allow. The withAuth guard
+              // catches this on the very next request anyway.
+              return { data: session }
+            }
+          },
           after: async (session, ctx) => {
             if (!ctx) return
             const signupCookie = ctx.getCookie("is_new_signup")
@@ -124,6 +176,21 @@ export function createAuth(env: Env) {
           bearer(),
           emailOTP({
             async sendVerificationOTP({ email, otp, type }) {
+              // Rate-limit BEFORE minting/sending the OTP so abuse can't
+              // burn a token slot or hit the email worker. Keyed by email
+              // (the sender's target); anyone attempting to spam a
+              // specific inbox gets throttled per inbox.
+              const rate = await checkRateLimit(env, "auth:otpSend", email, {
+                windowMs: otpWindow * 1000,
+                max: otpMax,
+              })
+              if (!rate.allowed) {
+                log.warn("OTP send rate-limited", {
+                  to: email,
+                  retryAfterSec: rate.retryAfterSec,
+                })
+                throw new Error(`OTP rate limit; retry in ${rate.retryAfterSec}s`)
+              }
               log.info("sending OTP email", { to: email, type })
               try {
                 const otpPayload = JSON.stringify({

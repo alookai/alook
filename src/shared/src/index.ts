@@ -82,16 +82,81 @@ export {
   MessageRole,
   POLL_INTERVAL_MS,
   OFFLINE_THRESHOLD_MS,
+  COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
+  COMMUNITY_MACHINE_HEARTBEAT_MS,
+  COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS,
   EVENT_POLL_INTERVAL_MS,
   AGENT_HANDLE_MIN_LENGTH,
   MAX_TASKS_PER_TRACE,
   DEV_PASSWORD,
+  DEV_PORTS,
   DEV_WEB_URL,
   DEV_WS_DO_URL,
   DEV_EMAIL_WORKER_URL,
+  DEV_WAKE_WORKER_URL,
+  devWsDoPort,
   MeetingStatus,
   TERMINAL_MEETING_STATUSES,
+  COMMUNITY_BOT_LIMIT_PER_OWNER,
+  COMMUNITY_BOT_NAME_MIN,
+  COMMUNITY_BOT_NAME_MAX,
+  COMMUNITY_BOT_DESCRIPTION_MAX,
+  COMMUNITY_BOT_IMAGE_URL_MAX,
+  COMMUNITY_BOT_EMAIL_DOMAIN,
+  COMMUNITY_BOT_EMAIL_PREFIX,
+  communityBotSyntheticEmail,
+  SELF_BOT_FRIENDSHIP_PREFIX,
+  isSelfBotFriendship,
 } from "./constants";
+
+export {
+  DEFAULT_MESSAGE_PAGE_SIZE,
+  MAX_MESSAGE_PAGE_SIZE,
+  DEFAULT_MEMBERS_PAGE_SIZE,
+  MAX_MEMBERS_PAGE_SIZE,
+  DEFAULT_AUDIT_LOG_PAGE_SIZE,
+  MAX_AUDIT_LOG_PAGE_SIZE,
+  DEFAULT_USER_SEARCH_LIMIT,
+  MAX_SERVER_NAME_LENGTH,
+  MAX_SERVER_DESCRIPTION_LENGTH,
+  MAX_CHANNEL_NAME_LENGTH,
+  MAX_CHANNEL_TOPIC_LENGTH,
+  MAX_CATEGORY_NAME_LENGTH,
+  MAX_FOLDER_NAME_LENGTH,
+  MAX_PROFILE_NAME_LENGTH,
+  MAX_PROFILE_ABOUT_LENGTH,
+  MAX_MESSAGE_CONTENT_LENGTH,
+  MAX_FORUM_TAG_LENGTH,
+  MAX_FORUM_TAGS_PER_POST,
+  MAX_EMOJI_BYTES,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_ATTACHMENT_SIZE_BYTES,
+  MAX_SERVER_ICON_SIZE_BYTES,
+  ALLOWED_ATTACHMENT_MIME_PREFIXES,
+  ALLOWED_ICON_MIME_TYPES,
+  MIN_SEARCH_LENGTH,
+  MAX_SEARCH_LENGTH,
+  DEFAULT_SEARCH_LIMIT,
+  MAX_SEARCH_LIMIT,
+  MIN_INVITE_MAX_USES,
+  MAX_INVITE_MAX_USES,
+  MAX_INVITE_EXPIRY_DAYS,
+  MAX_ACTIVE_INVITES_PER_SERVER,
+  MESSAGE_PREVIEW_LENGTH,
+  DEFAULT_INBOX_PAGE_SIZE,
+  MAX_INBOX_PAGE_SIZE,
+  PRESENCE_MEMBER_CAP,
+  BANNER_COLOR_REGEX,
+  NOTIFICATION_LEVEL_VALUES,
+  TYPING_INDICATOR_TIMEOUT_MS,
+  TYPING_INDICATOR_THROTTLE_MS,
+  MESSAGE_DEDUP_CACHE_MAX,
+  MESSAGE_DEDUP_CACHE_TRIM,
+  NOTIF_LEVELS,
+  CACHE_IMMUTABLE,
+  CACHE_SHORT,
+} from "./constants/community";
+export type { NotifLevel, NotificationLevelValue } from "./constants/community";
 
 export type {
   AgentStatusType,
@@ -101,6 +166,7 @@ export type {
   IssueStatusType,
   MessageRoleType,
   MeetingStatusType,
+  DevPortProfile,
 } from "./constants";
 
 // Schemas
@@ -168,6 +234,30 @@ export {
   RecruitAgentRequestSchema,
   CreateThreadRequestSchema,
   DaemonPushMessageSchema,
+  CommunityMachineRuntimeSchema,
+  CommunityMachineRuntimeListSchema,
+  CommunityMachineSummarySchema,
+  CommunityDaemonReadySchema,
+  CommunityPairTokenResponseSchema,
+  CommunityDaemonActivateRequestSchema,
+  CommunityDaemonActivateResponseSchema,
+  CommunityDaemonEnrollAgentRequestSchema,
+  CommunityDaemonEnrollAgentResponseSchema,
+  HostReadyMessageSchema,
+  SessionErrorFrameSchema,
+  COMMUNITY_RUNTIME_ID_MAX,
+  COMMUNITY_RUNTIME_VERSION_MAX,
+  COMMUNITY_RUNTIME_LIST_MAX,
+  CommunityBotCreateRequestSchema,
+  CommunityBotPatchRequestSchema,
+  CommunityBotAddToServerRequestSchema,
+  CommunityAgentCursorSchema,
+  CommunityAgentSendRequestSchema,
+  CommunityAgentInboxPullRequestSchema,
+  CommunityAgentAckRequestSchema,
+  CommunityAgentReadRequestSchema,
+  CommunityAgentResolveRequestSchema,
+  CommunityAgentListChannelsRequestSchema,
 } from "./schemas";
 
 export type {
@@ -219,13 +309,142 @@ export type {
   RecruitAgentRequest,
   CreateThreadRequest,
   DaemonPushMessageType,
+  CommunityDaemonReady,
+  CommunityPairTokenResponse,
+  CommunityDaemonActivateRequest,
+  CommunityDaemonActivateResponse,
+  CommunityDaemonEnrollAgentRequest,
+  CommunityDaemonEnrollAgentResponse,
+  HostReadyMessage,
+  SessionErrorFrame,
+  CommunityBotCreateRequest,
+  CommunityBotPatchRequest,
+  CommunityBotAddToServerRequest,
+  CommunityAgentCursor,
+  CommunityAgentSendRequest,
+  CommunityAgentInboxPullRequest,
+  CommunityAgentAckRequest,
+  CommunityAgentReadRequest,
+  CommunityAgentResolveRequest,
+  CommunityAgentListChannelsRequest,
 } from "./schemas";
+
+// Community agent CLI bridge contract — lifted from `src/daemon/src/server/contract.ts`.
+// `Message`/`Channel` collide with unrelated `./types` exports above, so those two
+// (plus anything else that could collide) are re-exported under `CommunityCli*`
+// aliases; everything else with no existing collision keeps its bare name.
+export type {
+  Id as CommunityCliId,
+  UserId as CommunityCliUserId,
+  AgentId as CommunityCliAgentId,
+  ServerId as CommunityCliServerId,
+  ChannelId as CommunityCliChannelId,
+  MessageId as CommunityCliMessageId,
+  Seq as CommunityCliSeq,
+  User as CommunityCliUser,
+  Agent as CommunityCliAgent,
+  Server as CommunityCliServer,
+  ChannelKind as CommunityCliChannelKind,
+  Channel as CommunityCliChannel,
+  SenderType as CommunityCliSenderType,
+  Sender as CommunityCliSender,
+  ChannelRef as CommunityCliChannelRef,
+  Target as CommunityCliTarget,
+  MessageContent as CommunityCliMessageContent,
+  Message as CommunityCliMessage,
+  Cursor as CommunityCliCursor,
+  Page as CommunityCliPage,
+  InboxFlag as CommunityCliInboxFlag,
+  InboxRow as CommunityCliInboxRow,
+  InboxSnapshot as CommunityCliInboxSnapshot,
+  InboxPullRequest as CommunityCliInboxPullRequest,
+  InboxPullResponse as CommunityCliInboxPullResponse,
+  AckRequest as CommunityCliAckRequest,
+  SendRequest as CommunityCliSendRequest,
+  SendResponse as CommunityCliSendResponse,
+  ReadRequest as CommunityCliReadRequest,
+  ResolveRequest as CommunityCliResolveRequest,
+  ListChannelsRequest as CommunityCliListChannelsRequest,
+  ServerApi as CommunityCliServerApi,
+  UnreadNotice,
+  HostCommand,
+  HostReadyRuntime,
+  HostReady,
+  SessionErrorFrame as CommunityCliSessionErrorFrame,
+  HostControlChannel,
+  AgentSessionReport,
+  ParsedRef as CommunityCliParsedRef,
+} from "./community-cli-contract";
+export { DM_SERVER, parseRef, formatRef, parseSeq, formatSeq } from "./community-cli-contract";
+
+export type {
+  ReasoningEffort,
+  ModelConfig,
+  ProviderConfig,
+  ModeConfig,
+  RuntimeConfig,
+} from "./runtime-config";
+export { RUNTIME_CONFIG_VERSION, makeRuntimeConfig } from "./runtime-config";
+
+export { sendWakeToMachine, buildUnreadWakeCommand, dispatchOneUnreadWake } from "./community/wake-dispatch";
+export type { DispatchOneWakeResult } from "./community/wake-dispatch";
+export type { WakePayload, BuildUnreadWakeResult } from "./community/wake-dispatch";
+
+export type { CommunityMachineSummary, CommunityMachineRuntime } from "./community-ws-events";
+export type {
+  BotAddedFrame,
+  BotUpdatedFrame,
+  BotRemovedFrame,
+  CommunityBotHostFrame,
+} from "./community-ws-events";
+
+// Community WS events
+export type {
+  CommunityMessageCreate,
+  CommunityReactionAdd,
+  CommunityReactionRemove,
+  CommunityPinAdd,
+  CommunityPinRemove,
+  CommunityTypingStart,
+  CommunityChildChannelCreate,
+  CommunityChildChannelUpdate,
+  CommunityServerUpdate,
+  CommunityServerDelete,
+  CommunityChannelCreate,
+  CommunityChannelUpdate,
+  CommunityChannelDelete,
+  CommunityChannelReorder,
+  CommunityCategoryCreate,
+  CommunityCategoryUpdate,
+  CommunityCategoryDelete,
+  CommunityCategoryReorder,
+  CommunityInviteCreate,
+  CommunityMemberJoin,
+  CommunityMemberLeave,
+  CommunityMemberUpdate,
+  CommunityFriendRequest,
+  CommunityFriendAccept,
+  CommunityFriendReject,
+  CommunityFriendRemove,
+  CommunityFriendBlock,
+  CommunityDmNewMessage,
+  CommunityDmTyping,
+  CommunityPresenceUpdate,
+  CommunityMentionCreate,
+  CommunityMachineCreated,
+  CommunityMachineStatus,
+  CommunityMachineUpdated,
+  CommunityMachineRemoved,
+  CommunityWsEvent,
+} from "./community-ws-events";
+export { isCommunityEvent, WS_EVENTS } from "./community-ws-events";
 
 // Database
 export { createDb } from "./db/index";
 export type { Database } from "./db/index";
 export * as schema from "./db/schema";
 export * as queries from "./db/queries-index";
+export { communityServer, communityServerInvite, communityFriendship, communityServerMember, communityServerFolder, communityServerFolderItem } from "./db/community-schema";
 
 // Logger
 export { Logger, createLogger } from "./logger"
@@ -233,11 +452,14 @@ export type { LogLevel, LoggerOptions } from "./logger"
 
 // Lib
 export { isEmptyHtml } from "./lib/html";
+export { RATE_LIMITS } from "./lib/rate-limits";
+export type { RateLimitName, RateLimitPolicy, RateLimitResult } from "./lib/rate-limits";
 export { extractThreadId, buildEmailMapKey } from "./lib/context-key";
 export { parseIcs } from "./lib/ics-parser";
 export type { MeetingInfo } from "./lib/ics-parser";
 export { buildMimeMessage, extractAttachmentMeta, filterDownloadableAttachments } from "./lib/mime";
 export type { MimeAttachment, BuildMimeOptions, InboundAttachmentMeta } from "./lib/mime";
+export { computeDiscriminator, parseNameAndTag } from "./lib/discriminator";
 export {
   addRepeatInterval,
   computeNextScheduledAt,
@@ -250,10 +472,23 @@ export { parseEmailHandle, toAlookAddress, isValidHandle } from "./utils/email";
 export { parsePromptMentions } from "./utils/prompt-parser";
 export type { PromptAgent, PromptMention, ParseResult } from "./utils/prompt-parser";
 export { isValidToken, isValidEmail } from "./utils/validation";
+export { escapeLikePattern } from "./utils/sql-like";
 export { isOnline, formatStatus } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
 export { generateWorkspaceSlug } from "./utils/slug";
 export { truncateTitle } from "./utils/title";
+export {
+  canManageServer,
+  isServerOwner,
+  isAssignableRole,
+  isChannelType,
+  ROLES,
+  ASSIGNABLE_ROLES,
+  CHANNEL_TYPES,
+} from "./utils/community-roles";
+export type { CommunityRole, ChannelType, AssignableRole } from "./utils/community-roles";
+export { extractMentionedUserIds, MENTION_TYPES, isMentionType } from "./utils/community-mentions";
+export type { MentionCandidate, MentionType } from "./utils/community-mentions";
 export { semverGte } from "./semver";
 export { resolveMode, cliCommand, cliPackageName, updateCommand, daemonCommand, getBaseUrl, isTauri, isDesktop, isMobile, tauriInvoke } from "./mode";
 export type { AlookMode, ModeSignals, BaseUrlSignals } from "./mode";

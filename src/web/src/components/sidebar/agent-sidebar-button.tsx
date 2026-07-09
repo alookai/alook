@@ -85,12 +85,12 @@ export function AgentSidebarButton({
         <ContextMenuContent>
           {!hidePin && (isPinned ? (
             <ContextMenuItem onClick={onUnpin}>
-              <PinOffIcon className="size-3.5 mr-1.5" />
+              <PinOffIcon className="size-3.5 mr-2" />
               Unpin
             </ContextMenuItem>
           ) : (
             <ContextMenuItem onClick={onPin}>
-              <PinIcon className="size-3.5 mr-1.5" />
+              <PinIcon className="size-3.5 mr-2" />
               Pin to top
             </ContextMenuItem>
           ))}

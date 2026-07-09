@@ -11,12 +11,32 @@ export function createMockCtx() {
   const getWebSockets = vi.fn(() => webSockets)
   const setWebSocketAutoResponse = vi.fn()
 
+  // In-memory KV — matches the ctx.storage.{get,put,delete,setAlarm,getAlarm}
+  // surface ws-durable.ts uses. Any additional method can be stubbed inline.
+  const store = new Map<string, unknown>()
+  let alarm: number | null = null
+  const storage = {
+    get: vi.fn(async (key: string) => store.get(key)),
+    put: vi.fn(async (key: string, value: unknown) => { store.set(key, value) }),
+    delete: vi.fn(async (key: string) => { store.delete(key) }),
+    setAlarm: vi.fn(async (t: number) => { alarm = t }),
+    deleteAlarm: vi.fn(async () => { alarm = null }),
+    getAlarm: vi.fn(async () => alarm),
+  }
+
   return {
-    ctx: { acceptWebSocket, getWebSockets, setWebSocketAutoResponse } as unknown as DurableObjectState,
+    ctx: {
+      acceptWebSocket,
+      getWebSockets,
+      setWebSocketAutoResponse,
+      storage,
+    } as unknown as DurableObjectState,
     acceptWebSocket,
     getWebSockets,
     setWebSocketAutoResponse,
     webSockets,
+    storage,
+    store,
   }
 }
 

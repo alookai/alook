@@ -318,7 +318,7 @@ function ProductGallery() {
       <p className="mt-3 text-xs text-muted-foreground font-medium tracking-wide">
         {galleryImages[active].label}
       </p>
-      <div className="mt-2 flex gap-1.5">
+      <div className="mt-2 flex gap-2">
         {galleryImages.map((_, i) => (
           <button
             key={i}
@@ -344,19 +344,19 @@ export default function SignInPageClient({ isProd }: { isProd: boolean }) {
   const postLoginUrl = safeRedirectUrl(searchParams.get("redirect"))
 
   return (
-    <div className="relative flex min-h-svh flex-col items-center justify-center p-6 md:p-10">
+    <div className="relative flex min-h-svh flex-col items-center justify-center p-6 sm:p-10">
       <GradientBackground />
-      <div className="w-full max-w-sm md:max-w-4xl">
+      <div className="w-full max-w-sm sm:max-w-4xl">
         <div className="flex flex-col gap-6">
           <div className="flex justify-center mb-2">
             <Logo size="lg" />
           </div>
           <Card className="overflow-hidden p-0">
-            <CardContent className="grid p-0 md:grid-cols-2">
-              <div className="p-6 md:p-8 md:min-h-105 flex flex-col justify-center">
+            <CardContent className="grid p-0 sm:grid-cols-2">
+              <div className="p-6 sm:p-8 sm:min-h-105 flex flex-col justify-center">
                 <SignInForm postLoginUrl={postLoginUrl} isProd={isProd} />
               </div>
-              <div className="hidden bg-muted md:block relative overflow-hidden min-h-105">
+              <div className="hidden bg-muted sm:block relative overflow-hidden min-h-105">
                 <ProductGallery />
               </div>
             </CardContent>

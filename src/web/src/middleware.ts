@@ -9,7 +9,7 @@ function isSafeRedirect(path: string): boolean {
   return path.startsWith("/") && path[1] !== "/" && path[1] !== "\\"
 }
 
-const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard"]
+const AUTH_REQUIRED_PREFIXES = ["/invite/", "/w/", "/workspaces", "/dashboard", "/community"]
 
 export async function middleware(request: NextRequest) {
   if (

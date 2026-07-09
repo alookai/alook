@@ -11,7 +11,7 @@ import { highlightMentions } from "@/lib/highlight-mentions";
 import { TaskStream } from "@/components/task-stream";
 import { RuntimeErrorBlock } from "@/components/agent-chat/runtime-error-block";
 import { AnimatedAvatar, type AvatarConfig } from "@/components/avatar";
-import { FileText, Flag, Copy, Check, MessageSquareQuote, MessageSquare, Image } from "lucide-react";
+import { FileText, Flag, Copy, Check, MessageSquareQuote, MessageSquare, Image as ImageIcon } from "lucide-react";
 import { getArtifactThumbnailUrl } from "@/components/artifact-content-renderer";
 import type { PendingFile } from "@/hooks/use-file-attachments";
 import { EmailCard } from "@/components/agent-chat/event-cards/email-card";
@@ -192,13 +192,13 @@ function AttachmentChips({
   if (matched.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-1.5 mt-1.5">
+    <div className="flex flex-wrap gap-2 mt-2">
       {matched.map((a) => (
         <button
           key={a.id}
           type="button"
           onClick={(e) => { e.stopPropagation(); onArtifactClick(a); }}
-          className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-0.5 text-xs text-primary-foreground/80 hover:bg-primary-foreground/20 transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-1 text-xs text-primary-foreground/80 hover:bg-primary-foreground/20 transition-colors cursor-pointer"
         >
           <FileText className="size-3 shrink-0" />
           <span className="truncate max-w-37.5">{a.filename}</span>
@@ -226,7 +226,7 @@ function ImageAttachmentCards({
   if (images.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-1.5 mt-1.5">
+    <div className="flex flex-wrap gap-2 mt-2">
       {images.map((a) => {
         const thumbUrl = a.has_thumbnail
           ? getArtifactThumbnailUrl(a.id, workspaceId)
@@ -245,9 +245,9 @@ function ImageAttachmentCards({
             key={a.id}
             type="button"
             onClick={(e) => { e.stopPropagation(); onArtifactClick(a); }}
-            className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-0.5 text-xs text-primary-foreground/80 hover:bg-primary-foreground/20 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-1 text-xs text-primary-foreground/80 hover:bg-primary-foreground/20 transition-colors cursor-pointer"
           >
-            <Image className="size-3 shrink-0" />
+            <ImageIcon className="size-3 shrink-0" />
             <span className="truncate max-w-37.5">{a.filename}</span>
           </button>
         );
@@ -318,7 +318,7 @@ function MessageActionsToolbar({
   return (
     <div
       className={cn(
-        "absolute -top-3 right-0 z-10 flex items-center gap-0.5 rounded-lg border bg-card p-0.5 shadow-sm",
+        "absolute -top-3 right-0 z-10 flex items-center gap-1 rounded-lg border bg-card p-1 shadow-sm",
         // Fade-only reveal (reduced-motion safe — no transform/lift).
         "opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 focus-within:opacity-100",
       )}
@@ -397,7 +397,7 @@ function FlagDot() {
   return (
     <span
       aria-hidden
-      className="absolute -left-1.5 -top-1.5 z-10 flex size-3.5 items-center justify-center rounded-full border-2 border-background bg-foreground text-background"
+      className="absolute -left-2 -top-2 z-10 flex size-3.5 items-center justify-center rounded-full border-2 border-background bg-foreground text-background"
     >
       <Flag className="size-2 fill-current" />
     </span>
@@ -408,7 +408,7 @@ function ThreadRootDot() {
   return (
     <span
       aria-hidden
-      className="absolute -left-1.5 -top-1.5 z-10 flex size-3.5 items-center justify-center rounded-full border-2 border-background bg-foreground text-background"
+      className="absolute -left-2 -top-2 z-10 flex size-3.5 items-center justify-center rounded-full border-2 border-background bg-foreground text-background"
     >
       <MessageSquare className="size-2" />
     </span>
@@ -601,7 +601,7 @@ export const MessageItem = memo(function MessageItem({
                     const target = document.querySelector(`[data-message-id="${CSS.escape(quoteId)}"]`);
                     target?.scrollIntoView({ behavior: "smooth", block: "center" });
                   }}
-                  className="max-w-[50%] mb-0.5 flex items-center gap-1.5 rounded-lg bg-muted/60 px-2.5 py-1 text-left"
+                  className="max-w-[50%] mb-1 flex items-center gap-2 rounded-lg bg-muted/60 px-2 py-1 text-left"
                 >
                   <MessageSquareQuote className="size-3 shrink-0 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground truncate">{quote.excerpt}</span>
@@ -618,7 +618,7 @@ export const MessageItem = memo(function MessageItem({
               {...bubblePressHandlers}
             >
               {skillName && (
-                <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-primary-foreground/15 text-primary-foreground mb-1">
+                <span className="inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-primary-foreground/15 text-primary-foreground mb-1">
                   /{skillName}
                 </span>
               )}
@@ -634,9 +634,9 @@ export const MessageItem = memo(function MessageItem({
                 const nonImagePfs = pfs?.filter((pf) => !pf.thumbnailUrl);
                 if (nonImagePfs && nonImagePfs.length > 0) {
                   return (
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    <div className="flex flex-wrap gap-2 mt-2">
                       {nonImagePfs.map((pf, i) => (
-                        <span key={i} className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-0.5 text-xs text-primary-foreground/80">
+                        <span key={i} className="inline-flex items-center gap-1 rounded-md bg-primary-foreground/10 border border-primary-foreground/20 px-2 py-1 text-xs text-primary-foreground/80">
                           <FileText className="size-3 shrink-0" />
                           <span className="truncate max-w-37.5">{pf.file.name}</span>
                         </span>
@@ -662,7 +662,7 @@ export const MessageItem = memo(function MessageItem({
               const imagePfs = pfs?.filter((pf) => pf.thumbnailUrl);
               if (imagePfs && imagePfs.length > 0) {
                 return (
-                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  <div className="flex flex-wrap gap-2 mt-2">
                     {imagePfs.map((pf, i) => (
                       <button
                         key={i}
@@ -698,7 +698,7 @@ export const MessageItem = memo(function MessageItem({
               <button
                 type="button"
                 onClick={() => onReplyInThread?.(msg.id)}
-                className="flex items-center gap-1.5 pt-1 cursor-pointer hover:opacity-75 transition-opacity"
+                className="flex items-center gap-2 pt-1 cursor-pointer hover:opacity-75 transition-opacity"
               >
                 <span className="text-[11px] font-semibold text-[oklch(0.72_0.19_145)]">
                   {threadSummary.reply_count} {threadSummary.reply_count === 1 ? "reply" : "replies"}
@@ -842,7 +842,7 @@ export const MessageItem = memo(function MessageItem({
               <button
                 type="button"
                 onClick={() => onReplyInThread?.(msg.id)}
-                className="flex items-center gap-1.5 pt-1 cursor-pointer hover:opacity-75 transition-opacity"
+                className="flex items-center gap-2 pt-1 cursor-pointer hover:opacity-75 transition-opacity"
               >
                 <span className="text-[11px] font-semibold text-[oklch(0.72_0.19_145)]">
                   {threadSummary.reply_count} {threadSummary.reply_count === 1 ? "reply" : "replies"}

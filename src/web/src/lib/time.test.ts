@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { relativeTime } from "./time.js";
+import { relativeTime, timeAgo } from "./time.js";
 
 describe("relativeTime", () => {
   afterEach(() => {
@@ -47,6 +47,18 @@ describe("relativeTime", () => {
     expect(result).not.toBe("just now");
     expect(result).not.toBe("");
     expect(result.length).toBeGreaterThan(0);
+    vi.useRealTimers();
+  });
+});
+
+describe("timeAgo", () => {
+  it("returns 'never' when given null", () => {
+    expect(timeAgo(null)).toBe("never");
+  });
+  it("delegates to relativeTime for a real timestamp", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-29T12:05:00Z"));
+    expect(timeAgo("2026-05-29T12:00:00Z")).toBe("5m ago");
     vi.useRealTimers();
   });
 });

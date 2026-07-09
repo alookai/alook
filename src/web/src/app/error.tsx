@@ -65,7 +65,7 @@ export default function Error({
       <div className="mt-8 flex items-center gap-4">
         <button
           onClick={reset}
-          className="inline-flex items-center gap-2 px-5 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
+          className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
           style={{
             fontFamily: "var(--font-mono)",
             color: "var(--landing-bg)",
@@ -76,7 +76,7 @@ export default function Error({
         </button>
         <Link
           href="/"
-          className="inline-flex items-center gap-2 px-5 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
+          className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest transition-opacity duration-150 hover:opacity-70"
           style={{
             fontFamily: "var(--font-mono)",
             color: "var(--landing-text)",

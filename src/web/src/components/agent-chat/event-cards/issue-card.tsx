@@ -59,7 +59,7 @@ export function IssueCard({
           </span>
         )}
         {stamp && (
-          <span className="absolute top-3 right-3 text-[0.5rem] font-bold uppercase tracking-wider text-(--ti) border-[1.5px] border-(--ti) opacity-45 rotate-[4deg] rounded-[3px] px-1 py-0.5">
+          <span className="absolute top-3 right-3 text-[0.5rem] font-bold uppercase tracking-wider text-(--ti) border-[1.5px] border-(--ti) opacity-45 rotate-[4deg] rounded-[3px] px-1 py-1">
             {stamp}
           </span>
         )}

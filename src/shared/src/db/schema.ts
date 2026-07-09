@@ -15,15 +15,27 @@ import { TASK_TYPES } from "../constants";
 // Better Auth tables
 // ---------------------------------------------------------------------------
 
-export const user = sqliteTable("user", {
-  id: text("id").primaryKey().$defaultFn(() => nanoid()),
-  name: text("name").notNull().default(""),
-  email: text("email").unique().notNull(),
-  emailVerified: integer("emailVerified", { mode: "boolean" }),
-  image: text("image"),
-  createdAt: text("createdAt").notNull().$defaultFn(() => new Date().toISOString()),
-  updatedAt: text("updatedAt").notNull().$defaultFn(() => new Date().toISOString()),
-});
+// NOTE: `ownerUserId` FK is `ON DELETE NO ACTION` (the DB will refuse to delete
+// an owner while they still have bot rows). Any future user-delete path MUST
+// call `assertNoLiveBots` (see `queries/community/bot.ts`) to fail early with
+// a clear error before hitting the FK.
+export const user = sqliteTable(
+  "user",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    name: text("name").notNull().default(""),
+    email: text("email").unique().notNull(),
+    emailVerified: integer("emailVerified", { mode: "boolean" }),
+    image: text("image"),
+    createdAt: text("createdAt").notNull().$defaultFn(() => new Date().toISOString()),
+    updatedAt: text("updatedAt").notNull().$defaultFn(() => new Date().toISOString()),
+    isBot: integer("isBot", { mode: "boolean" }).notNull().default(false),
+    ownerUserId: text("ownerUserId"),
+    deletedAt: text("deletedAt"),
+    discriminator: text("discriminator").notNull().default("0000"),
+  },
+  (t) => [index("idx_user_ownerUserId_isBot").on(t.ownerUserId, t.isBot)]
+);
 
 export const session = sqliteTable(
   "session",

@@ -231,7 +231,7 @@ export default function RuntimesPage() {
     return (
       <>
         {/* Skeleton title bar */}
-        <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5">
+        <div className="flex items-center justify-between border-b border-border/50 px-3 sm:px-4 py-2">
           <div className="flex items-center gap-3">
 
             <Skeleton className="h-4 w-16" />
@@ -240,8 +240,8 @@ export default function RuntimesPage() {
           <Skeleton className="h-8 w-29 rounded-md" />
         </div>
         {/* Skeleton card grid */}
-        <div className="flex-1 overflow-y-auto px-5 py-5">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          <div className="grid gap-4 sm:grid-cols-3">
             {Array.from({ length: 3 }).map((_, i) => (
               <div
                 key={i}
@@ -271,7 +271,7 @@ export default function RuntimesPage() {
   return (
     <>
       {/* Title bar */}
-      <div className="flex items-center justify-between border-b border-border/50 px-3 md:px-5 py-2.5">
+      <div className="flex items-center justify-between border-b border-border/50 px-3 sm:px-4 py-2">
         <div className="flex items-center gap-3">
           <h1 className="text-sm font-medium">Runtimes</h1>
           <p className="text-xs text-muted-foreground">
@@ -295,7 +295,7 @@ export default function RuntimesPage() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div className="flex-1 overflow-y-auto px-4 py-4">
         {runtimes.length === 0 ? (
           <div className="flex flex-1 items-center justify-center min-h-[60vh]">
             <div className="text-center animate-[fade-up_400ms_ease-out_both]">
@@ -319,7 +319,7 @@ export default function RuntimesPage() {
             </div>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-3">
             {Array.from(machines.entries()).map(([daemonId, machine]) => {
               const displayName =
                 machine.deviceInfo || daemonId;
@@ -347,7 +347,7 @@ export default function RuntimesPage() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-2.5">
+                    <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground tabular-nums">
                           {machine.lastSeenAt ? new Date(
@@ -431,12 +431,12 @@ export default function RuntimesPage() {
                           </Button>
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-wrap gap-2">
                         {machine.runtimes.map((runtime) => (
                           <Badge
                             key={runtime.id}
                             variant="secondary"
-                            className="gap-1.5"
+                            className="gap-2"
                           >
                             <ProviderLogo provider={runtime.provider} className="h-3.5 w-3.5" />
                             {runtime.provider}
@@ -450,7 +450,7 @@ export default function RuntimesPage() {
                       </div>
                       {machine.status !== "online" && (
                         <div className="pt-1.5 border-t border-border/50">
-                          <p className="text-[11px] text-muted-foreground mb-1.5">
+                          <p className="text-[11px] text-muted-foreground mb-2">
                             Bring this machine online:
                           </p>
                           {mode === "desktop" && isTauri() ? (
@@ -474,7 +474,7 @@ export default function RuntimesPage() {
                               <TooltipTrigger
                                 render={
                                   <div
-                                    className="relative overflow-hidden rounded-md bg-muted px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
+                                    className="relative overflow-hidden rounded-md bg-muted px-2 py-2 font-mono text-[11px] text-muted-foreground cursor-pointer hover:bg-muted/80 transition-colors"
                                     onClick={() => {
                                       navigator.clipboard.writeText(`${cliCmd()} daemon start`);
                                       toast.success("Copied to clipboard");

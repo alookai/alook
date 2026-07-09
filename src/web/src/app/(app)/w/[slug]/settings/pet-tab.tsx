@@ -65,7 +65,7 @@ export function PetTab() {
         <h2 className="text-sm font-medium">Pet</h2>
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
+            <div className="space-y-1">
               <Label htmlFor="pet-enabled" className="text-sm">
                 Enable pet
               </Label>
@@ -127,7 +127,7 @@ export function PetTab() {
                       className="size-14 transition-transform duration-200 group-hover:scale-105"
                     />
                   </div>
-                  <div className="mt-1.5 flex min-w-0 items-center justify-between gap-1 text-[10px] leading-none">
+                  <div className="mt-2 flex min-w-0 items-center justify-between gap-1 text-[10px] leading-none">
                     <span className="truncate font-medium text-foreground">
                       {preset.name}
                     </span>

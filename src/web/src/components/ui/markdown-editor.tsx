@@ -73,7 +73,7 @@ function MentionList({
             key={agent.id}
             type="button"
             className={cn(
-              "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors",
+              "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
               i === selectedIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
             )}
             onMouseDown={(e) => {

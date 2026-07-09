@@ -289,7 +289,7 @@ export default function AgentEmailPage() {
               <TooltipTrigger render={<button
                 type="button"
                 onClick={handleCopyAddress}
-                className="group flex items-center gap-1.5 text-left cursor-pointer w-full"
+                className="group flex items-center gap-2 text-left cursor-pointer w-full"
               />}>
                 <span className="text-xs text-muted-foreground truncate">{activeAddress}</span>
                 {copied ? (
@@ -315,7 +315,7 @@ export default function AgentEmailPage() {
                   <TooltipTrigger render={<button
                     type="button"
                     onClick={handleCopyAddress}
-                    className="shrink-0 p-0.5"
+                    className="shrink-0 p-1"
                   />}>
                     {copied ? (
                       <Check className="size-2.5 text-green-500" />
@@ -327,14 +327,14 @@ export default function AgentEmailPage() {
                 </Tooltip>
               </div>
               {mailboxOpen && (
-                <div className="absolute left-2 right-2 top-full mt-0.5 z-10 rounded-lg border border-border bg-popover shadow-md py-1">
+                <div className="absolute left-2 right-2 top-full mt-1 z-10 rounded-lg border border-border bg-popover shadow-md py-1">
                   {mailboxes.map((mb, i) => (
                     <button
                       key={mb.address}
                       type="button"
                       onClick={() => { setActiveMailboxIdx(i); setMailboxOpen(false); }}
                       className={cn(
-                        "flex items-center gap-2 w-full px-2.5 py-1.5 text-left text-xs transition-colors",
+                        "flex items-center gap-2 w-full px-2 py-2 text-left text-xs transition-colors",
                         i === activeMailboxIdx ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50"
                       )}
                     >
@@ -359,7 +359,7 @@ export default function AgentEmailPage() {
         <Tooltip>
           <TooltipTrigger render={<Button
             size="sm"
-            className="w-full justify-start text-xs h-8 gap-1.5"
+            className="w-full justify-start text-xs h-8 gap-2"
             onClick={() => { setComposeInitial({}); setComposing(true); setSelectedId(null); }}
             disabled={mailboxes.length === 0}
           />}>
@@ -369,12 +369,12 @@ export default function AgentEmailPage() {
           <TooltipContent>{mailboxes.length === 0 ? "Configure an email in agent settings to send emails" : "Compose new email"}</TooltipContent>
         </Tooltip>
       </div>
-      <nav className="flex flex-col gap-0.5 px-2">
+      <nav className="flex flex-col gap-1 px-2">
         <button
           type="button"
           onClick={() => switchFolder("inbox")}
           className={cn(
-            "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
+            "flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors cursor-pointer",
             folder === "inbox"
               ? "bg-accent text-foreground font-medium"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -383,7 +383,7 @@ export default function AgentEmailPage() {
           <Inbox className="size-4 shrink-0" />
           Inbox
           {folder === "inbox" && unreadCount > 0 && (
-            <span className="ml-auto text-xs bg-blue-500 text-white rounded-full px-1.5 py-0.5 leading-none min-w-5 text-center">
+            <span className="ml-auto text-xs bg-blue-500 text-white rounded-full px-2 py-1 leading-none min-w-5 text-center">
               {unreadCount}
             </span>
           )}
@@ -392,7 +392,7 @@ export default function AgentEmailPage() {
           type="button"
           onClick={() => switchFolder("sent")}
           className={cn(
-            "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
+            "flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors cursor-pointer",
             folder === "sent"
               ? "bg-accent text-foreground font-medium"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -405,7 +405,7 @@ export default function AgentEmailPage() {
           type="button"
           onClick={() => switchFolder("untrust")}
           className={cn(
-            "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition-colors cursor-pointer",
+            "flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors cursor-pointer",
             folder === "untrust"
               ? "bg-accent text-foreground font-medium"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
@@ -424,11 +424,11 @@ export default function AgentEmailPage() {
         <>
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="px-4 py-3 border-b border-border/30">
-              <div className="flex items-center justify-between gap-2 mb-1.5">
+              <div className="flex items-center justify-between gap-2 mb-2">
                 <Skeleton className="h-3.5 w-32" />
                 <Skeleton className="h-2.5 w-10" />
               </div>
-              <Skeleton className="h-3.5 w-48 mb-1.5" />
+              <Skeleton className="h-3.5 w-48 mb-2" />
               <Skeleton className="h-4 w-16 rounded-full" />
             </div>
           ))}
@@ -453,17 +453,17 @@ export default function AgentEmailPage() {
                 : "hover:bg-accent/30"
             )}
           >
-            <div className="flex items-center justify-between gap-2 mb-0.5">
+            <div className="flex items-center justify-between gap-2 mb-1">
               <p className={cn(
                 "text-sm truncate",
                 email.status === "unread" ? "font-semibold" : "font-medium text-muted-foreground"
               )}>
                 {folder === "sent" ? email.to_email : email.from_email}
               </p>
-              <div className="flex items-center gap-1.5 shrink-0">
+              <div className="flex items-center gap-2 shrink-0">
                 {folder !== "sent" && (
                   <span className={cn(
-                    "text-[10px] rounded-full px-1.5 py-0.5 leading-none font-medium",
+                    "text-[10px] rounded-full px-2 py-1 leading-none font-medium",
                     email.status === "unread"
                       ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
                       : "bg-muted text-muted-foreground"
@@ -508,9 +508,9 @@ export default function AgentEmailPage() {
           Select an email to view
         </div>
       ) : (
-        <div className="flex flex-col h-full md:min-w-100 max-w-3xl mx-auto w-full">
+        <div className="flex flex-col h-full sm:min-w-100 max-w-3xl mx-auto w-full">
           {/* Detail toolbar */}
-          <div className="flex items-center gap-0.5 border-b border-border/40 px-4 py-1.5">
+          <div className="flex items-center gap-1 border-b border-border/40 px-4 py-2">
             {folder === "untrust" && (
               <Tooltip>
                 <TooltipTrigger render={<Button
@@ -573,7 +573,7 @@ export default function AgentEmailPage() {
                   <button
                     type="button"
                     onClick={() => handleExpandThread(parent.id)}
-                    className="w-full flex items-center gap-2 px-5 py-2.5 text-left hover:bg-accent/30 transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-accent/30 transition-colors cursor-pointer"
                   >
                     <span className="text-xs text-muted-foreground">
                       {expandedThreadId === parent.id ? "▾" : "▸"}
@@ -586,7 +586,7 @@ export default function AgentEmailPage() {
                     </span>
                   </button>
                   {expandedThreadId === parent.id && (
-                    <div className="px-5 pb-3">
+                    <div className="px-4 pb-3">
                       <p className="text-xs text-muted-foreground mb-2">{parent.subject}</p>
                       {threadBodies[parent.id] ? (
                         threadBodies[parent.id].isHtml ? (
@@ -610,11 +610,11 @@ export default function AgentEmailPage() {
           )}
 
           {/* Email detail */}
-          <div className="p-5">
+          <div className="p-4">
             <h2 className="text-lg font-heading font-semibold tracking-tight mb-1">
               {selected.subject || "(no subject)"}
             </h2>
-            <div className="text-sm space-y-1 mb-5">
+            <div className="text-sm space-y-1 mb-4">
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground w-16 shrink-0">From</span>
                 <span>{selected.from_email}</span>
@@ -655,11 +655,11 @@ export default function AgentEmailPage() {
 
             {selected.attachments && selected.attachments.length > 0 && (
               <div className="mt-4">
-                <div className="flex items-center gap-1.5 mb-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
                   <Paperclip className="size-3" />
                   {selected.attachments.length} attachment{selected.attachments.length > 1 ? "s" : ""}
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {selected.attachments.map((att, i) => (
                     <a
                       key={att.key}
@@ -667,7 +667,7 @@ export default function AgentEmailPage() {
                       target="_blank"
                       rel="noopener noreferrer"
                       download={att.filename}
-                      className="flex items-center gap-1.5 rounded-md border border-border/50 bg-muted/50 px-2.5 py-1.5 text-xs hover:bg-muted transition-colors cursor-pointer"
+                      className="flex items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-2 py-2 text-xs hover:bg-muted transition-colors cursor-pointer"
                     >
                       <FileIcon className="size-3 text-muted-foreground shrink-0" />
                       <span className="truncate max-w-45">{att.filename}</span>
@@ -737,7 +737,7 @@ export default function AgentEmailPage() {
                 <TooltipTrigger render={<button
                   type="button"
                   onClick={handleCopyAddress}
-                  className="shrink-0 p-0.5"
+                  className="shrink-0 p-1"
                 />}>
                   {copied ? (
                     <Check className="size-2.5 text-green-500" />
@@ -749,14 +749,14 @@ export default function AgentEmailPage() {
               </Tooltip>
             </div>
             {mailboxOpen && (
-              <div className="absolute left-2 right-2 top-full mt-0.5 z-10 rounded-lg border border-border bg-popover shadow-md py-1">
+              <div className="absolute left-2 right-2 top-full mt-1 z-10 rounded-lg border border-border bg-popover shadow-md py-1">
                 {mailboxes.map((mb, i) => (
                   <button
                     key={mb.address}
                     type="button"
                     onClick={() => { setActiveMailboxIdx(i); setMailboxOpen(false); }}
                     className={cn(
-                      "flex items-center gap-2 w-full px-2.5 py-1.5 text-left text-xs transition-colors",
+                      "flex items-center gap-2 w-full px-2 py-2 text-left text-xs transition-colors",
                       i === activeMailboxIdx ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50"
                     )}
                   >
@@ -772,7 +772,7 @@ export default function AgentEmailPage() {
           </div>
         )}
         <div className="flex items-center gap-1 border-b border-border/50 px-3 py-2">
-          <div className="flex items-center gap-0.5 flex-1 min-w-0">
+          <div className="flex items-center gap-1 flex-1 min-w-0">
             {([
               { id: "inbox" as Folder, label: "Inbox" },
               { id: "sent" as Folder, label: "Sent" },
@@ -783,7 +783,7 @@ export default function AgentEmailPage() {
                 type="button"
                 onClick={() => switchFolder(f.id)}
                 className={cn(
-                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors",
+                  "px-2 py-1 rounded-md text-xs font-medium transition-colors",
                   folder === f.id
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:text-foreground"
@@ -791,7 +791,7 @@ export default function AgentEmailPage() {
               >
                 {f.label}
                 {f.id === "inbox" && folder === "inbox" && unreadCount > 0 && (
-                  <span className="ml-0.5 text-[10px] bg-blue-500 text-white rounded-full px-1 leading-none min-w-4 text-center">
+                  <span className="ml-1 text-[10px] bg-blue-500 text-white rounded-full px-1 leading-none min-w-4 text-center">
                     {unreadCount}
                   </span>
                 )}

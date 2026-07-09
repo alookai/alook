@@ -2,8 +2,11 @@ declare namespace Cloudflare {
   interface Env {
     DB: D1Database
     EMAIL_BUCKET: R2Bucket
+    COMMUNITY_MEDIA: R2Bucket
     WS_DO_WORKER: Fetcher
     EMAIL_WORKER: Fetcher
+    WAKE_QUEUE: Queue<import("@alook/shared").WakePayload>
+    WAKE_WORKER: Fetcher
     WORKER_SELF_REFERENCE: Fetcher
     NEXT_INC_CACHE_R2_BUCKET: R2Bucket
     NEXT_TAG_CACHE_D1: D1Database
@@ -15,7 +18,6 @@ declare namespace Cloudflare {
     BETTER_AUTH_SECRET: string
     BETTER_AUTH_URL: string
     ENCRYPTION_KEY: string
-    RATE_LIMIT_KV: KVNamespace
     CACHE_KV: KVNamespace
     AUTH_OTP_RATE_LIMIT_MAX?: string
     AUTH_OTP_RATE_LIMIT_WINDOW_SEC?: string
@@ -23,6 +25,8 @@ declare namespace Cloudflare {
     MIN_CLI_VERSION?: string
     DEVICE_CLIENT_IDS?: string
     NODE_ENV?: string
+    DEV_WS_DO_URL?: string
+    DEV_WAKE_WORKER_URL?: string
   }
 }
 

@@ -40,7 +40,7 @@ function TaskRow({ task, slug, agentId }: { task: WorkspaceActiveTask; slug: str
   return (
     <Link
       href={`/w/${slug}/agents/${agentId}?task=${task.id}&conv=${task.conversation_id}`}
-      className="flex items-center gap-2 w-full py-1.5 px-2 hover:bg-muted rounded-md transition-colors cursor-pointer"
+      className="flex items-center gap-2 w-full py-2 px-2 hover:bg-muted rounded-md transition-colors cursor-pointer"
     >
       <span
         className={cn(
@@ -59,7 +59,7 @@ function TaskRow({ task, slug, agentId }: { task: WorkspaceActiveTask; slug: str
 }
 
 const MAX_VISIBLE_TASKS = 6;
-const badgeBase = "gap-1.5 text-muted-foreground hover:text-foreground cursor-pointer";
+const badgeBase = "gap-2 text-muted-foreground hover:text-foreground cursor-pointer";
 
 export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBadgeProps) {
   const { slug, workspaceId } = useWorkspace();
@@ -121,7 +121,7 @@ export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBa
         {loadingTasks ? (
           <div className="p-2 space-y-1">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-2 py-1.5 px-2">
+              <div key={i} className="flex items-center gap-2 py-2 px-2">
                 <Skeleton className="size-1.5 rounded-full" />
                 <div className="flex-1 space-y-1">
                   <Skeleton className="h-2.5 w-10" />
@@ -143,7 +143,7 @@ export function AgentStatusBadge({ isOnline, taskCount, agentId }: AgentStatusBa
             {tasks.length > MAX_VISIBLE_TASKS && (
               <Link
                 href={`/w/${slug}/agents/${agentId}/activity?status=running`}
-                className="block text-xs text-muted-foreground hover:text-foreground text-center py-1.5 transition-colors"
+                className="block text-xs text-muted-foreground hover:text-foreground text-center py-2 transition-colors"
               >
                 View all {tasks.length} tasks
               </Link>

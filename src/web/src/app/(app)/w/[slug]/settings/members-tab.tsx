@@ -139,7 +139,7 @@ export function MembersTab() {
               No active invite links. Generate one to invite someone to this workspace.
             </p>
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {invites.map((invite) => {
                 const expiresAt = new Date(invite.expires_at);
                 const isExpired = expiresAt < new Date();
@@ -152,7 +152,7 @@ export function MembersTab() {
                       <p className={cn("font-mono truncate", isExpired && "text-muted-foreground line-through")}>
                         /invite/{invite.token.slice(0, 12)}…
                       </p>
-                      <p className={cn("text-muted-foreground/70 mt-0.5", isExpired && "text-destructive/70")}>
+                      <p className={cn("text-muted-foreground/70 mt-1", isExpired && "text-destructive/70")}>
                         {isExpired
                           ? "Expired"
                           : `Expires ${expiresAt.toLocaleDateString()}`}
@@ -195,7 +195,7 @@ export function MembersTab() {
       {/* Member list */}
       <section className="space-y-3">
         <h2 className="text-sm font-medium">Members</h2>
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {members.map((member) => {
             const isSelf = member.user_id === currentUserId;
             const initials = member.name
@@ -226,7 +226,7 @@ export function MembersTab() {
                   <p className="text-sm font-medium truncate leading-tight">
                     {member.name || member.email}
                     {isSelf && (
-                      <span className="ml-1.5 text-xs text-muted-foreground font-normal">(you)</span>
+                      <span className="ml-2 text-xs text-muted-foreground font-normal">(you)</span>
                     )}
                   </p>
                   {member.name && (
@@ -237,7 +237,7 @@ export function MembersTab() {
                 {/* Role badge */}
                 <span
                   className={cn(
-                    "text-xs px-1.5 py-0.5 rounded shrink-0",
+                    "text-xs px-2 py-1 rounded shrink-0",
                     member.role === "owner"
                       ? "bg-primary/10 text-primary"
                       : "bg-muted text-muted-foreground"

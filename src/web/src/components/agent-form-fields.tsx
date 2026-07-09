@@ -119,7 +119,7 @@ export function GeneralFields({
               type="button"
               onClick={onShuffle}
               aria-label="Randomize name"
-              className="absolute right-0 top-1/2 -translate-y-1/2 rounded p-1.5 text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
+              className="absolute right-0 top-1/2 -translate-y-1/2 rounded p-2 text-muted-foreground/50 hover:text-foreground hover:bg-accent transition-colors"
             >
               <Dices className="size-4" />
             </button>
@@ -139,16 +139,16 @@ export function GeneralFields({
         onChange={(e) => setDescription(e.target.value)}
         placeholder="Add a description…"
         rows={1}
-        className="w-full border-0 bg-transparent px-0 py-0.5 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+        className="w-full border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
       />
 
       {emailHandleSlot}
 
       {/* Runtime */}
-      {(runtimeAsRadio || runtimes.length > 0) && <div id="agent-runtime-select" className="space-y-1.5">
+      {(runtimeAsRadio || runtimes.length > 0) && <div id="agent-runtime-select" className="space-y-2">
         <Label className="text-xs text-muted-foreground">Runtime</Label>
         {runtimeAsRadio ? (
-          <div className="space-y-1.5" role="radiogroup" aria-label="Runtime">
+          <div className="space-y-2" role="radiogroup" aria-label="Runtime">
             {runtimes.length === 0 ? (
               <p className="text-xs text-muted-foreground">No runtimes — start a daemon first</p>
             ) : (
@@ -160,7 +160,7 @@ export function GeneralFields({
                   <label
                     key={rt.id}
                     className={cn(
-                      "flex items-center gap-2.5 rounded-lg border p-2.5 cursor-pointer transition-colors",
+                      "flex items-center gap-2 rounded-lg border p-2 cursor-pointer transition-colors",
                       isSelected
                         ? "border-primary bg-primary/5"
                         : "border-border/50 hover:border-foreground/20",
@@ -248,7 +248,7 @@ export function GeneralFields({
               onChange={(e) => setModel(e.target.value)}
               placeholder="Default (runtime model)"
               list="agent-model-options"
-              className="w-full border-0 bg-transparent px-0 py-0.5 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+              className="w-full border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
             />
             {providerModels.length > 0 && (
               <datalist id="agent-model-options">
@@ -275,7 +275,7 @@ function AdvancedSection({ children }: { children: React.ReactNode }) {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
         <ChevronDown className={cn("size-3.5 transition-transform", open && "rotate-180")} />
         Advanced
@@ -313,7 +313,7 @@ export function EmailHandleField({
           value={emailHandle}
           onChange={(e) => setEmailHandle(e.target.value.toLowerCase())}
           placeholder={derivedHandle || "my-agent"}
-          className="w-full border-0 bg-transparent px-0 py-0.5 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
+          className="w-full border-0 bg-transparent px-0 py-1 text-sm text-foreground shadow-none outline-none placeholder:text-muted-foreground/40 focus-visible:ring-0"
         />
         <span className="shrink-0 text-sm text-muted-foreground/70">
           @alook.ai
@@ -423,7 +423,7 @@ export function AllowedSendersTab({ agentId }: { agentId: string }) {
           all configured email addresses (alook.ai handle and custom email).
         </p>
         {hasSiblingAgents && (
-          <p className="text-xs text-muted-foreground/70 mt-1.5 flex items-center gap-1">
+          <p className="text-xs text-muted-foreground/70 mt-2 flex items-center gap-1">
             <InfoIcon className="size-3 shrink-0" />
             Agents in this workspace can already email each other — no whitelist
             entry needed.
@@ -472,7 +472,7 @@ export function AllowedSendersTab({ agentId }: { agentId: string }) {
           No allowed senders — all inbound emails will be rejected.
         </p>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {whitelist.map((entry) => (
             <div
               key={entry.id}
@@ -650,7 +650,7 @@ export function AgentAccessTab({
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-medium">Visibility</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground mt-1">
               {visibility === "public"
                 ? "All workspace members can use this agent"
                 : "Only authorized members can use this agent"}
@@ -691,7 +691,7 @@ export function AgentAccessTab({
             </div>
           ) : (
             <>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {ownerMember && (
                   <div className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2">
                     <div className="min-w-0">

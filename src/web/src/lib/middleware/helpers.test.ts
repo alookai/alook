@@ -3,8 +3,8 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("next/server", () => {
   return {
     NextResponse: {
-      json(data: unknown, init?: { status?: number }) {
-        return { body: data, status: init?.status ?? 200 };
+      json(data: unknown, init?: { status?: number; headers?: Record<string, string> }) {
+        return { body: data, status: init?.status ?? 200, headers: init?.headers };
       },
     },
   };
@@ -68,6 +68,18 @@ describe("writeError", () => {
     const res = writeError("Internal", 500) as any;
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: "Internal" });
+  });
+
+  it("omits headers when not provided (no regression for existing 2-arg call sites)", () => {
+    const res = writeError("Not found", 404) as any;
+    expect(res.headers).toBeUndefined();
+  });
+
+  it("sets the provided headers when a third argument is passed", () => {
+    const res = writeError("rate limited", 429, { "Retry-After": "7" }) as any;
+    expect(res.status).toBe(429);
+    expect(res.body).toEqual({ error: "rate limited" });
+    expect(res.headers).toEqual({ "Retry-After": "7" });
   });
 });
 

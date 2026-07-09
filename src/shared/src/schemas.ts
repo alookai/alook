@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
+import { MAX_MESSAGE_CONTENT_LENGTH } from "./constants/community";
 
 // ---------------------------------------------------------------------------
 // Task status
@@ -806,3 +807,285 @@ export const CreateThreadRequestSchema = z.object({
   attachment_ids: z.array(z.string()).optional(),
 });
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// Community machines
+// ---------------------------------------------------------------------------
+
+// Runtime id charset: alnum + `._@/-`. Length capped at 64 to match the
+// on-wire, on-disk, and DB expectations. Version optional, length-capped.
+export const COMMUNITY_RUNTIME_ID_MAX = 64;
+export const COMMUNITY_RUNTIME_VERSION_MAX = 64;
+export const COMMUNITY_RUNTIME_LIST_MAX = 64;
+const RUNTIME_ID_RE = /^[A-Za-z0-9._@/-]+$/;
+
+// Per-runtime health, reported by the daemon. `status` defaults to "healthy"
+// so an older daemon that ships {id, version} still parses; `.catch("healthy")`
+// additionally absorbs null / unknown-enum future values (e.g. "degraded") so
+// a schema mismatch never poisons the whole ready frame. Fail-open is correct
+// for a per-runtime signal — mistakenly rendering an unhealthy runtime as
+// healthy is preferable to dropping every runtime a bad daemon sends.
+export const CommunityMachineRuntimeSchema = z.object({
+  id: z
+    .string()
+    .min(1)
+    .max(COMMUNITY_RUNTIME_ID_MAX)
+    .regex(RUNTIME_ID_RE, "invalid runtime id charset"),
+  version: z.string().max(COMMUNITY_RUNTIME_VERSION_MAX).optional(),
+  status: z.enum(["healthy", "unhealthy"]).catch("healthy").default("healthy"),
+  lastError: z.string().max(128).optional(),
+  lastErrorAt: z.string().optional(),
+});
+export type CommunityMachineRuntime = z.infer<typeof CommunityMachineRuntimeSchema>;
+
+/**
+ * List of runtimes, capped and deduped-by-id (first-wins). Callers should
+ * pass this through the transform to canonicalize wire input.
+ */
+export const CommunityMachineRuntimeListSchema = z
+  .array(CommunityMachineRuntimeSchema)
+  .max(COMMUNITY_RUNTIME_LIST_MAX)
+  .transform((list) => {
+    const seen = new Set<string>();
+    const out: z.infer<typeof CommunityMachineRuntimeSchema>[] = [];
+    for (const r of list) {
+      if (seen.has(r.id)) continue;
+      seen.add(r.id);
+      out.push(r);
+    }
+    return out;
+  });
+
+export const CommunityMachineSummarySchema = z.object({
+  id: z.string(),
+  hostname: z.string(),
+  displayName: z.string(),
+  platform: z.string(),
+  arch: z.string(),
+  osRelease: z.string(),
+  daemonVersion: z.string(),
+  lastSeenAt: z.string().nullable(),
+  status: z.enum(["online", "offline"]),
+  availableRuntimes: z.array(CommunityMachineRuntimeSchema).default([]),
+  /**
+   * Last runtime error reported by the daemon (optimistically cleared on
+   * subsequent `agent:wake` forward). Optional so pre-error summaries
+   * omit the field entirely — undefined == "no known error."
+   */
+  lastRuntimeError: z
+    .object({
+      requested: z.string(),
+      available: z.array(z.string()),
+      at: z.string(),
+    })
+    .optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+/**
+ * `HostReady` message — the daemon's post-connect state dump. `runtimes`
+ * (the legacy string-only list) is intentionally rejected here; daemons
+ * must send `runtimeReport`. Old daemons are pushed off by the
+ * `MIN_CLI_VERSION` gate on the next reconnect.
+ */
+export const HostReadyMessageSchema = z.object({
+  type: z.literal("ready"),
+  runtimeReport: CommunityMachineRuntimeListSchema,
+  runningAgents: z.array(z.string()).default([]),
+  hostname: z.string().optional(),
+  platform: z.string().optional(),
+  arch: z.string().optional(),
+  osRelease: z.string().optional(),
+  daemonVersion: z.string().optional(),
+});
+export type HostReadyMessage = z.infer<typeof HostReadyMessageSchema>;
+
+/**
+ * Retained for the /activate HTTP body only — the daemon includes an
+ * optional runtime report in the initial activation request.
+ */
+export const CommunityDaemonReadySchema = z.object({
+  runtimeReport: CommunityMachineRuntimeListSchema.optional(),
+  runningAgents: z.array(z.string()).default([]),
+  hostname: z.string().optional(),
+  os: z.string().optional(),
+  arch: z.string().optional(),
+  osRelease: z.string().optional(),
+  daemonVersion: z.string().optional(),
+});
+export type CommunityDaemonReady = z.infer<typeof CommunityDaemonReadySchema>;
+
+/**
+ * `session.error` frame — daemon → server. Currently used by the
+ * agent router when a runtime isn't available on the host.
+ */
+export const SessionErrorFrameSchema = z.object({
+  type: z.literal("session.error"),
+  code: z.enum(["runtime_not_available"]),
+  agentId: z.string().optional(),
+  payload: z.record(z.string(), z.unknown()).optional(),
+});
+export type SessionErrorFrame = z.infer<typeof SessionErrorFrameSchema>;
+
+export const CommunityPairTokenResponseSchema = z.object({
+  tokenId: z.string(),
+  expiresAt: z.string(),
+});
+export type CommunityPairTokenResponse = z.infer<typeof CommunityPairTokenResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Community daemon (Bearer machineKey) — activate + enroll-agent contracts
+// Both request/response shapes are shared source-of-truth between the daemon
+// (src/daemon/**) and the server (src/web/**). Keep in sync.
+// ---------------------------------------------------------------------------
+
+export const CommunityDaemonActivateRequestSchema = z.object({
+  hostname: z.string(),
+  platform: z.string(),
+  arch: z.string(),
+  osRelease: z.string().optional(),
+  daemonVersion: z.string().optional(),
+  runtimeReport: CommunityMachineRuntimeListSchema.optional(),
+});
+export type CommunityDaemonActivateRequest = z.infer<typeof CommunityDaemonActivateRequestSchema>;
+
+export const CommunityDaemonActivateResponseSchema = z.object({
+  credential: z.string(),
+  machineId: z.string(),
+  expiresAt: z.string().nullable(),
+});
+export type CommunityDaemonActivateResponse = z.infer<typeof CommunityDaemonActivateResponseSchema>;
+
+export const CommunityDaemonEnrollAgentRequestSchema = z.object({
+  agentId: z.string().min(1).max(128),
+});
+export type CommunityDaemonEnrollAgentRequest = z.infer<typeof CommunityDaemonEnrollAgentRequestSchema>;
+
+export const CommunityDaemonEnrollAgentResponseSchema = z.object({
+  runnerKey: z.string(),
+  expiresAt: z.string().nullable(),
+});
+export type CommunityDaemonEnrollAgentResponse = z.infer<typeof CommunityDaemonEnrollAgentResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Community bots — first-class community identities owned by users. See
+// plans/community-bots.md for the invariants.
+// ---------------------------------------------------------------------------
+
+import {
+  COMMUNITY_BOT_NAME_MIN,
+  COMMUNITY_BOT_NAME_MAX,
+  COMMUNITY_BOT_DESCRIPTION_MAX,
+  COMMUNITY_BOT_IMAGE_URL_MAX,
+} from "./constants";
+
+// Accepts either an https URL or the in-house `avatar:` serialized config
+// produced by `serializeAvatarConfig` in the web avatar picker.
+const BotImageUrlSchema = z
+  .string()
+  .max(COMMUNITY_BOT_IMAGE_URL_MAX)
+  .refine((v) => v.startsWith("https://") || v.startsWith("avatar:"), {
+    message: "image must be an https URL or an avatar: config",
+  });
+
+export const CommunityBotCreateRequestSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(COMMUNITY_BOT_NAME_MIN)
+    .max(COMMUNITY_BOT_NAME_MAX),
+  description: z.string().max(COMMUNITY_BOT_DESCRIPTION_MAX).optional(),
+  machineId: z.string().min(1),
+  runtime: z.string().min(1),
+  image: BotImageUrlSchema.optional(),
+});
+export type CommunityBotCreateRequest = z.infer<typeof CommunityBotCreateRequestSchema>;
+
+export const CommunityBotPatchRequestSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(COMMUNITY_BOT_NAME_MIN)
+      .max(COMMUNITY_BOT_NAME_MAX)
+      .optional(),
+    description: z.string().max(COMMUNITY_BOT_DESCRIPTION_MAX).optional(),
+    image: BotImageUrlSchema.nullable().optional(),
+  })
+  .refine((v) => v.name !== undefined || v.description !== undefined || v.image !== undefined, {
+    message: "at least one field must be provided",
+  });
+export type CommunityBotPatchRequest = z.infer<typeof CommunityBotPatchRequestSchema>;
+
+export const CommunityBotAddToServerRequestSchema = z.object({
+  botId: z.string().min(1),
+});
+export type CommunityBotAddToServerRequest = z.infer<
+  typeof CommunityBotAddToServerRequestSchema
+>;
+
+// ---------------------------------------------------------------------------
+// Community agent CLI bridge — `withAgentRunnerAuth`-mounted `/api/community/agent/*`
+// request/response validators. Mirror the lifted `@alook/shared/community-cli-contract`
+// wire types verbatim (see `community-cli-contract.ts`). `agentId` is deliberately
+// OMITTED from every request schema below — identity comes from the `crk_` bearer
+// via `withAgentRunnerAuth`, never a client-supplied field (see plan §2/§7).
+// ---------------------------------------------------------------------------
+
+const CommunityAgentMessageContentSchema = z
+  .object({ text: z.string().min(1).max(MAX_MESSAGE_CONTENT_LENGTH) })
+  .catchall(z.unknown());
+
+const CommunityAgentSeqSchema = z.number().int().min(0);
+const CommunityAgentPositiveSeqSchema = z.number().int().min(1);
+
+export const CommunityAgentCursorSchema = z.object({
+  channel: z.string().min(1),
+  seq: CommunityAgentPositiveSeqSchema,
+});
+export type CommunityAgentCursor = z.infer<typeof CommunityAgentCursorSchema>;
+
+export const CommunityAgentSendRequestSchema = z.object({
+  channel: z.string().min(1),
+  content: CommunityAgentMessageContentSchema,
+  seenUpToSeq: CommunityAgentSeqSchema.optional(),
+});
+export type CommunityAgentSendRequest = z.infer<typeof CommunityAgentSendRequestSchema>;
+
+export const CommunityAgentInboxPullRequestSchema = z.object({
+  max: z.number().int().min(1).max(200).optional(),
+});
+export type CommunityAgentInboxPullRequest = z.infer<typeof CommunityAgentInboxPullRequestSchema>;
+
+export const CommunityAgentAckRequestSchema = z.object({
+  cursors: z.array(CommunityAgentCursorSchema).min(1),
+});
+export type CommunityAgentAckRequest = z.infer<typeof CommunityAgentAckRequestSchema>;
+
+export const CommunityAgentReadRequestSchema = z
+  .object({
+    channel: z.string().min(1),
+    before: CommunityAgentSeqSchema.optional(),
+    after: CommunityAgentSeqSchema.optional(),
+    around: CommunityAgentSeqSchema.optional(),
+    limit: z.number().int().min(1).max(200).optional(),
+  })
+  .refine(
+    (v) => [v.before, v.after, v.around].filter((x) => x !== undefined).length <= 1,
+    { message: "at most one of before/after/around may be supplied" }
+  );
+export type CommunityAgentReadRequest = z.infer<typeof CommunityAgentReadRequestSchema>;
+
+export const CommunityAgentResolveRequestSchema = z.object({
+  channel: z.string().min(1),
+  seq: CommunityAgentSeqSchema,
+});
+export type CommunityAgentResolveRequest = z.infer<typeof CommunityAgentResolveRequestSchema>;
+
+export const CommunityAgentListChannelsRequestSchema = z.object({
+  server: z.string().min(1).optional(),
+});
+export type CommunityAgentListChannelsRequest = z.infer<
+  typeof CommunityAgentListChannelsRequestSchema
+>;

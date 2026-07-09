@@ -45,27 +45,27 @@ export function TemplatesClient({
         <>
           <Link
             href="/templates"
-            className="hidden sm:block px-3 py-1.5 text-xs uppercase tracking-widest font-mono transition-opacity hover:opacity-70"
+            className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest font-mono transition-opacity hover:opacity-70"
           >
             Templates
           </Link>
           <Link
             href="/blog"
-            className="hidden sm:block px-3 py-1.5 text-xs uppercase tracking-widest font-mono transition-opacity hover:opacity-70"
+            className="hidden sm:block px-3 py-2 text-xs uppercase tracking-widest font-mono transition-opacity hover:opacity-70"
           >
             Blog
           </Link>
           {isLoggedIn ? (
             <Link
               href="/workspaces?auto"
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs uppercase tracking-widest font-mono border border-current transition-opacity hover:opacity-70"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono border border-current transition-opacity hover:opacity-70"
             >
               App
             </Link>
           ) : (
             <Link
               href="/sign-in"
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs uppercase tracking-widest font-mono bg-foreground text-background transition-opacity hover:opacity-70"
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-widest font-mono bg-foreground text-background transition-opacity hover:opacity-70"
             >
               Get Started
             </Link>
@@ -93,7 +93,7 @@ export function TemplatesClient({
             <button
               key={cat}
               onClick={() => handleCategoryChange(cat as "All" | TemplateCategory)}
-              className={`rounded-full px-4 py-1.5 text-xs font-medium transition-colors duration-150 ${
+              className={`rounded-full px-4 py-2 text-xs font-medium transition-colors duration-150 ${
                 activeCategory === cat
                   ? "bg-foreground text-background"
                   : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
