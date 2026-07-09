@@ -252,6 +252,11 @@ export function ShellFrame({
     folders,
     activeServerId,
     serversLoading: serversQuery.isLoading,
+    // `serversReady` gates the ServerRail auto-open — true only after the
+    // very first fetch settles AND the query isn't refetching. Using
+    // `isLoading` alone would let post-invalidate races (WS member.leave,
+    // reconnect) with `servers=[]` re-fire the "Create a Server" dialog.
+    serversReady: serversQuery.isFetched && !serversQuery.isFetching,
     setMobileZone,
     view,
     onHome: goHome,

@@ -141,10 +141,23 @@ export function MessageList({
         `[data-msg-id="${cssEscape(newDividerBefore)}"]`,
       )
       if (target) {
+        // Compute scrollTop manually rather than use `scrollIntoView({
+        // block: "center" })`. The scroll root's content lives inside a
+        // `flex justify-end min-h-full` wrapper; some engines interpret
+        // `block: "center"` against that wrapper's flex flow rather than
+        // the scroll root's viewport, and the row lands at the top of
+        // the viewport instead of the middle. Bounding-rect delta works
+        // regardless of offsetParent since it's viewport-space math.
         // Instant, not smooth — same reason as the self-send effect
         // below: smooth animations race the RO re-pins on some engines
         // and can snap back to the pre-image target.
-        action = () => target.scrollIntoView({ block: "center" })
+        action = () => {
+          const targetRect = target.getBoundingClientRect()
+          const scrollRect = el.getBoundingClientRect()
+          const targetTopInScroller = targetRect.top - scrollRect.top + el.scrollTop
+          const desired = targetTopInScroller - (el.clientHeight - target.offsetHeight) / 2
+          el.scrollTop = Math.max(0, desired)
+        }
       } else {
         action = () => el.scrollTo({ top: el.scrollHeight })
       }
@@ -184,7 +197,34 @@ export function MessageList({
     if (prev === null) return
     if (prev === tail.id) return
     if (!viewerUserId) return
-    if (tail.authorId !== viewerUserId) return
+
+    // Self-send: viewer authored the new tail → always follow. Handles the
+    // composer path across image/mermaid/invite-card async growth via the
+    // RO re-pin below.
+    const isSelfSend = tail.authorId === viewerUserId
+
+    // Peer follow: someone else sent a message AND the viewer is already at
+    // (or near) the bottom → snap to the new tail. If the viewer has
+    // scrolled up, we leave the "↓ N" pill to prompt them back down.
+    //
+    // Gated on `hasMoreNewer === false` (i.e. the loaded window is
+    // tail-attached to the present) so a peer message WS-inserted while
+    // the viewer is browsing history doesn't yank the view to a message
+    // that isn't actually "now". The pill's jump-to-present covers that
+    // case.
+    let isPeerFollow = false
+    if (!isSelfSend) {
+      if (hasMoreNewer) return
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      // 100px window matches the pill's "near bottom" intuition — noise
+      // (anti-aliasing, sub-pixel layout) is well below one line height,
+      // and a scrolled-up reader is typically many lines above.
+      if (distanceFromBottom >= 100) return
+      isPeerFollow = true
+    }
+
+    if (!isSelfSend && !isPeerFollow) return
+
     // Instant, not smooth. `behavior: 'smooth'` conflicts with the RO
     // re-pins below — the browser's ongoing smooth animation and our
     // subsequent instant scrollTo race, and on some engines the smooth
@@ -193,7 +233,7 @@ export function MessageList({
     const action = () => el.scrollTo({ top: el.scrollHeight })
     action()
     return watchAsyncGrowth(el, action)
-  }, [messages, viewerUserId])
+  }, [messages, viewerUserId, hasMoreNewer])
 
   // Reverse-infinite scroll anchor. When older messages prepend (head id
   // changes but tail id stays put), the browser's default is to keep
@@ -203,48 +243,72 @@ export function MessageList({
   // reflects the new rows, add the height delta to `scrollTop` so the
   // user's current view stays fixed.
   //
+  // Also handles the `hasMore` transition true → false: when a fetchOlder
+  // reaches start-of-history the ~32px top sentinel is replaced by the
+  // ~120px hero card. `messages` may not have grown at all (start-of-
+  // history sometimes returns 0 rows), but the top block gained ~90px and
+  // every row below it visibly shifts down. Snapshotting `scrollHeight`
+  // across the flip and adding the positive delta pins the viewer's row.
+  //
   // Only fires after the mount-time initial scroll has landed
   // (`didInitialScrollRef.current === true`) — otherwise we'd fight the
   // one-shot snap on first mount. Skipped when the tail id changed (that's
   // a self-send or a peer send, handled elsewhere) or when `messages`
   // shrank (channel switch, handled by the length===0 reset above).
   const prevHeadIdRef = useRef<string | null>(null)
+  const prevTailIdRef = useRef<string | null>(null)
   const prevScrollHeightRef = useRef<number>(0)
   const prevMessagesLenRef = useRef<number>(0)
+  const prevHasMoreRef = useRef<boolean | undefined>(hasMore)
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) {
       prevHeadIdRef.current = messages[0]?.id ?? null
+      prevTailIdRef.current = messages[messages.length - 1]?.id ?? null
       prevMessagesLenRef.current = messages.length
       prevScrollHeightRef.current = 0
+      prevHasMoreRef.current = hasMore
       return
     }
     const prevHead = prevHeadIdRef.current
+    const prevTail = prevTailIdRef.current
     const prevLen = prevMessagesLenRef.current
     const prevHeight = prevScrollHeightRef.current
+    const prevHasMore = prevHasMoreRef.current
     const nextHead = messages[0]?.id ?? null
+    const nextTail = messages[messages.length - 1]?.id ?? null
     const nextLen = messages.length
     const nextHeight = el.scrollHeight
 
-    // Only preserve position when older rows were prepended: head id moved,
-    // list grew, and the initial mount-scroll already landed. Every other
-    // path leaves `scrollTop` alone.
-    if (
-      didInitialScrollRef.current &&
+    const olderPrepended =
       prevHead !== null &&
       nextHead !== null &&
       prevHead !== nextHead &&
-      nextLen > prevLen &&
-      prevHeight > 0
+      nextLen > prevLen
+    // Hero swap: `hasMore` flipped true → false while the tail stayed put.
+    // Even when 0 rows landed on the last page, the top block grew from
+    // sentinel to hero and everything below shifted down.
+    const heroSwap =
+      prevHasMore === true &&
+      hasMore === false &&
+      prevTail !== null &&
+      prevTail === nextTail
+
+    if (
+      didInitialScrollRef.current &&
+      prevHeight > 0 &&
+      (olderPrepended || heroSwap)
     ) {
       const delta = nextHeight - prevHeight
       if (delta > 0) el.scrollTop = el.scrollTop + delta
     }
 
     prevHeadIdRef.current = nextHead
+    prevTailIdRef.current = nextTail
     prevMessagesLenRef.current = nextLen
     prevScrollHeightRef.current = nextHeight
-  }, [messages])
+    prevHasMoreRef.current = hasMore
+  }, [messages, hasMore])
 
   // Top sentinel — when it intersects the scroll root's viewport, request the
   // next older page. Mirrors the pattern in member-list.tsx: root is the

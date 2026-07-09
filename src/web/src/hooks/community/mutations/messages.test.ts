@@ -257,6 +257,50 @@ describe("useSendDmMessage — 403 blocked special-case", () => {
   })
 })
 
+// 429 rate-limit toasts on both channel and DM send paths — the pill stays
+// as `failed: true` so the retry affordance is still visible, but a toast
+// fires so the user knows why the send didn't go through.
+describe("useSendMessage — 429 rate limit fires a toast + marks failed", () => {
+  it("channel 429: toast fires and row is marked failed:true", async () => {
+    capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
+    const mod = await loadMod()
+    const { ApiError } = await import("@/lib/errors")
+    apiFetchMock.mockRejectedValueOnce(new ApiError("rate_limited", 429))
+    mod.useSendMessage()
+    await runMutation({
+      channelId: "ch_1",
+      content: "hi",
+      author: { id: "u_me", name: "me", avatar: "M" },
+    }).catch(() => {})
+    const cache = capturedQc.getQueryData<{ pages: { messages: { failed?: boolean }[] }[] }>(
+      communityKeys.channelMessages("ch_1"),
+    )
+    expect(cache?.pages[0].messages[0].failed).toBe(true)
+    expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("Rate limited"))
+  })
+})
+
+describe("useSendDmMessage — 429 rate limit fires a toast + marks failed", () => {
+  it("DM 429: toast fires and row is marked failed:true (not scrubbed like 403 blocked)", async () => {
+    capturedQc.setQueryData(communityKeys.dmMessages("dm_1"), makeCache([]))
+    const mod = await loadMod()
+    const { ApiError } = await import("@/lib/errors")
+    apiFetchMock.mockRejectedValueOnce(new ApiError("rate_limited", 429))
+    mod.useSendDmMessage()
+    await runMutation({
+      dmId: "dm_1",
+      content: "hi",
+      author: { id: "u_me", name: "me", avatar: "M" },
+    }).catch(() => {})
+    const cache = capturedQc.getQueryData<{ pages: { messages: { failed?: boolean }[] }[] }>(
+      communityKeys.dmMessages("dm_1"),
+    )
+    expect(cache?.pages[0].messages).toHaveLength(1)
+    expect(cache?.pages[0].messages[0].failed).toBe(true)
+    expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("Rate limited"))
+  })
+})
+
 // Regression guard — channel path stays generic-error, never fires the blocked
 // toast even on 403 blocked (that shouldn't happen on channels; ensure the
 // hook doesn't accidentally add DM's onBlocked branch to `useSendMessage`).

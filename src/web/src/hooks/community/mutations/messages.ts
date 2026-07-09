@@ -216,8 +216,15 @@ export function useSendMessage() {
       queryClient.setQueryData<PageCache>(key, (c) => prependOptimistic(c, msg))
       return { tempId, key }
     },
-    onError: (_err, _args, ctx) => {
+    onError: (err, _args, ctx) => {
       if (!ctx) return
+      // 429: server-side rate limit. Fire an explicit toast so the user
+      // knows why the send failed — otherwise the only signal is a
+      // `failed: true` pill, which reads like a generic error. The row
+      // still gets marked failed so the retry affordance stays available.
+      if (err instanceof ApiError && err.status === 429) {
+        toast.error("Rate limited — please wait a moment before trying again")
+      }
       queryClient.setQueryData<PageCache>(ctx.key as ReturnType<typeof communityKeys.channelMessages>, (c) =>
         markFailedById(c, ctx.tempId),
       )
@@ -291,6 +298,12 @@ export function useSendDmMessage() {
         )
         toast("You cannot send messages to this user")
         return
+      }
+      // 429: server-side rate limit. Fire a scoped toast so the user knows
+      // the send was throttled; still mark the row `failed: true` so the
+      // retry pill is available (mirrors the channel path).
+      if (err instanceof ApiError && err.status === 429) {
+        toast.error("Rate limited — please wait a moment before trying again")
       }
       queryClient.setQueryData<PageCache>(ctx.key as ReturnType<typeof communityKeys.dmMessages>, (c) =>
         markFailedById(c, ctx.tempId),

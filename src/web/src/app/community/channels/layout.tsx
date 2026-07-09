@@ -119,21 +119,25 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   //   4. Viewer pasted a URL for a server they were never in (list
   //      finishes loading, id is missing from the start).
   //
-  // Wait for the servers query to finish its first fetch — otherwise the
-  // pre-fetch render bounces every legitimate URL. Also gate on the
-  // `!ejectedRef` to prevent a re-fire while the redirect is in flight.
+  // Gate on `isFetched && !isFetching`, not on `isLoading`. TanStack v5
+  // `isLoading` is only true on the very first fetch — after any WS
+  // invalidate, reconnect, or IDB rehydrate, `isLoading=false` even while
+  // `servers=[]` between refetches. Using `isLoading` alone false-triggered
+  // this eject on every reload (see the "You're no longer in this server"
+  // toast on refresh regression). Also gate on the `!ejectedRef` to prevent
+  // a re-fire while the redirect is in flight.
   const serversList = useServers()
   const ejectedRef = useRef(false)
   useEffect(() => {
     if (ejectedRef.current) return
-    if (serversList.isLoading) return
+    if (!serversList.isFetched || serversList.isFetching) return
     const inRail = serversList.servers.some((s) => s.id === serverId)
     if (inRail) return
     ejectedRef.current = true
     const voluntary = consumeVoluntaryLeave(serverId)
     if (!voluntary) toast("You're no longer in this server")
     router.replace(pickPostEjectDestination(serversList.servers, serverId))
-  }, [serverId, serversList.isLoading, serversList.servers, router])
+  }, [serverId, serversList.isFetched, serversList.isFetching, serversList.servers, router])
   // Reset the guard when the URL changes to a NEW server id — otherwise
   // navigating server → dangling-server → server would leave the ref
   // latched and skip the eject.
