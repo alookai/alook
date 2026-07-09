@@ -17,8 +17,9 @@
  * `wrangler dev`/`next dev` processes today).
  */
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, createLogger } from "@alook/shared"
+import { queries, createLogger } from "@alook/shared"
 import type { WakePayload } from "@alook/shared"
+import { getDb } from "../db"
 import { createQueueWakeTransport, createDevHttpWakeTransport } from "./wake-transport"
 import type { WakeTransport } from "./wake-transport"
 
@@ -90,7 +91,7 @@ async function doEnqueueBotWakes(env: Env, opts: EnqueueBotWakesOpts): Promise<v
   const { recipients, channelId, dmConversationId, messageRow } = opts
   if (recipients.length === 0) return
 
-  const db = createDb(env.DB)
+  const db = getDb(env.DB)
   const candidates = await queries.communityBot.findWakeCandidates(db, {
     recipients,
     channelId,

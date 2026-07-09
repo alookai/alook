@@ -17,7 +17,6 @@ vi.mock("@alook/shared", async () => {
       error: vi.fn(),
       debug: vi.fn(),
     }),
-    createDb: vi.fn(() => ({})),
     queries: {
       communityMember: {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
@@ -32,6 +31,10 @@ vi.mock("@alook/shared", async () => {
     },
   }
 })
+
+vi.mock("../db", () => ({
+  getDb: vi.fn(() => ({})),
+}))
 
 const mockBroadcastToUser = vi.fn()
 vi.mock("../broadcast", () => ({

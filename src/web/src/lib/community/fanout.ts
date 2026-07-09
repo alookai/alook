@@ -13,8 +13,9 @@
  */
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { createDb, queries, createLogger, WS_EVENTS } from "@alook/shared"
-import type { CommunityWsEvent } from "@alook/shared"
+import { queries, createLogger, WS_EVENTS } from "@alook/shared"
+import type { CommunityWsEvent, Database } from "@alook/shared"
+import { getDb } from "../db"
 import { broadcastToUser } from "../broadcast"
 import { enqueueBotWakes, type WakeMessageRow } from "./wake-producer"
 
@@ -35,14 +36,14 @@ type WakeOpts = { wakeMessageRow?: WakeMessageRow }
 /**
  * Resolves all member user IDs for a server.
  */
-async function getServerMemberUserIds(db: ReturnType<typeof createDb>, serverId: string): Promise<string[]> {
+async function getServerMemberUserIds(db: Database, serverId: string): Promise<string[]> {
   return queries.communityMember.listMemberUserIds(db, serverId)
 }
 
 /**
  * Resolves the server a channel belongs to, then returns all member user IDs.
  */
-async function getChannelRecipientUserIds(db: ReturnType<typeof createDb>, channelId: string): Promise<string[]> {
+async function getChannelRecipientUserIds(db: Database, channelId: string): Promise<string[]> {
   const channel = await queries.communityChannel.getChannel(db, channelId)
   if (!channel) {
     log.warn("fanOutToChannel: channel not found", { channelId })
@@ -61,7 +62,7 @@ export async function fanOutToChannel(
 ): Promise<void> {
   try {
     const { env } = getCloudflareContext()
-    const db = createDb((env as Env).DB)
+    const db = getDb((env as Env).DB)
     const userIds = await getChannelRecipientUserIds(db, channelId)
     await broadcastToRecipients(userIds, event, opts?.excludeUserId)
     maybeEnqueueWakes(event, userIds, { channelId }, opts)
@@ -84,7 +85,7 @@ export async function fanOutToDM(
 ): Promise<void> {
   try {
     const { env } = getCloudflareContext()
-    const db = createDb((env as Env).DB)
+    const db = getDb((env as Env).DB)
     const dm = await queries.communityDm.getDM(db, dmConversationId)
     if (!dm) {
       log.warn("fanOutToDM: DM conversation not found", { dmConversationId })
@@ -137,7 +138,7 @@ export async function fanOutToServerMembers(
 ): Promise<void> {
   try {
     const { env } = getCloudflareContext()
-    const db = createDb((env as Env).DB)
+    const db = getDb((env as Env).DB)
     const userIds = await getServerMemberUserIds(db, serverId)
     await broadcastToRecipients(userIds, event, opts?.excludeUserId)
   } catch (err) {

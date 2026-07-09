@@ -17,7 +17,6 @@ vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
   return {
     ...actual,
-    createDb: vi.fn(() => ({})),
     createLogger: () => ({
       info: (...a: unknown[]) => mockInfo(...a),
       warn: (...a: unknown[]) => mockWarn(...a),
@@ -31,6 +30,10 @@ vi.mock("@alook/shared", async () => {
     },
   }
 })
+
+vi.mock("../db", () => ({
+  getDb: vi.fn(() => ({})),
+}))
 
 const mockQueueSend = vi.fn()
 const mockDevHttpSend = vi.fn()
