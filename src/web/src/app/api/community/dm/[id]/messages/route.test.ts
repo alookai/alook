@@ -9,8 +9,12 @@ const mockGetDM = vi.fn()
 const mockIsBlocked = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
+const mockGetMessageInScope = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMessages = vi.fn()
+const mockListMessagesAround = vi.fn()
+const mockListMessagesSince = vi.fn()
+const mockGetLatestMessageSeq = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
 const mockListMembers = vi.fn()
@@ -42,8 +46,12 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getMessageInScope: (...a: unknown[]) => mockGetMessageInScope(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
+        listMessagesAround: (...a: unknown[]) => mockListMessagesAround(...a),
+        listMessagesSince: (...a: unknown[]) => mockListMessagesSince(...a),
+        getLatestMessageSeq: (...a: unknown[]) => mockGetLatestMessageSeq(...a),
       },
       communityMember: {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
@@ -185,6 +193,9 @@ describe("GET /api/community/dm/[id]/messages", () => {
       lastMessageAt: null,
       createdAt: "2026-06-30T00:00:00.000Z",
     })
+    // Every route branch calls `getLatestMessageSeq` — default to 0 so tests
+    // don't have to wire it individually.
+    mockGetLatestMessageSeq.mockResolvedValue(0)
   })
 
   it("returns 403 and never reads messages when the counterpart is blocked", async () => {
@@ -243,10 +254,10 @@ describe("GET /api/community/dm/[id]/messages", () => {
     expect(scope).toEqual({ dmConversationId: "d1" })
   })
 
-  it("runs attachment, reaction, and reply-target fetches in parallel", async () => {
-    // The 3 follow-up fetches have no cross-dependency; they must run
+  it("runs attachment, reaction, reply-target, and latest-seq fetches in parallel", async () => {
+    // The 4 follow-up fetches have no cross-dependency; they must run
     // concurrently (Promise.all), not sequentially. Prove it by observing
-    // in-flight count — all 3 must be dispatched before any resolves.
+    // in-flight count — all 4 must be dispatched before any resolves.
     mockIsBlocked.mockResolvedValue(false)
     mockListMessages.mockResolvedValue([
       { id: "m-1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "hi", type: "default", mentionType: null, replyToId: "r-1", dmConversationId: "d1", embeds: null, createdAt: "t1" },
@@ -264,13 +275,115 @@ describe("GET /api/community/dm/[id]/messages", () => {
     mockListByMessageIds.mockImplementation(() => tracked([]))
     mockListReactionsByMessageIds.mockImplementation(() => tracked([]))
     mockGetMessagesByIdsInScope.mockImplementation(() => tracked([]))
+    mockGetLatestMessageSeq.mockImplementation(() => tracked(0))
 
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
 
-    expect(maxInFlight).toBe(3)
+    expect(maxInFlight).toBe(4)
     expect(mockListByMessageIds).toHaveBeenCalledTimes(1)
     expect(mockListReactionsByMessageIds).toHaveBeenCalledTimes(1)
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
+    expect(mockGetLatestMessageSeq).toHaveBeenCalledTimes(1)
+  })
+
+  it("always includes latestSeq in the legacy-mode envelope", async () => {
+    mockIsBlocked.mockResolvedValue(false)
+    mockListMessages.mockResolvedValue([])
+    mockListByMessageIds.mockResolvedValue([])
+    mockListReactionsByMessageIds.mockResolvedValue([])
+    mockGetLatestMessageSeq.mockResolvedValue(23)
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { latestSeq: number }
+    expect(body.latestSeq).toBe(23)
+    expect(mockGetLatestMessageSeq).toHaveBeenCalledWith(expect.anything(), { dmConversationId: "d1" })
+  })
+
+  describe("?anchor mode", () => {
+    it("returns a centered window with the anchor row present, plus latestSeq + cursors", async () => {
+      mockIsBlocked.mockResolvedValue(false)
+      mockGetMessageInScope.mockResolvedValue({
+        id: "m_anchor",
+        createdAt: "2026-06-30T00:00:03.000Z",
+      })
+      mockListMessagesAround.mockResolvedValue({
+        older: [
+          { id: "m_o1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "o1", type: "default", mentionType: null, replyToId: null, dmConversationId: "d1", embeds: null, createdAt: "2026-06-30T00:00:02.000Z" },
+        ],
+        newer: [
+          { id: "m_anchor", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "anchor", type: "default", mentionType: null, replyToId: null, dmConversationId: "d1", embeds: null, createdAt: "2026-06-30T00:00:03.000Z" },
+          { id: "m_n1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "n1", type: "default", mentionType: null, replyToId: null, dmConversationId: "d1", embeds: null, createdAt: "2026-06-30T00:00:04.000Z" },
+        ],
+        hasMoreOlder: false,
+        hasMoreNewer: true,
+      })
+      mockListByMessageIds.mockResolvedValue([])
+      mockListReactionsByMessageIds.mockResolvedValue([])
+      mockGetLatestMessageSeq.mockResolvedValue(11)
+
+      const req = new NextRequest("http://localhost/api/community/dm/d1/messages?anchor=m_anchor", {
+        method: "GET",
+      })
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as {
+        messages: Array<{ id: string }>
+        hasMoreOlder: boolean
+        hasMoreNewer: boolean
+        olderCursor?: string
+        newerCursor?: string
+        latestSeq: number
+      }
+      expect(body.messages.map((m) => m.id)).toEqual(["m_o1", "m_anchor", "m_n1"])
+      expect(body.hasMoreOlder).toBe(false)
+      expect(body.hasMoreNewer).toBe(true)
+      expect(body.olderCursor).toBeUndefined()
+      expect(body.newerCursor).toBe(`2026-06-30T00:00:04.000Z|m_n1`)
+      expect(body.latestSeq).toBe(11)
+      // Scope-first resolve: anchor lookup passes the DM scope.
+      expect(mockGetMessageInScope).toHaveBeenCalledWith(expect.anything(), "m_anchor", { dmConversationId: "d1" })
+    })
+
+    it("returns 404 when the anchor is not visible in this DM", async () => {
+      mockIsBlocked.mockResolvedValue(false)
+      mockGetMessageInScope.mockResolvedValue(null)
+      const req = new NextRequest("http://localhost/api/community/dm/d1/messages?anchor=m_missing", {
+        method: "GET",
+      })
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(404)
+      expect(mockListMessagesAround).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("?since mode", () => {
+    it("returns rows strictly newer than the cursor with hasMoreNewer + newerCursor + latestSeq", async () => {
+      mockIsBlocked.mockResolvedValue(false)
+      mockListMessagesSince.mockResolvedValue([
+        { id: "m_1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "1", type: "default", mentionType: null, replyToId: null, dmConversationId: "d1", embeds: null, createdAt: "2026-06-30T00:00:01.000Z" },
+      ])
+      mockListByMessageIds.mockResolvedValue([])
+      mockListReactionsByMessageIds.mockResolvedValue([])
+      mockGetLatestMessageSeq.mockResolvedValue(1)
+
+      const req = new NextRequest(
+        "http://localhost/api/community/dm/d1/messages?since=2026-06-30T00:00:00.000Z%7Cm_0",
+        { method: "GET" },
+      )
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as {
+        messages: Array<{ id: string }>
+        hasMoreNewer: boolean
+        newerCursor?: string
+        latestSeq: number
+      }
+      expect(body.messages.map((m) => m.id)).toEqual(["m_1"])
+      expect(body.hasMoreNewer).toBe(false)
+      expect(body.latestSeq).toBe(1)
+      expect(mockGetMessageInScope).not.toHaveBeenCalled()
+      expect(mockListMessagesAround).not.toHaveBeenCalled()
+    })
   })
 })

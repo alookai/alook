@@ -569,6 +569,201 @@ describe("getLatestMessage", () => {
   });
 });
 
+// ── listMessagesAround / listMessagesSince / getLatestMessageSeq ─────────
+//
+// New envelope-critical queries for the anchor-scroll refactor
+// (plans/community-message-scroll-v2.md §A1). The three feed the message-list
+// route's three URL modes: `?anchor`, `?since`, and the always-present
+// `latestSeq` field.
+
+/**
+ * Terminal-limit mock that returns different rowsets for successive `.limit()`
+ * calls. Needed because `listMessagesAround` issues two queries in parallel
+ * (older + newer halves) — the caller has to look at both to compute
+ * `hasMoreOlder`/`hasMoreNewer`.
+ */
+function createDualLimitMock(sequences: any[][]) {
+  let idx = 0;
+  const chain: any = {};
+  chain.select = vi.fn(() => chain);
+  chain.from = vi.fn(() => chain);
+  chain.innerJoin = vi.fn(() => chain);
+  chain.where = vi.fn(() => chain);
+  chain.orderBy = vi.fn(() => chain);
+  chain.limit = vi.fn(() => Promise.resolve(sequences[idx++] ?? []));
+  return chain;
+}
+
+function listedRow(id: string, createdAt: string) {
+  return {
+    id,
+    authorId: `u_${id}`,
+    content: id,
+    type: "default",
+    mentionType: null,
+    replyToId: null,
+    embeds: null,
+    flags: 0,
+    createdAt,
+    channelId: "c_1",
+    dmConversationId: null,
+    authorName: `User ${id}`,
+    authorEmail: `${id}@x.com`,
+    authorImage: null,
+  };
+}
+
+describe("listMessagesAround", () => {
+  it("splits limit in half, fetches one extra probe on each side, and reports no `hasMore` when the probe rows don't come back", async () => {
+    // limit=6 → olderHalf=3, newerBudget=4 (3 newer + 1 anchor). Probes:
+    // older `.limit(4)`, newer `.limit(5)`. DB returns exactly the budget.
+    const older = [
+      listedRow("m_o3", "2026-01-01T00:00:03.000Z"),
+      listedRow("m_o2", "2026-01-01T00:00:02.000Z"),
+      listedRow("m_o1", "2026-01-01T00:00:01.000Z"),
+    ];
+    const newer = [
+      listedRow("m_anchor", "2026-01-01T00:00:04.000Z"),
+      listedRow("m_n1", "2026-01-01T00:00:05.000Z"),
+      listedRow("m_n2", "2026-01-01T00:00:06.000Z"),
+      listedRow("m_n3", "2026-01-01T00:00:07.000Z"),
+    ];
+    const db = createDualLimitMock([older, newer]);
+    const result = await messageQueries.listMessagesAround(db, {
+      channelId: "c_1",
+      anchor: { createdAt: "2026-01-01T00:00:04.000Z", id: "m_anchor" },
+      limit: 6,
+    });
+    expect(db.limit).toHaveBeenNthCalledWith(1, 4); // older half + probe
+    expect(db.limit).toHaveBeenNthCalledWith(2, 5); // newer budget + probe
+    expect(result.hasMoreOlder).toBe(false);
+    expect(result.hasMoreNewer).toBe(false);
+    expect(result.older.map((r: { id: string }) => r.id)).toEqual(["m_o3", "m_o2", "m_o1"]);
+    expect(result.newer.map((r: { id: string }) => r.id)).toEqual(["m_anchor", "m_n1", "m_n2", "m_n3"]);
+  });
+
+  it("detects a full older side by seeing the probe row and trims it off", async () => {
+    // olderHalf=3, DB returns 4 (probe fired) → hasMoreOlder true, only 3 rows returned.
+    const older = [
+      listedRow("m_o4", "2026-01-01T00:00:04.000Z"),
+      listedRow("m_o3", "2026-01-01T00:00:03.000Z"),
+      listedRow("m_o2", "2026-01-01T00:00:02.000Z"),
+      listedRow("m_o1", "2026-01-01T00:00:01.000Z"),
+    ];
+    const newer = [listedRow("m_anchor", "2026-01-01T00:00:05.000Z")];
+    const db = createDualLimitMock([older, newer]);
+    const result = await messageQueries.listMessagesAround(db, {
+      channelId: "c_1",
+      anchor: { createdAt: "2026-01-01T00:00:05.000Z", id: "m_anchor" },
+      limit: 6,
+    });
+    expect(result.hasMoreOlder).toBe(true);
+    expect(result.hasMoreNewer).toBe(false);
+    expect(result.older).toHaveLength(3);
+  });
+
+  it("returns an empty older side (with hasMoreOlder=false) when the anchor is at the head", async () => {
+    // Anchor is the very oldest — no older rows at all.
+    const older: any[] = [];
+    const newer = [
+      listedRow("m_anchor", "2026-01-01T00:00:01.000Z"),
+      listedRow("m_n1", "2026-01-01T00:00:02.000Z"),
+      listedRow("m_n2", "2026-01-01T00:00:03.000Z"),
+    ];
+    const db = createDualLimitMock([older, newer]);
+    const result = await messageQueries.listMessagesAround(db, {
+      channelId: "c_1",
+      anchor: { createdAt: "2026-01-01T00:00:01.000Z", id: "m_anchor" },
+      limit: 6,
+    });
+    expect(result.hasMoreOlder).toBe(false);
+    expect(result.older).toEqual([]);
+    expect(result.newer[0]?.id).toBe("m_anchor");
+  });
+
+  it("accepts dmConversationId scope", async () => {
+    const db = createDualLimitMock([[], [listedRow("m_anchor", "2026-01-01T00:00:01.000Z")]]);
+    const result = await messageQueries.listMessagesAround(db, {
+      dmConversationId: "dm_1",
+      anchor: { createdAt: "2026-01-01T00:00:01.000Z", id: "m_anchor" },
+      limit: 6,
+    });
+    expect(result.newer[0]?.id).toBe("m_anchor");
+  });
+});
+
+describe("listMessagesSince", () => {
+  it("returns rows in ASC order, trimmed to `limit`, with the probe row driving hasMore in the caller", async () => {
+    // Query fetches `limit + 1` — caller (route) trims. The query itself
+    // returns whatever the DB gives; test that the passed limit is `limit+1`.
+    const rows = [
+      listedRow("m_1", "2026-01-01T00:00:01.000Z"),
+      listedRow("m_2", "2026-01-01T00:00:02.000Z"),
+      listedRow("m_3", "2026-01-01T00:00:03.000Z"),
+    ];
+    const db = createDualLimitMock([rows]);
+    const result = await messageQueries.listMessagesSince(db, {
+      channelId: "c_1",
+      since: { createdAt: "2026-01-01T00:00:00.000Z", id: "m_0" },
+      limit: 50,
+    });
+    expect(db.limit).toHaveBeenCalledWith(51);
+    expect(result.map((r: { id: string }) => r.id)).toEqual(["m_1", "m_2", "m_3"]);
+  });
+
+  it("returns empty when no rows are newer than `since`", async () => {
+    const db = createDualLimitMock([[]]);
+    const result = await messageQueries.listMessagesSince(db, {
+      channelId: "c_1",
+      since: { createdAt: "2026-01-01T00:00:00.000Z", id: "m_0" },
+    });
+    expect(result).toEqual([]);
+  });
+
+  it("accepts dmConversationId scope", async () => {
+    const db = createDualLimitMock([[listedRow("m_1", "2026-01-01T00:00:01.000Z")]]);
+    const result = await messageQueries.listMessagesSince(db, {
+      dmConversationId: "dm_1",
+      since: { createdAt: "2026-01-01T00:00:00.000Z", id: "m_0" },
+    });
+    expect(result).toHaveLength(1);
+  });
+});
+
+describe("getLatestMessageSeq", () => {
+  function createSeqMock(rows: any[]) {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.where = vi.fn(() => Promise.resolve(rows));
+    return chain;
+  }
+  it("returns 0 when the scope is empty (MAX() over 0 rows yields NULL)", async () => {
+    const db = createSeqMock([{ maxSeq: null }]);
+    const result = await messageQueries.getLatestMessageSeq(db, { channelId: "c_empty" });
+    expect(result).toBe(0);
+  });
+
+  it("returns the MAX(seq) value for a non-empty scope", async () => {
+    const db = createSeqMock([{ maxSeq: 42 }]);
+    const result = await messageQueries.getLatestMessageSeq(db, { channelId: "c_1" });
+    expect(result).toBe(42);
+  });
+
+  it("also accepts dmConversationId scope", async () => {
+    const db = createSeqMock([{ maxSeq: 7 }]);
+    const result = await messageQueries.getLatestMessageSeq(db, { dmConversationId: "dm_1" });
+    expect(result).toBe(7);
+  });
+
+  it("returns 0 when the driver returns an empty rowset", async () => {
+    // Defensive: some D1 aggregate paths may return `[]` rather than `[{ maxSeq: null }]`.
+    const db = createSeqMock([]);
+    const result = await messageQueries.getLatestMessageSeq(db, { channelId: "c_1" });
+    expect(result).toBe(0);
+  });
+});
+
 describe("getLatestMessagesByChannelIds", () => {
   function createInnerJoinMock(rows: any[]) {
     const chain: any = {};

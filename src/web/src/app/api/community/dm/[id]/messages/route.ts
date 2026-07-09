@@ -3,7 +3,16 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
-import { parseCursor, parsePageSize, buildPaginatedResponse, groupAttachments, groupReactions } from "@/lib/community/messages"
+import {
+  parseCursor,
+  parseAnchor,
+  parsePageSize,
+  buildPaginatedResponse,
+  buildAnchorResponse,
+  buildSinceResponse,
+  groupAttachments,
+  groupReactions,
+} from "@/lib/community/messages"
 import { requireDMParticipant } from "@/lib/community/permissions"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { createCommunityMessage } from "@/lib/community/message-handler"
@@ -17,8 +26,42 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   const auth = await requireDMParticipant(db, dmId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const cursor = parseCursor(req.nextUrl.searchParams.get("cursor"))
-  const pageSize = parsePageSize(req.nextUrl.searchParams.get("limit"))
+  const params = req.nextUrl.searchParams
+  const anchorId = parseAnchor(params.get("anchor"))
+  const since = parseCursor(params.get("since"))
+  const cursor = parseCursor(params.get("cursor"))
+  const pageSize = parsePageSize(params.get("limit"))
+
+  if (anchorId) {
+    const anchor = await queries.communityMessage.getMessageInScope(db, anchorId, { dmConversationId: dmId })
+    if (!anchor) return writeError("anchor not found", 404)
+
+    const around = await queries.communityMessage.listMessagesAround(db, {
+      dmConversationId: dmId,
+      anchor: { createdAt: anchor.createdAt, id: anchor.id },
+      limit: pageSize,
+    })
+
+    const { items, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor } = buildAnchorResponse(
+      around.older,
+      around.newer,
+      { hasMoreOlder: around.hasMoreOlder, hasMoreNewer: around.hasMoreNewer },
+    )
+
+    const { messages, latestSeq } = await enrichAndFinalize(db, ctx.userId, dmId, items)
+    return writeJSON({ messages, hasMoreOlder, hasMoreNewer, olderCursor, newerCursor, latestSeq })
+  }
+
+  if (since) {
+    const rows = await queries.communityMessage.listMessagesSince(db, {
+      dmConversationId: dmId,
+      since,
+      limit: pageSize,
+    })
+    const { items, hasMoreNewer, newerCursor } = buildSinceResponse(rows, pageSize)
+    const { messages, latestSeq } = await enrichAndFinalize(db, ctx.userId, dmId, items)
+    return writeJSON({ messages, hasMoreNewer, newerCursor, latestSeq })
+  }
 
   const rows = await queries.communityMessage.listMessages(db, {
     dmConversationId: dmId,
@@ -27,39 +70,44 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   })
 
   const { items, hasMore, cursor: nextCursor } = buildPaginatedResponse(rows, pageSize)
+  const { messages, latestSeq } = await enrichAndFinalize(db, ctx.userId, dmId, items.slice().reverse())
+  return writeJSON({ messages, hasMore, cursor: nextCursor, latestSeq })
+})
 
-  // All three follow-up fetches depend only on `items` — no cross-dependency —
-  // so run them concurrently to collapse 3 sequential D1 round-trips into one
-  // wall-clock hop.
+// DM sibling of the channel route's helper — no thread-indicator enrichment
+// (DMs can't parent threads), everything else is symmetric.
+async function enrichAndFinalize(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  dmId: string,
+  items: Array<{ id: string; replyToId: string | null } & Record<string, unknown>>,
+): Promise<{ messages: unknown[]; latestSeq: number }> {
   const messageIds = items.map((m) => m.id)
   const replyToIds = items.map((r) => r.replyToId).filter(Boolean) as string[]
 
-  const [allAttachments, allReactions, replyMessages] = await Promise.all([
+  const [allAttachments, allReactions, replyMessages, latestSeq] = await Promise.all([
     messageIds.length > 0
       ? queries.communityAttachment.listByMessageIds(db, messageIds)
       : Promise.resolve([]),
     messageIds.length > 0
-      ? queries.communityReaction.listReactionsByMessageIds(db, messageIds, ctx.userId)
+      ? queries.communityReaction.listReactionsByMessageIds(db, messageIds, userId)
       : Promise.resolve([]),
     replyToIds.length > 0
       ? queries.communityMessage.getMessagesByIdsInScope(db, replyToIds, { dmConversationId: dmId })
       : Promise.resolve([]),
+    queries.communityMessage.getLatestMessageSeq(db, { dmConversationId: dmId }),
   ])
 
   const attachmentsByMessage = groupAttachments(allAttachments)
-  const reactionsByMessage = groupReactions(allReactions, ctx.userId)
+  const reactionsByMessage = groupReactions(allReactions, userId)
 
-  // Reply targets are already scoped to this DM by the query above — a
-  // client can't leak previews of messages from other DMs/channels just by
-  // referencing their id.
   const replyMap = new Map(replyMessages.map((m) => [m.id, m]))
 
   const messages = items.map((r) =>
-    mapMessageForApi(r, { replyMap, attachmentsByMessage, reactionsByMessage }),
+    mapMessageForApi(r as never, { replyMap, attachmentsByMessage, reactionsByMessage }),
   )
-
-  return writeJSON({ messages: messages.reverse(), hasMore, cursor: nextCursor })
-})
+  return { messages, latestSeq }
+}
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const dmId = ctx.params?.id

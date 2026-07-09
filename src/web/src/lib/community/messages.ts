@@ -15,6 +15,14 @@ export function parseCursor(cursorParam: string | null): { createdAt: string; id
   return undefined
 }
 
+// The anchor param is a raw message id (not a cursor tuple). Empty string
+// coerces to `undefined` so `?anchor=` still routes through the legacy path.
+export function parseAnchor(anchorParam: string | null): string | undefined {
+  if (!anchorParam) return undefined
+  const trimmed = anchorParam.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
 // Parse a member cursor from query params (format: "joinedAt|id"). Members
 // paginate on the `joinedAt` timestamp — a sibling of `parseCursor` above
 // with a different keying field, kept separate so both stay narrowly typed.
@@ -55,6 +63,46 @@ export function buildPaginatedResponse<T extends { createdAt: string; id: string
     ? `${items[items.length - 1].createdAt}|${items[items.length - 1].id}`
     : undefined
   return { items, hasMore, cursor }
+}
+
+// Compose the anchor-mode response envelope. `older` arrives DESC (newest of
+// the older half first); reverse it before concatenation so the caller gets one
+// chronological ASC array. Cursors point at the boundary rows: `olderCursor`
+// = the oldest returned row, `newerCursor` = the newest.
+export function buildAnchorResponse<T extends { createdAt: string; id: string }>(
+  older: T[],
+  newer: T[],
+  opts: { hasMoreOlder: boolean; hasMoreNewer: boolean },
+): {
+  items: T[]
+  hasMoreOlder: boolean
+  hasMoreNewer: boolean
+  olderCursor: string | undefined
+  newerCursor: string | undefined
+} {
+  const olderAsc = [...older].reverse()
+  const items = [...olderAsc, ...newer]
+  const olderCursor = opts.hasMoreOlder && items.length > 0
+    ? `${items[0].createdAt}|${items[0].id}`
+    : undefined
+  const newerCursor = opts.hasMoreNewer && items.length > 0
+    ? `${items[items.length - 1].createdAt}|${items[items.length - 1].id}`
+    : undefined
+  return { items, hasMoreOlder: opts.hasMoreOlder, hasMoreNewer: opts.hasMoreNewer, olderCursor, newerCursor }
+}
+
+// Compose the since-mode response envelope. Rows arrive ASC with `+1` extra
+// probe; slice off the probe and encode `newerCursor` as the newest row.
+export function buildSinceResponse<T extends { createdAt: string; id: string }>(
+  rows: T[],
+  pageSize: number,
+): { items: T[]; hasMoreNewer: boolean; newerCursor: string | undefined } {
+  const hasMoreNewer = rows.length > pageSize
+  const items = hasMoreNewer ? rows.slice(0, pageSize) : rows
+  const newerCursor = hasMoreNewer && items.length > 0
+    ? `${items[items.length - 1].createdAt}|${items[items.length - 1].id}`
+    : undefined
+  return { items, hasMoreNewer, newerCursor }
 }
 
 // Build a paginated member response — same shape as buildPaginatedResponse but

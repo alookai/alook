@@ -9,6 +9,7 @@ const mockGetChannelForMember = vi.fn()
 const mockGetChannel = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
+const mockGetMessageInScope = vi.fn()
 const mockGetMessagesByIdsInScope = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
@@ -16,6 +17,9 @@ const mockCreateMentions = vi.fn()
 const mockCreateAttachment = vi.fn()
 const mockListChildChannels = vi.fn()
 const mockListMessages = vi.fn()
+const mockListMessagesAround = vi.fn()
+const mockListMessagesSince = vi.fn()
+const mockGetLatestMessageSeq = vi.fn()
 const mockListByMessageIds = vi.fn()
 const mockListReactionsByMessageIds = vi.fn()
 const mockGetUserInternal = vi.fn()
@@ -43,8 +47,12 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getMessageInScope: (...a: unknown[]) => mockGetMessageInScope(...a),
         getMessagesByIdsInScope: (...a: unknown[]) => mockGetMessagesByIdsInScope(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
+        listMessagesAround: (...a: unknown[]) => mockListMessagesAround(...a),
+        listMessagesSince: (...a: unknown[]) => mockListMessagesSince(...a),
+        getLatestMessageSeq: (...a: unknown[]) => mockGetLatestMessageSeq(...a),
       },
       communityMember: {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
@@ -306,6 +314,9 @@ describe("GET /api/community/channels/[id]/messages", () => {
     mockListChildChannels.mockResolvedValue([])
     mockListByMessageIds.mockResolvedValue([])
     mockListReactionsByMessageIds.mockResolvedValue([])
+    // Every route branch calls `getLatestMessageSeq` — default to a small
+    // sentinel so each test doesn't have to wire it individually.
+    mockGetLatestMessageSeq.mockResolvedValue(0)
   })
 
   it("resolves reply previews via one scoped getMessagesByIdsInScope call (never per-item getMessage)", async () => {
@@ -377,11 +388,10 @@ describe("GET /api/community/channels/[id]/messages", () => {
     expect(body.messages[0]?.authorAvatar).toBe("A")
   })
 
-  it("runs attachment, reaction, reply-target, and child-channel fetches in parallel", async () => {
-    // The 4 follow-up fetches have no cross-dependency; they must run
+  it("runs attachment, reaction, reply-target, child-channel, and latest-seq fetches in parallel", async () => {
+    // The 5 follow-up fetches have no cross-dependency; they must run
     // concurrently (Promise.all), not sequentially. We prove concurrency by
-    // observing the in-flight count of the mocked queries: if any two are
-    // running at the same time, the max concurrency is >= 2.
+    // observing the in-flight count of the mocked queries.
     mockListMessages.mockResolvedValue([
       { id: "m-1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "hi", type: "default", mentionType: null, replyToId: "r-1", channelId: "c1", embeds: null, createdAt: "t1" },
     ])
@@ -399,17 +409,18 @@ describe("GET /api/community/channels/[id]/messages", () => {
     mockListReactionsByMessageIds.mockImplementation(() => tracked([]))
     mockGetMessagesByIdsInScope.mockImplementation(() => tracked([]))
     mockListChildChannels.mockImplementation(() => tracked([]))
+    mockGetLatestMessageSeq.mockImplementation(() => tracked(0))
 
     const res = await GET(getReq(), ctx)
     expect(res.status).toBe(200)
 
-    // All 4 fetches must have been kicked off before any resolves — proving
-    // Promise.all, not sequential await.
-    expect(maxInFlight).toBe(4)
+    // All 5 fetches must have been kicked off before any resolves.
+    expect(maxInFlight).toBe(5)
     expect(mockListByMessageIds).toHaveBeenCalledTimes(1)
     expect(mockListReactionsByMessageIds).toHaveBeenCalledTimes(1)
     expect(mockGetMessagesByIdsInScope).toHaveBeenCalledTimes(1)
     expect(mockListChildChannels).toHaveBeenCalledTimes(1)
+    expect(mockGetLatestMessageSeq).toHaveBeenCalledTimes(1)
   })
 
   it("passes parsed embeds through to the response body verbatim", async () => {
@@ -427,5 +438,100 @@ describe("GET /api/community/channels/[id]/messages", () => {
     const byId = new Map(body.messages.map((m) => [m.id, m]))
     expect(byId.get("m-1")?.embeds).toEqual(parsed)
     expect(byId.get("m-2")?.embeds).toBeUndefined()
+  })
+
+  it("always includes latestSeq in the legacy-mode envelope", async () => {
+    // The client (A2) reads latestSeq unconditionally — it must be present in
+    // every mode's envelope, including the legacy path.
+    mockListMessages.mockResolvedValue([])
+    mockGetLatestMessageSeq.mockResolvedValue(17)
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(200)
+    const body = await res.json() as { latestSeq: number }
+    expect(body.latestSeq).toBe(17)
+    expect(mockGetLatestMessageSeq).toHaveBeenCalledWith(expect.anything(), { channelId: "c1" })
+  })
+
+  describe("?anchor mode", () => {
+    it("returns a centered window with the anchor row present, plus latestSeq + cursors", async () => {
+      mockGetMessageInScope.mockResolvedValue({
+        id: "m_anchor",
+        createdAt: "2026-06-30T00:00:03.000Z",
+      })
+      mockListMessagesAround.mockResolvedValue({
+        older: [
+          { id: "m_o1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "o1", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:02.000Z" },
+        ],
+        newer: [
+          { id: "m_anchor", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "anchor", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:03.000Z" },
+          { id: "m_n1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "n1", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:04.000Z" },
+        ],
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+      })
+      mockGetLatestMessageSeq.mockResolvedValue(9)
+
+      const url = "http://localhost/api/community/channels/c1/messages?anchor=m_anchor"
+      const req = new NextRequest(url, { method: "GET" })
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as {
+        messages: Array<{ id: string }>
+        hasMoreOlder: boolean
+        hasMoreNewer: boolean
+        olderCursor?: string
+        newerCursor?: string
+        latestSeq: number
+      }
+      // Order is chronological ASC: older-reversed then newer.
+      expect(body.messages.map((m) => m.id)).toEqual(["m_o1", "m_anchor", "m_n1"])
+      expect(body.hasMoreOlder).toBe(true)
+      expect(body.hasMoreNewer).toBe(false)
+      // olderCursor points at the oldest returned row; newerCursor only when hasMoreNewer.
+      expect(body.olderCursor).toBe(`2026-06-30T00:00:02.000Z|m_o1`)
+      expect(body.newerCursor).toBeUndefined()
+      expect(body.latestSeq).toBe(9)
+      // Scope-first resolve: anchor lookup passes the channel scope.
+      expect(mockGetMessageInScope).toHaveBeenCalledWith(expect.anything(), "m_anchor", { channelId: "c1" })
+    })
+
+    it("returns 404 when the anchor is not visible in this channel", async () => {
+      mockGetMessageInScope.mockResolvedValue(null)
+      const req = new NextRequest("http://localhost/api/community/channels/c1/messages?anchor=m_missing", {
+        method: "GET",
+      })
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(404)
+      expect(mockListMessagesAround).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("?since mode", () => {
+    it("returns rows strictly newer than the cursor with hasMoreNewer + newerCursor + latestSeq", async () => {
+      mockListMessagesSince.mockResolvedValue([
+        { id: "m_1", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "1", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:01.000Z" },
+        { id: "m_2", authorId: "u1", authorName: "A", authorEmail: "a@t.com", authorImage: null, content: "2", type: "default", mentionType: null, replyToId: null, channelId: "c1", embeds: null, createdAt: "2026-06-30T00:00:02.000Z" },
+      ])
+      mockGetLatestMessageSeq.mockResolvedValue(2)
+
+      const req = new NextRequest(
+        "http://localhost/api/community/channels/c1/messages?since=2026-06-30T00:00:00.000Z%7Cm_0",
+        { method: "GET" },
+      )
+      const res = await GET(req, ctx)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as {
+        messages: Array<{ id: string }>
+        hasMoreNewer: boolean
+        newerCursor?: string
+        latestSeq: number
+      }
+      expect(body.messages.map((m) => m.id)).toEqual(["m_1", "m_2"])
+      expect(body.hasMoreNewer).toBe(false)
+      expect(body.latestSeq).toBe(2)
+      // Anchor-mode paths must not fire.
+      expect(mockGetMessageInScope).not.toHaveBeenCalled()
+      expect(mockListMessagesAround).not.toHaveBeenCalled()
+    })
   })
 })
