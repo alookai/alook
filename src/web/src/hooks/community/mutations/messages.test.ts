@@ -148,7 +148,54 @@ describe("useSendMessage — rollback", () => {
   })
 })
 
+// Regression pin — the mount-time effect in <MessageList> gates self-send
+// auto-scroll on `tail.authorId === viewerUserId`. A missing `authorId` on
+// the optimistic row silently disables that scroll, so pin the field on
+// BOTH the channel and DM optimistic paths.
+describe("useSendMessage — stamps authorId on optimistic row", () => {
+  it("optimistic row carries the sender's authorId", async () => {
+    capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
+    // Never resolves — we only care about the optimistic write from onMutate.
+    apiFetchMock.mockImplementation(() => new Promise(() => {}))
+    const mod = await loadMod()
+    mod.useSendMessage()
+    const cfg = capturedConfig!
+    await cfg.onMutate!({
+      channelId: "ch_1",
+      content: "hi",
+      author: { id: "u_me", name: "me", avatar: "M" },
+    })
+    const cache = capturedQc.getQueryData<{ pages: { messages: { authorId?: string }[] }[] }>(
+      communityKeys.channelMessages("ch_1"),
+    )
+    expect(cache?.pages[0].messages).toHaveLength(1)
+    expect(cache?.pages[0].messages[0].authorId).toBe("u_me")
+  })
+})
+
 // ── useSendDmMessage ──────────────────────────────────────────────────────
+
+describe("useSendDmMessage — stamps authorId on optimistic row", () => {
+  // Companion regression: without authorId the self-send auto-scroll bails
+  // in <MessageList> because `undefined !== viewerUserId`. Pin the field.
+  it("optimistic DM row carries the sender's authorId", async () => {
+    capturedQc.setQueryData(communityKeys.dmMessages("dm_1"), makeCache([]))
+    apiFetchMock.mockImplementation(() => new Promise(() => {}))
+    const mod = await loadMod()
+    mod.useSendDmMessage()
+    const cfg = capturedConfig!
+    await cfg.onMutate!({
+      dmId: "dm_1",
+      content: "hi",
+      author: { id: "u_me", name: "me", avatar: "M" },
+    })
+    const cache = capturedQc.getQueryData<{ pages: { messages: { authorId?: string }[] }[] }>(
+      communityKeys.dmMessages("dm_1"),
+    )
+    expect(cache?.pages[0].messages).toHaveLength(1)
+    expect(cache?.pages[0].messages[0].authorId).toBe("u_me")
+  })
+})
 
 describe("useSendDmMessage — rollback", () => {
   it("marks the temp DM row failed on server failure", async () => {

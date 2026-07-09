@@ -265,6 +265,11 @@ export function useSendDmMessage() {
       const optimisticAttachments = args.attachments?.map(toAttachmentVm)
       const msg: Msg = {
         id: tempId,
+        // Mirror the channel path: stamp the sender's userId so the
+        // self-send auto-scroll effect in <MessageList> (gated on
+        // `tail.authorId === viewerUserId`) recognizes the optimistic row
+        // as viewer-authored and pins to bottom on send.
+        authorId: args.author.id,
         authorName: args.author.name,
         authorAvatar: args.author.avatar,
         content: args.content,
