@@ -10,7 +10,14 @@ import { writeError, writeJSON } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import type { AuthContext } from "@/lib/middleware/auth"
 import type { Result } from "./permissions"
-import { buildMediaKey, buildServerIconKey } from "./storage"
+import {
+  buildMediaKey,
+  buildServerIconKey,
+  buildUserAvatarKey,
+  buildBotAvatarKey,
+  userAvatarUrl,
+  botAvatarUrl,
+} from "./storage"
 
 type UploadOk = {
   ok: true
@@ -142,6 +149,71 @@ export async function handleServerIconUpload(
     contentType: file.type,
     size: file.size,
   }
+}
+
+/**
+ * Validate + upload a user/bot avatar to a deterministic key — unlike server
+ * icons, there's no `fileId`/old-key-delete dance since R2 `.put()` overwrites
+ * the same object in place on every re-upload. Shared by
+ * `handleUserAvatarUpload` and `handleBotAvatarUpload`, which only differ in
+ * key/URL builder.
+ */
+async function handleAvatarUpload(
+  req: NextRequest,
+  env: Env,
+  ownerId: string,
+  key: string,
+  url: string,
+): Promise<UploadResult> {
+  const fileOrErr = await readFile(req)
+  if ("ok" in fileOrErr && fileOrErr.ok === false) return fileOrErr
+  const file = fileOrErr as File
+
+  if (file.size > MAX_SERVER_ICON_SIZE_BYTES) {
+    return {
+      ok: false,
+      response: writeError(
+        `avatar too large (max ${Math.floor(MAX_SERVER_ICON_SIZE_BYTES / 1024 / 1024)}MB)`,
+        413,
+      ),
+    }
+  }
+  if (!mimeAllowed(file.type, ALLOWED_ICON_MIME_TYPES as readonly string[])) {
+    return { ok: false, response: writeError("avatar must be png / jpeg / webp / gif", 400) }
+  }
+
+  await env.COMMUNITY_MEDIA.put(key, file, {
+    httpMetadata: { contentType: file.type },
+  })
+
+  return {
+    ok: true,
+    id: ownerId,
+    key,
+    // Not `/api/community/media/${key}` — that catch-all route only recognizes
+    // channel/thread/dm/server-icon kinds and would 404. `url` is the real
+    // routable dedicated avatar route (`userAvatarUrl`/`botAvatarUrl`).
+    url,
+    filename: file.name,
+    contentType: file.type,
+    size: file.size,
+  }
+}
+
+export function handleUserAvatarUpload(
+  req: NextRequest,
+  env: Env,
+  userId: string,
+): Promise<UploadResult> {
+  return handleAvatarUpload(req, env, userId, buildUserAvatarKey(userId), userAvatarUrl(userId))
+}
+
+export function handleBotAvatarUpload(
+  req: NextRequest,
+  env: Env,
+  botId: string,
+): Promise<UploadResult> {
+  return handleAvatarUpload(req, env, botId, buildBotAvatarKey(botId), botAvatarUrl(botId))
 }
 
 /**

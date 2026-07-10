@@ -736,3 +736,23 @@ export function parseAvatarUrl(avatarUrl: string | null | undefined): AvatarConf
     return null;
   }
 }
+
+// ─────────────────────────────────────────────────────────────
+// PHOTO AVATAR DETECTION — same leading-`/`/`https://`/`http://` check as
+// community `avatar.tsx`'s private `isUrl`, duplicated intentionally rather
+// than cross-imported: `components/avatar/` is the generic module,
+// `components/community/avatar.tsx` is community-specific, and the reverse
+// import would invert that layering.
+// ─────────────────────────────────────────────────────────────
+export function isPhotoAvatarUrl(url: string | null | undefined): boolean {
+  return !!url && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/"));
+}
+
+// ─────────────────────────────────────────────────────────────
+// AVATAR DRAFT — the dual-mode draft used by `BotAvatarPickerDialog`.
+// `file` is null when re-opening an *existing* photo untouched (edit); a
+// real `File` once freshly cropped this session.
+// ─────────────────────────────────────────────────────────────
+export type AvatarDraft =
+  | { kind: "procedural"; image: string }
+  | { kind: "photo"; file: File | null; previewUrl: string };

@@ -23,3 +23,28 @@ export function useUpdateProfile() {
     },
   })
 }
+
+export type UploadUserAvatarArgs = { file: File }
+export type UploadUserAvatarResult = { url: string }
+
+/**
+ * Uploads the current user's avatar. Mirrors `useUploadServerIcon`'s raw
+ * `fetch`-with-`FormData` pattern. Consumers apply the returned URL to their
+ * own local `CurrentUser` state — the identity lives outside the community
+ * query cache (see `contexts/community/current-user.tsx`).
+ */
+export function useUploadUserAvatar() {
+  return useMutation<UploadUserAvatarResult, Error, UploadUserAvatarArgs>({
+    mutationFn: async ({ file }) => {
+      const formData = new FormData()
+      formData.append("file", file)
+      const res = await fetch("/api/community/users/me/avatar", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      })
+      if (!res.ok) throw new Error("Upload failed")
+      return (await res.json()) as UploadUserAvatarResult
+    },
+  })
+}

@@ -118,7 +118,7 @@ export default function CommunityPreview() {
         unreadDms={[]}
         mentions={MENTIONS}
         onOpenChannel={openServerChannel}
-        onMarkAllRead={() => {}}
+        onMarkAllRead={() => { }}
       />
     ),
     hasUnread: unreadFeed.length > 0 || MENTIONS.length > 0,
@@ -440,7 +440,7 @@ export default function CommunityPreview() {
             <MessageList
               channel={openThread.name}
               messages={threadMessages[openThread.id] ?? []}
-              onOpenThread={() => {}}
+              onOpenThread={() => { }}
               {...profileProps}
             />
             <Composer channel={openThread.name} context="thread" members={composerMembers} onSend={sendThreadMessage} />
@@ -456,7 +456,7 @@ export default function CommunityPreview() {
             <MessageList
               channel={dm.name}
               messages={dmMessages[dm.id] ?? []}
-              onOpenThread={() => {}}
+              onOpenThread={() => { }}
               {...profileProps}
               hero={
                 <>
@@ -524,7 +524,7 @@ export default function CommunityPreview() {
       <NewThreadDialog channel={activeChannel} open={creatingThread} onClose={() => setCreatingThread(false)} onCreate={(name, firstMessage) => createThread(name, { firstMessage })} />
       <Dialog open={editingProfile} onOpenChange={(o) => { if (!o) setEditingProfile(false) }}>
         <DialogContent className="flex h-[calc(100vh-4rem)] w-[calc(100vw-4rem)] sm:max-w-none flex-col gap-0 overflow-hidden rounded-xl p-0" showCloseButton={false}>
-          <UserSettings onClose={() => setEditingProfile(false)} userId={null} userName="Preview User" aboutMe={myAboutMe} onSave={(data) => { if (data.aboutMe !== undefined) setMyAboutMe(data.aboutMe) }} onLogout={() => toast("Logged out")} />
+          <UserSettings onClose={() => setEditingProfile(false)} userId={null} userName="Preview User" aboutMe={myAboutMe} avatar="Preview User" onSave={(data) => { if (data.aboutMe !== undefined) setMyAboutMe(data.aboutMe) }} onLogout={() => toast("Logged out")} />
         </DialogContent>
       </Dialog>
       <Dialog open={view === "settings"} onOpenChange={(o) => { if (!o) goServer() }}>

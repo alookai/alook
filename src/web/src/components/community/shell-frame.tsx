@@ -18,6 +18,8 @@ import { InboxPopover } from "./community-inbox-popover"
 import { UserSettings } from "./edit-profile-dialog"
 import { ProfileCard } from "./profile-card"
 import { ImageLightbox } from "./image-lightbox"
+import { ImageCropDialog } from "./image-crop-dialog"
+import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { MobileZone, Profile, View } from "./_types"
 import { signOut } from "@/lib/auth-client"
 import { clearPersistedCache } from "@/lib/query-persister"
@@ -44,6 +46,7 @@ import {
   useDeleteMention,
   useUpdateProfile,
   useSendDmMessage,
+  useUploadUserAvatar,
 } from "@/hooks/community/mutations"
 
 /**
@@ -118,10 +121,12 @@ export function ShellFrame({
   const markAllInboxRead = useMarkAllInboxRead()
   const deleteMention = useDeleteMention()
   const updateProfile = useUpdateProfile()
+  const uploadUserAvatar = useUploadUserAvatar()
 
   const [editingProfile, setEditingProfile] = useState(false)
   const [profile, setProfile] = useState<{ data: Profile; x: number; y: number } | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
+  const [pendingAvatarCrop, setPendingAvatarCrop] = useState<{ src: string; fileName: string } | null>(null)
 
   // Rail wiring — universal, since navigation is URL-driven and doesn't
   // depend on the current view.
@@ -460,6 +465,23 @@ export function ShellFrame({
           userId={currentUser.id}
           userName={currentUser.name}
           aboutMe={currentUser.aboutMe ?? ""}
+          avatar={currentUser.avatar}
+          onUploadAvatar={() => {
+            const input = document.createElement("input")
+            input.type = "file"
+            input.accept = "image/png,image/jpeg,image/webp"
+            input.onchange = () => {
+              const f = input.files?.[0]
+              if (!f) return
+              const check = validateIconSourceFile(f)
+              if (!check.ok) {
+                toast(check.error)
+                return
+              }
+              setPendingAvatarCrop({ src: URL.createObjectURL(f), fileName: f.name })
+            }
+            input.click()
+          }}
           onSave={async (data) => {
             try {
               await updateProfile.mutateAsync(data)
@@ -480,13 +502,36 @@ export function ShellFrame({
             useCommunityWsStore.getState().reset()
             // Drop the persisted IDB blob so the next user on this machine
             // doesn't see the previous session's cached message rows.
-            await clearPersistedCache(currentUser.id).catch(() => {})
+            await clearPersistedCache(currentUser.id).catch(() => { })
             await signOut()
             router.push("/sign-in")
           }}
         />
       </DialogContent>
     </Dialog>
+  )
+
+  const avatarCropDialog = pendingAvatarCrop && (
+    <ImageCropDialog
+      imageSrc={pendingAvatarCrop.src}
+      originalFileName={pendingAvatarCrop.fileName}
+      maskShape="circle"
+      onCropped={(file) => {
+        uploadUserAvatar.mutate({ file }, {
+          onSuccess: (data) => {
+            setCurrentUser((u) => ({ ...u, avatar: `${data.url}?t=${Date.now()}` }))
+            toast("Avatar updated")
+          },
+          onError: () => toast("Failed to upload avatar"),
+        })
+        URL.revokeObjectURL(pendingAvatarCrop.src)
+        setPendingAvatarCrop(null)
+      }}
+      onCancel={() => {
+        URL.revokeObjectURL(pendingAvatarCrop.src)
+        setPendingAvatarCrop(null)
+      }}
+    />
   )
 
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
@@ -525,6 +570,7 @@ export function ShellFrame({
         {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === currentUser.name} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
         {userSettingsDialog}
+        {avatarCropDialog}
         {extraDialogs}
       </Shell>
     )
@@ -549,6 +595,7 @@ export function ShellFrame({
       {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.name === currentUser.name} />}
       {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
       {userSettingsDialog}
+      {avatarCropDialog}
       {extraDialogs}
     </Shell>
   )

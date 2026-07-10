@@ -73,6 +73,7 @@
     "postal-mime": "^2.7.5",
     "react": "19.2.7",
     "react-dom": "19.2.7",
+    "react-easy-crop": "^6.1.0",
     "react-resizable-panels": "^4.12.1",
     "rehype-autolink-headings": "^7.1.0",
     "rehype-external-links": "^3.0.0",

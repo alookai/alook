@@ -980,14 +980,26 @@ import {
   COMMUNITY_BOT_IMAGE_URL_MAX,
 } from "./constants";
 
-// Accepts either an https URL or the in-house `avatar:` serialized config
-// produced by `serializeAvatarConfig` in the web avatar picker.
+// Accepts an https URL, the exact bot-avatar route shape
+// (`/api/community/bots/{id}/avatar` — see plans/icon-range-selector.md), or
+// the in-house `avatar:` serialized config produced by `serializeAvatarConfig`
+// in the web avatar picker. This gates client-supplied input on the plain
+// create/patch endpoints, so it must NOT accept an arbitrary leading-`/`
+// path: that would let a bot owner point every viewer's browser at a
+// protocol-relative URL (`//evil.com/...`) or an arbitrary same-origin path.
+const BOT_AVATAR_ROUTE_PATTERN = /^\/api\/community\/bots\/[A-Za-z0-9_-]+\/avatar$/;
 const BotImageUrlSchema = z
   .string()
   .max(COMMUNITY_BOT_IMAGE_URL_MAX)
-  .refine((v) => v.startsWith("https://") || v.startsWith("avatar:"), {
-    message: "image must be an https URL or an avatar: config",
-  });
+  .refine(
+    (v) =>
+      v.startsWith("https://") ||
+      v.startsWith("avatar:") ||
+      BOT_AVATAR_ROUTE_PATTERN.test(v),
+    {
+      message: "image must be an https URL, the bot avatar route, or an avatar: config",
+    },
+  );
 
 export const CommunityBotCreateRequestSchema = z.object({
   name: z

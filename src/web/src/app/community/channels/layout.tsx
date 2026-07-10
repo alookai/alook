@@ -14,6 +14,8 @@ import type { ServerDetail } from "@/hooks/community/use-servers"
 import { ShellFrame } from "@/components/community/shell-frame"
 import { ChannelSidebar } from "@/components/community/channel-sidebar"
 import { ServerSettings } from "@/components/community/server-settings"
+import { ImageCropDialog } from "@/components/community/image-crop-dialog"
+import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { MobileZone, SettingsSection } from "@/components/community/_types"
 import { canManageServer, type ChannelType } from "@alook/shared"
 import {
@@ -163,6 +165,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const [serverSettingsOpen, setServerSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("overview")
   const [invitePopoverOpen, setInvitePopoverOpen] = useState(false)
+  const [pendingIconCrop, setPendingIconCrop] = useState<{ src: string; fileName: string } | null>(null)
 
   // Close server-scoped dialogs when the user navigates to another server —
   // without this, settings for server A would remain open after switching
@@ -404,15 +407,18 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
             })
           }}
           onUploadIcon={() => {
-            const input = document.createElement("input"); input.type = "file"; input.accept = "image/*"
-            input.onchange = async () => {
+            const input = document.createElement("input")
+            input.type = "file"
+            input.accept = "image/png,image/jpeg,image/webp"
+            input.onchange = () => {
               const f = input.files?.[0]
-              if (f) {
-                uploadServerIconMut.mutate({ serverId, file: f }, {
-                  onSuccess: () => toast("Server icon updated"),
-                  onError: () => toast("Failed to upload icon"),
-                })
+              if (!f) return
+              const check = validateIconSourceFile(f)
+              if (!check.ok) {
+                toast(check.error)
+                return
               }
+              setPendingIconCrop({ src: URL.createObjectURL(f), fileName: f.name })
             }
             input.click()
           }}
@@ -432,6 +438,26 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     </Dialog>
   )
 
+  const iconCropDialog = pendingIconCrop && (
+    <ImageCropDialog
+      imageSrc={pendingIconCrop.src}
+      originalFileName={pendingIconCrop.fileName}
+      maskShape="square"
+      onCropped={(file) => {
+        uploadServerIconMut.mutate({ serverId, file }, {
+          onSuccess: () => toast("Server icon updated"),
+          onError: () => toast("Failed to upload icon"),
+        })
+        URL.revokeObjectURL(pendingIconCrop.src)
+        setPendingIconCrop(null)
+      }}
+      onCancel={() => {
+        URL.revokeObjectURL(pendingIconCrop.src)
+        setPendingIconCrop(null)
+      }}
+    />
+  )
+
   return (
     <ShellFrame
       view="server"
@@ -439,7 +465,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       mobileZone={mobileZone}
       setMobileZone={setMobileZone}
       sidebar={sidebar}
-      extraDialogs={serverSettingsDialog}
+      extraDialogs={<>{serverSettingsDialog}{iconCropDialog}</>}
       goHome={goHome}
       goServer={goServer}
     >

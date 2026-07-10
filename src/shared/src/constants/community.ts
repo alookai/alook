@@ -41,6 +41,19 @@ export const ALLOWED_ICON_MIME_TYPES = [
   "image/gif",
 ] as const
 
+// Client-side crop/zoom picker (server icon, user avatar, bot avatar) — the
+// server-side upload handlers still enforce `MAX_SERVER_ICON_SIZE_BYTES` /
+// `ALLOWED_ICON_MIME_TYPES` above; these are the pre-cropper picker gates.
+export const MAX_ICON_SOURCE_FILE_SIZE_BYTES = 15 * 1024 * 1024 // 15 MB
+export const ICON_CROP_OUTPUT_SIZE = 512
+export const ICON_CROP_MIN_ZOOM = 1
+export const ICON_CROP_MAX_ZOOM = 3
+export const ALLOWED_ICON_SOURCE_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+] as const
+
 // Search
 export const MIN_SEARCH_LENGTH = 2
 export const MAX_SEARCH_LENGTH = 200
@@ -96,3 +109,8 @@ export type NotificationLevelValue = typeof NOTIFICATION_LEVEL_VALUES[number]
 // Cache headers
 export const CACHE_IMMUTABLE = "public, max-age=31536000, immutable"
 export const CACHE_SHORT = "public, max-age=3600"
+// For content served from a URL that stays fixed across re-uploads (user/bot
+// avatars overwrite the same R2 key in place) — always revalidate so a
+// replace is visible immediately, but pair with an ETag so revalidation is a
+// cheap 304 rather than a full re-fetch.
+export const CACHE_REVALIDATE = "no-cache, must-revalidate"

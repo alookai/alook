@@ -16,11 +16,12 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
   type AvatarConfig,
-  AvatarPickerDialog,
-  parseAvatarUrl,
+  type AvatarDraft,
+  BotAvatarPickerDialog,
+  isPhotoAvatarUrl,
   serializeAvatarConfig,
 } from "@/components/avatar"
-import { useUpdateBot, type BotSummary } from "@/hooks/community/use-bots"
+import { useUpdateBot, useUploadBotAvatar, type BotSummary } from "@/hooks/community/use-bots"
 import {
   COMMUNITY_BOT_NAME_MAX,
   COMMUNITY_BOT_DESCRIPTION_MAX,
@@ -44,21 +45,36 @@ export function EditBotDialog({
 }) {
   const [name, setName] = useState(bot.name)
   const [description, setDescription] = useState(bot.description ?? "")
-  const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(() => {
-    return parseAvatarUrl(bot.image ?? "") ?? DEFAULT_AVATAR
-  })
+  const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>(() =>
+    isPhotoAvatarUrl(bot.image)
+      ? { kind: "photo", file: null, previewUrl: bot.image! }
+      : { kind: "procedural", image: bot.image ?? serializeAvatarConfig(DEFAULT_AVATAR) },
+  )
   const update = useUpdateBot()
+  const uploadBotAvatar = useUploadBotAvatar()
 
   async function submit() {
     if (!name.trim()) return toast.error("name is required")
     try {
+      // Sequence matters — only attempt the avatar upload AFTER the
+      // name/description update resolves, inside the same try block, so a
+      // failed field update never triggers an upload.
       await update.mutateAsync({
         id: bot.id,
         name: name.trim(),
         description: description.trim() || undefined,
-        image: serializeAvatarConfig(avatarConfig) ?? null,
+        image: avatarDraft.kind === "procedural" ? avatarDraft.image : undefined,
       })
-      toast.success("Bot updated")
+      let avatarFailed = false
+      if (avatarDraft.kind === "photo" && avatarDraft.file) {
+        try {
+          await uploadBotAvatar.mutateAsync({ botId: bot.id, file: avatarDraft.file })
+        } catch {
+          avatarFailed = true
+          toast.error("Bot updated, but the avatar photo failed to upload")
+        }
+      }
+      if (!avatarFailed) toast.success("Bot updated")
       onOpenChange(false)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Update failed")
@@ -76,7 +92,10 @@ export function EditBotDialog({
         </DialogHeader>
         <div className="space-y-4">
           <div className="flex items-center justify-center">
-            <AvatarPickerDialog config={avatarConfig} onChange={setAvatarConfig} />
+            <BotAvatarPickerDialog
+              image={avatarDraft.kind === "procedural" ? avatarDraft.image : avatarDraft.previewUrl}
+              onChange={setAvatarDraft}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="bot-name">Name</Label>

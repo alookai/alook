@@ -23,13 +23,14 @@ import {
 } from "@/components/ui/select"
 import {
   type AvatarConfig,
-  AvatarPickerDialog,
+  type AvatarDraft,
+  BotAvatarPickerDialog,
   randomConfig,
   serializeAvatarConfig,
 } from "@/components/avatar"
 import { ProviderLogo } from "@/components/provider-logo"
 import { useMachines } from "@/hooks/community/use-machines"
-import { useCreateBot } from "@/hooks/community/use-bots"
+import { useCreateBot, useUploadBotAvatar } from "@/hooks/community/use-bots"
 import {
   COMMUNITY_BOT_NAME_MAX,
   COMMUNITY_BOT_DESCRIPTION_MAX,
@@ -66,11 +67,15 @@ export function CreateBotDialog({
 }) {
   const { machines } = useMachines()
   const create = useCreateBot()
+  const uploadBotAvatar = useUploadBotAvatar()
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [machineId, setMachineId] = useState<string>("")
   const [runtime, setRuntime] = useState<string>("")
-  const [avatarConfig, setAvatarConfig] = useState<AvatarConfig>(INITIAL_AVATAR)
+  const [avatarDraft, setAvatarDraft] = useState<AvatarDraft>({
+    kind: "procedural",
+    image: serializeAvatarConfig(INITIAL_AVATAR),
+  })
 
   const selectedMachine = machines.find((m) => m.id === machineId)
   const runtimeOptions = useMemo(() => {
@@ -100,7 +105,7 @@ export function CreateBotDialog({
     if (initializedFor.current) return
     initializedFor.current = true
     setName(randomBotName())
-    setAvatarConfig(randomConfig())
+    setAvatarDraft({ kind: "procedural", image: serializeAvatarConfig(randomConfig()) })
     setDescription("")
     setMachineId("")
     setRuntime("")
@@ -115,14 +120,27 @@ export function CreateBotDialog({
     if (!machineId) return toast.error("Pick a machine")
     if (!runtime) return toast.error("Pick a runtime")
     try {
-      await create.mutateAsync({
+      const data = await create.mutateAsync({
         name: name.trim(),
         description: description.trim() || undefined,
         machineId,
         runtime,
-        image: serializeAvatarConfig(avatarConfig) ?? undefined,
+        image: avatarDraft.kind === "procedural" ? avatarDraft.image : undefined,
       })
-      toast.success(`Created ${name.trim()}`)
+      // Bots don't have an id until creation resolves — the photo upload is
+      // deferred until now so a cropped-then-cancelled dialog never uploads
+      // anything. Surface an upload failure without blocking on it; the bot
+      // itself was already created successfully.
+      let avatarFailed = false
+      if (avatarDraft.kind === "photo" && avatarDraft.file) {
+        try {
+          await uploadBotAvatar.mutateAsync({ botId: data.bot.id, file: avatarDraft.file })
+        } catch {
+          avatarFailed = true
+          toast.error("Bot created, but the avatar photo failed to upload")
+        }
+      }
+      if (!avatarFailed) toast.success(`Created ${name.trim()}`)
       onOpenChange(false)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't create the bot")
@@ -141,7 +159,10 @@ export function CreateBotDialog({
         <div className="flex flex-col gap-4">
           {/* Centered avatar picker — the identity anchor. */}
           <div className="flex justify-center pt-1">
-            <AvatarPickerDialog config={avatarConfig} onChange={setAvatarConfig} />
+            <BotAvatarPickerDialog
+              image={avatarDraft.kind === "procedural" ? avatarDraft.image : avatarDraft.previewUrl}
+              onChange={setAvatarDraft}
+            />
           </div>
 
           <div className="flex flex-col gap-2">

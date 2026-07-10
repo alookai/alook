@@ -12,6 +12,7 @@ import {
   PRESETS,
   randomConfig,
   configFromName,
+  isPhotoAvatarUrl,
 } from "./avatar-parts"
 
 const NEW_SHAPE_KEYS = [
@@ -130,6 +131,21 @@ describe("PRESETS", () => {
         "Champion", "Royalty", "Launch", "Night", "Sharp", "Precious",
       ])
     )
+  })
+})
+
+describe("isPhotoAvatarUrl", () => {
+  it("recognizes https URLs, http URLs, and leading-/ routable paths as photos", () => {
+    expect(isPhotoAvatarUrl("https://cdn.example.com/a.png")).toBe(true)
+    expect(isPhotoAvatarUrl("http://cdn.example.com/a.png")).toBe(true)
+    expect(isPhotoAvatarUrl("/api/community/users/u1/avatar")).toBe(true)
+  })
+
+  it("rejects null, undefined, empty string, and avatar: configs", () => {
+    expect(isPhotoAvatarUrl(null)).toBe(false)
+    expect(isPhotoAvatarUrl(undefined)).toBe(false)
+    expect(isPhotoAvatarUrl("")).toBe(false)
+    expect(isPhotoAvatarUrl("avatar:shape=star")).toBe(false)
   })
 })
 

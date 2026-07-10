@@ -79,3 +79,24 @@ export function useDeleteBot() {
     onSuccess: () => invalidateBotSurfaces(qc),
   })
 }
+
+export type UploadBotAvatarArgs = { botId: string; file: File }
+export type UploadBotAvatarResult = { url: string }
+
+export function useUploadBotAvatar() {
+  const qc = useQueryClient()
+  return useMutation<UploadBotAvatarResult, Error, UploadBotAvatarArgs>({
+    mutationFn: async ({ botId, file }) => {
+      const formData = new FormData()
+      formData.append("file", file)
+      const res = await fetch(`/api/community/bots/${botId}/avatar`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      })
+      if (!res.ok) throw new Error("Upload failed")
+      return (await res.json()) as UploadBotAvatarResult
+    },
+    onSuccess: () => invalidateBotSurfaces(qc),
+  })
+}

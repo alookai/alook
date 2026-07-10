@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { clearPersistedCache } from "@/lib/query-persister"
+import { Avatar } from "./avatar"
 import { Field } from "./field"
 
 const THEME_OPTIONS = [
@@ -108,13 +109,15 @@ function AdvancedSettings({ userId }: { userId: string | null }) {
   )
 }
 
-export function UserSettings({ onClose, userId, userName, aboutMe, onSave, onLogout }: {
+export function UserSettings({ onClose, userId, userName, aboutMe, avatar, onSave, onLogout, onUploadAvatar }: {
   onClose: () => void
   userId: string | null
   userName: string
   aboutMe: string
+  avatar: string
   onSave: (data: { name?: string; aboutMe?: string }) => void
   onLogout?: () => void
+  onUploadAvatar?: () => void
 }) {
   const [name, setName] = useState(userName)
   const [value, setValue] = useState(aboutMe)
@@ -185,6 +188,14 @@ export function UserSettings({ onClose, userId, userName, aboutMe, onSave, onLog
         <div className="flex-1 overflow-y-auto thin-scrollbar p-4">
           <TabsContent value="profile">
             <div className="max-w-xl space-y-4">
+              <div className="flex items-center gap-4">
+                <Avatar label={avatar} size={80} />
+                <div>
+                  <div className="text-sm font-medium">Avatar</div>
+                  <div className="text-xs text-muted-foreground">PNG, JPG, or WEBP. You&apos;ll be able to crop and zoom before saving.</div>
+                  <Button variant="secondary" size="sm" className="mt-2" onClick={onUploadAvatar}>Upload Photo</Button>
+                </div>
+              </div>
               <Field label={<span>Display Name {saving && <span className="ml-2 text-xs text-muted-foreground">Saving...</span>}</span>}>
                 <Input value={name} onChange={(e) => handleNameChange(e.target.value)} />
               </Field>

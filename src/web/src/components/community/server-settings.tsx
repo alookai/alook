@@ -146,7 +146,7 @@ function SettingsOverview({ serverName, serverDescription, serverIcon, onUploadI
         )}
         <div>
           <div className="text-sm font-medium">Server icon</div>
-          <div className="text-xs text-muted-foreground">Recommended 512×512. PNG, JPG, or GIF.</div>
+          <div className="text-xs text-muted-foreground">PNG, JPG, or WEBP. You&apos;ll be able to crop and zoom before saving.</div>
           <Button variant="secondary" size="sm" className="mt-2" onClick={onUploadIcon}>Upload image</Button>
         </div>
       </div>
