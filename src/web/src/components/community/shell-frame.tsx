@@ -21,6 +21,7 @@ import { ImageLightbox } from "./image-lightbox"
 import { ImageCropDialog } from "./image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { MobileZone, Presence, Profile, View } from "./_types"
+import { resolveProfileTarget } from "./profile-lookup"
 import { signOut } from "@/lib/auth-client"
 import { clearPersistedCache } from "@/lib/query-persister"
 import { useCommunityStore } from "@/stores/community"
@@ -309,8 +310,8 @@ export function ShellFrame({
   // enriches with the profile API. Registered with the community store so
   // pages can trigger this from anywhere via `useCommunityStore.uiHandlers`.
   const openProfile = useCallback(
-    (name: string, e: React.MouseEvent, discriminator?: string) => {
-      const isSelf = name === currentUser.name
+    (name: string, e: React.MouseEvent, discriminator?: string, targetUserId?: string) => {
+      const isSelf = targetUserId ? targetUserId === currentUser.id : name === currentUser.name
       if (isSelf) {
         const data: Profile = {
           name: currentUser.name,
@@ -326,15 +327,7 @@ export function ShellFrame({
         setProfile({ data, x: e.clientX, y: e.clientY })
         return
       }
-      // A `#0042`-tagged mention pill disambiguates an exact same-named
-      // member/friend; without a tag (author-name/avatar clicks, plain
-      // `@name` mentions), fall back to the first name match as before.
-      const member = (discriminator
-        ? (members ?? []).find((m) => m.name === name && m.discriminator === discriminator)
-        ?? (friends ?? []).find((f) => f.name === name && f.discriminator === discriminator)
-        : undefined)
-        ?? (members ?? []).find((m) => m.name === name)
-        ?? (friends ?? []).find((f) => f.name === name)
+      const member = resolveProfileTarget(members, friends, { name, discriminator, userId: targetUserId })
       const role: string = member && "role" in member ? (member as { role: string }).role : "member"
       const about: string = member && "sub" in member && (member as { sub: string }).sub ? (member as { sub: string }).sub : ""
       const displayRole = role.charAt(0).toUpperCase() + role.slice(1)

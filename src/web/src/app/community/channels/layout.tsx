@@ -346,9 +346,9 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     serverId, invitePopoverOpen,
   ])
 
-  const openProfile = (name: string, e: React.MouseEvent) => {
+  const openProfile = (name: string, e: React.MouseEvent, discriminator?: string, userId?: string) => {
     // Delegate to the shell's registered openProfile via the community store.
-    useCommunityStore.getState().uiHandlers.openProfile?.(name, e)
+    useCommunityStore.getState().uiHandlers.openProfile?.(name, e, discriminator, userId)
   }
 
   const closeSettings = () => { setServerSettingsOpen(false); setSettingsSection("overview") }

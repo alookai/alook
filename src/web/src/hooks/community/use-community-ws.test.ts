@@ -12,6 +12,7 @@ import type {
   CommunityMessageCreate,
   CommunityReactionAdd,
   CommunityMemberJoin,
+  CommunityMemberUpdate,
   CommunityMachineCreated,
   CommunityMachineStatus,
   CommunityPresenceUpdate,
@@ -601,6 +602,83 @@ describe("useCommunityWs — member events", () => {
     }>(communityKeys.members("srv_1"))
     expect(cache?.pages[0].members.map((m) => m.userId)).toEqual(["u_1"])
     expect(cache?.pages[0].total).toBe(1)
+  })
+
+  it("a self-rename (member.update with userId + changes.nickname) patches authorName in every cached channel/DM message list", async () => {
+    await mountHook()
+
+    // Two message caches — one channel, one DM — each with a message
+    // authored by the renamed user and one by someone else. Both should
+    // update; the other author's row must stay untouched.
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
+      pages: [{
+        messages: [
+          { id: "m_1", authorId: "u_renamed", authorName: "OldName", content: "hi" },
+          { id: "m_2", authorId: "u_other", authorName: "Someone Else", content: "yo" },
+        ],
+        hasMore: false,
+      }],
+      pageParams: [null],
+    })
+    capturedQueryClient.setQueryData(communityKeys.dmMessages("dm_1"), {
+      pages: [{
+        messages: [
+          { id: "m_3", authorId: "u_renamed", authorName: "OldName", content: "sup" },
+        ],
+        hasMore: false,
+      }],
+      pageParams: [null],
+    })
+
+    const event: CommunityMemberUpdate = {
+      type: "community:member.update",
+      serverId: "srv_1",
+      memberId: "mem_1",
+      userId: "u_renamed",
+      changes: { nickname: "NewName" },
+    }
+    capturedOnMessage!(event)
+
+    const channelCache = capturedQueryClient.getQueryData<{
+      pages: { messages: { id: string; authorName: string }[] }[]
+    }>(communityKeys.channelMessages("ch_1"))
+    expect(channelCache?.pages[0].messages).toEqual([
+      { id: "m_1", authorId: "u_renamed", authorName: "NewName", content: "hi" },
+      { id: "m_2", authorId: "u_other", authorName: "Someone Else", content: "yo" },
+    ])
+
+    const dmCache = capturedQueryClient.getQueryData<{
+      pages: { messages: { id: string; authorName: string }[] }[]
+    }>(communityKeys.dmMessages("dm_1"))
+    expect(dmCache?.pages[0].messages).toEqual([
+      { id: "m_3", authorId: "u_renamed", authorName: "NewName", content: "sup" },
+    ])
+  })
+
+  it("a role-only member.update (no userId/nickname) does not touch any message cache", async () => {
+    await mountHook()
+    capturedQueryClient.setQueryData(communityKeys.channelMessages("ch_1"), {
+      pages: [{
+        messages: [{ id: "m_1", authorId: "u_1", authorName: "Name", content: "hi" }],
+        hasMore: false,
+      }],
+      pageParams: [null],
+    })
+
+    const event: CommunityMemberUpdate = {
+      type: "community:member.update",
+      serverId: "srv_1",
+      memberId: "mem_1",
+      changes: { role: "admin" },
+    }
+    capturedOnMessage!(event)
+
+    const cache = capturedQueryClient.getQueryData<{
+      pages: { messages: { id: string; authorName: string }[] }[]
+    }>(communityKeys.channelMessages("ch_1"))
+    expect(cache?.pages[0].messages).toEqual([
+      { id: "m_1", authorId: "u_1", authorName: "Name", content: "hi" },
+    ])
   })
 })
 

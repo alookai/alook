@@ -169,26 +169,47 @@ function ChannelView() {
   // `src/shared/src/db/queries/community/message.ts`) — so without this
   // walk, the divider anchors above the viewer's OWN just-sent message,
   // which is never "unread" from the sender's perspective.
-  const newDividerBefore = useMemo(() => {
-    if (!readSnapshot) return undefined
+  // `anchorFound` and `newDividerBefore` MUST be computed inside the same
+  // memo — they used to be two independently-evaluated expressions (a
+  // `.findIndex` here, a separate `.some` in `anchorInCache` below) that
+  // read the same `messages`/`readSnapshot` inputs but weren't guaranteed to
+  // agree on every commit. A real (Playwright-verified) repro showed `mount`
+  // firing on a frame where the anchor's presence check passed but this
+  // walk hadn't "caught up" yet, burning the one-shot scroll gate with
+  // `newDividerBefore: undefined` and permanently missing the divider.
+  // Deriving both from one loop makes that class of disagreement impossible.
+  const { newDividerBefore, anchorFound } = useMemo(() => {
+    if (!readSnapshot) return { newDividerBefore: undefined, anchorFound: false }
     const lastId = readSnapshot.lastReadMessageId
     // First-visit case (viewer never read this channel): anchor the
     // divider on the first non-self message so users landing from
     // inbox / rail see "here's what you missed" instead of the bottom.
-    // Mirrors the DM view for parity.
+    // Mirrors the DM view for parity. No anchor id to find — trivially "in
+    // cache".
     if (!lastId) {
       for (const m of messages) {
-        if (m.authorId !== currentUser.id) return m.id
+        if (m.authorId !== currentUser.id) return { newDividerBefore: m.id, anchorFound: true }
       }
-      return undefined
+      return { newDividerBefore: undefined, anchorFound: true }
     }
     const idx = messages.findIndex((m) => m.id === lastId)
-    if (idx === -1) return undefined
+    if (idx === -1) return { newDividerBefore: undefined, anchorFound: false }
     for (let i = idx + 1; i < messages.length; i++) {
-      if (messages[i].authorId !== currentUser.id) return messages[i].id
+      if (messages[i].authorId !== currentUser.id) return { newDividerBefore: messages[i].id, anchorFound: true }
     }
-    return undefined
+    return { newDividerBefore: undefined, anchorFound: true }
   }, [messages, readSnapshot, currentUser.id])
+
+  // Gates `<MessageList>`'s mount-time scroll action until the anchor
+  // (`readSnapshot.lastReadMessageId`) is actually present in the loaded
+  // `messages` — not just until the read-state fetch settles. Without this,
+  // a stale IDB-hydrated cache (or a same-session anchor drift, e.g.
+  // returning from a thread after the watermark advanced) can win the race
+  // against `useMessages`' Fix 3 re-validation: `useScrollAnchor`'s mount
+  // effect (a `useLayoutEffect`) runs before Fix 3's plain `useEffect` can
+  // reset the query, burns its one-shot gate on the wrong window, and never
+  // re-fires once the correct data arrives.
+  const anchorInCache = anchorFound
 
   // Scroll root of the message list — needed so `useChannelWatermark`'s
   // IntersectionObserver measures against the correct viewport instead of
@@ -288,6 +309,7 @@ function ChannelView() {
       const data = await apiFetch<{ results: Array<{ message: { id: string; content: string; authorId: string; createdAt: string }; author: { name: string; image: string | null } }> }>(`/api/community/search?${params}`)
       setSearchResults(data.results.map((r) => ({
         id: r.message.id,
+        type: "chat" as const,
         authorName: r.author.name,
         authorAvatar: r.author.image ?? r.author.name.charAt(0).toUpperCase(),
         content: r.message.content,
@@ -319,8 +341,8 @@ function ChannelView() {
     apiFetch(`/api/community/threads/${id}/read`, { method: "PUT" }).catch(() => {})
   }
 
-  const openProfile: OpenProfile = (name, e) => {
-    uiHandlers.openProfile?.(name, e)
+  const openProfile: OpenProfile = (name, e, discriminator, userId) => {
+    uiHandlers.openProfile?.(name, e, discriminator, userId)
   }
 
   // ── Message actions ─────────────────────────────────────────────────────
@@ -525,7 +547,19 @@ function ChannelView() {
       <>
         <ChannelHeaderSkeleton onBack={bp === "mobile" ? goBack : undefined} />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <MessageList channel="" messages={[]} loading={true} onOpenThread={() => {}} />
+          {/*
+            `key={channelId}` MUST match the hydrated branches' key below —
+            verified empirically (react-test-renderer) that a mismatched key
+            (this branch had none before) is what causes React to treat this
+            and the hydrated-branch `<MessageList>` as different component
+            identities, forcing a full unmount/remount instead of a props
+            update on one instance when `channelHydrated` flips true. With
+            matching keys, this works correctly even though this early
+            `return` and the hydrated branches' `return` produce
+            structurally different JSX trees — React's reconciliation only
+            needs the position + type + key to line up.
+          */}
+          <MessageList key={channelId} channel="" messages={[]} loading={true} onOpenThread={() => {}} />
           <ComposerSkeleton />
         </main>
       </>
@@ -706,10 +740,11 @@ function ChannelView() {
           scrollToMessageId={scrollToMessageId}
           onScrollRoot={setScrollRootEl}
           viewerUserId={currentUser.id}
-          // Delay initial scroll until the read-state snapshot resolves —
-          // otherwise the effect fires with newDividerBefore still stale
-          // and snaps to bottom before the anchor is known.
-          initialScrollReady={!readSnapshotFetching}
+          // Delay initial scroll until the read-state snapshot resolves AND
+          // the anchor it names is actually present in `messages` — see
+          // `anchorInCache`'s doc comment above for the mount-vs-Fix-3 race
+          // this closes.
+          initialScrollReady={!readSnapshotFetching && anchorInCache}
           hasMore={hasMoreMessages}
           isFetchingOlder={isFetchingOlderMessages}
           onLoadOlder={fetchOlderMessages}

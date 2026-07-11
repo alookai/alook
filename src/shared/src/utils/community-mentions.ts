@@ -7,9 +7,14 @@
  *  - be preceded by start-of-string or a non-identifier character
  *  - be followed by end-of-string or a non-identifier character
  *
- * Identifier characters are `[A-Za-z0-9_]`, so a name ending or starting in
- * those plus the next-char rule covers normal punctuation, spaces, and
- * newlines as boundaries. Names containing whitespace are supported.
+ * Identifier characters are `\p{L}\p{N}_-` (Unicode-aware — `Member.name`
+ * is a free Unicode string, so an ASCII-only class would silently fail to
+ * resolve/notify mentions of names like `李四`/`José`/`Ünal`; this must
+ * agree with the display-side regex in `chat-syntax-plugin.ts` or the pill
+ * and the notification fan-out would disagree on which text is a mention),
+ * so a name ending or starting in those plus the next-char rule covers
+ * normal punctuation, spaces, and newlines as boundaries. Names containing
+ * whitespace are supported.
  *
  * When a candidate carries a `discriminator`, an exact `@Name#0042` match is
  * tried FIRST at each `@` site (so a channel with two "Alex"es can be
@@ -37,7 +42,7 @@ export function isMentionType(value: unknown): value is MentionType {
   return value === "everyone" || value === "here";
 }
 
-const ID_CHAR_RE = /[A-Za-z0-9_]/;
+const ID_CHAR_RE = /[\p{L}\p{N}_-]/u;
 
 function isBoundaryChar(ch: string | undefined): boolean {
   if (ch === undefined) return true;

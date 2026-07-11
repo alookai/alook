@@ -77,7 +77,7 @@ export const CATEGORIES: Category[] = [
 
 export const MESSAGES: Msg[] = [
   {
-    id: "m1", authorName: "Gener", color: "var(--foreground)", createdAt: "2026-06-24T21:27:00Z",
+    id: "m1", type: "chat", authorName: "Gener", color: "var(--foreground)", createdAt: "2026-06-24T21:27:00Z",
     authorAvatar: "G",
     content: "👋 Welcome to the Alook Community!\n\nAlook lets you run your own AI-powered personal company — agents that collaborate, stay always on, and learn from every task.",
     embeds: [{
@@ -91,33 +91,38 @@ export const MESSAGES: Msg[] = [
     thread: { id: "thr_research", name: "Research team setup", messageCount: 3 },
   },
   {
-    id: "m2", authorName: "Gus", createdAt: "2026-06-24T21:31:00Z", authorAvatar: "Gu",
+    id: "m2", type: "chat", authorName: "Gus", createdAt: "2026-06-24T21:31:00Z", authorAvatar: "Gu",
     content: "this is exactly what I needed — the email-per-agent thing is wild",
   },
   {
-    id: "m3", authorName: "Gus", createdAt: "2026-06-24T21:31:30Z", authorAvatar: "Gu",
+    id: "m3", type: "chat", authorName: "Gus", createdAt: "2026-06-24T21:31:30Z", authorAvatar: "Gu",
     content: "is there a template for a research team?",
   },
   {
-    id: "m4", authorName: "Lindsay", createdAt: "2026-06-24T21:42:00Z", authorAvatar: "L",
+    id: "m4", type: "chat", authorName: "Lindsay", createdAt: "2026-06-24T21:42:00Z", authorAvatar: "L",
     replyTo: { id: "m3", authorName: "Gus", text: "is there a template for a research team?" },
     content: "Yes — check the Templates page, there's a Research Analyst preset. Deploys in a minute.",
     reactions: [{ emoji: "🔥", count: 2, me: false, userIds: ["u_gus", "u_tomy"] }, { emoji: "🙏", count: 1, me: false, userIds: ["u_gus"] }],
   },
   {
-    id: "m5", authorName: "Gener", createdAt: "2026-06-24T21:45:00Z", authorAvatar: "G",
+    id: "m5", type: "chat", authorName: "Gener", createdAt: "2026-06-24T21:45:00Z", authorAvatar: "G",
     content: "Here's the **setup** in *three* steps:\n> Clone the repo first\n`pnpm install`\n```\npnpm dev --filter web\n```\nThat's it ~~maybe~~ ||it just works||",
   },
   {
-    id: "ms1", type: "system", systemKind: "join", createdAt: "2026-06-25T10:00:00Z",
-    content: "Azzo joined the server.",
+    // Mirrors what a live thread-creation system message looks like (see
+    // `POST /api/community/messages/[id]/threads` → `mapMessageForWs`'s
+    // `splitType`) — `systemKind: "join"` was removed from `Msg`'s type
+    // entirely (#12/#5) since no path has ever produced it; this fixture
+    // now demonstrates the one kind that's actually wired up.
+    id: "ms1", type: "system", systemKind: "thread", createdAt: "2026-06-25T10:00:00Z",
+    content: "A thread was created from this message.",
   },
   {
-    id: "m6", authorName: "Gus", createdAt: "2026-06-25T10:02:00Z", authorAvatar: "Gu",
+    id: "m6", type: "chat", authorName: "Gus", createdAt: "2026-06-25T10:02:00Z", authorAvatar: "Gu",
     content: "thanks @Lindsay — can you cross-post this in #general? cc @everyone",
   },
   {
-    id: "m7", authorName: "Lindsay", createdAt: "2026-06-25T10:05:00Z", authorAvatar: "L",
+    id: "m7", type: "chat", authorName: "Lindsay", createdAt: "2026-06-25T10:05:00Z", authorAvatar: "L",
     content: "here's the preset config + a screenshot of the result",
     attachments: [
       { kind: "image", name: "research-preset.png", url: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&q=80" },
@@ -125,7 +130,7 @@ export const MESSAGES: Msg[] = [
     ],
   },
   {
-    id: "m8", authorName: "Release Notes", createdAt: "2026-06-25T10:10:00Z", authorAvatar: "RN",
+    id: "m8", type: "chat", authorName: "Release Notes", createdAt: "2026-06-25T10:10:00Z", authorAvatar: "RN",
     embeds: [{
       provider: "GitHub",
       url: "https://github.com/alookai/alook/releases/tag/v0.1.0",
@@ -143,7 +148,7 @@ export const MESSAGES: Msg[] = [
     }],
   },
   {
-    id: "m9", authorName: "Gener", createdAt: "2026-06-25T10:15:00Z", authorAvatar: "G",
+    id: "m9", type: "chat", authorName: "Gener", createdAt: "2026-06-25T10:15:00Z", authorAvatar: "G",
     content: "trying the new preset now…", failed: true,
   },
 ]
@@ -206,29 +211,29 @@ export const FORUM_POSTS: Record<string, ForumPost[]> = {
 // the same way (look up the active id → get a message list).
 export const THREAD_MESSAGES: Record<string, Msg[]> = {
   thr_research: [
-    { id: "t1", authorName: "Gus", createdAt: "2026-06-24T21:33:00Z", authorAvatar: "Gu", content: "what roles should the research team have?" },
-    { id: "t2", authorName: "Lindsay", createdAt: "2026-06-24T21:35:00Z", authorAvatar: "L", content: "Analyst, Summarizer, and a Fact-checker works well. Give each its own `@inbox`." },
-    { id: "t3", authorName: "Gener", createdAt: "2026-06-24T21:36:00Z", authorAvatar: "G", content: "nice — shipping that preset 🚀" },
+    { id: "t1", type: "chat", authorName: "Gus", createdAt: "2026-06-24T21:33:00Z", authorAvatar: "Gu", content: "what roles should the research team have?" },
+    { id: "t2", type: "chat", authorName: "Lindsay", createdAt: "2026-06-24T21:35:00Z", authorAvatar: "L", content: "Analyst, Summarizer, and a Fact-checker works well. Give each its own `@inbox`." },
+    { id: "t3", type: "chat", authorName: "Gener", createdAt: "2026-06-24T21:36:00Z", authorAvatar: "G", content: "nice — shipping that preset 🚀" },
   ],
   thr_billing: [
-    { id: "b1", authorName: "jgtech", createdAt: "2026-06-24T20:05:00Z", authorAvatar: "j", content: "is there a cap on messages per agent?" },
-    { id: "b2", authorName: "Gener", createdAt: "2026-06-24T20:12:00Z", authorAvatar: "G", content: "Soft limits per plan — you can raise them in **Settings → Usage**." },
+    { id: "b1", type: "chat", authorName: "jgtech", createdAt: "2026-06-24T20:05:00Z", authorAvatar: "j", content: "is there a cap on messages per agent?" },
+    { id: "b2", type: "chat", authorName: "Gener", createdAt: "2026-06-24T20:12:00Z", authorAvatar: "G", content: "Soft limits per plan — you can raise them in **Settings → Usage**." },
   ],
   thr_selfhost: [
-    { id: "s1", authorName: "lucky tomy", createdAt: "2026-06-23T15:30:00Z", authorAvatar: "t", content: "yep — `wrangler deploy` and point D1 + R2 at your own buckets." },
+    { id: "s1", type: "chat", authorName: "lucky tomy", createdAt: "2026-06-23T15:30:00Z", authorAvatar: "t", content: "yep — `wrangler deploy` and point D1 + R2 at your own buckets." },
   ],
   fp_smtp: [
-    { id: "fp_smtp_1", authorName: "jgtech", createdAt: "2026-06-25T09:02:00Z", authorAvatar: "j", content: "I set up a custom SMTP relay but sends time out after ~30s. Anyone seen this?" },
-    { id: "fp_smtp_2", authorName: "Lindsay", createdAt: "2026-06-25T09:08:00Z", authorAvatar: "L", content: "Check the port — `587` with STARTTLS works, `465` sometimes hangs on Workers." },
-    { id: "fp_smtp_3", authorName: "jgtech", createdAt: "2026-06-25T09:14:00Z", authorAvatar: "j", content: "587 fixed it 🙏 thank you!" },
+    { id: "fp_smtp_1", type: "chat", authorName: "jgtech", createdAt: "2026-06-25T09:02:00Z", authorAvatar: "j", content: "I set up a custom SMTP relay but sends time out after ~30s. Anyone seen this?" },
+    { id: "fp_smtp_2", type: "chat", authorName: "Lindsay", createdAt: "2026-06-25T09:08:00Z", authorAvatar: "L", content: "Check the port — `587` with STARTTLS works, `465` sometimes hangs on Workers." },
+    { id: "fp_smtp_3", type: "chat", authorName: "jgtech", createdAt: "2026-06-25T09:14:00Z", authorAvatar: "j", content: "587 fixed it 🙏 thank you!" },
   ],
   fp_preset: [
-    { id: "fp_preset_1", authorName: "Lindsay", createdAt: "2026-06-25T07:00:00Z", authorAvatar: "L", content: "Drop your favorite agent setups here — let's build a library." },
-    { id: "fp_preset_2", authorName: "Gus", createdAt: "2026-06-25T07:20:00Z", authorAvatar: "Gu", content: "Research Analyst + Fact-checker combo has been 🔥 for me" },
+    { id: "fp_preset_1", type: "chat", authorName: "Lindsay", createdAt: "2026-06-25T07:00:00Z", authorAvatar: "L", content: "Drop your favorite agent setups here — let's build a library." },
+    { id: "fp_preset_2", type: "chat", authorName: "Gus", createdAt: "2026-06-25T07:20:00Z", authorAvatar: "Gu", content: "Research Analyst + Fact-checker combo has been 🔥 for me" },
   ],
   fp_pricing: [
-    { id: "fp_pricing_1", authorName: "Azzo", createdAt: "2026-06-25T06:30:00Z", authorAvatar: "A", content: "Trying to understand how message limits work across a team of agents." },
-    { id: "fp_pricing_2", authorName: "Gener", createdAt: "2026-06-25T06:45:00Z", authorAvatar: "G", content: "Limits are per-workspace, pooled across agents. Raise them in **Settings → Usage**." },
+    { id: "fp_pricing_1", type: "chat", authorName: "Azzo", createdAt: "2026-06-25T06:30:00Z", authorAvatar: "A", content: "Trying to understand how message limits work across a team of agents." },
+    { id: "fp_pricing_2", type: "chat", authorName: "Gener", createdAt: "2026-06-25T06:45:00Z", authorAvatar: "G", content: "Limits are per-workspace, pooled across agents. Raise them in **Settings → Usage**." },
   ],
 }
 
@@ -282,16 +287,16 @@ export const DMS: DM[] = [
 
 export const DM_MESSAGES: Record<string, Msg[]> = {
   dm_lindsay: [
-    { id: "d1", authorName: "Lindsay", createdAt: "2026-06-24T21:50:00Z", authorAvatar: "L", content: "hey! saw your research preset — looks great" },
-    { id: "d2", authorName: "Gener", createdAt: "2026-06-24T21:51:00Z", authorAvatar: "G", content: "thanks! still tuning the **fact-checker** role" },
-    { id: "d3", authorName: "Lindsay", createdAt: "2026-06-24T21:52:00Z", authorAvatar: "L", content: "want me to test it on the Q2 report?" },
+    { id: "d1", type: "chat", authorName: "Lindsay", createdAt: "2026-06-24T21:50:00Z", authorAvatar: "L", content: "hey! saw your research preset — looks great" },
+    { id: "d2", type: "chat", authorName: "Gener", createdAt: "2026-06-24T21:51:00Z", authorAvatar: "G", content: "thanks! still tuning the **fact-checker** role" },
+    { id: "d3", type: "chat", authorName: "Lindsay", createdAt: "2026-06-24T21:52:00Z", authorAvatar: "L", content: "want me to test it on the Q2 report?" },
   ],
   dm_gus: [
-    { id: "g1", authorName: "Gus", createdAt: "2026-06-24T20:30:00Z", authorAvatar: "Gu", content: "can I forward an email straight to an agent?" },
-    { id: "g2", authorName: "Gener", createdAt: "2026-06-24T20:31:00Z", authorAvatar: "G", content: "yep — each agent has its own address. just CC it." },
+    { id: "g1", type: "chat", authorName: "Gus", createdAt: "2026-06-24T20:30:00Z", authorAvatar: "Gu", content: "can I forward an email straight to an agent?" },
+    { id: "g2", type: "chat", authorName: "Gener", createdAt: "2026-06-24T20:31:00Z", authorAvatar: "G", content: "yep — each agent has its own address. just CC it." },
   ],
   dm_tomy: [
-    { id: "y1", authorName: "lucky tomy", createdAt: "2026-06-23T14:00:00Z", authorAvatar: "t", content: "self-hosting was easier than I expected" },
+    { id: "y1", type: "chat", authorName: "lucky tomy", createdAt: "2026-06-23T14:00:00Z", authorAvatar: "t", content: "self-hosting was easier than I expected" },
   ],
 }
 
@@ -316,15 +321,15 @@ export const AUDIT_LOG: AuditEntry[] = [
 export const MENTIONS: Mention[] = [
   {
     id: "mn_1", server: "Alook", channel: "general",
-    m: { id: "mn_m1", authorName: "Gus", createdAt: "2026-06-25T09:48:00Z", authorAvatar: "Gu", content: "thanks @Gener — can you cross-post this in #general? cc @everyone" },
+    m: { id: "mn_m1", type: "chat", authorName: "Gus", createdAt: "2026-06-25T09:48:00Z", authorAvatar: "Gu", content: "thanks @Gener — can you cross-post this in #general? cc @everyone" },
   },
   {
     id: "mn_2", server: "Cloudflare", channel: "flagship",
-    m: { id: "mn_m2", authorName: "roerohan", createdAt: "2026-06-25T08:43:00Z", authorAvatar: "r", content: "@Gener the Workers binding you mentioned fixed it 🙏" },
+    m: { id: "mn_m2", type: "chat", authorName: "roerohan", createdAt: "2026-06-25T08:43:00Z", authorAvatar: "r", content: "@Gener the Workers binding you mentioned fixed it 🙏" },
   },
   {
     id: "mn_3", server: "Alook", channel: "help-forum",
-    m: { id: "mn_m3", authorName: "jgtech", createdAt: "2026-06-25T07:14:00Z", authorAvatar: "j", content: "@Gener 587 fixed the SMTP timeout, thank you!" },
+    m: { id: "mn_m3", type: "chat", authorName: "jgtech", createdAt: "2026-06-25T07:14:00Z", authorAvatar: "j", content: "@Gener 587 fixed the SMTP timeout, thank you!" },
   },
 ]
 

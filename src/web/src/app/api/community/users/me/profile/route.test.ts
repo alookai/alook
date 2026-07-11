@@ -4,13 +4,28 @@ import { NextRequest } from "next/server"
 const getProfile = vi.fn()
 const updateProfile = vi.fn()
 const getUser = vi.fn()
-const updateUser = vi.fn()
+const listMemberServerIds = vi.fn()
+const getMemberships = vi.fn()
+const authApiUpdateUser = vi.fn()
+const fanOutToServerMembers = vi.fn()
+const fanOutStatusUpdate = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
 }))
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+
+vi.mock("@/lib/auth", () => ({
+  createAuth: vi.fn(() => ({
+    api: { updateUser: (...a: unknown[]) => authApiUpdateUser(...a) },
+  })),
+}))
+
+vi.mock("@/lib/community/fanout", () => ({
+  fanOutToServerMembers: (...a: unknown[]) => fanOutToServerMembers(...a),
+  fanOutStatusUpdate: (...a: unknown[]) => fanOutStatusUpdate(...a),
+}))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -23,7 +38,10 @@ vi.mock("@alook/shared", async () => {
       },
       user: {
         getUserSelf: (...a: unknown[]) => getUser(...a),
-        updateUser: (...a: unknown[]) => updateUser(...a),
+      },
+      communityMember: {
+        listMemberServerIds: (...a: unknown[]) => listMemberServerIds(...a),
+        getMemberships: (...a: unknown[]) => getMemberships(...a),
       },
     },
   }
@@ -43,11 +61,6 @@ vi.mock("@/lib/middleware/helpers", async () => {
     writeError: (message: string, status: number) => NextResponse.json({ error: message }, { status }),
   }
 })
-
-const fanOutStatusUpdate = vi.fn()
-vi.mock("@/lib/community/fanout", () => ({
-  fanOutStatusUpdate: (...a: unknown[]) => fanOutStatusUpdate(...a),
-}))
 
 import { GET, PATCH } from "./route"
 
@@ -107,7 +120,9 @@ describe("GET /api/community/users/me/profile", () => {
 describe("PATCH /api/community/users/me/profile", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    updateUser.mockResolvedValue(undefined)
+    authApiUpdateUser.mockResolvedValue({ headers: new Headers() })
+    listMemberServerIds.mockResolvedValue([])
+    getMemberships.mockResolvedValue([])
     fanOutStatusUpdate.mockResolvedValue(undefined)
     updateProfile.mockImplementation(async (_db, _u, data) => ({
       aboutMe: data.aboutMe ?? null,
@@ -158,7 +173,7 @@ describe("PATCH /api/community/users/me/profile", () => {
   it("400 when name exceeds MAX_PROFILE_NAME_LENGTH", async () => {
     const res = await PATCH(patchReq({ name: "x".repeat(101) }), {} as never)
     expect(res.status).toBe(400)
-    expect(updateUser).not.toHaveBeenCalled()
+    expect(authApiUpdateUser).not.toHaveBeenCalled()
   })
 
   it("400 when aboutMe exceeds MAX_PROFILE_ABOUT_LENGTH", async () => {
@@ -171,14 +186,64 @@ describe("PATCH /api/community/users/me/profile", () => {
     const res = await PATCH(patchReq({}), {} as never)
     expect(res.status).toBe(400)
     expect(updateProfile).not.toHaveBeenCalled()
-    expect(updateUser).not.toHaveBeenCalled()
+    expect(authApiUpdateUser).not.toHaveBeenCalled()
   })
 
-  it("rename path calls updateUser with { name } only and does not read the user", async () => {
+  it("rename path goes through auth.api.updateUser (not a raw DB write) so the session cookie gets re-signed", async () => {
     const res = await PATCH(patchReq({ name: "New" }), {} as never)
     expect(res.status).toBe(200)
-    expect(updateUser).toHaveBeenCalledWith({}, "u1", { name: "New" })
-    expect(getUser).not.toHaveBeenCalled()
+    expect(authApiUpdateUser).toHaveBeenCalledWith(
+      expect.objectContaining({ body: { name: "New" }, returnHeaders: true }),
+    )
+  })
+
+  it("rename broadcasts MEMBER_UPDATE with userId + the new nickname to every server the user belongs to", async () => {
+    listMemberServerIds.mockResolvedValue(["srv_a", "srv_b"])
+    getMemberships.mockResolvedValue([
+      { id: "mem_a", serverId: "srv_a", userId: "u1" },
+      { id: "mem_b", serverId: "srv_b", userId: "u1" },
+    ])
+
+    const res = await PATCH(patchReq({ name: "New" }), {} as never)
+    expect(res.status).toBe(200)
+    expect(fanOutToServerMembers).toHaveBeenCalledTimes(2)
+    expect(fanOutToServerMembers).toHaveBeenCalledWith("srv_a", expect.objectContaining({
+      type: "community:member.update",
+      serverId: "srv_a",
+      memberId: "mem_a",
+      userId: "u1",
+      changes: { nickname: "New" },
+    }))
+    expect(fanOutToServerMembers).toHaveBeenCalledWith("srv_b", expect.objectContaining({
+      type: "community:member.update",
+      serverId: "srv_b",
+      memberId: "mem_b",
+      userId: "u1",
+      changes: { nickname: "New" },
+    }))
+  })
+
+  it("rename with no server memberships broadcasts nothing", async () => {
+    const res = await PATCH(patchReq({ name: "New" }), {} as never)
+    expect(res.status).toBe(200)
+    expect(fanOutToServerMembers).not.toHaveBeenCalled()
+  })
+
+  it("forwards the Set-Cookie headers from auth.api.updateUser on the response", async () => {
+    const headers = new Headers()
+    headers.append("Set-Cookie", "better-auth.session_data=fresh; Path=/")
+    authApiUpdateUser.mockResolvedValue({ headers })
+
+    const res = await PATCH(patchReq({ name: "New" }), {} as never)
+    expect(res.status).toBe(200)
+    expect(res.headers.getSetCookie()).toContain("better-auth.session_data=fresh; Path=/")
+  })
+
+  it("a non-rename PATCH (aboutMe only) never calls auth.api.updateUser and forwards no rename cookies", async () => {
+    const res = await PATCH(patchReq({ aboutMe: "hi" }), {} as never)
+    expect(res.status).toBe(200)
+    expect(authApiUpdateUser).not.toHaveBeenCalled()
+    expect(res.headers.getSetCookie()).toEqual([])
   })
 
   it("returns shape consistent with GET (no userId leak)", async () => {

@@ -201,6 +201,7 @@ export function useSendMessage() {
       const optimisticAttachments = args.attachments?.map(toAttachmentVm)
       const msg: Msg = {
         id: tempId,
+        type: "chat",
         // #3: stamp the sender's userId onto optimistic rows so
         // `useChannelWatermark` recognizes them as self-authored (skip
         // client PUT — server-side write path already writes the sender's
@@ -272,6 +273,7 @@ export function useSendDmMessage() {
       const optimisticAttachments = args.attachments?.map(toAttachmentVm)
       const msg: Msg = {
         id: tempId,
+        type: "chat",
         // Mirror the channel path: stamp the sender's userId so the
         // self-send auto-scroll effect in <MessageList> (gated on
         // `tail.authorId === viewerUserId`) recognizes the optimistic row

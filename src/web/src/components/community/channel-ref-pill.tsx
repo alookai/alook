@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from "react"
 import type React from "react"
 import { useRouter } from "next/navigation"
 import { ChannelPill } from "./inline-marks"
@@ -109,7 +110,11 @@ export function ChannelRefPill({ children }: { children?: React.ReactNode }) {
   const currentServerId = useCommunityStore((s) => s.currentServerId)
   const { directory, isLoading: directoryLoading } = useChannelRefDirectory()
 
-  const resolved = resolveChannelRefBase(directory, ref)
+  // The debt record's own verification (see finding #6) confirmed the
+  // network requests behind `useChannelRefDirectory`/`useThreads` already
+  // dedupe via the shared TanStack Query cache — the one verified real cost
+  // was this directory scan running unmemoized on every render.
+  const resolved = useMemo(() => resolveChannelRefBase(directory, ref), [directory, ref])
 
   const threadChannelId = resolved?.threadRootSeq !== undefined ? resolved.channel.id : null
   const { threads, isLoading: threadsLoading } = useThreads(threadChannelId)

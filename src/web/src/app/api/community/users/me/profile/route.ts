@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import {
   queries,
   MAX_PROFILE_NAME_LENGTH,
@@ -6,11 +6,13 @@ import {
   MAX_STATUS_TEXT_LENGTH,
   MAX_EMOJI_BYTES,
   BANNER_COLOR_REGEX,
+  WS_EVENTS,
 } from "@alook/shared"
 import { getDb } from "@/lib/db"
+import { createAuth } from "@/lib/auth"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
-import { fanOutStatusUpdate } from "@/lib/community/fanout"
+import { fanOutStatusUpdate, fanOutToServerMembers } from "@/lib/community/fanout"
 
 export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -53,6 +55,11 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     return writeError("no changes provided", 400)
   }
 
+  // Set only when a rename actually happens — carries the Set-Cookie
+  // headers `auth.api.updateUser` mints so they can be forwarded on the
+  // final response (see the return below).
+  let renameCookieHeaders: Headers | undefined
+
   if (body.name !== undefined) {
     if (typeof body.name !== "string") return writeError("name must be a string", 400)
     const trimmed = body.name.trim()
@@ -60,7 +67,36 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     if (trimmed.length > MAX_PROFILE_NAME_LENGTH) {
       return writeError(`name must be ≤ ${MAX_PROFILE_NAME_LENGTH} characters`, 400)
     }
-    await queries.user.updateUser(db, ctx.userId, { name: trimmed })
+    // Goes through Better-Auth's own `/update-user` rather than a raw
+    // Drizzle write — it updates the DB row AND re-signs the
+    // `session_token`/`session_data` cookies in the same call, so a
+    // refresh right after renaming doesn't read a stale cached session
+    // (the bug this fixes: cookieCache — auth.ts's `session.cookieCache`,
+    // 5min TTL — previously never got invalidated by a raw DB write).
+    const auth = createAuth(ctx.env)
+    const result = (await auth.api.updateUser({
+      body: { name: trimmed },
+      headers: req.headers,
+      returnHeaders: true,
+    })) as { headers: Headers }
+    renameCookieHeaders = result.headers
+
+    // Broadcast the new name to every server the user belongs to, so open
+    // member lists update without a refresh (previously nothing fired
+    // MEMBER_UPDATE for a self-rename — only role changes did).
+    const serverIds = await queries.communityMember.listMemberServerIds(db, ctx.userId)
+    if (serverIds.length > 0) {
+      const memberships = await queries.communityMember.getMemberships(db, ctx.userId, serverIds)
+      for (const membership of memberships) {
+        fanOutToServerMembers(membership.serverId, {
+          type: WS_EVENTS.MEMBER_UPDATE,
+          serverId: membership.serverId,
+          memberId: membership.id,
+          userId: ctx.userId,
+          changes: { nickname: trimmed },
+        })
+      }
+    }
   }
 
   const data: {
@@ -138,10 +174,27 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
 
   // Normalise the response shape — same as GET — so callers don't see
   // `userId` leak through on PATCH.
-  return writeJSON({
+  const res = writeJSON({
     aboutMe: updated?.aboutMe ?? "",
     bannerColor: updated?.bannerColor ?? null,
     statusEmoji: updated?.statusEmoji ?? null,
     statusText: updated?.statusText ?? "",
   })
+
+  // Forward the re-signed session cookies from a rename so the browser
+  // picks up the new name immediately — `withAuth` also forwards its own
+  // `getSession` Set-Cookie separately; both can land on the same response
+  // (harmless — the browser applies the last Set-Cookie for a given name).
+  if (renameCookieHeaders) {
+    const setCookies = renameCookieHeaders.getSetCookie()
+    if (setCookies.length > 0) {
+      const mutableRes = new NextResponse(res.body, res)
+      for (const cookie of setCookies) {
+        mutableRes.headers.append("Set-Cookie", cookie)
+      }
+      return mutableRes
+    }
+  }
+
+  return res
 })

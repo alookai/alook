@@ -109,8 +109,9 @@ describe("GET /api/community/messages/[id]", () => {
     expect(body.reactions).toEqual([
       { emoji: "👍", count: 1, me: true, userIds: ["u1"] },
     ])
-    // GET convention: no `type: "default"` on the wire (undefined for default).
-    expect(body.type).toBeUndefined()
+    // GET convention: ordinary messages map to type: "chat" now (#12's
+    // exhaustive discriminator) — was `undefined` before.
+    expect(body.type).toBe("chat")
   })
 
   it("hydrates reply preview when replyToId is set + target is in the same channel", async () => {

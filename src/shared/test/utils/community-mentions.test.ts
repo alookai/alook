@@ -56,6 +56,22 @@ describe("extractMentionedUserIds", () => {
     expect(extractMentionedUserIds("早 @李雷 好", ROSTER)).toEqual(["u5"]);
   });
 
+  it("handles accented-Latin names — the #4 charset fix", () => {
+    const roster = [{ userId: "u_jose", name: "José" }, { userId: "u_unal", name: "Ünal" }];
+    expect(extractMentionedUserIds("hi @José", roster)).toEqual(["u_jose"]);
+    expect(extractMentionedUserIds("hi @Ünal", roster)).toEqual(["u_unal"]);
+  });
+
+  it("respects right boundary for accented-Latin names — a longer identifier run must not false-positive match a shorter name prefix", () => {
+    // Before the #4 fix, `ID_CHAR_RE` was ASCII-only (`[A-Za-z0-9_]`), which
+    // treated `é` as a non-identifier boundary character — so `@Josééx`
+    // incorrectly matched "José" as a complete token (the boundary check
+    // right after the match wrongly passed). Verified this reproduced
+    // against the pre-fix regex before writing this test.
+    const roster = [{ userId: "u_jose", name: "José" }];
+    expect(extractMentionedUserIds("hi @Josééx", roster)).toEqual([]);
+  });
+
   it("does not match @everyone / @here when not in roster", () => {
     expect(extractMentionedUserIds("@everyone hi", ROSTER)).toEqual([]);
   });

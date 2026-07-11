@@ -8,7 +8,7 @@ import { PanelShell } from "./panel-shell"
 import { MemberList } from "./member-list"
 import { Message } from "./message"
 import { formatRelativeTime } from "./format-time"
-import type { RightPanel, Member, Role, Msg, Thread, OpenProfile } from "./_types"
+import type { RightPanel, Member, Role, Msg, RenderMsg, Thread, OpenProfile } from "./_types"
 
 // Right-panel content router — members / pinned / search / threads. Data via props.
 // Always wraps the active section in PanelShell — the surrounding Sheet provides the
@@ -178,7 +178,10 @@ function SearchPanel({ searchResults, initialQuery, showSearchInput, onOpenProfi
         </div>
       )}
       <div className="mb-2 text-xs text-muted-foreground">{searchResults.length} results</div>
-      {searchResults.map((m) => <Message key={m.id} m={{ ...m, grouped: false }} compact onOpenThread={() => {}} onOpenProfile={onOpenProfile} />)}
+      {searchResults.map((m) => {
+        const renderMsg: RenderMsg = { ...m, grouped: false }
+        return <Message key={m.id} m={renderMsg} compact onOpenThread={() => {}} onOpenProfile={onOpenProfile} />
+      })}
     </PanelShell>
   )
 }

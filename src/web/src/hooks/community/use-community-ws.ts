@@ -159,6 +159,7 @@ function insertMessageIntoCache(
       }
   })
   const isSystem = "type" in msg && (msg as { type?: string }).type === "system"
+  const systemKind = "systemKind" in msg ? (msg as { systemKind?: "thread" }).systemKind : undefined
   const authorName = "authorName" in msg ? msg.authorName : "Unknown"
   const authorAvatar = "authorAvatar" in msg ? msg.authorAvatar : undefined
   const authorId = "authorId" in msg ? msg.authorId : undefined
@@ -169,7 +170,11 @@ function insertMessageIntoCache(
     authorAvatar: authorAvatar || avatarInitial(authorName ?? ""),
     content: msg.content,
     createdAt: msg.createdAt,
-    ...(isSystem ? { type: "system" as const } : {}),
+    // Non-system branch is explicit ("chat", not omitted) — `Msg.type` is a
+    // required, exhaustive discriminator (#12); a DM message (the other
+    // union member here) never carries `type` at all, and also renders as
+    // an ordinary chat row, so it gets the same explicit fallback.
+    ...(isSystem ? { type: "system" as const, ...(systemKind ? { systemKind } : {}) } : { type: "chat" as const }),
     ...(replyTo ? { replyTo } : {}),
     ...(attachments?.length ? { attachments } : {}),
     // #3: preserve authorId so `useChannelWatermark` can skip self-authored
@@ -205,6 +210,31 @@ function insertMessageIntoCache(
     ...cache,
     pages: [nextFirst, ...cache.pages.slice(1)],
   }
+}
+
+/**
+ * Patch every cached message authored by `userId` to the renamed
+ * `authorName` — `authorName` is a snapshot field written at send time
+ * (`communityMessage` doesn't store it; the live JOIN is `message.ts`'s
+ * `authorName: user.name`), so nothing else updates already-loaded message
+ * rows after a self-rename. Only touches rows that are actually cached in
+ * this client (open/previously-open channels & DMs) — a channel never
+ * loaded this session picks up the new name for free on its first real
+ * fetch, since that IS the live JOIN.
+ */
+function patchAuthorNameInCache(cache: PageCache | undefined, userId: string, newName: string): PageCache | undefined {
+  if (!cache) return cache
+  let touched = false
+  const pages = cache.pages.map((p) => {
+    if (!p.messages.some((m) => m.authorId === userId)) return p
+    touched = true
+    return {
+      ...p,
+      messages: p.messages.map((m) => (m.authorId === userId ? { ...m, authorName: newName } : m)),
+    }
+  })
+  if (!touched) return cache
+  return { ...cache, pages }
 }
 
 function applyReactionToCache(
@@ -695,6 +725,25 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
               key,
               (cache) => patchCacheUpdate(cache, event),
             )
+            // A self-rename carries `userId` + `changes.nickname` — patch
+            // every cached message list's `authorName` snapshot for that
+            // author. A role-only change has no `userId`/`nickname`, so
+            // this is a no-op for that case.
+            if (event.userId && event.changes.nickname) {
+              const userId = event.userId
+              const newName = event.changes.nickname
+              for (const cacheEntry of queryClient.getQueryCache().findAll({
+                predicate: (q) =>
+                  q.queryKey[0] === "community"
+                  && (q.queryKey[1] === "channel" || q.queryKey[1] === "dm")
+                  && q.queryKey[3] === "messages",
+              })) {
+                queryClient.setQueryData<PageCache | undefined>(
+                  cacheEntry.queryKey,
+                  (cache) => patchAuthorNameInCache(cache, userId, newName),
+                )
+              }
+            }
           }
           // Membership just changed → the invite dialog's "friends who aren't
           // in this server" list is stale. Cheap invalidation because the

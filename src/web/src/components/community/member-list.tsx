@@ -45,6 +45,22 @@ function groupMembers(members: Member[]): { label: string; list: Member[] }[] {
   ].filter((g) => g.list.length > 0)
 }
 
+// Same disambiguation convention as the @-mention popover (`rankMentionItems`
+// in mention-extension.ts) — a member's name is flagged only when it collides
+// (case-insensitively) with another member's name in the same list, so a
+// caller can show the `#0042` discriminator solely for ambiguous rows.
+// Exported for unit testing without rendering the virtualized list.
+export function computeDuplicateNames(members: Member[]): Set<string> {
+  const counts = new Map<string, number>()
+  for (const m of members) {
+    const key = m.name.toLowerCase()
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const dupes = new Set<string>()
+  for (const [key, count] of counts) if (count >= 2) dupes.add(key)
+  return dupes
+}
+
 // Flatten grouped members into a single (header|row) stream so the virtualizer
 // measures both kinds. Preserves the existing Owner / Admin / Online / Offline
 // grouping — sticky headers become one row of the virtual list.
@@ -101,6 +117,7 @@ export function MemberList({
   }, [query, onSearch])
 
   const items = useMemo(() => flattenGroups(members), [members])
+  const duplicateNames = useMemo(() => computeDuplicateNames(members), [members])
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
 
@@ -188,6 +205,7 @@ export function MemberList({
                       <MemberRow
                         mem={item.member}
                         canManage={canManage}
+                        showDiscriminator={duplicateNames.has(item.member.name.toLowerCase())}
                         onOpenProfile={onOpenProfile}
                         onSetRole={onSetRole}
                         onKick={setKickTarget}
@@ -212,12 +230,18 @@ export function MemberList({
 function MemberRow({
   mem,
   canManage,
+  showDiscriminator,
   onOpenProfile,
   onSetRole,
   onKick,
 }: {
   mem: Member
   canManage: boolean
+  // True when another member currently in the list shares this name
+  // (case-insensitive) — mirrors the @-mention popover's disambiguation
+  // rule (see `rankMentionItems`) so the two surfaces agree on when a
+  // `#0042` discriminator is worth showing.
+  showDiscriminator: boolean
   onOpenProfile?: OpenProfile
   onSetRole?: (name: string, role: Role) => void
   onKick: (name: string) => void
@@ -227,14 +251,19 @@ function MemberRow({
       <ContextMenuTrigger
         render={
           <button
-            onClick={(e) => onOpenProfile?.(mem.name, e)}
+            onClick={(e) => onOpenProfile?.(mem.name, e, undefined, mem.userId)}
             className="flex w-full items-center gap-3 rounded-md px-2 py-2 hover:bg-accent"
           />
         }
       >
         <Avatar label={mem.avatar} size={32} presence={mem.status} dim={mem.status === "offline"} />
         <div className="min-w-0 flex-1 text-left">
-          <div className={`truncate text-sm leading-tight ${mem.status === "offline" ? "text-muted-foreground" : ""}`}>{mem.name}</div>
+          <div className={`truncate text-sm leading-tight ${mem.status === "offline" ? "text-muted-foreground" : ""}`}>
+            {mem.name}
+            {showDiscriminator && mem.discriminator && (
+              <span className="text-muted-foreground">#{mem.discriminator}</span>
+            )}
+          </div>
           {hasStatus(mem.statusEmoji, mem.statusText) && (
             <div className="truncate text-xs leading-tight text-muted-foreground">{mem.statusEmoji} {mem.statusText}</div>
           )}

@@ -333,4 +333,11 @@ describe("detectMentionType", () => {
     expect(detectMentionType("(@everyone)")).toBe("everyone")
     expect(detectMentionType("@everyone,")).toBe("everyone")
   })
+
+  it("does not treat a Unicode letter immediately after the token as a boundary — the #4 charset fix", () => {
+    // Before the fix, `ID` was ASCII-only (`[A-Za-z0-9_]`), so `ä` in
+    // `@hereäx` was wrongly treated as a non-identifier boundary character,
+    // making `@hereäx` look like a genuine standalone `@here` token.
+    expect(detectMentionType("cc @hereäx")).toBe(undefined)
+  })
 })

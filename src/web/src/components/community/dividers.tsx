@@ -13,8 +13,12 @@ export function DateDivider({ label }: { label: string }) {
 export function NewDivider() {
   // The row's height tracks the separator line only; the "New" pill is taken
   // out of flow so its taller box doesn't push messages apart.
+  // `data-new-divider` lets `useScrollAnchor`'s mount effect center on this
+  // element itself via `querySelector`, instead of the whole message row
+  // (date divider + full message content) that used to be the only
+  // `[data-msg-id]`-selectable target — see use-scroll-anchor.ts.
   return (
-    <div className="relative my-1 flex items-center">
+    <div data-new-divider className="relative my-1 flex items-center">
       <Separator className="flex-1 bg-destructive/60" />
       <span
         className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 rounded-sm bg-destructive px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-white"

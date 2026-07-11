@@ -91,14 +91,29 @@ export type ApiMessageContext = {
   threadByMessageId?: Map<string, ThreadPreview>
 }
 
+// Splits the DB's `type` column value into the wire's `{ type, systemKind }`
+// pair. `"thread_created"` was already documented above (and in the shared
+// WS type, `CommunityMessageCreate.message.type`) as a possible column
+// value — verified it was never actually written by any insert anywhere in
+// this codebase, purely a placeholder for exactly this feature. Reused
+// here (rather than inventing a new convention value) since it maps to
+// `{ type: "system", systemKind: "thread" }` so `message.tsx`'s icon branch
+// can distinguish it from a bare `type: "system"` row with no known kind
+// (which stays `systemKind: undefined`, falling back to the generic icon).
+// Ordinary messages map to `type: "chat"` (never `undefined`) now that
+// `Msg.type` is a required, exhaustive discriminator (#12).
+function splitType(type: string | null): { type: "chat" | "system"; systemKind?: "thread" } {
+  if (type === "thread_created") return { type: "system", systemKind: "thread" }
+  if (type === "system") return { type: "system" }
+  return { type: "chat" }
+}
+
 export function mapMessageForApi(row: MessageRow, ctx: ApiMessageContext) {
   const core = coreFields(row)
   const thread = ctx.threadByMessageId?.get(row.id)
   return {
     ...core,
-    // GET convention: hide "default" (undefined = default). Preserved from
-    // the pre-refactor per-route behaviour.
-    type: row.type === "system" ? ("system" as const) : undefined,
+    ...splitType(row.type),
     replyTo: resolveReply(row, ctx.replyMap),
     embeds: row.embeds,
     attachments: ctx.attachmentsByMessage[row.id]?.length ? ctx.attachmentsByMessage[row.id] : undefined,
@@ -116,9 +131,7 @@ export function mapMessageForWs(row: MessageRow, ctx: WsMessageContext) {
   const core = coreFields(row)
   return {
     ...core,
-    // WS convention: return "default" explicitly. Matches CommunityMessageCreate
-    // in @alook/shared where `type?: "default" | "system" | "thread_created"`.
-    type: (row.type as "default" | "system" | "thread_created") ?? "default",
+    ...splitType(row.type),
     replyTo: resolveReply(row, ctx.replyMap),
     // The shared CommunityMessageCreate.embeds is `unknown[]` — narrow here
     // rather than widening the wire type.

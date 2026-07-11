@@ -24,7 +24,9 @@ export type OpenerPayload = {
   authorName: string
   authorAvatar: string
   content: string
-  type?: "system"
+  // Required, exhaustive (#12) — matches `mapMessageForApi`'s new output
+  // shape (this payload is fed by that same endpoint, `GET /api/community/messages/:id`).
+  type: "chat" | "system"
   createdAt: string
   attachments?: Msg["attachments"]
   embeds?: Msg["embeds"]

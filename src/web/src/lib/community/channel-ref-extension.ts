@@ -107,10 +107,10 @@ const ChannelRefNode = Mention.extend({
  *
  * `renderText` inserts by display name, not id — server/channel names are
  * now guaranteed ref-safe at creation/rename time (`slugify()`, applied by
- * every write route), so `serverName`/`label` always round-trip through
- * `CHANNEL_REF_REGEX` and `resolveChannelRefBase` (exact-string match) just
- * as cleanly as ids used to, but render as something a human can actually
- * read. Falls back to `serverId`/`id` if either name is ever missing
+ * every write route), so `serverName`/`label` round-trip through
+ * `chat-syntax-plugin.ts`'s `CHANNEL_REF_RE` and `resolveChannelRefBase`
+ * (exact-string match) and render as something a human can actually read.
+ * Falls back to `serverId`/`id` if either name is ever missing
  * (paste-from-HTML, drag-drop, etc.) — defensive, not the primary
  * mechanism. `renderHTML` shows a compact in-editor chip — channel name
  * only, not the full path — keeping the compose box readable.

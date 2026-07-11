@@ -22,7 +22,11 @@ export type CommunityMessageCreate = {
     authorName: string
     authorAvatar?: string
     content: string
-    type?: "default" | "system" | "thread_created"
+    type: "chat" | "system"
+    // Only ever set alongside `type: "system"` — distinguishes a
+    // thread-creation system message from a bare/other-origin system row
+    // (`systemKind` omitted). See `mapMessageForWs`'s `splitType`.
+    systemKind?: "thread"
     mentionType?: MentionType | null
     replyToId?: string | null
     replyTo?: { id: string; authorName: string; text: string; deleted?: boolean }
@@ -230,6 +234,11 @@ export type CommunityMemberUpdate = {
   type: "community:member.update"
   serverId: string
   memberId: string
+  // Present alongside `changes.nickname` on a self-rename broadcast — lets
+  // clients patch `authorId`-keyed message caches (which don't have
+  // `memberId`, a server-scoped id) by the renamed user's actual userId.
+  // Absent on a role-only change, which never touches cached message rows.
+  userId?: string
   changes: {
     role?: string
     nickname?: string | null

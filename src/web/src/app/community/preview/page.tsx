@@ -163,7 +163,7 @@ export default function CommunityPreview() {
     setDmList((prev) => prev.map((d) => d.id !== dmId ? d : { ...d, preview: text.slice(0, 40) }))
     setDmMessages((prev) => ({
       ...prev,
-      [dmId]: [...(prev[dmId] ?? []), { id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: text }],
+      [dmId]: [...(prev[dmId] ?? []), { id: `m_local_${++msgSeq}`, type: "chat" as const, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: text }],
     }))
     setView("dm")
     setActiveDm(dmId)
@@ -218,7 +218,7 @@ export default function CommunityPreview() {
     const seed: Msg[] = opts?.anchor
       ? [opts.anchor]
       : opts?.firstMessage
-        ? [{ id: `${id}_1`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: opts.firstMessage }]
+        ? [{ id: `${id}_1`, type: "chat" as const, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: opts.firstMessage }]
         : []
     const t: Thread = {
       id, name, messageCount: seed.length, lastMessageAt: new Date().toISOString(),
@@ -246,7 +246,7 @@ export default function CommunityPreview() {
     setMessages((prev) => [
       ...prev,
       {
-        id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(),
+        id: `m_local_${++msgSeq}`, type: "chat" as const, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(),
         content: markdown, ...(replyTo ? { replyTo } : {}),
       },
     ])
@@ -260,7 +260,7 @@ export default function CommunityPreview() {
     const now = new Date().toISOString()
     setThreadMessages((prev) => ({
       ...prev,
-      [tid]: [...(prev[tid] ?? []), { id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: now, content: markdown }],
+      [tid]: [...(prev[tid] ?? []), { id: `m_local_${++msgSeq}`, type: "chat" as const, authorName: "Gener", authorAvatar: "G", createdAt: now, content: markdown }],
     }))
     setThreads((prev) => prev.map((t) => t.id !== tid ? t : { ...t, messageCount: t.messageCount + 1, lastMessageAt: now }))
     setForumPosts((prev) => {
@@ -278,7 +278,7 @@ export default function CommunityPreview() {
     setDmList((prev) => prev.map((d) => d.id !== dmId ? d : { ...d, preview: markdown.slice(0, 40) }))
     setDmMessages((prev) => ({
       ...prev,
-      [dmId]: [...(prev[dmId] ?? []), { id: `m_local_${++msgSeq}`, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: markdown }],
+      [dmId]: [...(prev[dmId] ?? []), { id: `m_local_${++msgSeq}`, type: "chat" as const, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: markdown }],
     }))
   }
 
@@ -385,7 +385,7 @@ export default function CommunityPreview() {
     setForumPosts((prev) => ({ ...prev, [activeChannel]: [created, ...(prev[activeChannel] ?? [])] }))
     setThreadMessages((prev) => ({
       ...prev,
-      [id]: [{ id: `${id}_1`, authorName: "Gener", authorAvatar: "G", createdAt: now, content: post.content || post.name }],
+      [id]: [{ id: `${id}_1`, type: "chat" as const, authorName: "Gener", authorAvatar: "G", createdAt: now, content: post.content || post.name }],
     }))
     toast(`Posted “${post.name}”`)
   }
@@ -464,7 +464,8 @@ export default function CommunityPreview() {
             <MessageList
               channel={dm.name}
               messages={dmMessages[dm.id] ?? []}
-              onOpenThread={() => { }}
+              onOpenThread={() => {}}
+              variant="dm"
               {...profileProps}
               hero={
                 <>

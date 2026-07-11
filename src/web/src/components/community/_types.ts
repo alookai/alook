@@ -93,8 +93,17 @@ type Reaction = { emoji: string; count: number; me: boolean; userIds: string[] }
 
 export type Msg = {
   id: string // nanoid
-  type?: "system"
-  systemKind?: "join" | "thread"
+  // Exhaustive discriminator (#12 — was `type?: "system"`, an incomplete
+  // partial discriminator that let `!m.type` silently misclassify a future
+  // third kind as an ordinary chat message). `mapMessageForApi`/`mapMessageForWs`
+  // always emit one of these two values now — never `undefined`.
+  type: "chat" | "system"
+  // Only ever set alongside `type: "system"` for a thread-creation system
+  // message (see `message-payload.ts`'s `splitType`). The `"join"` value
+  // that used to be part of this type is removed — no code path has ever
+  // produced it (join notifications are pure WS events with no persisted
+  // message row, and stay that way — see the debt-record's Out of scope).
+  systemKind?: "thread"
   // Author's user id — populated by `mapMessageForApi` / WS message-create,
   // consumed by `useChannelWatermark` to skip self-authored messages when
   // advancing the read pointer. Optional to keep optimistic rows valid
@@ -111,8 +120,14 @@ export type Msg = {
   reactions?: Reaction[]
   replyTo?: { id: string; authorName: string; text: string; deleted?: boolean }
   thread?: { id: string; name: string; messageCount: number; participants?: string[]; lastReplyAt?: string }
-  grouped?: boolean
 }
+
+// `grouped` is a RENDER-TIME decision (computed by `message-list.tsx`'s
+// cluster-building `useMemo`, based on adjacent messages' author/timestamp)
+// — never a fact about a message itself, so it never belonged on `Msg`
+// (#7). `<Message>` and any other consumer that needs the clustering
+// decision takes a `RenderMsg`, not a bare `Msg` with `grouped` spread on.
+export type RenderMsg = Msg & { grouped: boolean }
 
 // ── Threads / forum ──────────────────────────────────────────────────────────
 // Thread/forum-post summaries shown in side panels and forum lists. Actual
@@ -268,7 +283,14 @@ export type UnreadDm = {
 }
 
 // Shared callback signature for opening a user's profile card at a click point.
-// `discriminator` is only ever passed for a mention pill that carried a
-// disambiguating `#0042` tag (see message-markdown.tsx) — it lets the lookup
-// pick the exact same-named member/friend instead of the first name match.
-export type OpenProfile = (name: string, e: React.MouseEvent, discriminator?: string) => void
+// `userId` is the exact-match disambiguator — pass it whenever the caller
+// already has the clicked person's userId (member rows, message authors,
+// thread openers) so same-named members never collide. `discriminator` is
+// the fallback disambiguator for a mention pill, which only carries a
+// `#0042` tag (see message-markdown.tsx) and no userId.
+export type OpenProfile = (
+  name: string,
+  e: React.MouseEvent,
+  discriminator?: string,
+  userId?: string,
+) => void

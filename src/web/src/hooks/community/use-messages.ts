@@ -134,7 +134,7 @@ const STALE_HYDRATED_CACHE_MS = 30_000
 
 type PageCache = InfiniteData<MessagesPage, MessagesPageParam>
 
-type MessagesReturn = UseInfiniteQueryResult<PageCache, Error> & {
+type MessagesReturn = Omit<UseInfiniteQueryResult<PageCache, Error>, "isLoading"> & {
   messages: Msg[]
   latestSeq: number
   hasMoreOlder: boolean
@@ -147,6 +147,11 @@ type MessagesReturn = UseInfiniteQueryResult<PageCache, Error> & {
   // Legacy alias — mirrors `hasMoreOlder`. Kept so consumers not yet migrated
   // off the older-only API still compile until every call site is updated.
   hasMore: boolean
+  // Widened from the query's own status-discriminated literal (`true`/
+  // `false` narrowed by `status`) to a plain boolean — see the override
+  // below, which also folds in `!anchorResolved` so a disabled query (still
+  // waiting on the anchor snapshot) reports loading too.
+  isLoading: boolean
 }
 
 type MessagesOpts = {
@@ -261,10 +266,22 @@ function useMessagesInner(
   // to `undefined` and the list snaps to bottom — no NEW divider, wrong
   // position.
   //
-  // Detect that shape and reset the query so it refetches under the correct
-  // anchor pageParam. Fire exactly once per (scopeId, anchorId) pair via a
-  // ref — a subsequent watermark tick that advances lastReadMessageId is a
-  // different pair and gets its own single reset opportunity.
+  // Detect that shape and re-anchor. Fire exactly once per (scopeId,
+  // anchorId) pair via a ref — a subsequent watermark tick that advances
+  // lastReadMessageId is a different pair and gets its own single
+  // re-anchor opportunity.
+  //
+  // Two different causes need two different repairs:
+  //   - Genuinely stale cache (cross-session IDB hydration, e.g. the Inbox-
+  //     to-unread-channel case) — `resetQueries` is correct: the whole
+  //     window is untrustworthy anyway.
+  //   - Same-session anchor drift with a still-fresh cache (e.g. returning
+  //     from a Thread after the watermark advanced past the window) — the
+  //     already-loaded history is still valid. `resetQueries` would clear
+  //     `pages` to empty and flash a blank list while it refetches. Instead,
+  //     fetch a fresh anchor-centered page out of band and swap the query
+  //     data directly once it lands — the view jumps straight from the old
+  //     (valid) window to the new one, never passing through an empty state.
   const anchorResetKeyRef = useRef<string | null>(null)
   useEffect(() => {
     if (!enabled) return
@@ -291,16 +308,56 @@ function useMessagesInner(
     const resetKey = `${scopeId ?? ""}::${anchorId}`
     if (anchorResetKeyRef.current === resetKey) return
     anchorResetKeyRef.current = resetKey
-    void queryClient.resetQueries({ queryKey })
+
+    const updatedAt = query.dataUpdatedAt
+    const isFresh = !!updatedAt && Date.now() - updatedAt < STALE_HYDRATED_CACHE_MS
+    if (!isFresh) {
+      void queryClient.resetQueries({ queryKey })
+      return
+    }
+    const anchorPageParam: MessagesPageParam = { mode: "anchor", anchor: anchorId }
+    queryFn({ pageParam: anchorPageParam })
+      .then((page) => {
+        // Re-check right before the swap — a concurrent send/WS update or a
+        // second re-anchor attempt in the interim shouldn't be clobbered by
+        // a now-outdated fetch result landing late.
+        if (anchorResetKeyRef.current !== resetKey) return
+        queryClient.setQueryData<PageCache>(queryKey, (current) => {
+          if (!current) return current
+          // Merge the freshly-fetched anchor page into the ALREADY-LOADED
+          // history rather than replacing `pages` outright — the previous
+          // implementation discarded every page the user had loaded via
+          // `fetchOlder` (scroll-up pagination), which surfaced as history
+          // vanishing on channel switch. `mergeMessagesPages` sorts +
+          // dedupes by id, so overlapping rows between the old window and
+          // the new anchor page collapse cleanly. The merged set collapses
+          // into a single page — `hasMoreOlder`/`hasMoreNewer` come from the
+          // new anchor page since it alone knows the true state of both
+          // edges relative to the (possibly wider) merged window.
+          const merged = mergeMessagesPages([...current.pages, page])
+          const mergedPage: MessagesPage = {
+            ...page,
+            messages: merged,
+          }
+          return { pages: [mergedPage], pageParams: [anchorPageParam] }
+        })
+      })
+      .catch(() => {
+        // Out-of-band fetch failed — fall back to the reset path so the
+        // scope isn't stuck showing a stale, un-anchored window forever.
+        void queryClient.resetQueries({ queryKey })
+      })
   }, [
     enabled,
     anchorId,
     scopeId,
     query.data,
+    query.dataUpdatedAt,
     query.isFetching,
     query.isPending,
     queryClient,
     queryKey,
+    queryFn,
   ])
 
   // Fix 4 — staleness invalidate on mount / scope switch ONLY.
@@ -388,6 +445,13 @@ function useMessagesInner(
 
   return {
     ...query,
+    // While the anchor snapshot is still resolving, the query is `enabled:
+    // false` — TanStack forces `isFetching` to `false` in that state, which
+    // makes the native `isLoading = isPending && isFetching` compute to
+    // `false` even though nothing has loaded yet. Left uncorrected, callers
+    // see one frame of "ready but empty" (no skeleton) on a brand-new scope
+    // before the query flips `enabled` and `isLoading` jumps back to `true`.
+    isLoading: query.isLoading || !anchorResolved,
     messages,
     latestSeq,
     hasMoreOlder,

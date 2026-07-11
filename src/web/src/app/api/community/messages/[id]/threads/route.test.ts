@@ -11,6 +11,7 @@ const mockListChildChannels = vi.fn()
 const mockCreateChannel = vi.fn()
 const mockCreateMessage = vi.fn()
 const mockListMessages = vi.fn()
+const mockGetUserInternal = vi.fn()
 
 const mockFanOutToChannel = vi.fn()
 
@@ -30,6 +31,9 @@ vi.mock("@alook/shared", async () => {
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         listMessages: (...a: unknown[]) => mockListMessages(...a),
+      },
+      user: {
+        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
       },
     },
   }
@@ -69,12 +73,6 @@ const ctx = { params: { id: "msg-p" } } as any
 describe("POST /api/community/messages/[id]/threads", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetMessage.mockResolvedValue({
-      id: "msg-p",
-      authorId: "u-author",
-      content: "the parent content",
-      channelId: "c-parent",
-    })
     mockGetChannelForMember.mockResolvedValue({
       id: "c-parent",
       serverId: "s1",
@@ -91,6 +89,33 @@ describe("POST /api/community/messages/[id]/threads", () => {
       messageCount: 0,
       createdAt: "2026-07-03T00:00:00.000Z",
     })
+    mockGetUserInternal.mockResolvedValue({ id: "u1", name: "Thread Creator" })
+    // The thread-creation system message (see #12/§5 — inserted into the
+    // PARENT channel, distinct from the parent-message-clone-into-the-NEW-
+    // thread-channel bug finding #6 already guards against below).
+    mockCreateMessage.mockResolvedValue({ id: "sysmsg-1" })
+    mockGetMessage.mockImplementation((_db, id) => {
+      if (id === "sysmsg-1") {
+        return Promise.resolve({
+          id: "sysmsg-1",
+          authorId: "u1",
+          authorName: "Thread Creator",
+          authorImage: null,
+          content: "Thread Creator started a thread: my thread",
+          type: "thread_created",
+          mentionType: null,
+          replyToId: null,
+          embeds: null,
+          createdAt: "2026-07-03T00:00:01.000Z",
+        })
+      }
+      return Promise.resolve({
+        id: "msg-p",
+        authorId: "u-author",
+        content: "the parent content",
+        channelId: "c-parent",
+      })
+    })
   })
 
   it("creates the child channel WITHOUT cloning the parent message into it", async () => {
@@ -98,9 +123,22 @@ describe("POST /api/community/messages/[id]/threads", () => {
     expect(res.status).toBe(201)
 
     // Regression guard: the fix in finding #6 removes the createMessage(...)
-    // clone. If someone adds it back, this assertion fails and the drift
-    // problem (parent edits, attachments/reactions/mentions lost) returns.
-    expect(mockCreateMessage).not.toHaveBeenCalled()
+    // CLONE of the parent's content into the NEW thread channel — that call
+    // would have `channelId: "t-new"`. It's distinct from the (correct,
+    // added in #12/§5) system-message insert into the PARENT channel
+    // (`channelId: "c-parent"`) asserted below — this checks no call
+    // targets the new thread channel specifically.
+    expect(mockCreateMessage).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ channelId: "t-new" }),
+    )
+
+    // The new system-message insert targets the PARENT channel, with the
+    // `thread_created` convention type (#12/§5).
+    expect(mockCreateMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ channelId: "c-parent", type: "thread_created" }),
+    )
 
     // Structural check: listMessages on the new thread channel is empty —
     // no opener clone row exists.
@@ -126,12 +164,30 @@ describe("POST /api/community/messages/[id]/threads", () => {
     expect(body.id).toBe("t-new")
     expect(body.parentMessageId).toBe("msg-p")
 
-    // The CHILD_CHANNEL_CREATE fan-out fires with the new thread id.
+    // Both fan-outs to the parent channel fire: CHILD_CHANNEL_CREATE and the
+    // new system-message MESSAGE_CREATE (#12/§5).
     expect(mockFanOutToChannel).toHaveBeenCalledWith(
       "c-parent",
       expect.objectContaining({ parentMessageId: "msg-p" }),
       expect.anything(),
     )
+    // The system-message broadcast is NOT given `excludeUserId` — unlike the
+    // creator's own client-side actions elsewhere, nothing inserts this row
+    // into the creator's local cache, so they need the WS broadcast too to
+    // see "started a thread" without a refresh (verification acceptance
+    // finding #6 in community-message-tech-debt-acceptance.md).
+    expect(mockFanOutToChannel).toHaveBeenCalledWith(
+      "c-parent",
+      expect.objectContaining({
+        type: "community:message.create",
+        message: expect.objectContaining({ id: "sysmsg-1", type: "system", systemKind: "thread" }),
+      }),
+    )
+    const systemMessageCall = mockFanOutToChannel.mock.calls.find(
+      (call) => (call[1] as { type?: string }).type === "community:message.create",
+    )
+    expect(systemMessageCall).toBeDefined()
+    expect(systemMessageCall).toHaveLength(2)
   })
 
   it("rejects a second thread on the same parent message", async () => {

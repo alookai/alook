@@ -14,14 +14,14 @@ import { EmojiPickerPopover } from "./emoji-picker"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./message-menu"
 import { formatMessageTime } from "./format-time"
-import type { Msg, OpenProfile } from "./_types"
+import type { RenderMsg, OpenProfile } from "./_types"
 
 export function Message({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onCreateThread, onCopy, onRetry,
   onPreviewImage, onDownloadFile, highlighted, resolveUserName,
 }: {
-  m: Msg
+  m: RenderMsg
   compact?: boolean
   pinned?: boolean
   onOpenThread: (id: string) => void
@@ -63,7 +63,6 @@ export function Message({
   const interactive = !compact && showMenu
   const row = (
     <div
-      id={`dpv-${m.id}`}
       className={[
         "group relative -mx-2 flex gap-2 rounded px-2 transition-colors",
         m.grouped ? "py-0" : "mt-3 pt-1.5 pb-0",
@@ -116,7 +115,7 @@ export function Message({
         {m.grouped ? (
           <div className="w-10 shrink-0" />
         ) : (
-          <button onClick={(e) => onOpenProfile?.(m.authorName ?? "", e)} className="shrink-0 self-start">
+          <button onClick={(e) => onOpenProfile?.(m.authorName ?? "", e, undefined, m.authorId)} className="shrink-0 self-start">
             <Avatar label={m.authorAvatar ?? "?"} size={40} />
           </button>
         )}
@@ -124,7 +123,7 @@ export function Message({
           {!m.grouped && (
             <div className="flex items-baseline gap-2">
               <button
-                onClick={(e) => onOpenProfile?.(m.authorName ?? "", e)}
+                onClick={(e) => onOpenProfile?.(m.authorName ?? "", e, undefined, m.authorId)}
                 className="text-[15px] font-semibold hover:underline"
                 style={{ color: m.color ?? "var(--foreground)" }}
               >

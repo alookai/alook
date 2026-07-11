@@ -42,10 +42,21 @@ describe("mapMessageForApi", () => {
     expect(out.authorAvatar).toBe("A")
   })
 
-  it("hides `type: default` (undefined) and surfaces `system` verbatim", () => {
-    expect(mapMessageForApi({ ...baseRow, type: null }, emptyApiCtx).type).toBeUndefined()
-    expect(mapMessageForApi({ ...baseRow, type: "default" }, emptyApiCtx).type).toBeUndefined()
+  it("maps ordinary rows to type: \"chat\" (never undefined — #12's exhaustive discriminator) and surfaces `system` verbatim", () => {
+    expect(mapMessageForApi({ ...baseRow, type: null }, emptyApiCtx).type).toBe("chat")
+    expect(mapMessageForApi({ ...baseRow, type: "default" }, emptyApiCtx).type).toBe("chat")
     expect(mapMessageForApi({ ...baseRow, type: "system" }, emptyApiCtx).type).toBe("system")
+  })
+
+  it("splits `type: \"thread_created\"` into { type: \"system\", systemKind: \"thread\" }", () => {
+    const out = mapMessageForApi({ ...baseRow, type: "thread_created" }, emptyApiCtx)
+    expect(out.type).toBe("system")
+    expect(out.systemKind).toBe("thread")
+  })
+
+  it("a bare `type: \"system\"` row (no known kind) omits systemKind", () => {
+    const out = mapMessageForApi({ ...baseRow, type: "system" }, emptyApiCtx)
+    expect(out.systemKind).toBeUndefined()
   })
 
   it("resolves replyTo from an in-scope replyMap entry", () => {
@@ -97,10 +108,26 @@ describe("mapMessageForApi", () => {
 })
 
 describe("mapMessageForWs", () => {
-  it("returns type: default explicitly (WS convention differs from API)", () => {
-    expect(mapMessageForWs({ ...baseRow, type: null }, emptyWsCtx).type).toBe("default")
-    expect(mapMessageForWs({ ...baseRow, type: "default" }, emptyWsCtx).type).toBe("default")
+  it("maps ordinary rows to type: \"chat\" (was \"default\" before #12's exhaustive discriminator)", () => {
+    expect(mapMessageForWs({ ...baseRow, type: null }, emptyWsCtx).type).toBe("chat")
+    expect(mapMessageForWs({ ...baseRow, type: "default" }, emptyWsCtx).type).toBe("chat")
     expect(mapMessageForWs({ ...baseRow, type: "system" }, emptyWsCtx).type).toBe("system")
+  })
+
+  it("splits `type: \"thread_created\"` into { type: \"system\", systemKind: \"thread\" } for both mappers", () => {
+    const wsOut = mapMessageForWs({ ...baseRow, type: "thread_created" }, emptyWsCtx)
+    expect(wsOut.type).toBe("system")
+    expect(wsOut.systemKind).toBe("thread")
+
+    const apiOut = mapMessageForApi({ ...baseRow, type: "thread_created" }, emptyApiCtx)
+    expect(apiOut.type).toBe("system")
+    expect(apiOut.systemKind).toBe("thread")
+  })
+
+  it("a bare `type: \"system\"` row (no known kind) round-trips to { type: \"system\" } with systemKind omitted", () => {
+    const out = mapMessageForWs({ ...baseRow, type: "system" }, emptyWsCtx)
+    expect(out.type).toBe("system")
+    expect(out.systemKind).toBeUndefined()
   })
 
   it("carries replyTo and mentionType — regression for the thread-payload skip bug", () => {

@@ -62,7 +62,7 @@ export function ThreadOpener({
 
       <div className="flex gap-3">
         <button
-          onClick={(e) => onOpenProfile?.(msg.authorName, e)}
+          onClick={(e) => onOpenProfile?.(msg.authorName, e, undefined, msg.authorId)}
           className="shrink-0 self-start"
         >
           <Avatar label={avatarLabel} size={32} />
@@ -70,7 +70,7 @@ export function ThreadOpener({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <button
-              onClick={(e) => onOpenProfile?.(msg.authorName, e)}
+              onClick={(e) => onOpenProfile?.(msg.authorName, e, undefined, msg.authorId)}
               className="text-sm font-semibold hover:underline"
             >
               {msg.authorName}
