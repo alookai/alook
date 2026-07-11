@@ -8,7 +8,7 @@ import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
-import { useFileAttachments } from "@/hooks/use-file-attachments"
+import { useFileAttachments, type PendingFile } from "@/hooks/use-file-attachments"
 import { ALLOWED_ATTACHMENT_MIME_PREFIXES, MAX_ATTACHMENT_SIZE_BYTES } from "@alook/shared"
 import { Avatar } from "./avatar"
 import { ChannelIcon } from "./channel-icon"
@@ -33,6 +33,16 @@ import {
   type ChannelRefPopupState,
 } from "@/lib/community/channel-ref-extension"
 
+export type SendAttachment = { file: File; width?: number; height?: number }
+
+// Pure mapping from `useFileAttachments`'s pending-file state to `onSend`'s
+// attachments argument. Extracted so the width/height threading through
+// `Composer.send()` is unit-testable without mounting the tiptap editor.
+export function pendingFilesToSendAttachments(pendingFiles: PendingFile[]): SendAttachment[] | undefined {
+  if (pendingFiles.length === 0) return undefined
+  return pendingFiles.map((pf) => ({ file: pf.file, width: pf.width, height: pf.height }))
+}
+
 // Composer — plain-text TipTap editor with a chat-style @-mention popover.
 // Users type raw markdown which MessageBody/Streamdown renders on display.
 // Enter sends, Shift+Enter adds a newline; while the mention popover is open
@@ -52,7 +62,7 @@ export function Composer({ channel, context, members, onSearchMembers, channelRe
   // for DM composers. Always provided by the caller — empty array is fine,
   // the popup just shows nothing on `/`.
   channelRefCandidates?: ChannelRefCandidate[]
-  onSend?: (markdown: string, attachments?: File[], mentionType?: MentionType) => void
+  onSend?: (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => void
   onCreateThread?: () => void
   onTyping?: () => void
   // when set, shows a "Replying to X" bar above the input
@@ -230,8 +240,7 @@ export function Composer({ channel, context, members, onSearchMembers, channelRe
     if (!editor || (editor.isEmpty && pendingFiles.length === 0)) return
     const markdown = editor.isEmpty ? "" : editor.getText({ blockSeparator: "\n" }).trim()
     const mentionType = detectMentionType(markdown)
-    const files = pendingFiles.length > 0 ? pendingFiles.map((pf) => pf.file) : undefined
-    onSend?.(markdown, files, mentionType)
+    onSend?.(markdown, pendingFilesToSendAttachments(pendingFiles), mentionType)
     editor.commands.clearContent()
     setPendingFiles([])
     setMentionPopup(EMPTY_MENTION_STATE)

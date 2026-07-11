@@ -3,6 +3,7 @@
 import { MessagesSquare, FileText, Download } from "lucide-react"
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
+import { attachmentAspectRatio } from "./message"
 import { formatMessageTime } from "./format-time"
 import { Skeleton } from "@/components/ui/skeleton"
 import { NumberTicker } from "@/components/ui/number-ticker"
@@ -91,7 +92,7 @@ export function ThreadOpener({
                     onClick={() => onPreviewImage?.(a.url)}
                     className="block w-fit max-w-70 overflow-hidden rounded-md border border-border transition-colors hover:border-primary/40"
                   >
-                    <img src={a.url} alt={a.name} className="max-h-40 max-w-70 rounded-md object-contain" />
+                    <img src={a.url} alt={a.name} className="max-h-40 max-w-70 rounded-md object-contain" style={{ aspectRatio: attachmentAspectRatio(a.width, a.height) }} />
                   </button>
                 ) : (
                   <button

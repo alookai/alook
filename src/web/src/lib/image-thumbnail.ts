@@ -1,6 +1,8 @@
 const MAX_SIZE = 200;
 
-export async function generateThumbnail(file: File): Promise<Blob | null> {
+export type ThumbnailResult = { blob: Blob; width: number; height: number };
+
+export async function generateThumbnail(file: File): Promise<ThumbnailResult | null> {
   if (!file.type.startsWith("image/") || file.type === "image/svg+xml") return null;
 
   let objectUrl: string | undefined;
@@ -16,7 +18,9 @@ export async function generateThumbnail(file: File): Promise<Blob | null> {
     if (!ctx) return null;
     ctx.drawImage(img, 0, 0, w, h);
 
-    return await canvasToBlob(canvas, "image/jpeg", 0.7);
+    const blob = await canvasToBlob(canvas, "image/jpeg", 0.7);
+    if (!blob) return null;
+    return { blob, width: img.naturalWidth, height: img.naturalHeight };
   } catch {
     return null;
   } finally {

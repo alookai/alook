@@ -75,6 +75,50 @@ class MockIntersectionObserver {
   }
 }
 
+// ── MutationObserver polyfill ────────────────────────────────────────────
+// The virtualized message list mounts/unmounts rows as the user scrolls —
+// no `messages` array change fires, so the IntersectionObserver seed effect
+// never re-runs. The hook wires a MutationObserver on the scroll root to
+// observe rows added after the initial seed; this polyfill records the
+// callback and lets a test fire an "added node" batch.
+type MutationObserverInstance = {
+  callback: MutationCallback
+  disconnected: boolean
+}
+let mutationObservers: MutationObserverInstance[] = []
+
+class MockMutationObserver {
+  private inst: MutationObserverInstance
+  constructor(callback: MutationCallback) {
+    this.inst = { callback, disconnected: false }
+    mutationObservers.push(this.inst)
+  }
+  observe() {}
+  disconnect() {
+    this.inst.disconnected = true
+  }
+  takeRecords(): MutationRecord[] {
+    return []
+  }
+}
+
+// Simulate the virtualizer appending new row nodes to the scroll container.
+function fireAddedNodes(nodes: Element[]) {
+  for (const obs of mutationObservers) {
+    if (obs.disconnected) continue
+    obs.callback(
+      [
+        {
+          type: "childList",
+          addedNodes: nodes as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+        } as unknown as MutationRecord,
+      ],
+      undefined as unknown as MutationObserver,
+    )
+  }
+}
+
 function fireIntersections(
   entries: Array<{ target: Element; isIntersecting: boolean; intersectionRatio: number }>,
 ) {
@@ -116,6 +160,7 @@ function resetHarness() {
   pendingEffects = []
   effectCleanups = []
   observers = []
+  mutationObservers = []
   advanceSpy.mockClear()
   flushSpy.mockClear()
 }
@@ -133,9 +178,18 @@ function makeRoot(): HTMLElement {
 }
 
 // Fabricate a message-row element. `dataset.msgId` mirrors the DOM API the
-// hook reads at intersection time.
+// hook reads at intersection time. `matches`/`querySelectorAll` mirror the
+// Element API the MutationObserver-added-node scan reads: the row element
+// itself carries `data-msg-id`, so `matches("[data-msg-id]")` is true and a
+// self-scan returns itself.
 function makeRow(id: string): Element {
-  return { dataset: { msgId: id } } as unknown as Element
+  const el = {
+    dataset: { msgId: id },
+    nodeType: 1,
+    matches: (sel: string) => sel === "[data-msg-id]",
+    querySelectorAll: () => [] as unknown as Iterable<Element>,
+  }
+  return el as unknown as Element
 }
 
 // The hook queries `root.querySelectorAll("[data-msg-id]")` to seed the
@@ -151,6 +205,8 @@ beforeEach(() => {
   // "function" inside the hook.
   ;(globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver =
     MockIntersectionObserver
+  ;(globalThis as unknown as { MutationObserver: unknown }).MutationObserver =
+    MockMutationObserver
 })
 
 describe("useChannelWatermark — visibility gate", () => {
@@ -268,6 +324,41 @@ describe("useChannelWatermark — monotone forward", () => {
     fireIntersections([{ target: rowB, isIntersecting: true, intersectionRatio: 0.9 }])
     // b > a lexicographically at the same createdAt, so both advance.
     expect(advanceSpy.mock.calls.map((c) => c[1])).toEqual(["m_a", "m_b"])
+  })
+})
+
+describe("useChannelWatermark — virtualized rows (mounted on scroll, no messages change)", () => {
+  it("observes a row the virtualizer mounts AFTER the initial seed, so scrolling clears unreads", async () => {
+    // Regression: with the virtualized message list, rows enter the DOM as
+    // the user scrolls — the `messages` array reference doesn't change, so
+    // the seed effect (deps: [channelId, messages, scrollRootEl, viewerId])
+    // never re-runs and the newly-mounted row is never observed. The read
+    // watermark then never advances past whatever was on-screen at mount,
+    // so "NEW" unreads never clear on scroll. A MutationObserver on the
+    // scroll root must pick up the added row and observe it.
+    const useHook = await loadHook()
+    const root = makeRoot()
+    // At mount only the top row is rendered by the virtualizer.
+    const topRow = makeRow("m_1")
+    attachRows(root, [topRow])
+    useHook({
+      channelId: "ch_1",
+      messages: [
+        { id: "m_1", createdAt: "2026-07-01T00:00:00.000Z", authorId: "u_other" },
+        { id: "m_2", createdAt: "2026-07-01T00:00:05.000Z", authorId: "u_other" },
+      ],
+      scrollRootEl: root,
+    })
+    flushEffects()
+
+    // User scrolls down — the virtualizer mounts m_2's row into the DOM.
+    // No `messages` change fires; only a DOM mutation.
+    const scrolledRow = makeRow("m_2")
+    fireAddedNodes([scrolledRow])
+
+    // The newly-mounted row must now be observed and advance the watermark.
+    fireIntersections([{ target: scrolledRow, isIntersecting: true, intersectionRatio: 0.9 }])
+    expect(advanceSpy).toHaveBeenCalledWith("ch_1", "m_2")
   })
 })
 

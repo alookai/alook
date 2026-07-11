@@ -311,10 +311,25 @@ function useMessagesInner(
 
     const updatedAt = query.dataUpdatedAt
     const isFresh = !!updatedAt && Date.now() - updatedAt < STALE_HYDRATED_CACHE_MS
-    if (!isFresh) {
-      void queryClient.resetQueries({ queryKey })
-      return
-    }
+
+    // Both branches fetch a fresh anchor-centered page out of band and swap
+    // it in via `setQueryData` — NEITHER uses `resetQueries`. `resetQueries`
+    // clears `pages` to empty synchronously, which flashes a second loading
+    // skeleton mid-mount and, worse, wipes the virtualizer's measurement
+    // cache so the one-shot mount scroll (fired once the refetch lands)
+    // mis-targets and settles at the top hero instead of the NEW divider —
+    // and the unread rows near the tail then never enter the viewport, so
+    // the read watermark never advances. Keeping the old (renderable) window
+    // on screen until the fresh page lands makes the transition a direct
+    // swap with no empty frame (DESIGN.md "Fade, don't swap").
+    //
+    // The branches differ only in what they keep:
+    //   - FRESH cache (same-session drift, e.g. returning from a Thread after
+    //     the watermark advanced): the already-loaded history is still valid,
+    //     so MERGE the new anchor page into it — dropping it would lose rows
+    //     the user paged in via `fetchOlder`.
+    //   - STALE cache (cross-session IDB hydration): the loaded window is
+    //     untrustworthy, so REPLACE it with just the fresh anchor page.
     const anchorPageParam: MessagesPageParam = { mode: "anchor", anchor: anchorId }
     queryFn({ pageParam: anchorPageParam })
       .then((page) => {
@@ -323,10 +338,16 @@ function useMessagesInner(
         // a now-outdated fetch result landing late.
         if (anchorResetKeyRef.current !== resetKey) return
         queryClient.setQueryData<PageCache>(queryKey, (current) => {
+          // Stale replace-path: use the fresh page even if `current` is
+          // somehow absent — never fall back to leaving an un-anchored
+          // window in place.
+          if (!isFresh) {
+            return { pages: [page], pageParams: [anchorPageParam] }
+          }
           if (!current) return current
-          // Merge the freshly-fetched anchor page into the ALREADY-LOADED
-          // history rather than replacing `pages` outright — the previous
-          // implementation discarded every page the user had loaded via
+          // Fresh merge-path: fold the freshly-fetched anchor page into the
+          // ALREADY-LOADED history rather than replacing `pages` outright —
+          // discarding it would drop every page the user loaded via
           // `fetchOlder` (scroll-up pagination), which surfaced as history
           // vanishing on channel switch. `mergeMessagesPages` sorts +
           // dedupes by id, so overlapping rows between the old window and
@@ -345,6 +366,9 @@ function useMessagesInner(
       .catch(() => {
         // Out-of-band fetch failed — fall back to the reset path so the
         // scope isn't stuck showing a stale, un-anchored window forever.
+        // This is the ONLY `resetQueries` path left: an outright fetch
+        // failure has no fresh page to swap in, so the empty-then-refetch
+        // flash is the acceptable last resort rather than the common case.
         void queryClient.resetQueries({ queryKey })
       })
   }, [

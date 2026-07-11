@@ -75,6 +75,47 @@ class MockIntersectionObserver {
   }
 }
 
+// ── MutationObserver polyfill ────────────────────────────────────────────
+// Mirrors the channel-side harness — the virtualized list mounts rows on
+// scroll with no `messages` change, so the hook watches the scroll root via
+// MutationObserver to observe rows added after the initial seed.
+type MutationObserverInstance = {
+  callback: MutationCallback
+  disconnected: boolean
+}
+let mutationObservers: MutationObserverInstance[] = []
+
+class MockMutationObserver {
+  private inst: MutationObserverInstance
+  constructor(callback: MutationCallback) {
+    this.inst = { callback, disconnected: false }
+    mutationObservers.push(this.inst)
+  }
+  observe() {}
+  disconnect() {
+    this.inst.disconnected = true
+  }
+  takeRecords(): MutationRecord[] {
+    return []
+  }
+}
+
+function fireAddedNodes(nodes: Element[]) {
+  for (const obs of mutationObservers) {
+    if (obs.disconnected) continue
+    obs.callback(
+      [
+        {
+          type: "childList",
+          addedNodes: nodes as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+        } as unknown as MutationRecord,
+      ],
+      undefined as unknown as MutationObserver,
+    )
+  }
+}
+
 function fireIntersections(
   entries: Array<{ target: Element; isIntersecting: boolean; intersectionRatio: number }>,
 ) {
@@ -114,6 +155,7 @@ function resetHarness() {
   pendingEffects = []
   effectCleanups = []
   observers = []
+  mutationObservers = []
   advanceSpy.mockClear()
   flushSpy.mockClear()
 }
@@ -128,7 +170,13 @@ function makeRoot(): HTMLElement {
 }
 
 function makeRow(id: string): Element {
-  return { dataset: { msgId: id } } as unknown as Element
+  const el = {
+    dataset: { msgId: id },
+    nodeType: 1,
+    matches: (sel: string) => sel === "[data-msg-id]",
+    querySelectorAll: () => [] as unknown as Iterable<Element>,
+  }
+  return el as unknown as Element
 }
 
 function attachRows(root: HTMLElement, rows: Element[]) {
@@ -140,6 +188,35 @@ beforeEach(() => {
   resetHarness()
   ;(globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver =
     MockIntersectionObserver
+  ;(globalThis as unknown as { MutationObserver: unknown }).MutationObserver =
+    MockMutationObserver
+})
+
+describe("useDmWatermark — virtualized rows (mounted on scroll, no messages change)", () => {
+  it("observes a row the virtualizer mounts AFTER the initial seed, so scrolling clears unreads", async () => {
+    // Parity with the channel hook — see its equivalent test. Rows enter the
+    // DOM on scroll with no `messages` change; a MutationObserver on the
+    // scroll root must observe them so the read watermark advances.
+    const useHook = await loadHook()
+    const root = makeRoot()
+    const topRow = makeRow("m_1")
+    attachRows(root, [topRow])
+    useHook({
+      dmId: "dm_1",
+      messages: [
+        { id: "m_1", createdAt: "2026-07-01T00:00:00.000Z", authorId: "u_other" },
+        { id: "m_2", createdAt: "2026-07-01T00:00:05.000Z", authorId: "u_other" },
+      ],
+      scrollRootEl: root,
+    })
+    flushEffects()
+
+    const scrolledRow = makeRow("m_2")
+    fireAddedNodes([scrolledRow])
+
+    fireIntersections([{ target: scrolledRow, isIntersecting: true, intersectionRatio: 0.9 }])
+    expect(advanceSpy).toHaveBeenCalledWith("dm_1", "m_2")
+  })
 })
 
 describe("useDmWatermark — visibility gate", () => {

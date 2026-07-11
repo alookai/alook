@@ -183,7 +183,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     expect(cache?.pages.length).toBe(1)
   })
 
-  it("stale cache with a drifted anchor: falls back to resetQueries (full refetch)", async () => {
+  it("stale cache with a drifted anchor: swaps in the fresh anchor window WITHOUT ever clearing to an empty list", async () => {
     // `staleTime: Infinity` — without this, mounting a new observer over
     // already-cached data triggers TanStack's own implicit refetch-on-mount
     // (default staleTime is 0), which would race with and consume the
@@ -194,7 +194,7 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     const key = communityKeys.channelMessages("ch_2")
 
     queryClient.setQueryData(key, {
-      pages: [{ messages: [{ id: "m_old_1" }], hasMoreOlder: false, hasMoreNewer: false }],
+      pages: [{ messages: [{ id: "m_old_1", createdAt: "2026-06-30T00:00:00.000Z" }], hasMoreOlder: false, hasMoreNewer: false }],
       pageParams: [{ mode: "anchor", anchor: "m_old_anchor" }],
     })
     // Force `dataUpdatedAt` far in the past — well beyond STALE_HYDRATED_CACHE_MS
@@ -202,11 +202,18 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
     const state = queryClient.getQueryState(key)
     if (state) state.dataUpdatedAt = Date.now() - 60_000
 
-    apiFetchMock.mockResolvedValue({
-      messages: [{ id: "m_fresh_anchor" }],
-      hasMoreOlder: false,
-      hasMoreNewer: false,
-    })
+    // Resolve on a real delay (not synchronously) so React commits the
+    // pre-swap render as its own frame — otherwise React batches the "old
+    // window" and "fresh window" updates into one commit and hides the very
+    // empty-frame regression this test guards against. See the fresh-cache
+    // test above for the same rationale.
+    apiFetchMock.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve({
+        messages: [{ id: "m_fresh_anchor", createdAt: "2026-07-01T00:00:00.000Z" }],
+        hasMoreOlder: true,
+        hasMoreNewer: false,
+      }), 20)),
+    )
 
     const renderedMessageIds: string[][] = []
     act(() => {
@@ -225,10 +232,24 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
 
     await flush()
 
+    // The stale window must never clear to empty mid-mount — that empty
+    // frame is what surfaced as the "second skeleton flash then jump to the
+    // top hero" bug. `resetQueries` (the old behavior) clears `pages` to
+    // `undefined` synchronously (one 0-length render) before the refetch
+    // lands; this assertion fails under that path.
+    for (const ids of renderedMessageIds) {
+      expect(ids.length).toBeGreaterThan(0)
+    }
+    // The stale cross-session window is untrustworthy, so the fresh anchor
+    // page REPLACES it (unlike the fresh-drift case, which merges) — the
+    // final render shows only the refetched window.
     expect(renderedMessageIds.at(-1)).toEqual(["m_fresh_anchor"])
-    // The reset path re-runs the query through the normal queryFn — the URL
-    // is the same `?anchor=` shape, but this exercises `resetQueries`
-    // rather than the direct `setQueryData` merge.
+    // Fix 3 fetched the fresh anchor window out of band via the queryFn.
+    // (A second `?anchor=m_old_anchor` fetch may also fire — that's Fix 4's
+    // independent mount-time `invalidateQueries` re-running the persisted
+    // stale pageParam. Both keep the previous data on screen during the
+    // refetch; neither is a `resetQueries` empty-clear, which is what this
+    // test's per-render `length > 0` assertion above guards against.)
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/api/community/channels/ch_2/messages?anchor=m_fresh_anchor",
     )

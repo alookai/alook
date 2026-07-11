@@ -46,10 +46,25 @@ describe("MessageList — loading→loaded mount identity (Phase 4)", () => {
       const messages = [{ id: "m1", authorName: "Alice", content: "hi", createdAt: new Date(0).toISOString() }]
 
       let renderer: TestRenderer.ReactTestRenderer
+      // `createNodeMock` is called for EVERY host node react-test-renderer
+      // renders, not just the scroll container — including the
+      // `<number-flow-react>` custom element the "↓ N" pill's `NumberTicker`
+      // renders. That element's class-component wrapper (`NumberFlowImpl`)
+      // calls `this.el?.willUpdate()`/`didUpdate()` on its ref whenever the
+      // `data` prop changes (see `@number-flow/react`'s
+      // `getSnapshotBeforeUpdate`) — the virtualized `belowCount` now
+      // computes synchronously from virtualizer state, so it can change
+      // value between the two renders below, unlike the pre-virtualization
+      // version (computed async, stayed 0 across both renders in this
+      // test). Discriminate by node type so only the real scroll `<div>`
+      // gets the full scroll-container mock; everything else gets a no-op
+      // stub with the handful of methods any wrapped custom element might
+      // call.
+      const genericMock = { willUpdate: () => {}, didUpdate: () => {}, addEventListener: () => {}, removeEventListener: () => {} }
       act(() => {
         renderer = TestRenderer.create(
           React.createElement(MessageList, { channel: "general", messages: [], loading: true, onOpenThread: vi.fn() }),
-          { createNodeMock: () => mockScrollEl },
+          { createNodeMock: (node) => (node.type === "div" ? mockScrollEl : genericMock) },
         )
       })
 

@@ -8,6 +8,8 @@ export type PendingFile = {
   file: File;
   thumbnailUrl: string | null;
   thumbnailBlob: Blob | null;
+  width?: number;
+  height?: number;
 };
 
 export type UseFileAttachmentsOptions = {
@@ -96,9 +98,15 @@ export function useFileAttachments(opts: UseFileAttachmentsOptions = {}) {
 
     const pending: PendingFile[] = await Promise.all(
       valid.map(async (file) => {
-        const blob = await generateThumbnail(file);
-        const thumbnailUrl = blob ? URL.createObjectURL(blob) : null;
-        return { file, thumbnailUrl, thumbnailBlob: blob };
+        const thumbnail = await generateThumbnail(file);
+        const thumbnailUrl = thumbnail ? URL.createObjectURL(thumbnail.blob) : null;
+        return {
+          file,
+          thumbnailUrl,
+          thumbnailBlob: thumbnail?.blob ?? null,
+          width: thumbnail?.width,
+          height: thumbnail?.height,
+        };
       }),
     );
 

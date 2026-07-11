@@ -139,7 +139,7 @@ type PageCache = InfiniteData<MessagesPage>
  * or DM stream — the same slot `useSendMessage` writes optimistic rows into,
  * so the two paths converge. Deduplicates by id.
  */
-function insertMessageIntoCache(
+export function insertMessageIntoCache(
   cache: PageCache | undefined,
   msg: CommunityMessageCreate["message"] | CommunityDmNewMessage["message"],
 ): PageCache | undefined {
@@ -150,7 +150,7 @@ function insertMessageIntoCache(
   const attachments: Attachment[] | undefined = msg.attachments?.map((a) => {
     const isImage = a.contentType?.startsWith("image/")
     return isImage
-      ? { kind: "image", name: a.filename, url: a.url }
+      ? { kind: "image", name: a.filename, url: a.url, width: a.width ?? undefined, height: a.height ?? undefined }
       : {
         kind: "file",
         name: a.filename,
@@ -902,9 +902,27 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
   // (or the tab was suspended). Invalidating the focused scope's message
   // query on reconnect fires a top-up refetch — TanStack re-runs every
   // page's `pageParam`, so anchor windows and newest-tail windows both
-  // catch up without any client-side `?since` bookkeeping. Read-state
-  // snapshots (also persisted) are invalidated too so the NEW divider
-  // matches the fresh server watermark on reconnect.
+  // catch up without any client-side `?since` bookkeeping.
+  //
+  // Do NOT invalidate the read-state SNAPSHOT here. The snapshot hook
+  // (`useChannelReadStateSnapshot`, `gcTime: 0`) latches its first resolved
+  // value in a ref and deliberately never updates it during a mount — that
+  // freeze is what keeps the "New" divider pinned while the watermark
+  // advances. Re-fetching it can't move the divider (the ref ignores the new
+  // value), but it DOES flip the hook's `isFetching` back to true, which the
+  // channel/DM pages read as `lastReadMessageId: undefined` →
+  // `useMessages.isLoading: true` → the whole view drops back to the loading
+  // skeleton. Because `onReconnect` fires once even on a fresh page load (a
+  // StrictMode / refresh double-connect makes the socket's second open run
+  // it ~1.5s in), that surfaced as a SECOND skeleton flash mid-mount —
+  // "skeleton → content → skeleton → scroll to the top hero" (the empty
+  // round-trip also burned the message list's one-shot mount-scroll gate;
+  // see `use-scroll-anchor.ts`'s re-arm-on-empty branch). Verified via live
+  // Playwright page-level trace: the second skeleton window lines up exactly
+  // with `readSnapshotFetching` going true at t≈1.75s. The message-query
+  // invalidation below is the legitimate top-up and keeps its data on
+  // screen; the divider is already correct from the first (frozen) snapshot,
+  // so nothing here needs the snapshot refetched.
   const handleReconnect = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: communityKeys.machines() })
     const sub = useCommunityStore.getState().subscription
@@ -912,16 +930,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
       void queryClient.invalidateQueries({
         queryKey: communityKeys.channelMessages(sub.channelId),
       })
-      void queryClient.invalidateQueries({
-        queryKey: communityKeys.channelReadStateSnapshot(sub.channelId),
-      })
     }
     if (sub.dmConversationId) {
       void queryClient.invalidateQueries({
         queryKey: communityKeys.dmMessages(sub.dmConversationId),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: communityKeys.dmReadStateSnapshot(sub.dmConversationId),
       })
     }
     // Inbox counts also need a refetch — unreads and mentions could have

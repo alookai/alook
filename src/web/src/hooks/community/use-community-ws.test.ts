@@ -1281,7 +1281,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     ).toBe(true)
   })
 
-  it("invalidates the focused channel's message + read-state queries + inbox on reconnect", async () => {
+  it("invalidates the focused channel's messages + inbox on reconnect, but NOT the read-state snapshot", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ channelId: "ch_focus" })
 
@@ -1294,7 +1294,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     const invalidatedKeys = spy.mock.calls.map(
       (c) => c[0]?.queryKey as unknown[] | undefined,
     )
-    // Focused channel messages
+    // Focused channel messages — a legitimate top-up refetch that keeps data.
     expect(
       invalidatedKeys.some(
         (k) =>
@@ -1305,7 +1305,12 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
           k[3] === "messages",
       ),
     ).toBe(true)
-    // Focused channel read-state snapshot
+    // Read-state snapshot MUST NOT be invalidated: the snapshot hook latches
+    // its first value (gcTime: 0, frozen ref) so a refetch can't move the
+    // "New" divider — it only flips `isFetching` back to true, which the
+    // channel page reads as loading and flashes a second skeleton mid-mount
+    // (the "skeleton → content → skeleton → top hero" refresh bug). See
+    // `handleReconnect`'s comment in use-community-ws.ts.
     expect(
       invalidatedKeys.some(
         (k) =>
@@ -1315,7 +1320,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
           k[2] === "ch_focus" &&
           k[3] === "read-state-snapshot",
       ),
-    ).toBe(true)
+    ).toBe(false)
     // Inbox
     expect(
       invalidatedKeys.some(
@@ -1324,7 +1329,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
     ).toBe(true)
   })
 
-  it("invalidates the focused DM's message + read-state queries on reconnect", async () => {
+  it("invalidates the focused DM's messages on reconnect, but NOT its read-state snapshot", async () => {
     const { useCommunityStore } = await import("@/stores/community")
     useCommunityStore.getState().subscribe({ dmConversationId: "dm_focus" })
 
@@ -1347,6 +1352,8 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
           k[3] === "messages",
       ),
     ).toBe(true)
+    // Read-state snapshot MUST NOT be invalidated — same rationale as the
+    // channel case (mirrors `useChannelReadStateSnapshot`'s freeze contract).
     expect(
       invalidatedKeys.some(
         (k) =>
@@ -1356,7 +1363,7 @@ describe("useCommunityWs — resyncs machines on WS reconnect", () => {
           k[2] === "dm_focus" &&
           k[3] === "read-state-snapshot",
       ),
-    ).toBe(true)
+    ).toBe(false)
   })
 
   it("only invalidates the focused scope — no channel invalidation when only a DM is focused", async () => {

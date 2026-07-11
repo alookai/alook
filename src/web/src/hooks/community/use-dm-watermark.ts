@@ -99,7 +99,33 @@ export function useDmWatermark({
     const nodes = scrollRootEl.querySelectorAll<HTMLElement>("[data-msg-id]")
     nodes.forEach((n) => observer.observe(n))
 
-    return () => observer.disconnect()
+    // The message list is virtualized — rows mount/unmount as the user
+    // scrolls, WITHOUT any `messages` array change to re-run this effect.
+    // Mirrors the channel hook: watch the scroll root for added
+    // `[data-msg-id]` nodes and observe them so a row scrolled into view
+    // after mount still advances the read watermark. See
+    // `useChannelWatermark` for the full rationale — kept identical for
+    // divider/read-pointer parity.
+    let mutationObserver: MutationObserver | null = null
+    if (typeof MutationObserver !== "undefined") {
+      mutationObserver = new MutationObserver((records) => {
+        for (const record of records) {
+          record.addedNodes.forEach((node) => {
+            // Element nodes only (skip text/comment nodes — nodeType 1).
+            if ((node as { nodeType?: number }).nodeType !== 1) return
+            const el = node as Element
+            if (el.matches?.("[data-msg-id]")) observer.observe(el)
+            el.querySelectorAll?.("[data-msg-id]").forEach((n) => observer.observe(n))
+          })
+        }
+      })
+      mutationObserver.observe(scrollRootEl, { childList: true, subtree: true })
+    }
+
+    return () => {
+      observer.disconnect()
+      mutationObserver?.disconnect()
+    }
   }, [dmId, messages, scrollRootEl, viewerId])
 
   // On unmount / DM switch, flush the debounce so the last-watched message

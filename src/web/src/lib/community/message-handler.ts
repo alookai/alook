@@ -28,6 +28,8 @@ type IncomingAttachment = {
   filename: string
   contentType: string
   size: number
+  width?: number
+  height?: number
 }
 
 export type IncomingMessageBody = {
@@ -43,6 +45,8 @@ type CreatedAttachment = {
   url: string
   contentType: string | null
   size: number | null
+  width?: number | null
+  height?: number | null
 }
 
 type FullMessageRow = NonNullable<
@@ -161,6 +165,8 @@ export async function createCommunityMessage(params: {
           url: att.url,
           contentType: att.contentType,
           size: att.size,
+          width: att.width,
+          height: att.height,
         }),
       ),
     )
@@ -297,6 +303,8 @@ export async function createCommunityMessage(params: {
       url: a.url,
       contentType: a.contentType ?? undefined,
       size: a.size ?? undefined,
+      width: a.width ?? undefined,
+      height: a.height ?? undefined,
     })),
   })
 

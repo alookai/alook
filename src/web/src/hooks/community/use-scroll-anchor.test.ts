@@ -1,5 +1,16 @@
 import { describe, it, expect } from "vitest"
-import { decideScrollAction, createScrollAnchorState, NEAR_BOTTOM_PX, type ScrollAnchorState, type ScrollAnchorMessage } from "./use-scroll-anchor"
+import {
+  decideScrollAction,
+  createScrollAnchorState,
+  computeHeroScrollCompensation,
+  findMessageIndex,
+  findMountScrollTargetIndex,
+  extractScrollAnchorMessages,
+  NEAR_BOTTOM_PX,
+  type ScrollAnchorState,
+  type ScrollAnchorMessage,
+} from "./use-scroll-anchor"
+import type { FlatItem } from "@/components/community/message-list-items"
 
 const msgs = (...ids: string[]): ScrollAnchorMessage[] => ids.map((id) => ({ id }))
 
@@ -8,21 +19,20 @@ function baseInput(overrides: Partial<Parameters<typeof decideScrollAction>[0]> 
     state: createScrollAnchorState(),
     messages: msgs("m1", "m2", "m3"),
     initialScrollReady: true,
-    scrollHeight: 1000,
-    scrollTop: 0,
-    clientHeight: 500,
+    heroMeasured: true,
+    isAtEnd: true,
     ...overrides,
   }
 }
 
-describe("decideScrollAction — mount", () => {
+describe("decideScrollAction — mount (rewritten — neither case is free with the virtualizer, both must be explicit)", () => {
   it("centers on the NEW divider when present", () => {
     const { action, nextState } = decideScrollAction(baseInput({ newDividerBefore: "m2" }))
     expect(action).toEqual({ type: "mount", newDividerBefore: "m2" })
     expect(nextState.didInitialScroll).toBe(true)
   })
 
-  it("scrolls to bottom when no NEW divider is present", () => {
+  it("scrolls to end when no NEW divider is present — NOT free, must be an explicit action", () => {
     const { action } = decideScrollAction(baseInput())
     expect(action).toEqual({ type: "mount", newDividerBefore: undefined })
   })
@@ -31,6 +41,31 @@ describe("decideScrollAction — mount", () => {
     const { action, nextState } = decideScrollAction(baseInput({ initialScrollReady: false }))
     expect(action).toEqual({ type: "none" })
     expect(nextState.didInitialScroll).toBe(false)
+  })
+
+  it("does not fire (and does not consume the one-shot gate) until the hero has been measured at least once", () => {
+    // Regression: the hero's real height is only known after its own
+    // ResizeObserver effect runs (a later commit than the one that first
+    // renders real messages). scrollMargin defaults to 0 until then — if
+    // mount fired on that stale scrollMargin, scrollToIndex's offset math
+    // (align: "center") would target the wrong scrollTop, and the
+    // virtualizer's own reconcile loop stabilizes on that wrong value
+    // within a frame, well before heroHeight's real value lands. Observed
+    // as: page loads, view flashes at the tail then snaps to the top hero,
+    // and unread messages near the true tail never enter the viewport so
+    // useChannelWatermark never advances the read pointer.
+    const { action, nextState } = decideScrollAction(baseInput({ heroMeasured: false }))
+    expect(action).toEqual({ type: "none" })
+    expect(nextState.didInitialScroll).toBe(false)
+  })
+
+  it("fires once both initialScrollReady and heroMeasured become true, even if one lagged behind the other", () => {
+    const notReady = decideScrollAction(baseInput({ initialScrollReady: false, heroMeasured: false }))
+    expect(notReady.action).toEqual({ type: "none" })
+    const heroOnly = decideScrollAction(baseInput({ state: notReady.nextState, initialScrollReady: false, heroMeasured: true }))
+    expect(heroOnly.action).toEqual({ type: "none" })
+    const bothReady = decideScrollAction(baseInput({ state: heroOnly.nextState, initialScrollReady: true, heroMeasured: true }))
+    expect(bothReady.action.type).toBe("mount")
   })
 
   it("fires exactly once — a second commit with didInitialScroll already true does not re-mount-scroll", () => {
@@ -45,53 +80,68 @@ describe("decideScrollAction — mount", () => {
     expect(action).toEqual({ type: "none" })
     expect(nextState.didInitialScroll).toBe(false)
   })
+
+  it("re-arms and re-fires the mount scroll after a transient empty following the initial scroll", () => {
+    // Regression (live-Playwright-verified): the message list can round-trip
+    // through `[]` AFTER the initial scroll already fired, when a live path
+    // invalidates the message query mid-mount — the observed trigger is
+    // `useCommunityWs`'s `handleReconnect` firing ~1.5s into a fresh load and
+    // invalidating both `channelMessages` and the `gcTime: 0` read-state
+    // snapshot. Before the fix, the consumed one-shot gate stayed consumed,
+    // so when rows returned the view was stuck at the top hero with the NEW
+    // divider off-screen. The empty commit must RE-ARM the gate.
+    const first = decideScrollAction(baseInput({ newDividerBefore: "m2" }))
+    expect(first.action.type).toBe("mount")
+    expect(first.nextState.didInitialScroll).toBe(true)
+
+    // Mid-mount invalidation empties the list — gate must re-arm to false.
+    const emptied = decideScrollAction(baseInput({ state: first.nextState, messages: [] }))
+    expect(emptied.action).toEqual({ type: "none" })
+    expect(emptied.nextState.didInitialScroll).toBe(false)
+
+    // Rows return — mount must fire again to re-anchor on the NEW divider.
+    const returned = decideScrollAction(baseInput({ state: emptied.nextState, newDividerBefore: "m2" }))
+    expect(returned.action).toEqual({ type: "mount", newDividerBefore: "m2" })
+    expect(returned.nextState.didInitialScroll).toBe(true)
+  })
 })
 
 // Helper: state as-if mount already happened, tail = "m3".
 function mountedState(overrides: Partial<ScrollAnchorState> = {}): ScrollAnchorState {
   return {
     didInitialScroll: true,
-    lastHeadId: "m1",
     lastTailId: "m3",
-    lastScrollHeight: 1000,
-    lastMessagesLen: 3,
-    lastHasMore: undefined,
     ...overrides,
   }
 }
 
-describe("decideScrollAction — self-send / peer-follow", () => {
-  it("self-send (tail author === viewer) snaps to bottom regardless of distance from bottom", () => {
+describe("decideScrollAction — self-send / peer-follow (both hand-rolled — followOnAppend is deliberately off)", () => {
+  it("self-send (tail author === viewer) snaps to bottom regardless of isAtEnd", () => {
     const state = mountedState()
     const messages = [{ id: "m1" }, { id: "m2" }, { id: "m3" }, { id: "m4", authorId: "viewer" }]
-    const { action } = decideScrollAction(baseInput({ state, messages, viewerUserId: "viewer", scrollTop: 0 }))
-    expect(action).toEqual({ type: "scrollToBottom" })
+    const { action } = decideScrollAction(baseInput({ state, messages, viewerUserId: "viewer", isAtEnd: false }))
+    expect(action).toEqual({ type: "scrollToEnd" })
   })
 
-  it("peer send within NEAR_BOTTOM_PX of bottom snaps to bottom", () => {
+  it("peer send while isAtEnd is true snaps to bottom", () => {
     const state = mountedState()
     const messages = [{ id: "m1" }, { id: "m2" }, { id: "m3" }, { id: "m4", authorId: "peer" }]
-    // scrollHeight - scrollTop - clientHeight < NEAR_BOTTOM_PX
-    const { action } = decideScrollAction(
-      baseInput({ state, messages, viewerUserId: "viewer", scrollHeight: 1000, scrollTop: 950, clientHeight: 500 }),
-    )
-    expect(action).toEqual({ type: "scrollToBottom" })
+    const { action } = decideScrollAction(baseInput({ state, messages, viewerUserId: "viewer", isAtEnd: true }))
+    expect(action).toEqual({ type: "scrollToEnd" })
   })
 
-  it("peer send beyond NEAR_BOTTOM_PX does not scroll — leaves the pill to prompt the user back down", () => {
+  it("peer send while isAtEnd is false does not scroll — leaves the pill to prompt the user back down", () => {
     const state = mountedState()
     const messages = [{ id: "m1" }, { id: "m2" }, { id: "m3" }, { id: "m4", authorId: "peer" }]
-    const { action } = decideScrollAction(
-      baseInput({ state, messages, viewerUserId: "viewer", scrollHeight: 2000, scrollTop: 0, clientHeight: 500 }),
-    )
+    const { action } = decideScrollAction(baseInput({ state, messages, viewerUserId: "viewer", isAtEnd: false }))
     expect(action).toEqual({ type: "none" })
   })
 
-  it("peer send is ignored (no auto-follow) when hasMoreNewer is true — loaded window isn't tail-attached", () => {
+  it("peer send is ignored (no auto-follow) when hasMoreNewer is true — loaded window isn't tail-attached, even if isAtEnd is true", () => {
     const state = mountedState()
     const messages = [{ id: "m1" }, { id: "m2" }, { id: "m3" }, { id: "m4", authorId: "peer" }]
     const { action } = decideScrollAction(
-      baseInput({ state, messages, viewerUserId: "viewer", hasMoreNewer: true, scrollHeight: 1000, scrollTop: 950, clientHeight: 500 }),
+      baseInput({ state, messages, viewerUserId: "viewer", hasMoreNewer: true, isAtEnd: true }),
     )
     expect(action).toEqual({ type: "none" })
   })
@@ -102,71 +152,102 @@ describe("decideScrollAction — self-send / peer-follow", () => {
     expect(action).toEqual({ type: "none" })
   })
 
-  it("temp-id → server-id reconcile: tail id changes via reconcileServerId but author/content/position are otherwise unchanged — resolves as an idempotent self-send, not a misclassified prepend/hero-swap", () => {
+  it("temp-id → server-id reconcile: tail id changes via reconcileServerId but author/content/position are otherwise unchanged — resolves as an idempotent self-send, not a misclassified no-op", () => {
     // Simulates: viewer sent a message (tempId "temp_123"), it's already the
     // tail, then the server responds and `reconcileServerId` swaps the id to
     // the real server id ("srv_abc") — same author, same position, nothing
     // about scroll position should change, but the tail id STRING changed.
+    // With getItemKey keyed on message id, this is a bigger structural event
+    // for the virtualizer than it was for raw DOM (the item's key changes) —
+    // still must resolve as self-send, not fall through to "none".
     const state = mountedState({ lastTailId: "temp_123" })
     const messages = [{ id: "m1" }, { id: "m2" }, { id: "srv_abc", authorId: "viewer" }]
     const { action } = decideScrollAction(baseInput({ state, messages, viewerUserId: "viewer" }))
-    // Must resolve to the self-send branch (idempotent snap-to-bottom), not
-    // "none" misclassified as no-op-but-actually-a-prepend, and not a
-    // compensateDelta (which would require scrollHeight to have changed).
-    expect(action).toEqual({ type: "scrollToBottom" })
-  })
-})
-
-describe("decideScrollAction — prepend / hero-swap compensation", () => {
-  it("compensates scrollTop delta when older messages prepend (head id changed, length grew)", () => {
-    const state = mountedState({ lastHeadId: "m1", lastMessagesLen: 3, lastScrollHeight: 1000 })
-    const messages = [{ id: "m0" }, { id: "m1" }, { id: "m2" }, { id: "m3" }]
-    const { action } = decideScrollAction(baseInput({ state, messages, scrollHeight: 1200 }))
-    expect(action).toEqual({ type: "compensateDelta", delta: 200 })
-  })
-
-  it("compensates scrollTop delta on a hero-swap (hasMore true → false, tail unchanged, top block grew)", () => {
-    const state = mountedState({ lastHasMore: true, lastScrollHeight: 1000 })
-    const { action } = decideScrollAction(baseInput({ state, hasMore: false, scrollHeight: 1090 }))
-    expect(action).toEqual({ type: "compensateDelta", delta: 90 })
-  })
-
-  it("does not compensate when neither prepend nor hero-swap conditions hold", () => {
-    const state = mountedState({ lastScrollHeight: 1000 })
-    const { action } = decideScrollAction(baseInput({ state, scrollHeight: 1200 }))
-    expect(action).toEqual({ type: "none" })
-  })
-
-  it("does not compensate a negative or zero delta", () => {
-    const state = mountedState({ lastHeadId: "m1", lastMessagesLen: 3, lastScrollHeight: 1000 })
-    const messages = [{ id: "m0" }, { id: "m1" }, { id: "m2" }, { id: "m3" }]
-    const { action } = decideScrollAction(baseInput({ state, messages, scrollHeight: 1000 }))
-    expect(action).toEqual({ type: "none" })
-  })
-
-  it("the compound case: a 0-row fetchOlder at start-of-history (hero-swap) coincides with a peer tail-send in the same update — exactly one action is chosen, no double-write", () => {
-    // Before the fix, `heroSwap` was gated on `prevTail === nextTail`, which
-    // silently swallowed this exact case: the tail DID change (peer send),
-    // so the old check never fired even though the top block visibly
-    // shifted the viewer's row down when hero swapped in. The new
-    // `heroSwap` check has no such gate — it fires on the hasMore
-    // transition alone, independent of what else changed this commit.
-    // Priority order matters here: peer-follow is checked first (item #2),
-    // but a peer message that's beyond NEAR_BOTTOM_PX doesn't scroll, so
-    // hero-swap compensation (item #3) is free to fire in this commit.
-    const state = mountedState({ lastHasMore: true, lastScrollHeight: 1000, lastTailId: "m3" })
-    const messages = [{ id: "m1" }, { id: "m2" }, { id: "m3" }, { id: "m4", authorId: "peer" }]
-    const { action } = decideScrollAction(
-      baseInput({ state, messages, hasMore: false, viewerUserId: "viewer", scrollHeight: 1090, scrollTop: 0, clientHeight: 500 }),
-    )
-    // Exactly one action — the hero-swap compensation — not two competing
-    // writes (no scrollToBottom AND compensateDelta both firing).
-    expect(action).toEqual({ type: "compensateDelta", delta: 90 })
+    expect(action).toEqual({ type: "scrollToEnd" })
   })
 })
 
 describe("NEAR_BOTTOM_PX", () => {
-  it("is the single shared threshold — was two disagreeing values (100px / 8px) before", () => {
+  it("is the single shared threshold, reused for both isAtEnd checks and the virtualizer's own scrollEndThreshold config", () => {
     expect(NEAR_BOTTOM_PX).toBe(100)
+  })
+})
+
+describe("computeHeroScrollCompensation", () => {
+  it("returns 0 when the hero's height is unchanged", () => {
+    expect(computeHeroScrollCompensation(80, 80)).toBe(0)
+  })
+
+  it("returns a positive delta when the hero grows (e.g. sentinel swaps for the full 'Beginning of channel' block)", () => {
+    expect(computeHeroScrollCompensation(0, 96)).toBe(96)
+  })
+
+  it("returns a negative delta when the hero shrinks", () => {
+    expect(computeHeroScrollCompensation(96, 40)).toBe(-56)
+  })
+})
+
+describe("findMountScrollTargetIndex", () => {
+  const items: FlatItem[] = [
+    { kind: "date-divider", label: "Today", key: "d1" },
+    { kind: "message", m: { id: "m1", type: "chat", grouped: false }, key: "msg:m1" },
+    { kind: "new-divider", key: "new-divider" },
+    { kind: "message", m: { id: "m2", type: "chat", grouped: false }, key: "msg:m2" },
+  ]
+
+  it("prefers the new-divider ROW itself over the message row it precedes — it's now its own flattened item, thin, not the whole message box", () => {
+    expect(findMountScrollTargetIndex(items, "m2")).toBe(2)
+  })
+
+  it("falls back to the message's own index when no new-divider item exists (e.g. first-visit anchoring on a non-self message with no divider rendered)", () => {
+    const noDivider: FlatItem[] = [
+      { kind: "message", m: { id: "m1", type: "chat", grouped: false }, key: "msg:m1" },
+      { kind: "message", m: { id: "m2", type: "chat", grouped: false }, key: "msg:m2" },
+    ]
+    expect(findMountScrollTargetIndex(noDivider, "m2")).toBe(1)
+  })
+
+  it("returns null when the target message isn't loaded", () => {
+    expect(findMountScrollTargetIndex(items, "unloaded")).toBeNull()
+  })
+})
+
+describe("findMessageIndex", () => {
+  const items: FlatItem[] = [
+    { kind: "date-divider", label: "Today", key: "d1" },
+    { kind: "message", m: { id: "m1", type: "chat", grouped: false }, key: "msg:m1" },
+    { kind: "message", m: { id: "m2", type: "chat", grouped: true }, key: "msg:m2" },
+  ]
+
+  it("returns the item-array index of the message with the given id", () => {
+    expect(findMessageIndex(items, "m2")).toBe(2)
+  })
+
+  it("returns null when the id isn't present (message not loaded)", () => {
+    expect(findMessageIndex(items, "unloaded")).toBeNull()
+  })
+
+  it("never matches a divider row even if some future divider carried an overlapping id-like key", () => {
+    expect(findMessageIndex(items, "d1")).toBeNull()
+  })
+})
+
+describe("extractScrollAnchorMessages", () => {
+  it("extracts only 'message' items' id/authorId, in order, skipping dividers", () => {
+    const items: FlatItem[] = [
+      { kind: "date-divider", label: "Today", key: "d1" },
+      { kind: "message", m: { id: "m1", type: "chat", grouped: false, authorId: "u1" }, key: "msg:m1" },
+      { kind: "new-divider", key: "new-divider" },
+      { kind: "message", m: { id: "m2", type: "chat", grouped: false }, key: "msg:m2" },
+    ]
+    expect(extractScrollAnchorMessages(items)).toEqual([
+      { id: "m1", authorId: "u1" },
+      { id: "m2", authorId: undefined },
+    ])
+  })
+
+  it("returns an empty array when there are no message items", () => {
+    const items: FlatItem[] = [{ kind: "date-divider", label: "Today", key: "d1" }]
+    expect(extractScrollAnchorMessages(items)).toEqual([])
   })
 })

@@ -5,16 +5,22 @@ import { ArrowDown } from "lucide-react"
 import { DateDivider, NewDivider } from "./dividers"
 import { Message } from "./message"
 import { TypingIndicator } from "./typing-indicator"
-import { dateKey, formatDateLabel } from "./format-time"
 import { ChannelIcon } from "./channel-icon"
 import { Skeleton } from "@/components/ui/skeleton"
 import { NumberTicker } from "@/components/ui/number-ticker"
-import { useScrollAnchor, cssEscape } from "@/hooks/community/use-scroll-anchor"
-import type { Msg, RenderMsg, OpenProfile } from "./_types"
+import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
+import { flattenMessageItems } from "./message-list-items"
+import type { Msg, OpenProfile } from "./_types"
 
-// Consecutive messages from the same author cluster (avatar+name suppressed
-// on the second+ row) when they land within this window of each other.
-const MESSAGE_GROUP_WINDOW_MS = 7 * 60 * 1000
+// Pure list-prep logic (flattening, row-height estimation, belowCount
+// arithmetic) lives in `message-list-items.ts`, a plain (non-"use client",
+// no React) module — `use-scroll-anchor.ts` needs those same exports and
+// would otherwise form a circular import with this file (which imports
+// `useScrollAnchor` from that module). Re-exported here so existing
+// consumers/tests importing `FlatItem`/`flattenMessageItems`/
+// `estimateRowHeight`/`computeBelowCount` from `./message-list` keep working.
+export type { FlatItem } from "./message-list-items"
+export { flattenMessageItems, estimateRowHeight, computeBelowCount } from "./message-list-items"
 
 // Channel message list — welcome hero, date dividers, messages (with the NEW divider),
 // and typing indicator. Data via props.
@@ -96,17 +102,79 @@ export function MessageList({
 }) {
   const [jumped, setJumped] = useState<string | null>(null)
 
+  // Flattened one row per divider/message — see `message-list-items.ts`.
+  // Memoized so a re-render triggered by unrelated state (typing indicator
+  // ticks, presence updates, etc.) doesn't re-walk the full message list
+  // every time.
+  const items = useMemo(() => flattenMessageItems(messages, newDividerBefore), [messages, newDividerBefore])
+
+  // The hero ("Beginning of the channel…" copy, or a caller-supplied
+  // `hero` node such as the thread-opener) renders OUTSIDE the virtualized
+  // range, directly above it in the same scroll container — its height must
+  // be measured and fed to `useScrollAnchor` so the virtualizer's
+  // `scrollMargin` accounts for it AND so hero-resize compensation can hold
+  // the viewer's visual position (see `use-scroll-anchor.ts`'s module doc
+  // comment — `scrollMargin` alone does not do this automatically).
+  const heroRef = useRef<HTMLDivElement>(null)
+  const [heroHeight, setHeroHeight] = useState(0)
+  // True once the ResizeObserver below has reported a real height at least
+  // once. Gates `useScrollAnchor`'s mount action — see its `heroMeasured`
+  // doc comment: firing mount before this is true uses `scrollMargin`'s
+  // default (0), which mis-targets the NEW-divider `scrollToIndex` case.
+  // Never reset back to `false` — once real, the hero's height stays a
+  // known quantity even if `hasMore`/`hero` change later and this effect
+  // re-observes.
+  const [heroMeasured, setHeroMeasured] = useState(false)
+  // `isLoading` drives which content renders INSIDE the tree below, rather
+  // than an early `return` producing a structurally different element tree
+  // — the same `<MessageList>` instance (and the same `scrollRef`-bearing
+  // div) stays mounted across the loading→loaded transition (the page-level
+  // fix in the 4 community pages is what stops the unwanted REMOUNT; this
+  // internal change is what keeps the two states on one DOM structure, per
+  // DESIGN.md's "Fade, don't swap" — same dimensions/position/layout flow,
+  // ready for a real crossfade later). Declared here (not further down,
+  // where it's also used) because the hero-measurement effect below needs
+  // it in its dependency array.
+  const isLoading = !!loading && messages.length === 0
+  useEffect(() => {
+    const el = heroRef.current
+    // The hero div doesn't exist in the DOM at all while `isLoading` is
+    // true (it's inside the loading/loaded ternary below) — bails without
+    // measuring, same as before. Critically, `isLoading` is now a dep: the
+    // loading→loaded transition is what makes `heroRef.current` non-null
+    // for the FIRST time, and without `isLoading` in the dep list this
+    // effect would never re-run for that transition when `hasMore`/`hero`
+    // happen to be unchanged across it (the common case — a plain channel
+    // with no thread-opener, `hasMore` staying false on first load) —
+    // `heroMeasured` would then never flip true, and `useScrollAnchor`'s
+    // mount action would wait forever. This was the actual bug behind a
+    // report of "channel refresh flashes at the tail then scrolls to the
+    // top hero, unreads never clear."
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.borderBoxSize?.[0]?.blockSize ?? el.offsetHeight
+      setHeroHeight(h)
+      setHeroMeasured(true)
+    })
+    ro.observe(el)
+    setHeroHeight(el.offsetHeight)
+    setHeroMeasured(true)
+    return () => ro.disconnect()
+  }, [isLoading, hasMore, hero])
+
   // All automatic scroll-anchor decisions (mount / self-send / peer-follow /
-  // prepend / hero-swap) live in this hook — see `use-scroll-anchor.ts` for
-  // the consolidated decision logic that replaces the previously-scattered
-  // 3 effects / 5+ refs / 2 disagreeing thresholds.
-  const { scrollRef, belowCount, scrollToBottom } = useScrollAnchor({
-    messages,
+  // hero-swap) plus the `useVirtualizer` instance live in this hook — see
+  // `use-scroll-anchor.ts`. Older-message prepend compensation is NOT
+  // decided here — it's delegated to the virtualizer's own `anchorTo: "end"`
+  // config.
+  const { scrollRef, virtualizer, belowCount, scrollToBottom, jumpTo: jumpToIndex } = useScrollAnchor({
+    items,
     newDividerBefore,
     initialScrollReady,
-    hasMore,
     hasMoreNewer,
     viewerUserId,
+    heroHeight,
+    heroMeasured,
   })
 
   // Publish the scroll root to interested consumers (watermark observer).
@@ -121,7 +189,11 @@ export function MessageList({
   // Top sentinel — when it intersects the scroll root's viewport, request the
   // next older page. Mirrors the pattern in member-list.tsx: root is the
   // scroll container (NOT the page viewport), rootMargin `200px` so the
-  // fetch kicks in before the user hits the true edge.
+  // fetch kicks in before the user hits the true edge. Rendered before the
+  // virtualized range (same DOM position the hero occupies when `hasMore`
+  // is false) — this needs NO virtualizer-specific rework: an
+  // IntersectionObserver on a real sentinel node works identically whether
+  // the sibling content is virtualized or not.
   const topSentinelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!onLoadOlder || !hasMore) return
@@ -145,7 +217,7 @@ export function MessageList({
   // a newer-fetch prepend to `pages[0]` in cache order → after the sort in
   // `mergeMessagesPages` they land at the natural tail of `messages`, which
   // grows the container downward and leaves the viewer's scrollTop untouched.
-  // No compensating scroll needed.
+  // No compensating scroll needed. Rendered after the virtualized range.
   const bottomSentinelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!onLoadNewer || !hasMoreNewer) return
@@ -164,54 +236,24 @@ export function MessageList({
     return () => observer.disconnect()
   }, [onLoadNewer, hasMoreNewer, isFetchingNewer, scrollRef])
 
+  // `jumpTo` — click a reply pill, scroll to (and briefly highlight) an
+  // earlier message. Replaces the old `querySelector('[data-msg-id="..."]')`
+  // + `scrollIntoView` DOM lookup, which only worked if the target row
+  // happened to already be mounted — with virtualization, `useScrollAnchor`'s
+  // `jumpTo` looks the target up by INDEX via `virtualizer.scrollToIndex`
+  // instead. If the target isn't in the currently loaded page window at all,
+  // this is a documented no-op — same limitation the old DOM lookup had (it
+  // also required the row to be loaded, just not further required it to be
+  // within the virtualization window).
   const jumpTo = useCallback((id: string) => {
     setJumped(id)
-    // Scoped to the scroll root (not `document.getElementById`) and keyed
-    // off `[data-msg-id]` — the attribute every row already carries for
-    // `useChannelWatermark`'s IntersectionObserver and `useScrollAnchor`'s
-    // mount-time NEW-divider lookup. Replaces the removed `dpv-${id}` DOM
-    // id, which was redundant with this attribute (#1).
-    scrollRef.current
-      ?.querySelector<HTMLElement>(`[data-msg-id="${cssEscape(id)}"]`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" })
+    jumpToIndex(id)
     window.setTimeout(() => setJumped((v) => (v === id ? null : v)), 1600)
-  }, [scrollRef])
+  }, [jumpToIndex])
 
   useEffect(() => {
     if (scrollToMessageId) jumpTo(scrollToMessageId)
   }, [scrollToMessageId, jumpTo])
-
-  // Group consecutive messages from the same author into clusters. Memoized
-  // so a re-render triggered by unrelated state (typing indicator ticks,
-  // presence updates, etc.) doesn't re-walk the full message list every time.
-  const clusters = useMemo(() => {
-    const result: { messages: { m: RenderMsg; showDateDivider: boolean; showNewDivider: boolean }[] }[] = []
-    messages.forEach((m, i) => {
-      const prev = i > 0 ? messages[i - 1] : null
-      const prevDate = prev ? dateKey(prev.createdAt) : ""
-      const curDate = dateKey(m.createdAt)
-      const showDateDivider = !!(curDate && curDate !== prevDate)
-      const grouped = !!(prev && m.type === "chat" && !m.replyTo && !showDateDivider && prev.authorName === m.authorName
-        && prev.createdAt && m.createdAt && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < MESSAGE_GROUP_WINDOW_MS)
-      const entry = { m: { ...m, grouped }, showDateDivider, showNewDivider: m.id === newDividerBefore }
-      if (grouped && result.length > 0) {
-        result[result.length - 1].messages.push(entry)
-      } else {
-        result.push({ messages: [entry] })
-      }
-    })
-    return result
-  }, [messages, newDividerBefore])
-
-  // `isLoading` drives which content renders INSIDE the tree below, rather
-  // than an early `return` producing a structurally different element tree
-  // — the same `<MessageList>` instance (and the same `scrollRef`-bearing
-  // div) stays mounted across the loading→loaded transition (the page-level
-  // fix in the 4 community pages is what stops the unwanted REMOUNT; this
-  // internal change is what keeps the two states on one DOM structure, per
-  // DESIGN.md's "Fade, don't swap" — same dimensions/position/layout flow,
-  // ready for a real crossfade later).
-  const isLoading = !!loading && messages.length === 0
 
   // ↓ N pill precedence:
   //   - When there are messages the client hasn't fetched yet
@@ -247,18 +289,21 @@ export function MessageList({
                 lie — there's more history above — so we swap it for the top
                 sentinel + inline "Loading older messages…" indicator. Once
                 the last page loads (`hasMore === false`) the hero returns
-                and reads as "you've reached the top".
+                and reads as "you've reached the top". Rendered OUTSIDE the
+                virtualized range (real DOM, natural height) — its measured
+                height (`heroRef`'s ResizeObserver, see above) feeds the
+                virtualizer's `scrollMargin` and hero-swap compensation.
               */}
-              {hasMore ? (
-                <div
-                  ref={topSentinelRef}
-                  className="mb-6 flex h-8 items-center justify-center text-xs text-muted-foreground"
-                >
-                  {isFetchingOlder ? "Loading older messages…" : ""}
-                </div>
-              ) : (
-                <div className="mb-6">
-                  {hero ?? (
+              <div ref={heroRef} className="mb-6">
+                {hasMore ? (
+                  <div
+                    ref={topSentinelRef}
+                    className="flex h-8 items-center justify-center text-xs text-muted-foreground"
+                  >
+                    {isFetchingOlder ? "Loading older messages…" : ""}
+                  </div>
+                ) : (
+                  hero ?? (
                     <>
                       <div className="mb-2 grid size-12 place-items-center rounded-full bg-muted/60">
                         <ChannelIcon className="text-xl text-muted-foreground" />
@@ -266,44 +311,59 @@ export function MessageList({
                       <h2 className="text-xl font-semibold leading-tight">{channel}</h2>
                       <p className="mt-2 text-sm text-muted-foreground">Beginning of the channel. Say hello, share what you&apos;re working on, or drop a link.</p>
                     </>
-                  )}
-                </div>
-              )}
+                  )
+                )}
+              </div>
 
-              {clusters.map((cluster, ci) => (
-                <div key={cluster.messages[0].m.id ?? ci}>
-                  {cluster.messages.map(({ m, showDateDivider, showNewDivider }) => (
-                    // `data-msg-id` anchors the IntersectionObserver in
-                    // `useChannelWatermark` — every rendered row is a candidate
-                    // for the read pointer, and is `useScrollAnchor`'s
-                    // fallback mount target when there's no NEW divider to
-                    // center on. `NewDivider` itself carries `data-new-divider`,
-                    // which `useScrollAnchor` prefers when present.
-                    <div key={m.id} data-msg-id={m.id}>
-                      {showDateDivider && <DateDivider label={formatDateLabel(m.createdAt!)} />}
-                      {showNewDivider && <NewDivider />}
-                      <Message
-                        m={m}
-                        pinned={pinnedIds?.has(m.id)}
-                        onOpenThread={onOpenThread}
-                        onOpenProfile={onOpenProfile}
-                        onJumpReply={() => m.replyTo && jumpTo(m.replyTo.id)}
-                        onToggleReaction={onToggleReaction ? (emoji) => onToggleReaction(m.id, emoji) : undefined}
-                        onReact={onReact ? (emoji) => onReact(m.id, emoji) : undefined}
-                        onReply={onReply ? () => onReply(m.id) : undefined}
-                        onPin={onPin ? () => onPin(m.id) : undefined}
-                        onCreateThread={onCreateThread ? () => onCreateThread(m.id) : undefined}
-                        onCopy={onCopy ? () => onCopy(m.id) : undefined}
-                        onRetry={onRetry ? () => onRetry(m.id) : undefined}
-                        onPreviewImage={onPreviewImage}
-                        onDownloadFile={onDownloadFile}
-                        highlighted={jumped === m.id}
-                        resolveUserName={resolveUserName}
-                      />
+              <div style={{ height: virtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+                {virtualizer.getVirtualItems().map((virtualRow) => {
+                  const item = items[virtualRow.index]
+                  return (
+                    <div
+                      key={item.key}
+                      data-index={virtualRow.index}
+                      ref={virtualizer.measureElement}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${virtualRow.start - virtualizer.options.scrollMargin}px)`,
+                      }}
+                    >
+                      {item.kind === "date-divider" && <DateDivider label={item.label} />}
+                      {item.kind === "new-divider" && <NewDivider />}
+                      {item.kind === "message" && (
+                        // `data-msg-id` anchors the IntersectionObserver in
+                        // `useChannelWatermark` — every currently-rendered
+                        // row is a candidate for the read pointer (the hook
+                        // only ever observes rows that exist in the DOM,
+                        // which virtualization doesn't change).
+                        <div data-msg-id={item.m.id}>
+                          <Message
+                            m={item.m}
+                            pinned={pinnedIds?.has(item.m.id)}
+                            onOpenThread={onOpenThread}
+                            onOpenProfile={onOpenProfile}
+                            onJumpReply={() => item.m.replyTo && jumpTo(item.m.replyTo.id)}
+                            onToggleReaction={onToggleReaction ? (emoji) => onToggleReaction(item.m.id, emoji) : undefined}
+                            onReact={onReact ? (emoji) => onReact(item.m.id, emoji) : undefined}
+                            onReply={onReply ? () => onReply(item.m.id) : undefined}
+                            onPin={onPin ? () => onPin(item.m.id) : undefined}
+                            onCreateThread={onCreateThread ? () => onCreateThread(item.m.id) : undefined}
+                            onCopy={onCopy ? () => onCopy(item.m.id) : undefined}
+                            onRetry={onRetry ? () => onRetry(item.m.id) : undefined}
+                            onPreviewImage={onPreviewImage}
+                            onDownloadFile={onDownloadFile}
+                            highlighted={jumped === item.m.id}
+                            resolveUserName={resolveUserName}
+                          />
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              ))}
+                  )
+                })}
+              </div>
 
               {hasMoreNewer && (
                 <div

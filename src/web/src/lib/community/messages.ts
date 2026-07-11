@@ -122,12 +122,18 @@ export function buildMemberPaginatedResponse<T extends { joinedAt: string; id: s
 
 // Group raw attachment rows by messageId into display format
 export function groupAttachments(
-  attachments: Array<{ messageId: string; filename: string; url: string; contentType: string | null; size: number | null }>
-): Record<string, Array<{ kind: "image" | "file"; name: string; url: string; size?: string }>> {
-  const map: Record<string, Array<{ kind: "image" | "file"; name: string; url: string; size?: string }>> = {}
+  attachments: Array<{ messageId: string; filename: string; url: string; contentType: string | null; size: number | null; width?: number | null; height?: number | null }>
+): Record<string, Array<{ kind: "image" | "file"; name: string; url: string; size?: string; width?: number; height?: number }>> {
+  const map: Record<string, Array<{ kind: "image" | "file"; name: string; url: string; size?: string; width?: number; height?: number }>> = {}
   for (const a of attachments) {
     const kind = a.contentType?.startsWith("image/") ? "image" : "file"
-    const entry = { kind, name: a.filename, url: a.url, ...(kind === "file" && a.size ? { size: formatBytes(a.size) } : {}) } as { kind: "image" | "file"; name: string; url: string; size?: string }
+    const entry = {
+      kind,
+      name: a.filename,
+      url: a.url,
+      ...(kind === "file" && a.size ? { size: formatBytes(a.size) } : {}),
+      ...(kind === "image" ? { width: a.width ?? undefined, height: a.height ?? undefined } : {}),
+    } as { kind: "image" | "file"; name: string; url: string; size?: string; width?: number; height?: number }
     ;(map[a.messageId] ??= []).push(entry)
   }
   return map

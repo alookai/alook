@@ -247,6 +247,49 @@ describe("createCommunityMessage — CAS race (plans/fix-agent-send-race-conditi
   })
 })
 
+describe("createCommunityMessage — attachment width/height reach the live WS broadcast", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
+    mockFanOutToChannel.mockResolvedValue(undefined)
+    mockFanOutToDM.mockResolvedValue(undefined)
+    mockBroadcastToUser.mockResolvedValue(undefined)
+  })
+
+  it("includes width/height on an image attachment in the MESSAGE_CREATE broadcast payload", async () => {
+    mockCreateMessage.mockResolvedValue({ id: "msg_1" })
+    mockCreateAttachment.mockResolvedValue({
+      id: "att_1",
+      filename: "photo.png",
+      url: "/media/photo.png",
+      contentType: "image/png",
+      size: 1000,
+      width: 1920,
+      height: 1080,
+    })
+    mockGetMessage.mockResolvedValue(messageRow())
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: {
+        content: "hello",
+        attachments: [
+          { url: "/media/photo.png", filename: "photo.png", contentType: "image/png", size: 1000, width: 1920, height: 1080 },
+        ],
+      },
+    })
+
+    expect(mockCreateAttachment).toHaveBeenCalledWith({}, expect.objectContaining({ width: 1920, height: 1080 }))
+    expect(mockFanOutToChannel).toHaveBeenCalledTimes(1)
+    const [, event] = mockFanOutToChannel.mock.calls[0]!
+    expect(event.message.attachments).toEqual([
+      expect.objectContaining({ width: 1920, height: 1080 }),
+    ])
+  })
+})
+
 describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
   beforeEach(() => {
     vi.clearAllMocks()

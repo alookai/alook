@@ -7,7 +7,7 @@ import { apiFetch } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { MessageList } from "@/components/community/message-list"
-import { Composer, ComposerSkeleton } from "@/components/community/composer"
+import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
 import { ForumView, ForumViewSkeleton } from "@/components/community/forum-view"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import { NewThreadDialog } from "@/components/community/new-thread-panel"
@@ -45,7 +45,9 @@ import {
   useKickMember,
   useSetChannelNotif,
   useUploadFile,
+  zipUploadResultsWithDimensions,
   type SendMessageResult,
+  type UploadedAttachment,
 } from "@/hooks/community/mutations"
 import {
   communityWsSubscribe,
@@ -355,7 +357,7 @@ function ChannelView() {
   // instead lets thread-create + retry callers detect failure without a
   // try/catch each.
   const doSend = useCallback(
-    async (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: { url: string; filename: string; contentType: string; size: number }[] }): Promise<SendMessageResult | null> => {
+    async (content: string, opts?: { replyToId?: string; mentionType?: MentionType; attachments?: UploadedAttachment[] }): Promise<SendMessageResult | null> => {
       try {
         return await sendMessageMut.mutateAsync({
           channelId,
@@ -437,17 +439,17 @@ function ChannelView() {
   }, [members])
 
   // ── Send messages ───────────────────────────────────────────────────────
-  const sendMessage = async (markdown: string, attachments?: File[], mentionType?: MentionType) => {
+  const sendMessage = async (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => {
     if (!markdown && !attachments?.length) return
 
-    let uploadedAttachments: { url: string; filename: string; contentType: string; size: number }[] = []
+    let uploadedAttachments: UploadedAttachment[] = []
     if (attachments?.length) {
       const results = await Promise.all(
-        attachments.map((f) =>
-          uploadFileMut.mutateAsync({ target: { channelId }, file: f }).catch(() => null),
+        attachments.map((a) =>
+          uploadFileMut.mutateAsync({ target: { channelId }, file: a.file }).catch(() => null),
         ),
       )
-      uploadedAttachments = results.filter(Boolean) as typeof uploadedAttachments
+      uploadedAttachments = zipUploadResultsWithDimensions(results, attachments)
     }
 
     void doSend(markdown || "", {

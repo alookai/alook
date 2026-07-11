@@ -125,7 +125,7 @@ export const MESSAGES: Msg[] = [
     id: "m7", type: "chat", authorName: "Lindsay", createdAt: "2026-06-25T10:05:00Z", authorAvatar: "L",
     content: "here's the preset config + a screenshot of the result",
     attachments: [
-      { kind: "image", name: "research-preset.png", url: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&q=80" },
+      { kind: "image", name: "research-preset.png", url: "https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=800&q=80", width: 800, height: 533 },
       { kind: "file", name: "research-team.json", url: "#", size: "4.2 KB" },
     ],
   },

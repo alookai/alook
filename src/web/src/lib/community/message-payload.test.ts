@@ -162,6 +162,18 @@ describe("mapMessageForWs", () => {
     expect(mapMessageForWs(baseRow, emptyWsCtx).attachments).toBeUndefined()
   })
 
+  it("includes width/height on an image attachment when present on the input", () => {
+    const out = mapMessageForWs(baseRow, {
+      ...emptyWsCtx,
+      attachments: [
+        { id: "a1", filename: "x.png", url: "/x.png", contentType: "image/png", size: 4096, width: 1920, height: 1080 },
+      ],
+    })
+    expect(out.attachments).toEqual([
+      { id: "a1", filename: "x.png", url: "/x.png", contentType: "image/png", size: 4096, width: 1920, height: 1080 },
+    ])
+  })
+
   it("coerces null content to empty string (attachments-only message)", () => {
     expect(mapMessageForWs({ ...baseRow, content: null }, emptyWsCtx).content).toBe("")
   })

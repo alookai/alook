@@ -16,6 +16,16 @@ import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./mes
 import { formatMessageTime } from "./format-time"
 import type { RenderMsg, OpenProfile } from "./_types"
 
+// Fallback ratio for an attachment image with no known dimensions
+// (pre-feature rows sent before width/height were tracked). A more neutral
+// default than the embed-image branch's "40/21" wide-banner ratio — plain
+// attachments are typically screenshots/photos, not link-preview banners.
+const ATTACHMENT_FALLBACK_ASPECT_RATIO = "4/3"
+
+export function attachmentAspectRatio(width: number | undefined, height: number | undefined): string {
+  return width && height ? `${width}/${height}` : ATTACHMENT_FALLBACK_ASPECT_RATIO
+}
+
 export function Message({
   m, compact, pinned, onOpenThread, onOpenProfile, onJumpReply,
   onToggleReaction, onReact, onReply, onPin, onCreateThread, onCopy, onRetry,
@@ -145,7 +155,7 @@ export function Message({
                     onClick={() => onPreviewImage?.(a.url)}
                     className="block w-fit max-w-[320px] overflow-hidden rounded-md border border-border transition-colors hover:border-primary/40"
                   >
-                    <img src={a.url} alt={a.name} className="max-h-50 max-w-[320px] rounded-md object-contain" />
+                    <img src={a.url} alt={a.name} className="max-h-50 max-w-[320px] rounded-md object-contain" style={{ aspectRatio: attachmentAspectRatio(a.width, a.height) }} />
                   </button>
                 ) : (
                   <button

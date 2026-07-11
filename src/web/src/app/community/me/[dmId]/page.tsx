@@ -7,7 +7,7 @@ import { useBreakpoint } from "@/hooks/use-mobile"
 import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
 import { Avatar } from "@/components/community/avatar"
 import { MessageList } from "@/components/community/message-list"
-import { Composer, ComposerSkeleton } from "@/components/community/composer"
+import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
 import type { OpenProfile } from "@/components/community/_types"
 import {
   useCommunityStore,
@@ -25,6 +25,7 @@ import {
   useSendDmMessage,
   useToggleReactionApi,
   useUploadFile,
+  zipUploadResultsWithDimensions,
 } from "@/hooks/community/mutations"
 import { useCurrentUser } from "@/contexts/community/current-user"
 import {
@@ -245,17 +246,17 @@ function DmView() {
 
   // DM endpoint ignores mentionType. Replies are supported — the backend
   // persists replyToId for DMs too.
-  const sendDmMsg = async (markdown: string, attachments?: File[]) => {
+  const sendDmMsg = async (markdown: string, attachments?: SendAttachment[]) => {
     if (!markdown && !attachments?.length) return
     if (!dmId) return
-    let uploadedAttachments: { url: string; filename: string; contentType: string; size: number }[] = []
+    let uploadedAttachments: ReturnType<typeof zipUploadResultsWithDimensions> = []
     if (attachments?.length) {
       const results = await Promise.all(
-        attachments.map((f) =>
-          uploadFile.mutateAsync({ target: { dmId }, file: f }).catch(() => null),
+        attachments.map((a) =>
+          uploadFile.mutateAsync({ target: { dmId }, file: a.file }).catch(() => null),
         ),
       )
-      uploadedAttachments = results.filter(Boolean) as typeof uploadedAttachments
+      uploadedAttachments = zipUploadResultsWithDimensions(results, attachments)
     }
     sendDmMessage.mutate({
       dmId,
