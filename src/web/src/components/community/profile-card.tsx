@@ -99,8 +99,13 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
                     itself, so the browser's shrink-to-fit width calc has
                     ~0px of "available width" to work with and falls back to
                     min-content — i.e. wraps at every word — without an
-                    explicit no-wrap. */}
-                <button className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                    explicit no-wrap. `title` — native tooltip so a
+                    `truncate`-clipped term is still readable on hover,
+                    without wrestling `StatusEditor`'s `PopoverTrigger
+                    render={children}` (which clones this exact element) or
+                    nesting an interactive `Tooltip.Trigger` inside a
+                    `<button>` that's already a trigger for something else. */}
+                <button title={data.statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                   {hasStatus(data.statusEmoji, data.statusText) ? (
                     <>
                       {data.statusEmoji && <span>{data.statusEmoji}</span>}
@@ -113,7 +118,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
               </StatusEditor>
             ) : (
               hasStatus(data.statusEmoji, data.statusText) && (
-                <div className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1)">
+                <div title={data.statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1)">
                   {data.statusEmoji && <span>{data.statusEmoji}</span>}
                   {data.statusText && <span className="min-w-0 truncate">{data.statusText}</span>}
                 </div>
