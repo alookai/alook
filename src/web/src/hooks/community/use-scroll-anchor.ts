@@ -80,7 +80,7 @@ export interface DecideScrollActionInput {
   isAtEnd: boolean
 }
 
-export type ScrollAction =
+type ScrollAction =
   | { type: "none" }
   | { type: "mount"; newDividerBefore: string | undefined }
   | { type: "scrollToEnd" }

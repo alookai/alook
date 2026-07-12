@@ -12,16 +12,6 @@ import { useScrollAnchor } from "@/hooks/community/use-scroll-anchor"
 import { flattenMessageItems } from "./message-list-items"
 import type { Msg, OpenProfile } from "./_types"
 
-// Pure list-prep logic (flattening, row-height estimation, belowCount
-// arithmetic) lives in `message-list-items.ts`, a plain (non-"use client",
-// no React) module — `use-scroll-anchor.ts` needs those same exports and
-// would otherwise form a circular import with this file (which imports
-// `useScrollAnchor` from that module). Re-exported here so existing
-// consumers/tests importing `FlatItem`/`flattenMessageItems`/
-// `estimateRowHeight`/`computeBelowCount` from `./message-list` keep working.
-export type { FlatItem } from "./message-list-items"
-export { flattenMessageItems, estimateRowHeight, computeBelowCount } from "./message-list-items"
-
 // Channel message list — welcome hero, date dividers, messages (with the NEW divider),
 // and typing indicator. Data via props.
 export function MessageList({

@@ -33,6 +33,19 @@ async function flush(ms = 50) {
   })
 }
 
+// Poll until `predicate` holds (or we give up), advancing timers each round.
+// The out-of-band merge chain (mocked fetch `setTimeout(20)` → `.then()` →
+// `setQueryData` → re-render) can take longer than a single fixed `flush(50)`
+// on a slow/coarse-timer CI runner (this test was Windows-flaky under a bare
+// `flush()`); polling makes the wait environment-independent instead of
+// betting on a fixed sleep.
+async function waitForSettled(predicate: () => boolean, tries = 40) {
+  for (let i = 0; i < tries; i++) {
+    if (predicate()) return
+    await flush(10)
+  }
+}
+
 describe("useMessages — Fix 3 anchor re-validation", () => {
   it("fresh cache with a drifted anchor: merges the new anchor page into the already-loaded history instead of discarding it", async () => {
     // `staleTime: Infinity` — without this, mounting a new observer over
@@ -97,7 +110,9 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       )
     })
 
-    await flush()
+    // Wait until the out-of-band merge has landed (5 rows) rather than a fixed
+    // sleep — see `waitForSettled`.
+    await waitForSettled(() => (renderedMessageIds.at(-1)?.length ?? 0) === 5)
 
     // The old (valid) window must never be cleared to empty at any point in
     // between — every render either shows the old window or the merged one,
@@ -165,7 +180,8 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       )
     })
 
-    await flush()
+    // Wait until the merge has folded in the new anchor (4 rows total).
+    await waitForSettled(() => (renderedMessageIds.at(-1)?.length ?? 0) === 4)
 
     // All three pre-existing pages' messages must survive the merge — this
     // is the exact regression the user hit: scrolling up loads history via
@@ -230,7 +246,8 @@ describe("useMessages — Fix 3 anchor re-validation", () => {
       )
     })
 
-    await flush()
+    // Wait until the fresh anchor window has replaced the stale one.
+    await waitForSettled(() => renderedMessageIds.at(-1)?.[0] === "m_fresh_anchor")
 
     // The stale window must never clear to empty mid-mount — that empty
     // frame is what surfaced as the "second skeleton flash then jump to the

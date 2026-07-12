@@ -27,7 +27,7 @@ import { create } from "zustand"
 export const SEEN_MESSAGE_MAX = 500
 export const SEEN_MESSAGE_TRIM_TO = 400
 
-export type UserStatus = { emoji: string | null; text: string | null }
+type UserStatus = { emoji: string | null; text: string | null }
 
 export type CommunityWsStoreState = {
   /**
