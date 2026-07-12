@@ -594,7 +594,7 @@ export default function CommunityPreview() {
             {...profileProps}
           />
         )}
-        {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.userId === "u_gener"} onUpdateStatus={(emoji, text) => { setMyStatus({ emoji, text }); setProfile((p) => p ? { ...p, data: { ...p.data, statusEmoji: emoji, statusText: text } } : p) }} />}
+        {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.userId === "u_gener"} onUpdateStatus={(emoji, text) => { setMyStatus({ emoji, text }); setProfile((p) => p ? { ...p, data: { ...p.data, statusEmoji: emoji, statusText: text } } : p) }} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
         {dialogs}
       </Shell>
@@ -631,7 +631,7 @@ export default function CommunityPreview() {
           {...profileProps}
         />
       )}
-      {profile && <ProfileCard data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.userId === "u_gener"} onUpdateStatus={(emoji, text) => { setMyStatus({ emoji, text }); setProfile((p) => p ? { ...p, data: { ...p.data, statusEmoji: emoji, statusText: text } } : p) }} />}
+      {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.userId === "u_gener"} onUpdateStatus={(emoji, text) => { setMyStatus({ emoji, text }); setProfile((p) => p ? { ...p, data: { ...p.data, statusEmoji: emoji, statusText: text } } : p) }} />}
       {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
       {dialogs}
     </Shell>
