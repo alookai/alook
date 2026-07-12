@@ -499,6 +499,7 @@ export { truncateTitle } from "./utils/title";
 export {
   canManageServer,
   isServerOwner,
+  canSeePrivateChannel,
   isAssignableRole,
   isChannelType,
   ROLES,

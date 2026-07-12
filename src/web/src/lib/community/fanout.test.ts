@@ -25,6 +25,8 @@ vi.mock("@alook/shared", async () => {
       },
       communityChannel: {
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
+        isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
+        getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
       },
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
@@ -53,6 +55,8 @@ vi.mock("./wake-producer", () => ({
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
 const mockGetChannel = vi.fn()
+const mockIsChannelPrivate = vi.fn(() => false)
+const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 const mockGetDM = vi.fn()
 const mockGetCoMemberUserIds = vi.fn()
 const mockGetFriendUserIds = vi.fn()

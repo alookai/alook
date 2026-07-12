@@ -4,23 +4,21 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
-  canManageServer,
   isUniqueConstraintError,
   MAX_CATEGORY_NAME_LENGTH,
   WS_EVENTS,
 } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
-import { requireServerMember } from "@/lib/community/permissions"
+import { requireServerAdmin } from "@/lib/community/permissions"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
   if (!serverId) return writeError("missing server id", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await requireServerMember(db, serverId, ctx.userId)
+  const auth = await requireServerAdmin(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
-  const member = auth.value!
 
   let body: { name?: string; private?: boolean }
   try {
@@ -37,10 +35,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeError(`name must be 1-${MAX_CATEGORY_NAME_LENGTH} characters`, 400)
   }
 
-  if (body.private && !canManageServer(member.role)) {
-    return writeError("only admins can create private categories", 403)
-  }
-
+  // requireServerAdmin above already guarantees admin/owner, so main's
+  // per-member private-create check is redundant here. Keep the unique-name
+  // 409 wrapper.
   let row
   try {
     row = await queries.communityCategory.createCategory(db, {

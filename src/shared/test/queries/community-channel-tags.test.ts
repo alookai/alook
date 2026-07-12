@@ -42,6 +42,7 @@ function createSelectMock(rows: any[]) {
   chain.innerJoin = vi.fn(() => chain);
   chain.leftJoin = vi.fn(() => chain);
   chain.where = vi.fn(() => terminal());
+  chain.limit = vi.fn(() => Promise.resolve(rows));
   chain.orderBy = vi.fn(() => Promise.resolve(rows));
   return chain;
 }

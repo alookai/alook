@@ -1,11 +1,14 @@
-import { eq, and, asc, desc, isNull, max, inArray } from "drizzle-orm";
+import { eq, and, or, asc, desc, isNull, isNotNull, max, inArray, count } from "drizzle-orm";
 import {
   communityChannel,
+  communityCategory,
+  communityChannelMember,
   communityServerMember,
   communityMessage,
 } from "../../community-schema";
 import type { Database } from "../../index";
 import { createLogger } from "../../../logger";
+import { canManageServer, canSeePrivateChannel } from "../../../utils/community-roles";
 
 // Module-level logger — one tag per shared query module.
 const log = createLogger({ service: "community-queries" });
@@ -55,6 +58,7 @@ function mapChannelRow<
   return { ...rest, tags: safeParseForumTags(forumTags, row.id) };
 }
 
+
 export async function createChannel(
   db: Database,
   data: {
@@ -93,9 +97,19 @@ export async function getChannel(db: Database, channelId: string) {
   return row ? mapChannelRow(row) : null;
 }
 
+/**
+ * Fetch a channel scoped to what `userId` may READ/POST — the read/post gate
+ * used by every message-scoped route. Server membership is the base gate
+ * (inner join); on top of that a channel in a PRIVATE category (or a thread
+ * whose parent anchor is private) resolves only for a server admin/owner, the
+ * anchor's creator, or a user with a `community_channel_member` row on the
+ * anchor. Public/uncategorized channels resolve for any server member. Returns
+ * null when the caller can't see it. Scope-first (AGENTS.md): the visibility
+ * predicate is in SQL, not a post-fetch check.
+ */
 export async function getChannelForMember(db: Database, channelId: string, userId: string) {
   const rows = await db
-    .select(CHANNEL_COLUMNS)
+    .select({ ...CHANNEL_COLUMNS, memberRole: communityServerMember.role })
     .from(communityChannel)
     .innerJoin(
       communityServerMember,
@@ -106,7 +120,37 @@ export async function getChannelForMember(db: Database, channelId: string, userI
     )
     .where(eq(communityChannel.id, channelId));
   const row = rows[0];
-  return row ? mapChannelRow(row) : null;
+  if (!row) return null;
+  const { memberRole, ...channelRow } = row;
+
+  // Resolve the anchor (self for a top-level channel, parent for a thread) and
+  // check its privacy + the viewer's access. Only runs the extra lookups when
+  // the anchor is actually in a private category.
+  const anchorId = channelRow.parentChannelId ?? channelRow.id;
+  const anchor = await db
+    .select({
+      creatorId: communityChannel.creatorId,
+      categoryPrivate: communityCategory.private,
+    })
+    .from(communityChannel)
+    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
+    .where(eq(communityChannel.id, anchorId))
+    .limit(1);
+
+  const isPrivate = (anchor[0]?.categoryPrivate ?? 0) === 1;
+  if (isPrivate) {
+    const isCreator = anchor[0]?.creatorId === userId;
+    // Skip the member-row lookup when role/creator already grant access.
+    const isMember =
+      canManageServer(memberRole) || isCreator
+        ? false
+        : await isChannelMember(db, anchorId, userId);
+    if (!canSeePrivateChannel({ role: memberRole, isCreator, isChannelMember: isMember })) {
+      return null;
+    }
+  }
+
+  return mapChannelRow(channelRow);
 }
 
 export async function updateChannel(
@@ -189,24 +233,28 @@ export async function resolveChannelByNameForMember(
 
 /**
  * Top-level channels (no threads — `parentChannelId IS NULL`, mirroring
- * `listServerChannels`) a bot can see via `listChannels`, scoped to server
- * membership only — same visibility rule the human server-channels route
- * uses (no extra private-category filter on read; decided in plan §7 v3).
+ * `listServerChannels`) a viewer can see via `listChannels`, scoped to server
+ * membership AND private-channel visibility: a channel in a PRIVATE category is
+ * only returned if the viewer is an admin, the channel's creator, or has a
+ * `community_channel_member` row for it. Public/uncategorized channels are
+ * visible to any server member. This is the human-tree rule
+ * (`listServerChannelsForViewer`) applied to the bot/agent surface.
  */
 export async function listChannelsForMember(db: Database, serverId: string, userId: string) {
-  const rows = await db
-    .select(CHANNEL_COLUMNS)
-    .from(communityChannel)
-    .innerJoin(
-      communityServerMember,
+  const member = await db
+    .select({ role: communityServerMember.role })
+    .from(communityServerMember)
+    .where(
       and(
-        eq(communityServerMember.serverId, communityChannel.serverId),
+        eq(communityServerMember.serverId, serverId),
         eq(communityServerMember.userId, userId)
       )
     )
-    .where(and(eq(communityChannel.serverId, serverId), isNull(communityChannel.parentChannelId)))
-    .orderBy(asc(communityChannel.position));
-  return rows.map(mapChannelRow);
+    .limit(1);
+  if (member.length === 0) return [];
+  return listServerChannelsForViewer(db, serverId, userId, {
+    isAdmin: canManageServer(member[0]!.role),
+  });
 }
 
 /**
@@ -257,7 +305,10 @@ export async function createThreadChannel(
 ) {
   const [parentServer, parentMessage] = await Promise.all([
     db
-      .select({ serverId: communityChannel.serverId })
+      .select({
+        serverId: communityChannel.serverId,
+        parentChannelId: communityChannel.parentChannelId,
+      })
       .from(communityChannel)
       .where(eq(communityChannel.id, parentChannelId)),
     db
@@ -267,6 +318,18 @@ export async function createThreadChannel(
   ]);
   const serverId = parentServer[0]?.serverId;
   if (!serverId) throw new Error(`createThreadChannel: parent channel ${parentChannelId} not found`);
+
+  // A thread may only root on a TOP-LEVEL channel. Rooting on a child channel
+  // (a forum post, or another thread) would make this a grandchild whose
+  // privacy the single-level anchor climb can't resolve — it would read the
+  // child's own `categoryId` (always NULL) as public and leak a private
+  // forum's thread server-wide. Single chokepoint for every caller (web
+  // threads route, agent send/resolve auto-thread, future callers).
+  if (parentServer[0]?.parentChannelId) {
+    throw new Error(
+      `createThreadChannel: cannot root a thread on child channel ${parentChannelId}`
+    );
+  }
 
   const rawContent = parentMessage[0]?.content?.trim() ?? "";
   const name = rawContent.length > 0 ? rawContent.slice(0, 40) : "Thread";
@@ -350,4 +413,392 @@ export async function getChannelsByIds(db: Database, channelIds: string[]) {
     .from(communityChannel)
     .where(inArray(communityChannel.id, channelIds));
   return rows.map(mapChannelRow);
+}
+
+// ---------------------------------------------------------------------------
+// Private-channel membership + visibility
+// (plans/channel-category-role-permissions.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * A channel is PRIVATE when its (anchor's) category has `private = 1`.
+ * Uncategorized channels (`categoryId IS NULL`) and channels in public
+ * categories are both PUBLIC. Climbs `parentChannelId` first so a thread
+ * inherits its parent's privacy (a thread's own `categoryId` is always NULL).
+ */
+export async function isChannelPrivate(db: Database, channelId: string): Promise<boolean> {
+  const target = await db
+    .select({
+      id: communityChannel.id,
+      parentChannelId: communityChannel.parentChannelId,
+    })
+    .from(communityChannel)
+    .where(eq(communityChannel.id, channelId))
+    .limit(1);
+  if (target.length === 0) return false;
+  const anchorId = target[0]!.parentChannelId ?? target[0]!.id;
+
+  const rows = await db
+    .select({ private: communityCategory.private })
+    .from(communityChannel)
+    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
+    .where(eq(communityChannel.id, anchorId))
+    .limit(1);
+  return (rows[0]?.private ?? 0) === 1;
+}
+
+export async function createChannelMember(
+  db: Database,
+  data: { channelId: string; userId: string; addedBy?: string | null }
+) {
+  const rows = await db
+    .insert(communityChannelMember)
+    .values({
+      channelId: data.channelId,
+      userId: data.userId,
+      addedBy: data.addedBy ?? null,
+    })
+    .onConflictDoNothing({
+      target: [communityChannelMember.channelId, communityChannelMember.userId],
+    })
+    .returning();
+  return rows[0] ?? null;
+}
+
+export async function deleteChannelMember(
+  db: Database,
+  channelId: string,
+  userId: string
+) {
+  const rows = await db
+    .delete(communityChannelMember)
+    .where(
+      and(
+        eq(communityChannelMember.channelId, channelId),
+        eq(communityChannelMember.userId, userId)
+      )
+    )
+    .returning();
+  return rows[0] ?? null;
+}
+
+/**
+ * Members explicitly added to a channel, joined to `user` for display. Scoped
+ * to one channel id — cross-channel ids never resolve.
+ */
+export async function listChannelMembers(db: Database, channelId: string) {
+  return db
+    .select({
+      id: communityChannelMember.id,
+      channelId: communityChannelMember.channelId,
+      userId: communityChannelMember.userId,
+      addedBy: communityChannelMember.addedBy,
+      addedAt: communityChannelMember.addedAt,
+    })
+    .from(communityChannelMember)
+    .where(eq(communityChannelMember.channelId, channelId))
+    .orderBy(asc(communityChannelMember.addedAt));
+}
+
+export async function listChannelMemberUserIds(
+  db: Database,
+  channelId: string
+): Promise<string[]> {
+  const rows = await db
+    .select({ userId: communityChannelMember.userId })
+    .from(communityChannelMember)
+    .where(eq(communityChannelMember.channelId, channelId));
+  return rows.map((r) => r.userId);
+}
+
+export async function isChannelMember(
+  db: Database,
+  channelId: string,
+  userId: string
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: communityChannelMember.id })
+    .from(communityChannelMember)
+    .where(
+      and(
+        eq(communityChannelMember.channelId, channelId),
+        eq(communityChannelMember.userId, userId)
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+export async function getChannelMemberCount(
+  db: Database,
+  channelId: string
+): Promise<number> {
+  const rows = await db
+    .select({ cnt: count() })
+    .from(communityChannelMember)
+    .where(eq(communityChannelMember.channelId, channelId));
+  return rows[0]?.cnt ?? 0;
+}
+
+export async function countChannelsInCategory(
+  db: Database,
+  categoryId: string
+): Promise<number> {
+  const rows = await db
+    .select({ cnt: count() })
+    .from(communityChannel)
+    .where(eq(communityChannel.categoryId, categoryId));
+  return rows[0]?.cnt ?? 0;
+}
+
+/**
+ * The full recipient audience for a PRIVATE channel: explicit members ∪ the
+ * anchor channel's creator ∪ every server admin/owner. Resolves the anchor
+ * first (a thread — `parentChannelId` set — inherits its parent's audience).
+ * Only meaningful for a private anchor; callers guard on `isChannelPrivate`
+ * first (fan-out short-circuits public channels to `listMemberUserIds` and
+ * never calls this). Called on a public/uncategorized anchor it would return
+ * just admins + creator, NOT all members — do not use it as a public-channel
+ * recipient resolver.
+ */
+export async function getPrivateChannelAudienceUserIds(
+  db: Database,
+  channelId: string
+): Promise<string[]> {
+  const target = await db
+    .select({
+      id: communityChannel.id,
+      serverId: communityChannel.serverId,
+      parentChannelId: communityChannel.parentChannelId,
+    })
+    .from(communityChannel)
+    .where(eq(communityChannel.id, channelId))
+    .limit(1);
+  if (target.length === 0) return [];
+  const anchorId = target[0]!.parentChannelId ?? target[0]!.id;
+  const serverId = target[0]!.serverId;
+
+  // Anchor row: creator + its category privacy.
+  const anchor = await db
+    .select({
+      creatorId: communityChannel.creatorId,
+      categoryPrivate: communityCategory.private,
+    })
+    .from(communityChannel)
+    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
+    .where(eq(communityChannel.id, anchorId))
+    .limit(1);
+  if (anchor.length === 0) return [];
+
+  // Server admins/owner always belong to the audience.
+  const admins = await db
+    .select({ userId: communityServerMember.userId })
+    .from(communityServerMember)
+    .where(
+      and(
+        eq(communityServerMember.serverId, serverId),
+        or(
+          eq(communityServerMember.role, "owner"),
+          eq(communityServerMember.role, "admin")
+        )
+      )
+    );
+  const members = await listChannelMemberUserIds(db, anchorId);
+
+  const set = new Set<string>();
+  for (const a of admins) set.add(a.userId);
+  for (const m of members) set.add(m);
+  if (anchor[0]!.creatorId) set.add(anchor[0]!.creatorId as string);
+  return [...set];
+}
+
+/**
+ * Top-level channels a viewer may SEE in a server (backs the server-detail
+ * tree). Rule, all in SQL (no JS post-filter):
+ *   - admin/owner → every top-level channel.
+ *   - otherwise → all public/uncategorized channels, PLUS private-category
+ *     channels where the viewer is the creator OR has a member row.
+ * `parentChannelId IS NULL` (threads excluded, mirroring `listServerChannels`).
+ */
+export async function listServerChannelsForViewer(
+  db: Database,
+  serverId: string,
+  userId: string,
+  opts: { isAdmin: boolean }
+) {
+  const base = and(
+    eq(communityChannel.serverId, serverId),
+    isNull(communityChannel.parentChannelId)
+  );
+
+  if (opts.isAdmin) {
+    const rows = await db
+      .select(CHANNEL_COLUMNS)
+      .from(communityChannel)
+      .where(base)
+      .orderBy(asc(communityChannel.position));
+    return rows.map(mapChannelRow);
+  }
+
+  const rows = await db
+    .select(CHANNEL_COLUMNS)
+    .from(communityChannel)
+    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
+    .leftJoin(
+      communityChannelMember,
+      and(
+        eq(communityChannelMember.channelId, communityChannel.id),
+        eq(communityChannelMember.userId, userId)
+      )
+    )
+    .where(
+      and(
+        base,
+        or(
+          // public / uncategorized
+          isNull(communityChannel.categoryId),
+          eq(communityCategory.private, 0),
+          // private but visible to this viewer
+          eq(communityChannel.creatorId, userId),
+          isNotNull(communityChannelMember.id)
+        )
+      )
+    )
+    .orderBy(asc(communityChannel.position));
+  return rows.map(mapChannelRow);
+}
+
+/**
+ * The set of channel ids (top-level AND child/thread channels) a viewer may
+ * see — backs read-path scoping for search / inbox / mark-all-read / mentions.
+ * A thread inherits its parent's visibility, so it's included iff its
+ * `parentChannelId` is in the visible top-level set. Scoping is done entirely
+ * in SQL (the second query is scoped by the first's id set via `inArray`) —
+ * no fetch-all-then-filter-in-JS leak.
+ */
+export async function listVisibleChannelIds(
+  db: Database,
+  serverId: string,
+  userId: string,
+  opts: { isAdmin: boolean }
+): Promise<string[]> {
+  if (opts.isAdmin) {
+    const rows = await db
+      .select({ id: communityChannel.id })
+      .from(communityChannel)
+      .where(eq(communityChannel.serverId, serverId));
+    return rows.map((r) => r.id);
+  }
+
+  // Visible TOP-LEVEL channels: public/uncategorized ∪ private-where-viewer-is
+  // creator-or-member.
+  const topLevel = await db
+    .select({ id: communityChannel.id })
+    .from(communityChannel)
+    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
+    .leftJoin(
+      communityChannelMember,
+      and(
+        eq(communityChannelMember.channelId, communityChannel.id),
+        eq(communityChannelMember.userId, userId)
+      )
+    )
+    .where(
+      and(
+        eq(communityChannel.serverId, serverId),
+        isNull(communityChannel.parentChannelId),
+        or(
+          isNull(communityChannel.categoryId),
+          eq(communityCategory.private, 0),
+          eq(communityChannel.creatorId, userId),
+          isNotNull(communityChannelMember.id)
+        )
+      )
+    );
+  const topLevelIds = topLevel.map((r) => r.id);
+  if (topLevelIds.length === 0) return [];
+
+  // Threads inherit from their parent: include children of visible top-level
+  // channels (scoped by the id set — SQL, not JS).
+  const children = await db
+    .select({ id: communityChannel.id })
+    .from(communityChannel)
+    .where(
+      and(
+        eq(communityChannel.serverId, serverId),
+        inArray(communityChannel.parentChannelId, topLevelIds)
+      )
+    );
+  return [...topLevelIds, ...children.map((r) => r.id)];
+}
+
+/**
+ * Single joined row backing `requireChannelAccess` — resolves in ONE round
+ * trip everything the access predicate needs: the target channel, its anchor
+ * (self when top-level, parent when a thread), the anchor's category privacy,
+ * the viewer's server-member role, and whether the viewer has a member row on
+ * the anchor. Returns null when the channel doesn't exist OR the viewer isn't
+ * a server member (the membership gate). `role`/`memberFlag` reflect the
+ * anchor's server.
+ */
+export async function resolveChannelAccessContext(
+  db: Database,
+  channelId: string,
+  userId: string
+) {
+  const target = await db
+    .select(CHANNEL_COLUMNS)
+    .from(communityChannel)
+    .where(eq(communityChannel.id, channelId))
+    .limit(1);
+  if (target.length === 0) return null;
+  const channel = mapChannelRow(target[0]!);
+  const anchorId = channel.parentChannelId ?? channel.id;
+
+  // Server-membership gate against the target's server.
+  const member = await db
+    .select({ role: communityServerMember.role })
+    .from(communityServerMember)
+    .where(
+      and(
+        eq(communityServerMember.serverId, channel.serverId),
+        eq(communityServerMember.userId, userId)
+      )
+    )
+    .limit(1);
+  if (member.length === 0) return null;
+
+  const anchorRows =
+    anchorId === channel.id
+      ? [target[0]!]
+      : await db
+          .select(CHANNEL_COLUMNS)
+          .from(communityChannel)
+          .where(eq(communityChannel.id, anchorId))
+          .limit(1);
+  if (anchorRows.length === 0) return null;
+  const anchor = mapChannelRow(anchorRows[0]!);
+
+  let categoryPrivate = 0;
+  if (anchor.categoryId) {
+    const cat = await db
+      .select({ private: communityCategory.private })
+      .from(communityCategory)
+      .where(eq(communityCategory.id, anchor.categoryId))
+      .limit(1);
+    categoryPrivate = cat[0]?.private ?? 0;
+  }
+
+  const memberFlag =
+    categoryPrivate === 1
+      ? await isChannelMember(db, anchorId, userId)
+      : false;
+
+  return {
+    channel,
+    anchor,
+    role: member[0]!.role,
+    isPrivate: categoryPrivate === 1,
+    isChannelMember: memberFlag,
+  };
 }

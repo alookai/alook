@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, MIN_SEARCH_LENGTH, MAX_SEARCH_LENGTH } from "@alook/shared"
+import { queries, canManageServer, MIN_SEARCH_LENGTH, MAX_SEARCH_LENGTH } from "@alook/shared"
 import {
   requireServerMember,
   requireChannelMember,
@@ -32,9 +32,18 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
   if (serverId) {
     const auth = await requireServerMember(db, serverId, ctx.userId)
     if (!auth.ok) return writeError(auth.error, auth.status)
+    // Scope to the viewer's visible channels so private-channel content never
+    // surfaces in server-wide search.
+    const visibleChannelIds = await queries.communityChannel.listVisibleChannelIds(
+      db,
+      serverId,
+      ctx.userId,
+      { isAdmin: canManageServer(auth.value!.role) },
+    )
     const results = await queries.communitySearch.searchMessagesInServer(db, {
       query: q,
       serverId,
+      visibleChannelIds,
     })
     return writeJSON({ results })
   }

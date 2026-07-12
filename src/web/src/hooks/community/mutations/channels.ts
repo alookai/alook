@@ -38,6 +38,34 @@ export function useCreateChannel() {
   })
 }
 
+export type MoveChannelArgs = {
+  serverId: string
+  channelId: string
+  categoryId: string | null
+}
+
+/**
+ * Move a channel to another category (or to uncategorized with `null`). The
+ * backend (`channels/[id]` PATCH) is admin-only and rejects a move that would
+ * cross a public↔private boundary — the sidebar blocks that before it gets
+ * here, this mutation covers the same-privacy case. Invalidates the tree so
+ * positions/category resettle from the server.
+ */
+export function useMoveChannel() {
+  const queryClient = useQueryClient()
+  return useMutation<void, Error, MoveChannelArgs>({
+    mutationFn: async ({ channelId, categoryId }) => {
+      await apiFetch(`/api/community/channels/${channelId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ categoryId }),
+      })
+    },
+    onSuccess: (_data, args) => {
+      void queryClient.invalidateQueries({ queryKey: communityKeys.server(args.serverId) })
+    },
+  })
+}
+
 export type DeleteChannelArgs = { serverId: string; channelId: string }
 
 export function useDeleteChannel() {
@@ -78,20 +106,20 @@ export function useCreateCategory() {
   })
 }
 
+// Category privacy is immutable after creation, so this only renames.
 export type UpdateCategoryArgs = {
   serverId: string
   categoryId: string
   name?: string
-  isPrivate?: boolean
 }
 
 export function useUpdateCategory() {
   const queryClient = useQueryClient()
   return useMutation<void, Error, UpdateCategoryArgs>({
-    mutationFn: async ({ serverId, categoryId, name, isPrivate }) => {
+    mutationFn: async ({ serverId, categoryId, name }) => {
       await apiFetch(`/api/community/servers/${serverId}/categories/${categoryId}`, {
         method: "PATCH",
-        body: JSON.stringify({ name, private: isPrivate }),
+        body: JSON.stringify({ name }),
       })
     },
     onSuccess: (_data, args) => {

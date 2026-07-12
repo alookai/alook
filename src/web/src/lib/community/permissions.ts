@@ -1,4 +1,4 @@
-import { queries, canManageServer } from "@alook/shared"
+import { queries, canManageServer, canSeePrivateChannel } from "@alook/shared"
 import type { Database } from "@alook/shared"
 
 type PermissionError =
@@ -33,7 +33,17 @@ export async function requireServerAdmin(
   return ok(member)
 }
 
-/** Verify the caller is a member of the server that owns the channel; returns the channel row. */
+/**
+ * Verify the caller may READ/POST in a channel; returns the channel row.
+ *
+ * The read/post gate for every message-scoped route (messages, pins,
+ * reactions, uploads, read-state, threads, media, agent). Private-channel
+ * visibility is enforced inside `getChannelForMember` itself (scope-first, per
+ * AGENTS.md): it returns null when the caller can't see a channel in a private
+ * category (or its thread), so this stays a thin wrapper and every existing
+ * caller inherits the gating. Routes that need `canManage` (edit/delete, member
+ * management) call `requireChannelAccess` directly.
+ */
 export async function requireChannelMember(
   db: Database,
   channelId: string,
@@ -42,6 +52,59 @@ export async function requireChannelMember(
   const channel = await queries.communityChannel.getChannelForMember(db, channelId, userId)
   if (!channel) return err(403, "forbidden")
   return ok(channel)
+}
+
+type ChannelAccessContext = NonNullable<
+  Awaited<ReturnType<typeof queries.communityChannel.resolveChannelAccessContext>>
+>
+
+export type ChannelAccess = {
+  channel: ChannelAccessContext["channel"]
+  anchor: ChannelAccessContext["anchor"]
+  member: { role: string | null }
+  canManage: boolean
+  isPrivate: boolean
+}
+
+/**
+ * Single-source-of-truth channel access gate. Resolves in one context query
+ * (target + anchor + category privacy + member role + channel-member flag),
+ * then applies the rule:
+ *   - not a server member → 403
+ *   - admin/owner → access + canManage
+ *   - public/uncategorized → access; canManage only for admins
+ *   - private → access iff creator or added member; canManage iff admin or
+ *     anchor creator
+ * Threads inherit their parent anchor's audience (the context query climbs
+ * `parentChannelId`), so thread member rows never exist.
+ */
+export async function requireChannelAccess(
+  db: Database,
+  channelId: string,
+  userId: string,
+): Promise<Result<ChannelAccess>> {
+  const ctx = await queries.communityChannel.resolveChannelAccessContext(db, channelId, userId)
+  if (!ctx) return err(403, "forbidden")
+
+  const isAdmin = canManageServer(ctx.role)
+  const isCreator = ctx.anchor.creatorId === userId
+
+  // Visibility: public → any server member; private → the shared
+  // canSeePrivateChannel rule (admin | creator | member). Manage: admin
+  // anywhere, plus the creator of a private channel.
+  const hasAccess = ctx.isPrivate
+    ? canSeePrivateChannel({ role: ctx.role, isCreator, isChannelMember: ctx.isChannelMember })
+    : true
+  const canManage = isAdmin || (ctx.isPrivate && isCreator)
+
+  if (!hasAccess) return err(403, "forbidden")
+  return ok({
+    channel: ctx.channel,
+    anchor: ctx.anchor,
+    member: { role: ctx.role },
+    canManage,
+    isPrivate: ctx.isPrivate,
+  })
 }
 
 type DMRow = {

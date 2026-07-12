@@ -41,13 +41,23 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
 }
 
 /**
- * Resolves the server a channel belongs to, then returns all member user IDs.
+ * Resolves the recipient set for a channel event.
+ *   - public / uncategorized channel (or a thread whose anchor is public) →
+ *     all server members (unchanged behavior).
+ *   - private-category channel (or a thread anchored to one) → the channel
+ *     audience: explicit members ∪ creator ∪ server admins.
+ * `isChannelPrivate` and `getPrivateChannelAudienceUserIds` both climb
+ * `parentChannelId`, so threads inherit their parent's audience automatically.
  */
 async function getChannelRecipientUserIds(db: Database, channelId: string): Promise<string[]> {
   const channel = await queries.communityChannel.getChannel(db, channelId)
   if (!channel) {
     log.warn("fanOutToChannel: channel not found", { channelId })
     return []
+  }
+  const isPrivate = await queries.communityChannel.isChannelPrivate(db, channelId)
+  if (isPrivate) {
+    return queries.communityChannel.getPrivateChannelAudienceUserIds(db, channelId)
   }
   return getServerMemberUserIds(db, channel.serverId)
 }

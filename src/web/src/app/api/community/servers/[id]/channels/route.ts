@@ -13,7 +13,7 @@ import {
   slugify,
   type ChannelType,
 } from "@alook/shared"
-import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { fanOutToServerMembers, fanOutToChannel } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
 import { requireServerMember } from "@/lib/community/permissions"
 
@@ -54,15 +54,20 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     }
   }
 
+  // Who may create depends on the target location:
+  //   - uncategorized OR public category → admin/owner only
+  //   - private category → any server member (they own the channel + its roster)
   const isAdmin = canManageServer(member.role)
+  let isPrivateCategory = false
   if (body.categoryId) {
     const category = await queries.communityCategory.getCategory(db, body.categoryId)
     if (!category || category.serverId !== serverId) {
       return writeError("category not found", 404)
     }
-    if (category.private && !isAdmin) {
-      return writeError("only admins can create channels in private categories", 403)
-    }
+    isPrivateCategory = !!category.private
+  }
+  if (!isPrivateCategory && !isAdmin) {
+    return writeError("admin permission required", 403)
   }
 
   let row
@@ -82,6 +87,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     throw err
   }
 
+  // Private-category channels track an explicit roster; seed the creator so
+  // audience resolution + the manage-members list are single queries.
+  if (isPrivateCategory) {
+    await queries.communityChannel.createChannelMember(db, {
+      channelId: row.id,
+      userId: ctx.userId,
+      addedBy: ctx.userId,
+    })
+  }
+
   const channel = {
     id: row.id,
     name: row.name,
@@ -92,11 +107,22 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     createdAt: row.createdAt,
   }
 
-  await fanOutToServerMembers(serverId, {
-    type: WS_EVENTS.CHANNEL_CREATE,
-    serverId,
-    channel,
-  })
+  // A private channel's creation must NOT fan out to the whole server (that
+  // would leak its existence). Route it through the channel audience (creator
+  // + admins); public/uncategorized channels stay server-wide.
+  if (isPrivateCategory) {
+    await fanOutToChannel(row.id, {
+      type: WS_EVENTS.CHANNEL_CREATE,
+      serverId,
+      channel,
+    })
+  } else {
+    await fanOutToServerMembers(serverId, {
+      type: WS_EVENTS.CHANNEL_CREATE,
+      serverId,
+      channel,
+    })
+  }
 
   logAudit(db, {
     serverId,

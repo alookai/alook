@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const getMember = vi.fn()
 const getChannelForMember = vi.fn()
+const resolveChannelAccessContext = vi.fn()
 const getDM = vi.fn()
 const isBlocked = vi.fn()
 
@@ -11,7 +12,10 @@ vi.mock("@alook/shared", async () => {
     ...actual,
     queries: {
       communityMember: { getMember: (...a: unknown[]) => getMember(...a) },
-      communityChannel: { getChannelForMember: (...a: unknown[]) => getChannelForMember(...a) },
+      communityChannel: {
+        getChannelForMember: (...a: unknown[]) => getChannelForMember(...a),
+        resolveChannelAccessContext: (...a: unknown[]) => resolveChannelAccessContext(...a),
+      },
       communityDm: { getDM: (...a: unknown[]) => getDM(...a) },
       communityFriendship: { isBlocked: (...a: unknown[]) => isBlocked(...a) },
     },
@@ -22,9 +26,40 @@ import {
   requireServerMember,
   requireServerAdmin,
   requireChannelMember,
+  requireChannelAccess,
   requireDMParticipant,
   requireNotBlocked,
 } from "./permissions"
+
+// Build a resolveChannelAccessContext return row. `anchor` defaults to the
+// channel itself (top-level); pass a distinct anchor for the thread cases.
+function ctxRow(over: Partial<{
+  channelId: string
+  serverId: string
+  parentChannelId: string | null
+  creatorId: string | null
+  role: string
+  isPrivate: boolean
+  isChannelMember: boolean
+}> = {}) {
+  const {
+    channelId = "c1",
+    serverId = "s1",
+    parentChannelId = null,
+    creatorId = "creator",
+    role = "member",
+    isPrivate = false,
+    isChannelMember = false,
+  } = over
+  const channel = { id: channelId, serverId, parentChannelId, creatorId }
+  return {
+    channel,
+    anchor: parentChannelId ? { id: parentChannelId, serverId, parentChannelId: null, creatorId } : channel,
+    role,
+    isPrivate,
+    isChannelMember,
+  }
+}
 
 const db = {} as never
 
@@ -86,6 +121,81 @@ describe("requireChannelMember", () => {
   it("returns 403 when the join is empty (non-member or non-existent channel)", async () => {
     getChannelForMember.mockResolvedValue(null)
     const res = await requireChannelMember(db, "c1", "u1")
+    expect(res).toEqual({ ok: false, status: 403, error: "forbidden" })
+  })
+})
+
+describe("requireChannelAccess", () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it("returns 403 for a non-server-member (null context)", async () => {
+    resolveChannelAccessContext.mockResolvedValue(null)
+    const res = await requireChannelAccess(db, "c1", "u1")
+    expect(res).toEqual({ ok: false, status: 403, error: "forbidden" })
+  })
+
+  it("public channel: any member has access, canManage only for admins", async () => {
+    resolveChannelAccessContext.mockResolvedValue(ctxRow({ role: "member", isPrivate: false }))
+    const res = await requireChannelAccess(db, "c1", "u1")
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.value.canManage).toBe(false)
+  })
+
+  it("public channel: admin gets canManage", async () => {
+    resolveChannelAccessContext.mockResolvedValue(ctxRow({ role: "admin", isPrivate: false }))
+    const res = await requireChannelAccess(db, "c1", "u1")
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.value.canManage).toBe(true)
+  })
+
+  it("private channel: creator has access + canManage", async () => {
+    resolveChannelAccessContext.mockResolvedValue(
+      ctxRow({ role: "member", isPrivate: true, creatorId: "u1" }),
+    )
+    const res = await requireChannelAccess(db, "c1", "u1")
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.value.canManage).toBe(true)
+  })
+
+  it("private channel: added member has access, not canManage", async () => {
+    resolveChannelAccessContext.mockResolvedValue(
+      ctxRow({ role: "member", isPrivate: true, creatorId: "other", isChannelMember: true }),
+    )
+    const res = await requireChannelAccess(db, "c1", "u1")
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.value.canManage).toBe(false)
+  })
+
+  it("private channel: unrelated member is forbidden", async () => {
+    resolveChannelAccessContext.mockResolvedValue(
+      ctxRow({ role: "member", isPrivate: true, creatorId: "other", isChannelMember: false }),
+    )
+    const res = await requireChannelAccess(db, "c1", "u1")
+    expect(res).toEqual({ ok: false, status: 403, error: "forbidden" })
+  })
+
+  it("private channel: admin always has access + canManage", async () => {
+    resolveChannelAccessContext.mockResolvedValue(
+      ctxRow({ role: "owner", isPrivate: true, creatorId: "other", isChannelMember: false }),
+    )
+    const res = await requireChannelAccess(db, "c1", "u1")
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.value.canManage).toBe(true)
+  })
+
+  it("thread under a private channel: added member of the parent has access", async () => {
+    resolveChannelAccessContext.mockResolvedValue(
+      ctxRow({ channelId: "t1", parentChannelId: "c1", role: "member", isPrivate: true, creatorId: "other", isChannelMember: true }),
+    )
+    const res = await requireChannelAccess(db, "t1", "u1")
+    expect(res.ok).toBe(true)
+  })
+
+  it("thread under a private channel: unrelated member is forbidden", async () => {
+    resolveChannelAccessContext.mockResolvedValue(
+      ctxRow({ channelId: "t1", parentChannelId: "c1", role: "member", isPrivate: true, creatorId: "other", isChannelMember: false }),
+    )
+    const res = await requireChannelAccess(db, "t1", "u1")
     expect(res).toEqual({ ok: false, status: 403, error: "forbidden" })
   })
 })

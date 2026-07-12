@@ -4,14 +4,13 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
-  canManageServer,
   isUniqueConstraintError,
   MAX_CATEGORY_NAME_LENGTH,
   WS_EVENTS,
 } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
-import { requireServerMember } from "@/lib/community/permissions"
+import { requireServerAdmin } from "@/lib/community/permissions"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const serverId = ctx.params?.id
@@ -19,39 +18,35 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   if (!serverId || !categoryId) return writeError("missing params", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await requireServerMember(db, serverId, ctx.userId)
+  const auth = await requireServerAdmin(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
-  const member = auth.value!
 
   const category = await queries.communityCategory.getCategory(db, categoryId)
   if (!category || category.serverId !== serverId) return writeError("category not found", 404)
 
-  const isAdmin = canManageServer(member.role)
-  if (!isAdmin && category.creatorId !== ctx.userId) {
-    return writeError("forbidden", 403)
-  }
-
-  let body: { name?: string; private?: boolean }
+  // Only the name is mutable. Category privacy (public/private) is fixed at
+  // creation — flipping it would silently widen/tighten channel visibility, so
+  // `private` is intentionally NOT accepted here (change it by recreating the
+  // category). See plans/channel-category-role-permissions.md.
+  let body: { name?: string }
   try {
     body = await req.json()
   } catch {
     return writeError("invalid request body", 400)
   }
 
-  if (body.private !== undefined && !isAdmin) {
-    return writeError("only admins can change private setting", 403)
-  }
-
-  const changes: { name?: string; private?: boolean } = {}
+  const changes: { name?: string } = {}
   if (body.name !== undefined) {
     if (typeof body.name !== "string") return writeError("name must be a string", 400)
     const trimmed = body.name.trim()
     if (!trimmed || trimmed.length > MAX_CATEGORY_NAME_LENGTH) {
       return writeError(`name must be 1-${MAX_CATEGORY_NAME_LENGTH} characters`, 400)
     }
-    changes.name = trimmed
+    // Category names are displayed uppercase; store them uppercased so the
+    // persisted value matches the client's optimistic rename (which uppercases
+    // too) — otherwise the sidebar briefly diverges until the next refetch.
+    changes.name = trimmed.toUpperCase()
   }
-  if (body.private !== undefined) changes.private = body.private
 
   if (Object.keys(changes).length === 0) {
     return writeError("no changes provided", 400)
@@ -93,16 +88,19 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   if (!serverId || !categoryId) return writeError("missing params", 400)
 
   const db = getDb(ctx.env.DB)
-  const auth = await requireServerMember(db, serverId, ctx.userId)
+  const auth = await requireServerAdmin(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
-  const member = auth.value!
 
   const category = await queries.communityCategory.getCategory(db, categoryId)
   if (!category || category.serverId !== serverId) return writeError("category not found", 404)
 
-  const isAdmin = canManageServer(member.role)
-  if (!isAdmin && category.creatorId !== ctx.userId) {
-    return writeError("forbidden", 403)
+  // Deleting a non-empty category would `set null` its channels' categoryId,
+  // silently re-classifying private channels as public (visible to everyone)
+  // while leaving stale channel_member rows. Block it; admin moves/deletes the
+  // channels first.
+  const hasChannels = await queries.communityCategory.hasChannels(db, categoryId)
+  if (hasChannels) {
+    return writeError("Move or delete its channels first", 409)
   }
 
   const deleted = await queries.communityCategory.deleteCategory(db, categoryId)

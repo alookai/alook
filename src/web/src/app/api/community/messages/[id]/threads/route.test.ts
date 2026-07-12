@@ -219,6 +219,20 @@ describe("POST /api/community/messages/[id]/threads", () => {
     expect(res.status).toBe(404)
   })
 
+  it("400s when the parent message lives in a child channel (forum post / thread) — no grandchild threads", async () => {
+    // A message inside a forum_post/thread: its channel has parentChannelId set.
+    // Rooting a thread here would create a grandchild the single-level privacy
+    // anchor climb can't resolve, leaking a private forum's thread server-wide.
+    mockGetChannelForMember.mockResolvedValue({
+      id: "forum-post-1",
+      serverId: "s1",
+      parentChannelId: "forum-1",
+    })
+    const res = await POST(req({ name: "x" }), ctx)
+    expect(res.status).toBe(400)
+    expect(mockCreateChannel).not.toHaveBeenCalled()
+  })
+
   it("403s when the caller isn't a member of the parent channel's server", async () => {
     mockGetChannelForMember.mockResolvedValue(null)
     const res = await POST(req({ name: "x" }), ctx)

@@ -698,6 +698,26 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           return
         }
 
+        // ── Channel membership (private channels) ────────────────────────
+        // Re-run the viewer-scoped server tree so the sidebar gains/loses the
+        // private channel. On REMOVE for the viewer, evict that channel's
+        // scoped caches so no private content lingers locally (mirrors the
+        // channel.delete eviction above).
+        case "community:channel.member_add":
+        case "community:channel.member_remove": {
+          if (
+            event.type === "community:channel.member_remove" &&
+            event.userId === viewerUserIdRef.current
+          ) {
+            queryClient.removeQueries({ queryKey: communityKeys.channelMessages(event.channelId) })
+            queryClient.removeQueries({ queryKey: communityKeys.pins(event.channelId) })
+            queryClient.removeQueries({ queryKey: communityKeys.threads(event.channelId) })
+            queryClient.removeQueries({ queryKey: communityKeys.forumPosts(event.channelId) })
+          }
+          void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
+          return
+        }
+
         // ── Members ─────────────────────────────────────────────────────
         case "community:member.join":
         case "community:member.leave":

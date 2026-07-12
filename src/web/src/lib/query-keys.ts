@@ -52,6 +52,13 @@ export const communityKeys = {
   dmMessagesPage: (dmId: string, cursor?: string | null) =>
     [...communityKeys.dmMessages(dmId), cursor ?? null] as const,
 
+  // Explicit membership roster of a private-category channel + the addable
+  // (not-yet-member) server members for its picker.
+  channelMembers: (channelId: string) =>
+    [...communityKeys.all, "channel", channelId, "members"] as const,
+  channelAddableMembers: (channelId: string) =>
+    [...communityKeys.all, "channel", channelId, "addable-members"] as const,
+
   pins: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "pins"] as const,
   threads: (channelId: string) =>

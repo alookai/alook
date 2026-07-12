@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { communityMessage, communityChannel } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -25,6 +25,10 @@ export async function searchMessages(
     channelId?: string;
     dmConversationId?: string;
     serverId?: string;
+    // Scope for the server branch — the caller's visible channel ids
+    // (public/uncategorized ∪ private-where-member). Enforced in SQL so
+    // private-channel content never leaks into server-wide search results.
+    visibleChannelIds?: string[];
     limit?: number;
   }
 ) {
@@ -34,6 +38,7 @@ export async function searchMessages(
     return searchMessagesInServer(db, {
       query: opts.query,
       serverId: opts.serverId,
+      visibleChannelIds: opts.visibleChannelIds,
       limit,
     });
   }
@@ -63,12 +68,27 @@ export async function searchMessagesInServer(
   opts: {
     query: string;
     serverId: string;
+    // The caller's visible channel ids — scopes the search so private-channel
+    // content the viewer can't see never appears. `undefined` means "not
+    // scoped" (internal/trusted callers only); the community search route
+    // ALWAYS passes it. An empty array yields zero results.
+    visibleChannelIds?: string[];
     limit?: number;
   }
 ) {
   const limit = opts.limit ?? DEFAULT_LIMIT;
 
+  if (opts.visibleChannelIds && opts.visibleChannelIds.length === 0) return [];
+
   const pattern = `%${escapeLikePattern(opts.query)}%`;
+  const conditions = [
+    sql`${communityMessage.content} LIKE ${pattern} ESCAPE '\\'`,
+    eq(communityChannel.serverId, opts.serverId),
+  ];
+  if (opts.visibleChannelIds) {
+    conditions.push(inArray(communityMessage.channelId, opts.visibleChannelIds));
+  }
+
   return db
     .select({
       message: communityMessage,
@@ -80,11 +100,6 @@ export async function searchMessagesInServer(
       communityChannel,
       eq(communityMessage.channelId, communityChannel.id)
     )
-    .where(
-      and(
-        sql`${communityMessage.content} LIKE ${pattern} ESCAPE '\\'`,
-        eq(communityChannel.serverId, opts.serverId)
-      )
-    )
+    .where(and(...conditions))
     .limit(limit);
 }

@@ -263,6 +263,21 @@ export async function createCommunityMessage(params: {
   // Mention beats reply — never double-count the same user.
   for (const id of mentionTargets) replyTargets.delete(id)
 
+  // Private-channel scoping: a message in a channel inside a PRIVATE category
+  // can only mention/reply-notify users in that channel's audience (members ∪
+  // creator ∪ admins). Otherwise an @-mention would push private content into
+  // a non-member's Mentions tab. Public/uncategorized channels are unchanged.
+  if (target.kind !== "dm" && (mentionTargets.size > 0 || replyTargets.size > 0)) {
+    const isPrivate = await queries.communityChannel.isChannelPrivate(db, target.channelId)
+    if (isPrivate) {
+      const audience = new Set(
+        await queries.communityChannel.getPrivateChannelAudienceUserIds(db, target.channelId)
+      )
+      for (const id of [...mentionTargets]) if (!audience.has(id)) mentionTargets.delete(id)
+      for (const id of [...replyTargets]) if (!audience.has(id)) replyTargets.delete(id)
+    }
+  }
+
   const liveMentions = [...mentionTargets]
   const liveReplies = [...replyTargets]
   if (liveMentions.length > 0) {

@@ -77,6 +77,8 @@ const mockMarkMachineOnlineIfOffline = vi.fn()
 const mockGetCoMemberUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
 const mockGetFriendUserIds = vi.fn<(db: unknown, userId: string) => Promise<string[]>>().mockResolvedValue([])
 const mockGetChannelForMember = vi.fn()
+const mockIsChannelPrivate = vi.fn<(db: unknown, channelId: string) => Promise<boolean>>().mockResolvedValue(false)
+const mockGetPrivateChannelAudienceUserIds = vi.fn<(db: unknown, channelId: string) => Promise<string[]>>().mockResolvedValue([])
 const mockGetDM = vi.fn()
 const mockListMembers = vi.fn()
 const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
@@ -184,6 +186,8 @@ vi.mock("@alook/shared", () => {
       },
       communityChannel: {
         getChannelForMember: (...a: any[]) => mockGetChannelForMember(...a),
+        isChannelPrivate: (...a: any[]) => mockIsChannelPrivate(...a),
+        getPrivateChannelAudienceUserIds: (...a: any[]) => mockGetPrivateChannelAudienceUserIds(...a),
       },
       communityDm: {
         getDM: (...a: any[]) => mockGetDM(...a),
@@ -230,6 +234,8 @@ describe("WebSocketDurableObject", () => {
     mockListBotsForMachine.mockResolvedValue([])
     mockIsBotOnline.mockResolvedValue(false)
     mockGetUserInternal.mockResolvedValue(null)
+    mockIsChannelPrivate.mockResolvedValue(false)
+    mockGetPrivateChannelAudienceUserIds.mockResolvedValue([])
   })
 
   describe("fetch — WebSocket upgrade", () => {
@@ -1379,6 +1385,31 @@ describe("WebSocketDurableObject", () => {
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-2")
       expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
       expect(mockStubFetch).toHaveBeenCalledTimes(2)
+    })
+
+    it("private channel: fans out to the channel audience, not all server members", async () => {
+      const { durable, env } = createDO()
+      mockGetChannelForMember.mockResolvedValueOnce({ id: "chan-p", serverId: "server-1" })
+      mockIsChannelPrivate.mockResolvedValueOnce(true)
+      // Audience = creator + added member + admin (server-wide members would be
+      // more than this — the assertion below proves we used the audience).
+      mockGetPrivateChannelAudienceUserIds.mockResolvedValueOnce(["sender-1", "member-1"])
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", channelId: "chan-p" }),
+      )
+      await flush()
+
+      expect(mockGetPrivateChannelAudienceUserIds).toHaveBeenCalledWith(expect.anything(), "chan-p")
+      expect(mockListMembers).not.toHaveBeenCalled()
+      // Only the non-sender audience member gets a broadcast POST.
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-1")
+      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })
 
     it("does not fan out when sender is not a participant of the target DM", async () => {

@@ -31,7 +31,7 @@ vi.mock("@alook/shared", async () => {
         updateServer: (...a: unknown[]) => mockUpdateServer(...a),
       },
       communityChannel: {
-        listServerChannels: (...a: unknown[]) => mockListServerChannels(...a),
+        listServerChannelsForViewer: (...a: unknown[]) => mockListServerChannels(...a),
       },
       communityInbox: {
         listUnreadChannels: (...a: unknown[]) => mockListUnreadChannels(...a),

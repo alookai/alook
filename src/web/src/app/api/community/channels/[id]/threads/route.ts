@@ -3,6 +3,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import { queries } from "@alook/shared"
+import { requireChannelAccess } from "@/lib/community/permissions"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -10,11 +11,11 @@ export const GET = withAuth(async (req: NextRequest, ctx) => {
 
   const db = getDb(ctx.env.DB)
 
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) return writeError("channel not found", 404)
-
-  const member = await queries.communityMember.getMember(db, channel.serverId, ctx.userId)
-  if (!member) return writeError("forbidden", 403)
+  // Gate through the shared access predicate: a channel in a PRIVATE category
+  // must not leak its thread titles/previews to non-members. Public channels
+  // behave as before (any server member).
+  const access = await requireChannelAccess(db, channelId, ctx.userId)
+  if (!access.ok) return writeError(access.error, access.status)
 
   const archivedParam = req.nextUrl.searchParams.get("archived")
   const archived = archivedParam === "true" ? true : archivedParam === "false" ? false : undefined

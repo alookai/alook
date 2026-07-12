@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ListChevronsUpDown, BellOff, Pencil, Trash2 } from "lucide-react"
+import { ListChevronsUpDown, BellOff, Pencil, Trash2, Users } from "lucide-react"
 import { ChannelIcon } from "./channel-icon"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
@@ -13,15 +13,17 @@ import type { Channel } from "./_types"
 // A single drag-sortable channel row. The whole row is the drag surface (no handle);
 // a 5px activation distance keeps a tap = "switch channel" and a drag = reorder.
 // Right-click opens an edit/mute/delete menu.
-export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
+export function SortableChannel({ ch, active, onClick, onEdit, onDelete, onManageMembers, canReorder = true }: {
   ch: Channel
   active: boolean
   onClick: () => void
   onEdit?: () => void
   onDelete?: () => void
+  onManageMembers?: () => void
+  canReorder?: boolean
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: ch.id })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: ch.id, disabled: !canReorder })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging
   const lineSide: "top" | "bottom" = activeIndex !== -1 && activeIndex < index ? "bottom" : "top"
@@ -33,7 +35,8 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
       {...attributes}
       {...listeners}
       className={[
-        "group relative flex h-8 w-full cursor-pointer touch-none items-center gap-2 rounded-md px-2 text-sm active:cursor-grabbing",
+        "group relative flex h-8 w-full cursor-pointer touch-none items-center gap-2 rounded-md px-2 text-sm",
+        canReorder ? "active:cursor-grabbing" : "",
         active
           ? "bg-sidebar-accent text-foreground"
           : ch.muted
@@ -66,6 +69,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete }: {
         <ContextMenuContent className="w-48">
           <div className="truncate px-2 py-2 text-xs font-semibold text-muted-foreground">/{ch.name}</div>
           {onEdit && <ContextMenuItem onClick={onEdit}><Pencil className="size-4" /> Edit channel</ContextMenuItem>}
+          {onManageMembers && <ContextMenuItem onClick={onManageMembers}><Users className="size-4" /> Manage members</ContextMenuItem>}
           {onDelete && (
             <>
               {onEdit && <ContextMenuSeparator />}

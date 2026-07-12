@@ -1,7 +1,9 @@
-import { eq, and, inArray, lt, sql } from "drizzle-orm";
+import { eq, and, or, inArray, isNull, isNotNull, lt, sql } from "drizzle-orm";
 import {
   communityReadState,
+  communityCategory,
   communityChannel,
+  communityChannelMember,
   communityServerMember,
 } from "../../community-schema";
 import type { Database } from "../../index";
@@ -187,6 +189,12 @@ export async function markAllServerChannelsRead(
   db: Database,
   userId: string
 ): Promise<number> {
+  // Scope to channels the viewer may actually see: a private-category channel
+  // only counts if they're an admin, its creator, or an added member —
+  // otherwise "mark all read" would write read-state rows for inaccessible
+  // channels. (Child threads/forum posts are included as before — their
+  // read-state rows carry no content, so there's no leak; the privacy filter
+  // below only gates the top-level private-category channels.)
   const channelRows = await db
     .select({ channelId: communityChannel.id })
     .from(communityServerMember)
@@ -194,7 +202,27 @@ export async function markAllServerChannelsRead(
       communityChannel,
       eq(communityChannel.serverId, communityServerMember.serverId)
     )
-    .where(eq(communityServerMember.userId, userId));
+    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
+    .leftJoin(
+      communityChannelMember,
+      and(
+        eq(communityChannelMember.channelId, communityChannel.id),
+        eq(communityChannelMember.userId, userId)
+      )
+    )
+    .where(
+      and(
+        eq(communityServerMember.userId, userId),
+        or(
+          isNull(communityChannel.categoryId),
+          eq(communityCategory.private, 0),
+          eq(communityServerMember.role, "owner"),
+          eq(communityServerMember.role, "admin"),
+          eq(communityChannel.creatorId, userId),
+          isNotNull(communityChannelMember.id)
+        )
+      )
+    );
 
   const channelIds = channelRows.map((r) => r.channelId);
   if (channelIds.length === 0) return 0;

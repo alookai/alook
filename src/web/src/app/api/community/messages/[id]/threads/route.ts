@@ -21,6 +21,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!auth.ok) return writeError(auth.error, auth.status)
   const channel = auth.value
 
+  // Threads may only root on a TOP-LEVEL channel's message. Rooting on a child
+  // channel (a forum post, or another thread) would make the new thread a
+  // grandchild whose privacy the single-level anchor climb can't resolve — it
+  // would read the child's own `categoryId` (always NULL) as public and leak a
+  // private forum's thread server-wide. The UI already forbids this (child
+  // views pass no create-thread action); enforce it on the API too.
+  if (channel.parentChannelId) {
+    return writeError("can't start a thread on a message in a thread or forum post", 400)
+  }
+
   let body: { name?: string }
   try {
     body = await req.json()

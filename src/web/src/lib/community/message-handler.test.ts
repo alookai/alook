@@ -8,6 +8,8 @@ const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
 const mockCreateMentions = vi.fn()
 const mockGetChannel = vi.fn()
+const mockIsChannelPrivate = vi.fn(() => false)
+const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -30,6 +32,8 @@ vi.mock("@alook/shared", async () => {
       },
       communityChannel: {
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
+        isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
+        getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
       },
       user: {
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),

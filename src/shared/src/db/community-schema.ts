@@ -75,6 +75,30 @@ export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
   ]
 );
 
+// 3b. community_channel_member
+// Explicit per-channel membership. Rows exist ONLY for channels in PRIVATE
+// categories (creator + directly-added members). Public/uncategorized channels
+// imply access via server membership and store nothing here; threads inherit
+// their parent channel's audience and never get their own rows.
+export const communityChannelMember = sqliteTable(
+  "community_channel_member",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    channelId: text("channel_id")
+      .notNull()
+      .references(() => communityChannel.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    addedBy: text("added_by").references(() => user.id, { onDelete: "set null" }),
+    addedAt: text("added_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    unique("uq_channel_member").on(t.channelId, t.userId),
+    index("idx_channel_member_user").on(t.userId),
+  ]
+);
+
 // 4. community_dm_conversation
 export const communityDmConversation = sqliteTable(
   "community_dm_conversation",

@@ -929,8 +929,18 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId: targetId })
           return
         }
-        const members = await queries.communityMember.listMembers(db, membership.serverId)
-        recipientUserIds = members.map((m) => m.userId)
+        // Private-category channels (and their threads) fan out only to the
+        // channel audience — never leak "X is typing" to non-members. Also
+        // re-gates the sender: a server member who isn't in the private
+        // channel won't appear in its own audience, so they broadcast to
+        // nobody. Public/uncategorized channels stay server-wide.
+        const isPrivate = await queries.communityChannel.isChannelPrivate(db, targetId)
+        if (isPrivate) {
+          recipientUserIds = await queries.communityChannel.getPrivateChannelAudienceUserIds(db, targetId)
+        } else {
+          const members = await queries.communityMember.listMembers(db, membership.serverId)
+          recipientUserIds = members.map((m) => m.userId)
+        }
       }
     }
 

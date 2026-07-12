@@ -8,15 +8,17 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Field } from "./field"
 
-// Create Category dialog — name + private toggle (default public). A private category
-// restricts channel creation to admins.
+// Create Category dialog — name + private toggle (defaults to private). In a
+// private category any member can create a channel, but each channel is visible
+// only to its creator + invited members (and admins). A public category's
+// channels are admin-managed and visible to everyone.
 export function CreateCategoryDialog({ onClose, onCreate, canTogglePrivate = true }: {
   onClose: () => void
   onCreate: (name: string, opts: { private: boolean }) => void
   canTogglePrivate?: boolean
 }) {
   const [name, setName] = useState("")
-  const [isPrivate, setIsPrivate] = useState(false)
+  const [isPrivate, setIsPrivate] = useState(true)
   const submit = () => {
     const trimmed = name.trim()
     if (!trimmed) return
@@ -44,7 +46,11 @@ export function CreateCategoryDialog({ onClose, onCreate, canTogglePrivate = tru
               <Lock className="size-4 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium">Private category</div>
-                <div className="text-xs text-muted-foreground">Only admins can create channels here.</div>
+                <div className="text-xs text-muted-foreground">
+                  {isPrivate
+                    ? "Members create their own channels here, visible only to invited members."
+                    : "Channels here are admin-managed and visible to everyone."}
+                </div>
               </div>
               <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
             </label>

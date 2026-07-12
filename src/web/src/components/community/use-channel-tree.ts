@@ -199,13 +199,27 @@ export function useChannelTree(categories: Category[]) {
     setCatNames((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== id)))
     setCatPrivate((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== id)))
   }, [])
-  const setCategoryPrivate = useCallback((id: string, isPrivate: boolean) =>
-    setCatPrivate((prev) => ({ ...prev, [id]: isPrivate })), [])
+  const renameCategory = useCallback((id: string, name: string) =>
+    setCatNames((prev) => (prev[id] === name ? prev : { ...prev, [id]: name })), [])
+
+  const catPrivateRef = useRef(catPrivate)
+  catPrivateRef.current = catPrivate
 
   const onDragOver = useCallback((e: DragEndEvent) => {
     const { active, over } = e
     if (!over || isCat(String(active.id))) return // category drags handled on drop
-    setOrder((prev) => moveChannelAcrossCategories(prev, String(active.id), String(over.id)))
+    setOrder((prev) => {
+      const fromCat = catOf(String(active.id), prev)
+      const toCat = catOf(String(over.id), prev)
+      // Never let a channel cross a public↔private boundary during the drag —
+      // visibility would silently widen/tighten. Same-class cross-category
+      // moves still follow the cursor. `onDragEnd` toasts on a blocked attempt.
+      if (fromCat && toCat && fromCat !== toCat &&
+          !!catPrivateRef.current[fromCat] !== !!catPrivateRef.current[toCat]) {
+        return prev
+      }
+      return moveChannelAcrossCategories(prev, String(active.id), String(over.id))
+    })
   }, [])
 
   const onDragEnd = useCallback((e: DragEndEvent) => {
@@ -222,11 +236,11 @@ export function useChannelTree(categories: Category[]) {
   return useMemo(() => ({
     collapsed, catOrder, order, catNames, catPrivate, catCreators,
     toggleCat, removeChannel, renameChannel, markRead, removeCategory,
-    setCategoryPrivate, onDragOver, onDragEnd,
+    renameCategory, onDragOver, onDragEnd,
   }), [
     collapsed, catOrder, order, catNames, catPrivate, catCreators,
     toggleCat, removeChannel, renameChannel, markRead, removeCategory,
-    setCategoryPrivate, onDragOver, onDragEnd,
+    renameCategory, onDragOver, onDragEnd,
   ])
 }
 

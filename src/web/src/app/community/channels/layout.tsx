@@ -40,6 +40,7 @@ import { useNotificationSettings } from "@/hooks/community/use-notification-sett
 import {
   useCreateChannel,
   useDeleteChannel,
+  useMoveChannel,
   useCreateCategory,
   useUpdateCategory,
   useDeleteCategory,
@@ -105,6 +106,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   // Mutations
   const createChannelMut = useCreateChannel()
   const deleteChannelMut = useDeleteChannel()
+  const moveChannelMut = useMoveChannel()
   const createCategoryMut = useCreateCategory()
   const updateCategoryMut = useUpdateCategory()
   const deleteCategoryMut = useDeleteCategory()
@@ -310,8 +312,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const onDeleteCategoryInSidebar = useCallback((categoryId: string) => {
     deleteCategoryMut.mutate({ serverId, categoryId }, { onError: () => toast("Failed to delete category") })
   }, [deleteCategoryMut, serverId])
-  const onUpdateCategoryInSidebar = useCallback((categoryId: string, opts: { name?: string; isPrivate?: boolean }) => {
-    updateCategoryMut.mutate({ serverId, categoryId, name: opts.name, isPrivate: opts.isPrivate }, { onError: () => toast("Failed to update category") })
+  const onUpdateCategoryInSidebar = useCallback((categoryId: string, opts: { name?: string }) => {
+    updateCategoryMut.mutate({ serverId, categoryId, name: opts.name }, { onError: () => toast("Failed to update category") })
   }, [updateCategoryMut, serverId])
   const onReorderCategoriesInSidebar = useCallback((categoryIds: string[]) => {
     reorderCategoriesMut.mutate({ serverId, categoryIds }, { onError: () => toast("Failed to save category order") })
@@ -319,6 +321,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const onReorderChannelsInSidebar = useCallback((channelIds: string[]) => {
     reorderChannelsMut.mutate({ serverId, channelIds }, { onError: () => toast("Failed to save channel order") })
   }, [reorderChannelsMut, serverId])
+  const onMoveChannelInSidebar = useCallback((channelId: string, categoryId: string | null) => {
+    moveChannelMut.mutate({ serverId, channelId, categoryId }, { onError: () => toast("Failed to move channel") })
+  }, [moveChannelMut, serverId])
+  const onBlockedMove = useCallback(() => {
+    toast("Can't move a channel between public and private categories")
+  }, [])
 
   const channelProps = useMemo(() => ({
     tree: channelTree,
@@ -339,6 +347,8 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     onUpdateCategory: onUpdateCategoryInSidebar,
     onReorderCategories: onReorderCategoriesInSidebar,
     onReorderChannels: onReorderChannelsInSidebar,
+    onMoveChannel: onMoveChannelInSidebar,
+    onBlockedMove,
     serverId,
     invitePopoverOpen,
     onInvitePopoverOpenChange: setInvitePopoverOpen,
@@ -349,6 +359,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
     onCreateChannelInSidebar, onCreateCategoryInSidebar, onRenameChannel,
     onDeleteChannelInSidebar, onDeleteCategoryInSidebar, onUpdateCategoryInSidebar,
     onReorderCategoriesInSidebar, onReorderChannelsInSidebar,
+    onMoveChannelInSidebar, onBlockedMove,
     serverId, invitePopoverOpen,
   ])
 

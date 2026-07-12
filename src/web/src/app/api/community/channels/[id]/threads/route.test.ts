@@ -7,6 +7,7 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockGetChannel = vi.fn()
 const mockGetMember = vi.fn()
+const mockResolveChannelAccessContext = vi.fn()
 const mockListChildChannels = vi.fn()
 const mockGetMessagesByIds = vi.fn()
 const mockGetUsersByIds = vi.fn()
@@ -25,6 +26,7 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
+        resolveChannelAccessContext: (...a: unknown[]) => mockResolveChannelAccessContext(...a),
       },
       communityMember: {
         getMember: (...a: unknown[]) => mockGetMember(...a),
@@ -71,6 +73,15 @@ describe("GET /api/community/channels/[id]/threads", () => {
     vi.clearAllMocks()
     mockGetChannel.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockGetMember.mockResolvedValue({ id: "m1", userId: "u1", serverId: "s1" })
+    // requireChannelAccess resolves through resolveChannelAccessContext — a
+    // public channel the caller is a member of.
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: null },
+      anchor: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: null },
+      role: "member",
+      isPrivate: false,
+      isChannelMember: false,
+    })
   })
 
   it("resolves parent/creator/first-message via three batched calls (never per-item)", async () => {

@@ -11,8 +11,8 @@ import { withAgentRunnerAuth } from "@/lib/middleware/community-agent-runner-aut
  * `listMembers` uses), or omit to list across every server the bot is in.
  * Top-level channels only (`listChannelsForMember` filters
  * `parentChannelId IS NULL`, mirroring `listServerChannels`) — same
- * visibility rule a human server-channels route uses, no extra
- * private-category filter on read.
+ * visibility rule a human sees: private-category channels appear only when the
+ * bot is an admin, the channel's creator, or an added member.
  *
  * Response items are `{ ref, name, type }` (plan §Decisions #12) — `ref` is
  * directly reusable as `--channel`/`--target` on every other command, and

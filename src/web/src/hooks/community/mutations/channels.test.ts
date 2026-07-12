@@ -122,3 +122,36 @@ describe("useReorderServers — cancels in-flight refetches before optimistic wr
     expect(cache?.servers.map((s) => s.id)).toEqual(["srv_1", "srv_2"])
   })
 })
+
+describe("useMoveChannel", () => {
+  it("PATCHes the channel with the new categoryId and invalidates the server tree", async () => {
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await load()
+    mod.useMoveChannel()
+    const invalidateSpy = vi.spyOn(capturedQc, "invalidateQueries")
+
+    await runMutation({ serverId: "s1", channelId: "c1", categoryId: "cat2" })
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/c1",
+      { method: "PATCH", body: JSON.stringify({ categoryId: "cat2" }) },
+    )
+    expect(
+      invalidateSpy.mock.calls.some((c) => {
+        const k = c[0]?.queryKey as unknown[] | undefined
+        return Array.isArray(k) && k[0] === "community" && k[1] === "servers" && k[2] === "s1"
+      }),
+    ).toBe(true)
+  })
+
+  it("sends categoryId: null when moving to uncategorized", async () => {
+    apiFetchMock.mockResolvedValueOnce(undefined)
+    const mod = await load()
+    mod.useMoveChannel()
+    await runMutation({ serverId: "s1", channelId: "c1", categoryId: null })
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "/api/community/channels/c1",
+      { method: "PATCH", body: JSON.stringify({ categoryId: null }) },
+    )
+  })
+})

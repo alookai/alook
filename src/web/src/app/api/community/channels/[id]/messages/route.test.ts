@@ -16,6 +16,8 @@ const mockListMemberUserIds = vi.fn()
 const mockCreateMentions = vi.fn()
 const mockCreateAttachment = vi.fn()
 const mockListChildChannels = vi.fn()
+const mockIsChannelPrivate = vi.fn(() => false)
+const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 const mockListMessages = vi.fn()
 const mockListMessagesAround = vi.fn()
 const mockListMessagesSince = vi.fn()
@@ -43,6 +45,8 @@ vi.mock("@alook/shared", async () => {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
         listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
+        isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
+        getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
       },
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),

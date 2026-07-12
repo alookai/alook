@@ -11,49 +11,20 @@ import {
   WS_EVENTS,
   slugify,
 } from "@alook/shared"
-import type { Database } from "@alook/shared"
-import { fanOutToServerMembers } from "@/lib/community/fanout"
+import { fanOutToServerMembers, fanOutToChannel, broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
-
-type ChannelRow = NonNullable<
-  Awaited<ReturnType<typeof queries.communityChannel.getChannel>>
->
-
-/**
- * Resolve the channel + verify the caller can modify it.
- * - Admin/owner of the server can edit any channel.
- * - Channel creator can edit their own (unless it sits in a private category).
- */
-async function loadChannelForMutation(
-  db: Database,
-  channelId: string,
-  userId: string,
-): Promise<{ ok: true; channel: ChannelRow } | { ok: false; status: 403 | 404; error: string }> {
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) return { ok: false, status: 404, error: "channel not found" }
-
-  const member = await queries.communityMember.getMember(db, channel.serverId, userId)
-  if (!member) return { ok: false, status: 403, error: "forbidden" }
-
-  const isAdmin = canManageServer(member.role)
-  const isCreator = channel.creatorId === userId
-  if (!isAdmin && !isCreator) return { ok: false, status: 403, error: "forbidden" }
-
-  if (!isAdmin && channel.categoryId) {
-    const category = await queries.communityCategory.getCategory(db, channel.categoryId)
-    if (category?.private) return { ok: false, status: 403, error: "forbidden" }
-  }
-  return { ok: true, channel }
-}
+import { requireChannelAccess } from "@/lib/community/permissions"
 
 export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
   if (!channelId) return writeError("missing channel id", 400)
 
   const db = getDb(ctx.env.DB)
-  const check = await loadChannelForMutation(db, channelId, ctx.userId)
-  if (!check.ok) return writeError(check.error, check.status)
-  const channel = check.channel
+  const access = await requireChannelAccess(db, channelId, ctx.userId)
+  if (!access.ok) return writeError(access.error, access.status)
+  if (!access.value.canManage) return writeError("forbidden", 403)
+  const channel = access.value.channel
+  const isAdmin = canManageServer(access.value.member.role)
 
   let body: { name?: string; topic?: string; categoryId?: string | null; forumTags?: string | null }
   try {
@@ -83,11 +54,23 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
     changes.topic = body.topic
   }
   if (body.categoryId !== undefined) {
+    // Moving a channel between categories is admin-only AND may not cross a
+    // public↔private boundary (that would silently widen/tighten visibility
+    // without member reconciliation).
+    if (!isAdmin) return writeError("admin permission required", 403)
+    let targetPrivate = false
     if (body.categoryId !== null) {
       const category = await queries.communityCategory.getCategory(db, body.categoryId)
       if (!category || category.serverId !== channel.serverId) {
         return writeError("category not found", 404)
       }
+      targetPrivate = !!category.private
+    }
+    const currentPrivate = access.value.anchor.categoryId
+      ? await queries.communityChannel.isChannelPrivate(db, channelId)
+      : false
+    if (targetPrivate !== currentPrivate) {
+      return writeError("Can't move a channel across a public/private boundary", 400)
     }
     changes.categoryId = body.categoryId
   }
@@ -108,12 +91,22 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   }
   if (!updated) return writeError("channel not found", 404)
 
-  await fanOutToServerMembers(channel.serverId, {
-    type: WS_EVENTS.CHANNEL_UPDATE,
-    serverId: channel.serverId,
-    channelId,
-    changes,
-  })
+  const isPrivate = await queries.communityChannel.isChannelPrivate(db, channelId)
+  if (isPrivate) {
+    await fanOutToChannel(channelId, {
+      type: WS_EVENTS.CHANNEL_UPDATE,
+      serverId: channel.serverId,
+      channelId,
+      changes,
+    })
+  } else {
+    await fanOutToServerMembers(channel.serverId, {
+      type: WS_EVENTS.CHANNEL_UPDATE,
+      serverId: channel.serverId,
+      channelId,
+      changes,
+    })
+  }
 
   logAudit(db, {
     serverId: channel.serverId,
@@ -132,18 +125,32 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   if (!channelId) return writeError("missing channel id", 400)
 
   const db = getDb(ctx.env.DB)
-  const check = await loadChannelForMutation(db, channelId, ctx.userId)
-  if (!check.ok) return writeError(check.error, check.status)
-  const channel = check.channel
+  const access = await requireChannelAccess(db, channelId, ctx.userId)
+  if (!access.ok) return writeError(access.error, access.status)
+  if (!access.value.canManage) return writeError("forbidden", 403)
+  const channel = access.value.channel
+
+  // Resolve the private-channel audience BEFORE deleting (the member rows
+  // cascade away with the channel row), so the delete event still reaches
+  // exactly the people who could see it.
+  const isPrivate = await queries.communityChannel.isChannelPrivate(db, channelId)
+  const audience = isPrivate
+    ? await queries.communityChannel.getPrivateChannelAudienceUserIds(db, channelId)
+    : null
 
   const deleted = await queries.communityChannel.deleteChannel(db, channelId)
   if (!deleted) return writeError("channel not found", 404)
 
-  await fanOutToServerMembers(channel.serverId, {
+  const event = {
     type: WS_EVENTS.CHANNEL_DELETE,
     serverId: channel.serverId,
     channelId,
-  })
+  } as const
+  if (audience) {
+    await Promise.all(audience.map((userId) => broadcastToUserSafe(userId, event)))
+  } else {
+    await fanOutToServerMembers(channel.serverId, event)
+  }
 
   logAudit(db, {
     serverId: channel.serverId,

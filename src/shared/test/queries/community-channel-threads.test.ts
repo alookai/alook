@@ -101,4 +101,15 @@ describe("createThreadChannel", () => {
     const db = createMockDb({ selectResponses: [[], [{ content: "hi" }]], insertedId: "x" });
     await expect(createThreadChannel(db, "ch_missing", "m_root", "u_1")).rejects.toThrow(/not found/);
   });
+
+  it("throws when the parent is itself a child channel (forum post / thread) — no grandchild threads, closes the private-forum leak", async () => {
+    const db = createMockDb({
+      // parent-channel lookup returns a row whose own parentChannelId is set →
+      // it's a forum_post/thread, not a top-level channel.
+      selectResponses: [[{ serverId: "srv_1", parentChannelId: "forum_1" }], [{ content: "hi" }]],
+      insertedId: "x",
+    });
+    await expect(createThreadChannel(db, "forum_post_1", "m_root", "u_1")).rejects.toThrow(/child channel/);
+    expect(db.__insertValues).not.toHaveBeenCalled();
+  });
 });

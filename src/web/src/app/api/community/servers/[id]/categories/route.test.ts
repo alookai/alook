@@ -63,7 +63,8 @@ function postReq(body: unknown) {
 describe("POST /api/community/servers/[id]/categories", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "member" })
+    // Category creation is admin/owner-only in the permission model.
+    mockGetMember.mockResolvedValue({ id: "mem_1", userId: "u1", role: "owner" })
     mockFanOut.mockResolvedValue(undefined)
     mockLogAction.mockResolvedValue(undefined)
   })

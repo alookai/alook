@@ -4,6 +4,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
+  canManageServer,
   isServerOwner,
   MAX_SERVER_NAME_LENGTH,
   MAX_SERVER_DESCRIPTION_LENGTH,
@@ -22,10 +23,14 @@ export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
+  const isAdmin = canManageServer(auth.value!.role)
 
   const [server, rawChannels, categories, unreadRows] = await Promise.all([
     queries.communityServer.getServer(db, serverId),
-    queries.communityChannel.listServerChannels(db, serverId),
+    // Viewer-scoped: private-category channels are only returned if the viewer
+    // is an admin, the channel creator, or an added member. Private category
+    // HEADERS still appear (below) so members can create channels in them.
+    queries.communityChannel.listServerChannelsForViewer(db, serverId, ctx.userId, { isAdmin }),
     db.query.communityCategory.findMany({
       where: (t, { eq }) => eq(t.serverId, serverId),
       orderBy: (t, { asc }) => [asc(t.position)],
@@ -54,7 +59,11 @@ export const GET = withAuth(async (_req, ctx) => {
     categoriesWithChannels.push({
       id: "__uncategorized__",
       serverId: server.id,
-      name: "Channels",
+      // Empty name is load-bearing: the sidebar detects the uncategorized
+      // bucket by `name === ""` (renders its channels as the bare top list, and
+      // maps a drag INTO it back to `categoryId: null`). Must match the mock in
+      // preview/_mock.ts.
+      name: "",
       position: -1,
       private: 0,
       channels: uncategorized,

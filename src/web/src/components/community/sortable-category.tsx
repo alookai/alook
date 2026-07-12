@@ -14,7 +14,7 @@ import { DropLine } from "./drop-line"
 // activation distance distinguishes a click (collapse) from a drag. It is also a drop
 // target so channels can be dropped onto it (including its empty space). Right-click
 // (or the gear) opens Settings; the "+" creates a channel; a lock shows when private.
-export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChannel, onSettings, onDelete, isPrivate, children }: {
+export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChannel, onSettings, onDelete, isPrivate, canReorder = true, children }: {
   id: string
   name: string
   open: boolean
@@ -23,10 +23,11 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
   onSettings?: () => void
   onDelete?: () => void
   isPrivate?: boolean
+  canReorder?: boolean
   children: React.ReactNode
 }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: catDndId })
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver, activeIndex, index } = useSortable({ id: catDndId, disabled: !canReorder })
   const { setNodeRef: setDropRef, isOver: isChannelOver } = useDroppable({ id: catDndId })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1, zIndex: isDragging ? 10 : undefined }
   const showLine = isOver && !isDragging
@@ -41,7 +42,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
               {...attributes}
               {...listeners}
               onClick={onToggle}
-              className="group flex w-full cursor-grab touch-none items-center gap-1 rounded px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 hover:text-foreground active:cursor-grabbing"
+              className={`group flex w-full touch-none items-center gap-1 rounded px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 hover:text-foreground ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`}
             />
           }
         >

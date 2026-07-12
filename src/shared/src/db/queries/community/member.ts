@@ -7,6 +7,8 @@ import {
   MAX_MEMBERS_PAGE_SIZE,
 } from "../../../constants/community";
 import { escapeLikePattern } from "../../../utils/sql-like";
+import { canSeePrivateChannel } from "../../../utils/community-roles";
+import { resolveChannelAccessContext } from "./channel";
 
 export async function addMember(
   db: Database,
@@ -392,9 +394,12 @@ export async function removeOwnerBotsFromServer(
  * revoked, DM peer changed); this must return false rather than let the
  * caller wake a bot that lost access to the scope.
  *
- * Thread scopes are ordinary `communityChannel` rows (own id, own
- * `serverId`) — the same server-membership check as a top-level channel
- * covers them, no separate thread-membership concept exists.
+ * A channel in a PRIVATE category is only readable by the bot if it's the
+ * channel creator or has a `community_channel_member` row (server admins too);
+ * public/uncategorized channels need only server membership. Thread scopes are
+ * ordinary `communityChannel` rows that inherit their parent's audience — the
+ * shared `resolveChannelAccessContext` predicate climbs `parentChannelId`, so
+ * this delegates to it rather than re-deriving the rule.
  */
 export async function canBotReadWakeScope(
   db: Database,
@@ -402,19 +407,14 @@ export async function canBotReadWakeScope(
   scope: { channelId?: string; dmConversationId?: string }
 ): Promise<boolean> {
   if (scope.channelId) {
-    const rows = await db
-      .select({ serverId: communityChannel.serverId })
-      .from(communityChannel)
-      .innerJoin(
-        communityServerMember,
-        and(
-          eq(communityServerMember.serverId, communityChannel.serverId),
-          eq(communityServerMember.userId, botUserId)
-        )
-      )
-      .where(eq(communityChannel.id, scope.channelId))
-      .limit(1);
-    return rows.length > 0;
+    const ctx = await resolveChannelAccessContext(db, scope.channelId, botUserId);
+    if (!ctx) return false;
+    if (!ctx.isPrivate) return true;
+    return canSeePrivateChannel({
+      role: ctx.role,
+      isCreator: ctx.anchor.creatorId === botUserId,
+      isChannelMember: ctx.isChannelMember,
+    });
   }
   if (scope.dmConversationId) {
     const rows = await db

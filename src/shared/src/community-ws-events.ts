@@ -170,6 +170,26 @@ export type CommunityChannelReorder = {
   channels: { id: string; position: number }[]
 }
 
+// ── Channel-member events (private-category channels) ─────────────────────────
+//
+// Sent to the affected user (so their sidebar gains/loses the channel) and to
+// the existing channel members. The client invalidates the server-detail tree
+// on receipt; the removed user additionally evicts that channel's caches.
+
+export type CommunityChannelMemberAdd = {
+  type: "community:channel.member_add"
+  serverId: string
+  channelId: string
+  userId: string
+}
+
+export type CommunityChannelMemberRemove = {
+  type: "community:channel.member_remove"
+  serverId: string
+  channelId: string
+  userId: string
+}
+
 // ── Category events ───────────────────────────────────────────────────────────
 
 export type CommunityCategoryCreate = {
@@ -456,6 +476,8 @@ export type CommunityWsEvent =
   | CommunityChannelUpdate
   | CommunityChannelDelete
   | CommunityChannelReorder
+  | CommunityChannelMemberAdd
+  | CommunityChannelMemberRemove
   | CommunityCategoryCreate
   | CommunityCategoryUpdate
   | CommunityCategoryDelete
@@ -500,6 +522,8 @@ export const WS_EVENTS = {
   CHANNEL_UPDATE: "community:channel.update",
   CHANNEL_DELETE: "community:channel.delete",
   CHANNEL_REORDER: "community:channel.reorder",
+  CHANNEL_MEMBER_ADD: "community:channel.member_add",
+  CHANNEL_MEMBER_REMOVE: "community:channel.member_remove",
   CATEGORY_CREATE: "community:category.create",
   CATEGORY_UPDATE: "community:category.update",
   CATEGORY_DELETE: "community:category.delete",

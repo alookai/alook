@@ -111,6 +111,14 @@ export async function resolveTargetForMember(
     return { kind: "channel", channelId: channel.id }
   }
 
+  // A thread may only root on a TOP-LEVEL channel — never on a forum post or
+  // another thread (that grandchild would defeat the single-level privacy
+  // anchor climb and leak a private forum's thread server-wide). Reject with a
+  // clean 400 here; `createThreadChannel` also enforces this as a last resort.
+  if (channel.parentChannelId) {
+    return { error: 400, message: "can't start a thread inside a thread or forum post" }
+  }
+
   // Thread form (`/server/channel/#N`) — translate the root seq to the
   // parent message's id, then find (or create) the thread's own channel row.
   const rootMessage = await queries.communityMessage.getMessageByChannelAndSeq(

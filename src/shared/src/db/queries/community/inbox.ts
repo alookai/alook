@@ -1,6 +1,8 @@
 import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
 import {
+  communityCategory,
   communityChannel,
+  communityChannelMember,
   communityDmConversation,
   communityReadState,
   communityServer,
@@ -85,11 +87,29 @@ export async function listUnreadChannels(
         eq(communityReadState.userId, userId)
       )
     )
+    // Private-channel visibility: a channel in a private category only shows in
+    // the viewer's inbox if they're an admin, its creator, or an added member.
+    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
+    .leftJoin(
+      communityChannelMember,
+      and(
+        eq(communityChannelMember.channelId, communityChannel.id),
+        eq(communityChannelMember.userId, userId)
+      )
+    )
     .where(
       and(
         eq(communityServerMember.userId, userId),
         isNull(communityChannel.parentChannelId),
-        isNotNull(communityChannel.lastMessageAt)
+        isNotNull(communityChannel.lastMessageAt),
+        or(
+          isNull(communityChannel.categoryId),
+          eq(communityCategory.private, 0),
+          eq(communityServerMember.role, "owner"),
+          eq(communityServerMember.role, "admin"),
+          eq(communityChannel.creatorId, userId),
+          isNotNull(communityChannelMember.id)
+        )
       )
     );
 
