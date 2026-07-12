@@ -167,16 +167,11 @@ function makeMassMarkDbMock(opts: {
   const updates: Array<{ id: string; set: any }> = [];
   const inserts: any[] = [];
 
-  // The db has two select shapes we need to fake:
-  // 1. select({channelId: communityChannel.id}).from(communityServerMember).innerJoin(communityChannel).where(...)
-  //    → returns [{channelId}] rows (member channels).
-  // 2. select({...}).from(communityMessage) via getLatestMessagesByChannelIds
-  //    → we intercept the batched helper instead by using vi.spyOn on the module.
-  // 3. select({id, channelId}).from(communityReadState).where(...) → existing rows.
-  //
-  // Since we can't easily distinguish select shapes on a chain mock, we drive
-  // by call order: first select is member channels, second is existing rows.
-  let selectCall = 0;
+  // Post-id-set convergence, `markAllServerChannelsRead` takes the visible
+  // channel id set as an ARGUMENT (no member-channel select of its own). The
+  // only select it now issues is the existing-read-state-rows lookup:
+  //   select({id, channelId}).from(communityReadState).where(...) → existing rows.
+  // (`getLatestMessagesByChannelIds` is intercepted via vi.spyOn.)
 
   const db: any = {
     select: vi.fn(() => {
@@ -186,24 +181,14 @@ function makeMassMarkDbMock(opts: {
       chain.leftJoin = vi.fn(() => chain);
       chain.groupBy = vi.fn(() => chain);
       chain.as = vi.fn(() => chain);
-      chain.where = vi.fn(() => {
-        selectCall += 1;
-        if (selectCall === 1) {
-          return Promise.resolve(opts.memberChannelIds.map((c) => ({ channelId: c })));
-        }
-        if (selectCall === 2) {
-          // Second select is the getLatestMessagesByChannelIds subquery-inner
-          // — but our spy intercepts that helper directly, so this branch is
-          // reached ONLY for the existing-rows select.
-          return Promise.resolve(
-            opts.existingReadStateChannels.map((c, i) => ({
-              id: `rs_${i}_${c}`,
-              channelId: c,
-            }))
-          );
-        }
-        return Promise.resolve([]);
-      });
+      chain.where = vi.fn(() =>
+        Promise.resolve(
+          opts.existingReadStateChannels.map((c, i) => ({
+            id: `rs_${i}_${c}`,
+            channelId: c,
+          }))
+        )
+      );
       return chain;
     }),
     update: vi.fn(() => ({
@@ -241,7 +226,7 @@ describe("markAllServerChannelsRead", () => {
     const messageModule = await import("../../src/db/queries/community/message");
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([]);
 
-    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1");
+    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1", []);
     expect(count).toBe(0);
     expect(db.__updates).toHaveLength(0);
     expect(db.__inserts).toHaveLength(0);
@@ -258,7 +243,7 @@ describe("markAllServerChannelsRead", () => {
     // Every channel is empty — the batched helper returns nothing.
     const spy = vi.spyOn(messageModule, "getLatestMessagesByChannelIds").mockResolvedValue([]);
 
-    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1");
+    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
     expect(count).toBe(0);
     // The invariant: empty channels get no row.
     expect(db.__updates).toHaveLength(0);
@@ -279,7 +264,7 @@ describe("markAllServerChannelsRead", () => {
       { channelId: "c_b", id: "m_b_latest", createdAt: "2026-07-05T11:00:00Z" },
     ]);
 
-    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1");
+    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b", "c_c_empty"]);
     expect(count).toBe(2);
     expect(db.__updates).toHaveLength(0);
     // One batched insert containing both rows.
@@ -317,7 +302,7 @@ describe("markAllServerChannelsRead", () => {
       { channelId: "c_b", id: "m_b_new", createdAt: "2026-07-05T11:00:00Z" },
     ]);
 
-    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1");
+    const count = await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a", "c_b"]);
     expect(count).toBe(2);
     // Two UPDATEs, no INSERT.
     expect(db.__updates).toHaveLength(2);
@@ -351,7 +336,7 @@ describe("markAllServerChannelsRead", () => {
       { channelId: "c_a", id: "m_a_new", createdAt: "2026-07-05T10:00:00Z" },
     ]);
 
-    await readStateQueries.markAllServerChannelsRead(db, "u_1");
+    await readStateQueries.markAllServerChannelsRead(db, "u_1", ["c_a"]);
     // A raw eq(id, ...) is a Drizzle SQL fragment; a guarded and(eq(...), lt(...))
     // is a distinct fragment. We can't evaluate them structurally without
     // spinning up SQLite, but the WHERE clause is definitely not undefined

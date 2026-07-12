@@ -13,6 +13,7 @@ import {
 import { fanOutToChannel } from "@/lib/community/fanout"
 import { requireChannelMember } from "@/lib/community/permissions"
 import { avatarInitial } from "@/lib/community/avatar"
+import { createCommunityMessage } from "@/lib/community/message-handler"
 
 export const GET = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -139,12 +140,22 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     })
   }
 
-  // Create the first message in the post
-  const message = await queries.communityMessage.createMessage(db, {
+  // Create the first message in the post through the unified pipeline so it
+  // gets mention extraction + private-channel audience scoping (the forum's
+  // privacy climbs the parent via `isChannelPrivate`) — the direct
+  // `createMessage` insert this replaced dropped mentions (plan gap #2). Route
+  // as `kind:"channel"` with the post's OWN channelId (NOT `kind:"thread"` —
+  // that fires a CHILD_CHANNEL_UPDATE colliding with the CHILD_CHANNEL_CREATE
+  // this route already emits below). The emitted MESSAGE_CREATE is deduped by
+  // id on the client against that CHILD_CHANNEL_CREATE.
+  const created = await createCommunityMessage({
+    db,
     authorId: ctx.userId,
-    content: body.content,
-    channelId: postChannel.id,
+    target: { kind: "channel", channelId: postChannel.id, serverId: channel.serverId },
+    body: { content: body.content },
   })
+  if (!created.ok) return writeError(created.error, created.status)
+  const message = created.row
 
   // Resolve author info for response
   const creator = await queries.user.getUserSelf(db, ctx.userId)

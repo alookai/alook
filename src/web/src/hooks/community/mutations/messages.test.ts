@@ -909,7 +909,7 @@ describe("useMarkDmRead — rollback", () => {
 // ── useMarkAllInboxRead ───────────────────────────────────────────────────
 
 describe("useMarkAllInboxRead", () => {
-  it("fires exactly two POSTs — mentions read-all + unreads read-all", async () => {
+  it("fires exactly three POSTs — mentions + unreads + dms read-all", async () => {
     capturedQc.setQueryData(communityKeys.inboxUnreads(), { servers: [] })
     capturedQc.setQueryData(communityKeys.inboxMentions(), { mentions: [] })
     apiFetchMock.mockResolvedValue(undefined)
@@ -919,9 +919,10 @@ describe("useMarkAllInboxRead", () => {
     const posts = apiFetchMock.mock.calls.filter(
       (c) => (c[1] as { method?: string })?.method === "POST",
     )
-    expect(posts).toHaveLength(2)
+    expect(posts).toHaveLength(3)
     const paths = posts.map((c) => c[0] as string).sort()
     expect(paths).toEqual([
+      "/api/community/inbox/dms/read-all",
       "/api/community/inbox/mentions/read-all",
       "/api/community/inbox/unreads/read-all",
     ])

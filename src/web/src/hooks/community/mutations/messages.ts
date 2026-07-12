@@ -914,14 +914,13 @@ export function useMarkAllInboxRead() {
       await Promise.all([
         apiFetch("/api/community/inbox/mentions/read-all", { method: "POST" }),
         apiFetch("/api/community/inbox/unreads/read-all", { method: "POST" }),
+        apiFetch("/api/community/inbox/dms/read-all", { method: "POST" }),
       ])
     },
     onMutate: async () => {
-      // DMs live under `inboxUnreads` too — clear both keys so the popover's
-      // "caught up" empty state renders while the mutation is in flight. The
-      // `read-all` route only marks server channels; DM unread counts will
-      // re-populate on the next refetch. Users mostly hit this to clear
-      // mention/channel noise, so the brief DM flash is acceptable.
+      // Clear both inbox keys so the popover's "caught up" empty state renders
+      // while the mutation is in flight. DMs live under `inboxUnreads` and are
+      // now marked read server-side too (the dms/read-all POST above).
       queryClient.setQueryData(communityKeys.inboxUnreads(), { servers: [], dms: [] })
       queryClient.setQueryData(communityKeys.inboxMentions(), { mentions: [] })
     },

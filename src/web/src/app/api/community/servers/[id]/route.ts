@@ -25,6 +25,7 @@ export const GET = withAuth(async (_req, ctx) => {
   if (!auth.ok) return writeError(auth.error, auth.status)
   const isAdmin = canManageServer(auth.value!.role)
 
+  const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
   const [server, rawChannels, categories, unreadRows] = await Promise.all([
     queries.communityServer.getServer(db, serverId),
     // Viewer-scoped: private-category channels are only returned if the viewer
@@ -35,7 +36,7 @@ export const GET = withAuth(async (_req, ctx) => {
       where: (t, { eq }) => eq(t.serverId, serverId),
       orderBy: (t, { asc }) => [asc(t.position)],
     }),
-    queries.communityInbox.listUnreadChannels(db, ctx.userId),
+    queries.communityInbox.listUnreadChannels(db, ctx.userId, visibleChannelIds),
   ])
 
   if (!server) return writeError("server not found", 404)

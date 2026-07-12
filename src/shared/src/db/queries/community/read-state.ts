@@ -1,13 +1,11 @@
-import { eq, and, or, inArray, isNull, isNotNull, lt, sql } from "drizzle-orm";
-import {
-  communityReadState,
-  communityCategory,
-  communityChannel,
-  communityChannelMember,
-  communityServerMember,
-} from "../../community-schema";
+import { eq, and, or, inArray, lt, sql } from "drizzle-orm";
+import { communityReadState, communityDmConversation } from "../../community-schema";
 import type { Database } from "../../index";
-import { getLatestMessagesByChannelIds, getMessageByChannelAndSeq } from "./message";
+import {
+  getLatestMessagesByChannelIds,
+  getLatestMessagesByDmIds,
+  getMessageByChannelAndSeq,
+} from "./message";
 
 /**
  * # Community read-state invariant
@@ -187,45 +185,19 @@ export async function markReadToMessage(
 // `markReadToMessageBuilder` above.
 export async function markAllServerChannelsRead(
   db: Database,
-  userId: string
+  userId: string,
+  visibleChannelIds: string[]
 ): Promise<number> {
-  // Scope to channels the viewer may actually see: a private-category channel
-  // only counts if they're an admin, its creator, or an added member —
-  // otherwise "mark all read" would write read-state rows for inaccessible
-  // channels. (Child threads/forum posts are included as before — their
-  // read-state rows carry no content, so there's no leak; the privacy filter
-  // below only gates the top-level private-category channels.)
-  const channelRows = await db
-    .select({ channelId: communityChannel.id })
-    .from(communityServerMember)
-    .innerJoin(
-      communityChannel,
-      eq(communityChannel.serverId, communityServerMember.serverId)
-    )
-    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
-    .leftJoin(
-      communityChannelMember,
-      and(
-        eq(communityChannelMember.channelId, communityChannel.id),
-        eq(communityChannelMember.userId, userId)
-      )
-    )
-    .where(
-      and(
-        eq(communityServerMember.userId, userId),
-        or(
-          isNull(communityChannel.categoryId),
-          eq(communityCategory.private, 0),
-          eq(communityServerMember.role, "owner"),
-          eq(communityServerMember.role, "admin"),
-          eq(communityChannel.creatorId, userId),
-          isNotNull(communityChannelMember.id)
-        )
-      )
-    );
-
-  const channelIds = channelRows.map((r) => r.channelId);
-  if (channelIds.length === 0) return 0;
+  // Scope to the channels the viewer may see — the same visible-id set the
+  // inbox unread + mentions consumers use (resolved once per fetch via
+  // `listVisibleChannelIdsForUser`). Convergence on the id set replaces the
+  // old inlined category `or()`, which climbed nothing and so evaluated child
+  // threads/forum-posts by their own (always-NULL) categoryId as public. The
+  // id set parent-climbs, so a child under a private parent the viewer can't
+  // see is now correctly EXCLUDED — mark-all no longer writes read-state rows
+  // for channels behind an invisible private parent.
+  if (visibleChannelIds.length === 0) return 0;
+  const channelIds = visibleChannelIds;
 
   const latest = await getLatestMessagesByChannelIds(db, channelIds);
   if (latest.length === 0) return 0;
@@ -297,6 +269,96 @@ export async function markAllServerChannelsRead(
         userId,
         channelId: i.channelId,
         dmConversationId: null,
+        lastReadAt: i.createdAt,
+        lastReadMessageId: i.msgId,
+      }))
+    );
+  }
+
+  return latest.length;
+}
+
+/**
+ * DM sibling of `markAllServerChannelsRead`: mark every DM the viewer
+ * participates in read at that conversation's latest message. Same invariant
+ * (lastReadAt === message.createdAt AND lastReadMessageId = message.id), same
+ * monotone guard, same "empty conversations are skipped, no row written"
+ * semantics. Returns the count of conversations that actually got a write.
+ */
+// lastReadSeq intentionally not maintained here — see comment on
+// `markReadToMessageBuilder` above.
+export async function markAllDmsRead(
+  db: Database,
+  userId: string
+): Promise<number> {
+  const dmRows = await db
+    .select({ id: communityDmConversation.id })
+    .from(communityDmConversation)
+    .where(
+      or(
+        eq(communityDmConversation.user1Id, userId),
+        eq(communityDmConversation.user2Id, userId)
+      )
+    );
+  const dmIds = dmRows.map((r) => r.id);
+  if (dmIds.length === 0) return 0;
+
+  const latest = await getLatestMessagesByDmIds(db, dmIds);
+  if (latest.length === 0) return 0;
+
+  // Existing rows for these DMs — split into UPDATE vs INSERT so we don't run
+  // one query per conversation. Mirrors the channel path exactly.
+  const existing = await db
+    .select({
+      id: communityReadState.id,
+      dmConversationId: communityReadState.dmConversationId,
+    })
+    .from(communityReadState)
+    .where(
+      and(
+        eq(communityReadState.userId, userId),
+        inArray(
+          communityReadState.dmConversationId,
+          latest.map((l) => l.dmConversationId)
+        )
+      )
+    );
+
+  const existingByDm = new Map<string, string>();
+  for (const row of existing) {
+    if (row.dmConversationId) existingByDm.set(row.dmConversationId, row.id);
+  }
+
+  const toUpdate: Array<{ id: string; msgId: string; createdAt: string }> = [];
+  const toInsert: Array<{ dmConversationId: string; msgId: string; createdAt: string }> = [];
+  for (const l of latest) {
+    const existingId = existingByDm.get(l.dmConversationId);
+    if (existingId) {
+      toUpdate.push({ id: existingId, msgId: l.id, createdAt: l.createdAt });
+    } else {
+      toInsert.push({ dmConversationId: l.dmConversationId, msgId: l.id, createdAt: l.createdAt });
+    }
+  }
+
+  // Monotone guard mirrors `markAllServerChannelsRead`.
+  for (const u of toUpdate) {
+    await db
+      .update(communityReadState)
+      .set({ lastReadAt: u.createdAt, lastReadMessageId: u.msgId })
+      .where(
+        and(
+          eq(communityReadState.id, u.id),
+          lt(communityReadState.lastReadAt, u.createdAt)
+        )
+      );
+  }
+
+  if (toInsert.length > 0) {
+    await db.insert(communityReadState).values(
+      toInsert.map((i) => ({
+        userId,
+        channelId: null,
+        dmConversationId: i.dmConversationId,
         lastReadAt: i.createdAt,
         lastReadMessageId: i.msgId,
       }))

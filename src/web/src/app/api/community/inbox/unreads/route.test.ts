@@ -5,6 +5,8 @@ const mockListUnreadChannels = vi.fn()
 const mockGetSettings = vi.fn()
 const mockListUnreadMentions = vi.fn()
 const mockListUnreadDms = vi.fn()
+const mockListVisibleChannelIds = vi.fn()
+const mockGetChannelsByIds = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -27,6 +29,10 @@ vi.mock("@alook/shared", async () => {
       communityMention: {
         listUnreadMentions: (...args: unknown[]) => mockListUnreadMentions(...args),
       },
+      communityChannel: {
+        listVisibleChannelIdsForUser: (...args: unknown[]) => mockListVisibleChannelIds(...args),
+        getChannelsByIds: (...args: unknown[]) => mockGetChannelsByIds(...args),
+      },
     },
   }
 })
@@ -48,12 +54,13 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { GET } from "./route"
 
-function row(overrides: Partial<{ channelId: string; channelName: string; serverId: string; serverName: string; lastMessageAt: string; lastReadAt: string | null }>) {
+function row(overrides: Partial<{ channelId: string; channelName: string; serverId: string; serverName: string; parentChannelId: string | null; lastMessageAt: string; lastReadAt: string | null }>) {
   return {
     channelId: "c1",
     channelName: "general",
     serverId: "s1",
     serverName: "Server 1",
+    parentChannelId: null,
     lastMessageAt: "2026-06-25T10:00:00Z",
     lastReadAt: null,
     ...overrides,
@@ -66,6 +73,8 @@ describe("GET /api/community/inbox/unreads", () => {
     mockGetSettings.mockResolvedValue([])
     mockListUnreadMentions.mockResolvedValue([])
     mockListUnreadDms.mockResolvedValue([])
+    mockListVisibleChannelIds.mockResolvedValue([])
+    mockGetChannelsByIds.mockResolvedValue([])
   })
 
   it("groups channels by server", async () => {
@@ -185,5 +194,92 @@ describe("GET /api/community/inbox/unreads", () => {
     const body = await res.json()
     expect(body.servers).toHaveLength(1)
     expect(body.dms).toHaveLength(1)
+  })
+
+  // ── Threads / forum-posts as child sub-rows ────────────────────────────────
+
+  it("nests an unread thread under its parent channel; parent surfaces w/o direct unread", async () => {
+    // Parent c1 has NO direct unread (not in the unread list); its child thread
+    // t1 does. The route must batch-resolve the parent's name via getChannelsByIds.
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "t1", channelName: "budget-2026", parentChannelId: "c1", lastMessageAt: "2026-06-25T10:00:00Z" }),
+    ])
+    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
+
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(mockGetChannelsByIds).toHaveBeenCalledWith(expect.anything(), ["c1"])
+    expect(body.servers).toHaveLength(1)
+    expect(body.servers[0].channels).toHaveLength(1)
+    const parent = body.servers[0].channels[0]
+    expect(parent.channelId).toBe("c1")
+    expect(parent.channelName).toBe("general")
+    expect(parent.children.map((c: { channelId: string }) => c.channelId)).toEqual(["t1"])
+  })
+
+  it("nests a child under a parent that ALSO has a direct unread (no re-resolve)", async () => {
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "c1", channelName: "general", lastMessageAt: "2026-06-25T10:00:00Z" }),
+      row({ channelId: "t1", channelName: "budget-2026", parentChannelId: "c1", lastMessageAt: "2026-06-25T11:00:00Z" }),
+    ])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    // Parent was already present → no getChannelsByIds resolve needed.
+    expect(mockGetChannelsByIds).not.toHaveBeenCalled()
+    const parent = body.servers[0].channels[0]
+    expect(parent.channelId).toBe("c1")
+    expect(parent.children.map((c: { channelId: string }) => c.channelId)).toEqual(["t1"])
+  })
+
+  it("attributes per-channel mentionCount to the correct child row", async () => {
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "t1", channelName: "thread", parentChannelId: "c1" }),
+    ])
+    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
+    mockListUnreadMentions.mockResolvedValue([
+      { message: { channelId: "t1" } },
+      { message: { channelId: "t1" } },
+    ])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.servers[0].channels[0].children[0].mentionCount).toBe(2)
+  })
+
+  it("cascades a muted parent's mute to its unread child rows", async () => {
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "t1", channelName: "thread", parentChannelId: "c1" }),
+    ])
+    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "general", serverId: "s1" }])
+    // Parent c1 muted → the whole subtree is suppressed.
+    mockGetSettings.mockResolvedValue([{ serverId: null, channelId: "c1", level: "nothing" }])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.servers).toHaveLength(0)
+  })
+
+  it("counts child rows toward the truncation limit", async () => {
+    // Parent c1 (weight 1) + 2 children (weight 2) = 3 rows; limit=2 → parent +
+    // 1 child kept, truncated=true.
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "c1", channelName: "general", lastMessageAt: "2026-06-25T09:00:00Z" }),
+      row({ channelId: "t1", channelName: "thread-1", parentChannelId: "c1", lastMessageAt: "2026-06-25T11:00:00Z" }),
+      row({ channelId: "t2", channelName: "thread-2", parentChannelId: "c1", lastMessageAt: "2026-06-25T10:00:00Z" }),
+    ])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads?limit=2"))
+    const body = await res.json()
+    expect(body.truncated).toBe(true)
+    const parent = body.servers[0].channels[0]
+    expect(parent.channelId).toBe("c1")
+    // Newest child first, capped to 1.
+    expect(parent.children.map((c: { channelId: string }) => c.channelId)).toEqual(["t1"])
+  })
+
+  it("top-level channels carry an empty children array", async () => {
+    mockListUnreadChannels.mockResolvedValue([row({ channelId: "c1" })])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.servers[0].channels[0].children).toEqual([])
   })
 })

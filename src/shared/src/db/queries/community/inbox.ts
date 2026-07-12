@@ -1,8 +1,6 @@
-import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, inArray, or } from "drizzle-orm";
 import {
-  communityCategory,
   communityChannel,
-  communityChannelMember,
   communityDmConversation,
   communityReadState,
   communityServer,
@@ -18,6 +16,9 @@ export interface UnreadChannelRow {
   serverName: string;
   lastMessageAt: string;
   lastReadAt: string | null;
+  // null for a top-level channel; set for a thread / forum-post child. The
+  // inbox route uses this to nest child unreads under their parent channel.
+  parentChannelId: string | null;
 }
 
 /**
@@ -54,16 +55,25 @@ export function isChannelUnread(row: {
 
 export async function listUnreadChannels(
   db: Database,
-  userId: string
+  userId: string,
+  visibleChannelIds: string[]
 ): Promise<UnreadChannelRow[]> {
-  // All top-level channels in servers the user is a member of, plus read state.
-  // Filtering happens in JS via `isChannelUnread` so we can keep one query.
+  // All channels — top-level AND child threads/forum-posts — the viewer may
+  // see (the `visibleChannelIds` set, resolved once per inbox fetch via
+  // `listVisibleChannelIdsForUser`), plus read state. Visibility is the id-set
+  // `inArray`, NOT an inlined category `or()`: a child channel's own
+  // `categoryId` is always NULL, so a flat `isNull(categoryId)` would treat
+  // every thread as public and leak private threads. The id set is built by
+  // parent-climbing, so a child is present only when its parent is visible.
+  // Filtering to actually-unread happens in JS via `isChannelUnread`.
+  if (visibleChannelIds.length === 0) return [];
   const rows = await db
     .select({
       channelId: communityChannel.id,
       channelName: communityChannel.name,
       serverId: communityChannel.serverId,
       serverName: communityServer.name,
+      parentChannelId: communityChannel.parentChannelId,
       lastMessageAt: communityChannel.lastMessageAt,
       lastReadAt: communityReadState.lastReadAt,
       archived: communityChannel.archived,
@@ -87,29 +97,11 @@ export async function listUnreadChannels(
         eq(communityReadState.userId, userId)
       )
     )
-    // Private-channel visibility: a channel in a private category only shows in
-    // the viewer's inbox if they're an admin, its creator, or an added member.
-    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
-    .leftJoin(
-      communityChannelMember,
-      and(
-        eq(communityChannelMember.channelId, communityChannel.id),
-        eq(communityChannelMember.userId, userId)
-      )
-    )
     .where(
       and(
         eq(communityServerMember.userId, userId),
-        isNull(communityChannel.parentChannelId),
-        isNotNull(communityChannel.lastMessageAt),
-        or(
-          isNull(communityChannel.categoryId),
-          eq(communityCategory.private, 0),
-          eq(communityServerMember.role, "owner"),
-          eq(communityServerMember.role, "admin"),
-          eq(communityChannel.creatorId, userId),
-          isNotNull(communityChannelMember.id)
-        )
+        inArray(communityChannel.id, visibleChannelIds),
+        isNotNull(communityChannel.lastMessageAt)
       )
     );
 
@@ -127,6 +119,7 @@ export async function listUnreadChannels(
       channelName: r.channelName,
       serverId: r.serverId,
       serverName: r.serverName,
+      parentChannelId: r.parentChannelId,
       lastMessageAt: r.lastMessageAt!,
       lastReadAt: r.lastReadAt,
     }));

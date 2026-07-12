@@ -1,4 +1,4 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { communityMention, communityMessage } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
@@ -26,13 +26,29 @@ export async function createMentions(
 export async function listUnreadMentions(
   db: Database,
   userId: string,
-  opts: { kind?: "mention" | "reply"; limit?: number } = {}
+  opts: {
+    kind?: "mention" | "reply";
+    limit?: number;
+    /**
+     * Scope mentions to channels the viewer may see (scope-first, in-query —
+     * NOT a post-fetch filter). Closes the removed-from-private-channel leak:
+     * a user @-mentioned in a private channel then removed no longer sees that
+     * mention. `NULL IN (...)` is never true in SQL, so DM reply rows
+     * (`channelId = NULL`) are naturally excluded — which is intended, the
+     * Mentions tab does not surface DM replies. Omitted → no channel scoping
+     * (callers that don't need it, e.g. a single-kind agent read).
+     */
+    visibleChannelIds?: string[];
+  } = {}
 ) {
   const conditions = [
     eq(communityMention.userId, userId),
     eq(communityMention.read, 0),
   ];
   if (opts.kind) conditions.push(eq(communityMention.kind, opts.kind));
+  if (opts.visibleChannelIds) {
+    conditions.push(inArray(communityMessage.channelId, opts.visibleChannelIds));
+  }
 
   const q = db
     .select({
@@ -46,7 +62,10 @@ export async function listUnreadMentions(
       eq(communityMention.messageId, communityMessage.id)
     )
     .innerJoin(user, eq(communityMessage.authorId, user.id))
-    .where(and(...conditions));
+    .where(and(...conditions))
+    // Deterministic truncation: combining mention + reply kinds under a limit
+    // needs an explicit order so the newest mentions win the cap.
+    .orderBy(desc(communityMessage.createdAt));
 
   return opts.limit !== undefined ? q.limit(opts.limit) : q;
 }

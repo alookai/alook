@@ -253,6 +253,10 @@ export type AuditEntry = {
 // ── Mentions / inbox ─────────────────────────────────────────────────────────
 export type Mention = {
   id: string
+  // "mention" (@-mention) vs "reply" (reply to your message). Drives the row
+  // label ("mentioned you" vs "replied to you"). Optional for back-compat with
+  // any cached payload written before the field existed.
+  kind?: "mention" | "reply"
   server: string
   serverId?: string
   channel: string
@@ -260,7 +264,17 @@ export type Mention = {
   m: Msg
 }
 
-// "Unreads" — channels with unread messages, grouped by server.
+// A single unread thread / forum-post nested under its parent channel.
+type UnreadChild = {
+  channelId: string
+  channelName: string
+  lastMessageAt: string
+  mentionCount: number
+}
+
+// "Unreads" — channels with unread messages, grouped by server. Each channel
+// may carry `children` (unread threads/forum-posts) rendered as indented
+// sub-rows; a parent can appear solely to host unread children.
 export type UnreadServer = {
   serverId: string
   serverName: string
@@ -269,6 +283,7 @@ export type UnreadServer = {
     channelName: string
     lastMessageAt: string
     mentionCount: number
+    children: UnreadChild[]
   }>
 }
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { NextRequest } from "next/server"
 
 const mockMarkAllServerChannelsRead = vi.fn()
+const mockListVisibleChannelIds = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -14,6 +15,9 @@ vi.mock("@alook/shared", () => ({
   queries: {
     communityReadState: {
       markAllServerChannelsRead: (...args: unknown[]) => mockMarkAllServerChannelsRead(...args),
+    },
+    communityChannel: {
+      listVisibleChannelIdsForUser: (...args: unknown[]) => mockListVisibleChannelIds(...args),
     },
   },
 }))
@@ -36,7 +40,10 @@ vi.mock("@/lib/middleware/helpers", () => {
 import { POST } from "./route"
 
 describe("POST /api/community/inbox/unreads/read-all", () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockListVisibleChannelIds.mockResolvedValue(["c1", "c2"])
+  })
 
   it("returns the count of NON-EMPTY channels marked read (invariant: empty channels excluded)", async () => {
     // Post-invariant: count == channels that actually received an aligned
@@ -46,7 +53,8 @@ describe("POST /api/community/inbox/unreads/read-all", () => {
     const body = await res.json()
     expect(res.status).toBe(200)
     expect(body).toEqual({ ok: true, count: 7 })
-    expect(mockMarkAllServerChannelsRead).toHaveBeenCalledWith({}, "u1")
+    // Scoped to the viewer's visible channels (resolved once, passed through).
+    expect(mockMarkAllServerChannelsRead).toHaveBeenCalledWith({}, "u1", ["c1", "c2"])
   })
 
   it("returns count 0 when every channel is empty (nothing to write)", async () => {

@@ -1080,12 +1080,10 @@ describe("read-state invariant property — every write path", () => {
     });
 
     // Path F: markAllServerChannelsRead — one channel with a latest message,
-    // no existing row → insert path.
+    // no existing row → insert path. The visible-channel id set is passed as an
+    // argument now, so the only select this issues is the existing-read-state
+    // lookup (returns empty → insert path).
     const dbF: any = makePropertyDb();
-    // Rewire the two selects: first returns member channels, second returns
-    // existing readState rows. All other selects fall through to the default
-    // empty-select chain in makePropertyDb.
-    let selectCall = 0;
     dbF.select = vi.fn(() => {
       const chain: any = {};
       chain.from = vi.fn(() => chain);
@@ -1095,11 +1093,7 @@ describe("read-state invariant property — every write path", () => {
       chain.as = vi.fn(() => chain);
       chain.orderBy = vi.fn(() => chain);
       chain.limit = vi.fn(() => Promise.resolve([]));
-      chain.where = vi.fn(() => {
-        selectCall += 1;
-        if (selectCall === 1) return Promise.resolve([{ channelId: "c_mass" }]);
-        return Promise.resolve([]);
-      });
+      chain.where = vi.fn(() => Promise.resolve([]));
       return chain;
     });
     const spy = vi
@@ -1107,7 +1101,7 @@ describe("read-state invariant property — every write path", () => {
       .mockResolvedValue([
         { channelId: "c_mass", id: "m_mass_latest", createdAt: "2026-07-06T00:00:00.000Z" },
       ]);
-    await readState.markAllServerChannelsRead(dbF, "u_1");
+    await readState.markAllServerChannelsRead(dbF, "u_1", ["c_mass"]);
     spy.mockRestore();
 
     // The invariant assertion: every captured write must have BOTH fields

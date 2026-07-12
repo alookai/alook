@@ -719,7 +719,8 @@ export async function listVisibleChannelIds(
   if (topLevelIds.length === 0) return [];
 
   // Threads inherit from their parent: include children of visible top-level
-  // channels (scoped by the id set — SQL, not JS).
+  // channels (scoped by the id set — SQL, not JS). No `type` filter on the
+  // children subquery, so forum_posts are covered alongside threads.
   const children = await db
     .select({ id: communityChannel.id })
     .from(communityChannel)
@@ -729,6 +730,99 @@ export async function listVisibleChannelIds(
         inArray(communityChannel.parentChannelId, topLevelIds)
       )
     );
+  return [...topLevelIds, ...children.map((r) => r.id)];
+}
+
+/**
+ * Cross-server sibling of `listVisibleChannelIds` — every channel id (top-level
+ * AND child/thread/forum-post) a viewer may see across ALL of their servers, in
+ * a handful of queries instead of an N+1 loop-per-server. Backs the inbox
+ * consumers (unread + mentions + mark-all), which span every server the viewer
+ * belongs to.
+ *
+ * Same rule as the per-server form: admin/owner sees every channel in that
+ * server; a non-admin sees public/uncategorized channels plus private-category
+ * channels where they're the creator or have a member row. A child inherits its
+ * parent's visibility (included iff its `parentChannelId` is in the visible
+ * top-level set). Scoping is entirely in SQL.
+ *
+ * Bound-parameter ceiling (accepted risk): a viewer across many large servers
+ * can produce a big id set; feeding it whole into a downstream `inArray`
+ * approaches SQLite's bound-param limit. Same unchunked pattern as
+ * `searchMessagesInServer` (single-server there, larger here). Chunk only if it
+ * proves a real limit in practice.
+ */
+export async function listVisibleChannelIdsForUser(
+  db: Database,
+  userId: string
+): Promise<string[]> {
+  const memberships = await db
+    .select({
+      serverId: communityServerMember.serverId,
+      role: communityServerMember.role,
+    })
+    .from(communityServerMember)
+    .where(eq(communityServerMember.userId, userId));
+  if (memberships.length === 0) return [];
+
+  const adminServerIds: string[] = [];
+  const memberServerIds: string[] = [];
+  for (const m of memberships) {
+    if (canManageServer(m.role)) adminServerIds.push(m.serverId);
+    else memberServerIds.push(m.serverId);
+  }
+
+  const topLevelIds: string[] = [];
+
+  // Admin servers: every top-level channel, no privacy filter.
+  if (adminServerIds.length > 0) {
+    const rows = await db
+      .select({ id: communityChannel.id })
+      .from(communityChannel)
+      .where(
+        and(
+          inArray(communityChannel.serverId, adminServerIds),
+          isNull(communityChannel.parentChannelId)
+        )
+      );
+    for (const r of rows) topLevelIds.push(r.id);
+  }
+
+  // Member (non-admin) servers: public/uncategorized ∪ private-where-viewer-is
+  // creator-or-member.
+  if (memberServerIds.length > 0) {
+    const rows = await db
+      .select({ id: communityChannel.id })
+      .from(communityChannel)
+      .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
+      .leftJoin(
+        communityChannelMember,
+        and(
+          eq(communityChannelMember.channelId, communityChannel.id),
+          eq(communityChannelMember.userId, userId)
+        )
+      )
+      .where(
+        and(
+          inArray(communityChannel.serverId, memberServerIds),
+          isNull(communityChannel.parentChannelId),
+          or(
+            isNull(communityChannel.categoryId),
+            eq(communityCategory.private, 0),
+            eq(communityChannel.creatorId, userId),
+            isNotNull(communityChannelMember.id)
+          )
+        )
+      );
+    for (const r of rows) topLevelIds.push(r.id);
+  }
+
+  if (topLevelIds.length === 0) return [];
+
+  const children = await db
+    .select({ id: communityChannel.id })
+    .from(communityChannel)
+    .where(inArray(communityChannel.parentChannelId, topLevelIds));
   return [...topLevelIds, ...children.map((r) => r.id)];
 }
 

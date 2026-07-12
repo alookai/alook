@@ -18,9 +18,15 @@ export const GET = withAuth(async (req, ctx) => {
     MAX_INBOX_PAGE_SIZE,
   )
 
+  // Both `@`-mentions AND reply notifications surface in the Mentions tab now.
+  // Scope to the viewer's visible channels (scope-first, in-query) so a
+  // removed-from-private-channel user no longer sees leftover mentions; the
+  // `inArray(channelId, visibleIds)` also naturally excludes DM reply rows
+  // (channelId = NULL), which stay out of the Mentions tab by design.
+  const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
   const rows = await queries.communityMention.listUnreadMentions(db, ctx.userId, {
-    kind: "mention",
     limit,
+    visibleChannelIds,
   })
 
   const channelIds = [...new Set(rows.filter((r) => r.message.channelId).map((r) => r.message.channelId!))]
@@ -36,6 +42,9 @@ export const GET = withAuth(async (req, ctx) => {
     const srv = ch ? serverMap.get(ch.serverId) : undefined
     return {
       id: row.mention.id,
+      // "mention" (@-mention) vs "reply" — the UI labels them differently
+      // ("mentioned you" vs "replied to you").
+      kind: row.mention.kind,
       // srv/ch fall back to "Unknown" only when the underlying row was deleted
       // between mention insert and this read — unrelated to user-name integrity.
       server: srv ? srv.name : "Unknown",

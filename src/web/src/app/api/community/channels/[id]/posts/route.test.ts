@@ -4,7 +4,9 @@ import { NextRequest } from "next/server"
 const mockGetChannelForMember = vi.fn()
 const mockCreateChannel = vi.fn()
 const mockCreateMessage = vi.fn()
+const mockGetMessage = vi.fn()
 const mockGetUserSelf = vi.fn()
+const mockGetUserInternal = vi.fn()
 const mockFanOutToChannel = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
@@ -21,12 +23,25 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         createChannel: (...a: unknown[]) => mockCreateChannel(...a),
+        // createCommunityMessage's private-channel scoping guard is only hit
+        // when there are mentions; the happy-path posts have none, so these
+        // return public/empty.
+        isChannelPrivate: vi.fn(async () => false),
       },
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
+        getMessage: (...a: unknown[]) => mockGetMessage(...a),
+      },
+      communityMember: {
+        listMembers: vi.fn(async () => []),
+        listMemberUserIds: vi.fn(async () => []),
+      },
+      communityMention: {
+        createMentions: vi.fn(async () => []),
       },
       user: {
         getUserSelf: (...a: unknown[]) => mockGetUserSelf(...a),
+        getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
       },
     },
   }
@@ -34,6 +49,16 @@ vi.mock("@alook/shared", async () => {
 
 vi.mock("@/lib/community/fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
+  fanOutToDM: vi.fn(async () => {}),
+}))
+
+// createCommunityMessage's non-fanout side effects — stub so the pipeline runs.
+vi.mock("@/lib/broadcast", () => ({
+  broadcastToUser: vi.fn(async () => {}),
+}))
+vi.mock("@/lib/community/audit", () => ({
+  logAudit: vi.fn(),
+  COMMUNITY_AUDIT_ACTIONS: { MESSAGE_AUTHORED_AS_BOT: "message_authored_as_bot" },
 }))
 
 vi.mock("@/lib/middleware/auth", () => ({
@@ -69,7 +94,24 @@ describe("POST /api/community/channels/[id]/posts — name normalization", () =>
     vi.clearAllMocks()
     mockGetChannelForMember.mockResolvedValue({ id: "ch1", serverId: "s1", type: "forum", tags: [] })
     mockCreateMessage.mockResolvedValue({ id: "m1", createdAt: "2026-07-02T00:00:00.000Z" })
+    // createCommunityMessage re-fetches the row via getMessage after insert.
+    mockGetMessage.mockResolvedValue({
+      id: "m1",
+      authorId: "u1",
+      authorName: "Alice",
+      authorImage: null,
+      content: "hello",
+      type: "default",
+      mentionType: null,
+      replyToId: null,
+      embeds: null,
+      channelId: "post1",
+      dmConversationId: null,
+      seq: 1,
+      createdAt: "2026-07-02T00:00:00.000Z",
+    })
     mockGetUserSelf.mockResolvedValue({ id: "u1", name: "Alice", image: null })
+    mockGetUserInternal.mockResolvedValue({ id: "u1", name: "Alice", isBot: false })
     mockFanOutToChannel.mockResolvedValue(undefined)
   })
 

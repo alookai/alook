@@ -589,6 +589,58 @@ export async function getLatestMessagesByChannelIds(
   return Array.from(bestByChannel.values());
 }
 
+/**
+ * DM sibling of `getLatestMessagesByChannelIds` — one latest row per DM
+ * conversation that HAS messages (empty conversations omitted). Backs the
+ * `markAllDmsRead` mass mark-read path; same MAX-per-scope subquery + id
+ * dedupe as the channel form.
+ */
+export async function getLatestMessagesByDmIds(
+  db: Database,
+  dmConversationIds: string[]
+): Promise<Array<{ dmConversationId: string; id: string; createdAt: string }>> {
+  if (dmConversationIds.length === 0) return [];
+
+  const latestDates = db
+    .select({
+      dmConversationId: communityMessage.dmConversationId,
+      maxCreatedAt: sql<string>`MAX(${communityMessage.createdAt})`.as("max_created_at"),
+    })
+    .from(communityMessage)
+    .where(inArray(communityMessage.dmConversationId, dmConversationIds))
+    .groupBy(communityMessage.dmConversationId)
+    .as("latest_dm_dates");
+
+  const rows = await db
+    .select({
+      dmConversationId: communityMessage.dmConversationId,
+      id: communityMessage.id,
+      createdAt: communityMessage.createdAt,
+    })
+    .from(communityMessage)
+    .innerJoin(
+      latestDates,
+      and(
+        eq(communityMessage.dmConversationId, latestDates.dmConversationId),
+        eq(communityMessage.createdAt, latestDates.maxCreatedAt)
+      )
+    );
+
+  const bestByDm = new Map<string, { dmConversationId: string; id: string; createdAt: string }>();
+  for (const r of rows) {
+    if (!r.dmConversationId) continue;
+    const existing = bestByDm.get(r.dmConversationId);
+    if (!existing || r.id > existing.id) {
+      bestByDm.set(r.dmConversationId, {
+        dmConversationId: r.dmConversationId,
+        id: r.id,
+        createdAt: r.createdAt,
+      });
+    }
+  }
+  return Array.from(bestByDm.values());
+}
+
 export async function getFirstMessageByChannelIds(db: Database, channelIds: string[]) {
   if (channelIds.length === 0) return [];
   // Use a subquery to get the min createdAt per channel, then join to get the content

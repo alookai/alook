@@ -9,9 +9,14 @@ const mockGetChannel = vi.fn()
 const mockGetChannelForMember = vi.fn()
 const mockGetMessage = vi.fn()
 const mockGetLatestMessage = vi.fn()
-const mockMarkReadToMessage = vi.fn()
+const mockMarkReadToMessageBuilder = vi.fn()
+const mockMarkChannelMentionsReadBuilder = vi.fn()
+const mockBatch = vi.fn()
 
-vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
+// The route now fires read-watermark + mention-clear in one `db.batch([...])`
+// (mirrors the channel read route). The builders return opaque statement
+// markers the batch collects; assert on the builder args, not the statements.
+vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({ batch: (...a: unknown[]) => mockBatch(...a) })) }))
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -27,7 +32,10 @@ vi.mock("@alook/shared", async () => {
         getLatestMessage: (...a: unknown[]) => mockGetLatestMessage(...a),
       },
       communityReadState: {
-        markReadToMessage: (...a: unknown[]) => mockMarkReadToMessage(...a),
+        markReadToMessageBuilder: (...a: unknown[]) => mockMarkReadToMessageBuilder(...a),
+      },
+      communityMention: {
+        markChannelMentionsReadBuilder: (...a: unknown[]) => mockMarkChannelMentionsReadBuilder(...a),
       },
     },
   }
@@ -62,10 +70,12 @@ function putReq(body?: unknown) {
 describe("PUT /api/community/threads/[id]/read", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockMarkReadToMessage.mockResolvedValue(undefined)
+    mockMarkReadToMessageBuilder.mockReturnValue({ __stmt: "read" })
+    mockMarkChannelMentionsReadBuilder.mockReturnValue({ __stmt: "mentions" })
+    mockBatch.mockResolvedValue(undefined)
   })
 
-  it("body id present: fetches message, scope-checks, aligns write to (msg.id, msg.createdAt)", async () => {
+  it("body id present: fetches message, scope-checks, batches read + mention-clear to (msg.id, msg.createdAt)", async () => {
     mockGetChannel.mockResolvedValue({ id: "t1", serverId: "s1" })
     mockGetChannelForMember.mockResolvedValue({ id: "t1", serverId: "s1" })
     mockGetMessage.mockResolvedValue({
@@ -78,13 +88,16 @@ describe("PUT /api/community/threads/[id]/read", () => {
     expect(res.status).toBe(200)
 
     expect(mockGetMessage).toHaveBeenCalledWith(expect.anything(), "m9")
-    expect(mockMarkReadToMessage).toHaveBeenCalledTimes(1)
-    const call = mockMarkReadToMessage.mock.calls[0][1]
-    expect(call).toEqual({
+    expect(mockMarkReadToMessageBuilder).toHaveBeenCalledTimes(1)
+    expect(mockMarkReadToMessageBuilder.mock.calls[0][1]).toEqual({
       userId: "u1",
       channelId: "t1",
       message: { id: "m9", createdAt: "2026-07-04T09:00:00.000Z" },
     })
+    // The thread's own mentions are cleared in the same batch (plan gap #4).
+    expect(mockMarkChannelMentionsReadBuilder).toHaveBeenCalledWith(expect.anything(), "u1", "t1")
+    expect(mockBatch).toHaveBeenCalledTimes(1)
+    expect(mockBatch.mock.calls[0][0]).toEqual([{ __stmt: "read" }, { __stmt: "mentions" }])
     expect(mockGetLatestMessage).not.toHaveBeenCalled()
   })
 
@@ -99,7 +112,7 @@ describe("PUT /api/community/threads/[id]/read", () => {
 
     const res = await PUT(putReq({ lastReadMessageId: "m9" }), { params: { id: "t1" } } as any)
     expect(res.status).toBe(400)
-    expect(mockMarkReadToMessage).not.toHaveBeenCalled()
+    expect(mockBatch).not.toHaveBeenCalled()
   })
 
   it("body id present but message does not exist → 404, no write", async () => {
@@ -109,7 +122,7 @@ describe("PUT /api/community/threads/[id]/read", () => {
 
     const res = await PUT(putReq({ lastReadMessageId: "m_ghost" }), { params: { id: "t1" } } as any)
     expect(res.status).toBe(404)
-    expect(mockMarkReadToMessage).not.toHaveBeenCalled()
+    expect(mockBatch).not.toHaveBeenCalled()
   })
 
   it("no body: uses latest message and aligns write to it", async () => {
@@ -123,11 +136,12 @@ describe("PUT /api/community/threads/[id]/read", () => {
     const res = await PUT(putReq(), { params: { id: "t1" } } as any)
     expect(res.status).toBe(200)
     expect(mockGetLatestMessage).toHaveBeenCalledWith(expect.anything(), { channelId: "t1" })
-    expect(mockMarkReadToMessage).toHaveBeenCalledWith(expect.anything(), {
+    expect(mockMarkReadToMessageBuilder).toHaveBeenCalledWith(expect.anything(), {
       userId: "u1",
       channelId: "t1",
       message: { id: "m_latest", createdAt: "2026-07-05T10:00:00.000Z" },
     })
+    expect(mockBatch).toHaveBeenCalledTimes(1)
     // Body path never consults getMessage.
     expect(mockGetMessage).not.toHaveBeenCalled()
   })
@@ -140,7 +154,7 @@ describe("PUT /api/community/threads/[id]/read", () => {
     const res = await PUT(putReq(), { params: { id: "t1" } } as any)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: true })
-    expect(mockMarkReadToMessage).not.toHaveBeenCalled()
+    expect(mockBatch).not.toHaveBeenCalled()
   })
 
   it("returns 400 when the id is missing", async () => {
@@ -156,7 +170,7 @@ describe("PUT /api/community/threads/[id]/read", () => {
     const res = await PUT(putReq(), { params: { id: "t1" } } as any)
     expect(res.status).toBe(404)
     expect(mockGetChannelForMember).not.toHaveBeenCalled()
-    expect(mockMarkReadToMessage).not.toHaveBeenCalled()
+    expect(mockBatch).not.toHaveBeenCalled()
   })
 
   it("returns 403 when the channel exists but the caller is not a member", async () => {
@@ -165,6 +179,6 @@ describe("PUT /api/community/threads/[id]/read", () => {
 
     const res = await PUT(putReq(), { params: { id: "t1" } } as any)
     expect(res.status).toBe(403)
-    expect(mockMarkReadToMessage).not.toHaveBeenCalled()
+    expect(mockBatch).not.toHaveBeenCalled()
   })
 })

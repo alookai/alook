@@ -73,6 +73,9 @@ const ctx = { params: { id: "msg-p" } } as any
 describe("POST /api/community/messages/[id]/threads", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // The unified pipeline fires `fanOutToChannel(...).catch(...)` — the mock
+    // must return a promise so the `.catch` chain resolves.
+    mockFanOutToChannel.mockResolvedValue(undefined)
     mockGetChannelForMember.mockResolvedValue({
       id: "c-parent",
       serverId: "s1",
@@ -182,12 +185,15 @@ describe("POST /api/community/messages/[id]/threads", () => {
         type: "community:message.create",
         message: expect.objectContaining({ id: "sysmsg-1", type: "system", systemKind: "thread" }),
       }),
+      expect.objectContaining({ excludeUserId: undefined }),
     )
     const systemMessageCall = mockFanOutToChannel.mock.calls.find(
       (call) => (call[1] as { type?: string }).type === "community:message.create",
     )
     expect(systemMessageCall).toBeDefined()
-    expect(systemMessageCall).toHaveLength(2)
+    // The unified pipeline passes an opts arg; `includeAuthorInFanout` means
+    // no `excludeUserId` so the creator also receives the broadcast.
+    expect((systemMessageCall![2] as { excludeUserId?: string }).excludeUserId).toBeUndefined()
   })
 
   it("rejects a second thread on the same parent message", async () => {

@@ -142,13 +142,14 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
         channelName: "channel A",
         serverId: "srv_1",
         serverName: "server 1",
+        parentChannelId: null,
         lastMessageAt: ts,
         lastReadAt: ts, // author's watermark advanced to this exact message
         archived: false,
         joinedAt: j,
       },
     ]);
-    const result = await inboxQueries.listUnreadChannels(db, "u_author");
+    const result = await inboxQueries.listUnreadChannels(db, "u_author", ["ch_A"]);
     expect(result).toEqual([]);
   });
 
@@ -165,13 +166,14 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
         channelName: "channel A",
         serverId: "srv_1",
         serverName: "server 1",
+        parentChannelId: null,
         lastMessageAt: t2,
         lastReadAt: t1,
         archived: false,
         joinedAt: j,
       },
     ]);
-    const result = await inboxQueries.listUnreadChannels(db, "u_author");
+    const result = await inboxQueries.listUnreadChannels(db, "u_author", ["ch_A"]);
     expect(result).toHaveLength(1);
     expect(result[0]!.channelId).toBe("ch_A");
     expect(result[0]!.lastMessageAt).toBe(t2);
@@ -185,13 +187,14 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
         channelName: "old",
         serverId: "srv_1",
         serverName: "server 1",
+        parentChannelId: null,
         lastMessageAt: "2026-07-06T00:00:00.000Z",
         lastReadAt: null,
         archived: true,
         joinedAt: j,
       },
     ]);
-    const result = await inboxQueries.listUnreadChannels(db, "u_1");
+    const result = await inboxQueries.listUnreadChannels(db, "u_1", ["ch_archived"]);
     expect(result).toEqual([]);
   });
 
@@ -204,13 +207,14 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
         channelName: "brand new",
         serverId: "srv_1",
         serverName: "server 1",
+        parentChannelId: null,
         lastMessageAt: "2026-07-06T00:01:00.000Z",
         lastReadAt: null,
         archived: false,
         joinedAt: j,
       },
     ]);
-    const result = await inboxQueries.listUnreadChannels(db, "u_1");
+    const result = await inboxQueries.listUnreadChannels(db, "u_1", ["ch_new"]);
     expect(result).toHaveLength(1);
     expect(result[0]!.channelId).toBe("ch_new");
   });
@@ -225,13 +229,14 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
         channelName: "old history",
         serverId: "srv_1",
         serverName: "server 1",
+        parentChannelId: null,
         lastMessageAt: "2026-07-05T00:00:00.000Z", // predates joinedAt
         lastReadAt: null,
         archived: false,
         joinedAt: j,
       },
     ]);
-    const result = await inboxQueries.listUnreadChannels(db, "u_1");
+    const result = await inboxQueries.listUnreadChannels(db, "u_1", ["ch_old"]);
     expect(result).toEqual([]);
   });
 });

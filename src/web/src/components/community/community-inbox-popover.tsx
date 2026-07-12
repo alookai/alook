@@ -1,10 +1,19 @@
-import { ChevronRight, Hash, Inbox, MoreHorizontal, Trash2 } from "lucide-react"
+import { ChevronRight, CornerDownRight, Hash, Inbox, MoreHorizontal, Trash2 } from "lucide-react"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import { EmptyState } from "./empty-state"
 import type { Mention, UnreadDm, UnreadServer } from "./_types"
+
+function MentionBadge({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span className="grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground">
+      {count}
+    </span>
+  )
+}
 
 function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
   servers: UnreadServer[]
@@ -38,18 +47,30 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
         <div key={s.serverId} className="mb-3">
           <div className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{s.serverName}</div>
           {s.channels.map((c) => (
-            <button
-              key={c.channelId}
-              onClick={() => onOpenChannel?.(s.serverId, c.channelId)}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
-            >
-              <Hash className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate">{c.channelName}</span>
-              {c.mentionCount > 0 && (
-                <span className="grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-xs font-semibold text-primary-foreground">{c.mentionCount}</span>
-              )}
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-            </button>
+            <div key={c.channelId}>
+              <button
+                onClick={() => onOpenChannel?.(s.serverId, c.channelId)}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
+              >
+                <Hash className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">{c.channelName}</span>
+                <MentionBadge count={c.mentionCount} />
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              </button>
+              {/* Unread threads / forum-posts, indented under their parent. */}
+              {c.children.map((child) => (
+                <button
+                  key={child.channelId}
+                  onClick={() => onOpenChannel?.(s.serverId, child.channelId)}
+                  className="flex w-full items-center gap-2 rounded-md py-1.5 pl-8 pr-2 text-left text-sm hover:bg-accent"
+                >
+                  <CornerDownRight className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{child.channelName}</span>
+                  <MentionBadge count={child.mentionCount} />
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       ))}
@@ -74,7 +95,9 @@ function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention }: {
             <div className="min-w-0 flex-1">
               <div className="text-sm">
                 <span className="font-medium">{mn.m.authorName}</span>{" "}
-                <span className="text-xs text-muted-foreground">in {mn.server} · #{mn.channel}</span>
+                <span className="text-xs text-muted-foreground">
+                  {mn.kind === "reply" ? "replied to you" : "mentioned you"} in {mn.server} · #{mn.channel}
+                </span>
               </div>
               <div className="truncate text-sm text-muted-foreground">{mn.m.content}</div>
             </div>

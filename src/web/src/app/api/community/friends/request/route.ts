@@ -6,6 +6,7 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { requireNotBlocked } from "@/lib/community/permissions"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
+import { createCommunityMessage } from "@/lib/community/message-handler"
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
@@ -77,11 +78,23 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       userId1: target.id,
       userId2: target.ownerUserId,
     })
-    const msg = await queries.communityMessage.createMessage(db, {
+    // Unified pipeline, but broadcast-deferred: the DM card must not reach the
+    // owner until the approval-request row commits (otherwise they'd see a
+    // phantom card with no approve/deny buttons). `skipMentions`/`skipWake` —
+    // a bot DM card mentions no one and wakes no one. We never invoke the
+    // returned `broadcast` thunk; the route fires its own minimal
+    // `DM_NEW_MESSAGE` after the approval row is persisted.
+    const created = await createCommunityMessage({
+      db,
       authorId: target.id,
-      content: "A friend wants to be my friend. Approve?",
-      dmConversationId: dm.id,
+      target: { kind: "dm", dmId: dm.id, otherUserId: target.ownerUserId },
+      body: { content: "A friend wants to be my friend. Approve?" },
+      skipMentions: true,
+      skipWake: true,
+      deferBroadcast: true,
     })
+    if (!created.ok) return writeError(created.error, created.status)
+    const msg = created.row
     try {
       await queries.communityBot.createApprovalRequestStatement(db, {
         botId: target.id,

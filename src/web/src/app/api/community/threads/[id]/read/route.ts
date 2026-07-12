@@ -49,11 +49,18 @@ export const PUT = withAuth(async (req: NextRequest, ctx) => {
     if (!target) return writeJSON({ ok: true })
   }
 
-  await queries.communityReadState.markReadToMessage(db, {
-    userId: ctx.userId,
-    channelId,
-    message: target,
-  })
+  // A thread IS a channel — mirror the channel read route: advance the read
+  // watermark AND clear the thread's own mentions in one D1 batch (keyed on the
+  // thread's channelId). Without the mention clear, opening a thread wouldn't
+  // dismiss its mentions (plan gap #4).
+  await db.batch([
+    queries.communityReadState.markReadToMessageBuilder(db, {
+      userId: ctx.userId,
+      channelId,
+      message: target,
+    }),
+    queries.communityMention.markChannelMentionsReadBuilder(db, ctx.userId, channelId),
+  ])
 
   return writeJSON({ ok: true })
 })

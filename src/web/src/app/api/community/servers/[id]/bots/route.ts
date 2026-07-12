@@ -12,6 +12,7 @@ import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError, parseBody } from "@/lib/middleware/helpers"
 import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
+import { createCommunityMessage } from "@/lib/community/message-handler"
 
 const log = createLogger({ service: "community-bots-server-add" })
 
@@ -101,12 +102,23 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // string "undefined".
   const requesterLabel = callerMember.nickname?.trim() || "A friend"
   const botName = target.name || "the bot"
-  const msg = await queries.communityMessage.createMessage(db, {
+  // Unified pipeline, broadcast-deferred: the card must not reach the owner
+  // until the approval-request row commits (a rollback below would otherwise
+  // leave a phantom, unactionable card). `skipMentions`/`skipWake` — a bot DM
+  // card mentions no one and wakes no one. The returned `broadcast` thunk is
+  // never invoked; this route fires its own minimal `DM_NEW_MESSAGE` after the
+  // approval row persists.
+  const created = await createCommunityMessage({
+    db,
     authorId: botId,
-    content: `${requesterLabel} wants to add me to a server. Approve?`,
-    dmConversationId: dm.id,
-    type: "default",
+    target: { kind: "dm", dmId: dm.id, otherUserId: ownerId },
+    body: { content: `${requesterLabel} wants to add me to a server. Approve?` },
+    skipMentions: true,
+    skipWake: true,
+    deferBroadcast: true,
   })
+  if (!created.ok) return writeError(created.error, created.status)
+  const msg = created.row
   // Write the approval-request row. If the partial unique index rejects a
   // concurrent duplicate, roll back by hard-deleting the DM card so the owner
   // never sees a phantom card without approve/deny buttons.

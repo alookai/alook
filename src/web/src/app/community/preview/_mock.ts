@@ -339,15 +339,23 @@ export const UNREAD_SERVERS: UnreadServer[] = [
     serverId: "sv_alook",
     serverName: "Alook",
     channels: [
-      { channelId: "ch_general", channelName: "general", lastMessageAt: "2026-06-25T10:00:00Z", mentionCount: 1 },
-      { channelId: "ch_releases", channelName: "releases", lastMessageAt: "2026-06-25T07:30:00Z", mentionCount: 0 },
+      {
+        channelId: "ch_general",
+        channelName: "general",
+        lastMessageAt: "2026-06-25T10:00:00Z",
+        mentionCount: 1,
+        children: [
+          { channelId: "th_budget", channelName: "budget-2026", lastMessageAt: "2026-06-25T09:45:00Z", mentionCount: 0 },
+        ],
+      },
+      { channelId: "ch_releases", channelName: "releases", lastMessageAt: "2026-06-25T07:30:00Z", mentionCount: 0, children: [] },
     ],
   },
   {
     serverId: "sv_cf",
     serverName: "Cloudflare",
     channels: [
-      { channelId: "ch_flagship", channelName: "flagship", lastMessageAt: "2026-06-25T08:43:00Z", mentionCount: 1 },
+      { channelId: "ch_flagship", channelName: "flagship", lastMessageAt: "2026-06-25T08:43:00Z", mentionCount: 1, children: [] },
     ],
   },
 ]
