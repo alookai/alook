@@ -184,23 +184,43 @@ export function MessageList({
   // is false) — this needs NO virtualizer-specific rework: an
   // IntersectionObserver on a real sentinel node works identically whether
   // the sibling content is virtualized or not.
+  // The observer MUST stay stable across fetches. A fresh IntersectionObserver
+  // fires its callback immediately for an already-intersecting target, so if
+  // this effect re-ran on every `isFetchingOlder`/`onLoadOlder` change (both
+  // flip on each fetch — `fetchOlder` is `useCallback([query])`, a new identity
+  // per TanStack state tick), each load would tear down and recreate the
+  // observer, which then re-fires against the still-visible sentinel and kicks
+  // off the next load — cascading until `hasMore` goes false (i.e. loading ALL
+  // history in one scroll). Instead: create the observer ONCE per scroll
+  // container and read the mutable guards from refs, so it only fires on a
+  // genuine scroll-in transition.
   const topSentinelRef = useRef<HTMLDivElement>(null)
+  const loadOlderStateRef = useRef({ onLoadOlder, hasMore, isFetchingOlder })
+  loadOlderStateRef.current = { onLoadOlder, hasMore, isFetchingOlder }
   useEffect(() => {
-    if (!onLoadOlder || !hasMore) return
     const el = topSentinelRef.current
     const root = scrollRef.current
     if (!el || !root) return
     const observer = new IntersectionObserver(
       (entries) => {
+        const { onLoadOlder, hasMore, isFetchingOlder } = loadOlderStateRef.current
+        if (!onLoadOlder || !hasMore || isFetchingOlder) return
         for (const entry of entries) {
-          if (entry.isIntersecting && !isFetchingOlder) onLoadOlder()
+          if (entry.isIntersecting) {
+            onLoadOlder()
+            break
+          }
         }
       },
       { root, rootMargin: "200px" },
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [onLoadOlder, hasMore, isFetchingOlder, scrollRef])
+    // Re-observe only when the sentinel node mounts/unmounts (it's absent
+    // while `hasMore` is false) or the scroll container changes — never on a
+    // fetch-state tick. `hasMore` gates whether the sentinel node renders at
+    // all, so it belongs here to (re-)attach when history reappears.
+  }, [hasMore, scrollRef])
 
   // Bottom sentinel — symmetric to the top one. Only mounted when the loaded
   // window is not tail-attached (`hasMoreNewer === true`). Appended rows from
@@ -208,23 +228,33 @@ export function MessageList({
   // `mergeMessagesPages` they land at the natural tail of `messages`, which
   // grows the container downward and leaves the viewer's scrollTop untouched.
   // No compensating scroll needed. Rendered after the virtualized range.
+  // Same stable-observer discipline as the top sentinel above — read the
+  // mutable guards from a ref so a fetch-state tick never recreates the
+  // observer (which would re-fire against the still-visible sentinel and
+  // cascade through all newer pages).
   const bottomSentinelRef = useRef<HTMLDivElement>(null)
+  const loadNewerStateRef = useRef({ onLoadNewer, hasMoreNewer, isFetchingNewer })
+  loadNewerStateRef.current = { onLoadNewer, hasMoreNewer, isFetchingNewer }
   useEffect(() => {
-    if (!onLoadNewer || !hasMoreNewer) return
     const el = bottomSentinelRef.current
     const root = scrollRef.current
     if (!el || !root) return
     const observer = new IntersectionObserver(
       (entries) => {
+        const { onLoadNewer, hasMoreNewer, isFetchingNewer } = loadNewerStateRef.current
+        if (!onLoadNewer || !hasMoreNewer || isFetchingNewer) return
         for (const entry of entries) {
-          if (entry.isIntersecting && !isFetchingNewer) onLoadNewer()
+          if (entry.isIntersecting) {
+            onLoadNewer()
+            break
+          }
         }
       },
       { root, rootMargin: "200px" },
     )
     observer.observe(el)
     return () => observer.disconnect()
-  }, [onLoadNewer, hasMoreNewer, isFetchingNewer, scrollRef])
+  }, [hasMoreNewer, scrollRef])
 
   // `jumpTo` — click a reply pill, scroll to (and briefly highlight) an
   // earlier message. Replaces the old `querySelector('[data-msg-id="..."]')`
