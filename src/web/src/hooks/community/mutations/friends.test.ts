@@ -82,7 +82,7 @@ describe("useAcceptFriendRequest — rollback", () => {
     capturedQc.setQueryData(communityKeys.friends(), {
       friends: [],
       blocked: [],
-      pending: [{ id: "f_1", name: "n", avatar: "N", kind: "incoming" }],
+      pending: [{ id: "f_1", userId: "u_1", name: "n", avatar: "N", kind: "incoming" }],
     })
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await load()

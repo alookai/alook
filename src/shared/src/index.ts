@@ -490,6 +490,7 @@ export {
 export { parseEmailHandle, toAlookAddress, isValidHandle } from "./utils/email";
 export { parsePromptMentions } from "./utils/prompt-parser";
 export type { PromptAgent, PromptMention, ParseResult } from "./utils/prompt-parser";
+export { MENTION_TOKEN_RE, stripMentionTokens } from "./utils/mention-token";
 export { isValidToken, isValidEmail } from "./utils/validation";
 export { escapeLikePattern } from "./utils/sql-like";
 export { isOnline, formatStatus } from "./utils/status";

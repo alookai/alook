@@ -77,7 +77,7 @@ export const DmSidebar = memo(function DmSidebar({
                 active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
               ].join(" ")}
             >
-              <Avatar label={d.avatar} size={32} presence={isBlocked ? undefined : d.status} ringColor="var(--sidebar)" />
+              <Avatar label={d.avatar} seed={d.userId} size={32} presence={isBlocked ? undefined : d.status} ringColor="var(--sidebar)" />
               <div className="min-w-0 flex-1 text-left">
                 <div className="truncate text-sm leading-tight text-foreground">{d.name}</div>
                 <div className="truncate text-xs leading-tight text-muted-foreground">{d.preview}</div>

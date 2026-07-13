@@ -36,7 +36,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
               onClick={() => onOpenDm?.(d.dmConversationId)}
               className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
             >
-              <Avatar label={d.otherUserAvatar} size={24} />
+              <Avatar label={d.otherUserAvatar} seed={d.otherUserId} size={24} />
               <span className="min-w-0 flex-1 truncate">{d.otherUserName}</span>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             </button>
@@ -91,7 +91,7 @@ function MentionsTab({ mentions, loading, onOpenMention, onDeleteMention }: {
       {mentions.map((mn) => (
         <div key={mn.id} className="group flex w-full items-start gap-3 rounded-md p-2 text-left hover:bg-accent">
           <button onClick={() => onOpenMention?.(mn)} className="flex min-w-0 flex-1 items-start gap-3 text-left">
-            <Avatar label={mn.m.authorAvatar ?? "?"} size={36} />
+            <Avatar label={mn.m.authorAvatar ?? "?"} seed={mn.m.authorId} size={36} />
             <div className="min-w-0 flex-1">
               <div className="text-sm">
                 <span className="font-medium">{mn.m.authorName}</span>{" "}

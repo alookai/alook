@@ -9,6 +9,7 @@ export const GET = withAuth(async (_req, ctx) => {
   const rows = await queries.communityFriendship.listPending(db, ctx.userId)
   const pending = rows.map((r) => ({
     id: r.id,
+    userId: r.userId,
     name: r.name,
     avatar: r.image ?? avatarInitial(r.name),
     kind: r.kind,

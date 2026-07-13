@@ -21,7 +21,7 @@ function MentionHighlight(
     | string
     | undefined;
   let agent = agentId ? agents.find((a) => a.id === agentId) : undefined;
-  if (!agent && typeof children === "string") {
+  if (!agent && !agentId && typeof children === "string") {
     const nameToMatch = children.startsWith("@") ? children.slice(1) : children;
     agent = agents.find(
       (a) => a.name.toLowerCase() === nameToMatch.toLowerCase(),

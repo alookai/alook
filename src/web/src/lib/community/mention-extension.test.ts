@@ -103,6 +103,21 @@ describe("rankMentionItems", () => {
     expect(items[3].id).toBe("m_mal")
   })
 
+  it("carries the stable userId separately from the membership row id — so the popover avatar seed matches every other surface", () => {
+    // Regression: the mention popover seeded its <Avatar> from the membership
+    // row id while every other surface (member list, DMs, profile card) seeds
+    // from the user id, so the same person rendered a different shape avatar in
+    // the popover. The mention item must expose `userId` for the avatar seed,
+    // while `id` stays the membership row id (used for #0042 disambiguation and
+    // mention serialization). Fixture deliberately keeps id !== userId.
+    const memberRoster: Member[] = [
+      { id: "m_row", userId: "u_person", name: "Alice", avatar: "A", status: "online", sub: "", role: "member" },
+    ]
+    const item = rankMentionItems(memberRoster, "channel", "al").find((i) => i.kind === "member")!
+    expect(item.id).toBe("m_row")
+    expect((item as { userId: string }).userId).toBe("u_person")
+  })
+
   it("ranks substring members after prefix members", () => {
     const memberRoster: Member[] = [
       { id: "m_al", userId: "u_al", name: "Alberta", avatar: "A", status: "online", sub: "", role: "member" },

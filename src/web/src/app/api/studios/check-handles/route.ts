@@ -7,22 +7,22 @@ import { withAuth } from "@/lib/middleware/auth";
 import { writeJSON, writeError } from "@/lib/middleware/helpers";
 
 export const POST = withAuth(async (req: NextRequest, ctx) => {
-  let body: { names: string[] };
+  let body: { members: { uid: string; name: string }[] };
   try {
-    body = await req.json() as { names: string[] };
+    body = await req.json() as { members: { uid: string; name: string }[] };
   } catch {
     return writeError("invalid request body", 400);
   }
 
-  if (!Array.isArray(body.names) || body.names.length === 0 || body.names.length > 4) {
-    return writeError("names must be an array of 1-4 strings", 400);
+  if (!Array.isArray(body.members) || body.members.length === 0 || body.members.length > 4) {
+    return writeError("members must be an array of 1-4 items", 400);
   }
 
   const db = getDb(ctx.env.DB);
 
   // Generate all candidate handles upfront
-  const candidatesPerName: { name: string; candidates: string[] }[] = [];
-  for (const name of body.names) {
+  const candidatesPerName: { uid: string; name: string; candidates: string[] }[] = [];
+  for (const { uid, name } of body.members) {
     const base = name.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30);
     const candidates: string[] = [];
     if (isValidHandle(base)) candidates.push(base);
@@ -31,7 +31,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       const candidate = `${base}-${suffix}`.slice(0, 30);
       if (isValidHandle(candidate)) candidates.push(candidate);
     }
-    candidatesPerName.push({ name, candidates });
+    candidatesPerName.push({ uid, name, candidates });
   }
 
   // Batch-fetch existence of all candidates in a single query
@@ -42,9 +42,9 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
 
   // Assign handles using in-memory Set lookups
   const usedHandles = new Set<string>();
-  const results: { name: string; handle: string }[] = [];
+  const results: { uid: string; handle: string }[] = [];
 
-  for (const { name, candidates } of candidatesPerName) {
+  for (const { uid, name, candidates } of candidatesPerName) {
     let handle: string | undefined;
     for (const candidate of candidates) {
       if (!existingHandles.has(candidate) && !usedHandles.has(candidate)) {
@@ -57,7 +57,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
       handle = `${base}-${nanoid(6)}`;
     }
     usedHandles.add(handle);
-    results.push({ name, handle });
+    results.push({ uid, handle });
   }
 
   return writeJSON(results);

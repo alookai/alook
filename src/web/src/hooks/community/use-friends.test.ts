@@ -20,7 +20,7 @@ describe("useFriends / friendsQueryFn", () => {
       })
       .mockImplementationOnce(async (url: string) => {
         expect(url).toBe("/api/community/friends/pending")
-        return { pending: [{ id: "p_1", name: "n", avatar: "a", kind: "incoming" }] }
+        return { pending: [{ id: "p_1", userId: "u_1", name: "n", avatar: "a", kind: "incoming" }] }
       })
 
     const { friendsQueryFn } = await import("./use-friends")

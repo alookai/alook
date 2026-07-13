@@ -13,7 +13,7 @@ export function DmHeader({ dm, onBack }: {
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
-      <Avatar label={dm.avatar} size={24} presence={dm.status} />
+      <Avatar label={dm.avatar} seed={dm.userId} size={24} presence={dm.status} />
       <h1 className="min-w-0 truncate text-base font-medium">
         {dm.name}
         {dm.discriminator && (

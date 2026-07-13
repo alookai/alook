@@ -82,7 +82,7 @@ export function ChannelMembersDialog({
           ) : (
             members.map((m) => (
               <div key={m.userId} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/40">
-                <Avatar label={m.avatar || m.name || ""} size={32} />
+                <Avatar label={m.avatar || m.name || ""} seed={m.userId} size={32} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">
                     {m.name ?? "Unknown"}
@@ -137,7 +137,7 @@ export function ChannelMembersDialog({
             ) : (
               filteredAddable.map((m) => (
                 <div key={m.userId} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/40">
-                  <Avatar label={m.avatar || m.name || ""} size={32} />
+                  <Avatar label={m.avatar || m.name || ""} seed={m.userId} size={32} />
                   <div className="min-w-0 flex-1 truncate text-sm font-medium">{m.name ?? "Unknown"}</div>
                   <Button size="sm" disabled={addMember.isPending} onClick={() => onAdd(m.userId)}>
                     Add

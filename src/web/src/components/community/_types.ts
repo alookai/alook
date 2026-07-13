@@ -119,7 +119,7 @@ export type Msg = {
   attachments?: Attachment[]
   reactions?: Reaction[]
   replyTo?: { id: string; authorName: string; text: string; deleted?: boolean }
-  thread?: { id: string; name: string; messageCount: number; participants?: string[]; lastReplyAt?: string }
+  thread?: { id: string; name: string; messageCount: number; lastReplyAt?: string }
 }
 
 // `grouped` is a RENDER-TIME decision (computed by `message-list.tsx`'s
@@ -146,6 +146,7 @@ export type Thread = {
 }
 
 export type ForumPost = Thread & {
+  authorId: string
   authorAvatar: string
   tags: string[]
   preview: string
@@ -189,6 +190,7 @@ export type Friend = {
 
 export type PendingRequest = {
   id: string
+  userId: string
   name: string
   avatar: string
   kind: "incoming" | "outgoing"

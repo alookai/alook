@@ -1,13 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { MarkdownManager } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
-import { buildChatMentionExtension } from "./chat-mention-extension";
+import { buildChatMentionExtension, mentionTokensToHtml } from "./chat-mention-extension";
 
 /**
- * TODO #0 acceptance (highest-risk assumption): a Mention node must serialize
- * to byte-exact `@Name` in markdown — the wire format the backend already
- * expects. This guards against a TipTap upgrade silently regressing the
- * serializer back to `[@ id=... label=...]` or adding `\@` escaping.
+ * A Mention node serializes to a `@[Name](agentId)` token in markdown — the
+ * wire format the backend parses by id. This guards against a TipTap upgrade
+ * silently regressing the serializer or adding `\@` escaping.
  */
 
 // StarterKit is a bundle; the MarkdownManager wants flat extensions.
@@ -47,25 +46,23 @@ const mention = (id: string, label: string) => ({
 const text = (t: string) => ({ type: "text", text: t });
 
 describe("chat mention markdown serialization", () => {
-  it("serializes a mention to byte-exact @Name", () => {
+  it("serializes a mention to a @[Name](id) token", () => {
     expect(serialize(para(text("hi "), mention("a1", "Alice"), text(" there")))).toBe(
-      "hi @Alice there",
+      "hi @[Alice](a1) there",
     );
   });
 
   it("does not escape the @ (no \\@)", () => {
     const md = serialize(para(mention("a1", "Alice")));
-    expect(md).toBe("@Alice");
+    expect(md).toBe("@[Alice](a1)");
     expect(md).not.toContain("\\@");
   });
 
-  it("falls back to id when label is null/undefined", () => {
-    // renderMarkdown uses `label ?? id`, so a null label (never the case for
-    // real agent mentions, but defensive) serializes to the id.
+  it("falls back to id in the label slot when label is null/undefined", () => {
     const md = serialize(
       para({ type: "mention", attrs: { id: "agent-7", label: null } }),
     );
-    expect(md).toBe("@agent-7");
+    expect(md).toBe("@[agent-7](agent-7)");
   });
 
   it("serializes multiple mentions in one line", () => {
@@ -73,6 +70,25 @@ describe("chat mention markdown serialization", () => {
       serialize(
         para(mention("a1", "Alice"), text(" and "), mention("b2", "Bob"), text(" hi")),
       ),
-    ).toBe("@Alice and @Bob hi");
+    ).toBe("@[Alice](a1) and @[Bob](b2) hi");
+  });
+});
+
+describe("mentionTokensToHtml (draft restore)", () => {
+  it("converts a token to mention HTML the parseHTML step can rebuild", () => {
+    expect(mentionTokensToHtml("Hey @[Ada](ag_ada1) do this")).toBe(
+      'Hey <span data-type="mention" data-id="ag_ada1" data-label="Ada"></span> do this',
+    );
+  });
+
+  it("converts multiple tokens", () => {
+    expect(mentionTokensToHtml("@[Ada](ag_1) and @[Bob](ag_2)")).toBe(
+      '<span data-type="mention" data-id="ag_1" data-label="Ada"></span> and <span data-type="mention" data-id="ag_2" data-label="Bob"></span>',
+    );
+  });
+
+  it("leaves a normal markdown link untouched", () => {
+    const link = "see [docs](https://example.com/a.b:c)";
+    expect(mentionTokensToHtml(link)).toBe(link);
   });
 });

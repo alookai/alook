@@ -69,4 +69,39 @@ describe("highlightMentions", () => {
     expect(result).toContain('data-agent-id="ag_bob"')
     expect(result).toBe('<mention data-agent-id="ag_alice">@Alice</mention> talk to <mention data-agent-id="ag_bob">@Bob</mention>')
   })
+
+  it("wraps a token by its agent id", () => {
+    const result = highlightMentions("Hey @[Ada](ag_ada1) do this", [agent("Ada")])
+    expect(result).toBe('Hey <mention data-agent-id="ag_ada1">@Ada</mention> do this')
+  })
+
+  it("locks a token to its id even with two same-name agents", () => {
+    const agents = [
+      { ...agent("Ada"), id: "ag_ada1" },
+      { ...agent("Ada"), id: "ag_ada2" },
+    ]
+    const result = highlightMentions("@[Ada](ag_ada2)", agents)
+    expect(result).toBe('<mention data-agent-id="ag_ada2">@Ada</mention>')
+  })
+
+  it("wraps a token even when agents is empty (no markdown link leak)", () => {
+    const result = highlightMentions("Hey @[Ada](ag_ada1) do this", [])
+    expect(result).toBe('Hey <mention data-agent-id="ag_ada1">@Ada</mention> do this')
+    expect(result).not.toContain("](ag_ada1)")
+  })
+
+  it("wraps a token whose agent is unknown (deleted) — still not a markdown link", () => {
+    const result = highlightMentions("Hey @[Ada](ag_gone) do this", [agent("TestBot")])
+    expect(result).toBe('Hey <mention data-agent-id="ag_gone">@Ada</mention> do this')
+  })
+
+  it("handles a token mixed with a bare-name mention", () => {
+    const result = highlightMentions("@[Ada](ag_ada1) and @Bob", [agent("Bob", "bob")])
+    expect(result).toBe('<mention data-agent-id="ag_ada1">@Ada</mention> and <mention data-agent-id="ag_bob">@Bob</mention>')
+  })
+
+  it("does not treat a normal markdown link as a mention token", () => {
+    const link = "see [docs](https://example.com/a.b:c) now"
+    expect(highlightMentions(link, [agent("docs")])).toBe(link)
+  })
 })

@@ -128,7 +128,7 @@ export function ForumView({
                 className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/40 hover:bg-accent/40"
               >
                 <div className="flex items-center gap-2">
-                  <Avatar label={p.authorAvatar} size={24} />
+                  <Avatar label={p.authorAvatar} seed={p.authorId} size={24} />
                   <span className="text-xs text-muted-foreground" suppressHydrationWarning>
                     <span className="font-medium text-foreground">{p.parent.authorName}</span> · {formatRelativeTime(p.lastMessageAt)}
                   </span>

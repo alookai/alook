@@ -127,7 +127,7 @@ export function Message({
           <div className="w-10 shrink-0" />
         ) : (
           <button onClick={(e) => onOpenProfile?.(m.authorName ?? "", e, undefined, m.authorId)} className="shrink-0 self-start">
-            <Avatar label={m.authorAvatar ?? "?"} size={40} />
+            <Avatar label={m.authorAvatar ?? "?"} seed={m.authorId} size={40} />
           </button>
         )}
         <div className="min-w-0 flex-1">
@@ -280,15 +280,7 @@ export function Message({
               onClick={() => onOpenThread(m.thread!.id)}
               className="group/thread mt-2 flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent/60"
             >
-              {m.thread.participants && m.thread.participants.length > 0 ? (
-                <div className="flex -space-x-2">
-                  {m.thread.participants.slice(0, 3).map((p, i) => (
-                    <Avatar key={i} label={p} size={20} />
-                  ))}
-                </div>
-              ) : (
-                <MessagesSquare className="size-4 text-primary" />
-              )}
+              <MessagesSquare className="size-4 text-primary" />
               <span className="font-medium text-primary">
                 {m.thread.messageCount} {m.thread.messageCount === 1 ? "reply" : "replies"}
               </span>
