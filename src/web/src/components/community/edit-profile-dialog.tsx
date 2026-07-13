@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
+import { toastApiError } from "@/lib/api/client"
 import { User, LogOut, X, Palette, Sun, Moon, Monitor, Database } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
@@ -81,8 +82,8 @@ function AdvancedSettings({ userId }: { userId: string | null }) {
             // Hard reload so the QueryClient starts fresh without racing an
             // in-flight persister write.
             window.location.reload()
-          } catch {
-            toast("Failed to clear cache")
+          } catch (e) {
+            toastApiError(e, "Failed to clear cache")
             setClearing(false)
             setConfirmOpen(false)
           }

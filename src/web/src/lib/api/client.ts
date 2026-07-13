@@ -85,7 +85,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     if (res.status >= 500) {
       throw new ApiError(
         getReadableErrorMessage(serverError, details) ||
-          "Something went wrong — please try again",
+        "Something went wrong — please try again",
         res.status,
         details,
       );
@@ -100,6 +100,35 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
 
   if (res.status === 204) return undefined as T;
   return res.json();
+}
+
+export function getErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) return err.message || fallback;
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
+}
+
+// Lazy import — this module is imported by every `src/lib/api/*` consumer
+// (including non-community, server-agnostic callers under `src/lib/api.ts`'s
+// re-exports), many of which run in plain-node test environments with no
+// `document`. `sonner` injects a `<style>` tag at import time, which throws
+// outside a real DOM. A top-level `import { toast } from "sonner"` would
+// break every one of those call sites just for this optional feature.
+export function toastApiError(err: unknown, fallback: string): void {
+  void import("sonner")
+    .then(({ toast }) => toast.error(getErrorMessage(err, fallback)))
+    .catch(() => {});
+}
+
+export async function readUploadError(res: Response, fallback: string): Promise<ApiError> {
+  let serverError: string | undefined;
+  try {
+    const body = (await res.json()) as { error?: string };
+    serverError = body.error;
+  } catch {
+    // non-JSON body
+  }
+  return new ApiError(serverError || fallback, res.status);
 }
 
 export function wsQuery(workspaceId: string, extra?: Record<string, string>): string {

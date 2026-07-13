@@ -17,6 +17,7 @@ import {
   useCreateOrGetDm,
 } from "@/hooks/community/mutations"
 import { toast } from "sonner"
+import { toastApiError } from "@/lib/api/client"
 
 export default function MeFriendsPage() {
   const router = useRouter()
@@ -61,25 +62,28 @@ export default function MeFriendsPage() {
           { friendshipId: id },
           {
             onSuccess: () => toast("Friend request accepted"),
-            onError: () => toast("Failed to accept request"),
+            onError: (e) => toastApiError(e, "Failed to accept request"),
           },
         )
       }
       onReject={(id) =>
         rejectFriendRequest.mutate(
           { friendshipId: id },
-          { onError: () => toast("Failed to reject request") },
+          { onError: (e) => toastApiError(e, "Failed to reject request") },
         )
       }
       onCancelRequest={(id) =>
-        rejectFriendRequest.mutate({ friendshipId: id })
+        rejectFriendRequest.mutate(
+          { friendshipId: id },
+          { onError: (e) => toastApiError(e, "Failed to cancel request") },
+        )
       }
       onUnblock={(id) =>
         unblockUser.mutate(
           { userId: id },
           {
             onSuccess: () => toast("User unblocked"),
-            onError: () => toast("Failed to unblock user"),
+            onError: (e) => toastApiError(e, "Failed to unblock user"),
           },
         )
       }
@@ -87,10 +91,8 @@ export default function MeFriendsPage() {
         try {
           await sendFriendRequest.mutateAsync({ username })
           toast("Friend request sent")
-        } catch (err) {
-          const msg =
-            err instanceof Error ? err.message : "Failed to send friend request"
-          toast(msg)
+        } catch (e) {
+          toastApiError(e, "Failed to send friend request")
         }
       }}
       onRemoveFriend={(id) =>
@@ -98,7 +100,7 @@ export default function MeFriendsPage() {
           { friendshipId: id },
           {
             onSuccess: () => toast("Friend removed"),
-            onError: () => toast("Failed to remove friend"),
+            onError: (e) => toastApiError(e, "Failed to remove friend"),
           },
         )
       }
@@ -107,7 +109,7 @@ export default function MeFriendsPage() {
           { userId: id },
           {
             onSuccess: () => toast("User blocked"),
-            onError: () => toast("Failed to block user"),
+            onError: (e) => toastApiError(e, "Failed to block user"),
           },
         )
       }
@@ -115,8 +117,8 @@ export default function MeFriendsPage() {
         try {
           const data = await createOrGetDm.mutateAsync({ userId })
           if (data.conversation.id) router.push(`/community/me/${data.conversation.id}`)
-        } catch {
-          toast("Failed to open DM")
+        } catch (e) {
+          toastApiError(e, "Failed to open DM")
         }
       }}
     />

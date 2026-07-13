@@ -32,17 +32,25 @@ vi.mock("react", () => ({
     callbackMemo.set(id, { fn, deps })
     return fn
   },
-  useEffect: () => {},
-  useState: (initial: unknown) => [initial, () => {}],
+  useEffect: () => { },
+  useState: (initial: unknown) => [initial, () => { }],
 }))
 
 const apiFetchMock = vi.fn()
-vi.mock("@/lib/api/client", () => ({
-  apiFetch: (...args: unknown[]) => apiFetchMock(...args),
-}))
 
 // Sonner toast — we assert on the string arg for the blocked-DM test.
 const toastMock = vi.fn()
+
+vi.mock("@/lib/api/client", () => ({
+  apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+  // Mirrors the real `toastApiError` (ApiError/Error message, else fallback)
+  // while routing through the same `toastMock` sonner assertions below use.
+  toastApiError: (err: unknown, fallback: string) => {
+    const msg = err instanceof Error && err.message ? err.message : fallback
+    toastMock(msg)
+  },
+}))
+
 vi.mock("sonner", () => ({
   toast: Object.assign((...args: unknown[]) => toastMock(...args), {
     error: (...args: unknown[]) => toastMock(...args),
@@ -139,7 +147,7 @@ describe("useSendMessage — rollback", () => {
       channelId: "ch_1",
       content: "hi",
       author: { id: "u_me", name: "me", avatar: "M" },
-    }).catch(() => {})
+    }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pages: { messages: { id: string; failed?: boolean }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
@@ -156,7 +164,7 @@ describe("useSendMessage — stamps authorId on optimistic row", () => {
   it("optimistic row carries the sender's authorId", async () => {
     capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
     // Never resolves — we only care about the optimistic write from onMutate.
-    apiFetchMock.mockImplementation(() => new Promise(() => {}))
+    apiFetchMock.mockImplementation(() => new Promise(() => { }))
     const mod = await loadMod()
     mod.useSendMessage()
     const cfg = capturedConfig!
@@ -180,7 +188,7 @@ describe("useSendDmMessage — stamps authorId on optimistic row", () => {
   // in <MessageList> because `undefined !== viewerUserId`. Pin the field.
   it("optimistic DM row carries the sender's authorId", async () => {
     capturedQc.setQueryData(communityKeys.dmMessages("dm_1"), makeCache([]))
-    apiFetchMock.mockImplementation(() => new Promise(() => {}))
+    apiFetchMock.mockImplementation(() => new Promise(() => { }))
     const mod = await loadMod()
     mod.useSendDmMessage()
     const cfg = capturedConfig!
@@ -207,7 +215,7 @@ describe("useSendDmMessage — rollback", () => {
       dmId: "dm_1",
       content: "hi",
       author: { id: "u_me", name: "me", avatar: "M" },
-    }).catch(() => {})
+    }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pages: { messages: { failed?: boolean }[] }[] }>(
       communityKeys.dmMessages("dm_1"),
     )
@@ -228,7 +236,7 @@ describe("useSendDmMessage — 403 blocked special-case", () => {
       dmId: "dm_1",
       content: "hi",
       author: { id: "u_me", name: "me", avatar: "M" },
-    }).catch(() => {})
+    }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pages: { messages: unknown[] }[] }>(
       communityKeys.dmMessages("dm_1"),
     )
@@ -237,7 +245,7 @@ describe("useSendDmMessage — 403 blocked special-case", () => {
     expect(toastMock).toHaveBeenCalledWith("You cannot send messages to this user")
   })
 
-  it("regression: a generic 500 still marks the row failed and fires no blocked toast", async () => {
+  it("regression: a generic 500 still marks the row failed and fires the generic send-failed toast (not the blocked toast)", async () => {
     capturedQc.setQueryData(communityKeys.dmMessages("dm_1"), makeCache([]))
     const mod = await loadMod()
     const { ApiError } = await import("@/lib/errors")
@@ -247,13 +255,16 @@ describe("useSendDmMessage — 403 blocked special-case", () => {
       dmId: "dm_1",
       content: "hi",
       author: { id: "u_me", name: "me", avatar: "M" },
-    }).catch(() => {})
+    }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pages: { messages: { failed?: boolean }[] }[] }>(
       communityKeys.dmMessages("dm_1"),
     )
     expect(cache?.pages[0].messages).toHaveLength(1)
     expect(cache?.pages[0].messages[0].failed).toBe(true)
-    expect(toastMock).not.toHaveBeenCalled()
+    // Not the blocked-specific copy — any other error falls through to the
+    // generic send-failed toast (see `useSendDmMessage`'s `onError` fallback).
+    expect(toastMock).not.toHaveBeenCalledWith("You cannot send messages to this user")
+    expect(toastMock).toHaveBeenCalledWith("boom")
   })
 })
 
@@ -271,7 +282,7 @@ describe("useSendMessage — 429 rate limit fires a toast + marks failed", () =>
       channelId: "ch_1",
       content: "hi",
       author: { id: "u_me", name: "me", avatar: "M" },
-    }).catch(() => {})
+    }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pages: { messages: { failed?: boolean }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
@@ -291,7 +302,7 @@ describe("useSendDmMessage — 429 rate limit fires a toast + marks failed", () 
       dmId: "dm_1",
       content: "hi",
       author: { id: "u_me", name: "me", avatar: "M" },
-    }).catch(() => {})
+    }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pages: { messages: { failed?: boolean }[] }[] }>(
       communityKeys.dmMessages("dm_1"),
     )
@@ -301,11 +312,13 @@ describe("useSendDmMessage — 429 rate limit fires a toast + marks failed", () 
   })
 })
 
-// Regression guard — channel path stays generic-error, never fires the blocked
-// toast even on 403 blocked (that shouldn't happen on channels; ensure the
-// hook doesn't accidentally add DM's onBlocked branch to `useSendMessage`).
+// Regression guard — channel path stays generic-error, never fires the DM's
+// specific blocked toast even on 403 (that shouldn't happen on channels;
+// ensure the hook doesn't accidentally add DM's onBlocked branch to
+// `useSendMessage`). It still falls through to the generic send-failed
+// toast, same as any other non-429 error.
 describe("useSendMessage — no blocked branch on channel path", () => {
-  it("403 blocked on channel POST still marks failed:true and skips the DM toast", async () => {
+  it("403 blocked on channel POST still marks failed:true and skips the DM-specific toast", async () => {
     capturedQc.setQueryData(communityKeys.channelMessages("ch_1"), makeCache([]))
     const mod = await loadMod()
     const { ApiError } = await import("@/lib/errors")
@@ -315,13 +328,14 @@ describe("useSendMessage — no blocked branch on channel path", () => {
       channelId: "ch_1",
       content: "hi",
       author: { id: "u_me", name: "me", avatar: "M" },
-    }).catch(() => {})
+    }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pages: { messages: { failed?: boolean }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
     expect(cache?.pages[0].messages).toHaveLength(1)
     expect(cache?.pages[0].messages[0].failed).toBe(true)
-    expect(toastMock).not.toHaveBeenCalled()
+    expect(toastMock).not.toHaveBeenCalledWith("You cannot send messages to this user")
+    expect(toastMock).toHaveBeenCalledWith("blocked")
   })
 })
 
@@ -362,7 +376,7 @@ describe("useToggleReaction — optimistic flip + rollback", () => {
       messageId: "m_1",
       emoji: "👍",
       userId: "u_me",
-    }).catch(() => {})
+    }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pages: { messages: { reactions: unknown[] }[] }[] }>(
       communityKeys.channelMessages("ch_1"),
     )
@@ -502,7 +516,7 @@ describe("useUnpinMessage — rollback", () => {
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await loadMod()
     mod.useUnpinMessage()
-    await runMutation({ channelId: "ch_1", messageId: "m_1" }).catch(() => {})
+    await runMutation({ channelId: "ch_1", messageId: "m_1" }).catch(() => { })
     const cache = capturedQc.getQueryData<{ pins: unknown[] }>(communityKeys.pins("ch_1"))
     expect(cache?.pins).toHaveLength(1)
   })
@@ -708,7 +722,7 @@ describe("scheduleMarkRead — with messageId body", () => {
       apiFetchMock.mockResolvedValue(undefined)
       const mod = await loadMod()
       mod._resetPendingReads_forTesting()
-      mod.scheduleMarkRead("ch_1", { messageId: "m_42", onDone: () => {} })
+      mod.scheduleMarkRead("ch_1", { messageId: "m_42", onDone: () => { } })
       await vi.advanceTimersByTimeAsync(500)
       const put = apiFetchMock.mock.calls.find(
         (c) => (c[1] as { method?: string })?.method === "PUT",
@@ -726,9 +740,9 @@ describe("scheduleMarkRead — with messageId body", () => {
       apiFetchMock.mockResolvedValue(undefined)
       const mod = await loadMod()
       mod._resetPendingReads_forTesting()
-      mod.scheduleMarkRead("ch_1", { messageId: "m_stale", onDone: () => {} })
+      mod.scheduleMarkRead("ch_1", { messageId: "m_stale", onDone: () => { } })
       // Fresh call within the window — the latest messageId wins.
-      mod.scheduleMarkRead("ch_1", { messageId: "m_fresh", onDone: () => {} })
+      mod.scheduleMarkRead("ch_1", { messageId: "m_fresh", onDone: () => { } })
       await vi.advanceTimersByTimeAsync(500)
       const puts = apiFetchMock.mock.calls.filter(
         (c) => (c[1] as { method?: string })?.method === "PUT",
@@ -746,7 +760,7 @@ describe("scheduleMarkRead — with messageId body", () => {
       apiFetchMock.mockResolvedValue(undefined)
       const mod = await loadMod()
       mod._resetPendingReads_forTesting()
-      mod.scheduleMarkRead("ch_1", { onDone: () => {} })
+      mod.scheduleMarkRead("ch_1", { onDone: () => { } })
       await vi.advanceTimersByTimeAsync(500)
       const put = apiFetchMock.mock.calls.find(
         (c) => (c[1] as { method?: string })?.method === "PUT",
@@ -898,7 +912,7 @@ describe("useMarkDmRead — rollback", () => {
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await loadMod()
     mod.useMarkDmRead()
-    await runMutation({ dmId: "dm_1" }).catch(() => {})
+    await runMutation({ dmId: "dm_1" }).catch(() => { })
     const cache = capturedQc.getQueryData<{ conversations: { id: string; unread?: boolean }[] }>(
       communityKeys.dms(),
     )
@@ -957,6 +971,14 @@ describe("useMarkAllInboxRead", () => {
     })
     expect(serversInvalidates.length).toBeGreaterThanOrEqual(1)
   })
+
+  it("toasts the failure reason when one of the three read-all POSTs fails", async () => {
+    apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+    const mod = await loadMod()
+    mod.useMarkAllInboxRead()
+    await runMutation<void>(undefined as unknown as void).catch(() => { })
+    expect(toastMock).toHaveBeenCalledWith("boom")
+  })
 })
 
 // ── useDeleteMention — rollback ──────────────────────────────────────────
@@ -969,11 +991,22 @@ describe("useDeleteMention — rollback", () => {
     apiFetchMock.mockRejectedValueOnce(new Error("boom"))
     const mod = await loadMod()
     mod.useDeleteMention()
-    await runMutation({ mentionId: "men_1" }).catch(() => {})
+    await runMutation({ mentionId: "men_1" }).catch(() => { })
     const cache = capturedQc.getQueryData<{ mentions: { id: string }[] }>(
       communityKeys.inboxMentions(),
     )
     expect(cache?.mentions).toHaveLength(1)
+  })
+
+  it("toasts the failure reason on delete failure", async () => {
+    capturedQc.setQueryData(communityKeys.inboxMentions(), {
+      mentions: [{ id: "men_1" }],
+    })
+    apiFetchMock.mockRejectedValueOnce(new Error("boom"))
+    const mod = await loadMod()
+    mod.useDeleteMention()
+    await runMutation({ mentionId: "men_1" }).catch(() => { })
+    expect(toastMock).toHaveBeenCalledWith("boom")
   })
 
   it("invalidates communityKeys.servers() on success so the rail badge decrements", async () => {

@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react"
 import Cropper, { type Area } from "react-easy-crop"
 import { toast } from "sonner"
+import { getErrorMessage } from "@/lib/api/client"
 import {
   Dialog,
   DialogContent,
@@ -53,8 +54,8 @@ export function ImageCropDialog({
         return
       }
       onCropped(buildCroppedIconFile(blob, originalFileName))
-    } catch {
-      toast.error("Failed to process image — please try again")
+    } catch (e) {
+      toast.error(getErrorMessage(e, "Failed to process image — please try again"))
     } finally {
       setSaving(false)
     }

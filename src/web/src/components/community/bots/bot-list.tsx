@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, Bot as BotIcon, Monitor, MoreVertical, Plus } from "lucide-react"
 import { toast } from "sonner"
+import { toastApiError } from "@/lib/api/client"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
@@ -66,8 +67,8 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
     try {
       const data = await createOrGetDm.mutateAsync({ userId: bot.id })
       router.push(`/community/me/${data.conversation.id}`)
-    } catch {
-      toast.error("Failed to open chat")
+    } catch (e) {
+      toastApiError(e, "Failed to open chat")
     }
   }
 
@@ -328,8 +329,8 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                 try {
                   await del.mutateAsync(confirmDelete.id)
                   toast.success(`Deleted ${name}`)
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Couldn't delete the bot")
+                } catch (e) {
+                  toastApiError(e, "Couldn't delete the bot")
                 } finally {
                   setConfirmDelete(null)
                 }

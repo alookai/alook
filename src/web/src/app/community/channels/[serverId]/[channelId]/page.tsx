@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, toastApiError } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { MessageList } from "@/components/community/message-list"
@@ -272,7 +272,10 @@ function ChannelView() {
               parentMessageId: data.parentMessageId,
             }),
         )
-        .catch(() => useCommunityStore.getState().setCurrentChannelMeta(null))
+        .catch((e) => {
+          useCommunityStore.getState().setCurrentChannelMeta(null)
+          toastApiError(e, "Failed to load thread")
+        })
     } else {
       useCommunityStore.getState().setCurrentChannelMeta(null)
     }
@@ -314,7 +317,10 @@ function ChannelView() {
         content: r.message.content,
         createdAt: r.message.createdAt,
       })))
-    } catch { setSearchResults([]) }
+    } catch (e) {
+      setSearchResults([])
+      toastApiError(e, "Search failed")
+    }
   }, [channelId])
 
   // Find the channel name
@@ -389,12 +395,12 @@ function ChannelView() {
       if (isPinned) {
         unpinMessageMut.mutate({ channelId, messageId: id }, {
           onSuccess: () => toast("Message unpinned"),
-          onError: () => toast("Failed to unpin message"),
+          onError: (e) => toastApiError(e, "Failed to unpin message"),
         })
       } else {
         pinMessageMut.mutate({ channelId, messageId: id }, {
           onSuccess: () => toast("Message pinned"),
-          onError: () => toast("Failed to pin message"),
+          onError: (e) => toastApiError(e, "Failed to pin message"),
         })
         setRightPanel("pinned")
       }
@@ -405,8 +411,8 @@ function ChannelView() {
       try {
         const data = await createThreadMut.mutateAsync({ channelId, messageId: id, name })
         router.push(`/community/channels/${params.serverId}/${data.id}`)
-      } catch {
-        toast("Failed to create thread")
+      } catch (e) {
+        toastApiError(e, "Failed to create thread")
       }
     },
     onCopy: (id: string) => {
@@ -443,7 +449,10 @@ function ChannelView() {
     if (attachments?.length) {
       const results = await Promise.all(
         attachments.map((a) =>
-          uploadFileMut.mutateAsync({ target: { channelId }, file: a.file }).catch(() => null),
+          uploadFileMut.mutateAsync({ target: { channelId }, file: a.file }).catch((e) => {
+            toastApiError(e, "Failed to attach file")
+            return null
+          }),
         ),
       )
       uploadedAttachments = zipUploadResultsWithDimensions(results, attachments)
@@ -464,7 +473,7 @@ function ChannelView() {
 
   const createForumPost = (post: { name: string; content: string; tags: string[] }) => {
     createForumPostMut.mutate({ channelId, ...post }, {
-      onError: () => toast("Failed to create post"),
+      onError: (e) => toastApiError(e, "Failed to create post"),
     })
   }
 
@@ -488,13 +497,13 @@ function ChannelView() {
     onSetRole: (memberId: string, role: Role) => {
       setMemberRoleMut.mutate({ serverId, memberId, role }, {
         onSuccess: () => toast("Role updated"),
-        onError: () => toast("Failed to update role"),
+        onError: (e) => toastApiError(e, "Failed to update role"),
       })
     },
     onKickMember: (memberId: string) => {
       kickMemberMut.mutate({ serverId, memberId }, {
         onSuccess: () => toast("Member kicked"),
-        onError: () => toast("Failed to kick member"),
+        onError: (e) => toastApiError(e, "Failed to kick member"),
       })
     },
     onJumpToMessage: (id: string) => {
@@ -583,7 +592,7 @@ function ChannelView() {
                   body: JSON.stringify({ name }),
                 })
                 setLocalName(name)
-              } catch { toast("Failed to rename") }
+              } catch (e) { toastApiError(e, "Failed to rename") }
             } : undefined,
           }}
         />
@@ -652,7 +661,9 @@ function ChannelView() {
           rightPanel={rightPanel}
           onToggle={togglePanel}
           notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
-          onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l })}
+          onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
+            onError: (e) => toastApiError(e, "Failed to update notification level"),
+          })}
           onBack={bp === "mobile" ? goBack : undefined}
           server={bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined}
           tools={{ threads: false, pinned: false }}
@@ -669,7 +680,7 @@ function ChannelView() {
               apiFetch(`/api/community/channels/${channelId}`, {
                 method: "PATCH",
                 body: JSON.stringify({ forumTags: JSON.stringify(tags) }),
-              }).catch(() => toast("Failed to save tags"))
+              }).catch((e) => toastApiError(e, "Failed to save tags"))
             } : undefined}
           />
         </main>
@@ -695,7 +706,9 @@ function ChannelView() {
         rightPanel={rightPanel}
         onToggle={togglePanel}
         notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
-        onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l })}
+        onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
+          onError: (e) => toastApiError(e, "Failed to update notification level"),
+        })}
         onBack={bp === "mobile" ? goBack : undefined}
         server={bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined}
       />

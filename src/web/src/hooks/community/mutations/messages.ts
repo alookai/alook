@@ -6,7 +6,7 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, toastApiError } from "@/lib/api/client"
 import { ApiError } from "@/lib/errors"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityStore } from "@/stores/community"
@@ -226,6 +226,12 @@ export function useSendMessage() {
       // still gets marked failed so the retry affordance stays available.
       if (err instanceof ApiError && err.status === 429) {
         toast.error("Rate limited — please wait a moment before trying again")
+      } else {
+        // Any other failure (validation error, forbidden, 500, etc.) — the
+        // `failed: true` pill below is a retry affordance, not a reason.
+        // Without this the user sees no explanation at all for send
+        // failures outside the 429 case.
+        toastApiError(err, "Failed to send message")
       }
       queryClient.setQueryData<PageCache>(ctx.key as ReturnType<typeof communityKeys.channelMessages>, (c) =>
         markFailedById(c, ctx.tempId),
@@ -307,6 +313,10 @@ export function useSendDmMessage() {
       // retry pill is available (mirrors the channel path).
       if (err instanceof ApiError && err.status === 429) {
         toast.error("Rate limited — please wait a moment before trying again")
+      } else {
+        // Any other failure besides 429/blocked (handled above) — the
+        // `failed: true` pill is a retry affordance, not a reason.
+        toastApiError(err, "Failed to send message")
       }
       queryClient.setQueryData<PageCache>(ctx.key as ReturnType<typeof communityKeys.dmMessages>, (c) =>
         markFailedById(c, ctx.tempId),
@@ -415,8 +425,8 @@ export function useToggleReaction() {
       const key = args.channelId
         ? communityKeys.channelMessages(args.channelId)
         : args.dmId
-        ? communityKeys.dmMessages(args.dmId)
-        : communityKeys.channelMessages("__none__")
+          ? communityKeys.dmMessages(args.dmId)
+          : communityKeys.channelMessages("__none__")
       // The cache at this point reflects the optimistic flip. Reverse-derive:
       // if the current `me` after flip is TRUE, we're adding; ELSE removing.
       const cache = queryClient.getQueryData<PageCache>(key)
@@ -429,8 +439,8 @@ export function useToggleReaction() {
       const key = args.channelId
         ? communityKeys.channelMessages(args.channelId)
         : args.dmId
-        ? communityKeys.dmMessages(args.dmId)
-        : communityKeys.channelMessages("__none__")
+          ? communityKeys.dmMessages(args.dmId)
+          : communityKeys.channelMessages("__none__")
       await queryClient.cancelQueries({ queryKey: key })
       const cache = queryClient.getQueryData<PageCache>(key)
       const originalMe = currentMeStatus(cache, args.messageId, args.emoji)
@@ -481,8 +491,8 @@ export function useToggleReactionApi(): (args: ToggleReactionArgs) => void {
     const key = args.channelId
       ? communityKeys.channelMessages(args.channelId)
       : args.dmId
-      ? communityKeys.dmMessages(args.dmId)
-      : communityKeys.channelMessages("__none__")
+        ? communityKeys.dmMessages(args.dmId)
+        : communityKeys.channelMessages("__none__")
     const cache = queryClient.getQueryData<PageCache>(key)
     const wasMe = currentMeStatus(cache, args.messageId, args.emoji)
     const nextMe = !wasMe
@@ -929,7 +939,8 @@ export function useMarkAllInboxRead() {
       // badges across all servers must fall to 0 in one refetch.
       void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
     },
-    onError: () => {
+    onError: (e) => {
+      toastApiError(e, "Failed to mark inbox read")
       void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
       // A partial write is possible (one of the two POSTs may have succeeded
       // before the other failed) — refresh the rail badges too so the UI
@@ -960,8 +971,9 @@ export function useDeleteMention() {
       // that feeds the server rail badge — refresh so the count drops.
       void queryClient.invalidateQueries({ queryKey: communityKeys.servers() })
     },
-    onError: (_err, _args, ctx) => {
+    onError: (err, _args, ctx) => {
       if (ctx?.snapshot) queryClient.setQueryData(communityKeys.inboxMentions(), ctx.snapshot)
+      toastApiError(err, "Failed to remove mention")
     },
   })
 }

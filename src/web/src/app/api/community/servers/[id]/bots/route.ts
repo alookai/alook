@@ -145,7 +145,10 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
         insertErr: String(err),
         rollbackErr: String(rollbackErr),
       })
-      return writeError("approval request write failed", 500)
+      return writeError(
+        `approval request write failed: ${rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)}`,
+        500
+      )
     }
     // Race lost — the peer request already exists. Report pending to keep
     // the caller-facing shape identical to the idempotent case above.

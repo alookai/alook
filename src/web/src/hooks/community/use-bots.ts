@@ -1,7 +1,7 @@
 "use client"
 
 import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, readUploadError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 
 export type BotSummary = {
@@ -103,7 +103,7 @@ export function useUploadBotAvatar() {
         body: formData,
         credentials: "include",
       })
-      if (!res.ok) throw new Error("Upload failed")
+      if (!res.ok) throw await readUploadError(res, "Upload failed")
       return (await res.json()) as UploadBotAvatarResult
     },
     onSuccess: (_data, variables) => invalidateBotSurfaces(qc, variables.botId),

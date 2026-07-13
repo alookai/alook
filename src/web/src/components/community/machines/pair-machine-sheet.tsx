@@ -14,7 +14,7 @@ import {
   SheetClose,
 } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, toastApiError } from "@/lib/api/client"
 import { isLocalMode, WS_DO_PORT_DEFAULT } from "@/lib/utils"
 
 // Community daemon HTTP/WS endpoints live on the same worker + ws-do as the
@@ -70,7 +70,7 @@ export function PairMachineSheet({
       )
       setPendingTokenId(res.tokenId)
     } catch (err) {
-      toast.error("Couldn't generate a key — try again.")
+      toastApiError(err, "Couldn't generate a key — try again.")
       console.error(err)
     } finally {
       setGenerating(false)

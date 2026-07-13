@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams } from "next/navigation"
 import { toast } from "sonner"
+import { toastApiError } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { DmHeader, DmHeaderSkeleton } from "@/components/community/dm-header"
 import { Avatar } from "@/components/community/avatar"
@@ -253,7 +254,10 @@ function DmView() {
     if (attachments?.length) {
       const results = await Promise.all(
         attachments.map((a) =>
-          uploadFile.mutateAsync({ target: { dmId }, file: a.file }).catch(() => null),
+          uploadFile.mutateAsync({ target: { dmId }, file: a.file }).catch((e) => {
+            toastApiError(e, "Failed to attach file")
+            return null
+          }),
         ),
       )
       uploadedAttachments = zipUploadResultsWithDimensions(results, attachments)
@@ -292,7 +296,7 @@ function DmView() {
               reconciliation fix as the channel page (see its equivalent
               comment). `variant="dm"` now drives the skeleton shape
               explicitly instead of the removed `dm={!!hero}` inference. */}
-          <MessageList key={dmId} channel="" messages={[]} loading={true} onOpenThread={() => {}} variant="dm" />
+          <MessageList key={dmId} channel="" messages={[]} loading={true} onOpenThread={() => { }} variant="dm" />
           <ComposerSkeleton />
         </main>
       </>
@@ -328,7 +332,7 @@ function DmView() {
             if (dm && id === dm.userId) return dm.name
             return friends.find((f) => f.userId === id)?.name ?? id
           })}
-          onOpenThread={() => {}}
+          onOpenThread={() => { }}
           onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}
           onReact={dmBlocked ? undefined : messageActions.onReact}
           onReply={dmBlocked ? undefined : messageActions.onReply}

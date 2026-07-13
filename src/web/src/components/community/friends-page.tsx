@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from "react"
 import type React from "react"
 import { Users, MessagesSquare, ChevronLeft, Check, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, toastApiError } from "@/lib/api/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -72,7 +72,10 @@ export function FriendsPage({
       try {
         const data = await apiFetch<{ users: { id: string; name: string; image: string | null; discriminator: string }[] }>(`/api/community/users/search?q=${encodeURIComponent(q)}`)
         setSearchResults(data.users)
-      } catch { setSearchResults([]) }
+      } catch (e) {
+        setSearchResults([])
+        toastApiError(e, "Search failed")
+      }
     }, 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [addValue])

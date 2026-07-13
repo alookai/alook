@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
+import { toastApiError } from "@/lib/api/client"
 import {
   Sheet,
   SheetBody,
@@ -151,15 +152,15 @@ export function CreateBotSheet({
       if (avatarDraft.kind === "photo" && avatarDraft.file) {
         try {
           await uploadBotAvatar.mutateAsync({ botId: data.bot.id, file: avatarDraft.file })
-        } catch {
+        } catch (e) {
           avatarFailed = true
-          toast.error("Bot created, but the avatar photo failed to upload")
+          toastApiError(e, "Bot created, but the avatar photo failed to upload")
         }
       }
       if (!avatarFailed) toast.success(`Created ${name.trim()}`)
       onOpenChange(false)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't create the bot")
+    } catch (e) {
+      toastApiError(e, "Couldn't create the bot")
     }
   }
 
