@@ -1,224 +1,240 @@
 export const metadata = {
   slug: "ai-agent-team",
-  title: "Build Your AI Agent Team: Manager's No-Code Guide",
+  title: "How to Build an AI Agent Team: Roles, Handoffs, and Oversight",
   date: "2026-06-08",
   author: "Alook Team",
   excerpt:
-    "Create your AI agent team without coding. Learn how managers can build, deploy, and orchestrate autonomous agents for sales, support, and operations.",
+    "Learn how to build an AI agent team around one reliable workflow, with clear roles, shared context, tested handoffs, and human approval.",
   readingTime: "7 min read",
+  image: "/blog/ai-agent-team/hero.webp",
 };
 
-# Building Your AI Agent Team Without Code: A Manager's Guide
+export const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [
+      {
+        "@type": "Question",
+        name: "What is an AI agent team?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "An AI agent team is a group of agents with defined roles that work on one shared workflow. Each agent owns a step, passes a structured result to the next step, and operates within access and approval boundaries set by a person.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "When should you use multiple AI agents instead of one?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Use multiple agents when a workflow has distinct stages that need different instructions, tools, context, or review. Keep one agent when the task is short, self-contained, and does not benefit from a handoff.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "How many agents should an AI team have?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "There is no universal team size. Start with the fewest roles needed for one workflow, often an agent that performs the work and a separate review or approval step. Add another agent only when a real handoff requires it.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Which AI agents does Alook support?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Alook currently supports Claude Code, Codex, and OpenCode. Cursor, Hermes, and OpenClaw are listed as coming soon.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Does an AI agent team still need human oversight?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Yes. People should set goals, control access, review failures, and approve customer commitments, financial actions, legal decisions, pricing changes, and high-risk production work.",
+        },
+      },
+    ],
+  },
+];
 
-![AI Agent Team Hero - Professional manager with 5 holographic AI team members](/blog/ai-agent-team/hero.png)
-*Lead your AI workforce: A manager orchestrating holographic AI team members*
+# How to Build an AI Agent Team: Roles, Handoffs, and Oversight
 
-What if your next hire never called in sick, worked 24/7, and cost less than your coffee budget?
+![Conceptual AI agent team workflow with coordination, analysis, execution, and a completed output](/blog/ai-agent-team/hero.webp)
 
-I'm watching managers build entire departments with AI agents. Not replace departments — build them from scratch. Zero coding required.
+*A conceptual workflow showing defined roles and handoffs, not a product screenshot.*
 
-Last week, a marketing director showed me her team: five AI agents handling everything from content creation to campaign analytics. Monthly cost: $89. Output: what used to take three full-time employees.
+An AI agent team is a group of agents with defined roles working on one shared workflow. One agent might investigate an issue, another might implement a change, and a review step checks the result before it moves forward. The value comes from clear ownership and reliable handoffs, not from adding as many agents as possible.
 
-The kicker? She doesn't write a single line of code.
+You still set the goal, control access, and approve important decisions. The agents handle scoped work inside those boundaries.
 
-## What Is an AI Agent Team?
+## What is an AI agent team?
 
-Forget everything you know about chatbots and basic automation. An AI agent team is different.
+A single AI agent receives instructions and produces a result. An AI agent team divides a larger workflow into stages, then assigns each stage to a role with the right tools and context.
 
-These aren't isolated tools that spit out responses. They're coordinated workers that actually collaborate. Your content agent writes. Your distribution agent publishes. Your analytics agent reports back on performance. They hand off tasks, share context, learn from outcomes.
+For example, a software workflow might include:
 
-You stay strategic. They execute.
+- An investigator that reproduces a bug and identifies likely causes
+- A developer that prepares a code change
+- A reviewer that checks the diff, tests, and acceptance criteria
+- A human who decides whether the change is ready to merge
 
-Think of it like this: You're the coach calling plays. They're the players on the field. Except these players never get tired, never misunderstand the playbook, and definitely never ask for raises.
+These are workflow roles, not job titles. The same agent can own more than one role when the work is simple. Separate agents become useful when stages need different permissions, instructions, or review standards.
 
-The best part? Building this team is easier than hiring one human employee.
+## AI agent team vs single agent
 
-## The 5 Essential Agents Every Team Needs
+Multiple agents introduce coordination overhead. Use a team only when that overhead solves a real problem.
 
-![The 5 Essential AI Agents hub-and-spoke structure diagram](/blog/ai-agent-team/team-structure.png)
-*Your core AI workforce: The 5 essential agents every manager needs*
+A single agent is usually enough when:
 
-I've helped dozens of managers build AI teams. Here are the five agents that actually move the needle:
+- The task has one clear output.
+- The same context and tools apply from start to finish.
+- A failure does not require a separate recovery path.
+- One review point at the end is sufficient.
 
-**The Researcher**
+An AI agent team becomes useful when:
 
-Your scout. Monitors competitors, tracks industry news, gathers customer feedback. I have one that checks 47 sources every morning and delivers a three-bullet summary. "Competitor launched X. Customer sentiment shifted on Y. New regulation affecting Z."
+- The workflow has distinct stages with different responsibilities.
+- One stage should not have access to another stage's tools.
+- A specialist needs to review or challenge another agent's output.
+- Work must continue through repeatable handoffs.
+- You need to trace which role made each decision.
 
-Time saved: 2 hours daily of manual research.
+Start with one agent. Split the workflow only after you can name the handoff that the next agent will own.
 
-**The Writer**
+## The roles inside an AI agent team
 
-Creates everything from blog posts to email campaigns. Not templates — actual content tailored to your voice. Feed it your best examples, and it extrapolates. My writer agent produces 15 pieces of content weekly. I edit maybe two.
+There is no fixed list of agents that every team needs. A useful team is designed around a workflow, but most setups contain some version of these responsibilities.
 
-One manager told me: "My AI writer is better at my voice than I am on Monday mornings."
+**The owner sets the outcome.** This is usually a person. The owner defines success, grants access, and decides which actions require approval.
 
-**The Analyst**
+**The orchestrator keeps work moving.** It assigns a stage, records status, passes outputs to the next role, and makes failures visible. The orchestration layer should not hide what happened.
 
-Your data detective. Pulls reports from multiple sources, identifies patterns, flags anomalies. No more "I'll check the numbers and get back to you." The analyst already checked. Already created the dashboard. Already identified what needs attention.
+**Specialists perform scoped work.** A researcher gathers evidence. A developer changes code. An analyst evaluates data. Their instructions and permissions should match the task they own.
 
-Real example: An ecommerce manager's analyst agent caught a 3% conversion drop within 2 hours. Human team? Would've noticed it in the weekly meeting. Maybe.
+**A reviewer checks the result.** Review can be handled by another agent for routine checks, but high-impact decisions still belong to a person.
 
-**The Coordinator**
+One agent may cover several responsibilities at first. Split them when different tools, context, or approval rules make separation safer or easier to evaluate.
 
-The conductor of your AI orchestra. Routes tasks between agents, manages workflows, ensures nothing falls through cracks. This is the agent that makes your other agents work as a team, not just a collection of tools.
+## How AI agents coordinate and hand off work
 
-Without a coordinator, you have automation. With one, you have an actual workforce.
+A handoff needs more than a message saying “continue.” The next agent needs a clear contract.
 
-**The Customer Face**
+**Scope.** State what the current agent owns and what it must leave untouched.
 
-Handles support tickets, answers questions, manages inquiries. But here's what most people miss — it also captures intelligence. Every interaction teaches it more about customer needs, pain points, language.
+**Input.** Identify the source material, previous decisions, and constraints that the agent should use.
 
-My customer face agent handles 200+ interactions daily. Customer satisfaction score: 4.8/5. Higher than when humans handled it.
+**Output.** Define the artifact the next step expects, such as a research brief, issue analysis, patch, test report, or approval request.
 
-## Building Your First AI Agent in 10 Minutes
+**Completion criteria.** Explain how the team knows the stage is finished. If a check can be made explicit, write it down.
 
-Stop overthinking. Start building.
+**Failure path.** Decide what happens when information is missing, a tool fails, or the result does not pass review. Retrying silently is not always the right response.
 
-**Minute 1-2: Pick your platform**
+**Approval boundary.** Specify which actions can proceed automatically and which must wait for a person.
 
-Use alook.ai if you can't code. Seriously. I've tried them all. The others either require programming knowledge or limit you to basic templates. alook.ai lets you describe what you want in plain English.
+Shared context helps agents understand earlier decisions, but it does not replace these contracts. A recorded decision is useful only when the next role knows how to apply it.
 
-**Minute 3-4: Choose one role**
+For a deeper explanation of this coordination layer, read the guide to [AI orchestration](/blog/ai-agent-orchestration).
 
-Start with your biggest pain point. For most managers, it's either customer support (if you're drowning in tickets) or content creation (if you need to generate demand). Pick one. Just one.
+## How to build your first AI agent team
 
-**Minute 5-6: Define scope clearly**
+### 1. Choose one repeatable workflow
 
-"Handle customer inquiries about shipping" is good. "Handle all customer communication" is too broad. Your agent needs boundaries to excel.
+Pick work with a visible trigger, a defined output, and a result you can inspect. A bug report moving toward a draft pull request is easier to evaluate than a broad instruction such as “improve the product.”
 
-**Minute 7-8: Feed it knowledge**
+### 2. Map the stages before choosing agents
 
-Upload your FAQs, best email responses, documentation. The more examples, the better it performs. Don't worry about perfect organization. The AI figures out patterns.
+Write the workflow as a sequence. For a bug:
 
-**Minute 9-10: Test with real scenarios**
+1. Reproduce the problem.
+2. Identify the likely cause.
+3. Prepare a change.
+4. Run the required checks.
+5. Review the diff and evidence.
+6. Ask a person to approve the next action.
 
-Throw actual customer questions at it. Real support tickets. Don't use made-up examples — use the messy, complicated stuff from your inbox.
+The stages reveal which roles you need. They also show where a handoff may fail.
 
-That's it. Ten minutes. You've built your first AI agent.
+### 3. Give each role limited access
 
-Most managers spend more time in their morning standup.
+An investigator may only need the repository, issue details, and logs. A developer may need permission to edit a branch and run tests. Neither role needs permission to merge into production.
 
-## From Solo Agent to Coordinated Team
+Limit access by default. Expand it only when a tested workflow requires more.
 
-One agent is automation. Multiple agents working together? That's transformation.
+### 4. Define handoff artifacts
 
-![From Solo Agent to AI Team workflow progression visualization](/blog/ai-agent-team/workflow.png)
-*From Solo Agent to AI Team: Watch your agents hand off tasks and coordinate autonomously*
+Do not rely on a long chat transcript as the only record. Ask each role to leave a structured result: findings, changed files, test output, unresolved questions, and the recommended next step.
 
-Here's how to evolve from single agent to actual team:
+This gives the next agent a stable starting point and makes human review faster.
 
-**Week 1: Master one agent**
+### 5. Test normal cases and failures
 
-Get comfortable with your first agent. Learn its limits. See what it handles well, what it struggles with. Don't add complexity yet.
+Run the workflow with representative inputs. Then test missing information, conflicting instructions, tool errors, failed checks, and outputs that should be rejected.
 
-**Week 2: Add a complementary agent**
+A successful run tells you the path can work. A failed run shows whether the team can stop safely and explain what happened.
 
-If you started with support, add content creation. Started with content? Add distribution. Each agent should make the previous one more valuable.
+### 6. Add scheduling after the workflow is reliable
 
-**Week 3: Create your first workflow**
+Recurring work should be scheduled only after the unscheduled version produces useful, reviewable results. Keep a history of instructions, decisions, and outputs so you can investigate changes in behavior.
 
-This is where magic happens. Connect your agents. Content agent writes → Distribution agent publishes → Analytics agent measures → Reports back to content agent for optimization.
+You can find additional structures in the guide to [multi-agent workflow patterns](/blog/multi-agent-workflow-patterns).
 
-One marketing manager described it perfectly: "It's like hiring a team that already worked together for years."
+## Building an AI agent team with Alook
 
-**Week 4: Add the coordinator**
+[Alook](https://alook.ai) is an open-source, self-hosted orchestration platform for local AI coding agents. It currently supports Claude Code, Codex, and OpenCode.
 
-Now you need a conductor. The coordinator agent manages handoffs, ensures follow-through, prevents duplicate work. It's middle management without the middle management problems.
+Alook gives agents an operating structure:
 
-By month's end, you have a functioning AI department.
+- **Roles and an org chart** define ownership.
+- **Individual `@alook.ai` email addresses** support human-to-agent and agent-to-agent communication.
+- **Kanban task tracking** records assignments and progress.
+- **Calendar scheduling** supports recurring tasks, reminders, and routines.
+- **Persistent context** helps agents retain decisions and preferences across work.
+- **Traceability** records instructions, decisions, and replies.
+- **Local execution** keeps your agents and their tool access on your machine.
 
-## Real Teams in Action: Case Studies
+Alook provides the coordination layer. The underlying agent still needs appropriate instructions, tools, and model access. Human approval remains part of any workflow where the outcome can affect customers, money, legal obligations, or production systems.
 
-Theory is nice. Results are better.
+If you are deciding whether a task needs an agent at all, start with the explanation of an [AI agent vs chatbot](/blog/ai-agent-vs-chatbot).
 
-**Marketing Team That Never Sleeps**
+## Common AI agent team failure modes
 
-Sarah runs marketing for a SaaS startup. Her AI team:
-- Content agent: 20 blog posts monthly
-- Distribution agent: Posts to 8 platforms
-- Analytics agent: Daily performance reports
-- Engagement agent: Responds to comments
+**Roles are too broad.** “Own engineering” gives an agent no useful boundary. “Investigate this issue and return reproduction steps plus likely files” can be evaluated.
 
-Results: 3x traffic growth in 90 days. Sarah's time investment: 4 hours weekly for strategy and oversight.
+**The team starts too large.** Every additional agent adds another handoff, permission boundary, and failure point. Add roles in response to a tested need.
 
-**Sales Team That Scales**
+**Outputs are not structured.** If the next step has to infer what happened from a long transcript, the handoff is fragile.
 
-Marcus manages business development. His setup:
-- Research agent: Identifies 100 qualified leads daily
-- Outreach agent: Sends personalized emails
-- Qualification agent: Scores responses
-- Booking agent: Schedules calls
+**Agents can act beyond their role.** Broad permissions turn a small mistake into a larger incident. Separate preparation from approval for high-impact actions.
 
-Pipeline grew 250% in two months. Cost: $120/month in software.
+**Failures are hidden.** A retry loop is not a recovery strategy. The workflow should record the error, preserve completed work, and escalate when it cannot continue safely.
 
-**Support Team That Customers Love**
+**Human review is added too late.** Approval points should be designed with the workflow, not attached after the agents are already acting.
 
-Lisa inherited a support nightmare — 500 tickets weekly, two-person team. Her AI squad:
-- Triage agent: Categorizes and prioritizes
-- Resolution agent: Handles 70% of tickets
-- Escalation agent: Routes complex issues
-- Follow-up agent: Ensures satisfaction
+## AI agent team FAQ
 
-Response time dropped from 24 hours to 3 minutes. Customer satisfaction increased 31%.
+**What is an AI agent team?**
 
-## Common Mistakes Managers Make
+It is a group of agents with defined roles that work on one shared workflow. Each role owns a stage and passes a structured result to the next step.
 
-I see the same errors repeatedly. Save yourself the pain:
+**When should you use multiple AI agents instead of one?**
 
-**Trying to replicate human org charts**
+Use multiple agents when stages need different instructions, tools, permissions, context, or review. Keep one agent when the task is short and self-contained.
 
-AI agents don't need the same structure as human teams. You don't need an AI "senior analyst" and "junior analyst." You need specialized agents for specific tasks.
+**How many agents should a team have?**
 
-**Over-automating immediately**
+There is no universal number. Start with the fewest roles needed for one reliable workflow, then add an agent only when a real handoff requires it.
 
-Start small. Automate one thing completely before moving to the next. I've seen managers try to automate everything in week one. They end up automating nothing well.
+**Which AI agents does Alook support?**
 
-**Not defining clear boundaries**
+Alook currently supports Claude Code, Codex, and OpenCode. Cursor, Hermes, and OpenClaw are listed as coming soon.
 
-Your content agent shouldn't also handle customer support. Specialization is strength. Keep agents focused.
+**Does an AI agent team need human oversight?**
 
-**Ignoring the human element**
+Yes. People should approve customer commitments, financial actions, legal decisions, pricing changes, and high-risk production work.
 
-You still need human oversight. AI agents are tools, not replacements for strategic thinking. The magic happens when humans focus on strategy while agents handle execution.
+## Start with one handoff
 
-## Your 7-Day AI Team Rollout Plan
+Choose a workflow you already understand. Define two stages, write down the artifact that moves between them, and decide where a person must approve the result.
 
-Want to build your AI team? Here's exactly what to do:
-
-**Day 1-2: Identify your bottleneck**
-
-What keeps you up at night? What task, if automated, would free up the most time? That's your starting point. Don't pick what's easiest. Pick what's most painful.
-
-**Day 3-4: Build and train your first agent**
-
-Use the 10-minute process above. Then spend the rest of the time feeding it real examples, testing edge cases. Better to have one excellent agent than three mediocre ones.
-
-**Day 5: Limited deployment**
-
-Don't go live with everything. Pick your safest use case. Maybe internal tasks first, then customer-facing. Watch it work. Learn its patterns.
-
-**Day 6: Add your second agent**
-
-Now you're building a team. Choose something that complements your first agent. If you built support, add analytics to measure performance. If you built content, add distribution.
-
-**Day 7: Create your first workflow**
-
-Connect your two agents. Define the handoff. Test the full cycle. Congratulations — you now have an AI team, not just AI tools.
-
-**Week 2: Scale and optimize**
-
-Add more agents. Refine workflows. Build your coordinator. By day 14, you'll have a functioning AI department.
-
-## Start Building Your AI Team Today
-
-Look, every week you wait is a week your competition gets ahead.
-
-The tools exist. The playbook is proven. The only question is whether you'll be managing an AI team next month, or still drowning in the same tasks that eat your days now.
-
-Start with one agent. Just one. See what it feels like to delegate to something that never drops the ball.
-
-Your AI team is waiting to be built.
-
----
-
-*Ready to build your AI agent team? Start free with [alook.ai](https://alook.ai) — no code required, no credit card needed. Your first agent is 10 minutes away.*
+To set up Alook for your local coding agents, run `npx @alook/app onboard`. You can also review the project on [GitHub](https://github.com/alookai/alook) or browse the current [Alook templates](https://alook.ai/templates).
