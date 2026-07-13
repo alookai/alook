@@ -1,161 +1,264 @@
 export const metadata = {
   slug: "how-to-delegate-tasks-to-ai-agents",
-  title: "How to Delegate Tasks to AI Agents (Actually)",
+  title: "How to Delegate Tasks to AI Agents",
   date: "2026-06-03",
   author: "Alook Team",
   excerpt:
-    "I delegate 43 tasks to AI agents. They run every week without me. Here's exactly how to set yours up.",
-  readingTime: "5 min read",
+    "Learn how to delegate tasks to AI agents: pick a stable job, write specific instructions, run supervised, then set a review boundary.",
+  readingTime: "7 min read",
+  image: "/blog/how-to-delegate-tasks-to-ai-agents/hero.webp",
 };
 
-# How to Delegate Tasks to AI Agents (Actually)
+export const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [
+      {
+        "@type": "Question",
+        name: "How do you delegate tasks to AI agents?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Pick one stable, repeatable task. Write instructions with inputs, steps, output format, and stop conditions. Run the agent supervised until the output is reliable, then keep a review boundary for high-impact actions.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "What makes a task good for AI agent delegation?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "A good task has a clear trigger, known inputs, a recognizable output, few judgment calls, and a safe place to pause when information is missing. Vague goals and taste-heavy work are poor first candidates.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Should AI agents run without human review?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Not for high-impact actions. Start with supervised runs. Keep human approval for customer commitments, production changes, payments, legal language, and anything that changes another person's expectations.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "What is the difference between delegating to a chatbot and an AI agent?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Delegating to a chatbot usually means prompting for a reply. Delegating to an AI agent means assigning a goal with tools, state, a trigger, and a review boundary so the work can continue beyond one chat turn.",
+        },
+      },
+    ],
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    name: "How to Delegate Tasks to AI Agents",
+    description:
+      "A practical method for delegating tasks to AI agents: define a delegable job, write specific instructions, run supervised, and keep a review boundary.",
+    image: "https://alook.ai/blog/how-to-delegate-tasks-to-ai-agents/hero.webp",
+    step: [
+      {
+        "@type": "HowToStep",
+        position: 1,
+        name: "Pick one boring, stable job",
+        text: "Choose one repeatable task you already know how to finish by hand, such as a bug-to-PR path or a weekly release notes draft. Do not start with a whole backlog.",
+      },
+      {
+        "@type": "HowToStep",
+        position: 2,
+        name: "Do it manually once and capture the real steps",
+        text: "Run the task yourself and write the real sequence: inputs used, checks performed, what done looks like, and where you would stop if information is missing.",
+      },
+      {
+        "@type": "HowToStep",
+        position: 3,
+        name: "Turn the steps into instructions with examples",
+        text: "Write agent instructions with trigger, inputs, steps, output format, and stop conditions. Include a short example of a good result.",
+      },
+      {
+        "@type": "HowToStep",
+        position: 4,
+        name: "Run supervised before you trust the loop",
+        text: "Review early runs for invented facts, skipped stop conditions, and heavy rewrites. Tighten instructions before expanding scope.",
+      },
+      {
+        "@type": "HowToStep",
+        position: 5,
+        name: "Keep a review boundary",
+        text: "Let agents prepare work, but keep human approval for merges, published release notes, customer commitments, payments, legal language, and security disclosures.",
+      },
+    ],
+  },
+];
 
-In 2023 I spent four days trying to teach an AI agent to "manage my email."
+# How to Delegate Tasks to AI Agents
 
-Failed spectacularly. Know why? I was trying to delegate something vague instead of just starting with one specific task.
+![Conceptual delegation loop from task and instructions through supervised runs to a human review boundary](/blog/how-to-delegate-tasks-to-ai-agents/hero.webp)
 
-14 months later, I have 43 tasks running automatically every week. Haven't touched 37 of them since February.
+*A conceptual loop for delegating work to AI agents: task, instructions, supervised run, output, and review boundary. Not a product screenshot.*
 
-## Start With Your Most Annoying Task
+How to delegate tasks to AI agents is less about finding a smarter model and more about packaging work. A task is ready to delegate when an agent can start from a clear trigger, follow specific instructions, produce a defined output, and stop when review is required.
 
-Every Monday at 9am I used to pull metrics from three places, make charts, post to Slack. 45 minutes. Every week. Same exact process.
+Most failed handoffs look the same. The ask is too broad. The steps live only in someone's head. The agent gets tools before it gets a finish condition. Then the human stays in the loop anyway, rewriting every draft.
 
-Now? Agent does it at 8:55am while I'm still in bed.
+This guide is a practical method for coding-agent work: bug reports, release notes, documentation updates, scheduled briefs. If you are still deciding whether you need an agent at all, start with [AI agent vs chatbot](/blog/ai-agent-vs-chatbot).
 
-That's the secret. Start with something boring. Something you hate. Something that never changes.
+## What counts as a delegable task
 
-My current automated tasks:
-- **Monday 9am**: Weekly metrics report (11 minutes saved)
-- **Daily 3pm**: Expense receipt reconciliation (8 minutes saved)
-- **Hourly**: New lead qualification and routing (5 minutes per lead)
-- **Daily 8am**: Competitor monitoring (20 minutes saved)
+A delegable task is a job with five parts:
 
-These aren't complex AI breakthroughs. They're boring tasks with clear steps.
+- **Trigger:** what starts it, such as a new issue, a merged PR, a calendar event, or a Monday brief
+- **Inputs:** the files, links, logs, or prior decisions the agent may use
+- **Steps:** the sequence the agent should follow
+- **Output:** the artifact the next person or system expects
+- **Stop condition:** when the agent must pause, ask, or refuse to guess
 
-## Tasks That Actually Work for Delegation
+Look. If you cannot write those five parts down, the task is still yours. The agent is not the problem yet.
 
-**Perfect for agents:**
-- Data reports on schedule
-- Email sorting and filtering
-- Form processing and routing
-- Document generation from templates
-- Meeting prep from calendar events
+Good first candidates for coding agents:
 
-**Terrible for agents:**
-- "Make my business better"
-- Creative writing in your voice
-- Tasks where requirements change weekly
-- Anything requiring human judgment
+- Turn a reproducible bug report into an investigation brief and draft PR
+- Draft release notes from merged changes for human approval
+- Flag docs pages that drifted after a command or API change
+- Produce a scheduled research or dependency brief from known sources
 
-I tried having agents write blog posts. Garbage. No personality, no edge, no humanity. Some things need brains.
+Poor first candidates:
 
-## Writing Instructions That Don't Suck
+- "Make the product better"
+- Open-ended voice writing with no brief
+- Work that changes rules every week
+- Decisions that need taste, negotiation, or live judgment
 
-My first instruction: "Send weekly metrics."
+## How to delegate tasks to AI agents in 5 steps
 
-Useless.
+### 1. Pick one boring, stable job
 
-My eighth version:
+Start with the task you already repeat. The less creative it is, the easier the handoff.
+
+One task. Not a whole backlog. A weekly release notes draft is better than "own releases." A single bug-to-PR path is better than "maintain the repo."
+
+### 2. Do it manually once and capture the real steps
+
+Before you write agent instructions, run the task yourself and write what you actually did. Include the awkward parts: which file you opened first, which check you skipped, what "done" looked like.
+
+Honestly, this step is the one people skip. Then they blame the agent for missing context they never wrote down.
+
+### 3. Turn the steps into instructions with examples
+
+Vague instruction:
+
+```text
+Handle this bug.
 ```
-Every Monday at 9:00am EST:
-1. Pull from Google Analytics: Pageviews, Users, Session Duration
-2. Pull from Stripe: Revenue, MRR, Churn
-3. Pull from HubSpot: New Leads count
-4. Compare to same day previous week
-5. Calculate percentage change
-6. Format: Three bullets, max 15 words each
-7. Post to #team-updates in Slack
-8. Only mention changes under 5% if they reverse a trend
+
+Delegable instruction:
+
+```text
+Trigger: new bug report labeled "needs-repro"
+
+Goal: prepare an investigation brief and a draft fix for human review
+
+Inputs:
+- issue body and comments
+- failing test or reproduction notes, if present
+- related files mentioned in the report
+
+Steps:
+1. Restate the user-visible failure in one sentence.
+2. Reproduce or explain why reproduction failed.
+3. List likely files and constraints.
+4. Propose the smallest patch that addresses the reported failure.
+5. Note tests run and tests skipped.
+
+Output:
+- investigation brief
+- draft patch or PR description
+- open questions
+
+Stop if:
+- expected behavior is a product decision
+- reproduction is impossible with current info
+- the fix would change public API without approval
 ```
 
-See the difference? Specific URLs. Exact metrics. Clear format. No ambiguity.
+The second version gives the agent a job, not a vibe.
 
-If you can't write instructions this specific, your task isn't ready to delegate.
+### 4. Run supervised before you trust the loop
 
-## The First Month Reality
+For the first runs, review every output. Check whether the agent followed the steps, invented missing facts, or skipped the stop condition.
 
-**Week 1**: You'll spend 3x longer setting it up than just doing it manually. My "15-minute setup" took 3 hours.
+Trust comes from repeated evidence, not from a confident tone. If the output keeps needing heavy edits, tighten the instructions. Do not expand scope.
 
-**Week 2**: You'll check every output manually. Despite it working fine. Trust comes slow.
+### 5. Keep a review boundary
 
-**Week 3**: Something breaks. You fix it. Consider giving up. Don't.
+Delegation is not abandonment.
 
-**Week 4**: You forget it exists. Until someone asks about the report and you realize the agent sent it hours ago.
+Keep a person in the path for:
 
-That's when you know it's working.
+- merging production-facing code
+- publishing release notes
+- customer replies that make commitments
+- anything involving money, legal language, or security disclosure
 
-## Tools and Access (The Painful Part)
+Agents can prepare the work. People should still own irreversible decisions.
 
-Your agent needs:
-- **Data sources**: Read access to Google Analytics, Stripe, databases
-- **Output destinations**: Send access to email, Slack, documents
-- **Storage**: If needed, Dropbox or Google Drive access
+## Instruction patterns that hold up
 
-Start with read-only everything. I ran my invoice agent for 8 weeks in "draft mode" before letting it actually send invoices. Paranoid? Maybe. But one wrong invoice is worse than 8 weeks of manual sending.
+Strong instructions usually include:
 
-## My 43 Automated Tasks (Proof This Works)
+- Exact trigger timing or event
+- Allowed tools and forbidden actions
+- Output shape, with a short example
+- Quality bar, such as "no claims without a source link"
+- Failure path when inputs are incomplete
 
-Here's my actual list:
+For a docs refresh task, that might mean: scan changed CLI commands, list affected pages, draft a patch, then stop for human wording review. For a Monday brief: collect only from an approved source list, separate facts from unknowns, and leave strategy recommendations out.
 
-1. Weekly metrics report (Monday 9am)
-2. Daily lead scoring (every 4 hours)
-3. Expense categorization (Friday 3pm)
-4. Competitor blog monitoring (Daily 8am)
-5. Customer health scores (Weekly)
-6. Invoice generation (Month end)
-7. Meeting prep (15 min before each)
-8. Support ticket routing (Every 30 min)
-9. Social media monitoring (Hourly)
-10. Contract renewal alerts (Weekly)
+If the task later needs multiple roles, move from one agent to [AI orchestration](/blog/ai-agent-orchestration) or a fuller [AI agent team](/blog/ai-agent-team). Patterns like bug-to-PR and docs refresh also map cleanly to the [multi-agent workflow patterns](/blog/multi-agent-workflow-patterns) guide.
 
-...and 33 more.
+## Common failure modes
 
-Time saved: 91 minutes per day average. That's 7.5 hours per week. 390 hours per year.
+**Inconsistent output.** The instructions leave too much style and judgment open. Add an example of a good result and a bad result.
 
-## Common Failures and Fixes
+**Constant breakage.** The task has too many exceptions. Narrow it until the happy path is boring.
 
-**"The output is inconsistent"**
-Your instructions are vague. Add specific examples of good output.
+**No real handoff.** Someone still rewrites the whole artifact every time. Either the task was never stable, or the review boundary is too late.
 
-**"It keeps breaking"**
-You're trying to automate something with too many exceptions. Simplify the task.
+**Silent guessing.** The agent fills gaps instead of stopping. Write the stop conditions as hard rules, not polite suggestions.
 
-**"It's not saving time"**
-You're checking and editing every output. Either trust it or improve the instructions.
+**Too much access too early.** Start with read-only or draft-only mode when the action can send, publish, or mutate important systems.
 
-## The Setup That Actually Works
+## A short checklist before you hand work off
 
-1. **Pick ONE task**. Not five. One.
-2. **Do it manually one more time**, writing every single step
-3. **Set up the agent** with those exact steps
-4. **Run it supervised** for a week
-5. **Let it run solo** once you trust it
-6. **Add another task** only after the first is solid
+Ask:
 
-Most people fail because they try to automate everything at once. Or they pick creative tasks. Or they write vague instructions.
+1. Can another person follow these instructions without asking you for context?
+2. Is the output recognizable without a meeting?
+3. Does the agent know when to stop?
+4. Is the first version narrow enough that failure is cheap?
+5. Who reviews irreversible actions?
 
-Start boring. Start specific. Start small.
+If any answer is fuzzy, keep the task with a human for one more cycle.
 
-## Build vs Buy Reality
+## Where Alook fits
 
-Can you code? Great, spend 6 weeks building a custom system that breaks constantly.
+[Alook](https://alook.ai) is one way to keep delegated coding-agent work organized once the method is clear: roles, email-native handoffs, boards, calendars, and recorded context. The method still comes first. Without a delegable task definition, any platform just automates confusion faster.
 
-Can't code? Use [Alook](https://alook.ai). Costs less than the time you'll save in the first month.
+## How to delegate tasks to AI agents FAQ
 
-I tried both. Built my own for 3 months. Switched to Alook when I realized I was spending more time maintaining automations than they were saving.
+**How do you delegate tasks to AI agents?**
 
-## Just Start
+Pick one stable, repeatable task. Write instructions with inputs, steps, output format, and stop conditions. Run the agent supervised until the output is reliable, then keep a review boundary for high-impact actions.
 
-You're overthinking this.
+**What makes a task good for AI agent delegation?**
 
-Pick that one task you do every Monday. The one that never changes. Write down the steps. Set up an agent. Watch it work.
+A good task has a clear trigger, known inputs, a recognizable output, few judgment calls, and a safe place to pause when information is missing. Vague goals and taste-heavy work are poor first candidates.
 
-That's it.
+**Should AI agents run without human review?**
 
-Next week you'll spot three more tasks to automate. Month from now you'll have ten running. Year from now you'll wonder how you ever did this stuff manually.
+Not for high-impact actions. Start with supervised runs. Keep human approval for customer commitments, production changes, payments, legal language, and anything that changes another person's expectations.
 
-The trick isn't finding the perfect task or the perfect tool. It's just starting.
+**What is the difference between delegating to a chatbot and an AI agent?**
 
-Want to see how multiple agents work together? Read about [AI agent orchestration](/blog/ai-agent-orchestration). Confused about agents vs chatbots? Check out [the real difference](/blog/ai-agent-vs-chatbot).
+Delegating to a chatbot usually means prompting for a reply. Delegating to an AI agent means assigning a goal with tools, state, a trigger, and a review boundary so the work can continue beyond one chat turn.
 
-Ready? [Start delegating with Alook](https://alook.ai).
+Start with one task you already know how to finish by hand. Write the five parts. Supervise the first runs. Expand only after the handoff is boring.
