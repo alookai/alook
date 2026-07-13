@@ -16,8 +16,8 @@
  *      All agent traffic flows through here.
  *
  * It is agnostic on both axes:
- *   - whether the server is a real Alook server or the local `mock-server`
- *     — same wire contract either way;
+ *   - whether the server is a real Alook server or a local `wrangler dev`
+ *     instance — same wire contract either way;
  *   - whether an agent is a real runtime (Claude, Codex, …) or a test stub
  *     — the `driverFor` is INJECTED by the caller.
  */

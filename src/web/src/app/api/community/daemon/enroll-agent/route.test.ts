@@ -103,4 +103,69 @@ describe("POST /api/community/daemon/enroll-agent", () => {
     const res = await POST(req("not json", { Authorization: "Bearer cmk_ok" }))
     expect(res.status).toBe(400)
   })
+
+  it("404 bot not found — unknown bot id (no such user row)", async () => {
+    mockFindCred.mockResolvedValue({
+      credentialId: "cmk_ok",
+      userId: "u_1",
+      machineId: "cm_1",
+    })
+    mockGetUserInternal.mockResolvedValue(null)
+    const res = await POST(req({ agentId: "agent_missing" }, { Authorization: "Bearer cmk_ok" }))
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "bot not found" })
+    expect(mockGetBotBinding).not.toHaveBeenCalled()
+    expect(mockMint).not.toHaveBeenCalled()
+  })
+
+  it("404 bot not found — soft-deleted bot id (deletedAt set)", async () => {
+    mockFindCred.mockResolvedValue({
+      credentialId: "cmk_ok",
+      userId: "u_1",
+      machineId: "cm_1",
+    })
+    mockGetUserInternal.mockResolvedValue({
+      id: "agent_a",
+      isBot: true,
+      ownerUserId: "u_1",
+      deletedAt: "2024-01-01T00:00:00.000Z",
+    })
+    const res = await POST(req({ agentId: "agent_a" }, { Authorization: "Bearer cmk_ok" }))
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "bot not found" })
+    expect(mockGetBotBinding).not.toHaveBeenCalled()
+    expect(mockMint).not.toHaveBeenCalled()
+  })
+
+  it("404 bot not found — bot id belongs to a different owner", async () => {
+    mockFindCred.mockResolvedValue({
+      credentialId: "cmk_ok",
+      userId: "u_1",
+      machineId: "cm_1",
+    })
+    mockGetUserInternal.mockResolvedValue({
+      id: "agent_a",
+      isBot: true,
+      ownerUserId: "u_other",
+      deletedAt: null,
+    })
+    const res = await POST(req({ agentId: "agent_a" }, { Authorization: "Bearer cmk_ok" }))
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "bot not found" })
+    expect(mockGetBotBinding).not.toHaveBeenCalled()
+    expect(mockMint).not.toHaveBeenCalled()
+  })
+
+  it("404 bot not on this machine — binding points at a different machine", async () => {
+    mockFindCred.mockResolvedValue({
+      credentialId: "cmk_ok",
+      userId: "u_1",
+      machineId: "cm_1",
+    })
+    mockGetBotBinding.mockResolvedValue({ machineId: "cm_other", runtime: "claude" })
+    const res = await POST(req({ agentId: "agent_a" }, { Authorization: "Bearer cmk_ok" }))
+    expect(res.status).toBe(404)
+    expect(await res.json()).toEqual({ error: "bot not on this machine" })
+    expect(mockMint).not.toHaveBeenCalled()
+  })
 })

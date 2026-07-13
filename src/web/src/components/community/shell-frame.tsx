@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useRouter } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+import { toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { userProfileQueryFn, PROFILE_STALE_TIME_MS } from "@/hooks/community/use-user-profile"
+import { useDefaultLayout } from "react-resizable-panels"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { AppSurface } from "@/components/ui/app-surface"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
@@ -176,10 +178,15 @@ export function ShellFrame({
         const data = await createServer.mutateAsync({ name })
         const newId = data.server.id
         toast(`Server "${name}" created`)
-        if (icon) uploadServerIcon.mutate({ serverId: newId, file: icon })
+        if (icon) {
+          uploadServerIcon.mutate(
+            { serverId: newId, file: icon },
+            { onError: (e) => toastApiError(e, "Server created, but the icon failed to upload") },
+          )
+        }
         router.push(`/community/channels/${newId}`)
-      } catch {
-        toast("Failed to create server")
+      } catch (e) {
+        toastApiError(e, "Failed to create server")
       }
     },
     [createServer, uploadServerIcon, router],
@@ -190,8 +197,8 @@ export function ShellFrame({
         const data = await joinServer.mutateAsync({ inviteCode: invite })
         toast("Joined server")
         router.push(`/community/channels/${data.serverId}`)
-      } catch {
-        toast("Failed to join server")
+      } catch (e) {
+        toastApiError(e, "Failed to join server")
       }
     },
     [joinServer, router],
@@ -212,7 +219,7 @@ export function ShellFrame({
               router.replace(pickPostEjectDestination(servers, id))
             }
           },
-          onError: () => toast("Failed to leave server"),
+          onError: (e) => toastApiError(e, "Failed to leave server"),
         },
       )
     },
@@ -236,7 +243,7 @@ export function ShellFrame({
         { folderId: fId },
         {
           onSuccess: () => toast("Group removed"),
-          onError: () => toast("Failed to remove group"),
+          onError: (e) => toastApiError(e, "Failed to remove group"),
         },
       )
     },
@@ -246,7 +253,7 @@ export function ShellFrame({
     (ids: string[]) => {
       reorderServers.mutate(
         { serverIds: ids },
-        { onError: () => toast("Failed to save server order") },
+        { onError: (e) => toastApiError(e, "Failed to save server order") },
       )
     },
     [reorderServers],
@@ -255,7 +262,7 @@ export function ShellFrame({
     (ids: string[]) => {
       reorderFolders.mutate(
         { folderIds: ids },
-        { onError: () => toast("Failed to reorder groups") },
+        { onError: (e) => toastApiError(e, "Failed to reorder groups") },
       )
     },
     [reorderFolders],
@@ -264,7 +271,7 @@ export function ShellFrame({
     (fId: string, ids: string[]) => {
       updateFolderItems.mutate(
         { folderId: fId, serverIds: ids },
-        { onError: () => toast("Failed to update group") },
+        { onError: (e) => toastApiError(e, "Failed to update group") },
       )
     },
     [updateFolderItems],
@@ -273,7 +280,7 @@ export function ShellFrame({
     (a: string, b: string) => {
       createFolderWith.mutate(
         { serverIdA: a, serverIdB: b },
-        { onError: () => toast("Failed to create group") },
+        { onError: (e) => toastApiError(e, "Failed to create group") },
       )
     },
     [createFolderWith],
@@ -376,7 +383,7 @@ export function ShellFrame({
                 : prev,
             )
           })
-          .catch(() => { })
+          .catch((e) => toastApiError(e, "Failed to load profile"))
       }
     },
     [currentUser, members, friends, queryClient, onlineUserIds],
@@ -404,8 +411,8 @@ export function ShellFrame({
       setProfile((prev) =>
         prev ? { ...prev, data: { ...prev.data, statusEmoji, statusText } } : prev,
       )
-    } catch {
-      toast("Failed to update status")
+    } catch (e) {
+      toastApiError(e, "Failed to update status")
     }
   }
 
@@ -418,8 +425,8 @@ export function ShellFrame({
     try {
       const data = await createOrGetDm.mutateAsync({ userId })
       dmId = data.conversation.id
-    } catch {
-      toast("Failed to open DM")
+    } catch (e) {
+      toastApiError(e, "Failed to open DM")
       return
     }
     // Await the send BEFORE navigating so the server row exists by the time
@@ -440,8 +447,8 @@ export function ShellFrame({
             avatar: currentUser.avatar,
           },
         })
-      } catch {
-        toast("Failed to send message")
+      } catch (e) {
+        toastApiError(e, "Failed to send message")
       }
     }
     router.push(`/community/me/${dmId}`)
@@ -543,7 +550,7 @@ export function ShellFrame({
                   data.statusText ?? null,
                 )
               }
-            } catch { toast("Failed to save profile") }
+            } catch (e) { toastApiError(e, "Failed to save profile") }
           }}
           onLogout={async () => {
             // Clear community-local state (timers, subscription, presence)
@@ -575,7 +582,7 @@ export function ShellFrame({
             setCurrentUser((u) => ({ ...u, avatar: `${data.url}?t=${Date.now()}` }))
             toast("Avatar updated")
           },
-          onError: () => toast("Failed to upload avatar"),
+          onError: (e) => toastApiError(e, "Failed to upload avatar"),
         })
         URL.revokeObjectURL(pendingAvatarCrop.src)
         setPendingAvatarCrop(null)
@@ -587,6 +594,12 @@ export function ShellFrame({
     />
   )
 
+  // `ShellFrame` mounts separately in `channels/layout.tsx` and `me/layout.tsx`
+  // — navigating server ↔ DMs unmounts one and mounts the other, which would
+  // otherwise reset the panel to `defaultSize` every time. A single shared
+  // `id` (not scoped to `view`/`activeServerId`) persists one width across
+  // both instances, in localStorage, so it also survives full page reloads.
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({ id: "community-shell" })
   const sidebarPanelRef = useRef<HTMLDivElement>(null)
   const [sidebarW, setSidebarW] = useState(240)
   useEffect(() => {
@@ -604,14 +617,20 @@ export function ShellFrame({
         <ServerRail {...railProps} bottomInset={60} />
         <div className="relative flex-1 flex flex-col min-w-0 pt-2">
           <AppSurface className="rounded-tl-xl rounded-tr-none rounded-br-none rounded-bl-none ring-0 border-l border-t border-border/40 shadow-none">
-            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-              <ResizablePanel defaultSize="24%" minSize={160} maxSize={360} className="flex flex-col pb-14 bg-sidebar">
+            <ResizablePanelGroup
+              id="community-shell"
+              orientation="horizontal"
+              className="min-h-0 flex-1"
+              defaultLayout={defaultLayout}
+              onLayoutChanged={onLayoutChanged}
+            >
+              <ResizablePanel id="sidebar" defaultSize="24%" minSize={160} maxSize={360} className="flex flex-col pb-14 bg-sidebar">
                 <div ref={sidebarPanelRef} className="flex min-h-0 flex-1 flex-col">
                   {sidebar()}
                 </div>
               </ResizablePanel>
               <ResizableHandle className="bg-transparent" />
-              <ResizablePanel defaultSize="76%" className="flex min-w-0 flex-col bg-background">
+              <ResizablePanel id="main" defaultSize="76%" className="flex min-w-0 flex-col bg-background">
                 {children}
               </ResizablePanel>
             </ResizablePanelGroup>

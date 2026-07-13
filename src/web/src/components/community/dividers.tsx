@@ -21,7 +21,7 @@ export function NewDivider() {
     <div data-new-divider className="relative my-1 flex items-center">
       <Separator className="flex-1 bg-destructive/60" />
       <span
-        className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 rounded-sm bg-destructive px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-white"
+        className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 rounded-sm bg-destructive px-1.5 py-0.5 text-xs font-semibold text-white"
         style={{ WebkitTextStroke: "0.4px currentColor" }}
       >
         New

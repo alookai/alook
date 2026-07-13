@@ -21,8 +21,8 @@
  *                      `{ type:"agent_wake_ack" | "agent_stopped_ack", … }`
  *
  * The ws server impl is injected (`WebSocketServerLike`) so this file carries no
- * hard `ws` dependency and stays unit-testable; `mock-server` passes a factory
- * built on the `ws` package.
+ * hard `ws` dependency and stays unit-testable; a deployment/test harness passes
+ * a factory built on the `ws` package.
  */
 import type { HostCommand, HostReady, AgentId, WebSocketLike } from "./contract.js";
 // Re-export so existing importers of WebSocketLike from this module keep working.
@@ -38,7 +38,8 @@ export interface WsConnectionMeta {
  * The subset of a ws *server* this module uses (matches `ws`'s WebSocketServer).
  * The `connection` callback's second arg carries the upgrade request's auth
  * header so the control plane can authenticate the connecting daemon — the
- * factory adapter (in `mock-server`) pulls it off the `ws` upgrade request.
+ * factory adapter (in a deployment/test harness) pulls it off the `ws` upgrade
+ * request.
  */
 export interface WebSocketServerLike {
   on(event: "connection", cb: (socket: WebSocketLike, meta?: WsConnectionMeta) => void): void;
@@ -58,7 +59,7 @@ type InboundFrame =
 export interface WsControlServerOpts {
   /**
    * Build the ws server bound to `port` on loopback. Injected so this module has
-   * no hard `ws` dependency; `mock-server` passes a real factory.
+   * no hard `ws` dependency; a deployment/test harness passes a real factory.
    */
   webSocketServerFactory: (port: number) => WebSocketServerLike;
   port: number;

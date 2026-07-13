@@ -95,6 +95,9 @@ export const POST = withCommunityPairingToken(async (req, ctx) => {
       }
     }
     log.error("activate failed", { err: err instanceof Error ? err.message : String(err) })
-    return NextResponse.json({ error: "activate failed" }, { status: 500 })
+    return NextResponse.json(
+      { error: err instanceof Error ? `activate failed: ${err.message}` : "activate failed" },
+      { status: 500 }
+    )
   }
 })

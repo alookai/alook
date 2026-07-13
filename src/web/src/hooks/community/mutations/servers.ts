@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, readUploadError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { avatarInitial } from "@/lib/community/avatar"
 import type { ServersResponse, ServerDetail } from "@/hooks/community/use-servers"
@@ -148,11 +148,11 @@ export function useUpdateServer() {
       queryClient.setQueryData<ServersResponse | undefined>(listKey, (prev) =>
         prev
           ? {
-              ...prev,
-              servers: prev.servers.map((s) =>
-                s.id === args.serverId ? { ...s, name: args.name, initial: avatarInitial(args.name) } : s,
-              ),
-            }
+            ...prev,
+            servers: prev.servers.map((s) =>
+              s.id === args.serverId ? { ...s, name: args.name, initial: avatarInitial(args.name) } : s,
+            ),
+          }
           : prev,
       )
       return { serverSnap, listSnap }
@@ -180,7 +180,7 @@ export function useUploadServerIcon() {
         body: formData,
         credentials: "include",
       })
-      if (!res.ok) throw new Error("Upload failed")
+      if (!res.ok) throw await readUploadError(res, "Upload failed")
       return (await res.json()) as UploadServerIconResult
     },
     onSuccess: (data, args) => {
@@ -194,11 +194,11 @@ export function useUploadServerIcon() {
         (prev) =>
           prev
             ? {
-                ...prev,
-                servers: prev.servers.map((s) =>
-                  s.id === args.serverId ? { ...s, icon: bustUrl } : s,
-                ),
-              }
+              ...prev,
+              servers: prev.servers.map((s) =>
+                s.id === args.serverId ? { ...s, icon: bustUrl } : s,
+              ),
+            }
             : prev,
       )
     },

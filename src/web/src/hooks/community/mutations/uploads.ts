@@ -1,6 +1,7 @@
 "use client"
 
 import { useMutation } from "@tanstack/react-query"
+import { readUploadError } from "@/lib/api/client"
 
 /**
  * File upload mutations. These POST multipart to the channel/dm/thread upload
@@ -69,7 +70,7 @@ export function useUploadFile() {
         body: formData,
         credentials: "include",
       })
-      if (!res.ok) throw new Error("Upload failed")
+      if (!res.ok) throw await readUploadError(res, "Upload failed")
       return (await res.json()) as UploadFileResult
     },
   })

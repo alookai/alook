@@ -259,4 +259,44 @@ describe("POST /api/community/agent/send", () => {
     expect(res.status).toBe(400)
     expect(mockCreateCommunityMessage).not.toHaveBeenCalled()
   })
+
+  it("sequential scenario: blocked/unaligned → pull+ack (simulated by an advancing lastReadSeq) → send succeeds → a new message arrives → send blocks again", async () => {
+    // 1. Bot is behind: latestSeq=10, bot's own tracked lastReadSeq=4 → blocked.
+    mockGetLatestSeqForScope.mockResolvedValueOnce(10)
+    mockGetReadState.mockResolvedValueOnce({ lastReadSeq: 4 })
+    const blocked1 = await POST(
+      req({ channel: "/studio/general", content: { text: "catching up" } }, { Authorization: "Bearer crk_abc" })
+    )
+    expect(blocked1.status).toBe(200)
+    expect(await blocked1.json()).toEqual({ state: "blocked", reason: "unaligned", unreadCount: 6, latestSeq: 10 })
+    expect(mockCreateCommunityMessage).not.toHaveBeenCalled()
+
+    // 2. The agent pulls the backlog and acks up to seq 10 — modeled here as
+    // the bot's tracked read state catching up to the channel's latest seq
+    // (what a real inboxPull+ack round trip against
+    // /api/community/agent/{inboxPull,ack} would produce).
+    mockGetLatestSeqForScope.mockResolvedValueOnce(10)
+    mockGetReadState.mockResolvedValueOnce({ lastReadSeq: 10 })
+    mockCreateCommunityMessage.mockResolvedValueOnce({ ok: true, row: { id: "m_1", seq: 11, content: "caught up" } })
+    const sent = await POST(
+      req({ channel: "/studio/general", content: { text: "caught up" } }, { Authorization: "Bearer crk_abc" })
+    )
+    expect(sent.status).toBe(200)
+    expect((await sent.json()).state).toBe("sent")
+    expect(mockCreateCommunityMessage).toHaveBeenCalledTimes(1)
+
+    // 3. A new message (from someone else) lands in the channel, advancing
+    // latestSeq past the bot's now-stale read state — the next send blocks
+    // again without a fresh pull+ack.
+    mockGetLatestSeqForScope.mockResolvedValueOnce(12)
+    mockGetReadState.mockResolvedValueOnce({ lastReadSeq: 10 })
+    const blocked2 = await POST(
+      req({ channel: "/studio/general", content: { text: "still going" } }, { Authorization: "Bearer crk_abc" })
+    )
+    expect(blocked2.status).toBe(200)
+    expect(await blocked2.json()).toEqual({ state: "blocked", reason: "unaligned", unreadCount: 2, latestSeq: 12 })
+    // Still only the one successful send from step 2 — this blocked call
+    // must not have reached createCommunityMessage.
+    expect(mockCreateCommunityMessage).toHaveBeenCalledTimes(1)
+  })
 })

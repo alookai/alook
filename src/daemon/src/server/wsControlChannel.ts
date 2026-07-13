@@ -1,10 +1,10 @@
 /**
  * WsControlChannel — a real-server `HostControlChannel` over a WebSocket.
  *
- * This is the network counterpart to `LocalControlChannel`: where the local one
- * bridges an in-process `MockServer`, this one carries the same control-plane
- * frames (`HostCommand` down, `HostReady` / agent-session reports up) over a
- * WebSocket, with **exponential-backoff reconnect** and a **heartbeat watchdog**.
+ * This is the host end of the control plane: it carries `HostCommand` frames
+ * down (`agent:wake` / `agent:stop` / `bot:*`) and `HostReady` / agent-session
+ * reports up, over a WebSocket, with **exponential-backoff reconnect** and a
+ * **heartbeat watchdog**.
  *
  * The socket is injected (`WebSocketFactory`) so this file stays dependency-free
  * and testable; a deployment passes a factory built on the `ws` package. The
@@ -17,12 +17,10 @@
  *   - outbound frames are JSON `{ type: "ready" | "agent_session" | "agent_wake_ack" | "agent_stopped_ack", … }` (host → server).
  * A real server adapter maps these to its own protocol.
  *
- * This is the control plane local dev actually uses: `mock-server`+`daemon` and the
- * `control-plane-e2e` example run the server (`WsControlServer`) and host
- * (`WsControlChannel`) over a real loopback WebSocket, so the transport —
- * reconnect/heartbeat and frame (de)serialization — is exercised end to end
- * rather than shortcut in-process. `LocalControlChannel` remains only for pure
- * unit tests that don't need a socket.
+ * `tests/integration/daemon/control-plane.test.ts` exercises this class over
+ * a real WebSocket against a real `ws-do` dev server — the transport
+ * (reconnect/heartbeat and frame (de)serialization) end to end, rather than
+ * shortcut in-process.
  */
 import type {
   HostControlChannel,

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
+import { toastApiError } from "@/lib/api/client"
 import { User, LogOut, X, Palette, Sun, Moon, Monitor, Database } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
@@ -28,7 +29,7 @@ function AppearanceSettings() {
   const active = mounted ? theme ?? "system" : undefined
 
   return (
-    <div className="mx-auto max-w-xl space-y-4">
+    <div className="mx-auto max-w-md space-y-4">
       <Field label="Theme">
         <div className="grid grid-cols-3 gap-2">
           {THEME_OPTIONS.map(({ value, label, icon: Icon }) => {
@@ -81,14 +82,14 @@ function AdvancedSettings({ userId }: { userId: string | null }) {
             // Hard reload so the QueryClient starts fresh without racing an
             // in-flight persister write.
             window.location.reload()
-          } catch {
-            toast("Failed to clear cache")
+          } catch (e) {
+            toastApiError(e, "Failed to clear cache")
             setClearing(false)
             setConfirmOpen(false)
           }
         }}
       />
-      <div className="mx-auto max-w-xl space-y-6">
+      <div className="mx-auto max-w-md space-y-6">
         <div>
           <div className="text-sm font-medium">Clear local cache</div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -190,13 +191,13 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
           <h1 className="flex-1 text-lg font-semibold">
             {tab === "appearance" ? "Appearance" : tab === "advanced" ? "Advanced" : "My Profile"}
           </h1>
-          <button onClick={onClose} className="flex flex-col items-center text-muted-foreground hover:text-foreground" aria-label="Close settings">
-            <span className="grid size-8 place-items-center rounded-full border border-current"><X className="size-4" /></span>
-          </button>
+          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close settings">
+            <X className="size-4" />
+          </Button>
         </header>
         <div className="flex-1 overflow-y-auto thin-scrollbar p-4">
           <TabsContent value="profile">
-            <div className="mx-auto max-w-xl space-y-4">
+            <div className="mx-auto max-w-md space-y-4">
               <div className="flex items-center gap-4">
                 <Avatar label={avatar} seed={userId ?? undefined} size={80} />
                 <div>

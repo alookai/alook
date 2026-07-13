@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { AtSign, FileIcon, ImageIcon, MessagesSquare, PlusCircle, Smile, Upload, Users, X } from "lucide-react"
+import { AtSign, FileIcon, ImageIcon, PlusCircle, Smile, Upload, Users, X } from "lucide-react"
 import { useEditor, EditorContent } from "@tiptap/react"
 import StarterKit from "@tiptap/starter-kit"
 import Placeholder from "@tiptap/extension-placeholder"
@@ -48,7 +48,7 @@ export function pendingFilesToSendAttachments(pendingFiles: PendingFile[]): Send
 // Enter sends, Shift+Enter adds a newline; while the mention popover is open
 // Enter/Tab/Arrow keys drive selection instead. @everyone / @here are virtual
 // candidates in channel + thread contexts (hidden in DM).
-export function Composer({ channel, context, members, onSearchMembers, channelRefCandidates = [], onSend, onCreateThread, onTyping, replyingTo, onCancelReply, autoFocus = false }: {
+export function Composer({ channel, context, members, onSearchMembers, channelRefCandidates = [], onSend, onTyping, replyingTo, onCancelReply, autoFocus = false }: {
   channel: string
   context: MentionContext
   members: Member[]
@@ -63,7 +63,6 @@ export function Composer({ channel, context, members, onSearchMembers, channelRe
   // the popup just shows nothing on `/`.
   channelRefCandidates?: ChannelRefCandidate[]
   onSend?: (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => void
-  onCreateThread?: () => void
   onTyping?: () => void
   // when set, shows a "Replying to X" bar above the input
   replyingTo?: string
@@ -290,7 +289,7 @@ export function Composer({ channel, context, members, onSearchMembers, channelRe
           {pendingFiles.map((pf, i) => {
             const isImage = pf.file.type.startsWith("image/")
             return (
-              <div key={i} className="group relative flex items-center gap-2 rounded border border-border bg-background px-3 py-2 text-xs">
+              <div key={i} className="group relative flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs">
                 {isImage ? <ImageIcon className="size-3.5 text-muted-foreground" /> : <FileIcon className="size-3.5 text-muted-foreground" />}
                 <span className="max-w-30 truncate text-foreground">{pf.file.name}</span>
                 <button
@@ -306,7 +305,7 @@ export function Composer({ channel, context, members, onSearchMembers, channelRe
         </div>
       )}
 
-      <div className={`relative bg-muted shadow-(--e1) ring-1 ring-border/40 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}>
+      <div className={`relative bg-muted shadow-(--e1) ring-1 ring-border/40 transition-shadow focus-within:ring-2 focus-within:ring-ring/60 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}>
         {dragging && (
           <div
             className={`pointer-events-none absolute inset-0 z-10 grid place-items-center border-2 border-dashed border-ring bg-background/80 ${replyingTo || pendingFiles.length > 0 ? "rounded-b-xl" : "rounded-xl"}`}
@@ -334,18 +333,17 @@ export function Composer({ channel, context, members, onSearchMembers, channelRe
         {/* Attach button — fixed bottom-left */}
         <DropdownMenu onOpenChange={(open) => { if (!open) editor?.commands.focus() }}>
           <DropdownMenuTrigger
-            render={<button className="absolute left-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground aria-expanded:text-foreground" aria-label="Add" />}
+            render={<button className="absolute left-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground" aria-label="Add" />}
           >
             <PlusCircle className="size-5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent side="top" align="start" className="w-44">
             <DropdownMenuItem onClick={() => { fileInputRef.current?.click(); editor?.commands.focus() }}><Upload className="size-4" /> Upload a File</DropdownMenuItem>
-            {context === "channel" && <DropdownMenuItem onClick={onCreateThread}><MessagesSquare className="size-4" /> Create Thread</DropdownMenuItem>}
           </DropdownMenuContent>
         </DropdownMenu>
         {/* Emoji button — fixed bottom-right */}
         <EmojiPickerPopover side="top" align="end" onPick={(e) => editor?.chain().focus().insertContent(e).run()}>
-          <button className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:text-foreground aria-expanded:text-foreground" aria-label="Emoji picker">
+          <button className="absolute right-2 bottom-2 grid size-8 place-items-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground" aria-label="Emoji picker">
             <Smile className="size-5" />
           </button>
         </EmojiPickerPopover>
@@ -537,7 +535,7 @@ function MentionRow({ item, selected, showMembersHeader, onSelect }: {
   return (
     <>
       {showMembersHeader && (
-        <div className="-mx-1 mt-1 border-t border-border/60 px-2 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Members</div>
+        <div className="-mx-1 mt-1 border-t border-border/60 px-2 pt-2 pb-1 text-xs font-semibold text-muted-foreground">Members</div>
       )}
       <button
         type="button"

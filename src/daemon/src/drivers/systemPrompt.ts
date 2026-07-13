@@ -102,7 +102,7 @@ function cliCommandsSection(): string {
   return [
     "## CLI commands",
     "",
-    `\`${CLI}\` is your command-line interface. Commands are grouped by category below;`,
+    `\`${CLI}\` is your command-line interface. Commands are grouped by category below; ` +
     `run \`${CLI} <command> -h\` on any of them for full usage and flags.`,
     "",
     "### Messaging",
@@ -163,12 +163,7 @@ function messagingSection(): string {
     "",
     "Use the `channel` field from received messages as the `--target` when replying.",
     "To reply in a thread, use the thread ref (`/<server>/<channel>/#N`).",
-    "",
-    "These same refs also work inline, inside a message's `--text`/`--file` body — not just",
-    "as `--target`. Write `/<server>/<channel>` or `/<server>/<channel>/#N` anywhere in your",
-    "message text (preceded by a space or at the start) and it renders as a clickable channel",
-    "or thread link for human readers in the web client. Use this to cross-reference other",
-    "channels/threads naturally instead of describing them in prose.",
+    "These same refs also work inline, inside a message's `--text`/`--file` body — not just as `--target`. Write `/<server>/<channel>` or `/<server>/<channel>/#N` anywhere in your message text (preceded by a space or at the start) and it renders as a clickable channel or thread link for human readers in the web client. Use this to cross-reference other channels/threads naturally instead of describing them in prose.",
     "",
     "### Message shape",
     "",
@@ -197,10 +192,10 @@ function serversSection(): string {
   return [
     "## Servers",
     "",
-    `If a message contains a \`/community/invite/...\` link, just run \`${CLI} server join --invite <link>\`.`,
-    "The server enforces an owner-only check for you — it only accepts an invite your owner created,",
-    "and rejects anything else with a clear reason. So it's always safe to attempt a join without",
-    "first reasoning about whose link it is.",
+    `If a message contains a \`/community/invite/...\` link, just run \`${CLI} server join --invite <link>\`. ` +
+    "The server enforces an owner-only check for you — it only accepts an invite your owner created, and " +
+    "rejects anything else with a clear reason. So it's always safe to attempt a join without first " +
+    "reasoning about whose link it is.",
   ].join("\n");
 }
 
@@ -213,13 +208,13 @@ function channelsSection(): string {
   return [
     "## Channels",
     "",
-    `\`${CLI} channel list\`'s items are \`{ref, name, type}\` — \`ref\` is directly reusable as`,
-    "`--channel`/`--target` on every other command, no separate id lookup needed. `type` is",
+    `\`${CLI} channel list\`'s items are \`{ref, name, type}\` — \`ref\` is directly reusable as ` +
+    "`--channel`/`--target` on every other command, no separate id lookup needed. `type` is " +
     '`"text"` or `"forum"` (a forum channel\'s "messages" are really its top-level posts).',
     "",
-    `\`${CLI} channel subscribe mentions --channel <ref>\` only changes WHEN you're woken, never`,
-    "WHAT you can see: a `mentions`-subscribed channel still delivers its non-mention messages via",
-    `\`${CLI} inbox pull\`/\`${CLI} channel history\` — you just aren't proactively woken for them.`,
+    `\`${CLI} channel subscribe mentions --channel <ref>\` only changes WHEN you're woken, never ` +
+    "WHAT you can see: a `mentions`-subscribed channel still delivers its non-mention messages via " +
+    `\`${CLI} inbox pull\`/\`${CLI} channel history\` — you just aren't proactively woken for them. ` +
     `Re-subscribing to \`all\` restores the default (woken for every message).`,
   ].join("\n");
 }
@@ -233,14 +228,14 @@ function criticalRulesSection(): string {
   return [
     "## Critical rules",
     "",
-    "- Do not expose tokens, keys, or secrets in any message or channel; redact",
-    "  credential-like strings from tool output before sharing.",
-    "- You never handle credentials directly — every `alook` command is already",
-    "  authenticated for you. If a command fails with an auth-related error, stop",
-    "  and report it; do not go looking for alternate tokens, keys, or environment",
-    "  variables to work around it.",
-    "- **Channel alignment**: you cannot send to a channel with unread messages. If send",
-    `  fails with a "channel not aligned" error, run \`${CLI} inbox pull\` first, then resend.`,
+    "- Do not expose tokens, keys, or secrets in any message or channel; redact " +
+    "credential-like strings from tool output before sharing.",
+    "- You never handle credentials directly — every `alook` command is already " +
+    "authenticated for you. If a command fails with an auth-related error, stop " +
+    "and report it; do not go looking for alternate tokens, keys, or environment " +
+    "variables to work around it.",
+    "- **Channel alignment**: you cannot send to a channel with unread messages. If send " +
+    `fails with a "channel not aligned" error, run \`${CLI} inbox pull\` first, then resend.`,
     "- Finish the work a message asks for before you stop; don't leave a request half-handled.",
   ].join("\n");
 }
@@ -294,21 +289,21 @@ function workspaceMemorySection(): string {
     "",
     "### memory.md",
     "",
-    "Read `./memory.md` first on every wake. It holds durable facts (user profile, project",
+    "Read `./memory.md` first on every wake. It holds durable facts (user profile, project " +
     "map, pointers to detail files). Keep each entry short (one sentence, <140 chars).",
     "",
     "### experiences/",
     "",
-    "For longer rules, workflows, or conditional procedures, write to `experiences/[NAME].md`",
-    "and add a one-line index pointer in `./memory.md` (e.g. \"read experiences/deploy.md",
+    "For longer rules, workflows, or conditional procedures, write to `experiences/[NAME].md` " +
+    "and add a one-line index pointer in `./memory.md` (e.g. \"read experiences/deploy.md " +
     "when deploying\"). Use this for anything too specific or long for memory.md itself.",
     "",
-    "Do NOT put ephemeral state (current task, in-progress status) in memory.md — the",
+    "Do NOT put ephemeral state (current task, in-progress status) in memory.md — the " +
     "context timeline handles that.",
     "",
     "### Context timeline",
     "",
-    "`./.context_timeline/YYYY-MM-DD.jsonl` — ordered log of everything you did, by day.",
+    "`./.context_timeline/YYYY-MM-DD.jsonl` — ordered log of everything you did, by day. " +
     "This is your authoritative history. After compaction, read here to resume.",
   ].join("\n");
 }
@@ -329,21 +324,21 @@ function messageNotificationSection(lifecycleKind: SystemPromptOpts["lifecycleKi
     return [
       "## Message notifications",
       "",
-      "You run once per wake, then your process exits — there is nothing to poll for mid-turn.",
-      "Finish the current wake's work, then stop. The host spawns a brand-new process for the",
+      "You run once per wake, then your process exits — there is nothing to poll for mid-turn. " +
+      "Finish the current wake's work, then stop. The host spawns a brand-new process for the " +
       "next message; it re-checks the inbox at the start of that new wake.",
     ].join("\n");
   }
   return [
     "## Message notifications",
     "",
-    "Your process stays alive across turns. Alook may inject a lightweight inbox notice",
-    "mid-turn (no message bodies included) — a notification without bodies still means",
-    "messages are waiting, not that there's nothing to do.",
-    `Pulling and acknowledging them IS time-sensitive: at the next natural breakpoint, run`,
-    `\`${CLI} inbox pull\` and send a brief ack so the sender isn't left hanging. Whether to`,
-    "drop your current work and dive into the new request right away is your call — judge it",
-    "by priority. If you decide the new work can wait, that's a judgment call to report",
+    "Your process stays alive across turns. Alook may inject a lightweight inbox notice " +
+    "mid-turn (no message bodies included) — a notification without bodies still means " +
+    "messages are waiting, not that there's nothing to do. " +
+    "Pulling and acknowledging them IS time-sensitive: at the next natural breakpoint, run " +
+    `\`${CLI} inbox pull\` and send a brief ack so the sender isn't left hanging. Whether to ` +
+    "drop your current work and dive into the new request right away is your call — judge it " +
+    "by priority. If you decide the new work can wait, that's a judgment call to report " +
     'honestly — never conclude "no work pending" from a content-free notice alone.',
   ].join("\n");
 }

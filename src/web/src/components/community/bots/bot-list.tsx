@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, Bot as BotIcon, Monitor, MoreVertical, Plus } from "lucide-react"
 import { toast } from "sonner"
+import { toastApiError } from "@/lib/api/client"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
@@ -28,8 +29,8 @@ import { useMachines } from "@/hooks/community/use-machines"
 import { useBots, useDeleteBot, type BotSummary } from "@/hooks/community/use-bots"
 import { useCreateOrGetDm } from "@/hooks/community/mutations"
 import { useOnlineUserIds } from "@/stores/community/ws"
-import { CreateBotDialog } from "./create-bot-dialog"
-import { EditBotDialog } from "./edit-bot-dialog"
+import { CreateBotSheet } from "./create-bot-sheet"
+import { EditBotSheet } from "./edit-bot-sheet"
 
 /**
  * BotList — the /community/me/bots surface.
@@ -51,7 +52,13 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   // (DM sidebar, friend list, mention popover) reads from — no divergence).
   const onlineUserIds = useOnlineUserIds()
   const [createOpen, setCreateOpen] = useState(false)
-  const [editing, setEditing] = useState<BotSummary | null>(null)
+  // `editingBot` deliberately never resets to null on close — EditBotSheet
+  // stays mounted at all times (see its render below) so its open/close
+  // transition always has a "closed" state to animate from, matching
+  // CreateBotSheet. Only `editOpen` toggles; the last-edited bot lingers
+  // harmlessly while the sheet is hidden.
+  const [editingBot, setEditingBot] = useState<BotSummary | null>(null)
+  const [editOpen, setEditOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<BotSummary | null>(null)
   const del = useDeleteBot()
   const createOrGetDm = useCreateOrGetDm()
@@ -60,8 +67,8 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
     try {
       const data = await createOrGetDm.mutateAsync({ userId: bot.id })
       router.push(`/community/me/${data.conversation.id}`)
-    } catch {
-      toast.error("Failed to open chat")
+    } catch (e) {
+      toastApiError(e, "Failed to open chat")
     }
   }
 
@@ -154,7 +161,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
           </div>
           <Button onClick={() => setCreateOpen(true)}>Create a bot</Button>
         </div>
-        <CreateBotDialog open={createOpen} onOpenChange={setCreateOpen} />
+        <CreateBotSheet open={createOpen} onOpenChange={setCreateOpen} />
       </div>
     )
   }
@@ -192,7 +199,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
               >
                 <div className="flex items-center gap-2 px-1">
                   <Monitor className="size-3.5 text-muted-foreground" />
-                  <span className="text-xs font-semibold text-muted-foreground">
+                  <span className="font-mono text-xs font-medium text-muted-foreground">
                     {machineName(machineId)}
                   </span>
                   <span
@@ -271,7 +278,12 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                               <DropdownMenuItem onClick={() => chatWithBot(bot)}>
                                 Chat
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => setEditing(bot)}>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setEditingBot(bot)
+                                  setEditOpen(true)
+                                }}
+                              >
                                 Edit
                               </DropdownMenuItem>
                               <DropdownMenuItem
@@ -293,14 +305,8 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
         </div>
       </div>
 
-      <CreateBotDialog open={createOpen} onOpenChange={setCreateOpen} />
-      {editing && (
-        <EditBotDialog
-          bot={editing}
-          open={!!editing}
-          onOpenChange={(open) => !open && setEditing(null)}
-        />
-      )}
+      <CreateBotSheet open={createOpen} onOpenChange={setCreateOpen} />
+      <EditBotSheet bot={editingBot} open={editOpen} onOpenChange={setEditOpen} />
       <AlertDialog
         open={!!confirmDelete}
         onOpenChange={(open) => !open && setConfirmDelete(null)}
@@ -323,8 +329,8 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                 try {
                   await del.mutateAsync(confirmDelete.id)
                   toast.success(`Deleted ${name}`)
-                } catch (err) {
-                  toast.error(err instanceof Error ? err.message : "Couldn't delete the bot")
+                } catch (e) {
+                  toastApiError(e, "Couldn't delete the bot")
                 } finally {
                   setConfirmDelete(null)
                 }

@@ -42,7 +42,7 @@ export function SortableCategory({ id: catDndId, name, open, onToggle, onAddChan
               {...attributes}
               {...listeners}
               onClick={onToggle}
-              className={`group flex w-full touch-none items-center gap-1 rounded px-1 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 hover:text-foreground ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`}
+              className={`group flex w-full touch-none items-center gap-1 rounded px-1 py-1 text-xs font-semibold text-muted-foreground/80 hover:text-foreground ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}`}
             />
           }
         >

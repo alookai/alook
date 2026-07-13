@@ -33,7 +33,6 @@ import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelTree } from "@/components/community/use-channel-tree"
 import { ProfileCard } from "@/components/community/profile-card"
 import { ImageLightbox } from "@/components/community/image-lightbox"
-import { NewThreadDialog } from "@/components/community/new-thread-panel"
 import { UserSettings } from "@/components/community/edit-profile-dialog"
 import { ServerRail } from "@/components/community/server-rail"
 import { ChannelSidebar } from "@/components/community/channel-sidebar"
@@ -94,8 +93,6 @@ export default function CommunityPreview() {
   // pattern above; no real persistence/WS fan-out here (see plans/profile-card.md).
   const [myStatus, setMyStatus] = useState<{ emoji: string | null; text: string | null }>({ emoji: "🎧", text: "Vibing" })
   const [editingProfile, setEditingProfile] = useState(false)
-  // when set, the message area shows the "New Thread" creation panel
-  const [creatingThread, setCreatingThread] = useState(false)
   // reply target (message being replied to) — drives the composer quote bar
   const [replyTo, setReplyTo] = useState<{ id: string; authorName: string; text: string } | null>(null)
   // search query submitted from the channel header (opens the search panel pre-filled)
@@ -212,27 +209,21 @@ export default function CommunityPreview() {
     if (bp === "mobile") setMobileZone("messages")
   }
 
-  // create a thread (local) and open it.
-  //  - `anchor` (from a message) becomes the thread's first message.
-  //  - otherwise `firstMessage` (from the New Thread panel) seeds an optional opener.
+  // create a thread (local) and open it — anchored to the message it was
+  // created from (its first message).
   let threadSeq = 0
-  const createThread = (name: string, opts?: { firstMessage?: string; anchor?: Msg }) => {
+  const createThread = (name: string, anchor?: Msg) => {
     const id = `thr_local_${++threadSeq}`
-    const seed: Msg[] = opts?.anchor
-      ? [opts.anchor]
-      : opts?.firstMessage
-        ? [{ id: `${id}_1`, type: "chat" as const, authorName: "Gener", authorAvatar: "G", createdAt: new Date().toISOString(), content: opts.firstMessage }]
-        : []
+    const seed: Msg[] = anchor ? [anchor] : []
     const t: Thread = {
       id, name, messageCount: seed.length, lastMessageAt: new Date().toISOString(),
       parent: {
-        authorName: opts?.anchor?.authorName ?? "Gener",
-        text: opts?.anchor?.content ?? name,
+        authorName: anchor?.authorName ?? "Gener",
+        text: anchor?.content ?? name,
       },
     }
     setThreads((prev) => [t, ...prev])
     setThreadMessages((prev) => ({ ...prev, [id]: seed }))
-    setCreatingThread(false)
     enterThread(id)
   }
   // from a message — the message anchors the thread (its first message); name defaults
@@ -240,7 +231,7 @@ export default function CommunityPreview() {
   const createThreadFromMessage = (id: string) => {
     const m = messages.find((x) => x.id === id)
     const name = (m?.content ?? activeChannel).split(/\s+/).slice(0, 6).join(" ").slice(0, 60) || activeChannel
-    createThread(name, m ? { anchor: m } : undefined)
+    createThread(name, m)
   }
 
   // send a channel message — append to the local list (live app: POST + WS echo)
@@ -467,7 +458,7 @@ export default function CommunityPreview() {
             <MessageList
               channel={dm.name}
               messages={dmMessages[dm.id] ?? []}
-              onOpenThread={() => {}}
+              onOpenThread={() => { }}
               variant="dm"
               {...profileProps}
               hero={
@@ -524,7 +515,7 @@ export default function CommunityPreview() {
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <MessageList channel={activeChannel} messages={messages} pinnedIds={pinnedIds} newDividerBefore={NEW_DIVIDER_BEFORE} typingUsers={["Lindsay"]} onOpenThread={enterThread} {...messageActions} {...profileProps} />
-          <Composer channel={activeChannel} context="channel" members={composerMembers} onSend={sendMessage} onCreateThread={() => setCreatingThread(true)} replyingTo={replyTo?.authorName} onCancelReply={() => setReplyTo(null)} />
+          <Composer channel={activeChannel} context="channel" members={composerMembers} onSend={sendMessage} replyingTo={replyTo?.authorName} onCancelReply={() => setReplyTo(null)} />
         </main>
       </>
     )
@@ -533,7 +524,6 @@ export default function CommunityPreview() {
   // portaled dialogs — rendered in every layout branch
   const dialogs = (
     <>
-      <NewThreadDialog channel={activeChannel} open={creatingThread} onClose={() => setCreatingThread(false)} onCreate={(name, firstMessage) => createThread(name, { firstMessage })} />
       <Dialog open={editingProfile} onOpenChange={(o) => { if (!o) setEditingProfile(false) }}>
         <DialogContent className="flex h-[calc(100vh-4rem)] max-h-180 w-[calc(100vw-4rem)] sm:max-w-4xl flex-col gap-0 overflow-hidden rounded-xl p-0" showCloseButton={false}>
           <UserSettings

@@ -17,6 +17,7 @@ import { CategorySettingsDialog } from "./category-settings-dialog"
 import { catId, catOf, isCat, type ChannelTree } from "./use-channel-tree"
 import { InviteDialog } from "./invite-dialog"
 import { ChannelMembersDialog } from "./channel-members-dialog"
+import { ServerCrumb } from "./channel-header"
 import type { Channel, SettingsSection } from "./_types"
 import type { ChannelType } from "@alook/shared"
 
@@ -34,7 +35,7 @@ type Dialog =
 // right-click) creates; channels right-click to edit/delete. A private category only
 // lets admins create channels — non-admins are blocked via onBlockedCreate.
 export const ChannelSidebar = memo(function ChannelSidebar({
-  tree, serverName, activeChannel, setActiveChannel, noHeader, onOpenSettings,
+  tree, serverName, serverIcon, activeChannel, setActiveChannel, noHeader, onOpenSettings,
   isAdmin = true, currentUserId, onBlockedCreate, mutedChannels, loading,
   onCreateChannel, onCreateCategory, onDeleteChannel, onDeleteCategory,
   onUpdateCategory, onRenameChannel, onReorderCategories, onReorderChannels,
@@ -43,6 +44,7 @@ export const ChannelSidebar = memo(function ChannelSidebar({
 }: {
   tree: ChannelTree
   serverName: string
+  serverIcon?: string | null
   activeChannel: string
   setActiveChannel: (id: string) => void
   noHeader?: boolean
@@ -159,8 +161,9 @@ export const ChannelSidebar = memo(function ChannelSidebar({
         <header className="flex h-12 items-center gap-1 border-b border-border/40 px-2">
           {serverName && onOpenSettings ? (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-                <span className="truncate text-lg font-semibold">{serverName}</span>
+              <DropdownMenuTrigger className="flex min-w-0 max-w-full items-center gap-2 rounded-md px-2 py-1 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                <ServerCrumb id={serverId ?? ""} name={serverName} icon={serverIcon ?? null} size={7} />
+                <span className="min-w-0 truncate text-lg font-semibold">{serverName}</span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-48">
@@ -172,7 +175,10 @@ export const ChannelSidebar = memo(function ChannelSidebar({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <span className="min-w-0 flex-1 truncate px-2 text-lg font-semibold">{serverName || "\u00a0"}</span>
+            <span className="flex min-w-0 max-w-full items-center gap-2 px-2">
+              {serverName && <ServerCrumb id={serverId ?? ""} name={serverName} icon={serverIcon ?? null} size={7} />}
+              <span className="min-w-0 truncate text-lg font-semibold">{serverName || "\u00a0"}</span>
+            </span>
           )}
           {serverId && onInvitePopoverOpenChange && (
             <>

@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ChannelIcon } from "./channel-icon"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
+import { serverGradient } from "./server-gradient"
 import type { RightPanel } from "./_types"
 
 // Skeleton header for the loading frame between route change and channel
@@ -22,7 +23,7 @@ export function ChannelHeaderSkeleton({ onBack }: { onBack?: () => void }) {
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
-      <Skeleton className="ml-1 size-4 rounded" />
+      <Skeleton className="ml-1 size-6 rounded-md" />
       <Skeleton className="h-4 w-32 rounded" />
       <div className="ml-auto flex items-center text-muted-foreground">
         <Skeleton className="size-7 rounded-md" />
@@ -48,7 +49,7 @@ export function ChannelHeader({
   onBack?: () => void
   forum?: boolean
   breadcrumb?: { label: string; onRename?: (name: string) => void; onNavigateBack?: () => void }
-  server?: { name: string; icon: string | null }
+  server?: { id: string; name: string; icon: string | null }
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
 }) {
 
@@ -68,7 +69,7 @@ export function ChannelHeader({
       {onBack && (
         <Button variant="ghost" size="icon-sm" onClick={onBack} className="text-muted-foreground hover:text-foreground" aria-label="Back"><ChevronLeft className="size-5" /></Button>
       )}
-      {server && <ServerCrumb name={server.name} icon={server.icon} />}
+      {server && <ServerCrumb id={server.id} name={server.name} icon={server.icon} className="ml-1" />}
       {breadcrumb ? (
         <>
           <button onClick={breadcrumb.onNavigateBack} className={`flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors ${server ? "" : "ml-1"}`}>
@@ -83,7 +84,9 @@ export function ChannelHeader({
         </>
       ) : (
         <>
-          {forum ? <ListChevronsUpDown className={`size-4 shrink-0 text-muted-foreground ${server ? "" : "ml-1"}`} /> : <ChannelIcon className={`text-base text-muted-foreground ${server ? "" : "ml-1"}`} />}
+          <div className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${server ? "" : "ml-1"}`}>
+            {forum ? <ListChevronsUpDown className="size-4" /> : <ChannelIcon className="text-base" />}
+          </div>
           <span className="truncate text-base font-semibold">{channel}</span>
         </>
       )}
@@ -147,12 +150,23 @@ function ChannelOverflowMenu({
   )
 }
 
-// Leading breadcrumb segment for mobile — the server avatar. The channel segment
-// that follows leads with its own "/" (or forum icon), which serves as the separator.
-// Purely contextual (the rail is hidden at mobile widths).
-function ServerCrumb({ name, icon }: { name: string; icon: string | null }) {
+// Server identity chip — icon (or initial-letter fallback) in a rounded
+// square. Originally just the mobile breadcrumb's leading segment (the
+// channel segment that follows leads with its own "/" or forum icon, which
+// serves as the separator), now also reused by `ChannelSidebar`'s header at
+// the larger `size={7}`. Tailwind only picks up complete literal class names
+// at build time, so `size` can't be interpolated — it's an explicit ternary.
+export function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: string; name: string; icon: string | null; size?: 5 | 7; className?: string }) {
   return (
-    <span className="ml-1 grid size-5 shrink-0 place-items-center overflow-hidden rounded-md bg-secondary text-[0.625rem] font-semibold text-foreground" aria-label={name} title={name}>
+    <span
+      // No icon → the same deterministic gradient fallback used by the rail
+      // (`sortable-server.tsx`) and folder rows, so a server reads as "the
+      // same server" everywhere it shows up, not a flat generic tile here.
+      style={icon ? undefined : { background: serverGradient(id) }}
+      className={`grid shrink-0 place-items-center overflow-hidden rounded-md font-semibold ${icon ? "bg-secondary text-foreground" : "text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.35)]"} ${size === 7 ? "size-7 text-xs" : "size-5 text-[0.625rem]"} ${className}`}
+      aria-label={name}
+      title={name}
+    >
       {icon ? <img src={icon} alt="" className="size-full object-cover" /> : name.charAt(0).toUpperCase()}
     </span>
   )

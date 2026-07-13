@@ -108,7 +108,7 @@ export function InviteAcceptClient({ token }: { token: string }) {
         </div>
 
         {/* Server info */}
-        <p className="text-xs uppercase tracking-wide text-muted-foreground">You&apos;re invited to join</p>
+        <p className="text-xs font-medium text-muted-foreground">You&apos;re invited to join</p>
         <h1 className="mt-1 text-2xl font-semibold">{info?.serverName}</h1>
         {info?.memberCount != null && (
           <p className="mt-2 text-xs text-muted-foreground">

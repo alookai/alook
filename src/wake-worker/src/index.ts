@@ -72,6 +72,11 @@ export default {
    * candidate's failure is logged but never blocks siblings or the response.
    */
   async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url)
+    if (url.pathname === "/health" && request.method === "GET") {
+      return Response.json({ status: "ok" })
+    }
+
     if (request.method !== "POST") return new Response("method not allowed", { status: 405 })
 
     let payloads: WakePayload[]

@@ -23,11 +23,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config ../../tests/integration/daemon/vitest.config.ts --passWithNoTests",
     "lint": "eslint .",
-    "mock-server": "tsx scripts/mock-server.ts",
-    "daemon": "tsx scripts/daemon.ts",
-    "test-server": "tsx scripts/test-server.ts",
-    "smoke": "tsx scripts/smoke.ts"
+    "daemon": "tsx scripts/daemon.ts"
   },
   "license": "Apache-2.0",
   "private": true,

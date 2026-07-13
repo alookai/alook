@@ -6,7 +6,7 @@ import {
   useQueryClient,
   type InfiniteData,
 } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import type { Member } from "@/components/community/_types"
 import type {
@@ -414,8 +414,11 @@ export function useServerMembers(serverId: string | null): UseServerMembers {
         // Guard against out-of-order responses.
         if (searchSeq.current !== seq) return
         setSearchResults(data.members)
-      } catch {
-        if (searchSeq.current === seq) setSearchResults([])
+      } catch (e) {
+        if (searchSeq.current === seq) {
+          setSearchResults([])
+          toastApiError(e, "Search failed")
+        }
       }
     },
     [enabled, serverId],

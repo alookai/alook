@@ -143,10 +143,8 @@ src/
     managerRuntime.ts            # AgentProcessManager: applies effects to real sessions
   server/
     contract.ts                  # ServerApi (data) + EnrollmentApi (machine→runner key) + HostControlChannel (control) + AdminApi
-    mockServer.ts                # in-memory ServerApi+AdminApi+EnrollmentApi (enrollMachine / verifyMachineKey / mintAgentCredential)
     wsControlServer.ts           # server end of the control plane over ws (machine-key authed)
     wsControlChannel.ts          # host end: WebSocket HostControlChannel (injectable socket, reconnect + heartbeat + resync)
-    localControlChannel.ts       # in-process HostControlChannel — unit tests only
   daemon/
     createDaemon.ts              # runtime-agnostic daemon factory (driver/sessionFactory/runtimes INJECTED; no test code)
   cli/
@@ -154,12 +152,8 @@ src/
     proxyServerApi.ts            # agent data-plane client: voucher → proxy → server (identity from the voucher)
   credentials/
     credentialProxy.ts           # CredentialBroker (mint/revoke/check per-voucher vouchers) + local key-swapping proxy
-scripts/                         # local-dev scaffolding (the only place "mock" is wired)
-  mock-server.ts                 # SERVER process: MockServer + ws (authed) + http (/api /admin /enroll); prints MACHINE_KEY
-  daemon.ts                      # DAEMON process: thin launcher — createDaemon + injected mock brain / stub driver
-  mockAgentBrain.ts              # rule-brain stub (test only), driven by the daemon's proxy client
-  localBridge.ts                 # the mock-server's HTTP face (/api /admin /enroll)
-  smoke.ts / test-server.ts      # operator surface (admin plane): provision + post + read
+scripts/
+  daemon.ts                      # DAEMON process: thin launcher — wraps `alook daemon start` for local dev
 ```
 
 ## Host orchestration (manager + server)
@@ -181,26 +175,21 @@ orchestration so it can run agents end-to-end:
     bodiless `UnreadNotice` (channel + latest seq, no message content) — the DAEMON
     (`AgentRouter`/`AgentProcessManager`), not the server, decides whether to spawn a
     process, notify an already-running one, or coalesce the notice for the next turn.
-  `mockServer.ts` is a fully in-process `ServerApi`/`AdminApi` — data/admin/enrollment
-  only, with **no** control-plane state (`runningAgents`, unacked deliveries, etc.) and
-  no dispatch logic of its own; it never decides when to wake an agent. The **control
-  plane runs over a real WebSocket** so local dev exercises the actual transport, not an
-  in-process shortcut: `wsControlServer.ts` (server end) and `wsControlChannel.ts`
-  (host end, injectable socket + exponential-backoff reconnect + heartbeat) carry the
-  `HostCommand` frames over `ws://127.0.0.1`. `localControlChannel.ts` is kept only for
-  pure unit tests. A real server connection is the same `WsControlChannel` pointed at a
-  real URL — nothing upstream changes.
+  There is no in-process fixture standing in for the server: `wsControlServer.ts`
+  (server end) and `wsControlChannel.ts` (host end, injectable socket +
+  exponential-backoff reconnect + heartbeat) carry the `HostCommand` frames over
+  a real WebSocket (`ws://127.0.0.1` in local dev, a real `ws-do` URL in
+  production). A real server connection is the same `WsControlChannel` pointed
+  at a real URL — nothing upstream changes.
 
-The e2e test `test/e2e/controlPlane.e2e.test.ts` wires `MockServer →(real ws)→
-AgentRouter → AgentProcessManager` into a complete loop: provision a server/agent/
-channel, post a message, then explicitly push an `agent:wake` `HostCommand` (standing
-in for `src/web`'s wake producer + `src/wake-worker`'s consumer) over the socket — the
-agent replies back to the channel. Single process, no real runtime, but the control
-frames cross an actual WebSocket. The `scripts/` dir runs the same stack across
-SEPARATE processes — `mock-server` (the server, which pushes `agent:wake` to a
-channel's members right after `postMessage` so `smoke`/`test-server` still see replies)
-and `daemon` (machine-key + URL only, no server ref) — with `smoke`/`test-server` as
-operators.
+`tests/integration/daemon/control-plane.test.ts` wires a real `WsControlChannel`
+against a running `ws-do dev` server into a complete loop: seed a server/bot/
+machine, post a message as a human owner over real HTTP, and assert the daemon's
+control channel receives the resulting `agent:wake` `HostCommand` — then, acting
+as the agent (no CLI spawned), replies over the real credential chain
+(enroll → voucher → proxy → X-Agent-Id) and asserts the reply is readable back
+over real HTTP. See "Point a daemon at real infra locally" below for how to run
+the pieces this test drives by hand.
 
 ## Credentials (zero-trust isolation)
 
@@ -279,70 +268,58 @@ This project uses **pnpm** (see the `packageManager` field).
 ```bash
 pnpm install
 pnpm run typecheck           # tsc --noEmit (passes clean)
-pnpm test                    # vitest — unit + e2e (control plane over real ws)
+pnpm test                    # vitest — unit tests only (drivers/manager/inbox/credentials/server)
+pnpm run test:integration    # real infra: requires wrangler dev + ws-do dev + wake-worker dev (see below)
 ```
 
-Behavior is covered by the test suite, not runnable example scripts:
-`src/**/*.test.ts` (unit — drivers/manager/inbox/credentials/server) and
-`test/e2e/*.e2e.test.ts` (the full control plane + credential chain over real ws).
+Unit behavior is covered by `src/**/*.test.ts`. Full control-plane and
+credential-chain behavior against real infra is covered by
+[`tests/integration/daemon/`](../../tests/integration/daemon) — see that
+directory for the executable reference of how the pieces fit together over
+the network (real `WsControlChannel` over a real WebSocket, real
+`enroll-agent`/credential-proxy HTTP calls, no in-process shortcuts).
 
-### Local end-to-end (two real processes)
+### Point a daemon at real infra locally
 
-`pnpm test` already exercises everything in-process. To watch it run for real
-across **separate processes** — the way a deployed daemon talks to a server,
-purely over the network — use the split stack. The daemon holds only a machine
-key + the server's URLs; it never holds a server reference.
+There's no mock server to stand in for `src/web`/`src/ws-do` — a daemon
+always talks to the real thing. To drive one by hand in local dev, run the
+real servers and walk the real credential chain (`cmt_` pairing token →
+`cmk_` daemon credential → `crk_` per-agent runner key):
 
-**Terminal 1 — the server.** Prints a machine key + its URLs:
+**Terminal 1 — the web app + control-plane DO:**
 
 ```bash
-pnpm run mock-server
-# MACHINE_KEY=sk_machine_…
-# SERVER_URL=http://127.0.0.1:4517
-# SERVER_WS_URL=ws://127.0.0.1:4518
+pnpm --filter @alook/web dev      # http://localhost:3000
+pnpm --filter @alook/ws-do dev    # ws://localhost:8789
 ```
 
-**Terminal 2 — a daemon**, given that machine key + those URLs (copy the three
-values printed above). It connects the control plane (machine-key authed) and
-starts the per-agent credential proxy:
+**Terminal 2 — pair + activate a machine**, then start a daemon with the
+resulting `cmk_...` credential:
 
 ```bash
-ALOOK_MACHINE_KEY=sk_machine_… \
-ALOOK_SERVER_URL=http://127.0.0.1:4517 \
-ALOOK_SERVER_WS_URL=ws://127.0.0.1:4518 \
+# 1. As a signed-in user, create a pairing token:
+curl -s -X POST http://localhost:3000/api/community/machines/pair \
+  -H "Cookie: <session-cookie>" | tee /tmp/pair.json
+# → { "tokenId": "cmt_…", "expiresAt": "…" }
+
+# 2. Exchange it for a daemon credential:
+curl -s -X POST http://localhost:3000/api/community/daemon/activate \
+  -H "Authorization: Bearer $(jq -r .tokenId /tmp/pair.json)" \
+  -H "content-type: application/json" \
+  -d '{"hostname":"my-laptop","platform":"darwin","arch":"arm64"}'
+# → { "credential": "cmk_…", "machineId": "cm_…", "expiresAt": null }
+
+# 3. Start the daemon with that credential:
+ALOOK_MACHINE_KEY=cmk_… \
+ALOOK_SERVER_URL=http://localhost:3000 \
+ALOOK_SERVER_WS_URL=ws://localhost:8789 \
 pnpm run daemon
-# → [daemon] control plane OPEN (machineKey accepted)
 ```
 
-**Terminal 3 — drive it.** `smoke` provisions a user / 3 agents / a server /
-a channel, posts a message, and reads the transcript back — each agent replies
-"hi!" through the real credential chain (enroll → voucher → proxy → X-Agent-Id):
-
-```bash
-pnpm run smoke
-# → result: 3 agent replies (expected 3)
-```
-
-`test-server` is the same operator surface as one-off commands (e.g.
-`pnpm run test-server -- post --channel /<server>/<channel> --text hi`).
-
-**Verify auth is real (it rejects).** Start the daemon in Terminal 2 with a bogus
-key — it never reaches "control plane OPEN" (the server closes the connection),
-and the enroll endpoint refuses it:
-
-```bash
-ALOOK_MACHINE_KEY=sk_machine_FORGED ALOOK_SERVER_URL=http://127.0.0.1:4517 \
-ALOOK_SERVER_WS_URL=ws://127.0.0.1:4518 pnpm run daemon      # never logs OPEN
-curl -s -X POST http://127.0.0.1:4517/enroll/agent-credential \
-  -H "Authorization: Bearer sk_machine_FORGED" -H "content-type: application/json" \
-  -d '{"agentId":"x"}'
-# → {"error":"unknown or invalid machine key","code":"UNAUTHORIZED_MACHINE"}
-```
-
-The daemon process holds only a machine key + URLs — no server object, no admin
-access — so the local mock walks the *same* credential code a real agent would,
-and identity can't be forged. `smoke`/`test-server` act as the server-side
-operator (admin plane); the daemon can't reach that surface.
+A bot bound to this machine (via the community UI/API) can now be woken by
+posting a message in a channel it's a member of — the real wake-producer path
+(`src/web` → `src/wake-worker` → `src/ws-do`) delivers `agent:wake` over the
+daemon's real `WsControlChannel`.
 
 > **Run the source, not `dist/` (yet).** `pnpm run build` emits JS, but the
 > current Bundler-resolution emit produces extensionless relative imports that

@@ -2,7 +2,7 @@
  * Seq-based queries powering the `/api/community/agent/*` CLI bridge routes
  * (plans/community-agent-cli-bridge.md §7) plus `toAgentMessages`, the
  * DB-row → wire-`Message` projector every route that returns message bodies
- * uses (mirrors `src/daemon/src/server/mockServer.ts:548`'s `toAgentMessage`).
+ * uses.
  *
  * Kept in its own module (rather than folded into `message.ts`) because
  * every function here is agent-CLI-specific (seq-ordered, ref-formatted,
@@ -316,7 +316,7 @@ export async function getLatestSeqForScope(db: Database, scopeKey: string): Prom
  * global seq order — `seq` is a per-scope counter, comparing raw values
  * across scopes is meaningless, see plan §7 v4). Always drains one channel's
  * unread completely (in seq order) before starting the next. Excludes the
- * bot's own authored messages (mirrors `mockServer.ts:391`). Never mutates
+ * bot's own authored messages. Never mutates
  * read state. Scope checks happen in SQL before returning rows: channel
  * messages require server membership, and DM messages require participation.
  */

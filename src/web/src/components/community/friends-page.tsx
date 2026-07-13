@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from "react"
 import type React from "react"
 import { Users, MessagesSquare, ChevronLeft, Check, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, toastApiError } from "@/lib/api/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -23,7 +23,7 @@ function FriendSection({ title, count, emptyLabel, children }: {
 }) {
   return (
     <div className="flex min-h-0 flex-col">
-      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</div>
+      <div className="mb-2 text-xs font-semibold text-muted-foreground">{title}</div>
       {count === 0 ? <EmptyState icon={Users} label={emptyLabel} /> : <div className="flex flex-col gap-1">{children}</div>}
     </div>
   )
@@ -72,7 +72,10 @@ export function FriendsPage({
       try {
         const data = await apiFetch<{ users: { id: string; name: string; image: string | null; discriminator: string }[] }>(`/api/community/users/search?q=${encodeURIComponent(q)}`)
         setSearchResults(data.users)
-      } catch { setSearchResults([]) }
+      } catch (e) {
+        setSearchResults([])
+        toastApiError(e, "Search failed")
+      }
     }, 300)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
   }, [addValue])
@@ -153,7 +156,7 @@ export function FriendsPage({
 
           {loading && friends.length === 0 ? (
             <div className="flex min-h-0 flex-col">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">All friends — …</div>
+              <div className="mb-2 text-xs font-semibold text-muted-foreground">All friends — …</div>
               <FriendRowsSkeleton />
             </div>
           ) : (
@@ -168,12 +171,12 @@ export function FriendsPage({
 
           {loading && blocked.length === 0 ? (
             <div className="mt-8 flex min-h-0 flex-col">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Blocked — …</div>
+              <div className="mb-2 text-xs font-semibold text-muted-foreground">Blocked — …</div>
               <FriendRowsSkeleton withActions />
             </div>
           ) : blocked.length > 0 ? (
             <div className="mt-8">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Blocked — {blocked.length}</div>
+              <div className="mb-2 text-xs font-semibold text-muted-foreground">Blocked — {blocked.length}</div>
               <div className="flex flex-col gap-1">
                 {blocked.map((b) => (
                   <div key={b.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
@@ -189,7 +192,7 @@ export function FriendsPage({
 
         <TabsContent value="new">
           <div className="mb-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add a friend</div>
+            <div className="text-xs font-semibold text-muted-foreground">Add a friend</div>
             <div className="relative mt-2">
               <div className="relative flex items-center gap-2">
                 <div className="relative flex-1">
@@ -237,12 +240,12 @@ export function FriendsPage({
 
           {loading && pending.length === 0 ? (
             <div className="flex min-h-0 flex-col">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pending — …</div>
+              <div className="mb-2 text-xs font-semibold text-muted-foreground">Pending — …</div>
               <FriendRowsSkeleton withActions />
             </div>
           ) : pending.length > 0 ? (
             <div>
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pending — {pending.length}</div>
+              <div className="mb-2 text-xs font-semibold text-muted-foreground">Pending — {pending.length}</div>
               <div className="flex flex-col gap-1">
                 {pending.map((p) => (
                   <div key={p.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">

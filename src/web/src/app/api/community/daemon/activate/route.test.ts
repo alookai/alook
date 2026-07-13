@@ -9,7 +9,7 @@ vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
 // The activate route also broadcasts machine.created — stub that.
 vi.mock("@/lib/broadcast", () => ({
-  broadcastToUser: vi.fn(async () => {}),
+  broadcastToUser: vi.fn(async () => { }),
 }))
 
 const mockActivate = vi.fn()
@@ -137,5 +137,14 @@ describe("POST /api/community/daemon/activate", () => {
     mockActivate.mockRejectedValue(new Err("expired", "expired"))
     const res = await POST(jsonReq(goodBody, { Authorization: "Bearer cmt_old" }))
     expect(res.status).toBe(410)
+  })
+
+  it("500 body includes the underlying exception's message for an unhandled failure", async () => {
+    mockActivate.mockRejectedValue(new Error("D1_ERROR: database is locked"))
+    const res = await POST(jsonReq(goodBody, { Authorization: "Bearer cmt_boom" }))
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({
+      error: "activate failed: D1_ERROR: database is locked",
+    })
   })
 })

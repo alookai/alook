@@ -38,8 +38,7 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   // here), which would otherwise mask this command's own "DMs not
   // supported" 400 for any peer the bot hasn't DM'd before. Checking the
   // ref's server segment directly avoids depending on that resolution at
-  // all — mirrors `mockServer.ts`'s `subscribeChannel`, which does the
-  // same `parseRef`-first check.
+  // all.
   let parsedRef: ReturnType<typeof parseRef>
   try {
     parsedRef = parseRef(body.channel)

@@ -585,9 +585,9 @@ export type WebSocketFactory = (url: string, headers: Record<string, string>) =>
 /* ------------------------------------------------------------------ */
 
 /**
- * Server-side provisioning, separate from the agent's daily `ServerApi`. Used by
- * the test-server command surface (and, in production, by privileged callers) to
- * create servers/agents/channels and inject messages. `postMessage` writes
+ * Server-side provisioning, separate from the agent's daily `ServerApi`. Used
+ * in production by privileged callers to create servers/agents/channels and
+ * inject messages. `postMessage` writes
  * the message; real deployments separately enqueue an `agent:wake` for any
  * bot behind on the new message (see `src/web`'s wake producer +
  * `src/wake-worker`'s consumer) — this admin surface does not itself compute
@@ -654,8 +654,7 @@ export interface EnrollmentApi {
    *
    * Implementations MUST also enforce that `agentId` is bound to THIS machine
    * (404 if bound elsewhere or unbound) — see the production `enroll-agent`
-   * route's binding check, mirrored by `MockServer` when `createAgent` was
-   * given a `machineKey`.
+   * route's binding check.
    */
   mintAgentCredential(req: { machineKey: string; agentId: AgentId }): Promise<{ runnerKey: string; expiresAt?: number }>;
 }

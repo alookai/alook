@@ -12,3 +12,11 @@ export {
 export { signUp, signIn, sessionRequest, tokenRequest } from "./auth"
 export { fetchWithRetry, isRetryableError } from "./fetch"
 export { rawEmail, rawEmailWithHeaders, postEmail, postEmailRaw } from "./email"
+export {
+  pairAndActivateMachine,
+  seedCommunityBot,
+  cleanupCommunityBot,
+  cleanupPairedMachine,
+  type PairedMachine,
+  type SeededCommunityBot,
+} from "./community"

@@ -2,10 +2,11 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    // Unit tests live next to sources as *.test.ts; e2e tests under test/e2e.
-    include: ["src/**/*.test.ts", "test/**/*.test.ts"],
+    // Unit tests live next to sources as *.test.ts. Real-infra integration
+    // tests live in ../../tests/integration/daemon/ and run separately via
+    // `pnpm test:integration` (not part of this config's include).
+    include: ["src/**/*.test.ts"],
     environment: "node",
-    // e2e tests spin up real ws servers; give them room but keep unit tests fast.
     testTimeout: 10_000,
   },
 });

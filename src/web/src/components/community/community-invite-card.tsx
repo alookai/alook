@@ -93,7 +93,7 @@ export function CommunityInviteCard({ token }: { token: string }) {
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">
+        <div className="text-xs font-medium text-muted-foreground">
           You&apos;ve been invited to join
         </div>
         <div className="truncate font-medium">{data.serverName}</div>

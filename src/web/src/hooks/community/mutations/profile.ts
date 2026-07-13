@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation } from "@tanstack/react-query"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, readUploadError } from "@/lib/api/client"
 
 export type UpdateProfileArgs = {
   name?: string
@@ -45,7 +45,7 @@ export function useUploadUserAvatar() {
         body: formData,
         credentials: "include",
       })
-      if (!res.ok) throw new Error("Upload failed")
+      if (!res.ok) throw await readUploadError(res, "Upload failed")
       return (await res.json()) as UploadUserAvatarResult
     },
   })

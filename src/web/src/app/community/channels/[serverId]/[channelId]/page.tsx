@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, toastApiError } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { ChannelHeader, ChannelHeaderSkeleton, type ChannelNotifLevel } from "@/components/community/channel-header"
 import { MessageList } from "@/components/community/message-list"
 import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/community/composer"
 import { ForumView, ForumViewSkeleton } from "@/components/community/forum-view"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
-import { NewThreadDialog } from "@/components/community/new-thread-panel"
 import { ThreadOpener } from "@/components/community/thread-opener"
 import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
@@ -273,7 +272,10 @@ function ChannelView() {
               parentMessageId: data.parentMessageId,
             }),
         )
-        .catch(() => useCommunityStore.getState().setCurrentChannelMeta(null))
+        .catch((e) => {
+          useCommunityStore.getState().setCurrentChannelMeta(null)
+          toastApiError(e, "Failed to load thread")
+        })
     } else {
       useCommunityStore.getState().setCurrentChannelMeta(null)
     }
@@ -284,7 +286,6 @@ function ChannelView() {
 
   // ── Local UI state ──────────────────────────────────────────────────────
   const [rightPanel, setRightPanel] = useState<RightPanel>(null)
-  const [creatingThread, setCreatingThread] = useState(false)
   const [replyTo, setReplyTo] = useState<{ id: string; authorName: string; text: string } | null>(null)
   const [localName, setLocalName] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
@@ -299,7 +300,6 @@ function ChannelView() {
     setSearchResults([])
     setLocalName(null)
     setScrollToMessageId(null)
-    setCreatingThread(false)
   }, [channelId])
 
   const doSearch = useCallback(async (q: string) => {
@@ -317,7 +317,10 @@ function ChannelView() {
         content: r.message.content,
         createdAt: r.message.createdAt,
       })))
-    } catch { setSearchResults([]) }
+    } catch (e) {
+      setSearchResults([])
+      toastApiError(e, "Search failed")
+    }
   }, [channelId])
 
   // Find the channel name
@@ -340,7 +343,7 @@ function ChannelView() {
 
   const enterThread = (id: string) => {
     router.push(`/community/channels/${params.serverId}/${id}`)
-    apiFetch(`/api/community/threads/${id}/read`, { method: "PUT" }).catch(() => {})
+    apiFetch(`/api/community/threads/${id}/read`, { method: "PUT" }).catch(() => { })
   }
 
   const openProfile: OpenProfile = (name, e, discriminator, userId) => {
@@ -392,12 +395,12 @@ function ChannelView() {
       if (isPinned) {
         unpinMessageMut.mutate({ channelId, messageId: id }, {
           onSuccess: () => toast("Message unpinned"),
-          onError: () => toast("Failed to unpin message"),
+          onError: (e) => toastApiError(e, "Failed to unpin message"),
         })
       } else {
         pinMessageMut.mutate({ channelId, messageId: id }, {
           onSuccess: () => toast("Message pinned"),
-          onError: () => toast("Failed to pin message"),
+          onError: (e) => toastApiError(e, "Failed to pin message"),
         })
         setRightPanel("pinned")
       }
@@ -408,8 +411,8 @@ function ChannelView() {
       try {
         const data = await createThreadMut.mutateAsync({ channelId, messageId: id, name })
         router.push(`/community/channels/${params.serverId}/${data.id}`)
-      } catch {
-        toast("Failed to create thread")
+      } catch (e) {
+        toastApiError(e, "Failed to create thread")
       }
     },
     onCopy: (id: string) => {
@@ -446,7 +449,10 @@ function ChannelView() {
     if (attachments?.length) {
       const results = await Promise.all(
         attachments.map((a) =>
-          uploadFileMut.mutateAsync({ target: { channelId }, file: a.file }).catch(() => null),
+          uploadFileMut.mutateAsync({ target: { channelId }, file: a.file }).catch((e) => {
+            toastApiError(e, "Failed to attach file")
+            return null
+          }),
         ),
       )
       uploadedAttachments = zipUploadResultsWithDimensions(results, attachments)
@@ -465,25 +471,9 @@ function ChannelView() {
     communityWsSendTyping({ channelId })
   }
 
-  const createThreadFromDialog = async (name: string, firstMessage?: string) => {
-    setCreatingThread(false)
-    if (firstMessage) {
-      try {
-        const result = await doSend(firstMessage)
-        if (result?.message?.id) {
-          await createThreadMut.mutateAsync({ channelId, messageId: result.message.id, name })
-        }
-      } catch {
-        toast("Failed to create thread")
-      }
-    } else {
-      toast("Create a thread by clicking 'Create Thread' on any message")
-    }
-  }
-
   const createForumPost = (post: { name: string; content: string; tags: string[] }) => {
     createForumPostMut.mutate({ channelId, ...post }, {
-      onError: () => toast("Failed to create post"),
+      onError: (e) => toastApiError(e, "Failed to create post"),
     })
   }
 
@@ -507,13 +497,13 @@ function ChannelView() {
     onSetRole: (memberId: string, role: Role) => {
       setMemberRoleMut.mutate({ serverId, memberId, role }, {
         onSuccess: () => toast("Role updated"),
-        onError: () => toast("Failed to update role"),
+        onError: (e) => toastApiError(e, "Failed to update role"),
       })
     },
     onKickMember: (memberId: string) => {
       kickMemberMut.mutate({ serverId, memberId }, {
         onSuccess: () => toast("Member kicked"),
-        onError: () => toast("Failed to kick member"),
+        onError: (e) => toastApiError(e, "Failed to kick member"),
       })
     },
     onJumpToMessage: (id: string) => {
@@ -555,7 +545,7 @@ function ChannelView() {
             structurally different JSX trees — React's reconciliation only
             needs the position + type + key to line up.
           */}
-          <MessageList key={channelId} channel="" messages={[]} loading={true} onOpenThread={() => {}} />
+          <MessageList key={channelId} channel="" messages={[]} loading={true} onOpenThread={() => { }} />
           <ComposerSkeleton />
         </main>
       </>
@@ -590,7 +580,7 @@ function ChannelView() {
           rightPanel={rightPanel}
           onToggle={togglePanel}
           onBack={bp === "mobile" ? () => router.back() : undefined}
-          server={bp === "mobile" && currentServer ? { name: currentServer.name, icon: currentServer.icon } : undefined}
+          server={bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined}
           tools={{ threads: false }}
           breadcrumb={{
             label: channelName,
@@ -602,7 +592,7 @@ function ChannelView() {
                   body: JSON.stringify({ name }),
                 })
                 setLocalName(name)
-              } catch { toast("Failed to rename") }
+              } catch (e) { toastApiError(e, "Failed to rename") }
             } : undefined,
           }}
         />
@@ -614,7 +604,7 @@ function ChannelView() {
             loading={messagesLoading}
             pinnedIds={pinnedIds}
             typingUsers={typingUsers.map((id) => members.find((m) => m.userId === id)?.name ?? id)}
-            onOpenThread={() => {}}
+            onOpenThread={() => { }}
             {...threadActions}
             onOpenProfile={openProfile}
             resolveUserName={resolveUserName}
@@ -671,9 +661,11 @@ function ChannelView() {
           rightPanel={rightPanel}
           onToggle={togglePanel}
           notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
-          onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l })}
+          onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
+            onError: (e) => toastApiError(e, "Failed to update notification level"),
+          })}
           onBack={bp === "mobile" ? goBack : undefined}
-          server={bp === "mobile" && currentServer ? { name: currentServer.name, icon: currentServer.icon } : undefined}
+          server={bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined}
           tools={{ threads: false, pinned: false }}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -688,7 +680,7 @@ function ChannelView() {
               apiFetch(`/api/community/channels/${channelId}`, {
                 method: "PATCH",
                 body: JSON.stringify({ forumTags: JSON.stringify(tags) }),
-              }).catch(() => toast("Failed to save tags"))
+              }).catch((e) => toastApiError(e, "Failed to save tags"))
             } : undefined}
           />
         </main>
@@ -714,9 +706,11 @@ function ChannelView() {
         rightPanel={rightPanel}
         onToggle={togglePanel}
         notifLevel={(channelNotif[channelId] as ChannelNotifLevel) ?? "Use Server Default"}
-        onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l })}
+        onSetNotifLevel={(l) => setChannelNotifMut.mutate({ channelId, level: l }, {
+          onError: (e) => toastApiError(e, "Failed to update notification level"),
+        })}
         onBack={bp === "mobile" ? goBack : undefined}
-        server={bp === "mobile" && currentServer ? { name: currentServer.name, icon: currentServer.icon } : undefined}
+        server={bp === "mobile" && currentServer ? { id: currentServer.id, name: currentServer.name, icon: currentServer.icon } : undefined}
       />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <MessageList
@@ -757,7 +751,6 @@ function ChannelView() {
           onSearchMembers={membersHook.searchMembers}
           channelRefCandidates={channelRefCandidates}
           onSend={sendMessage}
-          onCreateThread={() => setCreatingThread(true)}
           onTyping={handleTyping}
           replyingTo={replyTo?.authorName}
           onCancelReply={() => setReplyTo(null)}
@@ -774,13 +767,6 @@ function ChannelView() {
           onOpenProfile={openProfile}
         />
       )}
-
-      <NewThreadDialog
-        channel={channelName}
-        open={creatingThread}
-        onClose={() => setCreatingThread(false)}
-        onCreate={createThreadFromDialog}
-      />
     </>
   )
 }

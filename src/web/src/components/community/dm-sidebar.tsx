@@ -59,7 +59,7 @@ export const DmSidebar = memo(function DmSidebar({
           </button>
         )}
         <div className="my-2 h-px bg-border" />
-        <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="mb-2 px-2 text-xs font-semibold text-muted-foreground">
           Direct Messages
         </div>
         {dms.length === 0 && (

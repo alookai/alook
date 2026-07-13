@@ -96,6 +96,7 @@ jobs:
           pnpm --filter @alook/email-worker dev &
           pnpm --filter @alook/ws-do dev &
           pnpm --filter @alook/web dev &
+          pnpm --filter @alook/wake-worker dev &
       - name: Wait for services to be ready
         run: |
           wait_for() {
@@ -116,7 +117,8 @@ jobs:
           # First attempt
           if ! wait_for http://localhost:8787/health "email-worker" || \
              ! wait_for http://localhost:8789/health "ws-do" || \
-             ! wait_for http://localhost:3000/api/health "web app"; then
+             ! wait_for http://localhost:3000/api/health "web app" || \
+             ! wait_for http://localhost:8790/health "wake-worker"; then
             echo "Some services failed to start, restarting..."
             pkill -f "wrangler" || true
             pkill -f "next" || true
@@ -124,13 +126,16 @@ jobs:
             pnpm --filter @alook/email-worker dev &
             pnpm --filter @alook/ws-do dev &
             pnpm --filter @alook/web dev &
+            pnpm --filter @alook/wake-worker dev &
             # Second attempt — fail hard
             wait_for http://localhost:8787/health "email-worker" || exit 1
             wait_for http://localhost:8789/health "ws-do" || exit 1
             wait_for http://localhost:3000/api/health "web app" || exit 1
+            wait_for http://localhost:8790/health "wake-worker" || exit 1
           fi
       - run: pnpm test:e2e
       - run: pnpm --filter @alook/cli run test:integration
+      - run: pnpm --filter @alook/daemon run test:integration
 
   build:
     name: Build

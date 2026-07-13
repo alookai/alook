@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { apiFetch } from "@/lib/api/client"
+import { apiFetch, toastApiError } from "@/lib/api/client"
 import { communityKeys } from "@/lib/query-keys"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useBreakpoint } from "@/hooks/use-mobile"
@@ -287,13 +287,13 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const onCreateChannelInSidebar = useCallback((categoryId: string, name: string, type: ChannelType) => {
     createChannelMut.mutate(
       { serverId, categoryId, name, type },
-      { onError: (e) => toast(e instanceof Error ? e.message : "Failed to create channel") },
+      { onError: (e) => toastApiError(e, "Failed to create channel") },
     )
   }, [createChannelMut, serverId])
   const onCreateCategoryInSidebar = useCallback((name: string, opts?: { private?: boolean }) => {
     createCategoryMut.mutate(
       { serverId, name, private: opts?.private },
-      { onError: (e) => toast(e instanceof Error ? e.message : "Failed to create category") },
+      { onError: (e) => toastApiError(e, "Failed to create category") },
     )
   }, [createCategoryMut, serverId])
   const onRenameChannel = useCallback(async (channelId: string, name: string) => {
@@ -303,26 +303,26 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         body: JSON.stringify({ name }),
       })
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed to rename channel")
+      toastApiError(e, "Failed to rename channel")
     }
   }, [])
   const onDeleteChannelInSidebar = useCallback((channelId: string) => {
-    deleteChannelMut.mutate({ serverId, channelId }, { onError: () => toast("Failed to delete channel") })
+    deleteChannelMut.mutate({ serverId, channelId }, { onError: (e) => toastApiError(e, "Failed to delete channel") })
   }, [deleteChannelMut, serverId])
   const onDeleteCategoryInSidebar = useCallback((categoryId: string) => {
-    deleteCategoryMut.mutate({ serverId, categoryId }, { onError: () => toast("Failed to delete category") })
+    deleteCategoryMut.mutate({ serverId, categoryId }, { onError: (e) => toastApiError(e, "Failed to delete category") })
   }, [deleteCategoryMut, serverId])
   const onUpdateCategoryInSidebar = useCallback((categoryId: string, opts: { name?: string }) => {
-    updateCategoryMut.mutate({ serverId, categoryId, name: opts.name }, { onError: () => toast("Failed to update category") })
+    updateCategoryMut.mutate({ serverId, categoryId, name: opts.name }, { onError: (e) => toastApiError(e, "Failed to update category") })
   }, [updateCategoryMut, serverId])
   const onReorderCategoriesInSidebar = useCallback((categoryIds: string[]) => {
-    reorderCategoriesMut.mutate({ serverId, categoryIds }, { onError: () => toast("Failed to save category order") })
+    reorderCategoriesMut.mutate({ serverId, categoryIds }, { onError: (e) => toastApiError(e, "Failed to save category order") })
   }, [reorderCategoriesMut, serverId])
   const onReorderChannelsInSidebar = useCallback((channelIds: string[]) => {
-    reorderChannelsMut.mutate({ serverId, channelIds }, { onError: () => toast("Failed to save channel order") })
+    reorderChannelsMut.mutate({ serverId, channelIds }, { onError: (e) => toastApiError(e, "Failed to save channel order") })
   }, [reorderChannelsMut, serverId])
   const onMoveChannelInSidebar = useCallback((channelId: string, categoryId: string | null) => {
-    moveChannelMut.mutate({ serverId, channelId, categoryId }, { onError: () => toast("Failed to move channel") })
+    moveChannelMut.mutate({ serverId, channelId, categoryId }, { onError: (e) => toastApiError(e, "Failed to move channel") })
   }, [moveChannelMut, serverId])
   const onBlockedMove = useCallback(() => {
     toast("Can't move a channel between public and private categories")
@@ -331,6 +331,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
   const channelProps = useMemo(() => ({
     tree: channelTree,
     serverName: currentServer?.name ?? "",
+    serverIcon: currentServer?.icon ?? null,
     activeChannel: currentChannelMeta?.parentChannelId ?? currentChannelId ?? "",
     isAdmin,
     currentUserId: currentUser.id,
@@ -398,18 +399,18 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
           onKickMember={(memberId) => {
             kickMemberMut.mutate({ serverId, memberId }, {
               onSuccess: () => toast("Member kicked"),
-              onError: () => toast("Failed to kick member"),
+              onError: (e) => toastApiError(e, "Failed to kick member"),
             })
           }}
           onSetRole={(memberId, role) => {
             setMemberRoleMut.mutate({ serverId, memberId, role }, {
               onSuccess: () => toast("Role updated"),
-              onError: () => toast("Failed to update role"),
+              onError: (e) => toastApiError(e, "Failed to update role"),
             })
           }}
           onRevokeInvite={(code) => revokeInviteMut.mutate({ serverId, code }, {
             onSuccess: () => toast("Invite revoked"),
-            onError: () => toast("Failed to revoke invite"),
+            onError: (e) => toastApiError(e, "Failed to revoke invite"),
           })}
           onCopyInvite={(code) => { navigator.clipboard?.writeText(`${window.location.origin}/community/invite/${code}`); toast("Invite copied") }}
           onDeleteServer={async () => {
@@ -420,7 +421,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
                 useCommunityStore.getState().setCurrentServerId(null)
                 router.push("/community/me")
               },
-              onError: () => toast("Failed to delete server"),
+              onError: (e) => toastApiError(e, "Failed to delete server"),
             })
           }}
           onUploadIcon={() => {
@@ -442,12 +443,12 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
           onUpdateServer={(name, desc) =>
             updateServerMut.mutate({ serverId, name, description: desc }, {
               onSuccess: () => toast("Server updated"),
-              onError: () => toast("Failed to update server"),
+              onError: (e) => toastApiError(e, "Failed to update server"),
             })
           }
           notifLevel={notifLevel}
           onSetNotifLevel={(level) => setServerNotifMut.mutate({ serverId, level }, {
-            onError: () => toast("Failed to update notification level"),
+            onError: (e) => toastApiError(e, "Failed to update notification level"),
           })}
           onOpenProfile={openProfile}
         />
@@ -463,7 +464,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
       onCropped={(file) => {
         uploadServerIconMut.mutate({ serverId, file }, {
           onSuccess: () => toast("Server icon updated"),
-          onError: () => toast("Failed to upload icon"),
+          onError: (e) => toastApiError(e, "Failed to upload icon"),
         })
         URL.revokeObjectURL(pendingIconCrop.src)
         setPendingIconCrop(null)

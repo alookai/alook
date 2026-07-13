@@ -29,7 +29,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
       {!loading && nothingUnread && <EmptyState icon={Inbox} label="Caught up" />}
       {dms.length > 0 && (
         <div className="mb-3">
-          <div className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Direct Messages</div>
+          <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">Direct Messages</div>
           {dms.map((d) => (
             <button
               key={d.dmConversationId}
@@ -45,7 +45,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
       )}
       {servers.map((s) => (
         <div key={s.serverId} className="mb-3">
-          <div className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{s.serverName}</div>
+          <div className="px-2 pb-1 text-xs font-semibold text-muted-foreground">{s.serverName}</div>
           {s.channels.map((c) => (
             <div key={c.channelId}>
               <button

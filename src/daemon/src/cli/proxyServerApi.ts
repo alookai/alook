@@ -12,9 +12,10 @@
  * the agent says), and forwards to the data-plane upstream. So the agent's
  * identity is established by the voucher it holds, never self-asserted.
  *
- * This is the code the mock agent reuses verbatim in local dev — the only thing
- * that differs locally is that the proxy's upstream points at the in-process
- * bridge instead of a remote server. The credential + verification path is real.
+ * This is the code the integration-test harness reuses verbatim — the only
+ * thing that differs is that the proxy's upstream points at a local `wrangler
+ * dev` instance instead of a deployed server. The credential + verification
+ * path is real.
  */
 import * as fs from "fs";
 import type {

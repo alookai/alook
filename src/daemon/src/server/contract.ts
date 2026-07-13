@@ -4,7 +4,7 @@
  * This file is now a thin re-export shim. The canonical definitions live in
  * `@alook/shared`'s `community-cli-contract.ts` (lifted there so the real
  * server routes and the wake producer/consumer can share the exact same
- * types this CLI/mock-server pair implements against — see
+ * types this CLI/production server pair implements against — see
  * `plans/community-agent-cli-bridge.md` §1). Keep importing from
  * `./contract.js` at existing daemon call sites; nothing else changes.
  */
