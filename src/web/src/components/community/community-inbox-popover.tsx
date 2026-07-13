@@ -1,4 +1,5 @@
-import { ChevronRight, CornerDownRight, Hash, Inbox, MoreHorizontal, Trash2 } from "lucide-react"
+import { ChevronRight, Inbox, MoreHorizontal, Trash2 } from "lucide-react"
+import { EntityIcon } from "./entity-icon"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -52,7 +53,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
                 onClick={() => onOpenChannel?.(s.serverId, c.channelId)}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
               >
-                <Hash className="size-4 shrink-0 text-muted-foreground" />
+                <EntityIcon kind={c.type} className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{c.channelName}</span>
                 <MentionBadge count={c.mentionCount} />
                 <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
@@ -64,7 +65,7 @@ function UnreadsTab({ servers, dms, loading, onOpenChannel, onOpenDm }: {
                   onClick={() => onOpenChannel?.(s.serverId, child.channelId)}
                   className="flex w-full items-center gap-2 rounded-md py-1.5 pl-8 pr-2 text-left text-sm hover:bg-accent"
                 >
-                  <CornerDownRight className="size-3.5 shrink-0 text-muted-foreground" />
+                  <EntityIcon kind={child.type} className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate text-muted-foreground">{child.channelName}</span>
                   <MentionBadge count={child.mentionCount} />
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground" />

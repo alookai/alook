@@ -54,12 +54,13 @@ vi.mock("@/lib/middleware/helpers", () => {
 
 import { GET } from "./route"
 
-function row(overrides: Partial<{ channelId: string; channelName: string; serverId: string; serverName: string; parentChannelId: string | null; lastMessageAt: string; lastReadAt: string | null }>) {
+function row(overrides: Partial<{ channelId: string; channelName: string; serverId: string; serverName: string; type: string | null; parentChannelId: string | null; lastMessageAt: string; lastReadAt: string | null }>) {
   return {
     channelId: "c1",
     channelName: "general",
     serverId: "s1",
     serverName: "Server 1",
+    type: "text" as string | null,
     parentChannelId: null,
     lastMessageAt: "2026-06-25T10:00:00Z",
     lastReadAt: null,
@@ -281,5 +282,42 @@ describe("GET /api/community/inbox/unreads", () => {
     const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
     const body = await res.json()
     expect(body.servers[0].channels[0].children).toEqual([])
+  })
+
+  // ── Entity type plumbing (drives the inbox icon) ───────────────────────────
+
+  it("surfaces channel `type` so the inbox can pick the right entity icon", async () => {
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "c1", channelName: "general", type: "text" }),
+      row({ channelId: "c2", channelName: "help-forum", type: "forum", lastMessageAt: "2026-06-25T09:00:00Z" }),
+    ])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    const byId = Object.fromEntries(
+      body.servers[0].channels.map((c: { channelId: string; type?: string }) => [c.channelId, c.type]),
+    )
+    expect(byId).toEqual({ c1: "text", c2: "forum" })
+  })
+
+  it("surfaces child `type` (thread / forum_post) on nested rows", async () => {
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "c1", channelName: "general", type: "text" }),
+      row({ channelId: "t1", channelName: "budget", type: "thread", parentChannelId: "c1", lastMessageAt: "2026-06-25T11:00:00Z" }),
+    ])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    const parent = body.servers[0].channels[0]
+    expect(parent.type).toBe("text")
+    expect(parent.children[0].type).toBe("thread")
+  })
+
+  it("carries `type` from getChannelsByIds when the parent is backfilled", async () => {
+    mockListUnreadChannels.mockResolvedValue([
+      row({ channelId: "t1", channelName: "budget", type: "thread", parentChannelId: "c1" }),
+    ])
+    mockGetChannelsByIds.mockResolvedValue([{ id: "c1", name: "help-forum", serverId: "s1", type: "forum" }])
+    const res = await GET(new NextRequest("http://localhost/api/community/inbox/unreads"))
+    const body = await res.json()
+    expect(body.servers[0].channels[0].type).toBe("forum")
   })
 })

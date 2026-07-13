@@ -41,25 +41,15 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
 }
 
 /**
- * Resolves the recipient set for a channel event.
- *   - public / uncategorized channel (or a thread whose anchor is public) →
- *     all server members (unchanged behavior).
- *   - private-category channel (or a thread anchored to one) → the channel
- *     audience: explicit members ∪ creator ∪ server admins.
- * `isChannelPrivate` and `getPrivateChannelAudienceUserIds` both climb
- * `parentChannelId`, so threads inherit their parent's audience automatically.
+ * Resolves the recipient set for a channel event. The public/private split
+ * (and thread/post parent-climbing) lives in the shared member resolver — this
+ * is a thin delegate so fan-out, the WS DO, and any future surface all agree.
  */
 async function getChannelRecipientUserIds(db: Database, channelId: string): Promise<string[]> {
-  const channel = await queries.communityChannel.getChannel(db, channelId)
-  if (!channel) {
-    log.warn("fanOutToChannel: channel not found", { channelId })
-    return []
-  }
-  const isPrivate = await queries.communityChannel.isChannelPrivate(db, channelId)
-  if (isPrivate) {
-    return queries.communityChannel.getPrivateChannelAudienceUserIds(db, channelId)
-  }
-  return getServerMemberUserIds(db, channel.serverId)
+  return queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
+    scope: "channel",
+    scopeId: channelId,
+  })
 }
 
 /**

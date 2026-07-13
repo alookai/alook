@@ -933,14 +933,12 @@ export class WebSocketDurableObject extends DurableObject<Env> {
         // channel audience — never leak "X is typing" to non-members. Also
         // re-gates the sender: a server member who isn't in the private
         // channel won't appear in its own audience, so they broadcast to
-        // nobody. Public/uncategorized channels stay server-wide.
-        const isPrivate = await queries.communityChannel.isChannelPrivate(db, targetId)
-        if (isPrivate) {
-          recipientUserIds = await queries.communityChannel.getPrivateChannelAudienceUserIds(db, targetId)
-        } else {
-          const members = await queries.communityMember.listMembers(db, membership.serverId)
-          recipientUserIds = members.map((m) => m.userId)
-        }
+        // nobody. Public/uncategorized channels stay server-wide. The
+        // public/private split lives in the shared member resolver.
+        recipientUserIds = await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
+          scope: "channel",
+          scopeId: targetId,
+        })
       }
     }
 

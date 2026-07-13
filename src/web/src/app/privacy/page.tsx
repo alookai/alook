@@ -161,8 +161,7 @@ export default function PrivacyPage() {
             If you have any questions about this Privacy Policy, You can contact us at{" "}
             <a href="mailto:support@alook.ai" className={linkClass}>
               support@alook.ai
-            </a>
-            .
+            </a>.
           </p>
         </section>
       </div>

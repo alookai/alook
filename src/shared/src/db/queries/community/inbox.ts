@@ -14,6 +14,9 @@ export interface UnreadChannelRow {
   channelName: string;
   serverId: string;
   serverName: string;
+  // Raw stored channel type (text | forum | thread | forum_post). Threaded
+  // through to the inbox so it can render the same entity icon as the sidebar.
+  type: string | null;
   lastMessageAt: string;
   lastReadAt: string | null;
   // null for a top-level channel; set for a thread / forum-post child. The
@@ -73,6 +76,7 @@ export async function listUnreadChannels(
       channelName: communityChannel.name,
       serverId: communityChannel.serverId,
       serverName: communityServer.name,
+      type: communityChannel.type,
       parentChannelId: communityChannel.parentChannelId,
       lastMessageAt: communityChannel.lastMessageAt,
       lastReadAt: communityReadState.lastReadAt,
@@ -119,6 +123,7 @@ export async function listUnreadChannels(
       channelName: r.channelName,
       serverId: r.serverId,
       serverName: r.serverName,
+      type: r.type,
       parentChannelId: r.parentChannelId,
       lastMessageAt: r.lastMessageAt!,
       lastReadAt: r.lastReadAt,

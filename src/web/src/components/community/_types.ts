@@ -12,6 +12,7 @@
 
 import type React from "react"
 import type { ChannelType, CommunityRole } from "@alook/shared"
+import type { EntityKind } from "./entity-icon"
 
 // ── Presence / enums ───────────────────────────────────────────────────────
 export type Presence = "online" | "offline"
@@ -274,6 +275,9 @@ export type Mention = {
 type UnreadChild = {
   channelId: string
   channelName: string
+  // Raw stored channel type — drives the inbox entity icon (thread/forum_post
+  // → MessagesSquare). Optional for backward-compat with cached responses.
+  type?: EntityKind
   lastMessageAt: string
   mentionCount: number
 }
@@ -287,6 +291,9 @@ export type UnreadServer = {
   channels: Array<{
     channelId: string
     channelName: string
+    // Raw stored channel type — drives the inbox entity icon so a forum
+    // channel shows the forum glyph, not a generic hash.
+    type?: EntityKind
     lastMessageAt: string
     mentionCount: number
     children: UnreadChild[]

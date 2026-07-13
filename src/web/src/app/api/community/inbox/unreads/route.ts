@@ -47,10 +47,11 @@ export const GET = withAuth(async (req, ctx) => {
   // Split unread rows into top-level channels and child threads/forum-posts.
   // A child nests under its `parentChannelId`; a parent surfaces in the tree
   // even when it has no direct unread of its own (only unread children).
-  type UnreadChild = { channelId: string; channelName: string; lastMessageAt: string; mentionCount: number }
+  type UnreadChild = { channelId: string; channelName: string; type: string | null; lastMessageAt: string; mentionCount: number }
   type ParentNode = {
     channelId: string
     channelName: string
+    type: string | null
     serverId: string
     serverName: string
     lastMessageAt: string
@@ -75,6 +76,7 @@ export const GET = withAuth(async (req, ctx) => {
       list.push({
         channelId: row.channelId,
         channelName: row.channelName,
+        type: row.type,
         lastMessageAt: row.lastMessageAt,
         mentionCount: mentionCountByChannel.get(row.channelId) ?? 0,
       })
@@ -84,6 +86,7 @@ export const GET = withAuth(async (req, ctx) => {
       parents.set(row.channelId, {
         channelId: row.channelId,
         channelName: row.channelName,
+        type: row.type,
         serverId: row.serverId,
         serverName: row.serverName,
         lastMessageAt: row.lastMessageAt,
@@ -110,6 +113,7 @@ export const GET = withAuth(async (req, ctx) => {
       parents.set(pid, {
         channelId: pid,
         channelName: ch.name,
+        type: ch.type,
         serverId: ch.serverId,
         // serverName + a sort timestamp are backfilled from the child rows
         // below (those rows carry serverName via the communityServer join).
@@ -166,9 +170,10 @@ export const GET = withAuth(async (req, ctx) => {
       .map((c) => ({
         channelId: c.channelId,
         channelName: c.channelName,
+        type: c.type ?? undefined,
         lastMessageAt: c.lastMessageAt,
         mentionCount: c.mentionCount,
-        children: c.children,
+        children: c.children.map((k) => ({ ...k, type: k.type ?? undefined })),
       })),
   }))
   allServers.sort((a, b) => {

@@ -196,7 +196,12 @@ export function MessageList({
   // genuine scroll-in transition.
   const topSentinelRef = useRef<HTMLDivElement>(null)
   const loadOlderStateRef = useRef({ onLoadOlder, hasMore, isFetchingOlder })
-  loadOlderStateRef.current = { onLoadOlder, hasMore, isFetchingOlder }
+  // Sync the latest guards into the ref after each commit — the observer
+  // callback (which reads it) only fires asynchronously, so a post-render
+  // write is behavior-identical while keeping the ref untouched during render.
+  useEffect(() => {
+    loadOlderStateRef.current = { onLoadOlder, hasMore, isFetchingOlder }
+  })
   useEffect(() => {
     const el = topSentinelRef.current
     const root = scrollRef.current
@@ -234,7 +239,10 @@ export function MessageList({
   // cascade through all newer pages).
   const bottomSentinelRef = useRef<HTMLDivElement>(null)
   const loadNewerStateRef = useRef({ onLoadNewer, hasMoreNewer, isFetchingNewer })
-  loadNewerStateRef.current = { onLoadNewer, hasMoreNewer, isFetchingNewer }
+  // Same post-commit ref sync as the top sentinel — see comment above.
+  useEffect(() => {
+    loadNewerStateRef.current = { onLoadNewer, hasMoreNewer, isFetchingNewer }
+  })
   useEffect(() => {
     const el = bottomSentinelRef.current
     const root = scrollRef.current

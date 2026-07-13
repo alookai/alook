@@ -198,8 +198,7 @@ function Step2({
           <span className="flex items-center gap-2">
             <span className="text-[15px] font-medium text-foreground">{connectedHostname}</span>
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-              <span className="inline-block size-1.5 rounded-full bg-status-online" />
-              Online
+              <span className="inline-block size-1.5 rounded-full bg-status-online" />Online
             </span>
           </span>
           <span className="text-muted-foreground">is ready for your agent friends.</span>

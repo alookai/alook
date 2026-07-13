@@ -46,7 +46,8 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     if (!text || !data.userId) return
     onMessage?.(data.userId, text)
     setMsg("")
-    mobile ? onClose() : close()
+    if (mobile) onClose()
+    else close()
   }
   const gradient = generateGradient(data.userId ?? data.name)
   const card = (

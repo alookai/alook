@@ -166,6 +166,7 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
         channelName: "channel A",
         serverId: "srv_1",
         serverName: "server 1",
+        type: "forum",
         parentChannelId: null,
         lastMessageAt: t2,
         lastReadAt: t1,
@@ -178,6 +179,8 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
     expect(result[0]!.channelId).toBe("ch_A");
     expect(result[0]!.lastMessageAt).toBe(t2);
     expect(result[0]!.lastReadAt).toBe(t1);
+    // `type` is carried through so the inbox can render the entity icon.
+    expect(result[0]!.type).toBe("forum");
   });
 
   it("archived channels are filtered out even when unread", async () => {

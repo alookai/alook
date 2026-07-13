@@ -128,10 +128,19 @@ function SettingsOverview({ serverName, serverDescription, serverIcon, onUploadI
   // in-progress edits — keep it simple and let mount handle it.
   const [name, setName] = useState(serverName)
   const [desc, setDesc] = useState(serverDescription ?? "")
+  // Saved baseline is mount-only (same rationale as the draft above): a WS
+  // rename must not reset it mid-edit. Advances only on a successful save.
+  const [baseline, setBaseline] = useState({ name: serverName, desc: serverDescription ?? "" })
   const namePreview = previewSlug(name)
+  const dirty = name !== baseline.name || desc !== baseline.desc
   const save = () => {
-    if (namePreview.invalid) return
+    if (namePreview.invalid || !dirty) return
     onUpdateServer?.(name, desc)
+    setBaseline({ name, desc })
+  }
+  const cancel = () => {
+    setName(baseline.name)
+    setDesc(baseline.desc)
   }
   return (
     <div className="mx-auto max-w-md space-y-10">
@@ -150,10 +159,14 @@ function SettingsOverview({ serverName, serverDescription, serverIcon, onUploadI
           </div>
         </div>
         <Field label="Server name">
-          <Input value={name} onChange={(e) => setName(e.target.value)} onBlur={save} />
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
           <SlugHint {...namePreview} />
         </Field>
-        <Field label="Description"><Textarea className="h-20 resize-none" value={desc} onChange={(e) => setDesc(e.target.value)} onBlur={save} /></Field>
+        <Field label="Description"><Textarea className="h-20 resize-none" value={desc} onChange={(e) => setDesc(e.target.value)} /></Field>
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={cancel} disabled={!dirty}>Cancel</Button>
+          <Button size="sm" onClick={save} disabled={!dirty || namePreview.invalid}>Save changes</Button>
+        </div>
       </section>
 
       <section className="space-y-4">

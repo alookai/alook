@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
 import { User, LogOut, X, Palette, Sun, Moon, Monitor, Database } from "lucide-react"
@@ -123,41 +123,47 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
   onLogout?: () => void
   onUploadAvatar?: () => void
 }) {
+  // Draft + saved baseline are mount-only on purpose — a WS-driven prop change
+  // (e.g. status fan-out echo) must not clobber an in-progress edit. The
+  // baseline advances only on a successful save.
   const [name, setName] = useState(userName)
   const [value, setValue] = useState(aboutMe)
   const [status, setStatus] = useState({ emoji: statusEmoji ?? null, text: statusText ?? null })
-  const [saving, setSaving] = useState(false)
+  const [baseline, setBaseline] = useState({
+    name: userName,
+    aboutMe,
+    emoji: statusEmoji ?? null,
+    text: statusText ?? null,
+  })
   const [tab, setTab] = useState("profile")
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
-  const onSaveRef = useRef(onSave)
-  useEffect(() => {
-    onSaveRef.current = onSave
-  }, [onSave])
 
-  const debouncedSave = useCallback((data: { name?: string; aboutMe?: string; statusEmoji?: string | null; statusText?: string | null }) => {
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => {
-      setSaving(true)
-      onSaveRef.current(data)
-      setTimeout(() => setSaving(false), 600)
-    }, 800)
-  }, [])
+  const dirty =
+    name !== baseline.name ||
+    value !== baseline.aboutMe ||
+    status.emoji !== baseline.emoji ||
+    status.text !== baseline.text
 
-  useEffect(() => { return () => { if (timerRef.current) clearTimeout(timerRef.current) } }, [])
-
-  const handleAboutMeChange = (text: string) => {
-    setValue(text)
-    debouncedSave({ aboutMe: text.trim() })
+  const handleSave = () => {
+    if (!dirty) return
+    const trimmedName = name.trim()
+    const trimmedAbout = value.trim()
+    // Status is part of the unified payload so the WS-store write and
+    // server-side fanOutStatusUpdate still fire (see shell-frame wiring).
+    onSave({
+      name: trimmedName,
+      aboutMe: trimmedAbout,
+      statusEmoji: status.emoji,
+      statusText: status.text,
+    })
+    setBaseline({ name: trimmedName, aboutMe: trimmedAbout, emoji: status.emoji, text: status.text })
+    setName(trimmedName)
+    setValue(trimmedAbout)
   }
 
-  const handleNameChange = (text: string) => {
-    setName(text)
-    debouncedSave({ name: text.trim() })
-  }
-
-  const handleStatusChange = (emoji: string | null, text: string | null) => {
-    setStatus({ emoji, text })
-    debouncedSave({ statusEmoji: emoji, statusText: text })
+  const handleCancel = () => {
+    setName(baseline.name)
+    setValue(baseline.aboutMe)
+    setStatus({ emoji: baseline.emoji, text: baseline.text })
   }
 
   return (
@@ -206,14 +212,14 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
                   <Button variant="secondary" size="sm" className="mt-2" onClick={onUploadAvatar}>Upload Photo</Button>
                 </div>
               </div>
-              <Field label={<span>Display Name {saving && <span className="ml-2 text-xs text-muted-foreground">Saving...</span>}</span>}>
-                <Input value={name} onChange={(e) => handleNameChange(e.target.value)} />
+              <Field label="Display Name">
+                <Input value={name} onChange={(e) => setName(e.target.value)} />
               </Field>
               <Field label="About Me">
-                <Textarea className="h-24 resize-none" value={value} onChange={(e) => handleAboutMeChange(e.target.value)} />
+                <Textarea className="h-24 resize-none" value={value} onChange={(e) => setValue(e.target.value)} />
               </Field>
               <Field label="Status">
-                <StatusEditor emoji={status.emoji} text={status.text} onChange={handleStatusChange}>
+                <StatusEditor emoji={status.emoji} text={status.text} onChange={(emoji, text) => setStatus({ emoji, text })}>
                   <button className="flex h-9 w-full items-center rounded-md border border-input bg-transparent px-3 text-sm hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
                     {hasStatus(status.emoji, status.text) ? (
                       <span>{status.emoji} {status.text}</span>
@@ -223,6 +229,10 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
                   </button>
                 </StatusEditor>
               </Field>
+              <div className="flex items-center justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={handleCancel} disabled={!dirty}>Cancel</Button>
+                <Button size="sm" onClick={handleSave} disabled={!dirty}>Save changes</Button>
+              </div>
             </div>
           </TabsContent>
           <TabsContent value="appearance">

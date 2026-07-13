@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Bell, BellOff, Pin, Users, MessagesSquare, ListChevronsUpDown, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
+import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ChannelIcon } from "./channel-icon"
+import { EntityIcon } from "./entity-icon"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import { serverGradient } from "./server-gradient"
@@ -53,6 +54,10 @@ export function ChannelHeader({
   tools?: { threads?: boolean; pinned?: boolean; members?: boolean }
 }) {
 
+  // The parent-channel entity glyph (breadcrumb crumb + non-breadcrumb badge)
+  // is `<EntityIcon kind={...}>`. The `<ChannelIcon>` breadcrumb SEPARATOR
+  // below is a different glyph — leave it.
+  const entityKind = forum ? "forum" : "text"
   const tool = (k: Exclude<RightPanel, null>, Icon: LucideIcon, label: string) => (
     <Button
       variant="ghost"
@@ -73,7 +78,7 @@ export function ChannelHeader({
       {breadcrumb ? (
         <>
           <button onClick={breadcrumb.onNavigateBack} className={`flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors ${server ? "" : "ml-1"}`}>
-            {forum ? <ListChevronsUpDown className="size-4 shrink-0" /> : <ChannelIcon className="text-base" />}
+            <EntityIcon kind={entityKind} className="size-4 shrink-0" />
             <span className="truncate text-base font-medium">{channel}</span>
           </button>
           <ChannelIcon className="shrink-0 text-base text-muted-foreground/60" />
@@ -85,7 +90,7 @@ export function ChannelHeader({
       ) : (
         <>
           <div className={`grid size-6 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground ${server ? "" : "ml-1"}`}>
-            {forum ? <ListChevronsUpDown className="size-4" /> : <ChannelIcon className="text-base" />}
+            <EntityIcon kind={entityKind} className="size-4" />
           </div>
           <span className="truncate text-base font-semibold">{channel}</span>
         </>

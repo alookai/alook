@@ -1,8 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { ListChevronsUpDown, BellOff, Pencil, Trash2, Users } from "lucide-react"
-import { ChannelIcon } from "./channel-icon"
+import { BellOff, Pencil, Trash2, Users } from "lucide-react"
+import { EntityIcon } from "./entity-icon"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
@@ -48,11 +48,7 @@ export function SortableChannel({ ch, active, onClick, onEdit, onDelete, onManag
     >
       {showLine && <DropLine side={lineSide} />}
       <span className="grid size-5 shrink-0 place-items-center opacity-70">
-        {ch.type === "forum" ? (
-          <ListChevronsUpDown className="size-4" />
-        ) : (
-          <ChannelIcon className="size-4" />
-        )}
+        <EntityIcon kind={ch.type} className="size-4" />
       </span>
       <span className="truncate font-semibold">{ch.name}</span>
       {ch.muted ? (

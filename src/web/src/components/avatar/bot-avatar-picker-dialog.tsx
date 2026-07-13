@@ -83,7 +83,6 @@ export function BotAvatarPickerDialog({ image, onChange }: BotAvatarPickerDialog
         : null,
     );
     setActiveKind(nowPhoto ? "photo" : "procedural");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image]);
 
   const emitForTab = (nextTab: "generate" | "photo", config: AvatarConfig, photo: PhotoDraft | null) => {

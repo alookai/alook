@@ -1,8 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ListChevronsUpDown } from "lucide-react"
-import { ChannelIcon } from "./channel-icon"
+import { EntityIcon } from "./entity-icon"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,9 +22,9 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
   const [type, setType] = useState<ChannelType>(initial?.type ?? "text")
   const [name, setName] = useState(initial?.name ?? "")
 
-  const options: { value: ChannelType; icon: typeof ListChevronsUpDown | typeof ChannelIcon; label: string; desc: string }[] = [
-    { value: "text", icon: ChannelIcon, label: "Text", desc: "Send messages, images, emoji, and opinions" },
-    { value: "forum", icon: ListChevronsUpDown, label: "Forum", desc: "Create a space for organized discussions" },
+  const options: { value: ChannelType; label: string; desc: string }[] = [
+    { value: "text", label: "Text", desc: "Send messages, images, emoji, and opinions" },
+    { value: "forum", label: "Forum", desc: "Create a space for organized discussions" },
   ]
 
   const namePreview = previewSlug(name)
@@ -57,7 +56,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
                       type === o.value ? "border-primary bg-accent" : "border-border bg-card hover:bg-accent/50",
                     ].join(" ")}
                   >
-                    <o.icon className="size-5 shrink-0 text-muted-foreground" />
+                    <EntityIcon kind={o.value} className="size-5 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium">{o.label}</div>
                       <div className="text-xs text-muted-foreground">{o.desc}</div>
@@ -73,9 +72,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
           <label className="block">
             <div className="mb-2 text-xs font-semibold text-muted-foreground">Channel Name</div>
             <div className="relative">
-              {type === "forum"
-                ? <ListChevronsUpDown className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                : <ChannelIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground" />}
+              <EntityIcon kind={type} className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}

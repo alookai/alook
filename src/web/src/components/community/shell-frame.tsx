@@ -456,10 +456,9 @@ export function ShellFrame({
 
   const openServerChannel = useCallback(
     (sid: string, cid: string) => {
-      // #3: no eager mark-read on inbox → channel navigation. The channel's
-      // IntersectionObserver watermark advances the pointer as the user
-      // actually reads. If they open the channel and don't scroll to the
-      // new messages, the pointer correctly stays put.
+      // No PUT here — the channel/thread page's `useEagerChannelRead` fires the
+      // mark-read on mount, AFTER its read-state snapshot latches, so the NEW
+      // divider still anchors to the pre-open pointer. Navigating is enough.
       router.push(`/community/channels/${sid}/${cid}`)
     },
     [router],
@@ -467,12 +466,11 @@ export function ShellFrame({
 
   const openInboxDm = useCallback(
     (dmId: string) => {
-      // Mirrors the DM sidebar's `enterDm` (see app/community/me/layout.tsx):
-      // client-only optimistic clear on `communityKeys.dms()` — no eager
-      // mark-read PUT. Eagerly aligning the read pointer to the tail here
-      // would resolve the DM's read-state snapshot at tail on mount and
-      // suppress the NEW divider. The DM page's IntersectionObserver
-      // (`useDmWatermark`) is authoritative for advancing the server pointer.
+      // Optimistic clear on `communityKeys.dms()` so the sidebar updates
+      // instantly. The real mark-read is owned by the DM page's
+      // `useEagerDmRead` on mount (snapshot latches first → NEW divider stays
+      // anchored), and `useDmWatermark` continues to advance the pointer as
+      // the viewer scrolls.
       queryClient.setQueryData(
         communityKeys.dms(),
         (prev: { conversations: { id: string; unread?: boolean }[] } | undefined) =>
