@@ -21,6 +21,7 @@ import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
 import { useDmReadStateSnapshot } from "@/hooks/community/use-dm-read-state"
 import { useDmWatermark } from "@/hooks/community/use-dm-watermark"
+import { useEagerDmRead } from "@/hooks/community/use-eager-dm-read"
 import { useChannelRefDirectory } from "@/hooks/community/use-channel-ref-directory"
 import {
   useSendDmMessage,
@@ -153,6 +154,11 @@ function DmView() {
   // than the page viewport. Set once by `MessageList` via `onScrollRoot`.
   const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
   useDmWatermark({ dmId, messages, scrollRootEl })
+
+  // Eager mark-read on open — clears this DM from the inbox immediately while
+  // the frozen `readSnapshot` above keeps the "New" divider anchored to the
+  // pre-open pointer. Gated on the snapshot having settled.
+  useEagerDmRead({ dmId, snapshotReady: !readSnapshotFetching })
 
   // `↓ N` unread count. Same math as channel: server truth is
   // `latestSeq - viewerLastReadSeq`. Clamp to 0 in case the read pointer

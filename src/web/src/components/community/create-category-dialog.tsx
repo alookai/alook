@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Field } from "./field"
 
-// Create Category dialog — name + private toggle (defaults to private). In a
+// Create Category dialog — name + private toggle (defaults to public). In a
 // private category any member can create a channel, but each channel is visible
 // only to its creator + invited members (and admins). A public category's
 // channels are admin-managed and visible to everyone.
@@ -18,7 +18,7 @@ export function CreateCategoryDialog({ onClose, onCreate, canTogglePrivate = tru
   canTogglePrivate?: boolean
 }) {
   const [name, setName] = useState("")
-  const [isPrivate, setIsPrivate] = useState(true)
+  const [isPrivate, setIsPrivate] = useState(false)
   const submit = () => {
     const trimmed = name.trim()
     if (!trimmed) return

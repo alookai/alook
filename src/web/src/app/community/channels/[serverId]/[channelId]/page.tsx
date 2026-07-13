@@ -26,6 +26,7 @@ import { useServerMembers } from "@/hooks/community/use-server-members"
 import { useMessages } from "@/hooks/community/use-messages"
 import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
 import { useChannelWatermark } from "@/hooks/community/use-channel-watermark"
+import { useEagerChannelRead } from "@/hooks/community/use-eager-channel-read"
 import {
   useThreads,
   useForumPosts,
@@ -219,6 +220,16 @@ function ChannelView() {
   const [scrollRootEl, setScrollRootEl] = useState<HTMLDivElement | null>(null)
   useChannelWatermark({ channelId, messages, scrollRootEl })
 
+  // Eager mark-read on open — clears this channel/thread from the inbox the
+  // moment it's opened, while the frozen `readSnapshot` above keeps the "New"
+  // divider anchored to the pre-open pointer. Gated on the snapshot having
+  // settled (fetching done; `null` = never-visited is a valid resolved state).
+  useEagerChannelRead({
+    channelId,
+    isChildChannel,
+    snapshotReady: !readSnapshotFetching,
+  })
+
   // `↓ N` unread count for the anchor-window path — server truth
   // (`latestSeq - viewerLastReadSeq`). Clamped to 0 in case the read
   // pointer somehow overshot latestSeq (e.g. a bot updated latestSeq
@@ -342,8 +353,10 @@ function ChannelView() {
     setRightPanel((p) => (p === k ? null : k))
 
   const enterThread = (id: string) => {
+    // No eager read PUT here — the thread page's `useEagerChannelRead` fires it
+    // on mount AFTER its read-state snapshot latches, so the "New" divider
+    // still anchors to the pre-open pointer. A PUT here would race the snapshot.
     router.push(`/community/channels/${params.serverId}/${id}`)
-    apiFetch(`/api/community/threads/${id}/read`, { method: "PUT" }).catch(() => { })
   }
 
   const openProfile: OpenProfile = (name, e, discriminator, userId) => {

@@ -28,6 +28,9 @@ vi.mock("@alook/shared", async () => {
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
       },
+      communityMembersResolver: {
+        resolveScopeMemberUserIds: (...a: unknown[]) => mockResolveScopeMemberUserIds(...a),
+      },
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
       },
@@ -60,6 +63,7 @@ const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
 const mockGetDM = vi.fn()
 const mockGetCoMemberUserIds = vi.fn()
 const mockGetFriendUserIds = vi.fn()
+const mockResolveScopeMemberUserIds = vi.fn(() => [] as string[])
 
 import {
   fanOutToServerMembers,
@@ -113,9 +117,8 @@ describe("fanOutToServerMembers", () => {
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(3)
   })
 
-  it("fanOutToChannel resolves through channel → server → listMemberUserIds", async () => {
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "srv_1" })
-    mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
+  it("fanOutToChannel resolves recipients via the shared member resolver", async () => {
+    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
 
     await fanOutToChannel("c1", {
       type: WS_EVENTS.MESSAGE_CREATE,
@@ -123,7 +126,13 @@ describe("fanOutToServerMembers", () => {
       message: {} as never,
     } as never)
 
-    expect(mockListMemberUserIds).toHaveBeenCalledTimes(1)
+    expect(mockResolveScopeMemberUserIds).toHaveBeenCalledTimes(1)
+    expect(mockResolveScopeMemberUserIds).toHaveBeenCalledWith(expect.anything(), {
+      scope: "channel",
+      scopeId: "c1",
+    })
+    // The old inline split (getChannel + isChannelPrivate) is gone.
+    expect(mockGetChannel).not.toHaveBeenCalled()
     expect(mockListMembers).not.toHaveBeenCalled()
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
   })
@@ -195,8 +204,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
   })
 
   it("fanOutToChannel enqueues wakes using the same recipient list, minus excludeUserId", async () => {
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "srv_1" })
-    mockListMemberUserIds.mockResolvedValue(["u1", "u2", "u3"])
+    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2", "u3"])
 
     await fanOutToChannel(
       "c1",
@@ -230,8 +238,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
   })
 
   it("does not enqueue wakes when wakeMessageRow is omitted", async () => {
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "srv_1" })
-    mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
+    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
 
     await fanOutToChannel("c1", {
       type: WS_EVENTS.MESSAGE_CREATE,
@@ -243,8 +250,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
   })
 
   it("does not enqueue wakes for non-MESSAGE_CREATE events even with a wakeMessageRow", async () => {
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "srv_1" })
-    mockListMemberUserIds.mockResolvedValue(["u1", "u2"])
+    mockResolveScopeMemberUserIds.mockResolvedValue(["u1", "u2"])
 
     await fanOutToChannel(
       "c1",
@@ -261,8 +267,7 @@ describe("wake dispatch (minimal-wake-queue-unread-notice) — only fires for ME
   })
 
   it("a failing enqueueBotWakes does not reject fanOutToChannel", async () => {
-    mockGetChannel.mockResolvedValue({ id: "c1", serverId: "srv_1" })
-    mockListMemberUserIds.mockResolvedValue(["u1"])
+    mockResolveScopeMemberUserIds.mockResolvedValue(["u1"])
     mockEnqueueBotWakes.mockRejectedValue(new Error("queue down"))
 
     await expect(

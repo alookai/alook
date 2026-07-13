@@ -79,6 +79,7 @@ const mockGetFriendUserIds = vi.fn<(db: unknown, userId: string) => Promise<stri
 const mockGetChannelForMember = vi.fn()
 const mockIsChannelPrivate = vi.fn<(db: unknown, channelId: string) => Promise<boolean>>().mockResolvedValue(false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn<(db: unknown, channelId: string) => Promise<string[]>>().mockResolvedValue([])
+const mockResolveScopeMemberUserIds = vi.fn<(db: unknown, opts: { scope: string; scopeId: string }) => Promise<string[]>>().mockResolvedValue([])
 const mockGetDM = vi.fn()
 const mockListMembers = vi.fn()
 const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
@@ -188,6 +189,9 @@ vi.mock("@alook/shared", () => {
         getChannelForMember: (...a: any[]) => mockGetChannelForMember(...a),
         isChannelPrivate: (...a: any[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: any[]) => mockGetPrivateChannelAudienceUserIds(...a),
+      },
+      communityMembersResolver: {
+        resolveScopeMemberUserIds: (...a: any[]) => mockResolveScopeMemberUserIds(...a),
       },
       communityDm: {
         getDM: (...a: any[]) => mockGetDM(...a),
@@ -1363,11 +1367,9 @@ describe("WebSocketDurableObject", () => {
     it("fans out to other server members when sender IS a channel member", async () => {
       const { durable, env } = createDO()
       mockGetChannelForMember.mockResolvedValueOnce({ id: "chan-1", serverId: "server-1" })
-      mockListMembers.mockResolvedValueOnce([
-        { userId: "member-1" },
-        { userId: "member-2" },
-        { userId: "sender-1" },
-      ])
+      // Recipient resolution now goes through the shared member resolver — a
+      // public channel resolves to every server member (sender included).
+      mockResolveScopeMemberUserIds.mockResolvedValueOnce(["member-1", "member-2", "sender-1"])
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
@@ -1379,7 +1381,10 @@ describe("WebSocketDurableObject", () => {
       await flush()
 
       expect(mockGetChannelForMember).toHaveBeenCalledWith(expect.anything(), "chan-1", "sender-1")
-      expect(mockListMembers).toHaveBeenCalledWith(expect.anything(), "server-1")
+      expect(mockResolveScopeMemberUserIds).toHaveBeenCalledWith(expect.anything(), {
+        scope: "channel",
+        scopeId: "chan-1",
+      })
       // Sender is excluded from recipients — only the other 2 members get a broadcast POST.
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-1")
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-2")
@@ -1390,10 +1395,9 @@ describe("WebSocketDurableObject", () => {
     it("private channel: fans out to the channel audience, not all server members", async () => {
       const { durable, env } = createDO()
       mockGetChannelForMember.mockResolvedValueOnce({ id: "chan-p", serverId: "server-1" })
-      mockIsChannelPrivate.mockResolvedValueOnce(true)
-      // Audience = creator + added member + admin (server-wide members would be
-      // more than this — the assertion below proves we used the audience).
-      mockGetPrivateChannelAudienceUserIds.mockResolvedValueOnce(["sender-1", "member-1"])
+      // The resolver applies the public/private split internally — a private
+      // channel resolves to its audience (creator + added member + admin).
+      mockResolveScopeMemberUserIds.mockResolvedValueOnce(["sender-1", "member-1"])
 
       const ws = createMockWebSocket()
       ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
@@ -1404,7 +1408,10 @@ describe("WebSocketDurableObject", () => {
       )
       await flush()
 
-      expect(mockGetPrivateChannelAudienceUserIds).toHaveBeenCalledWith(expect.anything(), "chan-p")
+      expect(mockResolveScopeMemberUserIds).toHaveBeenCalledWith(expect.anything(), {
+        scope: "channel",
+        scopeId: "chan-p",
+      })
       expect(mockListMembers).not.toHaveBeenCalled()
       // Only the non-sender audience member gets a broadcast POST.
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-1")
