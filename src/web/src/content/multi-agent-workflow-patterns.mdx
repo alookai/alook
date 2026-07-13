@@ -1,156 +1,231 @@
 export const metadata = {
   slug: "multi-agent-workflow-patterns",
-  title: "7 Multi-Agent Workflows: Turn Your AI Coding Agents Into a Real Team",
+  title: "7 Multi-Agent Workflow Patterns for AI Coding Agents",
   date: "2026-06-11",
-  author: "Donia",
-  excerpt: "Stop copy-pasting between AI coding agents. Learn multi-agent workflows that turn Claude Code, Cursor, and Codex into an autonomous team that saves 20+ hours weekly.",
-  readingTime: "7 min read",
+  author: "Alook Team",
+  excerpt:
+    "Learn seven practical multi-agent workflow patterns for AI coding agents, with roles, handoffs, review points, and limits for each pattern.",
+  readingTime: "8 min read",
+  image: "/blog/multi-agent-workflow-patterns/hero.webp",
 };
 
-# 7 Multi-Agent Workflows: Turn Your AI Coding Agents Into a Real Team
+export const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [
+      {
+        "@type": "Question",
+        name: "What is a multi-agent workflow?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "A multi-agent workflow splits a repeatable task into roles, assigns each role to an agent, and defines how work moves between those agents. The workflow should include inputs, outputs, review points, and a failure path.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "When should you use multiple AI coding agents?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Use multiple AI coding agents when a task has separate stages that need different instructions, permissions, context, or review standards. Keep one agent when the task is short, low risk, and has one clear output.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "How many agents should a workflow start with?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Start with the smallest workflow that has a real handoff. Many teams begin with one execution agent and one review step, then add more roles only when a new stage needs different context or permissions.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Which agents does Alook support?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Alook currently supports Claude Code, Codex, and OpenCode. Cursor, Hermes, and OpenClaw are listed as coming soon.",
+        },
+      },
+    ],
+  },
+];
 
-You know that thing where you have seventeen Claude Code tabs open and you can't remember which one has the database schema? Yeah, that.
+# 7 Multi-Agent Workflow Patterns for AI Coding Agents
 
-Last week I tried to track how much time I spend just managing AI sessions. Not using them. Managing them. Copy-pasting context, re-explaining the project, searching through old conversations for that one good solution. About a third of my "AI-assisted" dev time was just... clipboard duty.
+![Conceptual multi-agent workflow map with triggers, agent roles, handoffs, review points, and stop conditions](/blog/multi-agent-workflow-patterns/hero.webp)
 
-The stupid part? These agents could actually coordinate themselves. I mean actually. Give them memory that persists. Let them talk to each other. Assign them specific jobs. Some patterns for doing this work way better than others.
+*A conceptual workflow map showing triggers, agent roles, handoffs, review points, and stop conditions. Not a product screenshot.*
 
-## Why Your AI Agents Need Specialized Roles
+Multi-agent workflows work best when they are designed like operating procedures, not brainstorming sessions. Each agent needs a role. Each handoff needs an expected output. Each risky step needs a review boundary.
 
-The problem isn't that Claude Code is bad. It's that one session tries to be architect, developer, tester, and documentation writer all at once. Ask it to switch gears and watch it forget what you were building.
+That sounds less exciting than "autonomous AI team." Good. The practical version is more useful.
 
-Everyone does the same dance. Long session until it gets confused. New session. Paste everything again. Fight the context window. Next day? Ground zero.
+A single coding agent can handle a lot. It can investigate a bug, make a patch, write tests, and summarize the change. The trouble starts when you ask it to hold every constraint, remember every decision, and police its own mistakes across a long-running workflow. Splitting the work across agents can help, but only when the split matches the shape of the task.
 
-But when you split agents by specialty and give them persistent memory... different game. Your database agent never forgets that you chose PostgreSQL over MySQL. Your API agent keeps using the same error format. Your test agent remembers that weird edge case from three weeks ago.
+This guide covers seven multi-agent workflow patterns that are concrete enough to build around. Use them as templates, not laws.
 
-People keep trying to build one super-agent. Wrong approach. You want specialists that never forget their domain.
+## What makes a workflow multi-agent?
 
-## 7 Multi-Agent Workflows That Actually Ship
+A multi-agent workflow has more than one role contributing to one outcome. Those roles may run in sequence, in parallel, or on a schedule. The important part is the contract between them.
 
-### 1. The Dev Team Pipeline
+Every useful workflow should define:
 
-![Dev Team Pipeline Workflow](/blog/multi-agent-workflow-patterns/workflow-1-dev-team-pipeline.svg)
+- **The trigger:** what starts the work, such as a new issue, a scheduled check, or a release task.
+- **The roles:** which agent owns each stage.
+- **The handoff:** what one role must pass to the next.
+- **The review point:** where a person or reviewer agent checks the result.
+- **The stop condition:** when the workflow should pause instead of guessing.
 
-Standard setup: architecture agent, frontend agent, backend agent, test agent, deployment agent. Each owns their piece.
+For the coordination layer behind these patterns, read the guide to [AI orchestration](/blog/ai-agent-orchestration). For team design, start with [AI agent team roles and handoffs](/blog/ai-agent-team).
 
-Watched a team rebuild their entire platform this way. Architecture agent became the source of truth for all design decisions. Frontend and backend agents worked in parallel without stepping on each other. Tests caught integration issues before humans even looked. Cut their timeline in half, though honestly they were probably padding the original estimate.
+## Pattern 1: Bug report to PR
 
-The key is letting agents stay in their lane. Don't ask the frontend agent about database indexes.
+This is the most natural workflow for AI coding agents because the work already has stages.
 
-Breaks when you need creative solutions that cross boundaries. Also if your requirements are a moving target. The agents get tunnel vision.
+The trigger is a new bug report. An investigator agent reproduces the issue, reads logs or failing tests, and writes a short diagnosis. A developer agent uses that diagnosis to prepare a focused patch. A reviewer agent checks the diff against the original report, confirms tests, and flags anything that still needs human judgment.
 
-### 2. The Support Swarm
+The handoff matters. The investigator should not say "fix auth." It should provide a concrete artifact:
 
-![Support Swarm Workflow](/blog/multi-agent-workflow-patterns/workflow-2-support-swarm.svg)
+- Summary of the user-visible bug
+- Reproduction steps
+- Likely files or components involved
+- Evidence gathered
+- Constraints the developer should not violate
 
-Support tickets are perfect for this. Triage agent reads and routes. Specialist agents handle their thing (billing knows all the plans, technical remembers every fix, feature requests track what's been asked). Response agent writes the actual reply. Quality agent makes sure it's not nonsense.
+This workflow breaks down when the bug report is vague or the expected behavior is a product decision. In that case, the right move is to ask for clarification, not generate a speculative PR.
 
-Friend of mine handles ridiculous ticket volume this way. Used to be his entire morning. Now he reviews drafts while drinking coffee. The technical agent literally never forgets a solution. Actually gives better answers than he would because it remembers everything.
+## Pattern 2: Release preparation
 
-Fails hard on emotional stuff. Angry customer? Refund request? Get a human.
+Release work is repetitive, detail-heavy, and easy to half-finish. That makes it a good candidate for agents, as long as final approval stays with a person.
 
-### 3. Content Production Line
+A release notes agent reads merged changes and drafts user-facing notes. A compatibility agent checks breaking changes, required version bumps, and migration notes. A QA agent verifies the release checklist. A final approval step decides whether the release is ready.
 
-![Content Production Line Workflow](/blog/multi-agent-workflow-patterns/workflow-3-content-production.svg)
+Keep the output boring. That is the point.
 
-Research, writing, fact-checking, SEO, publishing. Assembly line for content.
+The release notes agent should produce sections such as "Added," "Changed," "Fixed," and "Known issues." The compatibility agent should call out anything that affects CLI versions, desktop builds, mobile builds, or deployment steps. The QA agent should report what was checked and what was skipped.
 
-I know someone who went from barely managing weekly posts to daily. Not because the agents write faster. Because they remember everything. The research agent has every source it's ever found. The writing agent learned their voice from their archive. The SEO agent knows what actually ranks for their site, not generic "best practices."
+Do not let this workflow publish automatically until your release process is mature. Agents can gather evidence and prepare the work. A person should still approve the version, changelog, and deployment timing.
 
-Month one output was rough. Month three was better than they write themselves. The agents learned.
+## Pattern 3: Open-source maintainer queue
 
-Can't do opinion pieces though. Or anything that needs lived experience. The agents can fake a lot but not that.
+Open-source projects accumulate issues, discussions, stale PRs, and support requests. The hard part is not reading one item. The hard part is keeping the queue moving without losing context.
 
-### 4. The Code Migration Factory
+Use a triage agent to classify incoming items. A reproducer agent can try to reproduce bug reports. A docs agent can identify whether an answer already exists. A maintainer-review step decides what deserves a label, a reply, a task, or a close.
 
-![Code Migration Factory Workflow](/blog/multi-agent-workflow-patterns/workflow-4-code-migration.svg)
+The workflow should preserve traceability. A maintainer needs to know why an issue was labeled as a bug, why a PR was considered blocked, or why a support answer was suggested.
 
-This one's limited but when it works, it really works. Analyzer maps the old code. Planner figures out the migration path. Converter agents run in parallel. Validator checks nothing broke.
+Good outputs include:
 
-Saw a team move 100k lines of JavaScript to TypeScript. Two weeks. Humans just reviewed. The analyzer built a complete dependency graph first so the converters never got confused about what imported what.
+- Issue category and confidence
+- Missing information
+- Related issues or docs
+- Suggested next action
+- Whether a human should reply
 
-Only works for mechanical migrations. Trying to refactor architecture? Forget it. The agents can't see the forest for the trees.
+This pattern should avoid pretending to be the maintainer. Let agents prepare the queue. Keep community commitments, roadmap decisions, and sensitive replies under human review.
 
-### 5. The QA Fortress
+## Pattern 4: DevOps monitoring loop
 
-![QA Fortress Workflow](/blog/multi-agent-workflow-patterns/workflow-5-qa-fortress.svg)
+Monitoring workflows are not only about alerts. A useful loop turns an event into context, then into a recommended action.
 
-Test generator reads requirements and creates cases. Runner executes. Bug reporter writes up failures with full context. Fix suggester... suggests fixes. Regression guardian makes sure fixed bugs stay fixed.
+An alert agent receives the signal. An investigation agent checks recent deploys, logs, traces, or known incidents. A summary agent prepares a short incident brief. A human or escalation agent decides what happens next.
 
-Every PR gets full coverage. The generator thinks of stuff humans miss. What if the user's system clock is wrong? What if they're offline? What if they're offline AND their clock is wrong? It's exhausting but thorough.
+The output should answer a few plain questions:
 
-Can't test if something feels good though. UI testing is still mostly "does this button exist" not "is this pleasant to use."
+- What changed?
+- What is affected?
+- What evidence supports the diagnosis?
+- What action is safe to take now?
+- What requires human approval?
 
-### 6. The Data Pipeline Crew
+Do not give agents unrestricted production access because a workflow looks routine. Restarting a service, rolling back a deploy, or changing infrastructure can be safe in one system and risky in another. The workflow should encode those boundaries.
 
-![Data Pipeline Crew Workflow](/blog/multi-agent-workflow-patterns/workflow-6-data-pipeline.svg)
+Alook's email-native model fits this kind of loop because every agent can have its own address and the handoff can happen through recorded messages. The point is not chatty agents. It is a traceable trail of what each role saw and decided.
 
-Scraping, cleaning, analyzing, reporting, alerting. Good for competitive intelligence.
+## Pattern 5: Daily research brief
 
-Guy I know tracks his entire competitive landscape this way. Scrapers check everyone's pricing, features, blog posts. Analyzer spots patterns. Alert agent pings him when someone ships something interesting. Runs itself after setup.
+Research workflows are useful when the sources are known and the output format is stable. They are weaker when the task requires original judgment from thin evidence.
 
-Each scraper learns its target site's patterns. The one watching ProductHunt knows different things than the one watching GitHub.
+A source agent collects updates from defined places. A filtering agent removes duplicates and low-signal items. A summarizer agent writes the brief. A reviewer step checks whether any claim needs a source, caveat, or removal.
 
-Until the site redesigns. Then you're fixing scrapers for a day.
+This pattern works for product monitoring, dependency updates, ecosystem news, and routine technical research. It should not invent market conclusions from a handful of headlines.
 
-### 7. The Documentation System
+The workflow becomes more reliable when the brief has a fixed format:
 
-![Documentation System Workflow](/blog/multi-agent-workflow-patterns/workflow-7-documentation-system.svg)
+- What changed
+- Why it might matter
+- Source links
+- Suggested follow-up
+- Unknowns
 
-This should be simple but nobody does it. Code scanner reads your actual code. API agent documents endpoints. Example agent writes samples. Changelog agent tracks commits. Tutorial agent creates guides based on what people ask about.
+The "unknowns" section is important. It keeps the agent from smoothing over missing evidence.
 
-Open source maintainer friend finally has current docs. The changelog agent catches every commit. The tutorial agent reads GitHub issues to see what confuses people.
+## Pattern 6: Documentation refresh
 
-Still need humans for the "why" documentation. Agents are good at "what" and "how" but terrible at "why we built it this way."
+Documentation goes stale because code changes faster than the docs review loop. A multi-agent workflow can make the drift visible.
 
-## Which Pattern Fits Your Pain
+A scanner agent watches changed files, API routes, commands, or configuration. A docs agent identifies which pages may need edits. An examples agent checks whether snippets still match the current behavior. A reviewer approves the final wording.
 
-Just match your biggest time waste:
+This workflow should distinguish facts from interpretation. Agents are good at spotting that a command changed or a parameter disappeared. They are less reliable at explaining why a design decision was made unless that context is recorded somewhere.
 
-Losing context between sessions? Dev Team Pipeline.  
-Support eating your mornings? Support Swarm.  
-Content taking forever? Production Line.  
-Big migration? Migration Factory.  
-Bugs everywhere? QA Fortress.  
-Need to track competitors? Data Pipeline.  
-Docs out of date? Documentation System.
+Useful outputs include:
 
-Try one pattern for a week. Measure time saved. Real time, not how it feels.
+- Changed behavior
+- Affected docs
+- Suggested patch
+- Missing product context
+- Review questions
 
-Most people start with Dev Team Pipeline. Familiar structure. The cool ones like Migration Factory need more setup. Boring ones like Documentation work fastest.
+Do not let this become a rewrite machine. Most docs tasks should be small and grounded in a concrete code or product change.
 
-## Making Multi-Agent Workflows Real
+## Pattern 7: Lead or customer follow-up
 
-You can do this manually. I did for months. Separate docs for each agent's context. Copy-paste for handoffs. It works but it's discipline.
+Some follow-up workflows are safe to prepare with agents. Others should stay human-led.
 
-Platforms like [Alook](https://alook.ai) automate the coordination. Agents get actual memory that persists. They communicate through email. Yes, email. They run constantly in the background. You stop being the router.
+A research agent gathers context about the person or company. A drafting agent prepares a reply or next-step note. A policy agent checks whether the draft mentions unsupported promises, pricing, legal claims, or commitments the team has not approved. A person sends the message.
 
-Know someone maintaining three open source projects solo? Five specialized agents. Documentation agent keeps READMEs current. Support agent handles issues. Review agent checks PRs. Release agent does versioning. Saves them a full day every week. Sometimes more.
+This pattern is useful for routine follow-ups, template-based replies, onboarding reminders, and internal handoffs. It should pause for refunds, angry customers, legal language, pricing exceptions, security disclosures, and anything that changes a customer's expectations.
 
-Another person runs their technical blog entirely with agents. Research happens overnight. Writing at dawn. Published before they're even awake. Went from struggling to post weekly to daily without trying. Traffic's up stupid amounts.
+The review boundary is the workflow.
 
-The mental shift is from "AI assistant" to "AI employee." Assistants need hand-holding. Employees own their work.
+## How to choose your first pattern
 
-## The Reality Check
+Start with a workflow that already exists. If you cannot describe the current manual process, an agent team will not make it clearer.
 
-These patterns aren't magic. They're systems. Systems break. Need maintenance. Need humans when they get confused.
+Good first candidates share a few traits:
 
-What works: anything repetitive with clear rules. Parallel tasks. Maintaining context. Catching edge cases.
+- The task repeats often.
+- Inputs come from known places.
+- The desired output has a recognizable format.
+- A failed run can pause safely.
+- Human approval can be placed at a specific step.
 
-What doesn't: strategy. Creativity. Emotional intelligence. Understanding the real world.
+Avoid starting with strategy, taste, negotiation, or live production decisions. Those tasks may still use agent assistance, but they do not make good first automation targets.
 
-The agents won't replace you. They do the repetitive stuff so you can do the interesting stuff.
+## How Alook fits
 
-## Start Small, Think Big
+[Alook](https://alook.ai) is an open-source, self-hostable orchestration layer for local AI coding agents. It gives agents roles, email addresses, task boards, calendars, persistent context, and recorded communication so they can work more like a coordinated team.
 
-Multi-agent workflows aren't about smarter agents. They're about specialized agents with permanent memory working together.
+The important part is state. A workflow is hard to trust when every agent starts from a blank chat. Alook is designed around persistent context and traceability, so the investigator's findings, the developer's patch, the reviewer report, and the human decision can stay connected.
 
-Pick one pattern. Whatever wastes your time most. Try it for a week. Measure what you save.
+Alook currently supports Claude Code, Codex, and OpenCode. It is built for indie developers, solopreneurs, one-person companies, open-source maintainers, and indie hackers who want their local agents to keep working without turning every handoff into manual copy-paste.
 
-The question isn't if agents can work together. They can. The question is whether you'll keep copy-pasting between them forever, or let them figure it out themselves.
+## Multi-agent workflow FAQ
 
-Next step: pick your most annoying repetitive task. Match it to a pattern. One week. See what happens.
+**What is a multi-agent workflow?**
 
----
+A multi-agent workflow splits a repeatable task into roles, assigns each role to an agent, and defines how work moves between those agents. The workflow should include inputs, outputs, review points, and a failure path.
 
-*Want to build your own multi-agent workflows? [Try Alook free](https://alook.ai) — turn your AI coding agents into an actual team.*
+**When should you use multiple AI coding agents?**
+
+Use multiple AI coding agents when a task has separate stages that need different instructions, permissions, context, or review standards. Keep one agent when the task is short, low risk, and has one clear output.
+
+**How many agents should a workflow start with?**
+
+Start with the smallest workflow that has a real handoff. Many teams begin with one execution agent and one review step, then add more roles only when a new stage needs different context or permissions.
+
+**Which agents does Alook support?**
+
+Alook currently supports Claude Code, Codex, and OpenCode. Cursor, Hermes, and OpenClaw are listed as coming soon.
+
+Want to apply these patterns to a larger operating model? Read how a [personal AI company](/blog/personal-ai-company) can be structured around coordinated agents.
