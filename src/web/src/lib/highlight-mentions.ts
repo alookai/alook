@@ -1,4 +1,5 @@
 import type { Agent } from "@alook/shared"
+import { MENTION_TOKEN_RE } from "@alook/shared"
 
 function isTrigger(text: string, atIndex: number): boolean {
   if (atIndex === 0) return true
@@ -15,6 +16,27 @@ function isBoundary(text: string, endIndex: number): boolean {
 }
 
 export function highlightMentions(content: string, agents: Agent[]): string {
+  if (!content || !content.includes("@")) return content
+
+  // Token pass — id-based, independent of the agents array so a raw
+  // `@[Name](agentId)` token never survives into <Streamdown> (where it would
+  // render as a markdown link to the id). Text between tokens still runs
+  // through the bare-name pass for backward compatibility with historic /
+  // externally-sourced `@Name` mentions.
+  const re = new RegExp(MENTION_TOKEN_RE.source, "g")
+  let result = ""
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(content)) !== null) {
+    result += highlightBareNames(content.slice(last, m.index), agents)
+    result += `<mention data-agent-id="${m[2]}">@${m[1]}</mention>`
+    last = re.lastIndex
+  }
+  result += highlightBareNames(content.slice(last), agents)
+  return result
+}
+
+function highlightBareNames(content: string, agents: Agent[]): string {
   if (!content || agents.length === 0 || !content.includes("@")) return content
 
   const sorted = agents.slice().sort((a, b) => b.name.length - a.name.length)

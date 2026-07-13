@@ -1,6 +1,8 @@
 import { toAlookAddress } from "./email"
+import { MENTION_TOKEN_RE } from "./mention-token"
 
 export interface PromptAgent {
+  id: string
   name: string
   emailHandle: string | null
   description: string
@@ -32,7 +34,11 @@ function isBoundary(prompt: string, endIndex: number): boolean {
   return true
 }
 
-export function parsePromptMentions(prompt: string, agents: PromptAgent[]): ParseResult {
+function enrichMention(name: string, emailHandle: string | null): string {
+  return emailHandle ? `@${name} (${toAlookAddress(emailHandle)})` : `@${name}`
+}
+
+function parseBareNames(prompt: string, agents: PromptAgent[]): ParseResult {
   if (!prompt || agents.length === 0) return { enrichedPrompt: prompt, mentions: [] }
 
   const sorted = agents.slice().sort((a, b) => b.name.length - a.name.length)
@@ -77,15 +83,49 @@ export function parsePromptMentions(prompt: string, agents: PromptAgent[]): Pars
       description: m.agent.description,
     }
     mentions.unshift(mention)
-
-    if (m.agent.emailHandle) {
-      const replacement = `@${m.agent.name} (${toAlookAddress(m.agent.emailHandle)})`
-      result = result.slice(0, m.start) + replacement + result.slice(m.end)
-    } else {
-      // Preserve canonical casing even without email
-      result = result.slice(0, m.start) + `@${m.agent.name}` + result.slice(m.end)
-    }
+    result = result.slice(0, m.start) + enrichMention(m.agent.name, m.agent.emailHandle) + result.slice(m.end)
   }
+
+  return { enrichedPrompt: result, mentions }
+}
+
+export function parsePromptMentions(prompt: string, agents: PromptAgent[]): ParseResult {
+  if (!prompt) return { enrichedPrompt: prompt, mentions: [] }
+
+  // Token pass — `@[Name](agentId)` resolves the exact agent by id. Runs even
+  // when the agents list is empty so a raw token is never leaked into the
+  // enriched prompt sent to the runtime; an unmatched token (agent deleted) is
+  // stripped back to `@Name`. Text between tokens keeps the bare-name matching
+  // for backward compatibility with historic / externally-sourced mentions.
+  const byId = new Map(agents.map(a => [a.id, a]))
+  const re = new RegExp(MENTION_TOKEN_RE.source, "g")
+  const mentions: PromptMention[] = []
+  let result = ""
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(prompt)) !== null) {
+    const between = parseBareNames(prompt.slice(last, m.index), agents)
+    result += between.enrichedPrompt
+    mentions.push(...between.mentions)
+
+    const label = m[1]
+    const agent = byId.get(m[2])
+    if (agent) {
+      result += enrichMention(agent.name, agent.emailHandle)
+      mentions.push({
+        name: agent.name,
+        email: agent.emailHandle ? toAlookAddress(agent.emailHandle) : null,
+        description: agent.description,
+      })
+    } else {
+      result += `@${label}`
+    }
+    last = re.lastIndex
+  }
+
+  const tail = parseBareNames(prompt.slice(last), agents)
+  result += tail.enrichedPrompt
+  mentions.push(...tail.mentions)
 
   return { enrichedPrompt: result, mentions }
 }

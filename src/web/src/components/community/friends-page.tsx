@@ -101,7 +101,7 @@ export function FriendsPage({
             />
           }
         >
-          <Avatar label={f.avatar} size={32} presence={f.status} dim={f.status === "offline"} />
+          <Avatar label={f.avatar} seed={f.userId} size={32} presence={f.status} dim={f.status === "offline"} />
           <div className="min-w-0 flex-1">
             <div className={`truncate text-sm font-medium ${f.status === "offline" ? "text-muted-foreground" : ""}`}>
               {f.name}
@@ -180,7 +180,7 @@ export function FriendsPage({
               <div className="flex flex-col gap-1">
                 {blocked.map((b) => (
                   <div key={b.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
-                    <Avatar label={b.avatar} size={32} dim />
+                    <Avatar label={b.avatar} seed={b.userId} size={32} dim />
                     <div className="min-w-0 flex-1 truncate text-sm font-medium">{b.name}</div>
                     <Button variant="secondary" size="sm" onClick={() => onUnblock?.(b.userId ?? b.id)}>Unblock</Button>
                   </div>
@@ -223,7 +223,7 @@ export function FriendsPage({
                       onClick={() => sendRequest(u.name)}
                       className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-accent"
                     >
-                      <Avatar label={u.image ?? u.name.charAt(0).toUpperCase()} size={28} />
+                      <Avatar label={u.image ?? u.name.charAt(0).toUpperCase()} seed={u.id} size={28} />
                       <span className="flex-1 min-w-0 truncate text-sm font-medium">
                         {u.name}
                         <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
@@ -249,7 +249,7 @@ export function FriendsPage({
               <div className="flex flex-col gap-1">
                 {pending.map((p) => (
                   <div key={p.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent">
-                    <Avatar label={p.avatar} size={32} />
+                    <Avatar label={p.avatar} seed={p.userId} size={32} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{p.name}</div>
                       <div className="text-xs text-muted-foreground">{p.kind === "incoming" ? "Incoming request" : "Outgoing request"}</div>

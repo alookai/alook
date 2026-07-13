@@ -69,7 +69,7 @@ export function ThreadOpener({
           onClick={(e) => onOpenProfile?.(msg.authorName, e, undefined, msg.authorId)}
           className="shrink-0 self-start"
         >
-          <Avatar label={avatarLabel} size={40} />
+          <Avatar label={avatarLabel} seed={msg.authorId} size={40} />
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">

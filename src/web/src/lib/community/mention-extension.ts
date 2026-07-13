@@ -7,6 +7,7 @@ export type MentionContext = "channel" | "thread" | "dm"
 type MemberMentionItem = {
   kind: "member"
   id: string
+  userId: string
   label: string
   avatar: string
   status: "online" | "offline"
@@ -52,6 +53,7 @@ export function rankMentionItems(
     const item: MemberMentionItem = {
       kind: "member",
       id: m.id,
+      userId: m.userId,
       label: m.name,
       avatar: m.avatar,
       status: m.status,

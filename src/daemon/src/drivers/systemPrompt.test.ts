@@ -97,20 +97,26 @@ describe("buildCliSystemPrompt", () => {
     expect(prompt).toContain("clickable channel");
   });
 
-  it("lists the three channel commands under ### Channels, positioned after ### Servers", () => {
+  it("lists the two channel commands under ### Channels, positioned after ### Servers", () => {
     const prompt = buildCliSystemPrompt(baseConfig, { lifecycleKind: "persistent" });
     expect(prompt).toContain("### Channels");
     expect(prompt).toContain("channel list");
     expect(prompt).toContain("channel history");
-    expect(prompt).toContain("channel subscribe");
     expect(prompt.indexOf("### Servers")).toBeLessThan(prompt.indexOf("### Channels"));
   });
 
-  it("includes a ## Channels section (after ## Servers) explaining {ref,name,type} and that mentions-level only changes wake timing, not visibility", () => {
+  it("includes a ## Channels section (after ## Servers) explaining {ref,name,type}", () => {
     const prompt = buildCliSystemPrompt(baseConfig, { lifecycleKind: "persistent" });
     expect(prompt).toContain("## Channels");
     expect(prompt.indexOf("## Servers")).toBeLessThan(prompt.indexOf("## Channels"));
     expect(prompt).toContain("ref, name, type");
-    expect(prompt).toContain("mentions");
+  });
+
+  it("no longer references channel subscribe anywhere in the prompt", () => {
+    for (const lifecycleKind of ["persistent", "per_turn"] as const) {
+      const prompt = buildCliSystemPrompt(baseConfig, { lifecycleKind });
+      expect(prompt).not.toContain("channel subscribe");
+      expect(prompt).not.toContain("wake-notification level");
+    }
   });
 });

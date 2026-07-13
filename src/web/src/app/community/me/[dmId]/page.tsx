@@ -358,7 +358,7 @@ function DmView() {
           unreadCount={unreadCount}
           hero={
             <>
-              <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={64} /></div>
+              <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} seed={dm.userId} size={64} /></div>
               <h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2>
               <p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p>
             </>

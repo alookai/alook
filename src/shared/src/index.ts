@@ -267,7 +267,6 @@ export {
   CommunityAgentListChannelsRequestSchema,
   CommunityAgentListMembersRequestSchema,
   CommunityAgentJoinServerRequestSchema,
-  CommunityAgentSubscribeChannelRequestSchema,
 } from "./schemas";
 
 export type {
@@ -339,7 +338,6 @@ export type {
   CommunityAgentListChannelsRequest,
   CommunityAgentListMembersRequest,
   CommunityAgentJoinServerRequest,
-  CommunityAgentSubscribeChannelRequest,
 } from "./schemas";
 
 // Community agent CLI bridge contract — lifted from `src/daemon/src/server/contract.ts`.
@@ -380,8 +378,6 @@ export type {
   ListChannelsRequest as CommunityCliListChannelsRequest,
   ChannelListItem,
   ServerMember as CommunityCliServerMember,
-  SubscribeChannelRequest,
-  SubscribeChannelResponse,
   ServerApi as CommunityCliServerApi,
   UnreadNotice,
   HostCommand,
@@ -490,6 +486,7 @@ export {
 export { parseEmailHandle, toAlookAddress, isValidHandle } from "./utils/email";
 export { parsePromptMentions } from "./utils/prompt-parser";
 export type { PromptAgent, PromptMention, ParseResult } from "./utils/prompt-parser";
+export { MENTION_TOKEN_RE, stripMentionTokens } from "./utils/mention-token";
 export { isValidToken, isValidEmail } from "./utils/validation";
 export { escapeLikePattern } from "./utils/sql-like";
 export { isOnline, formatStatus } from "./utils/status";

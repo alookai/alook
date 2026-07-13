@@ -17,6 +17,7 @@ import type { AgentRuntime as Runtime } from "@alook/shared";
 import type { MemberRole } from "./scenario-presets";
 
 export interface TeamMember {
+  uid: string;
   name: string;
   role: MemberRole;
   description: string;

@@ -8,6 +8,9 @@ const mockGetMessage = vi.fn()
 const mockGetUserSelf = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockFanOutToChannel = vi.fn()
+const mockListChildChannels = vi.fn()
+const mockGetUsersByIds = vi.fn()
+const mockGetFirstMessageByChannelIds = vi.fn()
 
 vi.mock("@opennextjs/cloudflare", () => ({
   getCloudflareContext: vi.fn(() => ({ env: { DB: {} } })),
@@ -23,6 +26,7 @@ vi.mock("@alook/shared", async () => {
       communityChannel: {
         getChannelForMember: (...a: unknown[]) => mockGetChannelForMember(...a),
         createChannel: (...a: unknown[]) => mockCreateChannel(...a),
+        listChildChannels: (...a: unknown[]) => mockListChildChannels(...a),
         // createCommunityMessage's private-channel scoping guard is only hit
         // when there are mentions; the happy-path posts have none, so these
         // return public/empty.
@@ -31,6 +35,7 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getFirstMessageByChannelIds: (...a: unknown[]) => mockGetFirstMessageByChannelIds(...a),
       },
       communityMember: {
         listMembers: vi.fn(async () => []),
@@ -42,6 +47,7 @@ vi.mock("@alook/shared", async () => {
       user: {
         getUserSelf: (...a: unknown[]) => mockGetUserSelf(...a),
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
+        getUsersByIds: (...a: unknown[]) => mockGetUsersByIds(...a),
       },
     },
   }
@@ -77,7 +83,7 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { POST } from "./route"
+import { GET, POST } from "./route"
 
 const ctx = { params: { id: "ch1" } } as any
 
@@ -134,5 +140,42 @@ describe("POST /api/community/channels/[id]/posts — name normalization", () =>
     const res = await POST(postReq({ name: "///", content: "hello" }), ctx)
     expect(res.status).toBe(400)
     expect(mockCreateChannel).not.toHaveBeenCalled()
+  })
+})
+
+describe("GET /api/community/channels/[id]/posts — authorId", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetChannelForMember.mockResolvedValue({ id: "ch1", serverId: "s1", type: "forum", tags: [] })
+    mockGetFirstMessageByChannelIds.mockResolvedValue([])
+  })
+
+  function getReq() {
+    return new NextRequest("http://localhost/api/community/channels/ch1/posts")
+  }
+
+  it("carries each post's creatorId through as authorId", async () => {
+    mockListChildChannels.mockResolvedValue([
+      { id: "post1", name: "First", messageCount: 2, lastMessageAt: "2026-07-02T00:00:00.000Z", createdAt: "2026-07-01T00:00:00.000Z", creatorId: "u_alice", tags: [] },
+    ])
+    mockGetUsersByIds.mockResolvedValue([{ id: "u_alice", name: "Alice", image: null }])
+
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.posts).toHaveLength(1)
+    expect(body.posts[0].authorId).toBe("u_alice")
+  })
+
+  it("falls back to an empty authorId when the creator was deleted (creatorId null)", async () => {
+    mockListChildChannels.mockResolvedValue([
+      { id: "post1", name: "Orphan", messageCount: 0, lastMessageAt: null, createdAt: "2026-07-01T00:00:00.000Z", creatorId: null, tags: [] },
+    ])
+    mockGetUsersByIds.mockResolvedValue([])
+
+    const res = await GET(getReq(), ctx)
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.posts[0].authorId).toBe("")
   })
 })

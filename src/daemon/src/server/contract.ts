@@ -42,8 +42,6 @@ export type {
   ListChannelsRequest,
   ChannelListItem,
   ServerMember,
-  SubscribeChannelRequest,
-  SubscribeChannelResponse,
   ServerApi,
   UnreadNotice,
   HostCommand,

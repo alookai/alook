@@ -306,22 +306,6 @@ export interface ServerMember {
   nickname?: string;
 }
 
-/**
- * Set this agent's own wake-notification level for one channel/thread.
- * DMs are out of scope (rejected server-side) — see `channel subscribe`'s
- * plan §Decisions. `"nothing"` (fully muted) is a human-only concept and is
- * never exposed here; agents only ever write `"all"`/`"mentions"`.
- */
-export interface SubscribeChannelRequest {
-  agentId: AgentId;
-  channel: ChannelRef;
-  level: "all" | "mentions";
-}
-export interface SubscribeChannelResponse {
-  channel: ChannelRef;
-  level: "all" | "mentions";
-}
-
 /* ------------------------------------------------------------------ */
 /* The ServerApi contract                                              */
 /* ------------------------------------------------------------------ */
@@ -367,9 +351,6 @@ export interface ServerApi {
 
   /** Join a server via an invite link/token. Throws on any rejection — see plan's I/O contract. */
   joinServer(req: { agentId: AgentId; invite: string }): Promise<{ server: Server }>;
-
-  /** Set this agent's wake-notification level for one channel/thread (not DMs). */
-  subscribeChannel(req: SubscribeChannelRequest): Promise<SubscribeChannelResponse>;
 }
 
 /* ------------------------------------------------------------------ */

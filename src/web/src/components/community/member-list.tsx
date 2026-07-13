@@ -256,7 +256,7 @@ function MemberRow({
           />
         }
       >
-        <Avatar label={mem.avatar} size={32} presence={mem.status} dim={mem.status === "offline"} />
+        <Avatar label={mem.avatar} seed={mem.userId} size={32} presence={mem.status} dim={mem.status === "offline"} />
         <div className="min-w-0 flex-1 text-left">
           <div className={`truncate text-sm leading-tight ${mem.status === "offline" ? "text-muted-foreground" : ""}`}>
             {mem.name}

@@ -553,7 +553,7 @@ function MentionRow({ item, selected, showMembersHeader, onSelect }: {
         }}
       >
         {item.kind === "member" ? (
-          <Avatar label={item.avatar} size={24} presence={item.status} ringColor="var(--popover)" />
+          <Avatar label={item.avatar} seed={item.userId} size={24} presence={item.status} ringColor="var(--popover)" />
         ) : (
           <span className="grid size-6 place-items-center rounded-full bg-primary/15 text-primary">
             {item.kind === "everyone" ? <Users className="size-3.5" /> : <AtSign className="size-3.5" />}

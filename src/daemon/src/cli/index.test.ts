@@ -30,7 +30,6 @@ function stubApi(over: Partial<ServerApi> = {}): ServerApi {
     resolve: async () => null,
     listMembers: async () => ({ members: [] }),
     joinServer: async () => ({ server: { id: "s", name: "s" } }),
-    subscribeChannel: async ({ channel, level }) => ({ channel, level }),
     ...over,
   } as ServerApi;
 }
@@ -417,44 +416,12 @@ describe("channel history", () => {
   });
 });
 
-describe("channel subscribe", () => {
-  it("subscribe mentions --channel <ref> calls api.subscribeChannel({channel, level:'mentions'})", async () => {
-    const subscribeSpy = vi.fn(async ({ channel, level }: { channel: string; level: string }) => ({ channel, level }));
-    setApiForTesting(stubApi({ subscribeChannel: subscribeSpy }));
-    await main(["channel", "subscribe", "mentions", "--channel", "/demo-workspace/general"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ success: { channel: "/demo-workspace/general", level: "mentions" } });
-    expect(subscribeSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "/demo-workspace/general", level: "mentions" }),
-    );
-  });
-
-  it("subscribe all --channel <ref> calls api.subscribeChannel({channel, level:'all'})", async () => {
-    const subscribeSpy = vi.fn(async ({ channel, level }: { channel: string; level: string }) => ({ channel, level }));
-    setApiForTesting(stubApi({ subscribeChannel: subscribeSpy }));
-    await main(["channel", "subscribe", "all", "--channel", "/demo-workspace/general"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ success: { channel: "/demo-workspace/general", level: "all" } });
-    expect(subscribeSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ channel: "/demo-workspace/general", level: "all" }),
-    );
-  });
-
-  it("invalid LEVEL token is rejected by Commander before any API call", async () => {
-    const subscribeSpy = vi.fn(async () => ({ channel: "/s/c", level: "all" as const }));
-    setApiForTesting(stubApi({ subscribeChannel: subscribeSpy }));
-    await main(["channel", "subscribe", "bogus", "--channel", "/demo-workspace/general"]);
+describe("channel subscribe removed", () => {
+  it("`channel subscribe ...` is no longer a recognized command", async () => {
+    setApiForTesting(stubApi());
+    await main(["channel", "subscribe", "mentions", "--channel", "/x/y"]);
     const env = parseEnvelope(cap.lines());
     expect("error" in env).toBe(true);
-    expect(subscribeSpy).not.toHaveBeenCalled();
-  });
-
-  it("missing --channel → CLI error, no API call made", async () => {
-    const subscribeSpy = vi.fn(async () => ({ channel: "/s/c", level: "all" as const }));
-    setApiForTesting(stubApi({ subscribeChannel: subscribeSpy }));
-    await main(["channel", "subscribe", "mentions"]);
-    const env = parseEnvelope(cap.lines());
-    expect(env).toEqual({ error: "channel subscribe: --channel <ref> is required" });
-    expect(subscribeSpy).not.toHaveBeenCalled();
+    expect(env.error).toContain("unknown command");
   });
 });

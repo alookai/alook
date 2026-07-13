@@ -31,8 +31,6 @@ import type {
   ListChannelsRequest,
   ChannelListItem,
   ServerMember,
-  SubscribeChannelRequest,
-  SubscribeChannelResponse,
   Page,
   Message,
   Server,
@@ -103,6 +101,5 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     resolve: (r: ResolveRequest) => call<{ message: Message }>("resolve", r),
     listMembers: (r: { agentId: AgentId; server: string }) => call<{ members: ServerMember[] }>("listMembers", r),
     joinServer: (r: { agentId: AgentId; invite: string }) => call<{ server: Server }>("joinServer", r),
-    subscribeChannel: (r: SubscribeChannelRequest) => call<SubscribeChannelResponse>("subscribeChannel", r),
   };
 }

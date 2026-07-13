@@ -19,8 +19,12 @@ function isUrl(s: string | undefined | null): boolean {
   return !!s && (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("/"))
 }
 
-export function Avatar({ label, src, size = 40, dim = false, presence, ringColor = "var(--background)" }: {
+export function Avatar({ label, seed, src, size = 40, dim = false, presence, ringColor = "var(--background)" }: {
   label: string
+  // Stable id the fallback shape avatar is derived from. Never a display name:
+  // shape avatars must not shift on rename. When absent, we drop to a plain
+  // single-letter fallback instead of synthesising a shape from `label`.
+  seed?: string
   src?: string
   size?: number
   dim?: boolean
@@ -35,7 +39,7 @@ export function Avatar({ label, src, size = 40, dim = false, presence, ringColor
   const safeLabel = label || "?"
   const avatarConfig = parseAvatarUrl(safeLabel)
   const imageUrl = src || (isUrl(safeLabel) ? safeLabel : undefined)
-  const fallbackConfig = !imageUrl && !avatarConfig ? configFromName(safeLabel) : null
+  const fallbackConfig = !imageUrl && !avatarConfig && seed ? configFromName(seed) : null
   const hasGenerated = !!avatarConfig || !!fallbackConfig
 
   // Priority: image URL > explicit avatar-config (avatar:{...}) > name-derived
@@ -61,9 +65,10 @@ export function Avatar({ label, src, size = 40, dim = false, presence, ringColor
           <AvatarRenderer config={avatarConfig} size={size} className="size-full" />
         </span>
       ) : fallbackConfig ? (
-        // No image, no config — synthesize one from the name so we never fall
-        // back to the plain letter (matches the design system's shape-avatar
-        // aesthetic).
+        // No image, no picker config — synthesize a shape avatar from the
+        // stable `seed` id (matches the design system's shape-avatar
+        // aesthetic). Without a seed we skip this and render the plain letter
+        // below, so a shape avatar is never derived from a display name.
         <span className="size-full rounded-full overflow-hidden">
           <AvatarRenderer config={fallbackConfig} size={size} className="size-full" />
         </span>

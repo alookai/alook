@@ -199,7 +199,7 @@ export function UserSettings({ onClose, userId, userName, aboutMe, avatar, statu
           <TabsContent value="profile">
             <div className="mx-auto max-w-md space-y-4">
               <div className="flex items-center gap-4">
-                <Avatar label={avatar} size={80} />
+                <Avatar label={avatar} seed={userId ?? undefined} size={80} />
                 <div>
                   <div className="text-sm font-medium">Avatar</div>
                   <div className="text-xs text-muted-foreground">PNG, JPG, or WEBP. You&apos;ll be able to crop and zoom before saving.</div>

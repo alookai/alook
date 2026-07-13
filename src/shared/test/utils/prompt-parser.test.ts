@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { parsePromptMentions } from "../../src/utils/prompt-parser"
 
 const bot = (name: string, emailHandle: string | null = null, description = "") => ({
+  id: `ag_${name.toLowerCase().replace(/[^a-z0-9]/g, "")}`,
   name,
   emailHandle,
   description,
@@ -121,6 +122,43 @@ describe("parsePromptMentions", () => {
   it("handles @ after punctuation (parentheses, quotes)", () => {
     const result = parsePromptMentions('(@Bot) and "@Bot"', [bot("Bot", "bot")])
     expect(result.enrichedPrompt).toBe('(@Bot (bot@alook.ai)) and "@Bot (bot@alook.ai)"')
+    expect(result.mentions).toHaveLength(2)
+  })
+
+  it("resolves a token by agent id and enriches", () => {
+    const ada1 = { id: "ag_ada1", name: "Ada", emailHandle: "ada-one", description: "first" }
+    const ada2 = { id: "ag_ada2", name: "Ada", emailHandle: "ada-two", description: "second" }
+    const result = parsePromptMentions("The @[Ada](ag_ada2) will handle it", [ada1, ada2])
+    expect(result.enrichedPrompt).toBe("The @Ada (ada-two@alook.ai) will handle it")
+    expect(result.mentions).toHaveLength(1)
+    expect(result.mentions[0]).toEqual({ name: "Ada", email: "ada-two@alook.ai", description: "second" })
+  })
+
+  it("picks the correct same-name agent by token id", () => {
+    const ada1 = { id: "ag_ada1", name: "Ada", emailHandle: "ada-one", description: "" }
+    const ada2 = { id: "ag_ada2", name: "Ada", emailHandle: "ada-two", description: "" }
+    const result = parsePromptMentions("@[Ada](ag_ada1)", [ada1, ada2])
+    expect(result.enrichedPrompt).toBe("@Ada (ada-one@alook.ai)")
+    expect(result.mentions[0].email).toBe("ada-one@alook.ai")
+  })
+
+  it("strips an unmatched token (agent deleted) back to @Name", () => {
+    const result = parsePromptMentions("Ask @[Ada](ag_gone) about it", [bot("Other", "other")])
+    expect(result.enrichedPrompt).toBe("Ask @Ada about it")
+    expect(result.mentions).toHaveLength(0)
+  })
+
+  it("strips tokens even when the agent list is empty (no leaked token)", () => {
+    const result = parsePromptMentions("Hey @[Ada](ag_ada1) do this", [])
+    expect(result.enrichedPrompt).toBe("Hey @Ada do this")
+    expect(result.mentions).toHaveLength(0)
+  })
+
+  it("handles a token mixed with a bare-name mention", () => {
+    const ada = { id: "ag_ada1", name: "Ada", emailHandle: "ada", description: "" }
+    const bob = bot("Bob", "bob")
+    const result = parsePromptMentions("@[Ada](ag_ada1) ping @Bob", [ada, bob])
+    expect(result.enrichedPrompt).toBe("@Ada (ada@alook.ai) ping @Bob (bob@alook.ai)")
     expect(result.mentions).toHaveLength(2)
   })
 })

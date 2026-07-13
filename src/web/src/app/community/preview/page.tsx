@@ -343,11 +343,11 @@ export default function CommunityPreview() {
 
   // friend request actions — move rows between pending/blocked locally
   const friendActions = {
-    onAccept: (id: string) => { const req = pending.find((r) => r.id === id); setPending((p) => p.filter((r) => r.id !== id)); if (req) setFriendList((p) => [...p, { id: `fr_${req.id}`, name: req.name, avatar: req.avatar, status: "online", sub: "" }]); toast("Friend request accepted") },
+    onAccept: (id: string) => { const req = pending.find((r) => r.id === id); setPending((p) => p.filter((r) => r.id !== id)); if (req) setFriendList((p) => [...p, { id: `fr_${req.id}`, userId: req.userId, name: req.name, avatar: req.avatar, status: "online", sub: "" }]); toast("Friend request accepted") },
     onReject: (id: string) => setPending((p) => p.filter((r) => r.id !== id)),
     onCancelRequest: (id: string) => setPending((p) => p.filter((r) => r.id !== id)),
     onUnblock: (id: string) => { setBlocked((b) => b.filter((u) => u.id !== id)); toast("User unblocked") },
-    onSendRequest: (username: string) => { setPending((p) => [...p, { id: `pr_${username}`, name: username, avatar: username.charAt(0).toUpperCase(), kind: "outgoing" }]); toast(`Friend request sent to ${username}`) },
+    onSendRequest: (username: string) => { setPending((p) => [...p, { id: `pr_${username}`, userId: `u_${username}`, name: username, avatar: username.charAt(0).toUpperCase(), kind: "outgoing" }]); toast(`Friend request sent to ${username}`) },
     onRemoveFriend: (id: string) => { setFriendList((p) => p.filter((f) => f.id !== id)); toast("Friend removed") },
     onBlock: (id: string) => { const f = friendList.find((x) => x.id === id); setFriendList((p) => p.filter((x) => x.id !== id)); if (f) setBlocked((b) => [...b, { id: f.id, name: f.name, avatar: f.avatar }]); toast("User blocked") },
   }
@@ -372,7 +372,7 @@ export default function CommunityPreview() {
     const id = `fp_local_${++postSeq}`
     const now = new Date().toISOString()
     const created: ForumPost = {
-      id, name: post.name, authorAvatar: "G", messageCount: 1, lastMessageAt: now,
+      id, name: post.name, authorId: "u_gener", authorAvatar: "G", messageCount: 1, lastMessageAt: now,
       tags: post.tags, preview: post.content || "(no description)",
       parent: { authorName: "Gener", text: post.content || post.name },
     }
@@ -463,7 +463,7 @@ export default function CommunityPreview() {
               {...profileProps}
               hero={
                 <>
-                  <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} size={64} /></div>
+                  <div className="relative mb-3 w-fit"><Avatar label={dm.avatar} seed={dm.userId} size={64} /></div>
                   <h2 className="text-2xl font-semibold leading-tight">{dm.name}</h2>
                   <p className="mt-1 text-sm text-muted-foreground">This is the beginning of your direct message history with <span className="font-medium text-foreground">{dm.name}</span>.</p>
                 </>
@@ -566,7 +566,7 @@ export default function CommunityPreview() {
               <ServerRail {...railProps} />
               {sidebar({ bordered: true })}
             </div>
-            <UserBar user={{ name: "Gener", avatar: "G" }} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
+            <UserBar user={{ id: "u_gener", name: "Gener", avatar: "G" }} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
           </ResizablePanel>
 
           <ResizableHandle className="bg-transparent" />
@@ -601,7 +601,7 @@ export default function CommunityPreview() {
             <div className="flex min-h-0 flex-1">
               {sidebar({ noHeader: false })}
             </div>
-            <UserBar user={{ name: "Gener", avatar: "G" }} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
+            <UserBar user={{ id: "u_gener", name: "Gener", avatar: "G" }} {...profileProps} onEditProfile={() => setEditingProfile(true)} />
           </div>
         </>
       )}

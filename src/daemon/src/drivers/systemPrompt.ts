@@ -120,7 +120,6 @@ function cliCommandsSection(): string {
     "",
     `1. \`${CLI} channel list --server <id-or-name>\` — list top-level channels in a server.`,
     `2. \`${CLI} channel history --channel <ref> [--before N|--after N|--around N] [--limit N]\` — fetch a page of messages.`,
-    `3. \`${CLI} channel subscribe <all|mentions> --channel <ref>\` — set your wake-notification level for a channel.`,
     "",
     "### Output format",
     "",
@@ -211,11 +210,6 @@ function channelsSection(): string {
     `\`${CLI} channel list\`'s items are \`{ref, name, type}\` — \`ref\` is directly reusable as ` +
     "`--channel`/`--target` on every other command, no separate id lookup needed. `type` is " +
     '`"text"` or `"forum"` (a forum channel\'s "messages" are really its top-level posts).',
-    "",
-    `\`${CLI} channel subscribe mentions --channel <ref>\` only changes WHEN you're woken, never ` +
-    "WHAT you can see: a `mentions`-subscribed channel still delivers its non-mention messages via " +
-    `\`${CLI} inbox pull\`/\`${CLI} channel history\` — you just aren't proactively woken for them. ` +
-    `Re-subscribing to \`all\` restores the default (woken for every message).`,
   ].join("\n");
 }
 

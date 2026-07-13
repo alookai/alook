@@ -9,13 +9,15 @@ import { StatusEditor, hasStatus } from "./status-editor"
 import type { Profile } from "./_types"
 import type { Breakpoint } from "@/hooks/use-mobile"
 
-// Deterministic, on-brand banner gradient. Hue is constrained to the warm band
+// Deterministic, on-brand banner gradient. The seed is the owner's stable
+// userId (falling back to name only when the id isn't yet resolved), so
+// renaming never shifts the banner colour. Hue is constrained to the warm band
 // (60–80 per DESIGN.md) and chroma kept low so two profiles always read as the
 // same family — distinct but never garish.
-export function generateGradient(name: string): string {
+export function generateGradient(seed: string): string {
   let hash = 0
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash)
   }
   const hue1 = 60 + (Math.abs(hash) % 21)
   const hue2 = 60 + (Math.abs(hash * 7) % 21)
@@ -46,7 +48,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
     setMsg("")
     mobile ? onClose() : close()
   }
-  const gradient = generateGradient(data.name)
+  const gradient = generateGradient(data.userId ?? data.name)
   const card = (
     <>
       {/* banner */}
@@ -64,7 +66,7 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
               proportion the 64px avatar had at `-mt-8`. */}
           <div className="relative">
             <div className="rounded-full ring-[5px] ring-popover">
-              <Avatar label={data.avatar} size={77} presence={data.presence} ringColor="var(--popover)" />
+              <Avatar label={data.avatar} seed={data.userId} size={77} presence={data.presence} ringColor="var(--popover)" />
             </div>
             {/* Status sits on the same row as the presence dot, just to its
                 right, instead of floating over the avatar's corner. The dot

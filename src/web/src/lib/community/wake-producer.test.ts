@@ -87,7 +87,7 @@ describe("enqueueBotWakes", () => {
 
     expect(mockFindWakeCandidates).toHaveBeenCalledWith(
       {},
-      { recipients: ["bot1", "bot2"], channelId: "c1", dmConversationId: undefined, newSeq: 7, messageId: "msg_1" },
+      { recipients: ["bot1", "bot2"], channelId: "c1", dmConversationId: undefined, newSeq: 7 },
     )
     expect(mockCreateQueueWakeTransport).toHaveBeenCalledTimes(1)
     expect(mockCreateDevHttpWakeTransport).not.toHaveBeenCalled()

@@ -16,7 +16,7 @@ import { Markdown } from "@tiptap/markdown";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { rankMentionAgents } from "@/lib/mention-agents";
-import { buildChatMentionExtension } from "@/lib/chat-mention-extension";
+import { buildChatMentionExtension, mentionTokensToHtml } from "@/lib/chat-mention-extension";
 import { decodeChatEntities } from "@/lib/chat-markdown";
 import { toAlookAddress } from "@alook/shared";
 import type { Agent, AgentLink } from "@alook/shared";
@@ -466,7 +466,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       if (!incoming) {
         editor.commands.clearContent();
       } else {
-        editor.commands.setContent((value || "").replaceAll("\n", "<br>"), { emitUpdate: false });
+        editor.commands.setContent(mentionTokensToHtml((value || "").replaceAll("\n", "<br>")), { emitUpdate: false });
       }
       onEditorStateRef.current(editor.getText(), editor.state.selection.from - 1);
     }, [value, editor]);

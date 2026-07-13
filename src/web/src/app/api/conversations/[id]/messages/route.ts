@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { queries, TASK_TYPES, CreateMessageRequestSchema, parsePromptMentions, truncateTitle } from "@alook/shared"
+import { queries, TASK_TYPES, CreateMessageRequestSchema, parsePromptMentions, truncateTitle, stripMentionTokens } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { nanoid } from "nanoid";
 import { withAuth } from "@/lib/middleware/auth";
@@ -184,7 +184,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   }
 
   // Auto-title: conditional WHERE title = '' ensures only the first message sets it
-  queries.conversation.updateConversationTitle(db, id, truncateTitle(content)).catch(() => {});
+  queries.conversation.updateConversationTitle(db, id, truncateTitle(stripMentionTokens(content))).catch(() => {});
 
   let enrichedContent = content;
   let mentionContext: Record<string, unknown> | undefined;

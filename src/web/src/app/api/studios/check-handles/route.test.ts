@@ -45,16 +45,30 @@ describe("POST /api/studios/check-handles", () => {
     mockGetExistingHandles.mockResolvedValue([]);
   });
 
-  it("returns unique handles for each name when none exist", async () => {
-    const req = makeReq({ names: ["Alice", "Bob"] });
+  it("returns unique handles for each member keyed by uid when none exist", async () => {
+    const req = makeReq({ members: [{ uid: "a", name: "Alice" }, { uid: "b", name: "Bob" }] });
     const res = await POST(req, {});
     const body = await res.json();
 
     expect(res.status).toBe(200);
     expect(body).toHaveLength(2);
-    expect(body[0].name).toBe("Alice");
+    expect(body[0].uid).toBe("a");
     expect(body[0].handle).toBeTruthy();
-    expect(body[1].name).toBe("Bob");
+    expect(body[1].uid).toBe("b");
+    expect(body[1].handle).toBeTruthy();
+    expect(body[0].handle).not.toBe(body[1].handle);
+  });
+
+  it("returns distinct handles for two same-name members keyed by uid", async () => {
+    const req = makeReq({ members: [{ uid: "a", name: "Ada" }, { uid: "b", name: "Ada" }] });
+    const res = await POST(req, {});
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toHaveLength(2);
+    expect(body[0].uid).toBe("a");
+    expect(body[1].uid).toBe("b");
+    expect(body[0].handle).toBeTruthy();
     expect(body[1].handle).toBeTruthy();
     expect(body[0].handle).not.toBe(body[1].handle);
   });
@@ -62,7 +76,7 @@ describe("POST /api/studios/check-handles", () => {
   it("skips handles that already exist in DB", async () => {
     mockGetExistingHandles.mockResolvedValue(["alice"]);
 
-    const req = makeReq({ names: ["Alice"] });
+    const req = makeReq({ members: [{ uid: "a", name: "Alice" }] });
     const res = await POST(req, {});
     const body = await res.json();
 
@@ -72,7 +86,7 @@ describe("POST /api/studios/check-handles", () => {
   });
 
   it("batch-fetches all candidates in a single call", async () => {
-    const req = makeReq({ names: ["Alice", "Bob", "Charlie"] });
+    const req = makeReq({ members: [{ uid: "a", name: "Alice" }, { uid: "b", name: "Bob" }, { uid: "c", name: "Charlie" }] });
     await POST(req, {});
 
     expect(mockGetExistingHandles).toHaveBeenCalledTimes(1);
@@ -80,14 +94,14 @@ describe("POST /api/studios/check-handles", () => {
     expect(handles.length).toBeGreaterThan(3);
   });
 
-  it("returns 400 if names array is empty", async () => {
-    const req = makeReq({ names: [] });
+  it("returns 400 if members array is empty", async () => {
+    const req = makeReq({ members: [] });
     const res = await POST(req, {});
     expect(res.status).toBe(400);
   });
 
-  it("returns 400 if names array exceeds 4", async () => {
-    const req = makeReq({ names: ["a", "b", "c", "d", "e"] });
+  it("returns 400 if members array exceeds 4", async () => {
+    const req = makeReq({ members: [{ uid: "a", name: "a" }, { uid: "b", name: "b" }, { uid: "c", name: "c" }, { uid: "d", name: "d" }, { uid: "e", name: "e" }] });
     const res = await POST(req, {});
     expect(res.status).toBe(400);
   });
@@ -106,7 +120,7 @@ describe("POST /api/studios/check-handles", () => {
       Promise.resolve(handles)
     );
 
-    const req = makeReq({ names: ["Alice"] });
+    const req = makeReq({ members: [{ uid: "a", name: "Alice" }] });
     const res = await POST(req, {});
     const body = await res.json();
 

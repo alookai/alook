@@ -14,7 +14,7 @@
  * There is no meaningful exit code — the process exits 0 and the JSON envelope is
  * the sole result channel.
  */
-import { Argument, Command, CommanderError } from "commander";
+import { Command, CommanderError } from "commander";
 import type { ServerApi, Cursor, Message } from "../server/contract.js";
 import { proxyServerApiFromEnv } from "./proxyServerApi.js";
 import { daemonStart, daemonStop, daemonList } from "./daemonStart.js";
@@ -167,16 +167,6 @@ async function cmdChannelHistory(opts: Record<string, unknown>): Promise<unknown
   return { items, hasMore, ...(latestSeq !== undefined ? { latestSeq } : {}) };
 }
 
-async function cmdChannelSubscribe(opts: Record<string, unknown>): Promise<unknown> {
-  const api = getApi();
-  const agent = agentId(opts);
-  const channel = opts.channel as string;
-  if (!channel) throw new CliError("channel subscribe: --channel <ref> is required");
-  const level = opts.level as "all" | "mentions";
-  const result = await api.subscribeChannel({ agentId: agent, channel, level });
-  return result;
-}
-
 /* ------------------------------------------------------------------ */
 /* Program definition                                                  */
 /* ------------------------------------------------------------------ */
@@ -297,20 +287,6 @@ function buildProgram(): Command {
       const localOpts = this.opts();
       const globalOpts = program.opts();
       const result = await cmdChannelHistory({ ...globalOpts, ...localOpts });
-      printEnvelope({ success: result });
-    });
-
-  channel
-    .command("subscribe")
-    .description("set this agent's own wake-notification level for a channel or thread")
-    .addArgument(new Argument("<level>", "all|mentions").choices(["all", "mentions"]))
-    .option("--channel <ref>", "channel/thread ref (path-style; DMs are not supported)")
-    .exitOverride()
-    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
-    .action(async function (this: Command, level: string) {
-      const localOpts = this.opts();
-      const globalOpts = program.opts();
-      const result = await cmdChannelSubscribe({ ...globalOpts, ...localOpts, level });
       printEnvelope({ success: result });
     });
 

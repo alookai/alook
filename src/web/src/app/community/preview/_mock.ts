@@ -188,17 +188,17 @@ export const THREADS: Thread[] = [
 export const FORUM_POSTS: Record<string, ForumPost[]> = {
   "help-forum": [
     {
-      id: "fp_smtp", name: "Custom SMTP keeps timing out", authorAvatar: "j", messageCount: 6, lastMessageAt: "2026-06-25T09:50:00Z",
+      id: "fp_smtp", name: "Custom SMTP keeps timing out", authorId: "u_jgtech", authorAvatar: "j", messageCount: 6, lastMessageAt: "2026-06-25T09:50:00Z",
       tags: ["email", "bug"], preview: "I set up a custom SMTP relay but sends time out after ~30s…",
       parent: { authorName: "jgtech", text: "I set up a custom SMTP relay but sends time out after ~30s. Anyone seen this?" },
     },
     {
-      id: "fp_preset", name: "Share your best agent presets", authorAvatar: "L", messageCount: 23, lastMessageAt: "2026-06-25T09:00:00Z",
+      id: "fp_preset", name: "Share your best agent presets", authorId: "u_lindsay", authorAvatar: "L", messageCount: 23, lastMessageAt: "2026-06-25T09:00:00Z",
       tags: ["showcase"], preview: "Drop your favorite agent setups here — let's build a library.",
       parent: { authorName: "Lindsay", text: "Drop your favorite agent setups here — let's build a library." },
     },
     {
-      id: "fp_pricing", name: "How do per-agent limits scale?", authorAvatar: "A", messageCount: 4, lastMessageAt: "2026-06-25T07:30:00Z",
+      id: "fp_pricing", name: "How do per-agent limits scale?", authorId: "u_azzo", authorAvatar: "A", messageCount: 4, lastMessageAt: "2026-06-25T07:30:00Z",
       tags: ["question", "billing"], preview: "Trying to understand how message limits work across a team…",
       parent: { authorName: "Azzo", text: "Trying to understand how message limits work across a team of agents." },
     },
@@ -262,8 +262,8 @@ export const FRIENDS: Friend[] = [
 ]
 
 export const PENDING: PendingRequest[] = [
-  { id: "u_jg", name: "jgtech", avatar: "j", kind: "incoming" },
-  { id: "u_dist", name: "distagon", avatar: "d", kind: "outgoing" },
+  { id: "fr_jg", userId: "u_jg", name: "jgtech", avatar: "j", kind: "incoming" },
+  { id: "fr_dist", userId: "u_dist", name: "distagon", avatar: "d", kind: "outgoing" },
 ]
 
 export const BLOCKED: BlockedUser[] = [

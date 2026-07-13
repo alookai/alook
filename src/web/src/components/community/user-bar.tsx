@@ -7,7 +7,7 @@ import { Avatar } from "./avatar"
 import type { OpenProfile } from "./_types"
 
 export function UserBar({ user, onOpenProfile, onEditProfile, inbox, hasUnread }: {
-  user: { name: string; avatar: string }
+  user: { id: string; name: string; avatar: string }
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: React.ReactNode
@@ -23,7 +23,7 @@ export function UserBar({ user, onOpenProfile, onEditProfile, inbox, hasUnread }
 }
 
 function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread }: {
-  user: { name: string; avatar: string }
+  user: { id: string; name: string; avatar: string }
   onOpenProfile?: OpenProfile
   onEditProfile?: () => void
   inbox?: React.ReactNode
@@ -32,7 +32,7 @@ function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread }: {
   return (
     <div className="flex flex-1 items-center gap-2">
       <button onClick={(e) => onOpenProfile?.(user.name, e)} className="shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-        <Avatar label={user.avatar} size={28} presence="online" ringColor="var(--muted)" />
+        <Avatar label={user.avatar} seed={user.id} size={28} presence="online" ringColor="var(--muted)" />
       </button>
       <button onClick={(e) => onOpenProfile?.(user.name, e)} className="min-w-0 flex-1 text-left rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
         <div className="truncate text-sm font-medium leading-tight">{user.name}</div>

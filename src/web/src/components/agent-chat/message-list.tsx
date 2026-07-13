@@ -1,5 +1,5 @@
 import React, { memo } from "react";
-import { parseEmailHandle, type Agent, type Artifact, type Message, type TaskApi as Task, type TaskMessageResponse } from "@alook/shared";
+import { parseEmailHandle, stripMentionTokens, type Agent, type Artifact, type Message, type TaskApi as Task, type TaskMessageResponse } from "@alook/shared";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -494,7 +494,7 @@ export const MessageItem = memo(function MessageItem({
   const [actionSheetOpen, setActionSheetOpen] = React.useState(false);
 
   const doCopy = React.useCallback(async () => {
-    const ok = await copy(msg.content);
+    const ok = await copy(stripMentionTokens(msg.content));
     if (ok) toast.success("Copied to clipboard");
     else toast.error("Failed to copy");
   }, [copy, msg.content]);
@@ -514,7 +514,7 @@ export const MessageItem = memo(function MessageItem({
       key: "quote",
       label: "Quote",
       icon: <MessageSquareQuote className="size-3.5" />,
-      onClick: () => onQuote(msg.id, msg.content.slice(0, 50)),
+      onClick: () => onQuote(msg.id, stripMentionTokens(msg.content).slice(0, 50)),
     });
   }
   if (onReplyInThread && (msg.role === "assistant" || msg.role === "user")) {

@@ -184,7 +184,7 @@ export function InviteDialog({
                   key={f.id}
                   className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/40"
                 >
-                  <Avatar label={f.avatar || f.name} size={32} presence={f.status} ringColor="var(--popover)" />
+                  <Avatar label={f.avatar || f.name} seed={f.userId} size={32} presence={f.status} ringColor="var(--popover)" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{f.name}</div>
                     {hasStatus(f.statusEmoji, f.statusText) && (

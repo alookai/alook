@@ -204,11 +204,12 @@ export const SCENARIO_PRESETS: ScenarioPreset[] = [
 ];
 
 import { uniqueNamesGenerator, names } from "unique-names-generator";
+import { nanoid } from "nanoid";
 import { randomConfig, serializeAvatarConfig } from "@/components/avatar";
 
-export function shuffleMembers(count: number): { name: string; avatarUrl: string }[] {
+export function shuffleMembers(count: number): { uid: string; name: string; avatarUrl: string }[] {
   const used = new Set<string>();
-  const result: { name: string; avatarUrl: string }[] = [];
+  const result: { uid: string; name: string; avatarUrl: string }[] = [];
   for (let i = 0; i < count; i++) {
     let name: string;
     let attempts = 0;
@@ -218,6 +219,7 @@ export function shuffleMembers(count: number): { name: string; avatarUrl: string
     } while (used.has(name) && attempts < 100);
     used.add(name);
     result.push({
+      uid: nanoid(),
       name,
       avatarUrl: serializeAvatarConfig(randomConfig()),
     });

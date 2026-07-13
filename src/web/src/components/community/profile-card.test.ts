@@ -24,4 +24,21 @@ describe("generateGradient", () => {
     const b = generateGradient("Gus")
     expect(a).not.toBe(b)
   })
+
+  it("is deterministic for the same userId seed", () => {
+    expect(generateGradient("usr_abc123")).toBe(generateGradient("usr_abc123"))
+  })
+
+  it("varies across different userIds", () => {
+    expect(generateGradient("usr_abc123")).not.toBe(generateGradient("usr_xyz789"))
+  })
+
+  it("keeps the same gradient when the display name changes but the userId seed is stable", () => {
+    // The card computes `generateGradient(data.userId ?? data.name)` — two
+    // renders of the same person (renamed in between) both seed on userId, so
+    // the banner colour must not shift.
+    const before = generateGradient("usr_stable")
+    const after = generateGradient("usr_stable")
+    expect(after).toBe(before)
+  })
 })

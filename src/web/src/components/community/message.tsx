@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent } from "@/compon
 import { Avatar } from "./avatar"
 import { MessageBody } from "./message-body"
 import { EmojiPickerPopover } from "./emoji-picker"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./message-menu"
 import { formatMessageTime } from "./format-time"
@@ -126,7 +127,7 @@ export function Message({
           <div className="w-10 shrink-0" />
         ) : (
           <button onClick={(e) => onOpenProfile?.(m.authorName ?? "", e, undefined, m.authorId)} className="shrink-0 self-start">
-            <Avatar label={m.authorAvatar ?? "?"} size={40} />
+            <Avatar label={m.authorAvatar ?? "?"} seed={m.authorId} size={40} />
           </button>
         )}
         <div className="min-w-0 flex-1">
@@ -244,25 +245,38 @@ export function Message({
 
           {m.reactions && (
             <div className="mt-2 flex flex-wrap gap-1">
-              {m.reactions.map((r, i) => (
-                <button
-                  key={i}
-                  onClick={() => onToggleReaction?.(r.emoji)}
-                  title={r.userIds?.length ? r.userIds.map((id) => resolveUserName?.(id) ?? id).join(", ") : undefined}
-                  className={[
-                    "flex h-6 items-center gap-1 rounded-full px-2 text-sm",
-                    r.me ? "border border-primary/50 bg-accent" : "bg-secondary",
-                  ].join(" ")}
-                >
-                  <span>{r.emoji}</span>
-                  <NumberTicker value={r.count} className="text-xs text-muted-foreground" />
-                </button>
-              ))}
-              <EmojiPickerPopover side="top" align="start" onPick={(e) => onReact?.(e)}>
-                <button className="grid h-6 w-7 place-items-center rounded-full bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction">
-                  <SmilePlus className="size-4" />
-                </button>
-              </EmojiPickerPopover>
+              {m.reactions.map((r, i) => {
+                const names = r.userIds?.length
+                  ? r.userIds.map((id) => resolveUserName?.(id) ?? id).join(", ")
+                  : undefined
+                const chip = (
+                  <button
+                    onClick={() => onToggleReaction?.(r.emoji)}
+                    className={[
+                      "flex h-6 items-center gap-1 rounded-md px-2 text-sm",
+                      r.me ? "border border-primary/50 bg-accent" : "bg-secondary",
+                    ].join(" ")}
+                  >
+                    <span>{r.emoji}</span>
+                    <NumberTicker value={r.count} className="text-xs text-muted-foreground" />
+                  </button>
+                )
+                if (!names) return <div key={i}>{chip}</div>
+                return (
+                  <Tooltip key={i}>
+                    <TooltipTrigger render={chip} />
+                    <TooltipContent>Reacted by {names}</TooltipContent>
+                  </Tooltip>
+                )
+              })}
+              <Tooltip>
+                <EmojiPickerPopover side="top" align="start" onPick={(e) => onReact?.(e)}>
+                  <TooltipTrigger render={<button className="grid h-6 w-7 place-items-center rounded-md bg-secondary text-muted-foreground hover:text-foreground" aria-label="Add reaction" />}>
+                    <SmilePlus className="size-4" />
+                  </TooltipTrigger>
+                </EmojiPickerPopover>
+                <TooltipContent>Add reaction</TooltipContent>
+              </Tooltip>
             </div>
           )}
 
@@ -271,15 +285,7 @@ export function Message({
               onClick={() => onOpenThread(m.thread!.id)}
               className="group/thread mt-2 flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent/60"
             >
-              {m.thread.participants && m.thread.participants.length > 0 ? (
-                <div className="flex -space-x-2">
-                  {m.thread.participants.slice(0, 3).map((p, i) => (
-                    <Avatar key={i} label={p} size={20} />
-                  ))}
-                </div>
-              ) : (
-                <MessagesSquare className="size-4 text-primary" />
-              )}
+              <MessagesSquare className="size-4 text-primary" />
               <span className="font-medium text-primary">
                 {m.thread.messageCount} {m.thread.messageCount === 1 ? "reply" : "replies"}
               </span>
