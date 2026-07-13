@@ -1,84 +1,176 @@
 export const metadata = {
   slug: "personal-ai-company",
-  title: "How to Build a One-Person Company With AI Agents",
+  title: "How to Build a One-Person Business With AI Agents",
   date: "2026-06-10",
   author: "Alook Team",
   excerpt:
-    "The complete guide to AI for solopreneurs. Learn which AI agents work best for small business and how to build a one-person company with an AI workforce.",
-  readingTime: "5 min read",
+    "A practical guide to building a one-person business with AI agents, including which workflows to delegate, where human approval belongs, and how orchestration keeps the work connected.",
+  readingTime: "6 min read",
+  image: "/blog/personal-ai-company/hero.webp",
 };
 
-![Personal AI Company Organizational Chart](/blog/personal-ai-company/hero.png)
+export const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [
+      {
+        "@type": "Question",
+        name: "What is a personal AI company?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "A personal AI company is a one-person business where the founder uses AI agents for defined workflows while keeping responsibility for goals, approvals, and important decisions.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Which AI agents does Alook support?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Alook currently supports Claude Code, Codex, and OpenCode. It gives these local coding agents roles, email inboxes, task tracking, schedules, and a shared workspace for collaboration.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Can AI agents run a one-person business without human oversight?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "No. Agents can handle scoped, repeatable work, but the founder should approve customer commitments, financial actions, legal decisions, pricing changes, and other high-impact work.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Is Alook free to use?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "You can currently get started with Alook for free. Alook is also open source and can be self-hosted.",
+        },
+      },
+    ],
+  },
+];
 
-Running a company alone used to mean choosing between growth and sanity. That tradeoff is dissolving. If you're a solopreneur looking for AI tools to scale without hiring, or a small business owner exploring AI agents for the first time, this is how it works.
+A one-person business does not need an AI version of every department. It needs a small number of reliable workflows that keep moving when the founder is focused elsewhere.
+
+That is the practical idea behind a personal AI company. You remain responsible for the business. AI agents take ownership of defined work, use the tools you allow, and return results for review. As more agents are added, an orchestration layer keeps their roles, tasks, schedules, and communication connected.
+
+![Illustrative organizational chart for a personal AI company with several specialized agent roles](/blog/personal-ai-company/hero.webp)
+
+*This diagram is a conceptual example of role specialization. The founder remains responsible for company direction and approval.*
 
 ## What is a one-person company AI setup?
 
-You're the CEO of a digital workforce. AI agents handle sales outreach, customer support, content production, data analysis. You focus on strategy, relationships, and creative direction.
+A one-person company AI setup combines three parts:
 
-In practice this means:
+- **A founder who sets direction.** You choose priorities, define boundaries, and approve decisions with financial, legal, or reputational impact.
+- **Agents with narrow roles.** Each agent gets a clear responsibility, the context needed to do the work, and access only to relevant tools.
+- **An orchestration layer.** This coordinates assignments, handoffs, recurring work, and records so the operation does not depend on you forwarding every message.
 
-- A sales agent qualifies leads without your input
-- Support tickets resolve in under a minute
-- Content publishes across platforms while you're offline
-- Reports generate themselves every morning
+The goal is not to pretend software is an employee. The goal is to make repeatable work easier to delegate and inspect.
 
-The math works differently from a traditional business. Instead of hiring ten people and managing ten problems, you deploy ten agents. Monthly cost for a full AI workforce for solo founders: typically under $200. The scaling problem separates from the people problem.
+Useful starting workflows include preparing a morning brief, turning a bug report into a draft pull request, organizing release notes, researching a lead, or drafting a follow-up for approval. These tasks have visible inputs and outputs. You can check the result before it reaches a customer or changes production.
 
-## Best AI agents for small business and solopreneurs
+## Which AI agents should a solopreneur start with?
 
-Five agents deliver most of the value. Start with whichever matches your biggest bottleneck:
+Start with the workflow, not the job title. A “marketing agent” is too broad to evaluate. “Draft a weekly product update from merged pull requests” gives the agent a source, an output, and a review point.
 
-**Customer support agent.** Handles FAQs, troubleshooting, onboarding. Probably the highest-ROI first agent for any small business. Saves 15-20 hours weekly from the first week.
+A good first workflow usually has these properties:
 
-**Content creator agent.** Produces blog posts, social content, newsletters. Feed it your previous work so it matches your voice. Consistency beats occasional perfection when you're building an audience.
+- It happens repeatedly.
+- The expected output is easy to describe.
+- The required information is available to the agent.
+- A mistake can be caught before it causes harm.
+- Success can be checked without relying on vague judgments.
 
-**Sales development agent.** Identifies prospects, researches companies, sends outreach, books meetings. One AI agent for small business development handles the function of a dedicated SDR.
+Avoid starting with a workflow that requires constant exceptions, sensitive customer decisions, or unrestricted access to business systems. If every run needs a different set of instructions, the process is not ready for delegation.
 
-**Data analyst agent.** Pulls metrics, generates reports, alerts you on anomalies. Configure it to surface signal rather than dump dashboards at you.
+## Best AI tools for solopreneurs: start with orchestration
 
-**Project coordinator agent.** Tracks tasks, sends reminders, maintains schedules. Removing the "what do I need to do next" mental load frees real capacity for strategic work.
+There is no universal “2026 stack” for every solopreneur. A consultant, an open-source maintainer, and an online retailer use different systems. Recommending the same payment, analytics, and website tools to all of them would add noise without helping them build a reliable workflow.
 
-![Personal AI Company Development Timeline](/blog/personal-ai-company/timeline.png)
+The shared requirement is coordination. [AI orchestration](/blog/ai-agent-orchestration) connects roles, assignments, context, and handoffs across agents. [Alook](https://alook.ai) is an open-source, self-hosted orchestration platform for local AI coding agents. It currently supports Claude Code, Codex, and OpenCode.
 
-## Best AI tools for solopreneurs (2026 stack)
+Alook gives those agents an operating structure:
 
-The best tools for solopreneurs replace entire departments, not individual tasks. Keep the stack simple:
+- **Roles and an org chart** define which agent owns each kind of work.
+- **An `@alook.ai` email address** lets people and agents exchange instructions and replies.
+- **Kanban task tracking** records assignments and progress.
+- **Calendar scheduling** supports reminders, recurring tasks, and routines.
+- **Persistent context and traceability** preserve decisions, instructions, and responses.
+- **Local execution** keeps agents and their tool access on your machine while allowing remote access through Alook.
 
-**Agent orchestration:** [Alook.ai](https://alook.ai). Built for non-technical founders. Your agents share context, communicate with each other, and hand off work without you routing every message. This is the layer that turns isolated AI tools into an actual team.
+You can currently get started with Alook for free. It is also licensed under Apache 2.0 and can be self-hosted. That describes Alook's current availability; it is not a claim about the total cost of running a business or using third-party models and services.
 
-**Payments:** Stripe. **Analytics:** Plausible. **Website:** Framer or Carrd.
+![Illustrative progression from one founder to a coordinated group of AI agents](/blog/personal-ai-company/timeline.webp)
 
-Total monthly cost for the complete stack: under $100. That's what makes AI tools for one person business viable in a way that hiring contractors never was.
+*This progression is illustrative. The useful number of agents depends on the workflows you have tested and connected.*
 
-## How to run a business with AI agents: getting started
+## How to build a one-person business with AI agents
 
-**Week 1:** Pick your niche and build your first agent. Choose one task you repeat daily that doesn't require your judgment. Get that agent working reliably before touching anything else.
+### 1. Choose one recurring workflow
 
-**Week 2:** Add your second agent in your highest-leverage function. Usually support (if you have customers) or content (if you need customers). Train it well. Spend days on this, not hours. A poorly trained agent creates problems you'll spend weeks fixing.
+Write down the trigger, inputs, steps, output, and approval point. “Handle content” is too broad. “Prepare a draft newsletter from these approved sources every Friday” is specific enough to test.
 
-**Week 3-4:** Add agents that complement each other. Content agent writes, distribution agent publishes, analytics agent measures. Solopreneur automation works best when agents share context and talk to each other rather than operating in isolation.
+### 2. Assign one agent and limited access
 
-**Month 2:** Start selling. Deploy AI sales outreach. Your costs are near zero, so you can price competitively from day one. Most AI-powered small businesses reach profitability quickly because overhead barely exists.
+Give the agent a role and only the tools needed for that workflow. A research task may need approved web sources and a document destination. It does not need access to billing or production infrastructure.
 
-## What makes this work (and what breaks it)
+### 3. Define the handoff
 
-The difference between a functioning one-person company and a mess of disconnected AI tools comes down to coordination.
+Decide where the result goes next. It might return to you for approval, create a task for another agent, or wait in a draft state. A workflow is incomplete if nobody knows what should happen after the first output.
 
-Agents working in isolation create contradictions. Your marketing agent promises something your product agent can't deliver. Your support agent gives answers that conflict with your content. You end up spending more time fixing miscommunication than you saved on automation.
+### 4. Test normal cases and failures
 
-Agents working as a team, with shared context and communication channels, compound each other's output. Content informs marketing. Support feedback reaches product. Sales knows what just shipped.
+Run the workflow with representative inputs. Then test missing data, tool errors, ambiguous requests, and outputs that should be rejected. Keep the work supervised until the failure behavior is predictable.
 
-That coordination layer is the actual product. Individual AI agents are commodities. The orchestration is what turns them into a workforce.
+### 5. Schedule it only after review
 
-![Traditional vs Personal AI Company Comparison](/blog/personal-ai-company/comparison.png)
+Once the workflow produces useful results consistently, add a schedule or trigger. Review its history and adjust the instructions when the underlying business process changes.
 
-## Start building
+Add another agent only when the next handoff is clear. More agents create more coordination work, so team size is a poor measure of progress.
 
-A solopreneur with the right AI agents today has capabilities that required a large team two years ago. The gap between "solo founder with AI" and "funded startup with employees" is shrinking every month.
+## Where human approval belongs
 
-Your one-person company starts with a single agent doing a single job well. Then a second. Then they start talking to each other. That's when things get interesting.
+Some decisions should stay with the founder even when an agent prepares the work:
 
----
+- Sending customer-facing commitments
+- Moving money or changing prices
+- Accepting legal terms
+- Publishing sensitive claims
+- Deploying high-risk production changes
 
-_Ready to build your personal AI company? Start free with [Alook.ai](https://alook.ai). No code required. Your first AI employee is ten minutes away._
+Agents can gather context, draft options, and carry out approved steps. You remain accountable for the decision. This boundary protects customers and gives you a clean audit trail when something needs review.
+
+## What makes a personal AI company work?
+
+The useful distinction is between a collection of chat sessions and an operation with defined ownership.
+
+Isolated agents lose context between tasks and force you to relay information manually. Coordinated agents can work from recorded decisions, send work to a specific teammate, and leave a trace of what happened. That reduces routing work, but it does not remove the need for clear instructions or oversight.
+
+Start with one workflow that has a visible result. Make it dependable. Then connect a second workflow where a real handoff exists. A personal AI company grows from tested processes, not from adding impressive agent titles to an org chart.
+
+![Illustrative comparison between a traditional company structure and an AI agent company](/blog/personal-ai-company/comparison.webp)
+
+*This image is a conceptual comparison. The figures shown are hypothetical examples and do not represent Alook pricing, actual salaries, operating costs, agent limits, or guaranteed working hours.*
+
+## Personal AI company FAQ
+
+**What is a personal AI company?**
+
+It is a one-person business where AI agents handle defined workflows while the founder controls goals, access, and important approvals.
+
+**Which AI agents does Alook support?**
+
+Alook currently supports Claude Code, Codex, and OpenCode. Cursor, Hermes, and OpenClaw are listed as coming soon.
+
+**Can AI agents run the company without human oversight?**
+
+No. Keep human approval around customer promises, financial actions, legal decisions, pricing changes, and other high-impact work.
+
+**Is Alook free to use?**
+
+You can currently get started with Alook for free. The project is open source, uses the Apache 2.0 license, and supports self-hosting.
+
+## Start with one workflow
+
+To try Alook, run `npx @alook/app onboard` and follow the setup flow for your local agent environment. You can also visit [Alook.ai](https://alook.ai) to learn about agent email addresses, templates, and the current product.
