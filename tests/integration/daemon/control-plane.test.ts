@@ -47,6 +47,46 @@ async function waitFor<T>(check: () => T | undefined, timeoutMs = 15_000, interv
   }
 }
 
+async function waitForAsync<T>(
+  check: () => Promise<T | undefined>,
+  timeoutMs = 15_000,
+  intervalMs = 200,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs
+  let lastDetail = "no attempt yet"
+  for (; ;) {
+    try {
+      const v = await check()
+      if (v !== undefined) return v
+      lastDetail = "check returned undefined"
+    } catch (err) {
+      lastDetail = err instanceof Error ? err.message : String(err)
+    }
+    if (Date.now() > deadline) throw new Error(`waitForAsync: timed out (${lastDetail})`)
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
+}
+
+async function waitForChannelReply(
+  channelId: string,
+  ownerCookie: string,
+  replyText: string,
+  timeoutMs = 15_000,
+): Promise<void> {
+  await waitForAsync(async () => {
+    const readRes = await sessionRequest(`/api/community/channels/${channelId}/messages`, ownerCookie)
+    const raw = await readRes.text()
+    if (!readRes.ok) {
+      throw new Error(`channel read failed status=${readRes.status} body=${raw.slice(0, 200)}`)
+    }
+    if (!raw.trim()) {
+      throw new Error("channel read returned empty body")
+    }
+    const readBody = JSON.parse(raw) as { messages: Array<{ content: string }> }
+    return readBody.messages.some((m) => m.content === replyText) ? true : undefined
+  }, timeoutMs)
+}
+
 let seed: TestSeed
 let cookie: string
 let fixture: DaemonItFixture
@@ -148,10 +188,8 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     expect(sendBody.state).toBe("sent")
 
     // The reply is now visible via a real owner-facing read of the channel.
-    const readRes = await sessionRequest(`/api/community/channels/${fixture.channelId}/messages`, cookie)
-    expect(readRes.ok).toBe(true)
-    const readBody = (await readRes.json()) as { messages: Array<{ content: string }> }
-    expect(readBody.messages.some((m) => m.content === replyText)).toBe(true)
+    // Poll: wrangler/dev can briefly return empty bodies under fan-out load.
+    await waitForChannelReply(fixture.channelId, cookie, replyText)
   }, 30_000)
 
   it("fans out an independent agent:wake to each of several bots bound to the same machine, over the same socket", async () => {
@@ -219,10 +257,10 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
           body: JSON.stringify({ channel: `/${fixture.serverId}/${fixture.channelId}`, content: { text: replyText } }),
         })
         expect(sendRes.ok).toBe(true)
+        const sendBody = (await sendRes.json()) as { state: string }
+        expect(sendBody.state).toBe("sent")
 
-        const readRes = await sessionRequest(`/api/community/channels/${fixture.channelId}/messages`, cookie)
-        const readBody = (await readRes.json()) as { messages: Array<{ content: string }> }
-        expect(readBody.messages.some((m) => m.content === replyText)).toBe(true)
+        await waitForChannelReply(fixture.channelId, cookie, replyText)
       }
     } finally {
       for (const bot of extraBots) cleanupCommunityBot(bot)
