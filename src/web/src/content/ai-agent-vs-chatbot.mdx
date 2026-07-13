@@ -1,146 +1,165 @@
 export const metadata = {
   slug: "ai-agent-vs-chatbot",
-  title: "AI Agent vs Chatbot: The Actual Difference",
+  title: "AI Agent vs Chatbot: What's the Difference?",
   date: "2026-06-03",
   author: "Alook Team",
   excerpt:
-    "Chatbots respond when you ask. Agents work while you sleep. Here's what I learned using both for 6 months.",
-  readingTime: "4 min read",
+    "AI agent vs chatbot comes down to initiative. A chatbot waits for a prompt. An AI agent can pursue a goal with tools, state, and a trigger.",
+  readingTime: "6 min read",
+  image: "/blog/ai-agent-vs-chatbot/hero.webp",
 };
 
-# AI Agent vs Chatbot: The Actual Difference
+export const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [
+      {
+        "@type": "Question",
+        name: "What is the difference between an AI agent and a chatbot?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "A chatbot responds to prompts inside a conversation. An AI agent pursues a goal, can use tools, keep state across steps, and may run from a trigger such as a schedule, webhook, or new issue.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Is ChatGPT a chatbot or an AI agent?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "ChatGPT is primarily a chatbot: you ask, it replies. Some product features can look agent-like when they use tools or multi-step flows, but the default interaction is still reactive conversation.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "Can a chatbot become an AI agent?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "A chatbot can sit inside an agent workflow as the interface for questions. It becomes closer to an agent only when it has a durable goal, tools, persistent state, and a way to start work without a fresh human prompt each time.",
+        },
+      },
+      {
+        "@type": "Question",
+        name: "When should you use a chatbot instead of an AI agent?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Use a chatbot for one-off questions, brainstorming, explanation, and fast iteration where each turn needs human direction. Use an AI agent when the work repeats, has a clear output, and benefits from tools, memory, or a scheduled trigger.",
+        },
+      },
+    ],
+  },
+];
 
-A chatbot responds when you ask. An agent acts on its own.
+# AI Agent vs Chatbot: What's the Difference?
 
-That's it.
+![Conceptual comparison of a chatbot prompt-reply loop versus an AI agent workflow with trigger, tools, state, review, and output](/blog/ai-agent-vs-chatbot/hero.webp)
 
-Everything else flows from that one difference.
+*A conceptual comparison of chatbot vs AI agent flow. Not a product screenshot.*
 
-## My ChatGPT History Says Everything
+AI agent vs chatbot is mostly a question of initiative. A chatbot waits for you to ask. An AI agent can keep working toward a goal after you define the job, the tools it may use, and the rules for when it should stop or ask for review.
 
-I checked my ChatGPT history from May 2026. Opened it 31 times to ask "summarize this week's metrics." Thirty-one times. Same question. Manual copy-paste every time.
+That split matters more than branding. Many products call everything an "agent." Some chatbots can call tools. Some agents still talk like chatbots. The useful test is what each one is designed to do without another prompt from you.
 
-Meanwhile, my metrics agent has run 52 times since January. Zero involvement from me. It pulls data at 9am Monday, analyzes trends, writes the summary, sends to Slack. I read it with my coffee.
+## What is a chatbot?
 
-One requires me. The other doesn't.
+A chatbot is a conversational interface to a model. You send a message. It replies. The next step usually waits for you again.
 
-## What Chatbots Actually Do
+Chatbots are strong when the work is interactive:
 
-Chatbots are question-answering machines. You type, they respond. ChatGPT, Claude, customer support bots. All reactive.
+- Explaining a concept
+- Drafting text you will edit immediately
+- Comparing options in a back-and-forth
+- Analyzing something you just pasted
+- Exploring an idea before the requirements are stable
 
-Great for:
-- Brainstorming when you're stuck
-- Explaining complex topics
-- Quick analysis of pasted data
-- First drafts of content
+They are weaker when the job needs continuity. A new thread often starts cold. Long multi-step work depends on you remembering what happened last time, pasting context again, and deciding the next action.
 
-Not great for:
-- Anything that happens on a schedule
-- Multi-step workflows
-- Tasks requiring memory across sessions
-- Working while you're offline
+Customer support bots, product chat widgets, and general assistants like ChatGPT or Claude in chat mode all sit in this family, even when they feel sophisticated.
 
-I still use ChatGPT daily. But only for one-off creative tasks where I need to iterate in real-time.
+## What is an AI agent?
 
-## What Agents Actually Do
+An AI agent is software that pursues a goal through steps, not only through replies. A useful agent usually has more than a prompt box:
 
-Agents are autonomous workers. Set them up once, they run forever.
+- **A goal** with a finish condition
+- **Tools** it can call, such as a codebase, browser, email, or API
+- **State** that survives across steps
+- **A trigger** that can start work, such as a schedule, webhook, new issue, or inbox item
+- **A review boundary** for actions that need a person
 
-My lead qualification agent:
-1. Checks for new form submissions every 30 minutes
-2. Enriches leads with Clearbit data
-3. Scores based on 12 criteria
-4. Routes to appropriate salesperson
-5. Logs everything in HubSpot
+Coding agents are a clear example. Claude Code, Codex, and OpenCode can investigate a repository, change files, run commands, and report results. The conversation may still exist, but the point of the system is to complete work, not only to chat.
 
-Processed 2,847 leads this year. I haven't looked at it since March.
+An agent is not magic autonomy. Poor goals, missing permissions, and unclear stop conditions produce brittle runs. The design of the workflow matters as much as the model.
 
-## The Difference in Practice
+## AI agent vs chatbot side by side
 
-Here's the same task, both ways:
+| Dimension | Chatbot | AI agent |
+| --- | --- | --- |
+| Starts work | After a human prompt | After a prompt, schedule, event, or queue item |
+| Main output | A reply | An artifact or completed action |
+| Context | Often session-bound | Can keep durable state across runs |
+| Tools | Optional and usually prompt-driven | Central to the job |
+| Failure mode | Weak answer | Incomplete or wrong action |
+| Best fit | Exploration and one-off help | Repeatable work with clear boundaries |
 
-**Newsletter Triage - Chatbot Version:**
-1. Monday: Open Gmail, copy 47 newsletter subjects
-2. Paste into ChatGPT: "Which are worth reading?"
-3. ChatGPT gives recommendations
-4. Go back to Gmail, open suggested ones
-5. Tuesday-Sunday: Forget to do it
+The failure modes are different. A bad chatbot answer wastes a few minutes. A bad agent action can open a pull request, send a message, or change a system. That is why agents need narrower scope and clearer review points.
 
-**Newsletter Triage - Agent Version:**
-1. Agent monitors inbox 24/7
-2. Identifies newsletters automatically
-3. Analyzes based on my reading history
-4. Creates daily digest with top 5
-5. Archives the rest
-6. Sends digest to my Kindle at 7am
+## Common confusion around AI agent vs chatbot
 
-One took 20 minutes every Monday when I remembered. The other takes zero minutes forever.
+**A chatbot with tools is still mostly a chatbot** if every run begins with you pasting context and choosing the next step. Tool use alone does not create agency.
 
-## Memory Changes Everything
+**An agent that chats is still an agent** if chat is only the control surface. The important part is whether it can execute a defined job with tools and state.
 
-Open a new ChatGPT session. It knows nothing about you. Your preferences, your past conversations, your context. Gone.
+**"Autonomous" does not mean unsupervised.** Agents should pause on high-impact decisions: customer commitments, production changes, payments, legal language, and anything that changes someone else's expectations.
 
-My expense report agent remembers:
-- Which categories I typically use
-- My manager's approval limits
-- The format finance prefers
-- Which receipts I've already submitted
-- Recurring expenses to auto-categorize
+**Scheduling is one signal, not the whole definition.** Many agents run on a schedule. Some start from an event. Some wait for a human kickoff but then complete several tool-using steps before returning. The shared trait is goal-directed work beyond a single reply.
 
-Built up over 8 months. Gets smarter every run.
+## When to use a chatbot vs an AI agent
 
-## Cost Reality Check
+Use a **chatbot** when:
 
-ChatGPT Plus: $20/month. Simple. Predictable.
+- The task is one-off
+- Requirements are still fuzzy
+- You need to steer every turn
+- The output is advice or draft text for immediate review
+- There is no durable workflow worth encoding
 
-My agent setup:
-- 7 critical agents: $103/month
-- API costs: ~$47/month
-- Setup time: 3 weekends
-- Maintenance: 2 hours/month
+Use an **AI agent** when:
 
-More expensive? Yes. Worth it? I saved 318 hours last year. You do the math.
+- The same job repeats
+- Inputs and outputs are known
+- Multiple tools or systems are involved
+- State should persist between runs
+- A trigger can start the work without another full briefing
 
-## When to Use Which
+Many teams use both. A chatbot helps shape the plan. An agent executes the stable parts. If the work later needs several specialized roles, move from one agent to [AI orchestration](/blog/ai-agent-orchestration) or an [AI agent team](/blog/ai-agent-team).
 
-**Use a chatbot when:**
-- You need creative input
-- The task is truly one-off
-- You want to iterate quickly
-- Context changes completely each time
+## A short decision test
 
-**Use an agent when:**
-- Same task happens repeatedly
-- Clear inputs and outputs
-- You want it done while you sleep
-- The task involves multiple tools
+Ask four questions:
 
-**The overlap:** Some things need both. I use ChatGPT to draft blog posts. An agent publishes them, creates social posts, and tracks engagement.
+1. Does this job start without a fresh human prompt each time?
+2. Does success mean an action or artifact, not only an answer?
+3. Does the system need tools and memory beyond one chat thread?
+4. Can a person define when it must stop or ask for approval?
 
-## My Actual Setup
+If most answers are no, stay with a chatbot. If most answers are yes, design an agent workflow. For the handoff into real task design, read [how to delegate tasks to AI agents](/blog/how-to-delegate-tasks-to-ai-agents).
 
-**Chatbots I use:**
-- ChatGPT for writing and brainstorming
-- Claude for code review
-- Perplexity for research
+## AI agent vs chatbot FAQ
 
-**Agents I run:**
-- Lead router (every 30 min)
-- Metrics reporter (Monday 9am)
-- Expense tracker (Friday 4pm)
-- Competitor monitor (daily 8am)
-- Content publisher (Tuesday/Thursday 2pm)
-- Invoice generator (last day of month)
-- Meeting prep (15 min before each call)
+**What is the difference between an AI agent and a chatbot?**
 
-The chatbots are tools I pick up. The agents are employees that work while I sleep.
+A chatbot responds to prompts inside a conversation. An AI agent pursues a goal, can use tools, keep state across steps, and may run from a trigger such as a schedule, webhook, or new issue.
 
-## The Test
+**Is ChatGPT a chatbot or an AI agent?**
 
-Can you schedule it? No? It's a chatbot.
+ChatGPT is primarily a chatbot: you ask, it replies. Some features can look agent-like when they use tools or multi-step flows, but the default interaction is still reactive conversation.
 
-That's really all you need to know.
+**Can a chatbot become an AI agent?**
 
-Ready to build your first agent? Check out [how to delegate tasks to AI agents](/blog/how-to-delegate-tasks-to-ai-agents). Or learn about connecting multiple agents in [AI agent orchestration](/blog/ai-agent-orchestration).
+A chatbot can sit inside an agent workflow as the interface for questions. It becomes closer to an agent only when it has a durable goal, tools, persistent state, and a way to start work without a fresh human prompt each time.
 
-[Start with Alook](https://alook.ai) - your agents can be running in 10 minutes.
+**When should you use a chatbot instead of an AI agent?**
+
+Use a chatbot for one-off questions, brainstorming, explanation, and fast iteration. Use an AI agent when the work repeats, has a clear output, and benefits from tools, memory, or a scheduled trigger.
+
+If you later need agents that keep working as a coordinated setup, [Alook](https://alook.ai) is one option for that layer. The first choice is still simpler: pick chatbot for conversation, agent for goal-directed work.
