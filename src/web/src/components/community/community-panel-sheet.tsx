@@ -19,6 +19,8 @@ export function CommunityPanelSheet({
   membersHasMore,
   onLoadMoreMembers,
   onSearchMembers,
+  onAddMember,
+  manageLabel,
   pinned,
   pinnedLoading,
   searchResults,
@@ -42,6 +44,8 @@ export function CommunityPanelSheet({
   membersHasMore?: boolean
   onLoadMoreMembers?: () => void
   onSearchMembers?: (q: string) => void
+  onAddMember?: () => void
+  manageLabel?: string
   pinned: Msg[]
   pinnedLoading?: boolean
   searchResults: Msg[]
@@ -80,6 +84,8 @@ export function CommunityPanelSheet({
           membersHasMore={membersHasMore}
           onLoadMoreMembers={onLoadMoreMembers}
           onSearchMembers={onSearchMembers}
+          onAddMember={onAddMember}
+          manageLabel={manageLabel}
           pinned={pinned}
           pinnedLoading={pinnedLoading}
           searchResults={searchResults}
