@@ -291,6 +291,12 @@ export async function createCommunityMessage(params: {
   // channel level (roster changes only via owner-add). Public/uncategorized
   // channels are unchanged (whole-server candidates).
   const mentionTargets = new Set<string>()
+  // Subset of `mentionTargets` that came from an EXPLICIT `@user` (not a mass
+  // `@everyone`/`@here`). Only explicit mentions enroll someone as a permanent
+  // thread participant — a broadcast `@everyone` notifies once but must not
+  // subscribe the whole channel/server to every future reply (that would defeat
+  // the notification dimension). See the thread-participation block below.
+  const explicitMentionTargets = new Set<string>()
   if (!skipMentions && target.kind !== "dm") {
     // Resolve the audience up front when private; `null` = public (no clamp).
     // PERF (accepted): `isChannelPrivate` and `getPrivateChannelAudienceUserIds`
@@ -320,6 +326,7 @@ export async function createCommunityMessage(params: {
           .map((m) => ({ userId: m.userId, name: m.userName as string, discriminator: m.discriminator }))
         for (const id of extractMentionedUserIds(row.content, candidates)) {
           mentionTargets.add(id)
+          explicitMentionTargets.add(id)
         }
       }
     } else if (mentionType === "everyone" || mentionType === "here") {
@@ -354,7 +361,11 @@ export async function createCommunityMessage(params: {
     const rows: { userId: string; source: "spoke" | "mention" }[] = [
       { userId: authorId, source: "spoke" },
     ]
-    for (const id of [...mentionTargets, ...replyTargets]) {
+    // Only EXPLICIT `@user` mentions + reply targets enroll as participants. A
+    // mass `@everyone`/`@here` is in `mentionTargets` (so everyone is notified
+    // once) but NOT in `explicitMentionTargets`, so it doesn't permanently
+    // subscribe the whole channel/server to the thread.
+    for (const id of [...explicitMentionTargets, ...replyTargets]) {
       if (id !== authorId) rows.push({ userId: id, source: "mention" })
     }
     // One bulk insert (author + mentioned) instead of N+1 sequential inserts.

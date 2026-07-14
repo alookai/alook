@@ -36,6 +36,16 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   )
   const rowByUser = new Map(rows.map((r) => [r.userId, r]))
 
+  // The roster creator is the UNIT's own creator: a forum post owns its roster,
+  // so its creator is the post's `channel.creatorId` — NOT `anchor.creatorId`,
+  // which for a post is the forum owner. For a thread/channel the anchor IS the
+  // roster, so both agree. Mirrors the `rosterCreatorId` split in
+  // `resolveChannelAccessContext`.
+  const rosterCreatorId =
+    access.value.channel.type === "forum_post"
+      ? access.value.channel.creatorId
+      : anchor.creatorId
+
   // `resolveScopeMembers` order is the source of truth for membership; hydrate
   // display via the server-member rows (soft-deleted users drop out — expected).
   const members = scopeMembers
@@ -43,7 +53,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
       const row = rowByUser.get(sm.userId)
       if (!row) return null
       return mapMemberForApi(row, ctx.userId, {
-        isCreator: sm.userId === anchor.creatorId,
+        isCreator: sm.userId === rosterCreatorId,
         source: sm.source,
       })
     })

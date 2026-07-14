@@ -473,6 +473,32 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
     expect(mockCreateChannelMember).not.toHaveBeenCalled()
   })
 
+  it("thread: @everyone notifies the audience but only the author is enrolled as a participant", async () => {
+    // Audience = author + Cara; @everyone should ping Cara once but NOT
+    // subscribe her permanently to the thread (only speaking / an explicit
+    // @mention enrolls a participant).
+    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
+    mockGetMessage.mockResolvedValue(messageRow({ content: "@everyone heads up", channelId: "t1", mentionType: "everyone" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "srv_1" },
+      body: { content: "@everyone heads up", mentionType: "everyone" },
+    })
+
+    // Only the author joins the notify set — the mass mention does NOT enroll Cara.
+    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "t1", [
+      { userId: "author_1", source: "spoke" },
+    ])
+    // Cara is still notified once by the @everyone (a mention row is written).
+    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
+      messageId: "msg_1",
+      userIds: ["cara_1"],
+      kind: "mention",
+    })
+  })
+
   it("public channel: mention of any server member is kept, no roster row", async () => {
     mockIsChannelPrivate.mockResolvedValue(false)
     mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Bob" }))

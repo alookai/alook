@@ -238,7 +238,12 @@ function ChannelView() {
     if (!currentChannelPrivate) {
       return members.filter((m) => m.userId !== currentUser.id)
     }
-    return channelMembersHook.members
+    // Private unit: scope to the unit's roster. A thread has NO roster of its
+    // own — its `channelMembersHook` is disabled — so its mention candidates are
+    // the parent channel's members (the same source the add-participants dialog
+    // uses). A private channel/post uses its own roster.
+    const scopedRoster = isThread ? parentChannelMembersHook.members : channelMembersHook.members
+    return scopedRoster
       .filter((m) => m.userId !== currentUser.id)
       .map((m) => {
         const liveStatus = userStatuses.get(m.userId)
@@ -251,8 +256,10 @@ function ChannelView() {
       })
   }, [
     currentChannelPrivate,
+    isThread,
     members,
     channelMembersHook.members,
+    parentChannelMembersHook.members,
     onlineUserIds,
     currentUser.id,
     userStatuses,

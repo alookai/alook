@@ -143,6 +143,25 @@ describe("GET /channels/[id]/members", () => {
     expect(mockGetMembersByUserIds).toHaveBeenCalledWith(expect.anything(), "s1", expect.any(Array))
   })
 
+  it("badges a forum post's OWN creator, not the forum owner", async () => {
+    // Post p1 owned by u2; the forum (anchor) is owned by u1. The post roster
+    // is u1 (forum owner, added as a member) + u2 (post creator).
+    mockResolveChannelAccessContext.mockResolvedValue({
+      channel: { id: "p1", serverId: "s1", type: "forum_post", parentChannelId: "f1", parentMessageId: null, creatorId: "u2" },
+      anchor: { id: "f1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
+      role: "member", isPrivate: true, isChannelMember: true, isCreator: false,
+    })
+    mockResolveScopeMembers.mockResolvedValue([
+      { userId: "u1", role: "member", source: "explicit" },
+      { userId: "u2", role: "member", source: "explicit" },
+    ])
+    const res = await GET(new NextRequest("http://localhost/api/community/channels/p1/members"), { params: { id: "p1" } } as any)
+    const body = await res.json()
+    // The post creator (u2) is the roster creator — NOT the forum owner (u1).
+    expect(body.members.find((m: any) => m.userId === "u2").isCreator).toBe(true)
+    expect(body.members.find((m: any) => m.userId === "u1").isCreator).toBe(false)
+  })
+
   it("403 for a caller without access", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(null)
     const res = await GET(new NextRequest("http://localhost/api/community/channels/c1/members"), ctx)

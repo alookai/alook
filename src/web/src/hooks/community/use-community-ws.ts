@@ -718,6 +718,10 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           // Refetch the channel roster so an open private-channel Members drawer
           // (and the manage-members dialog) reflect the add/remove live.
           void queryClient.invalidateQueries({ queryKey: communityKeys.channelMembers(event.channelId) })
+          // The addable-members candidate pool is the complement of the roster —
+          // a peer's add/remove changes it too, so an open add dialog doesn't
+          // offer a just-added member (whose Add would 400) or hide a removed one.
+          void queryClient.invalidateQueries({ queryKey: communityKeys.channelAddableMembers(event.channelId) })
           return
         }
 

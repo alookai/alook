@@ -24,8 +24,13 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   if (!access.ok) return writeError(access.error, access.status)
   if (access.value.channel.type !== "thread") return writeError("not a thread", 400)
 
+  // Removing another participant is the THREAD creator's call — the person who
+  // started the thread (`channel.creatorId`), NOT `access.value.isCreator`,
+  // which for a thread resolves to the parent channel's creator (the roster
+  // anchor). Any participant may always remove themselves.
   const isSelf = targetUserId === ctx.userId
-  if (!isSelf && !access.value.isCreator) return writeError("forbidden", 403)
+  const isThreadCreator = access.value.channel.creatorId === ctx.userId
+  if (!isSelf && !isThreadCreator) return writeError("forbidden", 403)
 
   const removed = await queries.communityThread.removeThreadParticipant(db, channelId, targetUserId)
   if (!removed) return writeError("participant not found", 404)

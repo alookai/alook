@@ -769,12 +769,15 @@ describe("truncateThinking", () => {
 });
 
 describe("AgentProcessManager — bot audit event emission", () => {
-  it("emits `thinking` with truncated+chars fields", () => {
+  it("emits `thinking` with truncated+chars fields (flushed at the next event)", () => {
     const onBotAuditEvent = vi.fn();
     const { mgr, session } = makeManager({ onBotAuditEvent });
     mgr.deliver("a1", { seq: 1, text: "hello" });
 
+    // A reasoning block buffers until a non-thinking event flushes it.
     session.fire("runtime_event", { kind: "thinking", text: "think about it" });
+    expect(onBotAuditEvent).not.toHaveBeenCalled();
+    session.fire("runtime_event", { kind: "turn_end" });
 
     expect(onBotAuditEvent).toHaveBeenCalledWith(
       "a1",
@@ -787,6 +790,31 @@ describe("AgentProcessManager — bot audit event emission", () => {
         }),
       }),
       expect.objectContaining({ sessionId: null, launchId: null })
+    );
+  });
+
+  it("coalesces delta-streamed thinking into ONE row and drops empty deltas", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr, session } = makeManager({ onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    // Delta-streaming drivers (codex/pi) emit token fragments + empty markers.
+    session.fire("runtime_event", { kind: "thinking", text: "" });
+    session.fire("runtime_event", { kind: "thinking", text: "let me " });
+    session.fire("runtime_event", { kind: "thinking", text: "count" });
+    session.fire("runtime_event", { kind: "thinking", text: "" });
+    // Flush on the following tool_call.
+    session.fire("runtime_event", { kind: "tool_call", name: "Read", input: {} });
+
+    const thinkingCalls = onBotAuditEvent.mock.calls.filter(
+      ([, ev]) => (ev as { kind?: string })?.kind === "thinking"
+    );
+    expect(thinkingCalls).toHaveLength(1);
+    expect(thinkingCalls[0]![1]).toEqual(
+      expect.objectContaining({
+        kind: "thinking",
+        payload: expect.objectContaining({ text: "let me count", chars: 12 }),
+      })
     );
   });
 
