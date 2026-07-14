@@ -7,7 +7,6 @@ describe("community/thread exports", () => {
     expect(typeof threadQueries.listThreadParticipantUserIds).toBe("function");
     expect(typeof threadQueries.listThreadParticipants).toBe("function");
     expect(typeof threadQueries.removeThreadParticipant).toBe("function");
-    expect(typeof threadQueries.setThreadParticipantMuted).toBe("function");
     expect(typeof threadQueries.listParticipatingThreadIds).toBe("function");
   });
 });
@@ -65,7 +64,7 @@ describe("addThreadParticipants — bulk", () => {
   });
 });
 
-describe("listThreadParticipantUserIds — notify set (muted=0)", () => {
+describe("listThreadParticipantUserIds — notify set", () => {
   function whereMock(rows: any[]) {
     const chain: any = {};
     chain.select = vi.fn(() => chain);
@@ -74,7 +73,7 @@ describe("listThreadParticipantUserIds — notify set (muted=0)", () => {
     return chain;
   }
 
-  it("returns only userIds (the query filters muted=0 in SQL)", async () => {
+  it("returns every participant's userId", async () => {
     const db = whereMock([{ userId: "u1" }, { userId: "u2" }]);
     const res = await threadQueries.listThreadParticipantUserIds(db, "t1");
     expect(res).toEqual(["u1", "u2"]);

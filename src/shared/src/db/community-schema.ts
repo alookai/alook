@@ -108,11 +108,11 @@ export const communityChannelMember = sqliteTable(
 // for new thread activity. `source` records how the user joined:
 //   - "mention" — @-mentioned in the thread (a parent-channel member).
 //   - "spoke"   — posted a message in the thread.
-//   - "added"   — added by the thread's owner via the participant picker.
-// `muted = 1` keeps the row (still a listed participant) but suppresses
-// notifications; the notify set is `participants WHERE muted = 0`. Leaving a
-// thread deletes the row (a later mention/speak re-adds). Admins are NOT
-// auto-added — a thread's notify set is exactly its rows.
+//   - "added"   — added by another participant via the participant picker.
+// Leaving a thread deletes the row (a later mention/speak re-adds). Admins are
+// NOT auto-added — a thread's notify set is exactly its rows. Muting a thread is
+// the OUTER channel-header notification level (per-layer, same control a channel
+// uses), NOT a column here — participation is add/leave only.
 export const communityThreadParticipant = sqliteTable(
   "community_thread_participant",
   {
@@ -124,7 +124,6 @@ export const communityThreadParticipant = sqliteTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     source: text("source").notNull().default("mention"),
-    muted: integer("muted").notNull().default(0),
     addedAt: text("added_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
   (t) => [

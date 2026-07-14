@@ -6,12 +6,16 @@ import type { Database } from "../../index";
 // The NOTIFICATION set for a thread (see `community_thread_participant`). A
 // thread is not an access unit — any parent-channel member can read it — so
 // these rows only decide who gets pinged / sees the thread as unread. Admins
-// are NOT auto-included: the notify set is exactly these rows with `muted = 0`.
+// are NOT auto-included: the notify set is exactly these rows.
+//
+// There is no per-participant mute here — muting a thread is the OUTER channel-
+// header notification level (per-layer, same control a channel uses), not a
+// property of participation. Participation is add / leave only.
 
 export type ThreadParticipantSource = "mention" | "spoke" | "added";
 
 // Idempotent add. `onConflictDoNothing` so a re-mention/re-speak of an existing
-// participant is a no-op (does NOT overwrite `source` or clear `muted`).
+// participant is a no-op (does NOT overwrite `source`).
 // Returns the inserted row, or null when the participant already existed.
 export async function addThreadParticipant(
   db: Database,
@@ -48,8 +52,9 @@ export async function addThreadParticipants(
     });
 }
 
-// The NOTIFY set: participant userIds with notifications enabled (muted = 0).
-// This is what thread fan-out / mention rows / inbox unread scope to.
+// The NOTIFY set: every participant userId. This is what thread fan-out /
+// mention rows / inbox unread scope to. (Per-user notification suppression is
+// the outer channel-header notif level, not stored here.)
 export async function listThreadParticipantUserIds(
   db: Database,
   threadChannelId: string
@@ -57,18 +62,11 @@ export async function listThreadParticipantUserIds(
   const rows = await db
     .select({ userId: communityThreadParticipant.userId })
     .from(communityThreadParticipant)
-    .where(
-      and(
-        eq(communityThreadParticipant.threadChannelId, threadChannelId),
-        eq(communityThreadParticipant.muted, 0)
-      )
-    );
+    .where(eq(communityThreadParticipant.threadChannelId, threadChannelId));
   return rows.map((r) => r.userId);
 }
 
-// Full participant list (incl. muted) hydrated for display — the thread's
-// participant panel. `muted` is exposed so the viewer's own row can show a
-// muted state.
+// Full participant list hydrated for display — the thread's participant panel.
 export async function listThreadParticipants(
   db: Database,
   threadChannelId: string
@@ -77,7 +75,6 @@ export async function listThreadParticipants(
     .select({
       userId: communityThreadParticipant.userId,
       source: communityThreadParticipant.source,
-      muted: communityThreadParticipant.muted,
       addedAt: communityThreadParticipant.addedAt,
       userName: user.name,
       userImage: user.image,
@@ -125,28 +122,8 @@ export async function removeThreadParticipant(
   return rows[0] ?? null;
 }
 
-// Mute / unmute: keep the row, toggle notification suppression.
-export async function setThreadParticipantMuted(
-  db: Database,
-  threadChannelId: string,
-  userId: string,
-  muted: boolean
-) {
-  const rows = await db
-    .update(communityThreadParticipant)
-    .set({ muted: muted ? 1 : 0 })
-    .where(
-      and(
-        eq(communityThreadParticipant.threadChannelId, threadChannelId),
-        eq(communityThreadParticipant.userId, userId)
-      )
-    )
-    .returning();
-  return rows[0] ?? null;
-}
-
-// Of the given thread ids, which the user participates in with notifications
-// enabled (muted = 0). Batch form for the inbox unread-threads filter.
+// Of the given thread ids, which the user participates in. Batch form for the
+// inbox unread-threads filter.
 export async function listParticipatingThreadIds(
   db: Database,
   threadChannelIds: string[],
@@ -159,8 +136,7 @@ export async function listParticipatingThreadIds(
     .where(
       and(
         inArray(communityThreadParticipant.threadChannelId, threadChannelIds),
-        eq(communityThreadParticipant.userId, userId),
-        eq(communityThreadParticipant.muted, 0)
+        eq(communityThreadParticipant.userId, userId)
       )
     );
   return rows.map((r) => r.threadChannelId);

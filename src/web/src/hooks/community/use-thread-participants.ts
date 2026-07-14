@@ -10,12 +10,11 @@ export type ThreadParticipant = {
   discriminator: string | null
   avatar: string
   source: "mention" | "spoke" | "added"
-  muted: boolean
 }
 
 const EMPTY: readonly ThreadParticipant[] = Object.freeze([])
 
-/** A thread's notify participants (incl. muted rows). */
+/** A thread's notify participants. */
 export function useThreadParticipants(
   channelId: string,
   enabled = true,
@@ -31,7 +30,7 @@ export function useThreadParticipants(
   return { ...query, participants: query.data?.participants ?? (EMPTY as ThreadParticipant[]) }
 }
 
-/** Owner adds a parent-channel member to the thread. */
+/** Any participant adds a parent-channel member to the thread. */
 export function useAddThreadParticipant(channelId: string) {
   const qc = useQueryClient()
   return useMutation({
@@ -54,21 +53,6 @@ export function useRemoveThreadParticipant(channelId: string) {
       apiFetch(
         `/api/community/channels/${encodeURIComponent(channelId)}/participants/${encodeURIComponent(userId)}`,
         { method: "DELETE" },
-      ),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: communityKeys.threadParticipants(channelId) })
-    },
-  })
-}
-
-/** Mute / unmute the viewer's own thread notifications. */
-export function useSetThreadParticipantMuted(channelId: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ userId, muted }: { userId: string; muted: boolean }) =>
-      apiFetch(
-        `/api/community/channels/${encodeURIComponent(channelId)}/participants/${encodeURIComponent(userId)}`,
-        { method: "PATCH", body: JSON.stringify({ muted }) },
       ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: communityKeys.threadParticipants(channelId) })

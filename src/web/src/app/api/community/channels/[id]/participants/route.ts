@@ -30,17 +30,18 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
     discriminator: r.discriminator ?? null,
     avatar: r.userImage ?? avatarInitial(r.userName ?? ""),
     source: r.source,
-    muted: r.muted === 1,
   }))
   return writeJSON({ participants })
 })
 
 /**
- * Add a participant to a thread — the owner "add from channel" flow. Only the
- * thread CREATOR may add (mirrors the roster-remove "creator only" rule; other
- * joins happen automatically via mention/speak). The target must be a member of
- * the thread's PARENT CHANNEL audience (a thread can only pull in people who can
- * already see the channel it lives in).
+ * Add a participant to a thread — the "add from channel" flow. ANY current
+ * viewer with access to the thread may add (passing `requireChannelAccess`
+ * means the caller can see the thread — i.e. is a member of the parent channel;
+ * mirrors the channel/post "any member can add" rule). Other joins happen
+ * automatically via mention/speak. The target must be a member of the thread's
+ * PARENT CHANNEL audience (a thread can only pull in people who can already see
+ * the channel it lives in).
  */
 export const POST = withAuth(async (req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -51,7 +52,6 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   if (!access.ok) return writeError(access.error, access.status)
   const channel = access.value.channel
   if (channel.type !== "thread") return writeError("not a thread", 400)
-  if (!access.value.isCreator) return writeError("forbidden", 403)
 
   let body: { userId?: string }
   try {

@@ -76,17 +76,18 @@ describe("GET /channels/[id]/participants", () => {
     vi.clearAllMocks()
     mockResolveChannelAccessContext.mockResolvedValue(threadCtx())
     mockListThreadParticipants.mockResolvedValue([
-      { userId: "u1", userName: "Ann", userImage: null, discriminator: "0001", source: "spoke", muted: 0 },
-      { userId: "u2", userName: "Bob", userImage: null, discriminator: "0002", source: "mention", muted: 1 },
+      { userId: "u1", userName: "Ann", userImage: null, discriminator: "0001", source: "spoke" },
+      { userId: "u2", userName: "Bob", userImage: null, discriminator: "0002", source: "mention" },
     ])
   })
 
-  it("lists participants with source + muted", async () => {
+  it("lists participants with source", async () => {
     const res = await GET(new NextRequest("http://localhost/api/community/channels/t1/participants"), ctx)
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.participants).toHaveLength(2)
-    expect(body.participants[1]).toMatchObject({ userId: "u2", source: "mention", muted: true })
+    expect(body.participants[1]).toMatchObject({ userId: "u2", source: "mention" })
+    expect(body.participants[1]).not.toHaveProperty("muted")
   })
 
   it("400 when the channel is not a thread", async () => {
@@ -111,7 +112,7 @@ describe("POST /channels/[id]/participants", () => {
     mockAddThreadParticipant.mockResolvedValue({ id: "tp1" })
   })
 
-  it("creator adds a parent-channel member as a participant", async () => {
+  it("any participant adds a parent-channel member as a participant", async () => {
     const res = await POST(postReq({ userId: "u2" }), ctx)
     expect(res.status).toBe(201)
     expect(mockAddThreadParticipant).toHaveBeenCalledWith(expect.anything(), {
@@ -120,11 +121,11 @@ describe("POST /channels/[id]/participants", () => {
     expect(mockBroadcastToUserSafe).toHaveBeenCalled()
   })
 
-  it("rejects a non-creator (403)", async () => {
+  it("a non-creator participant can still add (no creator gate)", async () => {
     mockResolveChannelAccessContext.mockResolvedValue(threadCtx({ isCreator: false }))
     const res = await POST(postReq({ userId: "u2" }), ctx)
-    expect(res.status).toBe(403)
-    expect(mockAddThreadParticipant).not.toHaveBeenCalled()
+    expect(res.status).toBe(201)
+    expect(mockAddThreadParticipant).toHaveBeenCalled()
   })
 
   it("rejects adding someone not in the parent channel audience (400)", async () => {

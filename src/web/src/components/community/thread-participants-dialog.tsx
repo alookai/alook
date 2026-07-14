@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Search, X, BellOff, Bell, LogOut } from "lucide-react"
+import { Search, X, LogOut } from "lucide-react"
 import { toast } from "sonner"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -12,17 +12,17 @@ import {
   useThreadParticipants,
   useAddThreadParticipant,
   useRemoveThreadParticipant,
-  useSetThreadParticipantMuted,
 } from "@/hooks/community/use-thread-participants"
 import { useChannelMembers } from "@/hooks/community/use-channel-members"
 
 /**
- * Manage a thread's NOTIFY participants: the current participant list (with the
- * viewer's own mute/leave controls) plus — for the thread creator — a picker of
- * parent-channel members not yet participating. Adding notifies them; muting
- * suppresses the viewer's own pings; leaving drops the row (a later
- * mention/speak re-adds). Read access to the thread is unaffected — this is
- * purely the notification set.
+ * Manage a thread's NOTIFY participants: the current participant list (with a
+ * leave control on the viewer's own row) plus a picker of parent-channel
+ * members not yet participating. Any participant may add; leaving drops your
+ * row (a later mention/speak re-adds). The thread creator may also remove
+ * others. Read access to the thread is unaffected — this is purely the
+ * notification set. Muting is the outer channel-header notification level, not
+ * here.
  */
 export function ThreadParticipantsDialog({
   channelId,
@@ -40,11 +40,11 @@ export function ThreadParticipantsDialog({
   onClose: () => void
 }) {
   const { participants, isLoading } = useThreadParticipants(channelId)
-  // Candidate pool for the creator's picker = the parent channel's audience.
-  const { members: parentMembers } = useChannelMembers(parentChannelId ?? "", isCreator && !!parentChannelId)
+  // Candidate pool for the add picker = the parent channel's audience. Any
+  // participant can add, so fetch whenever there's a parent channel.
+  const { members: parentMembers } = useChannelMembers(parentChannelId ?? "", !!parentChannelId)
   const addParticipant = useAddThreadParticipant(channelId)
   const removeParticipant = useRemoveThreadParticipant(channelId)
-  const setMuted = useSetThreadParticipantMuted(channelId)
   const [query, setQuery] = useState("")
 
   const participantIds = useMemo(() => new Set(participants.map((p) => p.userId)), [participants])
@@ -67,13 +67,6 @@ export function ThreadParticipantsDialog({
       await removeParticipant.mutateAsync(userId)
     } catch (err) {
       toast(err instanceof Error ? err.message : "Couldn't remove participant")
-    }
-  }
-  const onToggleMute = async (userId: string, muted: boolean) => {
-    try {
-      await setMuted.mutateAsync({ userId, muted })
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Couldn't update notifications")
     }
   }
 
@@ -104,24 +97,8 @@ export function ThreadParticipantsDialog({
                 <div key={p.userId} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/40">
                   <Avatar label={p.avatar || p.name || ""} seed={p.userId} size={32} />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">
-                      {p.name ?? "Unknown"}
-                      {p.muted && (
-                        <span className="ml-2 text-xs font-normal text-muted-foreground">Muted</span>
-                      )}
-                    </div>
+                    <div className="truncate text-sm font-medium">{p.name ?? "Unknown"}</div>
                   </div>
-                  {isSelf && (
-                    <button
-                      onClick={() => onToggleMute(p.userId, !p.muted)}
-                      disabled={setMuted.isPending}
-                      className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed"
-                      aria-label={p.muted ? "Unmute thread" : "Mute thread"}
-                      title={p.muted ? "Unmute thread" : "Mute thread"}
-                    >
-                      {p.muted ? <BellOff className="size-4" /> : <Bell className="size-4" />}
-                    </button>
-                  )}
                   {(isSelf || isCreator) && (
                     <button
                       onClick={() => onLeaveOrRemove(p.userId)}
@@ -139,7 +116,7 @@ export function ThreadParticipantsDialog({
           )}
         </div>
 
-        {isCreator && parentChannelId && (
+        {parentChannelId && (
           <footer className="border-t border-border px-4 py-3">
             <div className="mb-2 text-xs font-medium text-muted-foreground">Add from channel</div>
             <label className="relative block">

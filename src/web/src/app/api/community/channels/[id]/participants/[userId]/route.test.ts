@@ -7,7 +7,6 @@ vi.mock("@opennextjs/cloudflare", () => ({
 
 const mockResolveChannelAccessContext = vi.fn()
 const mockRemoveThreadParticipant = vi.fn()
-const mockSetThreadParticipantMuted = vi.fn()
 
 vi.mock("@/lib/db", () => ({ getDb: vi.fn(() => ({})) }))
 
@@ -21,7 +20,6 @@ vi.mock("@alook/shared", async () => {
       },
       communityThread: {
         removeThreadParticipant: (...a: unknown[]) => mockRemoveThreadParticipant(...a),
-        setThreadParticipantMuted: (...a: unknown[]) => mockSetThreadParticipantMuted(...a),
       },
     },
   }
@@ -42,7 +40,7 @@ vi.mock("@/lib/middleware/helpers", () => {
   }
 })
 
-import { DELETE, PATCH } from "./route"
+import { DELETE } from "./route"
 
 function threadCtx(over: Record<string, unknown> = {}) {
   return {
@@ -54,9 +52,6 @@ function threadCtx(over: Record<string, unknown> = {}) {
 }
 function delReq() {
   return new NextRequest("http://localhost/x", { method: "DELETE" })
-}
-function patchReq(body: unknown) {
-  return new NextRequest("http://localhost/x", { method: "PATCH", body: JSON.stringify(body) })
 }
 
 describe("DELETE /channels/[id]/participants/[userId] — leave", () => {
@@ -82,30 +77,5 @@ describe("DELETE /channels/[id]/participants/[userId] — leave", () => {
     const res = await DELETE(delReq(), { params: { id: "t1", userId: "u2" } } as any)
     expect(res.status).toBe(403)
     expect(mockRemoveThreadParticipant).not.toHaveBeenCalled()
-  })
-})
-
-describe("PATCH /channels/[id]/participants/[userId] — mute", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockResolveChannelAccessContext.mockResolvedValue(threadCtx({ isCreator: false }))
-    mockSetThreadParticipantMuted.mockResolvedValue({ id: "tp1", muted: 1 })
-  })
-
-  it("viewer mutes their own participation", async () => {
-    const res = await PATCH(patchReq({ muted: true }), { params: { id: "t1", userId: "u1" } } as any)
-    expect(res.status).toBe(200)
-    expect(mockSetThreadParticipantMuted).toHaveBeenCalledWith(expect.anything(), "t1", "u1", true)
-  })
-
-  it("cannot change someone else's mute state (403)", async () => {
-    const res = await PATCH(patchReq({ muted: true }), { params: { id: "t1", userId: "u2" } } as any)
-    expect(res.status).toBe(403)
-    expect(mockSetThreadParticipantMuted).not.toHaveBeenCalled()
-  })
-
-  it("400 on a non-boolean muted", async () => {
-    const res = await PATCH(patchReq({ muted: "yes" }), { params: { id: "t1", userId: "u1" } } as any)
-    expect(res.status).toBe(400)
   })
 })
