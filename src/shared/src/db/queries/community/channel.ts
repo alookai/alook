@@ -97,6 +97,22 @@ export async function getChannel(db: Database, channelId: string) {
   return row ? mapChannelRow(row) : null;
 }
 
+// Just the `type` of a channel ("text" | "forum" | "forum_post" | "thread" |
+// null). A one-column probe for hot paths that only need to branch by type
+// (e.g. fan-out routing a thread to its participant set). Returns null when the
+// channel doesn't exist.
+export async function getChannelType(
+  db: Database,
+  channelId: string
+): Promise<string | null> {
+  const rows = await db
+    .select({ type: communityChannel.type })
+    .from(communityChannel)
+    .where(eq(communityChannel.id, channelId))
+    .limit(1);
+  return rows[0]?.type ?? null;
+}
+
 /**
  * Fetch a channel scoped to what `userId` may READ/POST — the read/post gate
  * used by every message-scoped route. Server membership is the base gate
@@ -123,10 +139,20 @@ export async function getChannelForMember(db: Database, channelId: string, userI
   if (!row) return null;
   const { memberRole, ...channelRow } = row;
 
-  // Resolve the anchor (self for a top-level channel, parent for a thread) and
-  // check its privacy + the viewer's access. Only runs the extra lookups when
-  // the anchor is actually in a private category.
-  const anchorId = channelRow.parentChannelId ?? channelRow.id;
+  // Privacy anchor vs roster anchor (nested-membership model):
+  //   - thread (`parentMessageId` set) → BOTH climb to the parent channel; a
+  //     thread never narrows access below its channel.
+  //   - forum post (`type="forum_post"`) → privacy climbs to the forum (for the
+  //     category flag), but the ROSTER is the post's OWN id + own `creatorId`.
+  //   - top-level channel → self for both.
+  // The single anchor query below reads the PRIVACY anchor (self for a
+  // post/channel, parent for a thread) and its creator. For a post the roster
+  // creator is the post's own (already in `channelRow`, no extra query); the
+  // roster member-row lookup targets `rosterAnchorId`.
+  const isPost = channelRow.type === "forum_post";
+  const privacyAnchorId = channelRow.parentChannelId ?? channelRow.id;
+  const rosterAnchorId = isPost ? channelRow.id : privacyAnchorId;
+
   const anchor = await db
     .select({
       creatorId: communityChannel.creatorId,
@@ -134,18 +160,26 @@ export async function getChannelForMember(db: Database, channelId: string, userI
     })
     .from(communityChannel)
     .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
-    .where(eq(communityChannel.id, anchorId))
+    .where(eq(communityChannel.id, privacyAnchorId))
     .limit(1);
 
   const isPrivate = (anchor[0]?.categoryPrivate ?? 0) === 1;
   if (isPrivate) {
-    const isCreator = anchor[0]?.creatorId === userId;
-    // Skip the member-row lookup when role/creator already grant access.
-    const isMember =
-      canManageServer(memberRole) || isCreator
-        ? false
-        : await isChannelMember(db, anchorId, userId);
-    if (!canSeePrivateChannel({ role: memberRole, isCreator, isChannelMember: isMember })) {
+    // Roster creator: a post's own creator, else the privacy anchor's creator
+    // (for a top-level channel these coincide).
+    const rosterCreatorId = isPost ? channelRow.creatorId : anchor[0]?.creatorId;
+    const isCreator = rosterCreatorId === userId;
+    // Membership: a FORUM's access is derived from its posts (member of any
+    // child post); everything else checks a row on the roster anchor. NOTE:
+    // admins have NO content privilege for private units — no role short-circuit
+    // here; an admin must be the creator or an explicit member to see it.
+    const isForum = channelRow.type === "forum";
+    const isMember = isCreator
+      ? false
+      : isForum
+        ? await isMemberOfAnyChildPost(db, channelRow.id, userId)
+        : await isChannelMember(db, rosterAnchorId, userId);
+    if (!canSeePrivateChannel({ isCreator, isChannelMember: isMember })) {
       return null;
     }
   }
@@ -252,9 +286,7 @@ export async function listChannelsForMember(db: Database, serverId: string, user
     )
     .limit(1);
   if (member.length === 0) return [];
-  return listServerChannelsForViewer(db, serverId, userId, {
-    isAdmin: canManageServer(member[0]!.role),
-  });
+  return listServerChannelsForViewer(db, serverId, userId);
 }
 
 /**
@@ -511,6 +543,59 @@ export async function listChannelMemberUserIds(
   return rows.map((r) => r.userId);
 }
 
+// Of the given channel ids, which ones the user has an explicit member row on.
+// Batch form of `isChannelMember` — used to filter a private forum's posts to
+// the ones the viewer belongs to without an N+1 loop.
+export async function listChannelIdsWithMember(
+  db: Database,
+  channelIds: string[],
+  userId: string
+): Promise<string[]> {
+  if (channelIds.length === 0) return [];
+  const rows = await db
+    .select({ channelId: communityChannelMember.channelId })
+    .from(communityChannelMember)
+    .where(
+      and(
+        inArray(communityChannelMember.channelId, channelIds),
+        eq(communityChannelMember.userId, userId)
+      )
+    );
+  return rows.map((r) => r.channelId);
+}
+
+// Does the user have access to a FORUM via any of its posts? Forum access is
+// derived (nested-membership model): a user sees a private forum iff they
+// created it, or are the creator/an explicit member of at least one child post.
+// Admins are handled by the caller (role check) before this runs.
+export async function isMemberOfAnyChildPost(
+  db: Database,
+  forumId: string,
+  userId: string
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: communityChannel.id })
+    .from(communityChannel)
+    .leftJoin(
+      communityChannelMember,
+      and(
+        eq(communityChannelMember.channelId, communityChannel.id),
+        eq(communityChannelMember.userId, userId)
+      )
+    )
+    .where(
+      and(
+        eq(communityChannel.parentChannelId, forumId),
+        or(
+          eq(communityChannel.creatorId, userId),
+          isNotNull(communityChannelMember.id)
+        )
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
 export async function isChannelMember(
   db: Database,
   channelId: string,
@@ -553,13 +638,15 @@ export async function countChannelsInCategory(
 
 /**
  * The full recipient audience for a PRIVATE channel: explicit members ∪ the
- * anchor channel's creator ∪ every server admin/owner. Resolves the anchor
- * first (a thread — `parentChannelId` set — inherits its parent's audience).
- * Only meaningful for a private anchor; callers guard on `isChannelPrivate`
- * first (fan-out short-circuits public channels to `listMemberUserIds` and
- * never calls this). Called on a public/uncategorized anchor it would return
- * just admins + creator, NOT all members — do not use it as a public-channel
- * recipient resolver.
+ * unit's creator. Type-aware (nested-membership model). Resolves the anchor for
+ * a thread (`parentChannelId` set inherits its parent's audience). Only
+ * meaningful for a private anchor; callers guard on `isChannelPrivate` first
+ * (fan-out short-circuits public channels to `listMemberUserIds` and never
+ * calls this).
+ *
+ * NOTE: server admins/owner are NOT auto-included — an admin is in a private
+ * audience only if they created it or were explicitly added, exactly like a
+ * member. Admins have no implicit content access.
  */
 export async function getPrivateChannelAudienceUserIds(
   db: Database,
@@ -569,168 +656,221 @@ export async function getPrivateChannelAudienceUserIds(
     .select({
       id: communityChannel.id,
       serverId: communityChannel.serverId,
+      type: communityChannel.type,
+      creatorId: communityChannel.creatorId,
       parentChannelId: communityChannel.parentChannelId,
     })
     .from(communityChannel)
     .where(eq(communityChannel.id, channelId))
     .limit(1);
   if (target.length === 0) return [];
-  const anchorId = target[0]!.parentChannelId ?? target[0]!.id;
-  const serverId = target[0]!.serverId;
-
-  // Anchor row: creator + its category privacy.
-  const anchor = await db
-    .select({
-      creatorId: communityChannel.creatorId,
-      categoryPrivate: communityCategory.private,
-    })
-    .from(communityChannel)
-    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
-    .where(eq(communityChannel.id, anchorId))
-    .limit(1);
-  if (anchor.length === 0) return [];
-
-  // Server admins/owner always belong to the audience.
-  const admins = await db
-    .select({ userId: communityServerMember.userId })
-    .from(communityServerMember)
-    .where(
-      and(
-        eq(communityServerMember.serverId, serverId),
-        or(
-          eq(communityServerMember.role, "owner"),
-          eq(communityServerMember.role, "admin")
-        )
-      )
-    );
-  const members = await listChannelMemberUserIds(db, anchorId);
+  const type = target[0]!.type;
 
   const set = new Set<string>();
-  for (const a of admins) set.add(a.userId);
-  for (const m of members) set.add(m);
-  if (anchor[0]!.creatorId) set.add(anchor[0]!.creatorId as string);
+
+  // Nested-membership model — the roster depends on the unit type:
+  //   - forum_post → the post's OWN explicit members ∪ its OWN creator (does
+  //     NOT climb to the forum; a post is an access unit like a channel).
+  //   - forum      → the UNION of its posts' audiences ∪ the forum creator
+  //     (derived, read-only aggregation).
+  //   - thread     → climbs to the parent channel's audience (a thread never
+  //     narrows access).
+  //   - text channel → its own explicit members ∪ its own creator.
+  if (type === "forum") {
+    // Derived union = every post's own members ∪ every post's creator ∪ the
+    // forum creator. Computed in a fixed number of queries (list posts, then one
+    // `inArray` over their member rows) — NOT a per-post recursion (that was an
+    // N+1: one round-trip per post).
+    if (target[0]!.creatorId) set.add(target[0]!.creatorId);
+    const posts = await db
+      .select({ id: communityChannel.id, creatorId: communityChannel.creatorId })
+      .from(communityChannel)
+      .where(eq(communityChannel.parentChannelId, channelId));
+    for (const p of posts) if (p.creatorId) set.add(p.creatorId);
+    const postIds = posts.map((p) => p.id);
+    if (postIds.length > 0) {
+      const memberRows = await db
+        .select({ userId: communityChannelMember.userId })
+        .from(communityChannelMember)
+        .where(inArray(communityChannelMember.channelId, postIds));
+      for (const r of memberRows) set.add(r.userId);
+    }
+    return [...set];
+  }
+
+  // post → roster on self; thread/channel → climb to the anchor.
+  const rosterAnchorId =
+    type === "forum_post" ? target[0]!.id : (target[0]!.parentChannelId ?? target[0]!.id);
+  const rosterCreatorId =
+    type === "forum_post"
+      ? target[0]!.creatorId
+      : (await db
+          .select({ creatorId: communityChannel.creatorId })
+          .from(communityChannel)
+          .where(eq(communityChannel.id, rosterAnchorId))
+          .limit(1))[0]?.creatorId;
+
+  for (const m of await listChannelMemberUserIds(db, rosterAnchorId)) set.add(m);
+  if (rosterCreatorId) set.add(rosterCreatorId);
   return [...set];
 }
 
 /**
  * Top-level channels a viewer may SEE in a server (backs the server-detail
- * tree). Rule, all in SQL (no JS post-filter):
+ * tree). Nested-membership model:
  *   - admin/owner → every top-level channel.
- *   - otherwise → all public/uncategorized channels, PLUS private-category
- *     channels where the viewer is the creator OR has a member row.
- * `parentChannelId IS NULL` (threads excluded, mirroring `listServerChannels`).
+ *   - otherwise → all public/uncategorized channels, PLUS private-category text
+ *     channels where the viewer is the creator OR has a member row, PLUS private
+ *     FORUMS the viewer can see via membership in any of their posts (derived).
+ * `parentChannelId IS NULL` (threads/posts excluded, mirroring
+ * `listServerChannels`). The private-visibility set is computed by the shared
+ * `resolveVisibleChannelIdSet` (which knows the forum-derived rule), then the
+ * top-level rows are filtered by it in id space.
  */
 export async function listServerChannelsForViewer(
   db: Database,
   serverId: string,
-  userId: string,
-  opts: { isAdmin: boolean }
+  userId: string
 ) {
   const base = and(
     eq(communityChannel.serverId, serverId),
     isNull(communityChannel.parentChannelId)
   );
 
-  if (opts.isAdmin) {
-    const rows = await db
+  // No admin fast-path: admins have NO special visibility into private content
+  // (they manage via admin-gated routes / the future Browse Channels surface).
+  // Everyone — admins included — sees public channels + the private ones they
+  // belong to.
+  const [rows, visibleSet] = await Promise.all([
+    db
       .select(CHANNEL_COLUMNS)
       .from(communityChannel)
       .where(base)
-      .orderBy(asc(communityChannel.position));
-    return rows.map(mapChannelRow);
-  }
+      .orderBy(asc(communityChannel.position)),
+    resolveVisibleChannelIdSet(db, userId, { serverIds: [serverId] }),
+  ]);
+  return rows.filter((r) => visibleSet.has(r.id)).map(mapChannelRow);
+}
+
+// Shared visibility computation for the nested-membership model. Assembles the
+// set of channel ids a viewer may see across the given servers, applying:
+//   - top-level TEXT channel (private) → creator OR own member row.
+//   - FORUM (private) → creator OR member of ANY child post (derived visibility;
+//     forum membership is the union of its posts).
+//   - THREAD → inherits parent channel visibility (WIDE — any channel member).
+//   - FORUM_POST → if its forum is public, visible; if private, creator OR own
+//     member row (NARROW — a private post is its own access unit).
+// NO admin fast-path: admins/owner have NO special visibility into private
+// content — they see exactly what a member sees (public ∪ private-they-belong-to).
+// Done in JS because the thread-wide / post-narrow / forum-derived split is too
+// branchy for one safe SQL predicate. Scoped by serverId up front (AGENTS.md).
+//
+// PERF (accepted trade-off): this reads all channel rows for the viewer's
+// servers into memory and filters in JS, rather than filtering private
+// visibility in SQL and returning only ids. Channel count per server is small
+// (tens–hundreds — orders of magnitude below message volume), so this is fine
+// in practice. If a server ever grows enough channels to matter, split into a
+// cheap SQL id-query for public/uncategorized channels + a JS pass only for
+// private units (forum-derived / post-narrow). Not done pre-emptively.
+async function resolveVisibleChannelIdSet(
+  db: Database,
+  userId: string,
+  opts: { serverIds: string[] }
+): Promise<Set<string>> {
+  const visible = new Set<string>();
+  const { serverIds } = opts;
+  if (serverIds.length === 0) return visible;
 
   const rows = await db
-    .select(CHANNEL_COLUMNS)
+    .select({
+      id: communityChannel.id,
+      type: communityChannel.type,
+      categoryId: communityChannel.categoryId,
+      categoryPrivate: communityCategory.private,
+      creatorId: communityChannel.creatorId,
+      parentChannelId: communityChannel.parentChannelId,
+    })
     .from(communityChannel)
     .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
-    .leftJoin(
-      communityChannelMember,
-      and(
-        eq(communityChannelMember.channelId, communityChannel.id),
-        eq(communityChannelMember.userId, userId)
-      )
-    )
+    .where(inArray(communityChannel.serverId, serverIds));
+
+  // The viewer's explicit channel/post member rows in these servers.
+  const memberRows = await db
+    .select({ channelId: communityChannelMember.channelId })
+    .from(communityChannelMember)
+    .innerJoin(communityChannel, eq(communityChannel.id, communityChannelMember.channelId))
     .where(
       and(
-        base,
-        or(
-          // public / uncategorized
-          isNull(communityChannel.categoryId),
-          eq(communityCategory.private, 0),
-          // private but visible to this viewer
-          eq(communityChannel.creatorId, userId),
-          isNotNull(communityChannelMember.id)
-        )
+        eq(communityChannelMember.userId, userId),
+        inArray(communityChannel.serverId, serverIds)
       )
-    )
-    .orderBy(asc(communityChannel.position));
-  return rows.map(mapChannelRow);
+    );
+  const memberChannelIds = new Set(memberRows.map((r) => r.channelId));
+
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const postsByForum = new Map<string, typeof rows>();
+  for (const r of rows) {
+    if (r.type === "forum_post" && r.parentChannelId) {
+      const list = postsByForum.get(r.parentChannelId) ?? [];
+      list.push(r);
+      postsByForum.set(r.parentChannelId, list);
+    }
+  }
+
+  const isPrivate = (r: { categoryId: string | null; categoryPrivate: number | null }) =>
+    r.categoryId != null && r.categoryPrivate === 1;
+
+  // Pass 1 — top-level channels + forums.
+  for (const r of rows) {
+    if (r.parentChannelId != null) continue;
+    if (!isPrivate(r) || r.creatorId === userId) {
+      visible.add(r.id);
+      continue;
+    }
+    if (r.type === "forum") {
+      const posts = postsByForum.get(r.id) ?? [];
+      if (posts.some((p) => p.creatorId === userId || memberChannelIds.has(p.id))) {
+        visible.add(r.id);
+      }
+    } else if (memberChannelIds.has(r.id)) {
+      visible.add(r.id);
+    }
+  }
+
+  // Pass 2 — children (threads inherit; forum posts are their own access unit).
+  for (const r of rows) {
+    if (r.parentChannelId == null) continue;
+    const parent = byId.get(r.parentChannelId);
+    if (!parent) continue;
+    if (r.type === "forum_post") {
+      // Public forum → post public; private forum → creator or own member row.
+      if (!isPrivate(parent) || r.creatorId === userId || memberChannelIds.has(r.id)) {
+        visible.add(r.id);
+      }
+    } else if (visible.has(parent.id)) {
+      // thread (or any other child) inherits the parent's visibility.
+      visible.add(r.id);
+    }
+  }
+
+  return visible;
 }
 
 /**
- * The set of channel ids (top-level AND child/thread channels) a viewer may
- * see — backs read-path scoping for search / inbox / mark-all-read / mentions.
- * A thread inherits its parent's visibility, so it's included iff its
- * `parentChannelId` is in the visible top-level set. Scoping is done entirely
- * in SQL (the second query is scoped by the first's id set via `inArray`) —
- * no fetch-all-then-filter-in-JS leak.
+ * The set of channel ids (top-level AND child/thread/forum-post channels) a
+ * viewer may see — backs read-path scoping for search / inbox / mark-all-read /
+ * mentions. Type-aware per the nested-membership model (see
+ * `resolveVisibleChannelIdSet`): threads inherit their parent's visibility;
+ * private forum posts are their own access unit; a private forum is visible via
+ * membership in any of its posts.
  */
 export async function listVisibleChannelIds(
   db: Database,
   serverId: string,
-  userId: string,
-  opts: { isAdmin: boolean }
+  userId: string
 ): Promise<string[]> {
-  if (opts.isAdmin) {
-    const rows = await db
-      .select({ id: communityChannel.id })
-      .from(communityChannel)
-      .where(eq(communityChannel.serverId, serverId));
-    return rows.map((r) => r.id);
-  }
-
-  // Visible TOP-LEVEL channels: public/uncategorized ∪ private-where-viewer-is
-  // creator-or-member.
-  const topLevel = await db
-    .select({ id: communityChannel.id })
-    .from(communityChannel)
-    .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
-    .leftJoin(
-      communityChannelMember,
-      and(
-        eq(communityChannelMember.channelId, communityChannel.id),
-        eq(communityChannelMember.userId, userId)
-      )
-    )
-    .where(
-      and(
-        eq(communityChannel.serverId, serverId),
-        isNull(communityChannel.parentChannelId),
-        or(
-          isNull(communityChannel.categoryId),
-          eq(communityCategory.private, 0),
-          eq(communityChannel.creatorId, userId),
-          isNotNull(communityChannelMember.id)
-        )
-      )
-    );
-  const topLevelIds = topLevel.map((r) => r.id);
-  if (topLevelIds.length === 0) return [];
-
-  // Threads inherit from their parent: include children of visible top-level
-  // channels (scoped by the id set — SQL, not JS). No `type` filter on the
-  // children subquery, so forum_posts are covered alongside threads.
-  const children = await db
-    .select({ id: communityChannel.id })
-    .from(communityChannel)
-    .where(
-      and(
-        eq(communityChannel.serverId, serverId),
-        inArray(communityChannel.parentChannelId, topLevelIds)
-      )
-    );
-  return [...topLevelIds, ...children.map((r) => r.id)];
+  const set = await resolveVisibleChannelIdSet(db, userId, { serverIds: [serverId] });
+  return [...set];
 }
 
 /**
@@ -740,90 +880,29 @@ export async function listVisibleChannelIds(
  * consumers (unread + mentions + mark-all), which span every server the viewer
  * belongs to.
  *
- * Same rule as the per-server form: admin/owner sees every channel in that
- * server; a non-admin sees public/uncategorized channels plus private-category
- * channels where they're the creator or have a member row. A child inherits its
- * parent's visibility (included iff its `parentChannelId` is in the visible
- * top-level set). Scoping is entirely in SQL.
+ * A viewer sees public/uncategorized channels plus private units they created
+ * or belong to (forum visibility derived from post membership). Admins get NO
+ * special visibility — same rule as everyone.
  *
  * Bound-parameter ceiling (accepted risk): a viewer across many large servers
  * can produce a big id set; feeding it whole into a downstream `inArray`
  * approaches SQLite's bound-param limit. Same unchunked pattern as
- * `searchMessagesInServer` (single-server there, larger here). Chunk only if it
- * proves a real limit in practice.
+ * `searchMessagesInServer`. Chunk only if it proves a real limit in practice.
  */
 export async function listVisibleChannelIdsForUser(
   db: Database,
   userId: string
 ): Promise<string[]> {
   const memberships = await db
-    .select({
-      serverId: communityServerMember.serverId,
-      role: communityServerMember.role,
-    })
+    .select({ serverId: communityServerMember.serverId })
     .from(communityServerMember)
     .where(eq(communityServerMember.userId, userId));
   if (memberships.length === 0) return [];
 
-  const adminServerIds: string[] = [];
-  const memberServerIds: string[] = [];
-  for (const m of memberships) {
-    if (canManageServer(m.role)) adminServerIds.push(m.serverId);
-    else memberServerIds.push(m.serverId);
-  }
-
-  const topLevelIds: string[] = [];
-
-  // Admin servers: every top-level channel, no privacy filter.
-  if (adminServerIds.length > 0) {
-    const rows = await db
-      .select({ id: communityChannel.id })
-      .from(communityChannel)
-      .where(
-        and(
-          inArray(communityChannel.serverId, adminServerIds),
-          isNull(communityChannel.parentChannelId)
-        )
-      );
-    for (const r of rows) topLevelIds.push(r.id);
-  }
-
-  // Member (non-admin) servers: public/uncategorized ∪ private-where-viewer-is
-  // creator-or-member.
-  if (memberServerIds.length > 0) {
-    const rows = await db
-      .select({ id: communityChannel.id })
-      .from(communityChannel)
-      .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
-      .leftJoin(
-        communityChannelMember,
-        and(
-          eq(communityChannelMember.channelId, communityChannel.id),
-          eq(communityChannelMember.userId, userId)
-        )
-      )
-      .where(
-        and(
-          inArray(communityChannel.serverId, memberServerIds),
-          isNull(communityChannel.parentChannelId),
-          or(
-            isNull(communityChannel.categoryId),
-            eq(communityCategory.private, 0),
-            eq(communityChannel.creatorId, userId),
-            isNotNull(communityChannelMember.id)
-          )
-        )
-      );
-    for (const r of rows) topLevelIds.push(r.id);
-  }
-
-  if (topLevelIds.length === 0) return [];
-
-  const children = await db
-    .select({ id: communityChannel.id })
-    .from(communityChannel)
-    .where(inArray(communityChannel.parentChannelId, topLevelIds));
-  return [...topLevelIds, ...children.map((r) => r.id)];
+  const set = await resolveVisibleChannelIdSet(db, userId, {
+    serverIds: memberships.map((m) => m.serverId),
+  });
+  return [...set];
 }
 
 /**
@@ -873,6 +952,14 @@ export async function resolveChannelAccessContext(
   if (anchorRows.length === 0) return null;
   const anchor = mapChannelRow(anchorRows[0]!);
 
+  // Privacy anchor vs roster anchor (nested-membership model):
+  //   - forum post → privacy climbs to the forum (its category), but the ROSTER
+  //     (member rows + creator) is the post's OWN id.
+  //   - thread / top-level channel → privacy anchor == roster anchor.
+  const isPost = channel.type === "forum_post";
+  const rosterAnchorId = isPost ? channel.id : anchorId;
+  const rosterCreatorId = isPost ? channel.creatorId : anchor.creatorId;
+
   let categoryPrivate = 0;
   if (anchor.categoryId) {
     const cat = await db
@@ -883,9 +970,14 @@ export async function resolveChannelAccessContext(
     categoryPrivate = cat[0]?.private ?? 0;
   }
 
+  // A FORUM's access is derived from its posts (member of any child post);
+  // everything else checks a member row on the roster anchor.
+  const isForum = channel.type === "forum";
   const memberFlag =
     categoryPrivate === 1
-      ? await isChannelMember(db, anchorId, userId)
+      ? isForum
+        ? await isMemberOfAnyChildPost(db, channel.id, userId)
+        : await isChannelMember(db, rosterAnchorId, userId)
       : false;
 
   return {
@@ -894,5 +986,8 @@ export async function resolveChannelAccessContext(
     role: member[0]!.role,
     isPrivate: categoryPrivate === 1,
     isChannelMember: memberFlag,
+    // Roster-anchor creator (post's own creator for a post) — the access gate
+    // must use this, NOT `anchor.creatorId`, which for a post is the forum's.
+    isCreator: rosterCreatorId === userId,
   };
 }

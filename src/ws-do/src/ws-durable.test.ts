@@ -80,6 +80,9 @@ const mockGetChannelForMember = vi.fn()
 const mockIsChannelPrivate = vi.fn<(db: unknown, channelId: string) => Promise<boolean>>().mockResolvedValue(false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn<(db: unknown, channelId: string) => Promise<string[]>>().mockResolvedValue([])
 const mockResolveScopeMemberUserIds = vi.fn<(db: unknown, opts: { scope: string; scopeId: string }) => Promise<string[]>>().mockResolvedValue([])
+// Default: non-thread channel → typing uses the shared resolver path.
+const mockGetChannelType = vi.fn<(db: unknown, channelId: string) => Promise<string | null>>().mockResolvedValue("text")
+const mockListThreadParticipantUserIds = vi.fn<(db: unknown, channelId: string) => Promise<string[]>>().mockResolvedValue([])
 const mockGetDM = vi.fn()
 const mockListMembers = vi.fn()
 const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
@@ -187,11 +190,15 @@ vi.mock("@alook/shared", () => {
       },
       communityChannel: {
         getChannelForMember: (...a: any[]) => mockGetChannelForMember(...a),
+        getChannelType: (...a: any[]) => mockGetChannelType(...a),
         isChannelPrivate: (...a: any[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: any[]) => mockGetPrivateChannelAudienceUserIds(...a),
       },
       communityMembersResolver: {
         resolveScopeMemberUserIds: (...a: any[]) => mockResolveScopeMemberUserIds(...a),
+      },
+      communityThread: {
+        listThreadParticipantUserIds: (...a: any[]) => mockListThreadParticipantUserIds(...a),
       },
       communityDm: {
         getDM: (...a: any[]) => mockGetDM(...a),
@@ -240,6 +247,10 @@ describe("WebSocketDurableObject", () => {
     mockGetUserInternal.mockResolvedValue(null)
     mockIsChannelPrivate.mockResolvedValue(false)
     mockGetPrivateChannelAudienceUserIds.mockResolvedValue([])
+    // Non-thread default so typing uses the shared resolver path; the
+    // thread-typing test overrides this.
+    mockGetChannelType.mockResolvedValue("text")
+    mockListThreadParticipantUserIds.mockResolvedValue([])
   })
 
   describe("fetch — WebSocket upgrade", () => {
@@ -1415,6 +1426,29 @@ describe("WebSocketDurableObject", () => {
       expect(mockListMembers).not.toHaveBeenCalled()
       // Only the non-sender audience member gets a broadcast POST.
       expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:member-1")
+      expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
+      expect(mockStubFetch).toHaveBeenCalledTimes(1)
+    })
+
+    it("thread: typing fans out to PARTICIPANTS, not the channel audience", async () => {
+      const { durable, env } = createDO()
+      mockGetChannelForMember.mockResolvedValueOnce({ id: "t-1", serverId: "server-1" })
+      mockGetChannelType.mockResolvedValueOnce("thread")
+      mockListThreadParticipantUserIds.mockResolvedValueOnce(["sender-1", "part-1"])
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({ type: "user", userId: "sender-1", authenticated: true })
+
+      await durable.webSocketMessage(
+        ws as any,
+        JSON.stringify({ type: "community:typing.start", threadId: "t-1" }),
+      )
+      await flush()
+
+      expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "t-1")
+      // Thread typing must NOT fall back to the channel-audience resolver.
+      expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
+      expect((env.WS_DO as any).idFromName).toHaveBeenCalledWith("user:part-1")
       expect((env.WS_DO as any).idFromName).not.toHaveBeenCalledWith("user:sender-1")
       expect(mockStubFetch).toHaveBeenCalledTimes(1)
     })

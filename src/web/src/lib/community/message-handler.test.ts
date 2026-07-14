@@ -10,6 +10,8 @@ const mockCreateMentions = vi.fn()
 const mockGetChannel = vi.fn()
 const mockIsChannelPrivate = vi.fn(() => false)
 const mockGetPrivateChannelAudienceUserIds = vi.fn(() => [] as string[])
+const mockCreateChannelMember = vi.fn()
+const mockAddThreadParticipants = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -34,6 +36,10 @@ vi.mock("@alook/shared", async () => {
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
+        createChannelMember: (...a: unknown[]) => mockCreateChannelMember(...a),
+      },
+      communityThread: {
+        addThreadParticipants: (...a: unknown[]) => mockAddThreadParticipants(...a),
       },
       user: {
         getUserInternal: (...a: unknown[]) => mockGetUserInternal(...a),
@@ -44,9 +50,11 @@ vi.mock("@alook/shared", async () => {
 
 const mockFanOutToChannel = vi.fn()
 const mockFanOutToDM = vi.fn()
+const mockBroadcastToUserSafe = vi.fn()
 vi.mock("./fanout", () => ({
   fanOutToChannel: (...a: unknown[]) => mockFanOutToChannel(...a),
   fanOutToDM: (...a: unknown[]) => mockFanOutToDM(...a),
+  broadcastToUserSafe: (...a: unknown[]) => mockBroadcastToUserSafe(...a),
 }))
 
 const mockBroadcastToUser = vi.fn()
@@ -340,6 +348,146 @@ describe("createCommunityMessage — @Name#0042 mention disambiguation", () => {
     expect(mockCreateMentions).toHaveBeenCalledWith({}, {
       messageId: "msg_1",
       userIds: ["alex_1"],
+      kind: "mention",
+    })
+  })
+})
+
+describe("createCommunityMessage — private-channel mention scoping (no auto-add)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCreateMessage.mockResolvedValue({ id: "msg_1" })
+    mockFanOutToChannel.mockResolvedValue(undefined)
+    mockFanOutToDM.mockResolvedValue(undefined)
+    mockBroadcastToUser.mockResolvedValue(undefined)
+    mockBroadcastToUserSafe.mockResolvedValue(undefined)
+    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: false, deletedAt: null })
+    mockListMembers.mockResolvedValue([
+      { userId: "author_1", userName: "Author", discriminator: "1111" },
+      { userId: "bob_1", userName: "Bob", discriminator: "0001" },
+      { userId: "cara_1", userName: "Cara", discriminator: "0002" },
+    ])
+    mockIsChannelPrivate.mockResolvedValue(true)
+    // Audience = author + Cara. Bob is a server member but NOT in the channel.
+    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
+  })
+
+  it("drops an @mention of a non-member: no auto-add, no CHANNEL_MEMBER_ADD, no mention row", async () => {
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Bob" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hey @Bob" },
+    })
+
+    // Channel roster is NOT expanded by a mention.
+    expect(mockCreateChannelMember).not.toHaveBeenCalled()
+    expect(mockBroadcastToUserSafe).not.toHaveBeenCalled()
+    // Bob was outside the audience → dropped → no mention row.
+    expect(mockCreateMentions).not.toHaveBeenCalled()
+  })
+
+  it("keeps an @mention of an existing channel member", async () => {
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hey @Cara" },
+    })
+
+    expect(mockCreateChannelMember).not.toHaveBeenCalled()
+    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
+      messageId: "msg_1",
+      userIds: ["cara_1"],
+      kind: "mention",
+    })
+  })
+
+  it("@everyone/@here is clamped to the audience (author excluded → only Cara)", async () => {
+    mockGetMessage.mockResolvedValue(messageRow({ content: "@everyone hi", mentionType: "everyone" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "@everyone hi", mentionType: "everyone" },
+    })
+
+    expect(mockCreateChannelMember).not.toHaveBeenCalled()
+    // Bob (non-member) not notified; only the in-audience Cara.
+    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
+      messageId: "msg_1",
+      userIds: ["cara_1"],
+      kind: "mention",
+    })
+  })
+
+  it("thread: author joins as 'spoke'; a non-audience mention is dropped (no channel auto-add)", async () => {
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Bob", channelId: "t1" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "srv_1" },
+      body: { content: "hey @Bob" },
+    })
+
+    // Author joins the thread's notify set by speaking (bulk insert; Bob is
+    // outside the parent audience so he's not in the rows).
+    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "t1", [
+      { userId: "author_1", source: "spoke" },
+    ])
+    // Bob is outside the (private) parent audience → dropped, no mention row,
+    // and NEVER auto-added to the channel roster.
+    expect(mockCreateChannelMember).not.toHaveBeenCalled()
+    expect(mockCreateMentions).not.toHaveBeenCalled()
+  })
+
+  it("thread: an in-audience @mention joins as a participant + gets a mention row", async () => {
+    // Cara is in the parent audience; add her to it.
+    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Cara", channelId: "t1" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "srv_1" },
+      body: { content: "hey @Cara" },
+    })
+
+    // Bulk insert: author (spoke) + Cara (mention).
+    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "t1", [
+      { userId: "author_1", source: "spoke" },
+      { userId: "cara_1", source: "mention" },
+    ])
+    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
+      messageId: "msg_1",
+      userIds: ["cara_1"],
+      kind: "mention",
+    })
+    // Thread participation is NOT a channel roster row.
+    expect(mockCreateChannelMember).not.toHaveBeenCalled()
+  })
+
+  it("public channel: mention of any server member is kept, no roster row", async () => {
+    mockIsChannelPrivate.mockResolvedValue(false)
+    mockGetMessage.mockResolvedValue(messageRow({ content: "hey @Bob" }))
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hey @Bob" },
+    })
+
+    expect(mockCreateChannelMember).not.toHaveBeenCalled()
+    expect(mockCreateMentions).toHaveBeenCalledWith({}, {
+      messageId: "msg_1",
+      userIds: ["bob_1"],
       kind: "mention",
     })
   })

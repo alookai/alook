@@ -69,6 +69,41 @@ export async function listMembers(db: Database, serverId: string) {
     .where(and(eq(communityServerMember.serverId, serverId), isNull(user.deletedAt)));
 }
 
+export async function getMembersByUserIds(
+  db: Database,
+  serverId: string,
+  userIds: string[]
+) {
+  if (userIds.length === 0) return [];
+  return db
+    .select({
+      id: communityServerMember.id,
+      serverId: communityServerMember.serverId,
+      userId: communityServerMember.userId,
+      role: communityServerMember.role,
+      nickname: communityServerMember.nickname,
+      joinedAt: communityServerMember.joinedAt,
+      userName: user.name,
+      userEmail: user.email,
+      userImage: user.image,
+      userIsBot: user.isBot,
+      userOwnerUserId: user.ownerUserId,
+      discriminator: user.discriminator,
+      statusEmoji: communityUserProfile.statusEmoji,
+      statusText: communityUserProfile.statusText,
+    })
+    .from(communityServerMember)
+    .innerJoin(user, eq(communityServerMember.userId, user.id))
+    .leftJoin(communityUserProfile, eq(communityUserProfile.userId, user.id))
+    .where(
+      and(
+        eq(communityServerMember.serverId, serverId),
+        inArray(communityServerMember.userId, userIds),
+        isNull(user.deletedAt)
+      )
+    );
+}
+
 export async function updateRailOrder(
   db: Database,
   serverId: string,
@@ -412,7 +447,8 @@ export async function canBotReadWakeScope(
     if (!ctx.isPrivate) return true;
     return canSeePrivateChannel({
       role: ctx.role,
-      isCreator: ctx.anchor.creatorId === botUserId,
+      // Roster-anchor creator (post's own creator for a post), from the context.
+      isCreator: ctx.isCreator,
       isChannelMember: ctx.isChannelMember,
     });
   }

@@ -8,10 +8,12 @@ import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 /**
- * Remove a member from a private-category channel. Only creator/admins
- * (canManage) may remove, and the channel creator can never be removed (they
- * always retain access). The removed user gets a CHANNEL_MEMBER_REMOVE so
- * their sidebar drops the channel + evicts its caches.
+ * Remove a member from a private access unit (channel or forum post). Only the
+ * unit CREATOR may remove members (nested-membership model — add is open to
+ * members, but eviction is the creator's call; server admins manage via the
+ * future Browse Channels surface, not here). The creator can never be removed.
+ * The removed user gets a CHANNEL_MEMBER_REMOVE so their sidebar drops the
+ * channel + evicts its caches.
  */
 export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -21,7 +23,7 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
-  if (!access.value.canManage) return writeError("forbidden", 403)
+  if (!access.value.isCreator) return writeError("forbidden", 403)
 
   const channel = access.value.channel
   if (channel.creatorId === targetUserId) {

@@ -59,6 +59,7 @@ type CurrentChannelMeta = {
   name: string
   parentChannelId: string | null
   parentMessageId?: string | null
+  creatorId?: string | null
 }
 
 type CommunitySubscription = {

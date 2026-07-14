@@ -715,6 +715,9 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
             queryClient.removeQueries({ queryKey: communityKeys.forumPosts(event.channelId) })
           }
           void queryClient.invalidateQueries({ queryKey: communityKeys.server(event.serverId) })
+          // Refetch the channel roster so an open private-channel Members drawer
+          // (and the manage-members dialog) reflect the add/remove live.
+          void queryClient.invalidateQueries({ queryKey: communityKeys.channelMembers(event.channelId) })
           return
         }
 

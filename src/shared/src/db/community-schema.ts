@@ -76,10 +76,12 @@ export const communityChannel: SQLiteTableWithColumns<any> = sqliteTable(
 );
 
 // 3b. community_channel_member
-// Explicit per-channel membership. Rows exist ONLY for channels in PRIVATE
-// categories (creator + directly-added members). Public/uncategorized channels
-// imply access via server membership and store nothing here; threads inherit
-// their parent channel's audience and never get their own rows.
+// Explicit per-channel ACCESS membership. Rows exist ONLY for private access
+// units — a top-level channel in a PRIVATE category, or a forum_post under a
+// private forum (creator + directly-added members). Public/uncategorized
+// channels imply access via server membership and store nothing here. Threads
+// are the NOTIFICATION dimension, not access — they never get access rows here;
+// their notify set lives in `community_thread_participant` below.
 export const communityChannelMember = sqliteTable(
   "community_channel_member",
   {
@@ -96,6 +98,38 @@ export const communityChannelMember = sqliteTable(
   (t) => [
     unique("uq_channel_member").on(t.channelId, t.userId),
     index("idx_channel_member_user").on(t.userId),
+  ]
+);
+
+// 3c. community_thread_participant
+// The NOTIFICATION set for a thread (`community_channel` row of type "thread").
+// A thread is NOT an access unit — any member of its parent channel can READ
+// it. This table decides only WHO gets notified (mention pings + inbox unread)
+// for new thread activity. `source` records how the user joined:
+//   - "mention" — @-mentioned in the thread (a parent-channel member).
+//   - "spoke"   — posted a message in the thread.
+//   - "added"   — added by the thread's owner via the participant picker.
+// `muted = 1` keeps the row (still a listed participant) but suppresses
+// notifications; the notify set is `participants WHERE muted = 0`. Leaving a
+// thread deletes the row (a later mention/speak re-adds). Admins are NOT
+// auto-added — a thread's notify set is exactly its rows.
+export const communityThreadParticipant = sqliteTable(
+  "community_thread_participant",
+  {
+    id: text("id").primaryKey().$defaultFn(() => nanoid()),
+    threadChannelId: text("thread_channel_id")
+      .notNull()
+      .references(() => communityChannel.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    source: text("source").notNull().default("mention"),
+    muted: integer("muted").notNull().default(0),
+    addedAt: text("added_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    unique("uq_thread_participant").on(t.threadChannelId, t.userId),
+    index("idx_thread_participant_user").on(t.userId),
   ]
 );
 

@@ -284,6 +284,41 @@ describe("searchMembers", () => {
   });
 });
 
+describe("getMembersByUserIds", () => {
+  // `.leftJoin().where()` is terminal here (no orderBy/limit).
+  function createMock(rows: any[]) {
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.innerJoin = vi.fn(() => chain);
+    chain.leftJoin = vi.fn(() => chain);
+    chain.where = vi.fn(() => Promise.resolve(rows));
+    return chain;
+  }
+
+  it("exports getMembersByUserIds", () => {
+    expect(typeof memberQueries.getMembersByUserIds).toBe("function");
+  });
+
+  it("returns [] without querying when the id list is empty", async () => {
+    const db = createMock([{ id: "should_not_be_used" }]);
+    const res = await memberQueries.getMembersByUserIds(db, "srv_1", []);
+    expect(res).toEqual([]);
+    expect(db.select).not.toHaveBeenCalled();
+  });
+
+  it("returns hydrated rows (incl. status columns) for the given ids", async () => {
+    const rows = [
+      { id: "m1", userId: "u_1", userName: "Ann", statusEmoji: "🎧", statusText: "Vibing", userIsBot: false, userOwnerUserId: null },
+      { id: "m2", userId: "u_2", userName: "Bob", statusEmoji: null, statusText: null, userIsBot: false, userOwnerUserId: null },
+    ];
+    const db = createMock(rows);
+    const res = await memberQueries.getMembersByUserIds(db, "srv_1", ["u_1", "u_2"]);
+    expect(res.map((r) => r.userId)).toEqual(["u_1", "u_2"]);
+    expect(res[0]).toMatchObject({ statusEmoji: "🎧", statusText: "Vibing" });
+  });
+});
+
 describe("getMemberById", () => {
   function createMock(rows: any[]) {
     const chain: any = {};

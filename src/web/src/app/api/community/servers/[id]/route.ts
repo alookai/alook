@@ -4,7 +4,6 @@ import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
 import {
   queries,
-  canManageServer,
   isServerOwner,
   MAX_SERVER_NAME_LENGTH,
   MAX_SERVER_DESCRIPTION_LENGTH,
@@ -23,15 +22,15 @@ export const GET = withAuth(async (_req, ctx) => {
   const db = getDb(ctx.env.DB)
   const auth = await requireServerMember(db, serverId, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
-  const isAdmin = canManageServer(auth.value!.role)
 
   const visibleChannelIds = await queries.communityChannel.listVisibleChannelIdsForUser(db, ctx.userId)
   const [server, rawChannels, categories, unreadRows] = await Promise.all([
     queries.communityServer.getServer(db, serverId),
     // Viewer-scoped: private-category channels are only returned if the viewer
-    // is an admin, the channel creator, or an added member. Private category
-    // HEADERS still appear (below) so members can create channels in them.
-    queries.communityChannel.listServerChannelsForViewer(db, serverId, ctx.userId, { isAdmin }),
+    // is the channel creator or an added member (admins get NO special
+    // visibility). Private category HEADERS still appear (below) so members can
+    // create channels in them.
+    queries.communityChannel.listServerChannelsForViewer(db, serverId, ctx.userId),
     db.query.communityCategory.findMany({
       where: (t, { eq }) => eq(t.serverId, serverId),
       orderBy: (t, { asc }) => [asc(t.position)],

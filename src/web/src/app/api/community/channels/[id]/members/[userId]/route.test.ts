@@ -59,11 +59,13 @@ const ctx = { params: { id: "c1", userId: "u2" } } as any
 
 function managerCtx(creatorId = "u1") {
   return {
-    channel: { id: "c1", serverId: "s1", parentChannelId: null, creatorId },
+    channel: { id: "c1", serverId: "s1", type: "text", parentChannelId: null, parentMessageId: null, creatorId },
     anchor: { id: "c1", serverId: "s1", parentChannelId: null, creatorId },
     role: "member",
     isPrivate: true,
     isChannelMember: true,
+    // Caller in these tests is "u1"; creator gate is roster-anchor creator.
+    isCreator: creatorId === "u1",
   }
 }
 

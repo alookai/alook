@@ -242,6 +242,51 @@ describe("listUnreadChannels — author read-watermark behaviour", () => {
     const result = await inboxQueries.listUnreadChannels(db, "u_1", ["ch_old"]);
     expect(result).toEqual([]);
   });
+
+  // Thread unreads are scoped to PARTICIPATION. The function issues a SECOND
+  // query (listParticipatingThreadIds) when the unread set contains threads.
+  // This mock returns the unread rows on the first `.where()` and the
+  // participating-thread ids on the second.
+  function createTwoQueryMock(unreadRows: any[], participatingThreadIds: string[]) {
+    let call = 0;
+    const chain: any = {};
+    chain.select = vi.fn(() => chain);
+    chain.from = vi.fn(() => chain);
+    chain.innerJoin = vi.fn(() => chain);
+    chain.leftJoin = vi.fn(() => chain);
+    chain.where = vi.fn(() => {
+      call += 1;
+      return Promise.resolve(
+        call === 1 ? unreadRows : participatingThreadIds.map((id) => ({ threadChannelId: id }))
+      );
+    });
+    return chain;
+  }
+
+  const unreadThreadRow = (channelId: string) => ({
+    channelId,
+    channelName: "a thread",
+    serverId: "srv_1",
+    serverName: "server 1",
+    type: "thread",
+    parentChannelId: "ch_parent",
+    lastMessageAt: "2026-07-06T00:00:05.000Z",
+    lastReadAt: "2026-07-06T00:00:00.000Z",
+    archived: false,
+    joinedAt: j,
+  });
+
+  it("thread the viewer participates in surfaces as unread", async () => {
+    const db = createTwoQueryMock([unreadThreadRow("t_in")], ["t_in"]);
+    const result = await inboxQueries.listUnreadChannels(db, "u_1", ["t_in"]);
+    expect(result.map((r) => r.channelId)).toEqual(["t_in"]);
+  });
+
+  it("thread the viewer does NOT participate in is filtered out (even if unread)", async () => {
+    const db = createTwoQueryMock([unreadThreadRow("t_out")], []);
+    const result = await inboxQueries.listUnreadChannels(db, "u_1", ["t_out"]);
+    expect(result).toEqual([]);
+  });
 });
 
 describe("isDmUnread — predicate", () => {

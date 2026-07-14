@@ -59,6 +59,10 @@ export const communityKeys = {
   channelAddableMembers: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "addable-members"] as const,
 
+  // A thread's notify participant set.
+  threadParticipants: (channelId: string) =>
+    [...communityKeys.all, "channel", channelId, "participants"] as const,
+
   pins: (channelId: string) =>
     [...communityKeys.all, "channel", channelId, "pins"] as const,
   threads: (channelId: string) =>

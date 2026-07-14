@@ -15,6 +15,7 @@ import type { RightPanel, Member, Role, Msg, RenderMsg, Thread, OpenProfile } fr
 // outer frame and its own close button, so we don't need a panel-level close affordance.
 export function RightPanelContent({
   kind, members, membersLoading, membersLoadingMore, membersHasMore, onLoadMoreMembers, onSearchMembers,
+  onAddMember, manageLabel,
   pinned, pinnedLoading, searchResults, searchQuery,
   threads, threadsLoading, showSearchInput = true, onOpenThread, onOpenProfile,
   onSetRole, onKickMember, myRole, onJumpToMessage, onSearch,
@@ -26,6 +27,8 @@ export function RightPanelContent({
   membersHasMore?: boolean
   onLoadMoreMembers?: () => void
   onSearchMembers?: (q: string) => void
+  onAddMember?: () => void
+  manageLabel?: string
   pinned: Msg[]
   pinnedLoading?: boolean
   searchResults: Msg[]
@@ -51,6 +54,8 @@ export function RightPanelContent({
           loadingMore={membersLoadingMore}
           onLoadMore={onLoadMoreMembers}
           onSearch={onSearchMembers}
+          onAddMember={onAddMember}
+          manageLabel={manageLabel}
           myRole={myRole}
           onOpenProfile={onOpenProfile}
           onSetRole={onSetRole}

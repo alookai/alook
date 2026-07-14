@@ -283,15 +283,32 @@ export async function createCommunityMessage(params: {
   // Mention extraction is channel/thread only — DMs have no member roster
   // and no @-anyone semantics.
   //
-  // Split the query by need: broadcast wants userIds only; @-candidate
-  // extraction wants (userId, userName) tuples. When both branches fire we
-  // still issue a single `listMembers` call — it's a superset of userIds,
-  // never double-query.
+  // Candidate scoping: a message can only mention/notify users in the unit's
+  // OWN audience. For a private channel/post/thread that's the (climb-based)
+  // audience — a channel/post can only mention its own members; a thread climbs
+  // to its parent channel's audience. `@everyone`/`@here` and reply targets are
+  // likewise clamped to that audience. There is NO invite-by-mention at the
+  // channel level (roster changes only via owner-add). Public/uncategorized
+  // channels are unchanged (whole-server candidates).
   const mentionTargets = new Set<string>()
   if (!skipMentions && target.kind !== "dm") {
+    // Resolve the audience up front when private; `null` = public (no clamp).
+    // PERF (accepted): `isChannelPrivate` and `getPrivateChannelAudienceUserIds`
+    // each climb `parentChannelId` for a thread — two parent lookups per message
+    // on the send path. Cheap (indexed id lookups) and not merged to keep both
+    // helpers single-purpose; revisit only if the send path shows up hot.
+    const isPrivate = await queries.communityChannel.isChannelPrivate(db, target.channelId)
+    const audienceIds = isPrivate
+      ? new Set(await queries.communityChannel.getPrivateChannelAudienceUserIds(db, target.channelId))
+      : null
+
     const hasAtMention = typeof row.content === "string" && row.content.includes("@")
     if (hasAtMention) {
-      const members = await queries.communityMember.listMembers(db, target.serverId)
+      const allMembers = await queries.communityMember.listMembers(db, target.serverId)
+      // Scope candidates to the audience when private.
+      const members = audienceIds
+        ? allMembers.filter((m) => audienceIds.has(m.userId))
+        : allMembers
       if (mentionType === "everyone" || mentionType === "here") {
         for (const m of members) {
           if (m.userId !== authorId) mentionTargets.add(m.userId)
@@ -306,29 +323,42 @@ export async function createCommunityMessage(params: {
         }
       }
     } else if (mentionType === "everyone" || mentionType === "here") {
-      const userIds = await queries.communityMember.listMemberUserIds(db, target.serverId)
+      const userIds = audienceIds
+        ? [...audienceIds]
+        : await queries.communityMember.listMemberUserIds(db, target.serverId)
       for (const uid of userIds) {
         if (uid !== authorId) mentionTargets.add(uid)
       }
+    }
+
+    // Reply targets outside the private audience are dropped (a former member
+    // whose message is being replied to shouldn't get a notification for a
+    // channel they can no longer see).
+    if (audienceIds) {
+      for (const id of [...replyTargets]) if (!audienceIds.has(id)) replyTargets.delete(id)
     }
   }
 
   // Mention beats reply — never double-count the same user.
   for (const id of mentionTargets) replyTargets.delete(id)
 
-  // Private-channel scoping: a message in a channel inside a PRIVATE category
-  // can only mention/reply-notify users in that channel's audience (members ∪
-  // creator ∪ admins). Otherwise an @-mention would push private content into
-  // a non-member's Mentions tab. Public/uncategorized channels are unchanged.
-  if (target.kind !== "dm" && (mentionTargets.size > 0 || replyTargets.size > 0)) {
-    const isPrivate = await queries.communityChannel.isChannelPrivate(db, target.channelId)
-    if (isPrivate) {
-      const audience = new Set(
-        await queries.communityChannel.getPrivateChannelAudienceUserIds(db, target.channelId)
-      )
-      for (const id of [...mentionTargets]) if (!audience.has(id)) mentionTargets.delete(id)
-      for (const id of [...replyTargets]) if (!audience.has(id)) replyTargets.delete(id)
+  // Thread participation (notification dimension). A thread's NOTIFY set is its
+  // participant rows — join by:
+  //   - speaking: the author becomes a participant (source "spoke").
+  //   - @mention: an explicitly mentioned/replied parent-channel member becomes
+  //     a participant (source "mention"). `mentionTargets`/`replyTargets` are
+  //     already scoped to the parent-channel audience by the block above.
+  // Admins are NOT auto-added — only real participation joins the set. System /
+  // card messages (`skipMentions`) don't add the author.
+  if (target.kind === "thread" && !skipMentions) {
+    const rows: { userId: string; source: "spoke" | "mention" }[] = [
+      { userId: authorId, source: "spoke" },
+    ]
+    for (const id of [...mentionTargets, ...replyTargets]) {
+      if (id !== authorId) rows.push({ userId: id, source: "mention" })
     }
+    // One bulk insert (author + mentioned) instead of N+1 sequential inserts.
+    await queries.communityThread.addThreadParticipants(db, target.channelId, rows)
   }
 
   // Mention/reply ROW writes are persistence, not broadcast — they run inline

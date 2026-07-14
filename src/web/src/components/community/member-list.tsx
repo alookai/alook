@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { Shield, UserMinus, Check, Search } from "lucide-react"
+import { Shield, UserMinus, Check, Search, UserPlus, Users2 } from "lucide-react"
 import {
   ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
   ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
@@ -87,6 +87,8 @@ export function MemberList({
   loadingMore,
   onLoadMore,
   onSearch,
+  onAddMember,
+  manageLabel = "Add members",
   myRole,
   onOpenProfile,
   onSetRole,
@@ -98,6 +100,12 @@ export function MemberList({
   loadingMore?: boolean
   onLoadMore?: () => void
   onSearch?: (q: string) => void
+  onAddMember?: () => void
+  // Tooltip/aria for the manage button. Defaults to "Add members" (channels /
+  // posts, where the button adds). Threads pass "Participants" — the button
+  // opens a panel where add is creator-only but mute/leave is for everyone, so
+  // an "Add members" label would mislead a non-creator.
+  manageLabel?: string
   myRole?: Role
   onOpenProfile?: OpenProfile
   onSetRole?: (name: string, role: Role) => void
@@ -165,15 +173,32 @@ export function MemberList({
         onConfirm={() => { if (kickTarget) onKick?.(kickTarget); setKickTarget(null) }}
       />
       <aside className="flex h-full flex-col bg-background">
-        {onSearch && (
-          <div className="relative shrink-0 border-b border-border px-4 py-3">
-            <Search className="absolute left-6 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="h-9 pl-8"
-              placeholder="Search members"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+        {(onSearch || onAddMember) && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
+            {onSearch && (
+              <div className="relative flex-1">
+                <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="h-9 pl-8"
+                  placeholder="Search members"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+            )}
+            {onAddMember && (
+              <button
+                type="button"
+                onClick={onAddMember}
+                className="grid size-9 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                aria-label={manageLabel}
+                title={manageLabel}
+              >
+                {manageLabel === "Add members"
+                  ? <UserPlus className="size-4" />
+                  : <Users2 className="size-4" />}
+              </button>
+            )}
           </div>
         )}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto thin-scrollbar">

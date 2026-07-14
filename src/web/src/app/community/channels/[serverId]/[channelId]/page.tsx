@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { apiFetch, toastApiError } from "@/lib/api/client"
 import { useBreakpoint } from "@/hooks/use-mobile"
@@ -11,6 +11,8 @@ import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/co
 import { ForumView, ForumViewSkeleton } from "@/components/community/forum-view"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import { ThreadOpener } from "@/components/community/thread-opener"
+import { ChannelMembersDialog } from "@/components/community/channel-members-dialog"
+import { ThreadParticipantsDialog } from "@/components/community/thread-participants-dialog"
 import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
 import type { MentionType } from "@alook/shared"
@@ -23,6 +25,8 @@ import {
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useServer } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
+import { useChannelMembers } from "@/hooks/community/use-channel-members"
+import { useThreadParticipants } from "@/hooks/community/use-thread-participants"
 import { useMessages } from "@/hooks/community/use-messages"
 import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
 import { useChannelWatermark } from "@/hooks/community/use-channel-watermark"
@@ -72,8 +76,15 @@ export default function ChannelPage() {
 function ChannelView() {
   const params = useParams<{ serverId: string; channelId: string }>()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const serverId = decodeURIComponent(params.serverId)
   const channelId = params.channelId
+  // Cross-channel "jump to message" target, captured ONCE at mount from `?msg=`.
+  // `ChannelView` is keyed by `serverId/channelId`, so a fresh jump remounts and
+  // re-reads this. The param is stripped from the URL right after (below) so a
+  // refresh/back doesn't re-trigger the jump; this frozen copy still drives the
+  // anchor + scroll for this mount.
+  const [jumpTargetId] = useState<string | null>(() => searchParams.get("msg"))
   const bp = useBreakpoint()
   const currentUser = useCurrentUser()
   const uiHandlers = useUiHandlers()
@@ -101,13 +112,6 @@ function ChannelView() {
       }),
     [membersHook.members, onlineUserIds, currentUser.id, userStatuses],
   )
-  // Roster passed to the @-mention popover — filters the viewer out.
-  // `members` (above) still includes the viewer for the roster / typing lookup;
-  // only the composer needs to drop self, since you can't @-mention yourself.
-  const composerMembers = useMemo(
-    () => members.filter((m) => m.userId !== currentUser.id),
-    [members, currentUser.id],
-  )
   // Type-gate the forum-posts fetch: only forum channels have a valid
   // /posts endpoint; text channels return 400. Compute the flag BEFORE the
   // hook call so `useForumPosts` can stay disabled for non-forum channels.
@@ -117,6 +121,125 @@ function ChannelView() {
   }, [currentServer, channelId])
   const isForum = channelInServer?.type === "forum"
   const isChildChannel = !channelInServer && !!currentServer?.categories
+  // A thread is a child channel rooted on a message (`parentMessageId`). Forum
+  // posts are child channels too but have no `parentMessageId`. Threads are the
+  // notification dimension — their drawer shows PARTICIPANTS, not an audience.
+  const isThread = isChildChannel && !!currentChannelMeta?.parentMessageId
+
+  // Local filter for the private-channel Members drawer (the channel audience is
+  // small, so search is client-side — no scoped search endpoint).
+  const [memberQuery, setMemberQuery] = useState("")
+  // Whether the manage-members dialog is open (Add button in the private drawer).
+  const [manageMembersOpen, setManageMembersOpen] = useState(false)
+
+  // Is the current channel (or its anchor, for a thread) inside a PRIVATE
+  // category? Drives the Members drawer's data source: private → the channel
+  // audience via `useChannelMembers`; public → the server roster. The server
+  // re-checks privacy anyway (`requireChannelAccess`), so an over-eager `true`
+  // only risks calling the channel endpoint when it wasn't needed — safe.
+  const currentChannelPrivate = useMemo(() => {
+    const cats = currentServer?.categories ?? []
+    // Thread/forum-post: privacy is governed by the anchor channel's category.
+    const anchorId = isChildChannel
+      ? (currentChannelMeta?.parentChannelId ?? channelId)
+      : channelId
+    const cat = cats.find((c) => c.channels.some((ch) => ch.id === anchorId))
+    return !!cat?.private
+  }, [currentServer, isChildChannel, currentChannelMeta, channelId])
+  const channelMembersHook = useChannelMembers(channelId, currentChannelPrivate && !isThread)
+  // Thread drawer shows the notify PARTICIPANT set, not the channel audience.
+  const threadParticipantsHook = useThreadParticipants(channelId, isThread)
+
+  // Members shown in the right-panel Members drawer:
+  //   - thread → its notify participants (mapped to the roster shape).
+  //   - private channel/post → the resolved channel audience (locally filtered).
+  //   - public → the server roster.
+  // All enriched with live presence for the correct dot.
+  const panelMembers = useMemo(() => {
+    const q = memberQuery.trim().toLowerCase()
+    const withPresence = (m: {
+      userId: string; name: string; discriminator?: string; avatar: string
+      statusEmoji?: string | null; statusText?: string | null
+    }) => {
+      const liveStatus = userStatuses.get(m.userId)
+      return {
+        id: m.userId,
+        userId: m.userId,
+        name: m.name,
+        discriminator: m.discriminator,
+        avatar: m.avatar,
+        sub: "",
+        role: "member" as const,
+        status:
+          m.userId === currentUser.id || onlineUserIds.has(m.userId)
+            ? ("online" as const)
+            : ("offline" as const),
+        statusEmoji: liveStatus ? liveStatus.emoji : (m.statusEmoji ?? null),
+        statusText: liveStatus ? liveStatus.text : (m.statusText ?? ""),
+      }
+    }
+    const matches = (name: string, disc?: string | null) =>
+      !q || name.toLowerCase().includes(q) || (disc ?? "").toLowerCase().includes(q)
+
+    if (isThread) {
+      return threadParticipantsHook.participants
+        .filter((p) => matches(p.name ?? "", p.discriminator))
+        .map((p) => withPresence({
+          userId: p.userId,
+          name: p.name ?? "Unknown",
+          discriminator: p.discriminator ?? undefined,
+          avatar: p.avatar,
+        }))
+    }
+    if (!currentChannelPrivate) return members
+    return channelMembersHook.members
+      .filter((m) => matches(m.name, m.discriminator))
+      .map((m) => withPresence(m))
+  }, [
+    isThread,
+    threadParticipantsHook.participants,
+    currentChannelPrivate,
+    members,
+    channelMembersHook.members,
+    memberQuery,
+    onlineUserIds,
+    currentUser.id,
+    userStatuses,
+  ])
+
+  // Roster passed to the @-mention popover — filters the viewer out.
+  // `members` still includes the viewer for the roster / typing lookup; only the
+  // composer needs to drop self (you can't @-mention yourself).
+  //
+  // Scoping (nested-membership model): in a private channel/post the popover
+  // lists only that unit's members; in a thread it lists the parent channel's
+  // members (the channel-members endpoint climbs a thread to its anchor). Public
+  // channels keep the whole-server roster. Uses `channelMembersHook.members`
+  // (unfiltered by the drawer's search box), enriched with live presence to
+  // match the server-roster path.
+  const composerMembers = useMemo(() => {
+    if (!currentChannelPrivate) {
+      return members.filter((m) => m.userId !== currentUser.id)
+    }
+    return channelMembersHook.members
+      .filter((m) => m.userId !== currentUser.id)
+      .map((m) => {
+        const liveStatus = userStatuses.get(m.userId)
+        return {
+          ...m,
+          status: onlineUserIds.has(m.userId) ? ("online" as const) : ("offline" as const),
+          statusEmoji: liveStatus ? liveStatus.emoji : m.statusEmoji,
+          statusText: liveStatus ? liveStatus.text : m.statusText,
+        }
+      })
+  }, [
+    currentChannelPrivate,
+    members,
+    channelMembersHook.members,
+    onlineUserIds,
+    currentUser.id,
+    userStatuses,
+  ])
 
   // `/`-autocomplete candidates for both Composer call sites below — single
   // server, so no directory hook needed here (see `me/[dmId]/page.tsx` for
@@ -145,6 +268,7 @@ function ChannelView() {
     lastReadMessageId: readSnapshotFetching
       ? undefined
       : (readSnapshot?.lastReadMessageId ?? null),
+    anchorMessageId: jumpTargetId,
   })
   const {
     messages,
@@ -273,7 +397,7 @@ function ChannelView() {
     communityWsSubscribe({ channelId })
     // Child channel — fetch meta so the breadcrumb shows the new parent name
     if (isChildChannel) {
-      apiFetch<{ id: string; name: string; parentChannelId: string | null; parentMessageId: string | null }>(`/api/community/threads/${channelId}`)
+      apiFetch<{ id: string; name: string; parentChannelId: string | null; parentMessageId: string | null; creatorId: string | null }>(`/api/community/threads/${channelId}`)
         .then((data) =>
           useCommunityStore
             .getState()
@@ -281,6 +405,7 @@ function ChannelView() {
               name: data.name,
               parentChannelId: data.parentChannelId,
               parentMessageId: data.parentMessageId,
+              creatorId: data.creatorId,
             }),
         )
         .catch((e) => {
@@ -301,16 +426,54 @@ function ChannelView() {
   const [localName, setLocalName] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<Msg[]>([])
-  const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(null)
+  // Seed the scroll target from the mount-time jump target (if any) so
+  // `MessageList` scrolls to + highlights the message once the anchored window
+  // loads it. Unlike the reply-pill path (100ms fixed-timer clear), this is
+  // cleared by an effect once the row is actually present (below) — the anchor
+  // page is still being fetched over the network, so a fixed timer would race
+  // and lose the "guaranteed land".
+  const [scrollToMessageId, setScrollToMessageId] = useState<string | null>(jumpTargetId)
 
-  // Channel switch — reset every piece of UI state scoped to the previous channel.
+  // Strip `?msg=` from the URL right after mount so a refresh/back doesn't
+  // re-trigger the jump. The frozen `jumpTargetId` + seeded `scrollToMessageId`
+  // still drive this mount's anchor and scroll; this only cleans the address.
+  useEffect(() => {
+    if (!jumpTargetId) return
+    router.replace(`/community/channels/${params.serverId}/${channelId}`, { scroll: false })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once for this mount's jump
+  }, [])
+
+  // Clear the jump scroll target once the target row is present in the loaded
+  // window (guaranteed-land: don't clear on a fixed timer while the anchor page
+  // is still in flight). Fallback: if the load has fully SETTLED (not
+  // loading/fetching) and the row still isn't here — e.g. the message was
+  // deleted between navigation and load, or the anchor fetch failed — the row
+  // will never appear, so release the state rather than leak it for the mount.
+  useEffect(() => {
+    if (!scrollToMessageId) return
+    if (messages.some((m) => m.id === scrollToMessageId)) {
+      const t = setTimeout(() => setScrollToMessageId((v) => (v === scrollToMessageId ? null : v)), 1600)
+      return () => clearTimeout(t)
+    }
+    const settled =
+      !messagesLoading && !isFetchingOlderMessages && !isFetchingNewerMessages
+    if (settled) setScrollToMessageId((v) => (v === scrollToMessageId ? null : v))
+  }, [scrollToMessageId, messages, messagesLoading, isFetchingOlderMessages, isFetchingNewerMessages])
+
+  // Channel switch — reset every piece of UI state scoped to the previous
+  // channel. `ChannelView` is keyed by `serverId/channelId`, so this remounts on
+  // switch; the effect is a belt-and-suspenders reset. NB: `scrollToMessageId`
+  // is intentionally NOT reset here — it's seeded from the mount-time jump
+  // target and cleared by its own effect once the row lands; clearing it here
+  // would clobber a `?msg=` jump on the first render.
   useEffect(() => {
     setReplyTo(null)
     setRightPanel(null)
     setSearchQuery("")
     setSearchResults([])
     setLocalName(null)
-    setScrollToMessageId(null)
+    setMemberQuery("")
+    setManageMembersOpen(false)
   }, [channelId])
 
   const doSearch = useCallback(async (q: string) => {
@@ -491,14 +654,34 @@ function ChannelView() {
   }
 
   const myRole = members.find((m) => m.userId === currentUser.id)?.role
+  // The drawer's manage affordance:
+  //   - thread → opens the PARTICIPANTS dialog (mute/leave for everyone; add for
+  //     the creator). Shown to any participant, i.e. whenever it's a thread.
+  //   - private channel/post → opens the members dialog. ANY current member may
+  //     add (server enforces); if the drawer shows the private audience the
+  //     viewer is necessarily a member.
+  //   - FORUM → NO manage button: its membership is the DERIVED union of its
+  //     posts (read-only). Add people to individual posts, not the forum.
+  // Public channels: no manage button.
+  const showManageButton = isThread || (currentChannelPrivate && !isForum)
+  // Whether the drawer is on a scoped (participant/audience) source vs the
+  // paginated server roster.
+  const scopedDrawer = isThread || currentChannelPrivate
   const panelProps = {
     onOpenThread: enterThread,
-    members,
-    membersLoading: membersHook.loading,
-    membersLoadingMore: membersHook.loadingMore,
-    membersHasMore: membersHook.hasMore,
-    onLoadMoreMembers: membersHook.loadMore,
-    onSearchMembers: membersHook.searchMembers,
+    members: panelMembers,
+    membersLoading: isThread
+      ? threadParticipantsHook.isLoading
+      : currentChannelPrivate ? channelMembersHook.isLoading : membersHook.loading,
+    membersLoadingMore: scopedDrawer ? false : membersHook.loadingMore,
+    membersHasMore: scopedDrawer ? false : membersHook.hasMore,
+    onLoadMoreMembers: scopedDrawer ? undefined : membersHook.loadMore,
+    // Scoped drawer: local filter (small set). Public: server search.
+    onSearchMembers: scopedDrawer ? setMemberQuery : membersHook.searchMembers,
+    onAddMember: showManageButton ? () => setManageMembersOpen(true) : undefined,
+    // Thread's manage button opens the participants panel (mute/leave for all,
+    // add for creator) — a neutral "Participants" label, not "Add members".
+    manageLabel: isThread ? "Participants" : "Add members",
     pinned,
     pinnedLoading,
     searchResults,
@@ -524,6 +707,35 @@ function ChannelView() {
       setTimeout(() => setScrollToMessageId(null), 100)
     },
   }
+
+  // Manage dialog, mounted when the drawer's manage button fires:
+  //   - thread → the PARTICIPANTS dialog (mute/leave for all, add for creator).
+  //   - private channel/post → the members dialog (roster on the post's own id;
+  //     a forum post is its own access unit, so target `channelId` directly, not
+  //     the forum).
+  const manageMembersDialog = (() => {
+    if (!manageMembersOpen) return null
+    if (isThread) {
+      return (
+        <ThreadParticipantsDialog
+          channelId={channelId}
+          parentChannelId={currentChannelMeta?.parentChannelId ?? null}
+          threadName={currentChannelMeta?.name ?? channelName}
+          viewerUserId={currentUser.id}
+          isCreator={currentChannelMeta?.creatorId === currentUser.id}
+          onClose={() => setManageMembersOpen(false)}
+        />
+      )
+    }
+    return (
+      <ChannelMembersDialog
+        channelId={channelId}
+        channelName={channelName}
+        serverId={serverId}
+        onClose={() => setManageMembersOpen(false)}
+      />
+    )
+  })()
 
   const isPotentialChild = !channelInServer && !!currentServer?.categories
   const bodyLoading = isForum ? forumPostsLoading : messagesLoading
@@ -583,6 +795,14 @@ function ChannelView() {
           a.download = url.split("/").pop() ?? "file"
           a.click()
         }}
+        onJump={
+          parentId
+            ? () =>
+                router.push(
+                  `/community/channels/${params.serverId}/${parentId}?msg=${parentMessageId}`,
+                )
+            : undefined
+        }
       />
     ) : undefined
     return (
@@ -656,6 +876,7 @@ function ChannelView() {
             onOpenProfile={openProfile}
           />
         )}
+        {manageMembersDialog}
       </>
     )
   }
@@ -707,6 +928,7 @@ function ChannelView() {
             onOpenProfile={openProfile}
           />
         )}
+        {manageMembersDialog}
       </>
     )
   }
@@ -780,6 +1002,7 @@ function ChannelView() {
           onOpenProfile={openProfile}
         />
       )}
+      {manageMembersDialog}
     </>
   )
 }

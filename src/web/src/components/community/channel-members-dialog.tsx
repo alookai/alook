@@ -91,7 +91,7 @@ export function ChannelMembersDialog({
                     )}
                   </div>
                 </div>
-                {!m.isCreator && (
+                {m.source === "explicit" && !m.isCreator && (
                   <button
                     onClick={() => onRemove(m.userId)}
                     disabled={removeMember.isPending}
