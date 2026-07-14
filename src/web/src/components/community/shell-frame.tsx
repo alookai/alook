@@ -149,7 +149,16 @@ export function ShellFrame({
   const uploadUserAvatar = useUploadUserAvatar()
 
   const [editingProfile, setEditingProfile] = useState(false)
-  const [profile, setProfile] = useState<{ data: Profile; x: number; y: number } | null>(null)
+  const [profile, setProfile] = useState<{
+    data: Profile
+    x: number
+    y: number
+    // First-paint seed for the status pill — used only until `userStatuses`
+    // has an overlay entry for this user. See profile-card.tsx for the merge
+    // rule (overlay wins, seed is fallback).
+    initialStatusEmoji: string | null
+    initialStatusText: string | null
+  } | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [pendingAvatarCrop, setPendingAvatarCrop] = useState<{ src: string; fileName: string } | null>(null)
 
@@ -329,10 +338,14 @@ export function ShellFrame({
           about: currentUser.aboutMe ?? "",
           mutual: 0,
           presence: resolveProfilePresence(true, undefined, onlineUserIds),
-          statusEmoji: currentUser.statusEmoji ?? null,
-          statusText: currentUser.statusText ?? "",
         }
-        setProfile({ data, x: e.clientX, y: e.clientY })
+        setProfile({
+          data,
+          x: e.clientX,
+          y: e.clientY,
+          initialStatusEmoji: currentUser.statusEmoji ?? null,
+          initialStatusText: currentUser.statusText ?? null,
+        })
         return
       }
       const member = resolveProfileTarget(members, friends, { name, discriminator, userId: targetUserId })
@@ -352,10 +365,14 @@ export function ShellFrame({
         about,
         mutual: 0,
         presence: resolveProfilePresence(false, userId, onlineUserIds),
-        statusEmoji: member?.statusEmoji ?? null,
-        statusText: member?.statusText ?? "",
       }
-      setProfile({ data, x: e.clientX, y: e.clientY })
+      setProfile({
+        data,
+        x: e.clientX,
+        y: e.clientY,
+        initialStatusEmoji: member?.statusEmoji ?? null,
+        initialStatusText: member?.statusText ?? null,
+      })
       if (userId) {
         // Cached under `communityKeys.profile(userId)` — a re-click on the
         // same person within `PROFILE_STALE_TIME_MS` resolves from memory
@@ -367,6 +384,19 @@ export function ShellFrame({
             staleTime: PROFILE_STALE_TIME_MS,
           })
           .then((p) => {
+            // Refresh THIS card's seed only — never write to the WS overlay
+            // from a REST snapshot. `communityKeys.profile(userId)` is cached
+            // for 5 min, so a re-open can resolve from stale cache; the WS
+            // overlay is meant to be the freshest source (community:status.update
+            // events keep it live). Writing REST → overlay would let a stale
+            // cache clobber a live WS value, and every other consumer
+            // (member list, friends list, UserBar) that subscribes to the
+            // overlay would visibly regress. Overlay stays write-only from
+            // the WS handler + self-mutation paths.
+            // Status fields are assigned directly (no `??` fallback) — the
+            // REST route always populates both, and a freshly-cleared status
+            // must overwrite a stale member-row seed instead of getting
+            // masked by it.
             setProfile((prev) =>
               prev
                 ? {
@@ -376,9 +406,9 @@ export function ShellFrame({
                     about: p.aboutMe ?? prev.data.about,
                     mutual: p.mutualServers ?? 0,
                     discriminator: p.discriminator ?? prev.data.discriminator,
-                    statusEmoji: p.statusEmoji ?? null,
-                    statusText: p.statusText ?? "",
                   },
+                  initialStatusEmoji: p.statusEmoji,
+                  initialStatusText: p.statusText,
                 }
                 : prev,
             )
@@ -402,15 +432,14 @@ export function ShellFrame({
   // Inline self-status save from the `ProfileCard` header (see status-editor.tsx).
   // Mirrors `userSettingsDialog`'s onSave status branch exactly — both save
   // paths must independently apply the same local WS-store write, since self
-  // isn't in their own fan-out audience (see plans/profile-card.md).
+  // isn't in their own fan-out audience (see plans/profile-card-status-overlay.md).
+  // The card and every other consumer subscribe to `userStatuses`, so writing
+  // to the store is enough — no need to mirror the value onto `Profile`.
   const updateOwnStatus = async (statusEmoji: string | null, statusText: string | null) => {
     try {
       await updateProfile.mutateAsync({ statusEmoji, statusText })
       setCurrentUser((u) => ({ ...u, statusEmoji, statusText }))
       useCommunityWsStore.getState().setUserStatus(currentUser.id, statusEmoji, statusText)
-      setProfile((prev) =>
-        prev ? { ...prev, data: { ...prev.data, statusEmoji, statusText } } : prev,
-      )
     } catch (e) {
       toastApiError(e, "Failed to update status")
     }
@@ -637,7 +666,7 @@ export function ShellFrame({
             <UserBar user={{ id: currentUser.id, name: currentUser.name, avatar: currentUser.avatar }} onOpenProfile={openProfile} onEditProfile={() => setEditingProfile(true)} inbox={inboxElement} hasUnread={inboxHasUnread} />
           </div>
         </div>
-        {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={!!profile.data.userId && profile.data.userId === currentUser.id} onUpdateStatus={updateOwnStatus} />}
+        {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={!!profile.data.userId && profile.data.userId === currentUser.id} onUpdateStatus={updateOwnStatus} initialStatusEmoji={profile.initialStatusEmoji} initialStatusText={profile.initialStatusText} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
         {userSettingsDialog}
         {avatarCropDialog}

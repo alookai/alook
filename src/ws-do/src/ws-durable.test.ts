@@ -87,6 +87,18 @@ const mockGetDM = vi.fn()
 const mockListMembers = vi.fn()
 const mockListBotsForMachine = vi.fn<(db: unknown, machineId: string) => Promise<Array<{ id: string; name: string; discriminator: string; description: string }>>>().mockResolvedValue([])
 const mockIsBotOnline = vi.fn<(db: unknown, botUserId: string) => Promise<boolean>>().mockResolvedValue(false)
+const mockGetBotBinding = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string } | null>>().mockResolvedValue(null)
+const mockGetBotBindingWithOwner = vi.fn<(db: unknown, botId: string) => Promise<{ machineId: string; runtime: string; ownerUserId: string } | null>>().mockResolvedValue(null)
+const mockInsertBotActivityEventAndPrune = vi.fn<(db: unknown, data: unknown) => Promise<{ id: string; createdAt: string } | null>>().mockResolvedValue(null)
+const mockUpdateProfile = vi
+  .fn<(db: unknown, userId: string, data: { statusEmoji?: string | null; statusText?: string | null }) => Promise<unknown>>()
+  .mockResolvedValue({})
+const mockGetProfile = vi
+  .fn<(db: unknown, userId: string) => Promise<{ statusEmoji: string | null; statusText: string | null } | null>>()
+  .mockResolvedValue(null)
+const mockReconcileBotActivityFromRunningAgents = vi
+  .fn<(db: unknown, machineId: string, runningAgentIds: string[]) => Promise<Array<{ botUserId: string; statusEmoji: string; statusText: string }>>>()
+  .mockResolvedValue([])
 const mockGetUserInternal = vi.fn<(db: unknown, id: string) => Promise<{ isBot: boolean; ownerUserId: string | null } | null>>().mockResolvedValue(null)
 // mockToSummary now returns row.status verbatim — status is the source of
 // truth on the column, not a derivation from lastSeenAt. See
@@ -156,6 +168,43 @@ vi.mock("@alook/shared", () => {
       return { success: true as const, data }
     },
   }
+  const AgentActivityMessageSchema = {
+    safeParse(v: unknown) {
+      const m = v as { type?: unknown; agentId?: unknown; state?: unknown }
+      if (m?.type !== "agent_activity") return { success: false } as const
+      if (typeof m.agentId !== "string") return { success: false } as const
+      if (!["idle", "starting", "running", "stopping"].includes(m.state as string)) return { success: false } as const
+      return { success: true as const, data: { type: "agent_activity" as const, agentId: m.agentId, state: m.state } }
+    },
+  }
+  const HostBotAuditEventFrameSchema = {
+    safeParse(v: unknown) {
+      const m = v as { type?: unknown; agentId?: unknown; sessionId?: unknown; launchId?: unknown; event?: unknown }
+      if (m?.type !== "bot_audit_event") return { success: false } as const
+      if (typeof m.agentId !== "string" || m.agentId.length === 0) return { success: false } as const
+      const ev = m.event as { kind?: unknown; payload?: unknown }
+      if (!ev || typeof ev !== "object") return { success: false } as const
+      const kind = ev.kind
+      const payload = ev.payload as Record<string, unknown> | undefined
+      if (!payload || typeof payload !== "object") return { success: false } as const
+      let ok = false
+      if (kind === "cli_invocation") ok = typeof payload.subcommand === "string"
+      else if (kind === "tool_call") ok = typeof payload.name === "string"
+      else if (kind === "thinking")
+        ok = typeof payload.text === "string" && typeof payload.truncated === "boolean" && typeof payload.chars === "number"
+      if (!ok) return { success: false } as const
+      return {
+        success: true as const,
+        data: {
+          type: "bot_audit_event" as const,
+          agentId: m.agentId,
+          sessionId: typeof m.sessionId === "string" ? m.sessionId : m.sessionId === null ? null : undefined,
+          launchId: typeof m.launchId === "string" ? m.launchId : m.launchId === null ? null : undefined,
+          event: { kind, payload },
+        },
+      }
+    },
+  }
   return {
     createDb: (d1: unknown) => mockCreateDb(d1),
     createLogger: () => noopLogger,
@@ -163,6 +212,24 @@ vi.mock("@alook/shared", () => {
     COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS: 120_000,
     SessionErrorFrameSchema,
     HostReadyMessageSchema,
+    AgentActivityMessageSchema,
+    HostBotAuditEventFrameSchema,
+    // Deterministic preset picker so the assertion can pin exact
+    // `statusEmoji`/`statusText` values regardless of the injected `seed`.
+    pickBotActivityPreset: (state: string) => {
+      if (state === "running") return { emoji: "⚡", text: "Working on it" }
+      if (state === "starting") return { emoji: "🌀", text: "Waking up" }
+      if (state === "stopping") return { emoji: "🌙", text: "Wrapping up" }
+      return { emoji: "💤", text: "Idle" }
+    },
+    RUNNING_PRESETS: [
+      { emoji: "⚡", text: "Working on it" },
+      { emoji: "🛠️", text: "Cooking" },
+      { emoji: "🧠", text: "Thinking hard" },
+      { emoji: "🔧", text: "Tinkering" },
+      { emoji: "🚀", text: "On it" },
+      { emoji: "🔥", text: "In the zone" },
+    ],
     queries: {
       session: { getValidSession: (db: unknown, token: string) => mockGetValidSession(db, token) },
       machineToken: {
@@ -180,6 +247,13 @@ vi.mock("@alook/shared", () => {
         markMachineOnlineIfOffline: (...a: any[]) => mockMarkMachineOnlineIfOffline(...a),
         toSummary: (row: any) => mockToSummary(row),
         isBotOnline: (...a: [unknown, string]) => mockIsBotOnline(...a),
+        reconcileBotActivityFromRunningAgents: (...a: any[]) =>
+          mockReconcileBotActivityFromRunningAgents(...(a as [unknown, string, string[]])),
+      },
+      communityUserProfile: {
+        updateProfile: (...a: any[]) =>
+          mockUpdateProfile(...(a as [unknown, string, { statusEmoji?: string | null; statusText?: string | null }])),
+        getProfile: (...a: any[]) => mockGetProfile(...(a as [unknown, string])),
       },
       communityMember: {
         getCoMemberUserIds: (...a: [unknown, string]) => mockGetCoMemberUserIds(...a),
@@ -205,6 +279,11 @@ vi.mock("@alook/shared", () => {
       },
       communityBot: {
         listBotsForMachine: (...a: [unknown, string]) => mockListBotsForMachine(...a),
+        getBotBinding: (...a: [unknown, string]) => mockGetBotBinding(...a),
+        getBotBindingWithOwner: (...a: [unknown, string]) => mockGetBotBindingWithOwner(...a),
+      },
+      communityBotAuditLog: {
+        insertBotActivityEventAndPrune: (...a: any[]) => mockInsertBotActivityEventAndPrune(...a),
       },
       user: {
         getUserInternal: (...a: [unknown, string]) => mockGetUserInternal(...a),
@@ -251,6 +330,10 @@ describe("WebSocketDurableObject", () => {
     // thread-typing test overrides this.
     mockGetChannelType.mockResolvedValue("text")
     mockListThreadParticipantUserIds.mockResolvedValue([])
+    mockGetBotBinding.mockResolvedValue(null)
+    mockUpdateProfile.mockResolvedValue({})
+    mockGetProfile.mockResolvedValue(null)
+    mockReconcileBotActivityFromRunningAgents.mockResolvedValue([])
   })
 
   describe("fetch — WebSocket upgrade", () => {
@@ -1070,6 +1153,375 @@ describe("WebSocketDurableObject", () => {
       await durable.webSocketMessage(ws as any, frame)
 
       expect(mockUpsertMachineByMachineId).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("community-machine — agent_activity frame", () => {
+    beforeEach(() => {
+      mockGetBotBinding.mockReset()
+      mockUpdateProfile.mockReset().mockResolvedValue({})
+      mockGetProfile.mockReset().mockResolvedValue(null)
+      mockStubFetch.mockClear()
+    })
+
+    it("writes the translated statusEmoji/statusText via updateProfile and fans out community:status.update when the frame's machine owns the bot", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBinding.mockResolvedValue({ machineId: "cm_1", runtime: "codex" })
+      mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({ type: "agent_activity", agentId: "bot_1", state: "running" })
+      await durable.webSocketMessage(ws as any, frame)
+
+      // The (stubbed) `pickBotActivityPreset` returns a fixed pair for
+      // "running" in this test — the assertion pins that exact pair.
+      expect(mockUpdateProfile).toHaveBeenCalledWith(expect.anything(), "bot_1", {
+        statusEmoji: "⚡",
+        statusText: "Working on it",
+      })
+      const call = mockStubFetch.mock.calls.find((c: any[]) => (c[0] as Request).url.endsWith("/broadcast"))
+      expect(call).toBeDefined()
+      const body = JSON.parse(await (call![0] as Request).clone().text()) as {
+        type: string
+        userId: string
+        statusEmoji: string
+        statusText: string
+      }
+      expect(body).toEqual({
+        type: "community:status.update",
+        userId: "bot_1",
+        statusEmoji: "⚡",
+        statusText: "Working on it",
+      })
+    })
+
+    it("drops a frame naming a bot bound to a different machine — no DB write, no fan-out", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBinding.mockResolvedValue({ machineId: "cm_OTHER", runtime: "codex" })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({ type: "agent_activity", agentId: "bot_1", state: "running" })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockUpdateProfile).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("drops a frame for an unbound (unknown) bot — no DB write, no fan-out", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBinding.mockResolvedValue(null)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({ type: "agent_activity", agentId: "ghost_bot", state: "idle" })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockUpdateProfile).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("community-machine — bot_audit_event frame", () => {
+    beforeEach(() => {
+      mockGetBotBindingWithOwner.mockReset()
+      mockInsertBotActivityEventAndPrune.mockReset()
+      mockStubFetch.mockClear()
+    })
+
+    it("inserts + prunes atomically and notifies the OWNER only when the machine owns the bot", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBindingWithOwner.mockResolvedValue({
+        machineId: "cm_1",
+        runtime: "codex",
+        ownerUserId: "owner_1",
+      })
+      mockInsertBotActivityEventAndPrune.mockResolvedValue({
+        id: "bae_abc",
+        createdAt: "2025-01-01T00:00:00.000Z",
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({
+        type: "bot_audit_event",
+        agentId: "bot_1",
+        sessionId: "s_1",
+        launchId: "l_1",
+        event: { kind: "tool_call", payload: { name: "Read" } },
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      // Insert was called with server-derived payload (not trust-the-daemon).
+      expect(mockInsertBotActivityEventAndPrune).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          botId: "bot_1",
+          sessionId: "s_1",
+          launchId: "l_1",
+          kind: "tool_call",
+          payload: JSON.stringify({ name: "Read" }),
+        }),
+      )
+      // Owner is notified via notifyUserDO — request goes to `user:owner_1`
+      // and the payload carries the full audit event including createdAt
+      // stamped server-side.
+      const call = mockStubFetch.mock.calls.find((c: any[]) => (c[0] as Request).url.endsWith("/broadcast"))
+      expect(call).toBeDefined()
+      const body = JSON.parse(await (call![0] as Request).clone().text()) as {
+        type: string
+        botId: string
+        id: string
+        kind: string
+        payload: unknown
+        createdAt: string
+      }
+      expect(body).toEqual({
+        type: "community:bot.audit_event",
+        botId: "bot_1",
+        id: "bae_abc",
+        kind: "tool_call",
+        payload: { name: "Read" },
+        sessionId: "s_1",
+        launchId: "l_1",
+        createdAt: "2025-01-01T00:00:00.000Z",
+      })
+    })
+
+    it("drops a frame naming a bot bound to a different machine — no insert, no fan-out", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBindingWithOwner.mockResolvedValue({
+        machineId: "cm_OTHER",
+        runtime: "codex",
+        ownerUserId: "owner_1",
+      })
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({
+        type: "bot_audit_event",
+        agentId: "bot_1",
+        event: { kind: "cli_invocation", payload: { subcommand: "send" } },
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockInsertBotActivityEventAndPrune).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("drops a frame for a soft-deleted/unknown bot — no insert, no fan-out", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBindingWithOwner.mockResolvedValue(null)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({
+        type: "bot_audit_event",
+        agentId: "ghost_bot",
+        event: { kind: "thinking", payload: { text: "hmm", truncated: false, chars: 3 } },
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockInsertBotActivityEventAndPrune).not.toHaveBeenCalled()
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+
+    it("does not fan out when the INSERT returns null (empty batch result)", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockGetBotBindingWithOwner.mockResolvedValue({
+        machineId: "cm_1",
+        runtime: "codex",
+        ownerUserId: "owner_1",
+      })
+      // Simulate the D1 batch returning no rows for the primary statement.
+      mockInsertBotActivityEventAndPrune.mockResolvedValue(null)
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({
+        type: "bot_audit_event",
+        agentId: "bot_1",
+        event: { kind: "tool_call", payload: { name: "Read" } },
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockStubFetch).not.toHaveBeenCalled()
+    })
+  })
+
+  describe("community-machine — ready frame reconciles bot activity", () => {
+    beforeEach(() => {
+      mockUpsertMachineByMachineId.mockReset()
+      mockReconcileBotActivityFromRunningAgents.mockReset().mockResolvedValue([])
+      mockStubFetch.mockClear()
+    })
+
+    it("a ready frame whose runningAgents disagrees with persisted state fans out community:status.update for each cleared bot", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockUpsertMachineByMachineId.mockResolvedValue({
+        machine: {
+          id: "cm_1",
+          hostname: "host",
+          availableRuntimes: [],
+          status: "online",
+          lastSeenAt: "2026-07-13T00:00:00.000Z",
+        },
+        priorLastSeenAt: "2026-07-12T00:00:00.000Z",
+        priorAvailableRuntimes: [],
+        priorStatus: "online",
+      })
+      mockReconcileBotActivityFromRunningAgents.mockResolvedValue([
+        { botUserId: "bot_1", statusEmoji: "💤", statusText: "Idle" },
+        { botUserId: "bot_2", statusEmoji: "💤", statusText: "Idle" },
+      ])
+      mockGetCoMemberUserIds.mockResolvedValue(["viewer-1"])
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({
+        type: "ready",
+        runtimeReport: [],
+        runningAgents: [],
+      })
+      await durable.webSocketMessage(ws as any, frame)
+
+      expect(mockReconcileBotActivityFromRunningAgents).toHaveBeenCalledWith(expect.anything(), "cm_1", [])
+      const activityCalls = mockStubFetch.mock.calls.filter((c: any[]) => (c[0] as Request).url.endsWith("/broadcast"))
+      const bodies = await Promise.all(activityCalls.map((c: any[]) => (c[0] as Request).clone().text()))
+      const parsed = bodies.map((b) => JSON.parse(b)).filter((b) => b.type === "community:status.update")
+      expect(parsed).toEqual(
+        expect.arrayContaining([
+          { type: "community:status.update", userId: "bot_1", statusEmoji: "💤", statusText: "Idle" },
+          { type: "community:status.update", userId: "bot_2", statusEmoji: "💤", statusText: "Idle" },
+        ])
+      )
+    })
+
+    it("emits no status.update fan-out when reconciliation finds no changes", async () => {
+      const { durable, store } = createDO()
+      store.set("community-machine-identity", {
+        userId: "u_1",
+        machineId: "cm_1",
+        credentialHash: "0".repeat(64),
+      })
+      mockUpsertMachineByMachineId.mockResolvedValue({
+        machine: {
+          id: "cm_1",
+          hostname: "host",
+          availableRuntimes: [],
+          status: "online",
+          lastSeenAt: "2026-07-13T00:00:00.000Z",
+        },
+        priorLastSeenAt: "2026-07-12T00:00:00.000Z",
+        priorAvailableRuntimes: [],
+        priorStatus: "online",
+      })
+      mockReconcileBotActivityFromRunningAgents.mockResolvedValue([])
+
+      const ws = createMockWebSocket()
+      ws.serializeAttachment({
+        type: "community-machine",
+        machineId: "cm_1",
+        userId: "u_1",
+        authenticated: true,
+      })
+
+      const frame = JSON.stringify({ type: "ready", runtimeReport: [], runningAgents: [] })
+      await durable.webSocketMessage(ws as any, frame)
+
+      const activityCalls = mockStubFetch.mock.calls.filter((c: any[]) => (c[0] as Request).url.endsWith("/broadcast"))
+      const bodies = await Promise.all(activityCalls.map((c: any[]) => (c[0] as Request).clone().text()))
+      const parsed = bodies.map((b) => JSON.parse(b)).filter((b) => b.type === "community:status.update")
+      expect(parsed).toEqual([])
     })
   })
 

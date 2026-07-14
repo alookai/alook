@@ -87,6 +87,18 @@ describe("reduceManager — steering a running persistent agent", () => {
     const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m2" }, nowMs: 4 });
     expect(r.effects).toEqual([{ type: "send", agentId: "a", text: "m2", mode: "idle" }]);
   });
+
+  it("re-waking a hibernating-but-alive persistent agent (running, turnActive=false) sets turnActive=true on commit — mirrors onTurnEnd's redeliver branch", () => {
+    let s = createInitialManagerState();
+    s = register(s, "a", PERSISTENT_GATED);
+    s = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m1" }, nowMs: 1 }).state;
+    s = reduceManager(s, { type: "spawned", agentId: "a", nowMs: 2 }).state;
+    s = reduceManager(s, { type: "turn_end", agentId: "a", nowMs: 3 }).state; // running, turnActive=false, idle
+
+    expect(s.agents.a.turnActive).toBe(false);
+    const r = reduceManager(s, { type: "wake", agentId: "a", message: { text: "m2" }, nowMs: 4 });
+    expect(r.state.agents.a.turnActive).toBe(true);
+  });
 });
 
 describe("reduceManager — none-driver (per-turn) mid-turn wake — regression", () => {

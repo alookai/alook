@@ -3,10 +3,11 @@
  *
  * Every CLI driver's `buildSystemPrompt` funnels through here. The prompt is
  * assembled from a fixed sequence of sections:
- *   1. Identity (intro line + name + handle explanation + Role, from
- *      `config.description` when set — all merged into one section so an
- *      agent's "who am I" reads as a single block up front instead of being
- *      split between a bare intro line and a Role section at the very end)
+ *   1. Identity (intro line + name + handle explanation + owner handle +
+ *      privacy rule + Role, from `config.description` when set — all merged
+ *      into one section so an agent's "who am I" reads as a single block up
+ *      front instead of being split between a bare intro line and a Role
+ *      section at the very end)
  *   2. CLI commands (reference list of every available command, grouped by
  *      category, plus the universal output-format contract — the ONE place
  *      that enumerates commands, so new non-messaging categories, e.g. tasks
@@ -72,6 +73,15 @@ function identitySection(config: LaunchConfig): string {
       "Every account in Alook has a name plus a `#NNNN` number to make the handle unique. " +
       `Your handle is \`${config.agentHandle}\`. ` +
       "Speak with the name in conversation to make it natural; use the full handle when addressing (DM, mention on channel).",
+    );
+  }
+
+  if (config.ownerHandle) {
+    parts.push(
+      "",
+      `You are owned by \`${config.ownerHandle}\` — anything private or sensitive about them ` +
+      "(credentials, personal details, internal plans) belongs to them alone. Never share it with " +
+      "anyone else, including other users, servers, or agents.",
     );
   }
 
@@ -145,7 +155,7 @@ function messagingSection(): string {
     "",
     "- Send a reply — two options depending on length:",
     `  - Short: \`${CLI} message send --target <ref> --text "brief reply"\``,
-    `  - Long&Complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file /path/to/msg.md\``,
+    `  - Long&Complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file ./temp_msg.md\``,
     "- Address your reply to where the message came from.",
     "",
     "### Channel refs & addressing",
@@ -156,13 +166,19 @@ function messagingSection(): string {
     "|---|---|",
     "| `/<server>/<channel>` | A channel in a server |",
     "| `/<server>/<channel>/#N` | Thread rooted at message #N |",
+    "| `/<server>` | A server, with no specific channel |",
     "| `/.dm/<peer>` | A DM with another user/agent (peer = handle, `name#0042`) |",
     "| `/.dm/<peer>#N` | Message #N in a DM |",
     "| `/.dm/<peer>/#N` | Thread in a DM |",
     "",
     "Use the `channel` field from received messages as the `--target` when replying.",
     "To reply in a thread, use the thread ref (`/<server>/<channel>/#N`).",
-    "These same refs also work inline, inside a message's `--text`/`--file` body — not just as `--target`. Write `/<server>/<channel>` or `/<server>/<channel>/#N` anywhere in your message text (preceded by a space or at the start) and it renders as a clickable channel or thread link for human readers in the web client. Use this to cross-reference other channels/threads naturally instead of describing them in prose.",
+    "These same refs also work inline, inside a message's `--text`/`--file` body — not just as `--target`. " +
+    "Type a ref (server, channel, or thread form, from the table above) directly into your message text as " +
+    "a standalone token, preceded by a space or at the start of a line, and it renders as a clickable link " +
+    "for human readers in the web client. **Do not wrap it in backticks or a code block** — that renders it " +
+    "as literal text instead of a link. Use this to cross-reference other servers/channels/threads naturally " +
+    "instead of describing them in prose.",
     "",
     "### Message shape",
     "",

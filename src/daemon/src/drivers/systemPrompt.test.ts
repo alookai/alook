@@ -54,6 +54,20 @@ describe("buildCliSystemPrompt", () => {
     expect(without).not.toContain("#7392");
   });
 
+  it("injects ownerHandle and an owner-privacy statement into the prompt only when set", () => {
+    const withOwner = buildCliSystemPrompt(
+      { ...baseConfig, ownerHandle: "@gustavo#5150" },
+      { lifecycleKind: "persistent" },
+    );
+    expect(withOwner).toContain("@gustavo#5150");
+    expect(withOwner.toLowerCase()).toContain("owned by");
+    expect(withOwner.toLowerCase()).toContain("never share");
+
+    const without = buildCliSystemPrompt(baseConfig, { lifecycleKind: "persistent" });
+    expect(without).not.toContain("#5150");
+    expect(without.toLowerCase()).not.toContain("owned by");
+  });
+
   it("includes a Role subsection (nested under Identity) with config.description's exact text only when it's set", () => {
     const withRole = buildCliSystemPrompt(
       { ...baseConfig, description: "You are the onboarding assistant." },
@@ -87,14 +101,24 @@ describe("buildCliSystemPrompt", () => {
     expect(prompt).toContain("/community/invite/");
   });
 
-  it("tells the agent that channel refs also render as clickable links when written inline in message text", () => {
+  it("tells the agent that refs also render as clickable links when written inline in message text", () => {
     // Contract check, not prose pinning (see file-level comment above): both
     // lifecycle kinds share `messagingSection()`, so a single stable phrase
     // covering "refs work inline, not just as --target" is enough — no need
     // to duplicate per lifecycle kind.
     const prompt = buildCliSystemPrompt(baseConfig, { lifecycleKind: "persistent" });
     expect(prompt).toContain("also work inline");
-    expect(prompt).toContain("clickable channel");
+    expect(prompt).toContain("clickable link");
+  });
+
+  it("warns that wrapping an inline ref in backticks/code block breaks its link rendering", () => {
+    const prompt = buildCliSystemPrompt(baseConfig, { lifecycleKind: "persistent" });
+    expect(prompt.toLowerCase()).toContain("backtick");
+  });
+
+  it("documents the bare /<server> ref form in the channel-ref table", () => {
+    const prompt = buildCliSystemPrompt(baseConfig, { lifecycleKind: "persistent" });
+    expect(prompt).toContain("| `/<server>` |");
   });
 
   it("lists the two channel commands under ### Channels, positioned after ### Servers", () => {

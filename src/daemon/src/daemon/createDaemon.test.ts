@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { EventEmitter } from "events";
-import { createDaemon } from "./createDaemon";
+import { createDaemon, deriveAuditLogSubcommand } from "./createDaemon";
 import type { Driver } from "../types";
 import type { Logger } from "../logger";
 
@@ -422,5 +422,82 @@ describe("createDaemon — logging", () => {
 
     expect(logger.calls.warn.some(([, m]) => m === "wake resync failed")).toBe(true);
     await daemon.stop();
+  });
+});
+
+describe("deriveAuditLogSubcommand", () => {
+  it("maps the CLI's bare /api/* pathnames to their subcommand suffix", () => {
+    expect(deriveAuditLogSubcommand("/api/send")).toBe("send");
+    expect(deriveAuditLogSubcommand("/api/read")).toBe("read");
+    expect(deriveAuditLogSubcommand("/api/inboxPull")).toBe("inboxPull");
+    expect(deriveAuditLogSubcommand("/api/inboxSnapshot")).toBe("inboxSnapshot");
+    expect(deriveAuditLogSubcommand("/api/listChannels")).toBe("listChannels");
+    expect(deriveAuditLogSubcommand("/api/listServers")).toBe("listServers");
+    expect(deriveAuditLogSubcommand("/api/listMembers")).toBe("listMembers");
+    expect(deriveAuditLogSubcommand("/api/joinServer")).toBe("joinServer");
+    expect(deriveAuditLogSubcommand("/api/resolve")).toBe("resolve");
+  });
+
+  it("maps the rewritten /api/community/agent/* pathnames identically", () => {
+    // The proxy's rewriteAgentPath fires AFTER onProxyRequest, so the sighting
+    // may carry either shape depending on how the CLI called in. Both must
+    // derive to the same subcommand string.
+    expect(deriveAuditLogSubcommand("/api/community/agent/send")).toBe("send");
+    expect(deriveAuditLogSubcommand("/api/community/agent/inboxPull")).toBe("inboxPull");
+  });
+
+  it("returns null for `ack` (dropped — paired with inboxPull, no user intent)", () => {
+    expect(deriveAuditLogSubcommand("/api/ack")).toBe(null);
+    expect(deriveAuditLogSubcommand("/api/community/agent/ack")).toBe(null);
+  });
+
+  it("returns null for non-/api pathnames", () => {
+    expect(deriveAuditLogSubcommand("/health")).toBe(null);
+    expect(deriveAuditLogSubcommand("/")).toBe(null);
+  });
+});
+
+describe("AgentProcessManager.auditContext", () => {
+  // Producer B (credential-proxy sighting) reads this so `cli_invocation`
+  // rows carry the same context Producer A's tool_call / thinking rows do.
+  it("returns nulls before any register() / session_init", async () => {
+    const { AgentProcessManager } = await import("../manager/managerRuntime");
+    const mgr = new AgentProcessManager({
+      driverFor: () => ({} as never),
+      baseContextFor: () => ({} as never),
+    });
+    expect(mgr.auditContext("unknown_agent")).toEqual({ sessionId: null, launchId: null });
+  });
+
+  it("reports launchId once register() has stashed one, and sessionId once a runtime session_init has landed", async () => {
+    const { AgentProcessManager } = await import("../manager/managerRuntime");
+    const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+    const session = {
+      on: (event: string, cb: (...args: unknown[]) => void) => {
+        const arr = listeners.get(event) ?? [];
+        arr.push(cb);
+        listeners.set(event, arr);
+      },
+      start: () => new Promise<void>(() => { }),
+      send: () => { },
+      stop: () => { },
+      get currentSessionId() { return null; },
+    };
+    const mgr = new AgentProcessManager({
+      driverFor: () => ({
+        id: "codex",
+        lifecycle: { kind: "per_turn" },
+        supportsStdinNotification: false,
+        busyDeliveryMode: "none",
+      } as never),
+      baseContextFor: () => ({ workingDirectory: "/tmp", agentId: "a1", config: {} }) as never,
+      sessionFactory: () => session as never,
+    });
+    mgr.register("a1", { launchId: "l_XYZ" });
+    expect(mgr.auditContext("a1")).toEqual({ sessionId: null, launchId: "l_XYZ" });
+
+    mgr.deliver("a1", { seq: 1, text: "hi" } as never);
+    for (const cb of listeners.get("runtime_event") ?? []) cb({ kind: "session_init", sessionId: "s_ABC" });
+    expect(mgr.auditContext("a1")).toEqual({ sessionId: "s_ABC", launchId: "l_XYZ" });
   });
 });

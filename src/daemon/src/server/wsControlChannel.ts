@@ -31,6 +31,8 @@ import type {
   SessionErrorFrame,
   WebSocketLike,
   WebSocketFactory,
+  AgentActivityState,
+  HostBotAuditEventFrame,
 } from "./contract.js";
 import { createLogger, type Logger } from "../logger.js";
 // Re-export so existing importers of these from this module keep working.
@@ -94,6 +96,7 @@ export type AgentCommandAckError = { code: string; message: string };
 type OutboundFrame =
   | ({ type: "ready" } & HostReady)
   | { type: "agent_session"; agentId: AgentId; sessionId: string; launchId: string }
+  | { type: "agent_activity"; agentId: AgentId; state: AgentActivityState }
   | {
       type: "agent_wake_ack";
       agentId: AgentId;
@@ -107,6 +110,7 @@ type OutboundFrame =
       status: AgentCommandAckStatus;
       error?: AgentCommandAckError;
     }
+  | HostBotAuditEventFrame
   | SessionErrorFrame;
 
 type ResyncProvider = () => { ready: HostReady; sessions: AgentSessionReport[] };
@@ -203,6 +207,21 @@ export class WsControlChannel implements HostControlChannel {
 
   async reportAgentSession(info: { agentId: AgentId; sessionId: string; launchId: string }): Promise<void> {
     this.sendFrame({ type: "agent_session", ...info });
+  }
+
+  async reportAgentActivity(info: { agentId: AgentId; state: AgentActivityState }): Promise<void> {
+    this.sendFrame({ type: "agent_activity", ...info });
+  }
+
+  /**
+   * Emit a bot audit event upward — either from the credential proxy sighting
+   * (`cli_invocation`) or from a runtime `thinking` / non-Bash `tool_call`
+   * event. Frame is dropped when the socket isn't open; audit events are
+   * point-in-time (not resynced on reconnect), matching the ready/session
+   * policy above.
+   */
+  async reportBotAuditEvent(frame: HostBotAuditEventFrame): Promise<void> {
+    this.sendFrame(frame);
   }
 
   /**

@@ -276,6 +276,25 @@ describe("isBotOnline", () => {
   });
 });
 
+describe("reconcileBotActivityFromRunningAgents", () => {
+  // The reconciler only clears "stuck" system-driven bot-activity pills to
+  // Idle when the bot isn't in the daemon's runningAgents list. Owner-set
+  // custom statuses (not matching the known bot presets) are left alone.
+  // See plans/community-bot-status-telemetry.md.
+
+  it("returns [] when no bots are bound to the machine", async () => {
+    const db: any = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          innerJoin: vi.fn(() => ({ where: vi.fn(() => Promise.resolve([])) })),
+        })),
+      })),
+    };
+    const changed = await q.reconcileBotActivityFromRunningAgents(db, "cm_1", ["bot_a"]);
+    expect(changed).toEqual([]);
+  });
+});
+
 describe("findActiveToken", () => {
   it("returns null when no row matches", async () => {
     const chain: any = {};

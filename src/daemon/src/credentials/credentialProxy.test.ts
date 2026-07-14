@@ -212,6 +212,46 @@ describe("startCredentialProxy (zero-trust end to end)", () => {
     expect(r.status).toBe(401);
   });
 
+  it("fires onProxyRequest ONCE on verdict.ok, with (agentId, method, pathname), before upstream is dispatched", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const sightings: Array<{ agentId: string; method: string; pathname: string }> = [];
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker, {
+      onProxyRequest: (agentId, method, pathname) => sightings.push({ agentId, method, pathname }),
+    });
+    const reg = broker.mint("agent-1", "l", ["send"], REAL_KEY);
+
+    const r = await post(proxy.url, reg.voucher, "/api/send");
+    expect(r.status).toBe(200);
+    expect(sightings).toEqual([{ agentId: "agent-1", method: "POST", pathname: "/api/send" }]);
+  });
+
+  it("does NOT fire onProxyRequest on a rejected voucher (401/403)", async () => {
+    const upstream = await startUpstream();
+    upstreamClose = upstream.close;
+    const sightings: Array<{ agentId: string }> = [];
+    const broker = new CredentialBroker({ upstreamBaseUrl: upstream.url });
+    proxy = await startCredentialProxy(broker, {
+      onProxyRequest: (agentId, _method, _pathname) => sightings.push({ agentId }),
+    });
+
+    // Missing voucher entirely → 401.
+    const bad = await fetch(`${proxy.url}/api/send`, { method: "POST" });
+    expect(bad.status).toBe(401);
+
+    // Invalid voucher → 401.
+    const bogus = await post(proxy.url, "vch_bogus", "/api/send");
+    expect(bogus.status).toBe(401);
+
+    // Capability denied → 403 (still not fired).
+    const scoped = broker.mint("agent-1", "l", ["read"], REAL_KEY);
+    const denied = await post(proxy.url, scoped.voucher, "/api/send");
+    expect(denied.status).toBe(403);
+
+    expect(sightings).toEqual([]);
+  });
+
   it("surfaces the buffered inboxPull response AND fires onInboxPullResponse", async () => {
     const upstream = await startUpstream();
     upstreamClose = upstream.close;

@@ -192,6 +192,42 @@ describe("daemon control plane — real ws-do wake round-trip", () => {
     await waitForChannelReply(fixture.channelId, cookie, replyText)
   }, 30_000)
 
+  it("reports agent_activity over the real WsControlChannel and the profile route reflects running, then idle after the stub session ends its turn", async () => {
+    // Reuses the already-open `channel` from the first test — asserts the
+    // wire-level `agent_activity` frame this plan adds actually persists and
+    // is visible via the owner-facing /profile route (the read-side this
+    // plan's UI depends on for a fresh page load).
+    expect(channel).toBeDefined()
+
+    // Bot activity is stored on the same `statusEmoji`/`statusText` fields
+    // humans use — the WS DO translates the daemon's `agent_activity` frame
+    // into the appropriate preset and writes/broadcasts it as an ordinary
+    // status update (see plans/community-bot-status-telemetry.md).
+    await channel!.reportAgentActivity({ agentId: fixture.bot.botUserId, state: "running" })
+    const runningProfile = await waitForAsync(async () => {
+      const res = await sessionRequest(`/api/community/users/${fixture.bot.botUserId}/profile`, cookie)
+      if (!res.ok) return undefined
+      const body = (await res.json()) as { statusText: string | null }
+      // Any of the fun `running` variants counts — the WS DO picks one at random.
+      return typeof body.statusText === "string" && /Working on it|Cooking|Thinking hard|Tinkering|On it|In the zone/.test(body.statusText)
+        ? body
+        : undefined
+    }, 15_000)
+    expect(runningProfile.statusText).toMatch(/Working on it|Cooking|Thinking hard|Tinkering|On it|In the zone/)
+
+    // Simulates the stub session's turn ending (the real daemon would derive
+    // this via `deriveActivity` — here we report the wire-level state
+    // directly since no CLI is spawned in this harness).
+    await channel!.reportAgentActivity({ agentId: fixture.bot.botUserId, state: "idle" })
+    const idleProfile = await waitForAsync(async () => {
+      const res = await sessionRequest(`/api/community/users/${fixture.bot.botUserId}/profile`, cookie)
+      if (!res.ok) return undefined
+      const body = (await res.json()) as { statusText: string | null }
+      return body.statusText === "Idle" ? body : undefined
+    }, 15_000)
+    expect(idleProfile.statusText).toBe("Idle")
+  }, 30_000)
+
   it("fans out an independent agent:wake to each of several bots bound to the same machine, over the same socket", async () => {
     // Reuses the already-open `channel` from the previous test — this is the
     // scenario the deleted `controlPlane.e2e.test.ts`'s "multiple agents each

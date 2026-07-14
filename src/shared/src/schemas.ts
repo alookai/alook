@@ -928,6 +928,19 @@ export const SessionErrorFrameSchema = z.object({
 });
 export type SessionErrorFrame = z.infer<typeof SessionErrorFrameSchema>;
 
+/**
+ * `agent_activity` frame — daemon → server. Reports a bot's derived activity
+ * state (see `AgentActivityState`/`deriveActivity` in
+ * `src/daemon/src/manager/managerRuntime.ts`).
+ */
+export const AgentActivityMessageSchema = z.object({
+  type: z.literal("agent_activity"),
+  agentId: z.string(),
+  state: z.enum(["idle", "starting", "running", "stopping"]),
+});
+export type AgentActivityMessage = z.infer<typeof AgentActivityMessageSchema>;
+
+
 export const CommunityPairTokenResponseSchema = z.object({
   tokenId: z.string(),
   expiresAt: z.string(),
@@ -1115,4 +1128,56 @@ export const CommunityAgentJoinServerRequestSchema = z.object({
 export type CommunityAgentJoinServerRequest = z.infer<
   typeof CommunityAgentJoinServerRequestSchema
 >;
+
+// ---------------------------------------------------------------------------
+// Bot activity audit log — event payload
+// ---------------------------------------------------------------------------
+//
+// Shared between the daemon (producer), ws-do (persistence), and web
+// (route reader). The `payload` column stores JSON matching one of these
+// discriminated branches.
+//
+// - cli_invocation → the daemon's credential proxy handled an alook subcommand
+// - tool_call      → the runtime invoked a non-Bash tool (Bash is suppressed)
+// - thinking       → excerpted thinking text, truncated at 4096 UTF-8 bytes
+
+export const AuditLogCliInvocationPayloadSchema = z.object({
+  subcommand: z.string().min(1),
+});
+export const AuditLogToolCallPayloadSchema = z.object({
+  name: z.string().min(1),
+});
+export const AuditLogThinkingPayloadSchema = z.object({
+  text: z.string(),
+  truncated: z.boolean(),
+  chars: z.number().int().nonnegative(),
+});
+
+export const BotAuditEventSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("cli_invocation"), payload: AuditLogCliInvocationPayloadSchema }),
+  z.object({ kind: z.literal("tool_call"), payload: AuditLogToolCallPayloadSchema }),
+  z.object({ kind: z.literal("thinking"), payload: AuditLogThinkingPayloadSchema }),
+]);
+export type BotAuditEvent = z.infer<typeof BotAuditEventSchema>;
+
+export const BotAuditEventKindSchema = z.enum([
+  "cli_invocation",
+  "tool_call",
+  "thinking",
+]);
+export type BotAuditEventKind = z.infer<typeof BotAuditEventKindSchema>;
+
+/**
+ * `bot_audit_event` frame — daemon → server. Two producers on the daemon side
+ * feed this (credential proxy sighting for `cli_invocation`, runtime event
+ * stream for `tool_call` / `thinking`); ws-do stamps `createdAt` and inserts.
+ */
+export const HostBotAuditEventFrameSchema = z.object({
+  type: z.literal("bot_audit_event"),
+  agentId: z.string().min(1),
+  sessionId: z.string().nullable().optional(),
+  launchId: z.string().nullable().optional(),
+  event: BotAuditEventSchema,
+});
+export type HostBotAuditEventFrame = z.infer<typeof HostBotAuditEventFrameSchema>;
 

@@ -223,6 +223,7 @@ function onWake(state: ManagerState, agentId: string, message: AgentMsg): Reduce
       }
       const text = drainInboxToPrompt(agent);
       const mode = agent.turnActive ? "busy" : "idle";
+      if (mode === "idle") agent.turnActive = true;
       return commit(state, agent, [{ type: "send", agentId, text, mode }]);
     }
     // Per-turn or no stdin ⇒ keep queued; delivered after exit / next spawn.

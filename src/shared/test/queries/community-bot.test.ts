@@ -155,6 +155,74 @@ describe("createBot", () => {
   })
 })
 
+describe("getBotBinding", () => {
+  function makeSelectChain(rows: unknown[]) {
+    const chain: any = {}
+    chain.select = vi.fn(() => chain)
+    chain.from = vi.fn(() => chain)
+    chain.where = vi.fn(() => chain)
+    chain.limit = vi.fn(() => Promise.resolve(rows))
+    return chain
+  }
+
+  it("returns { machineId, runtime } when the binding exists", async () => {
+    const chain = makeSelectChain([{ machineId: "machine_1", runtime: "codex" }])
+    const result = await q.getBotBinding(chain, "bot_1")
+    expect(result).toEqual({ machineId: "machine_1", runtime: "codex" })
+  })
+
+  it("returns null when no binding row matches", async () => {
+    const chain = makeSelectChain([])
+    const result = await q.getBotBinding(chain, "ghost_bot")
+    expect(result).toBeNull()
+  })
+})
+
+describe("listBotsForMachine", () => {
+  function makeJoinChain(rows: unknown[]) {
+    const chain: any = {}
+    chain.select = vi.fn(() => chain)
+    chain.from = vi.fn(() => chain)
+    chain.innerJoin = vi.fn(() => chain)
+    chain.leftJoin = vi.fn(() => chain)
+    // `where` is awaited directly (no `.limit` in listBotsForMachine).
+    chain.where = vi.fn(() => Promise.resolve(rows))
+    return chain
+  }
+
+  it("projects the owner's name/discriminator alongside the bot's own fields", async () => {
+    const chain = makeJoinChain([
+      {
+        id: "bot_1",
+        name: "helper",
+        discriminator: "1234",
+        description: "does things",
+        ownerName: "gustavo",
+        ownerDiscriminator: "5678",
+      },
+    ])
+    const result = await q.listBotsForMachine(chain, "machine_1")
+    expect(result).toEqual([
+      {
+        id: "bot_1",
+        name: "helper",
+        discriminator: "1234",
+        description: "does things",
+        ownerName: "gustavo",
+        ownerDiscriminator: "5678",
+      },
+    ])
+  })
+
+  it("defaults description to empty string when the profile row is missing", async () => {
+    const chain = makeJoinChain([
+      { id: "bot_1", name: "helper", discriminator: "1234", description: null, ownerName: "gustavo", ownerDiscriminator: "5678" },
+    ])
+    const result = await q.listBotsForMachine(chain, "machine_1")
+    expect(result[0]?.description).toBe("")
+  })
+})
+
 describe("bot limits", () => {
   it("cap is 20", () => {
     expect(COMMUNITY_BOT_LIMIT_PER_OWNER).toBe(20)

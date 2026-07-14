@@ -27,6 +27,25 @@ import { create } from "zustand"
 export const SEEN_MESSAGE_MAX = 500
 export const SEEN_MESSAGE_TRIM_TO = 400
 
+/**
+ * Bounded ring for live bot-audit events, PER bot. The modal reads from here
+ * and prepends into the React Query cache — the ring only holds enough for
+ * the "in-flight" window while the modal is open. Older events are always
+ * available via paginated GETs. Per-bot bounding prevents a chatty bot from
+ * evicting a quiet bot's live events before the modal for that bot mounts.
+ */
+export const BOT_AUDIT_RING_MAX = 200
+
+export type BotAuditEventEntry = {
+  id: string
+  botId: string
+  kind: "cli_invocation" | "tool_call" | "thinking"
+  payload: unknown
+  sessionId?: string | null
+  launchId?: string | null
+  createdAt: string
+}
+
 type UserStatus = { emoji: string | null; text: string | null }
 
 export type CommunityWsStoreState = {
@@ -47,6 +66,12 @@ export type CommunityWsStoreState = {
    * fetched row.
    */
   userStatuses: Map<string, UserStatus>
+  /**
+   * Per-bot rings of recent audit events, each bounded by BOT_AUDIT_RING_MAX.
+   * Newest first inside each bot's array. A chatty bot never evicts a quieter
+   * bot's events. Absent-bot lookup returns an empty array.
+   */
+  botAuditEvents: Map<string, BotAuditEventEntry[]>
 
   setPresence: (userId: string, online: boolean) => void
   /** Atomic bulk seed — one notification for N users. Use on server switch. */
@@ -56,16 +81,18 @@ export type CommunityWsStoreState = {
   markSeenMessage: (id: string) => void
   setUserStatus: (userId: string, emoji: string | null, text: string | null) => void
   resetUserStatuses: () => void
+  pushBotAuditEvent: (event: BotAuditEventEntry) => void
   reset: () => void
 }
 
 const initialState = (): Pick<
   CommunityWsStoreState,
-  "onlineUserIds" | "seenMessageIds" | "userStatuses"
+  "onlineUserIds" | "seenMessageIds" | "userStatuses" | "botAuditEvents"
 > => ({
   onlineUserIds: new Set(),
   seenMessageIds: new Set(),
   userStatuses: new Map(),
+  botAuditEvents: new Map(),
 })
 
 export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => ({
@@ -121,6 +148,20 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
     set({ userStatuses: new Map() })
   },
 
+  pushBotAuditEvent: (event) => {
+    const current = get().botAuditEvents
+    const perBot = current.get(event.botId) ?? []
+    // Dedup by id — the same event can arrive via WS *and* be in the initial
+    // GET response (the plan's cache-race case); the hook does its own
+    // per-cache dedup too, but keeping the store honest costs nothing.
+    if (perBot.some((e) => e.id === event.id)) return
+    const nextPerBot = [event, ...perBot]
+    if (nextPerBot.length > BOT_AUDIT_RING_MAX) nextPerBot.length = BOT_AUDIT_RING_MAX
+    const next = new Map(current)
+    next.set(event.botId, nextPerBot)
+    set({ botAuditEvents: next })
+  },
+
   reset: () => set(initialState()),
 }))
 
@@ -134,4 +175,19 @@ export const useCommunityWsStore = create<CommunityWsStoreState>((set, get) => (
  */
 export const useOnlineUserIds = (): ReadonlySet<string> => {
   return useCommunityWsStore((s) => s.onlineUserIds)
+}
+
+const EMPTY_AUDIT_EVENTS: BotAuditEventEntry[] = []
+
+/**
+ * Live bot-audit events for a single botId. Newest first.
+ *
+ * The zustand selector reads only the per-bot slice of the ring map — a
+ * presence/status update, or an event for a different bot, doesn't force a
+ * re-render because zustand short-circuits on `Object.is` identity.
+ */
+export const useBotAuditEventsForBot = (botId: string | null | undefined): BotAuditEventEntry[] => {
+  return useCommunityWsStore((s) =>
+    botId ? s.botAuditEvents.get(botId) ?? EMPTY_AUDIT_EVENTS : EMPTY_AUDIT_EVENTS,
+  )
 }

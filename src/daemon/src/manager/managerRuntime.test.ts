@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { AgentProcessManager, type ManagedSession, type SessionFactory } from "./managerRuntime.js";
+import { AgentProcessManager, truncateThinking, type ManagedSession, type SessionFactory } from "./managerRuntime.js";
 import { SdkRuntimeSession, type SdkSessionHandle } from "../runtime/sdkRuntimeSession.js";
 import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
 import type { Logger } from "../logger.js";
@@ -73,7 +73,7 @@ function fakeSession(): FakeSession {
   return s;
 }
 
-function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeoutMs?: number; staleThresholdMs?: number; now?: () => number } = {}) {
+function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeoutMs?: number; staleThresholdMs?: number; now?: () => number; onBotAuditEvent?: (agentId: string, event: unknown, context: { sessionId: string | null; launchId: string | null }) => void } = {}) {
   const session = fakeSession();
   const factory: SessionFactory = () => session;
   const onRuntimeSpawnFailed = vi.fn();
@@ -90,6 +90,7 @@ function makeManager(opts: { logger?: Logger; tickIntervalMs?: number; idleTimeo
     sessionFactory: factory,
     onRuntimeSpawnFailed,
     onRuntimeSessionEstablished,
+    onBotAuditEvent: opts.onBotAuditEvent as never,
     ...opts,
   });
   mgr.register("a1");
@@ -474,6 +475,182 @@ describe("AgentProcessManager — session race conditions", () => {
   });
 });
 
+describe("AgentProcessManager — onAgentActivity (derived activity reporting)", () => {
+  it("fires exactly once per real derived transition — the turn_end→idle transition fires once, not re-fired while the FSM stays running until hibernation", async () => {
+    vi.useFakeTimers();
+    try {
+      let currentTime = 0;
+      const persistentDriver = {
+        ...fakeDriver("codex"),
+        lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+        supportsStdinNotification: true,
+        busyDeliveryMode: "direct",
+      } as Driver;
+      const session = fakeSession();
+      const factory: SessionFactory = () => session;
+      const onAgentActivity = vi.fn();
+      const mgr = new AgentProcessManager({
+        driverFor: () => persistentDriver,
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: factory,
+        onAgentActivity,
+        now: () => currentTime,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50,
+      });
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hello" }); // idle -> starting
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // spawned -> running
+      session.fire("runtime_event", { kind: "turn_end" }); // running,turnActive=false -> derived idle
+
+      mgr.start();
+      currentTime = 100; // past idleTimeoutMs — FSM flips running->stopping via hibernation
+      await vi.advanceTimersByTimeAsync(10);
+
+      // turn_end's derived "idle" already fired once; the later hibernation
+      // stop flips the raw FSM status to "stopping" — a real derived
+      // transition too — but must NOT re-fire a second "idle".
+      expect(onAgentActivity.mock.calls.map((c) => c[0])).toEqual([
+        { agentId: "a1", state: "starting" },
+        { agentId: "a1", state: "running" },
+        { agentId: "a1", state: "idle" },
+        { agentId: "a1", state: "stopping" },
+      ]);
+      expect(onAgentActivity.mock.calls.filter((c) => c[0].state === "idle")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("full cycle on a persistent agent — wake, spawned, turn_end, re-wake, turn_end — fires the right derived state at each step", async () => {
+    const persistentDriver = {
+      ...fakeDriver("codex"),
+      lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      supportsStdinNotification: true,
+      busyDeliveryMode: "direct",
+    } as Driver;
+    const session = fakeSession();
+    const factory: SessionFactory = () => session;
+    const onAgentActivity = vi.fn();
+    const mgr = new AgentProcessManager({
+      driverFor: () => persistentDriver,
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: factory,
+      onAgentActivity,
+    });
+    mgr.register("a1");
+    mgr.deliver("a1", { seq: 1, text: "hello" }); // idle -> starting
+    session.startResolver?.();
+    await Promise.resolve();
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // -> running
+    session.fire("runtime_event", { kind: "turn_end" }); // -> idle (derived)
+
+    mgr.deliver("a1", { seq: 2, text: "second turn" }); // re-wake: running,turnActive=false -> running
+    session.fire("runtime_event", { kind: "turn_end" }); // -> idle again
+
+    expect(onAgentActivity.mock.calls.map((c) => c[0])).toEqual([
+      { agentId: "a1", state: "starting" },
+      { agentId: "a1", state: "running" },
+      { agentId: "a1", state: "idle" },
+      { agentId: "a1", state: "running" },
+      { agentId: "a1", state: "idle" },
+    ]);
+  });
+
+  it("a tick that stalls/hibernates two different agents at once fires onAgentActivity for both", async () => {
+    vi.useFakeTimers();
+    try {
+      let currentTime = 0;
+      const persistentDriver = {
+        ...fakeDriver("codex"),
+        lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+        supportsStdinNotification: true,
+        busyDeliveryMode: "direct",
+      } as Driver;
+      const sessionA = fakeSession();
+      const sessionB = fakeSession();
+      const factory: SessionFactory = ({ agentId }) => (agentId === "a1" ? sessionA : sessionB);
+      const onAgentActivity = vi.fn();
+      const mgr = new AgentProcessManager({
+        driverFor: () => persistentDriver,
+        baseContextFor: (agentId: string) => ({
+          workingDirectory: "/tmp",
+          agentId,
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: factory,
+        onAgentActivity,
+        now: () => currentTime,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50,
+      });
+      mgr.register("a1");
+      mgr.register("b1");
+      mgr.deliver("a1", { seq: 1, text: "hello" });
+      mgr.deliver("b1", { seq: 1, text: "hello" });
+      sessionA.startResolver?.();
+      sessionB.startResolver?.();
+      await Promise.resolve();
+      sessionA.fire("runtime_event", { kind: "session_init", sessionId: "sa" });
+      sessionA.fire("runtime_event", { kind: "turn_end" });
+      sessionB.fire("runtime_event", { kind: "session_init", sessionId: "sb" });
+      sessionB.fire("runtime_event", { kind: "turn_end" });
+      onAgentActivity.mockClear();
+
+      mgr.start();
+      currentTime = 100; // both past idleTimeoutMs
+      await vi.advanceTimersByTimeAsync(10);
+
+      // Hibernation flips both agents' FSM status to "stopping" in the SAME
+      // tick — the derived value changes for both (idle -> stopping), so a
+      // single dispatch must fire onAgentActivity for each independently.
+      expect(onAgentActivity.mock.calls.map((c) => c[0])).toEqual(
+        expect.arrayContaining([
+          { agentId: "a1", state: "stopping" },
+          { agentId: "b1", state: "stopping" },
+        ]),
+      );
+      expect(onAgentActivity).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("register alone (no wake) never fires onAgentActivity", () => {
+    const onAgentActivity = vi.fn();
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: () => fakeSession(),
+      onAgentActivity,
+    });
+    mgr.register("a1");
+    expect(onAgentActivity).not.toHaveBeenCalled();
+  });
+});
+
 // A driver in the shape of PiDriver — declares `createSession` instead of a
 // usable `spawn`, mirroring the real "in-process SDK" contract.
 function fakeSdkDriver(id: string): { driver: Driver & { createSession: NonNullable<Driver["createSession"]> }; createSession: ReturnType<typeof vi.fn> } {
@@ -558,5 +735,117 @@ describe("AgentProcessManager — in-process SDK driver dispatch (Driver.createS
     });
     mgr.register("a1");
     expect(() => mgr.deliver("a1", { seq: 1, text: "hello" })).not.toThrow();
+  });
+});
+
+describe("truncateThinking", () => {
+  it("returns text unchanged when under the byte budget", () => {
+    const { text, truncated, chars } = truncateThinking("short");
+    expect(text).toBe("short");
+    expect(truncated).toBe(false);
+    expect(chars).toBe(5);
+  });
+
+  it("truncates > 4KB text and reports the original char count", () => {
+    const long = "a".repeat(5000);
+    const { text, truncated, chars } = truncateThinking(long);
+    expect(truncated).toBe(true);
+    expect(chars).toBe(5000);
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(4096);
+  });
+
+  it("never splits a multi-byte UTF-8 sequence", () => {
+    // Build a string whose 4096-byte boundary lands inside a 4-byte emoji.
+    // Each 😀 is 4 bytes. 1023 emojis = 4092 bytes; add "a" to get to 4093;
+    // then more emojis to push past 4096 mid-glyph.
+    const emoji = "😀";
+    const prefix = "a".repeat(4093) + emoji + emoji + emoji;
+    const { text } = truncateThinking(prefix);
+    // The returned string must be decodable — i.e. no replacement chars
+    // introduced by a mid-codepoint cut. `Buffer.from(text, "utf8")` and
+    // reading it back should round-trip.
+    expect(text).toBe(Buffer.from(text, "utf8").toString("utf8"));
+  });
+});
+
+describe("AgentProcessManager — bot audit event emission", () => {
+  it("emits `thinking` with truncated+chars fields", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr, session } = makeManager({ onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    session.fire("runtime_event", { kind: "thinking", text: "think about it" });
+
+    expect(onBotAuditEvent).toHaveBeenCalledWith(
+      "a1",
+      expect.objectContaining({
+        kind: "thinking",
+        payload: expect.objectContaining({
+          text: "think about it",
+          truncated: false,
+          chars: 14,
+        }),
+      }),
+      expect.objectContaining({ sessionId: null, launchId: null })
+    );
+  });
+
+  it("emits `tool_call` with name only (strips input)", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr, session } = makeManager({ onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    session.fire("runtime_event", { kind: "tool_call", name: "Read", input: { path: "/etc/passwd" } });
+
+    expect(onBotAuditEvent).toHaveBeenCalledWith(
+      "a1",
+      { kind: "tool_call", payload: { name: "Read" } },
+      expect.objectContaining({ sessionId: null, launchId: null })
+    );
+  });
+
+  it("carries sessionId (populated after session_init) into the context arg", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr, session } = makeManager({ onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    // Learn the runtime session id from the handshake.
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s_abc" });
+    session.fire("runtime_event", { kind: "tool_call", name: "Read", input: {} });
+
+    expect(onBotAuditEvent).toHaveBeenCalledWith(
+      "a1",
+      { kind: "tool_call", payload: { name: "Read" } },
+      { sessionId: "s_abc", launchId: null }
+    );
+  });
+
+  it("DROPS `tool_call { name: \"Bash\" }` regardless of proxy sightings (Bash suppression)", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr, session } = makeManager({ onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    session.fire("runtime_event", { kind: "tool_call", name: "Bash", input: { command: "ls -la" } });
+
+    // No audit event should be emitted for a Bash tool_call — the
+    // credential-proxy sighting (Producer B) is the authoritative source
+    // for `alook <sub>` invocations. Non-audit-hook side effects (progress
+    // dispatch) are unaffected.
+    const bashCalls = onBotAuditEvent.mock.calls.filter(
+      ([, ev]) => (ev as { kind?: string })?.kind === "tool_call"
+    );
+    expect(bashCalls).toHaveLength(0);
+  });
+
+  it("does NOT emit for non-audit event kinds (session_init, text, turn_end)", () => {
+    const onBotAuditEvent = vi.fn();
+    const { mgr, session } = makeManager({ onBotAuditEvent });
+    mgr.deliver("a1", { seq: 1, text: "hello" });
+
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" });
+    session.fire("runtime_event", { kind: "text", text: "hi human" });
+    session.fire("runtime_event", { kind: "turn_end" });
+
+    expect(onBotAuditEvent).not.toHaveBeenCalled();
   });
 });

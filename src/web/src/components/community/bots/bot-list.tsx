@@ -31,6 +31,7 @@ import { useCreateOrGetDm } from "@/hooks/community/mutations"
 import { useOnlineUserIds } from "@/stores/community/ws"
 import { CreateBotSheet } from "./create-bot-sheet"
 import { EditBotSheet } from "./edit-bot-sheet"
+import { BotActivityModal } from "./bot-activity-modal"
 
 /**
  * BotList — the /community/me/bots surface.
@@ -59,6 +60,8 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   // harmlessly while the sheet is hidden.
   const [editingBot, setEditingBot] = useState<BotSummary | null>(null)
   const [editOpen, setEditOpen] = useState(false)
+  const [activityBot, setActivityBot] = useState<BotSummary | null>(null)
+  const [activityOpen, setActivityOpen] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState<BotSummary | null>(null)
   const del = useDeleteBot()
   const createOrGetDm = useCreateOrGetDm()
@@ -280,6 +283,14 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => {
+                                  setActivityBot(bot)
+                                  setActivityOpen(true)
+                                }}
+                              >
+                                View activity
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
                                   setEditingBot(bot)
                                   setEditOpen(true)
                                 }}
@@ -307,6 +318,11 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
 
       <CreateBotSheet open={createOpen} onOpenChange={setCreateOpen} />
       <EditBotSheet bot={editingBot} open={editOpen} onOpenChange={setEditOpen} />
+      <BotActivityModal
+        bot={activityBot}
+        open={activityOpen}
+        onOpenChange={setActivityOpen}
+      />
       <AlertDialog
         open={!!confirmDelete}
         onOpenChange={(open) => !open && setConfirmDelete(null)}

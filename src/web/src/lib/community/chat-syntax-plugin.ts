@@ -6,14 +6,14 @@ import type { Plugin } from "unified"
 import { spoilerSyntax, spoilerFromMarkdown } from "./spoiler-syntax"
 import type { SpoilerNode } from "./spoiler-syntax"
 
-// Chat-only syntax (`||spoiler||`, `@mention`, `/server/channel` refs),
-// parsed as real markdown AST nodes rather than string-spliced HTML tags fed
-// through `rehype-raw`. `mention`/`channelRef` content is always an
-// identifier charset (`\p{L}\p{N}_-` for names, `[A-Za-z0-9_-]` for
-// nanoid-based refs) — `remark-parse` never splits an identifier across
-// sibling text nodes (no markdown metacharacters inside one), so a
-// `mdast-util-find-and-replace` pass is safe for these two. `spoiler` is
-// handled separately by the micromark tokenizer extension in
+// Chat-only syntax (`||spoiler||`, `@mention`, `/server/channel` and bare
+// `/server` refs), parsed as real markdown AST nodes rather than
+// string-spliced HTML tags fed through `rehype-raw`. `mention`/`channelRef`/
+// `serverRef` content is always an identifier charset (`\p{L}\p{N}_-` for
+// names, `[A-Za-z0-9_-]` for nanoid-based refs) — `remark-parse` never splits
+// an identifier across sibling text nodes (no markdown metacharacters inside
+// one), so a `mdast-util-find-and-replace` pass is safe for these. `spoiler`
+// is handled separately by the micromark tokenizer extension in
 // `spoiler-syntax.ts` — see that file's comment for why find-and-replace
 // cannot handle spoilers containing nested formatting.
 
@@ -34,6 +34,18 @@ import type { SpoilerNode } from "./spoiler-syntax"
 // node around the match the way the old string-splice regex's `(^|\s)`
 // capture group did.
 const CHANNEL_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+(?:\/#\d+)?(?=\s|$|[.,;:!?)\]])/g
+
+// A bare `/server` ref — one segment, no channel. Same boundary lookaround as
+// `CHANNEL_REF_RE` (leading `(?<=^|\s)`, trailing `(?=\s|$|[.,;:!?)\]])`), which
+// already excludes being followed by another `/segment` — so this never
+// double-matches the first segment of a genuine `/server/channel` ref (that
+// trailing boundary fails when the next char is `/`, and `[A-Za-z0-9_-]+`
+// backtracking can't produce a shorter match that satisfies it either, since
+// every character up to the next `/` is in the segment charset). Registered
+// after `CHANNEL_REF_RE` in `chatSyntaxPlugin`'s pairs list purely for
+// readability (server-only is the "smaller" grammar); the boundary already
+// makes the ordering non-load-bearing for correctness.
+const SERVER_REF_RE = /(?<=^|\s)\/[A-Za-z0-9_-]+(?=\s|$|[.,;:!?)\]])/g
 
 // `@name`, `@name#0042` (disambiguating discriminator), or the literal
 // `@everyone`/`@here` tokens. `\p{L}\p{N}_-` (Unicode-aware, `u` flag) in
@@ -61,14 +73,22 @@ export interface ChannelRefNode {
   value: string
 }
 
+/** mdast node produced by a bare `/server` ref (no channel segment). */
+export interface ServerRefNode {
+  type: "serverRef"
+  value: string
+}
+
 declare module "mdast" {
   interface RootContentMap {
     mention: MentionNode
     channelRef: ChannelRefNode
+    serverRef: ServerRefNode
   }
   interface PhrasingContentMap {
     mention: MentionNode
     channelRef: ChannelRefNode
+    serverRef: ServerRefNode
   }
 }
 
@@ -92,6 +112,10 @@ function channelRefReplacer(value: string): ChannelRefNode {
   return { type: "channelRef", value }
 }
 
+function serverRefReplacer(value: string): ServerRefNode {
+  return { type: "serverRef", value }
+}
+
 /**
  * remark plugin: combines the spoiler micromark extension (`spoiler-syntax.ts`)
  * with a `mdast-util-find-and-replace` pass for `mention`/`channelRef`.
@@ -113,6 +137,11 @@ export const chatSyntaxPlugin: Plugin<[], Root> = function chatSyntaxPlugin(this
       [
         [MENTION_RE, mentionReplacer as unknown as (value: string, ...rest: unknown[]) => PhrasingContent | string | false],
         [CHANNEL_REF_RE, channelRefReplacer as unknown as (value: string) => PhrasingContent],
+        // Runs as its own pass AFTER the channelRef pass above — by then every
+        // `/server/channel` span is already a `channelRef` element (no longer
+        // a `text` node `findAndReplace` visits), so this pass only ever sees
+        // genuine bare `/server` refs among the remaining text.
+        [SERVER_REF_RE, serverRefReplacer as unknown as (value: string) => PhrasingContent],
       ],
       { ignore: IGNORE_NODE_TYPES },
     )
@@ -143,6 +172,12 @@ export const chatSyntaxHandlers: Handlers = {
   channelRef: ((_state, node: ChannelRefNode): Element => ({
     type: "element",
     tagName: "channelref",
+    properties: {},
+    children: [{ type: "text", value: node.value }],
+  })) as Handler,
+  serverRef: ((_state, node: ServerRefNode): Element => ({
+    type: "element",
+    tagName: "serverref",
     properties: {},
     children: [{ type: "text", value: node.value }],
   })) as Handler,

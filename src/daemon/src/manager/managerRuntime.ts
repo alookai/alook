@@ -18,12 +18,21 @@ import {
   type ManagerEffect,
   type AgentRuntimeCaps,
   type AgentMsg,
+  type AgentState,
 } from "./managerPolicy.js";
 import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import { createChildProcessRuntimeSession, type ChildProcessRuntimeSession } from "../runtime/runtimeSession.js";
 import { SdkManagedSession } from "../runtime/sdkManagedSession.js";
 import { createLogger, type Logger } from "../logger.js";
+
+/**
+ * Derived activity state reported up the control plane — NOT a raw passthrough
+ * of `AgentState.status` (see `deriveActivity` below). Mirrors
+ * `@alook/shared`'s `AgentActivityState`, inlined here since this is
+ * daemon-internal.
+ */
+export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
 
 /** Minimal shape the executor needs from a runtime session. */
 export interface ManagedSession {
@@ -84,6 +93,35 @@ export interface ManagerRuntimeOpts {
    */
   onAgentSession?: (info: { agentId: string; sessionId: string; launchId: string }) => void;
   /**
+   * Notified whenever an agent's DERIVED activity (per `deriveActivity`)
+   * changes — not on every raw FSM transition. See the Design Overview in
+   * plans/community-bot-status-telemetry.md.
+   */
+  onAgentActivity?: (info: { agentId: string; state: AgentActivityState }) => void;
+  /**
+   * Notified whenever a runtime `thinking` or non-`Bash` `tool_call` event
+   * lands. Wired in `createDaemon` to send a `bot_audit_event` frame through
+   * the WS control channel. Not called for `Bash` tool_calls — see the
+   * "Bash suppression" branch inside `onRuntimeEvent`.
+   *
+   * Kept minimal on purpose: no `input`, no output — the audit log records
+   * NAME only for tool_calls, and truncated `text` for thinking.
+   */
+  onBotAuditEvent?: (
+    agentId: string,
+    event:
+      | { kind: "tool_call"; payload: { name: string } }
+      | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } },
+    context: { sessionId: string | null; launchId: string | null }
+  ) => void;
+  /**
+   * Notified when the daemon itself terminates an agent (idle hibernation or
+   * stall-recovery) — NOT for server-sent `agent:stop`, which the router
+   * already tracks. Wired in `createDaemon` to `AgentRouter.markLocallyStopped`
+   * so `ready.runningAgents` stays aligned with what's actually live.
+   */
+  onAgentLocallyStopped?: (info: { agentId: string; reason: "stop" | "terminate_stalled" }) => void;
+  /**
    * Optional context-timeline recorder. When provided, the manager logs each
    * spawn as a "running" row, fills in the session id on session_init, and closes
    * the row on turn_end / exit — a pure DAILY LOG, no steering. It also supplies
@@ -139,6 +177,34 @@ export interface TimelineRecorder {
   resumeSessionId(agentId: string, provider: string | null): string | null;
 }
 
+/** Max UTF-8 byte budget for `thinking` text in the audit log. */
+const THINKING_MAX_BYTES = 4096;
+
+/**
+ * Truncate a `thinking` string to at most `THINKING_MAX_BYTES` UTF-8 bytes
+ * without splitting a multi-byte sequence. Exported for tests. Callers get the
+ * (possibly truncated) text plus the original char count so the UI can render
+ * "+N more chars" without re-fetching.
+ */
+export function truncateThinking(
+  text: string
+): { text: string; truncated: boolean; chars: number } {
+  // Count codepoints (user-facing characters), not UTF-16 code units — an
+  // emoji-heavy string reports one "char" per emoji, matching the "Show N
+  // more characters" affordance in the UI.
+  const chars = [...text].length;
+  const buf = Buffer.from(text, "utf8");
+  if (buf.byteLength <= THINKING_MAX_BYTES) {
+    return { text, truncated: false, chars };
+  }
+  // Walk back from the boundary to a safe UTF-8 char break. Continuation
+  // bytes are `10xxxxxx` (0x80-0xBF); slice must land BEFORE one.
+  let end = THINKING_MAX_BYTES;
+  while (end > 0 && (buf[end] & 0xc0) === 0x80) end--;
+  const truncatedText = buf.subarray(0, end).toString("utf8");
+  return { text: truncatedText, truncated: true, chars };
+}
+
 export class AgentProcessManager {
   private state: ManagerState;
   private readonly sessions = new Map<string, ManagedSession>();
@@ -167,6 +233,9 @@ export class AgentProcessManager {
       | "credentialProxy"
       | "sdkDriverDepsFor"
       | "onAgentSession"
+      | "onAgentActivity"
+      | "onBotAuditEvent"
+      | "onAgentLocallyStopped"
       | "timeline"
       | "wakePromptFooter"
       | "onRuntimeSpawnFailed"
@@ -181,6 +250,9 @@ export class AgentProcessManager {
       | "credentialProxy"
       | "sdkDriverDepsFor"
       | "onAgentSession"
+      | "onAgentActivity"
+      | "onBotAuditEvent"
+      | "onAgentLocallyStopped"
       | "timeline"
       | "wakePromptFooter"
       | "onRuntimeSpawnFailed"
@@ -258,6 +330,20 @@ export class AgentProcessManager {
    * Live agent sessions (agentId + sessionId + launchId) for control-plane
    * resync after a reconnect. Only agents whose runtime has reported a session.
    */
+  /**
+   * Current (sessionId, launchId) for an agent, or nulls if not yet known.
+   * Read by Producer B (credential-proxy sighting) so `cli_invocation` audit
+   * events carry the same context Producer A's `tool_call` / `thinking`
+   * events do — plan §Data model asks for launchId on every event where
+   * known, and sessionId once the runtime handshake has landed.
+   */
+  auditContext(agentId: string): { sessionId: string | null; launchId: string | null } {
+    return {
+      sessionId: this.liveSessions.get(agentId) ?? null,
+      launchId: this.launchIds.get(agentId) ?? null,
+    };
+  }
+
   liveSessionReports(): Array<{ agentId: string; sessionId: string; launchId: string }> {
     return [...this.liveSessions.entries()].map(([agentId, sessionId]) => ({
       agentId,
@@ -271,9 +357,37 @@ export class AgentProcessManager {
   /* --------------------------------------------------------------- */
 
   private dispatch(event: ManagerEvent): void {
+    const before = this.deriveActivitySnapshot(this.state);
     const { state, effects } = reduceManager(this.state, event);
     this.state = state;
     for (const effect of effects) this.applyEffect(effect);
+    if (this.opts.onAgentActivity) {
+      const after = this.deriveActivitySnapshot(this.state);
+      for (const [agentId, activity] of Object.entries(after)) {
+        // Skip a brand-new agent appearing this dispatch (register) — only
+        // report real transitions of an already-known agent.
+        if (agentId in before && before[agentId] !== activity) {
+          this.opts.onAgentActivity({ agentId, state: activity });
+        }
+      }
+    }
+  }
+
+  private deriveActivitySnapshot(state: ManagerState): Record<string, AgentActivityState> {
+    const snapshot: Record<string, AgentActivityState> = {};
+    for (const [agentId, agent] of Object.entries(state.agents)) snapshot[agentId] = this.deriveActivity(agent);
+    return snapshot;
+  }
+
+  /**
+   * `AgentState.status` alone doesn't mean "actively working" — a persistent
+   * agent stays `"running"` (turnActive=false) for up to `idleTimeoutMs` after
+   * a turn ends, before the tick loop finally stops it. Report "idle" the
+   * moment the turn ends instead of waiting for that hibernation timeout.
+   */
+  private deriveActivity(agent: AgentState): AgentActivityState {
+    if (agent.status === "running" && !agent.turnActive) return "idle";
+    return agent.status;
   }
 
   private withFooter(text: string): string {
@@ -301,6 +415,7 @@ export class AgentProcessManager {
         const spawnState = this.activeSpawnState.get(effect.agentId);
         if (spawnState) spawnState.suppressExitLog = true;
         this.logSessionEnded(effect.agentId, effect.type === "stop" ? "stopped" : "terminate_stalled");
+        this.opts.onAgentLocallyStopped?.({ agentId: effect.agentId, reason: effect.type });
         break;
       }
       case "gated_hold":
@@ -480,8 +595,41 @@ export class AgentProcessManager {
   }
 
   private onRuntimeEvent(agentId: string, e: unknown, runtimeId: string): void {
-    const ev = e as { kind?: string; sessionId?: string; text?: string };
+    const ev = e as { kind?: string; sessionId?: string; text?: string; name?: string };
     if (!ev?.kind) return;
+    // Bot audit hook — thinking + non-Bash tool_call, no correlation.
+    // Context carries the sessionId/launchId learned so far this launch so
+    // ws-do can persist them alongside each row (the plan's Data model calls
+    // for both). `liveSessions` is populated on `session_init`; if this
+    // event fires BEFORE the runtime has emitted its handshake, sessionId is
+    // null and the row records the launch without a session id.
+    if (this.opts.onBotAuditEvent) {
+      const context = {
+        sessionId: this.liveSessions.get(agentId) ?? null,
+        launchId: this.launchIds.get(agentId) ?? null,
+      };
+      if (ev.kind === "thinking" && typeof ev.text === "string") {
+        const { text, truncated, chars } = truncateThinking(ev.text);
+        try {
+          this.opts.onBotAuditEvent(agentId, {
+            kind: "thinking",
+            payload: { text, truncated, chars },
+          }, context);
+        } catch { /* observational */ }
+      } else if (ev.kind === "tool_call" && typeof ev.name === "string") {
+        // Bash suppression — the credential proxy emits the authoritative
+        // `cli_invocation` when the agent invokes `alook` from a shell, and
+        // raw non-`alook` Bash isn't user-visible in the audit spec.
+        if (ev.name !== "Bash") {
+          try {
+            this.opts.onBotAuditEvent(agentId, {
+              kind: "tool_call",
+              payload: { name: ev.name },
+            }, context);
+          } catch { /* observational */ }
+        }
+      }
+    }
     if (ev.kind === "session_init" && ev.sessionId) {
       this.dispatch({ type: "session", agentId, sessionId: ev.sessionId });
       this.liveSessions.set(agentId, ev.sessionId);

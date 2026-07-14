@@ -428,6 +428,24 @@ export type CommunityMachineRemoved = {
   machineId: string
 }
 
+// ── Bot audit-log events ─────────────────────────────────────────────────────
+//
+// Owner-only fan-out. When a daemon reports a bot activity event
+// (cli_invocation | tool_call | thinking), ws-do inserts it into
+// community_bot_activity_event and delivers a single frame to the bot owner's
+// per-user DO. Non-owners never see these frames.
+
+export type CommunityBotAuditEvent = {
+  type: "community:bot.audit_event"
+  botId: string
+  id: string
+  kind: "cli_invocation" | "tool_call" | "thinking"
+  payload: unknown
+  sessionId?: string | null
+  launchId?: string | null
+  createdAt: string
+}
+
 // ── Bot events ────────────────────────────────────────────────────────────────
 //
 // Server → daemon frames. Colon-namespaced to match the existing HostCommand
@@ -441,6 +459,9 @@ export type BotAddedFrame = {
   /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
   discriminator: string
   description?: string
+  /** The owning user's name + discriminator — pairs into the owner's global handle. */
+  ownerName: string
+  ownerDiscriminator: string
 }
 
 export type BotUpdatedFrame = {
@@ -450,6 +471,9 @@ export type BotUpdatedFrame = {
   /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
   discriminator: string
   description?: string
+  /** The owning user's name + discriminator — pairs into the owner's global handle. */
+  ownerName: string
+  ownerDiscriminator: string
 }
 
 export type BotRemovedFrame = {
@@ -500,6 +524,7 @@ export type CommunityWsEvent =
   | CommunityMachineStatus
   | CommunityMachineUpdated
   | CommunityMachineRemoved
+  | CommunityBotAuditEvent
 
 /** Type guard: is this a community WS event? */
 export function isCommunityEvent(msg: { type: string }): msg is CommunityWsEvent {
@@ -546,4 +571,5 @@ export const WS_EVENTS = {
   MACHINE_STATUS: "community:machine.status",
   MACHINE_UPDATED: "community:machine.updated",
   MACHINE_REMOVED: "community:machine.removed",
+  BOT_AUDIT_EVENT: "community:bot.audit_event",
 } as const

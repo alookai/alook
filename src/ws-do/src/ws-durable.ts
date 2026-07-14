@@ -7,6 +7,10 @@ import {
   COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
   HostReadyMessageSchema,
   SessionErrorFrameSchema,
+  AgentActivityMessageSchema,
+  HostBotAuditEventFrameSchema,
+  pickBotActivityPreset,
+  RUNNING_PRESETS,
 } from "@alook/shared"
 import type { CommunityMachineRuntime, CommunityMachineSummary } from "@alook/shared"
 
@@ -654,6 +658,96 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       return
     }
 
+    // `agent_activity` — daemon reports a bot's derived activity state.
+    // Translated INTO the same `statusEmoji`/`statusText` fields humans use
+    // (so bots and humans share one status pipeline end-to-end and the
+    // client never branches on "is this a bot") and fanned out via
+    // `community:status.update`. `running` picks a fun preset once here
+    // and persists it, so every viewer sees the same phrase for that
+    // episode — no client-side randomization, no jitter on re-open.
+    //
+    // Verify the reporting machine actually owns this bot before writing —
+    // never trust the frame-supplied agentId blindly, matching how other
+    // frames on this channel trust `identity` but not frame-supplied ids.
+    const activityParse = AgentActivityMessageSchema.safeParse(parsed)
+    if (activityParse.success) {
+      const { agentId, state } = activityParse.data
+      const db = createDb(this.env.DB)
+      const binding = await queries.communityBot.getBotBinding(db, agentId)
+      if (!binding || binding.machineId !== identity.machineId) {
+        log.warn("agent_activity frame for a bot not bound to this machine — dropped", {
+          agentId,
+          machineId: identity.machineId,
+        })
+        return
+      }
+      const prior = await queries.communityUserProfile.getProfile(db, agentId)
+      const priorEmoji = prior?.statusEmoji ?? null
+      const priorText = prior?.statusText ?? null
+      const priorIsRunning =
+        priorEmoji !== null &&
+        RUNNING_PRESETS.some((p) => p.emoji === priorEmoji && p.text === priorText)
+      // For `running`, reuse the currently-persisted preset if it's already
+      // one of the running variants — matches the "one phrase per episode"
+      // invariant instead of re-rolling on every derived running transition
+      // (turn_end → idle → wake → running fires this repeatedly).
+      const preset =
+        state === "running" && priorIsRunning
+          ? { emoji: priorEmoji as string, text: priorText as string }
+          : pickBotActivityPreset(state, Math.random())
+      if (preset.emoji === priorEmoji && preset.text === priorText) return
+      await queries.communityUserProfile.updateProfile(db, agentId, {
+        statusEmoji: preset.emoji,
+        statusText: preset.text,
+      })
+      await this.broadcastToAudience(agentId, {
+        type: "community:status.update",
+        userId: agentId,
+        statusEmoji: preset.emoji,
+        statusText: preset.text,
+      })
+      return
+    }
+
+    // `bot_audit_event` — daemon reports a bot activity event (cli_invocation,
+    // tool_call, or thinking). Insert + rolling-500 prune land atomically via
+    // `db.batch`; server stamps `createdAt` (never trust the daemon clock).
+    // Fan the resulting row out to the OWNER ONLY (never `broadcastToAudience`
+    // — that would leak per-bot activity to co-members + friends).
+    const auditParse = HostBotAuditEventFrameSchema.safeParse(parsed)
+    if (auditParse.success) {
+      const frame = auditParse.data
+      const db = createDb(this.env.DB)
+      const binding = await queries.communityBot.getBotBindingWithOwner(db, frame.agentId)
+      if (!binding || binding.machineId !== identity.machineId) {
+        log.warn("bot_audit_event frame for a bot not bound to this machine — dropped", {
+          agentId: frame.agentId,
+          machineId: identity.machineId,
+        })
+        return
+      }
+      const payload = JSON.stringify(frame.event.payload)
+      const inserted = await queries.communityBotAuditLog.insertBotActivityEventAndPrune(db, {
+        botId: frame.agentId,
+        sessionId: frame.sessionId ?? null,
+        launchId: frame.launchId ?? null,
+        kind: frame.event.kind,
+        payload,
+      })
+      if (!inserted) return
+      await this.notifyUserDO(binding.ownerUserId, {
+        type: "community:bot.audit_event",
+        botId: frame.agentId,
+        id: inserted.id,
+        kind: frame.event.kind,
+        payload: frame.event.payload,
+        sessionId: frame.sessionId ?? null,
+        launchId: frame.launchId ?? null,
+        createdAt: inserted.createdAt,
+      }).catch(() => { })
+      return
+    }
+
     // Otherwise: only `ready` frames drive DB updates. Zod-parse strictly —
     // legacy `runtimes: string[]`-only frames from pre-refactor daemons fail
     // validation and are silently dropped; MIN_CLI_VERSION will squeeze them
@@ -683,6 +777,29 @@ export class WebSocketDurableObject extends DurableObject<Env> {
       return
     }
     const { machine, priorAvailableRuntimes, priorStatus } = result
+
+    // Coarse safety net for an `agent_activity` frame dropped mid-disconnect —
+    // clear any bot on this machine whose current status pill looks like a
+    // stale system-written activity pill AND who the daemon reports is NOT
+    // running now. Live `agent_activity` pushes handle every non-`idle`
+    // transition; the reconciler only ever writes `Idle`. Owner-set custom
+    // statuses (identified by not matching the known bot presets) are left
+    // alone. See plans/community-bot-status-telemetry.md.
+    const activityChanges = await queries.communityMachine.reconcileBotActivityFromRunningAgents(
+      db,
+      machine.id,
+      ready.runningAgents
+    )
+    await Promise.allSettled(
+      activityChanges.map(({ botUserId, statusEmoji, statusText }) =>
+        this.broadcastToAudience(botUserId, {
+          type: "community:status.update",
+          userId: botUserId,
+          statusEmoji,
+          statusText,
+        })
+      )
+    )
 
     const summary = await this.summaryWithOverlay(machine)
     // Refresh the offline-detection handle in case metadata changed. Handle
@@ -981,9 +1098,19 @@ export class WebSocketDurableObject extends DurableObject<Env> {
   private static readonly SUBREQUEST_BATCH_SIZE = 40
 
   private async broadcastPresence(userId: string, online: boolean): Promise<void> {
+    await this.broadcastToAudience(userId, { type: "community:presence.update", userId, online })
+  }
+
+  /**
+   * Fan a payload out to `userId`'s presence audience (co-members ∪ friends),
+   * batched to stay under the subrequest limit. Factored out of
+   * `broadcastPresence` so other per-audience events (e.g.
+   * `community:bot.activity`) share the same batched-fetch loop.
+   */
+  private async broadcastToAudience(userId: string, payload: unknown): Promise<void> {
     const audience = await this.getPresenceAudience(userId)
     if (audience.length === 0) return
-    const payload = JSON.stringify({ type: "community:presence.update", userId, online })
+    const body = JSON.stringify(payload)
     for (let i = 0; i < audience.length; i += WebSocketDurableObject.SUBREQUEST_BATCH_SIZE) {
       const batch = audience.slice(i, i + WebSocketDurableObject.SUBREQUEST_BATCH_SIZE)
       await Promise.allSettled(
@@ -992,7 +1119,7 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           const stub = this.env.WS_DO.get(doId)
           return stub.fetch(new Request("http://internal/broadcast", {
             method: "POST",
-            body: payload,
+            body,
           }))
         })
       )

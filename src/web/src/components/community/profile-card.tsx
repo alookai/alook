@@ -8,6 +8,25 @@ import { Avatar } from "./avatar"
 import { StatusEditor, hasStatus } from "./status-editor"
 import type { Profile } from "./_types"
 import type { Breakpoint } from "@/hooks/use-mobile"
+import { useCommunityWsStore } from "@/stores/community/ws"
+
+// Merge rule for the card's status pill: overlay wins over seed. The overlay
+// (`useCommunityWsStore.userStatuses`) is the same live source the member
+// list and friend rows consume, so an entry there is always fresher than a
+// row-fetched seed. When the overlay has no entry (either because that user
+// hasn't emitted a `community:status.update` this session, or because the
+// user is anonymous / userId is undefined), fall back to the initial-seed
+// props passed by the opener. Both fields resolve independently; there is
+// no "if the overlay defines emoji but not text, prefer the whole seed"
+// case — the store writes both in one call.
+export function resolveCardStatus(
+  overlay: { emoji: string | null; text: string | null } | undefined,
+  seedEmoji: string | null | undefined,
+  seedText: string | null | undefined,
+): { emoji: string | null; text: string | null } {
+  if (overlay) return { emoji: overlay.emoji, text: overlay.text }
+  return { emoji: seedEmoji ?? null, text: seedText ?? null }
+}
 
 // Deterministic, on-brand banner gradient. The seed is the owner's stable
 // userId (falling back to name only when the id isn't yet resolved), so
@@ -25,7 +44,12 @@ export function generateGradient(seed: string): string {
 }
 
 // Profile card — popover anchored at the click point on desktop, bottom sheet on mobile.
-export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus }: {
+// Status (emoji + text) is read live from `useCommunityWsStore.userStatuses` —
+// the same overlay the member list, friends list, and UserBar consume. The
+// `initialStatusEmoji` / `initialStatusText` props are a first-paint seed for
+// users the overlay has never seen a WS event for; once the overlay has an
+// entry, it wins. See plans/profile-card-status-overlay.md.
+export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpdateStatus, initialStatusEmoji, initialStatusText }: {
   data: Profile
   x: number
   y: number
@@ -36,10 +60,14 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
   // Only used when `isSelf` — the inline status row opens `StatusEditor` and
   // calls this on a preset pick / free-text commit / emoji override / clear.
   onUpdateStatus?: (emoji: string | null, text: string | null) => void
+  initialStatusEmoji?: string | null
+  initialStatusText?: string | null
 }) {
   const [msg, setMsg] = useState("")
   const [open, setOpen] = useState(true)
   const mobile = bp === "mobile"
+  const liveStatus = useCommunityWsStore((s) => (data.userId ? s.userStatuses.get(data.userId) : undefined))
+  const { emoji: statusEmoji, text: statusText } = resolveCardStatus(liveStatus, initialStatusEmoji, initialStatusText)
   const close = () => setOpen(false)
   const send = () => {
     const text = msg.trim()
@@ -80,8 +108,8 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
                 (and therefore the dot's) right edge. */}
             {isSelf ? (
               <StatusEditor
-                emoji={data.statusEmoji ?? null}
-                text={data.statusText ?? null}
+                emoji={statusEmoji}
+                text={statusText}
                 onChange={(emoji, text) => onUpdateStatus?.(emoji, text)}
                 side="bottom"
                 align="start"
@@ -110,11 +138,11 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
                     render={children}` (which clones this exact element) or
                     nesting an interactive `Tooltip.Trigger` inside a
                     `<button>` that's already a trigger for something else. */}
-                <button title={data.statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-                  {hasStatus(data.statusEmoji, data.statusText) ? (
+                <button title={statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1) hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+                  {hasStatus(statusEmoji, statusText) ? (
                     <>
-                      {data.statusEmoji && <span>{data.statusEmoji}</span>}
-                      {data.statusText && <span className="min-w-0 truncate">{data.statusText}</span>}
+                      {statusEmoji && <span>{statusEmoji}</span>}
+                      {statusText && <span className="min-w-0 truncate">{statusText}</span>}
                     </>
                   ) : (
                     <span className="text-muted-foreground">Set a status</span>
@@ -122,10 +150,10 @@ export function ProfileCard({ data, x, y, bp, onClose, onMessage, isSelf, onUpda
                 </button>
               </StatusEditor>
             ) : (
-              hasStatus(data.statusEmoji, data.statusText) && (
-                <div title={data.statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1)">
-                  {data.statusEmoji && <span>{data.statusEmoji}</span>}
-                  {data.statusText && <span className="min-w-0 truncate">{data.statusText}</span>}
+              hasStatus(statusEmoji, statusText) && (
+                <div title={statusText || undefined} className="absolute left-full top-[68.5px] ml-2 flex max-w-32 -translate-y-1/2 items-center gap-2 rounded-full border border-border bg-secondary px-2 py-0.5 text-[13px] whitespace-nowrap text-secondary-foreground shadow-(--e1)">
+                  {statusEmoji && <span>{statusEmoji}</span>}
+                  {statusText && <span className="min-w-0 truncate">{statusText}</span>}
                 </div>
               )
             )}

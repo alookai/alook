@@ -39,6 +39,27 @@ import { formatHandle } from "@alook/shared/lib/discriminator";
 const WARMUP_BACKOFF_MS = [250, 500, 1000, 2000, 4000] as const;
 const WARMUP_CEILING_MS = 30_000;
 
+/**
+ * Derive the audit-log `cli_invocation` subcommand from a proxy request
+ * pathname. The credential proxy rewrites the CLI's bare `/api/*` calls onto
+ * `/api/community/agent/*` (see `rewriteAgentPath` in credentialProxy.ts) —
+ * but the sighting fires BEFORE that rewrite runs (against the inbound
+ * pathname), so we may see either shape here.
+ *
+ * `/api/ack` is a paired sibling of `inboxPull` with no user intent, so it's
+ * dropped (returns `null`). Anything else outside the `/api/*` prefix returns
+ * `null` too — the proxy is generic and could carry non-audit traffic in the
+ * future.
+ */
+export function deriveAuditLogSubcommand(pathname: string): string | null {
+  const stripped = pathname.replace(/^\/api\/community\/agent\//, "/api/");
+  if (!stripped.startsWith("/api/")) return null;
+  const sub = stripped.slice("/api/".length).split("/")[0]?.split("?")[0] ?? "";
+  if (!sub) return null;
+  if (sub === "ack") return null;
+  return sub;
+}
+
 /** The minimal WebSocket the control channel needs (host injects a `ws` factory). */
 export type DaemonWebSocketFactory = (url: string, headers: Record<string, string>) => unknown;
 
@@ -120,9 +141,47 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     providerFor: () => opts.runtimeReport[0]?.id ?? null,
   });
 
+  // Held in a mutable cell so the credential-proxy and manager audit hooks
+  // (constructed above the WsControlChannel below) can call it lazily —
+  // the closures fire on real traffic long after `channel` is populated.
+  let channelRef: WsControlChannel | null = null;
+  // Populated after `manager` is constructed below. Producer B reads
+  // `auditContext(agentId)` off it inside `onProxyRequest`.
+  let managerRef: AgentProcessManager | null = null;
+  const emitBotAuditEvent = (
+    agentId: string,
+    event:
+      | { kind: "cli_invocation"; payload: { subcommand: string } }
+      | { kind: "tool_call"; payload: { name: string } }
+      | { kind: "thinking"; payload: { text: string; truncated: boolean; chars: number } },
+    context?: { sessionId?: string | null; launchId?: string | null }
+  ) => {
+    void channelRef?.reportBotAuditEvent?.({
+      type: "bot_audit_event",
+      agentId,
+      sessionId: context?.sessionId ?? null,
+      launchId: context?.launchId ?? null,
+      event,
+    });
+  };
+
   const broker = new CredentialBroker({ upstreamBaseUrl: opts.serverUrl });
   const proxy = await startCredentialProxy(broker, {
     onInboxPullResponse: (agentId, messages) => timeline.appendEntryForAgent(agentId, messages),
+    // Bot audit log — Producer B (authoritative for `alook <sub>`). Fires
+    // ONLY on `verdict.ok === true`, before the upstream request is written.
+    onProxyRequest: (agentId, _method, pathname) => {
+      const subcommand = deriveAuditLogSubcommand(pathname);
+      if (!subcommand) return;
+      // Producer B: read the same audit context Producer A does so
+      // cli_invocation rows carry launchId (and sessionId once the runtime
+      // handshake has landed) — matches plan §Data model.
+      const context = managerRef?.auditContext(agentId);
+      emitBotAuditEvent(agentId, {
+        kind: "cli_invocation",
+        payload: { subcommand },
+      }, context);
+    },
   });
 
   // Per-agent enrolled runner keys (enrollment is async; stored before deliver).
@@ -138,10 +197,20 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   //
   // Note: `cmk_`-rotation-implies-re-pair is documented as an assumption;
   // runtime code doesn't handle rotation.
-  const botsById = new Map<string, { name: string; discriminator: string; description?: string }>();
+  const botsById = new Map<
+    string,
+    { name: string; discriminator: string; description?: string; ownerName?: string; ownerDiscriminator?: string }
+  >();
 
   async function listMyBotsHttp(): Promise<
-    Array<{ id: string; name: string; discriminator: string; description?: string }>
+    Array<{
+      id: string;
+      name: string;
+      discriminator: string;
+      description?: string;
+      ownerName?: string;
+      ownerDiscriminator?: string;
+    }>
   > {
     const res = await fetch(`${opts.serverUrl}/api/community/daemon/bots`, {
       method: "GET",
@@ -149,7 +218,14 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     });
     if (!res.ok) throw new Error(`listMyBots ${res.status}`);
     const json = (await res.json()) as {
-      bots?: Array<{ id: string; name: string; discriminator: string; description?: string }>;
+      bots?: Array<{
+        id: string;
+        name: string;
+        discriminator: string;
+        description?: string;
+        ownerName?: string;
+        ownerDiscriminator?: string;
+      }>;
     };
     return json.bots ?? [];
   }
@@ -163,7 +239,13 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         // Server snapshot wins — reconcile the cache.
         botsById.clear();
         for (const b of bots) {
-          botsById.set(b.id, { name: b.name, discriminator: b.discriminator, description: b.description });
+          botsById.set(b.id, {
+            name: b.name,
+            discriminator: b.discriminator,
+            description: b.description,
+            ownerName: b.ownerName,
+            ownerDiscriminator: b.ownerDiscriminator,
+          });
         }
         log.info("cold-start bot-cache warmup succeeded", { bots: bots.length, attempt });
         return;
@@ -246,18 +328,31 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     onAuthRejected: opts.onAuthRejected,
     logger: log.child("ws"),
   });
+  channelRef = channel;
 
   // Cache-side handler for bot:* frames. Runs BEFORE AgentRouter sees them,
   // via a channel wrapper (registered below).
   function handleBotFrame(cmd: HostCommand): void {
     switch (cmd.type) {
       case "bot:added":
-        botsById.set(cmd.botId, { name: cmd.name, discriminator: cmd.discriminator, description: cmd.description });
+        botsById.set(cmd.botId, {
+          name: cmd.name,
+          discriminator: cmd.discriminator,
+          description: cmd.description,
+          ownerName: cmd.ownerName,
+          ownerDiscriminator: cmd.ownerDiscriminator,
+        });
         log.debug("bot:added", { botId: cmd.botId, name: cmd.name });
         break;
       case "bot:updated": {
         const prev = botsById.get(cmd.botId);
-        botsById.set(cmd.botId, { name: cmd.name, discriminator: cmd.discriminator, description: cmd.description });
+        botsById.set(cmd.botId, {
+          name: cmd.name,
+          discriminator: cmd.discriminator,
+          description: cmd.description,
+          ownerName: cmd.ownerName,
+          ownerDiscriminator: cmd.ownerDiscriminator,
+        });
         // If a subprocess is running for this bot AND name/description changed,
         // stop it so the next wake trigger spawns a fresh subprocess with the
         // new system prompt. Rename is effective on next spawn, not mid-flight.
@@ -324,11 +419,23 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
             ? { agentHandle: `@${formatHandle(botMeta.name, botMeta.discriminator)}` }
             : {}),
           ...(botMeta?.description ? { description: botMeta.description } : {}),
+          ...(botMeta?.ownerName && botMeta?.ownerDiscriminator
+            ? { ownerHandle: `@${formatHandle(botMeta.ownerName, botMeta.ownerDiscriminator)}` }
+            : {}),
         } as LaunchContext["config"],
       } as Omit<LaunchContext, "prompt" | "standingPrompt"> & { config?: LaunchContext["config"] };
     },
     tickIntervalMs: opts.tickIntervalMs ?? 2000,
     onAgentSession: (info) => void channel.reportAgentSession(info),
+    onAgentActivity: (info) => void channel.reportAgentActivity?.(info),
+    // Bot audit log — Producer A (runtime thinking + non-Bash tool_call).
+    // Bash suppression + thinking truncation happen inside managerRuntime.
+    onBotAuditEvent: (agentId, event, context) => emitBotAuditEvent(agentId, event, context),
+    // Idle hibernation / stall-recovery stops the subprocess without a
+    // server-sent agent:stop; keep AgentRouter.running aligned so the next
+    // `ready` frame's `runningAgents` reflects what's actually live and the
+    // server's reconciler safety net can flip stale pills to idle.
+    onAgentLocallyStopped: (info) => router?.markLocallyStopped(info.agentId),
     // Only the "pi" runtime declares `Driver.createSession` today (in-process
     // SDK, no child process) — this is only ever consulted for that case.
     sdkDriverDepsFor: (ctx) => createPiSdkDriverDeps(ctx),
@@ -336,6 +443,7 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     wakePromptFooter: "Use `alook inbox pull` to read your messages, then reply with `alook message send`.",
     logger: log.child("manager"),
   });
+  managerRef = manager;
   manager.start();
 
   router = new AgentRouter({
@@ -358,7 +466,13 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         try {
           const bots = await listMyBotsHttp();
           for (const b of bots) {
-            botsById.set(b.id, { name: b.name, discriminator: b.discriminator, description: b.description });
+            botsById.set(b.id, {
+              name: b.name,
+              discriminator: b.discriminator,
+              description: b.description,
+              ownerName: b.ownerName,
+              ownerDiscriminator: b.ownerDiscriminator,
+            });
           }
         } catch {
           // Fall through — still treat as unknown below.

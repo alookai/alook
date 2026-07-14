@@ -8,7 +8,9 @@ import {
   communityBotBinding,
 } from "../../community-machine-schema";
 import { user } from "../../schema";
+import { communityUserProfile } from "../../community-schema";
 import type { Database } from "../../index";
+import { BOT_ACTIVITY_PRESETS, RUNNING_PRESETS } from "../../../community/bot-activity-presets";
 import { COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS } from "../../../constants";
 import type {
   CommunityMachineRuntime,
@@ -369,6 +371,87 @@ export async function touchMachineHeartbeat(
     .set({ lastSeenAt: nowIso, updatedAt: nowIso })
     .where(eq(communityMachine.id, prior.id));
   return { lastSeenAt: nowIso, priorLastSeenAt: prior.lastSeenAt };
+}
+
+// ---------------------------------------------------------------------------
+// Bot activity telemetry — see plans/community-bot-status-telemetry.md.
+//
+// Bot activity is stored on `community_user_profile.status_emoji`/`status_text`,
+// the same fields humans set via `StatusEditor`. This is deliberate: consumers
+// on the client never branch on "is this a bot" — one status pipeline covers
+// both. The distinction is server-only: humans PATCH `/api/community/users/me/
+// profile`, bots are written here by the WS DO on `agent_activity` frames.
+// ---------------------------------------------------------------------------
+
+/**
+ * All emoji+text pairs the WS DO writes when translating an
+ * `AgentActivityState` — used by the reconciler below to distinguish
+ * "system-driven bot status pill this DO wrote" from "human-driven status
+ * pill the owner set" without adding a `system_driven` column.
+ */
+const BOT_ACTIVITY_STATUS_PAIRS: ReadonlyArray<{ emoji: string; text: string }> = [
+  BOT_ACTIVITY_PRESETS.idle,
+  BOT_ACTIVITY_PRESETS.starting,
+  BOT_ACTIVITY_PRESETS.stopping,
+  ...RUNNING_PRESETS,
+];
+
+function isBotActivityStatus(emoji: string | null, text: string | null): boolean {
+  if (emoji === null && text === null) return false;
+  return BOT_ACTIVITY_STATUS_PAIRS.some((p) => p.emoji === emoji && p.text === text);
+}
+
+/**
+ * Coarse safety net for `agent_activity` frames dropped mid-disconnect: for
+ * every bot bound to `machineId`, if the bot's persisted status currently
+ * looks like a system-written bot-activity pill AND the daemon reports it is
+ * NOT in `runningAgents`, flip its status to `Idle`. This only clears stuck
+ * "still running" pills — the `running`-side transitions are covered by the
+ * live `agent_activity` push on reconnect. Returns the list of bots that
+ * actually changed, so the caller only fans out real transitions.
+ *
+ * Owner-set custom statuses on a bot (a hypothetical future feature) are NOT
+ * touched — the `isBotActivityStatus` check requires an exact match against
+ * the known emoji+text pairs the WS DO writes.
+ */
+export async function reconcileBotActivityFromRunningAgents(
+  db: Database,
+  machineId: string,
+  runningAgentIds: string[]
+): Promise<Array<{ botUserId: string; statusEmoji: string; statusText: string }>> {
+  const rows = await db
+    .select({
+      userId: communityBotBinding.userId,
+      statusEmoji: communityUserProfile.statusEmoji,
+      statusText: communityUserProfile.statusText,
+    })
+    .from(communityBotBinding)
+    .innerJoin(
+      communityUserProfile,
+      eq(communityUserProfile.userId, communityBotBinding.userId)
+    )
+    .where(eq(communityBotBinding.machineId, machineId));
+  if (rows.length === 0) return [];
+
+  const runningSet = new Set(runningAgentIds);
+  const idle = BOT_ACTIVITY_PRESETS.idle;
+  const stale = rows.filter((r) => {
+    if (runningSet.has(r.userId)) return false;
+    if (r.statusEmoji === idle.emoji && r.statusText === idle.text) return false;
+    return isBotActivityStatus(r.statusEmoji, r.statusText);
+  });
+  if (stale.length === 0) return [];
+
+  await db
+    .update(communityUserProfile)
+    .set({ statusEmoji: idle.emoji, statusText: idle.text })
+    .where(inArray(communityUserProfile.userId, stale.map((r) => r.userId)));
+
+  return stale.map((r) => ({
+    botUserId: r.userId,
+    statusEmoji: idle.emoji,
+    statusText: idle.text,
+  }));
 }
 
 // ---------------------------------------------------------------------------

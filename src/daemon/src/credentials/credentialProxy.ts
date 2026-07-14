@@ -258,6 +258,16 @@ export interface CredentialProxyOptions {
    */
   onInboxPullResponse?: (agentId: string, messages: Message[]) => void;
   /**
+   * Called once per successfully-authorized upstream proxy request, BEFORE the
+   * upstream is dispatched. Fires only on `verdict.ok === true` — never on
+   * failed/expired-voucher attempts (those short-circuit with a 401/403 and
+   * MUST NOT be surfaced as bot activity). Purely observational: the daemon
+   * uses this to emit a `cli_invocation` bot audit event derived from the
+   * pathname. Host-neutral by design — no bodies, no upstream response
+   * details.
+   */
+  onProxyRequest?: (agentId: string, method: string, pathname: string) => void;
+  /**
    * Max time (ms) a forwarded upstream request may stay open before the proxy
    * gives up on it. Without this, a slow/hung upstream (or an agent that
    * abandons its own request early) leaks the outbound connection FOREVER —
@@ -292,6 +302,7 @@ export async function startCredentialProxy(
   const upstreamClient = upstream.protocol === "https:" ? https : http;
 
   const onPull = options.onInboxPullResponse;
+  const onProxyRequest = options.onProxyRequest;
 
   const server = http.createServer((req, res) => {
     const pathname = new URL(req.url ?? "/", "http://placeholder").pathname;
@@ -308,6 +319,14 @@ export async function startCredentialProxy(
 
     const reg = verdict.reg;
     const isInboxPull = onPull && pathname.endsWith("/inboxPull");
+
+    if (onProxyRequest) {
+      try {
+        onProxyRequest(reg.agentId, req.method ?? "GET", pathname);
+      } catch {
+        // observational callback — never disrupt the proxy.
+      }
+    }
 
     // Build the upstream request: same method/path, this voucher's per-agent
     // runner key swapped in, identity + capability headers stamped, hop-specific

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { resolveChannelRefBase, type ChannelRefDirectory } from "./channel-ref"
+import { resolveChannelRefBase, resolveServerRefBase, type ChannelRefDirectory } from "./channel-ref"
 
 const directory: ChannelRefDirectory = [
   {
@@ -83,5 +83,36 @@ describe("resolveChannelRefBase", () => {
   it("returns null instead of throwing on malformed input (fails parseRef)", () => {
     expect(resolveChannelRefBase(directory, "not-a-ref")).toBeNull()
     expect(resolveChannelRefBase(directory, "/onlyserver")).toBeNull()
+  })
+})
+
+describe("resolveServerRefBase", () => {
+  it("resolves a bare /server by id", () => {
+    expect(resolveServerRefBase(directory, "/srv_studio")?.id).toBe("srv_studio")
+  })
+
+  it("resolves a bare /server by exact display name", () => {
+    expect(resolveServerRefBase(directory, "/studio")?.id).toBe("srv_studio")
+  })
+
+  it("id match takes precedence over a colliding name match", () => {
+    const collidingDirectory: ChannelRefDirectory = [
+      { id: "srv_studio", name: "studio", channels: [] },
+      { id: "srv_named_like_id", name: "srv_studio", channels: [] },
+    ]
+    expect(resolveServerRefBase(collidingDirectory, "/srv_studio")?.id).toBe("srv_studio")
+  })
+
+  it("returns null when the server isn't in the directory", () => {
+    expect(resolveServerRefBase(directory, "/nope")).toBeNull()
+  })
+
+  it("returns null for a multi-segment ref — that's channelRef's job, not serverRef's", () => {
+    expect(resolveServerRefBase(directory, "/studio/general")).toBeNull()
+  })
+
+  it("returns null for malformed input", () => {
+    expect(resolveServerRefBase(directory, "not-a-ref")).toBeNull()
+    expect(resolveServerRefBase(directory, "/")).toBeNull()
   })
 })

@@ -835,6 +835,21 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
           return
         }
 
+        // ── Bot audit event — push into the bounded ring; the audit-log
+        // hook filters + prepends into its React Query cache. ────────────
+        case "community:bot.audit_event": {
+          useCommunityWsStore.getState().pushBotAuditEvent({
+            id: event.id,
+            botId: event.botId,
+            kind: event.kind,
+            payload: event.payload,
+            sessionId: event.sessionId ?? null,
+            launchId: event.launchId ?? null,
+            createdAt: event.createdAt,
+          })
+          return
+        }
+
         // ── Mentions ────────────────────────────────────────────────────
         case "community:mention.create": {
           void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
@@ -964,6 +979,15 @@ export function useCommunityWs(options?: UseCommunityWsOptions) {
     // `message.create` events, none of which arrive while the socket is
     // down.
     void queryClient.invalidateQueries({ queryKey: communityKeys.inbox() })
+    // Bot audit logs are WS-live-patched into the React Query cache; if
+    // the socket dropped, any events emitted during the gap never entered
+    // the store's ring and so never made it into the cache. Invalidating
+    // all bot audit-log pages on reconnect lets an open modal catch up.
+    void queryClient.invalidateQueries({
+      queryKey: [...communityKeys.all, "bot"],
+      // Fuzzy prefix match — communityKeys.botAuditLog is [all, "bot", botId, "audit-log"].
+      exact: false,
+    })
   }, [queryClient])
   const { send } = useUserWs(handleMessage, { onReconnect: handleReconnect })
 

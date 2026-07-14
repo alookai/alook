@@ -520,3 +520,33 @@ export const communityBotApprovalRequest = sqliteTable(
   (t) => [index("idx_community_bot_approval_bot").on(t.botId, t.status)]
 );
 
+// 21. community_bot_activity_event
+// Per-bot audit trail. Rows are one of three kinds — cli_invocation, tool_call,
+// thinking — recorded from the daemon (via the WS control channel) and stamped
+// with `createdAt` server-side by ws-do. `payload` is JSON whose shape depends
+// on `kind` (see AuditLogPayloadSchema in ../schemas.ts). Retention is a rolling
+// last 500 rows per bot, pruned at write time in ws-do.
+export const communityBotActivityEvent = sqliteTable(
+  "community_bot_activity_event",
+  {
+    id: text("id").primaryKey().$defaultFn(() => "bae_" + nanoid()),
+    botId: text("bot_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    sessionId: text("session_id"),
+    launchId: text("launch_id"),
+    kind: text("kind").notNull(),
+    payload: text("payload").notNull(),
+    createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  },
+  (t) => [
+    // Migration 0058 writes this as `(bot_id, created_at DESC, id DESC)` to
+    // match the read ORDER BY + retention prune (see plan §Retention).
+    // Drizzle's TS-side index type doesn't carry direction; the composite
+    // shape at this level is enough for Drizzle's own use — SQLite can walk
+    // the index in either direction, and the migration is authoritative on
+    // the direction the planner picks.
+    index("idx_bot_activity_event_bot_created").on(t.botId, t.createdAt, t.id),
+  ]
+);
+

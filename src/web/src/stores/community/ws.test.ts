@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest"
 import {
+  BOT_AUDIT_RING_MAX,
   SEEN_MESSAGE_MAX,
   SEEN_MESSAGE_TRIM_TO,
   useCommunityWsStore,
@@ -167,5 +168,68 @@ describe("useCommunityWsStore", () => {
     useCommunityWsStore.getState().setUserStatus("u1", "🎧", "Vibing")
     useCommunityWsStore.getState().reset()
     expect(useCommunityWsStore.getState().userStatuses.size).toBe(0)
+  })
+
+  it("pushBotAuditEvent prepends newest-first, dedups on id, and bounds each per-bot ring", () => {
+    const push = useCommunityWsStore.getState().pushBotAuditEvent
+    push({
+      id: "e1",
+      botId: "b1",
+      kind: "tool_call",
+      payload: { name: "Read" },
+      createdAt: "2025-01-01T00:00:00.000Z",
+    })
+    push({
+      id: "e2",
+      botId: "b1",
+      kind: "cli_invocation",
+      payload: { subcommand: "send" },
+      createdAt: "2025-01-01T00:00:01.000Z",
+    })
+    const events = useCommunityWsStore.getState().botAuditEvents.get("b1") ?? []
+    expect(events[0]!.id).toBe("e2")
+    expect(events[1]!.id).toBe("e1")
+
+    // Dedup on id — a second push of e2 must not duplicate.
+    push({
+      id: "e2",
+      botId: "b1",
+      kind: "cli_invocation",
+      payload: { subcommand: "send" },
+      createdAt: "2025-01-01T00:00:01.000Z",
+    })
+    expect((useCommunityWsStore.getState().botAuditEvents.get("b1") ?? []).length).toBe(2)
+  })
+
+  it("bounds each bot's ring independently — a chatty bot doesn't evict a quiet bot's events", () => {
+    const push = useCommunityWsStore.getState().pushBotAuditEvent
+    // Chatty bot A: overflow the ring.
+    for (let i = 0; i < BOT_AUDIT_RING_MAX + 5; i++) {
+      push({
+        id: `a${i}`,
+        botId: "bot_a",
+        kind: "tool_call",
+        payload: { name: "Read" },
+        createdAt: `2025-01-01T00:00:${String(i).padStart(2, "0")}.000Z`,
+      })
+    }
+    // Quiet bot B: one event, way earlier in wall-clock, must survive.
+    push({
+      id: "b1",
+      botId: "bot_b",
+      kind: "cli_invocation",
+      payload: { subcommand: "send" },
+      createdAt: "2020-01-01T00:00:00.000Z",
+    })
+    const aRing = useCommunityWsStore.getState().botAuditEvents.get("bot_a") ?? []
+    const bRing = useCommunityWsStore.getState().botAuditEvents.get("bot_b") ?? []
+    expect(aRing.length).toBe(BOT_AUDIT_RING_MAX)
+    expect(aRing[0]!.id).toBe(`a${BOT_AUDIT_RING_MAX + 4}`)
+    // Oldest chatty-bot events dropped.
+    expect(aRing.some((e) => e.id === "a0")).toBe(false)
+    // Quiet bot untouched.
+    expect(bRing).toEqual([
+      expect.objectContaining({ id: "b1", botId: "bot_b" }),
+    ])
   })
 })
