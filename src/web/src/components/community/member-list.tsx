@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { Shield, UserMinus, Check, Search, UserPlus, Users2 } from "lucide-react"
+import { Shield, UserMinus, Check, Search, UserPlus, LogOut } from "lucide-react"
 import {
   ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator,
   ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Avatar } from "./avatar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { hasStatus } from "./status-presets"
-import type { Member, Role, OpenProfile } from "./_types"
+import type { Member, Role, OpenProfile, ThreadMemberContext } from "./_types"
 import { canManageServer } from "./_types"
 
 const SETTABLE_ROLES: Role[] = ["admin", "member"]
@@ -88,7 +88,7 @@ export function MemberList({
   onLoadMore,
   onSearch,
   onAddMember,
-  manageLabel = "Add members",
+  threadContext,
   myRole,
   onOpenProfile,
   onSetRole,
@@ -101,11 +101,11 @@ export function MemberList({
   onLoadMore?: () => void
   onSearch?: (q: string) => void
   onAddMember?: () => void
-  // Tooltip/aria for the manage button. Defaults to "Add members" (channels /
-  // posts, where the button adds). Threads pass "Participants" — the button
-  // opens a panel where add is creator-only but mute/leave is for everyone, so
-  // an "Add members" label would mislead a non-creator.
-  manageLabel?: string
+  // When set, rows are THREAD participants: the right-click menu offers
+  // "Leave thread" on the viewer's own row and "Remove" on others (creator
+  // only), instead of the server-scoped Role/Kick menu. Presence of this prop
+  // switches the row menu to thread semantics.
+  threadContext?: ThreadMemberContext
   myRole?: Role
   onOpenProfile?: OpenProfile
   onSetRole?: (name: string, role: Role) => void
@@ -191,12 +191,10 @@ export function MemberList({
                 type="button"
                 onClick={onAddMember}
                 className="grid size-9 shrink-0 place-items-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-                aria-label={manageLabel}
-                title={manageLabel}
+                aria-label="Add members"
+                title="Add members"
               >
-                {manageLabel === "Add members"
-                  ? <UserPlus className="size-4" />
-                  : <Users2 className="size-4" />}
+                <UserPlus className="size-4" />
               </button>
             )}
           </div>
@@ -234,6 +232,7 @@ export function MemberList({
                         onOpenProfile={onOpenProfile}
                         onSetRole={onSetRole}
                         onKick={setKickTarget}
+                        threadContext={threadContext}
                       />
                     )}
                   </div>
@@ -266,6 +265,7 @@ function MemberRow({
   onOpenProfile,
   onSetRole,
   onKick,
+  threadContext,
 }: {
   mem: Member
   canManage: boolean
@@ -277,6 +277,7 @@ function MemberRow({
   onOpenProfile?: OpenProfile
   onSetRole?: (name: string, role: Role) => void
   onKick: (name: string) => void
+  threadContext?: ThreadMemberContext
 }) {
   const button = (
     <button
@@ -297,6 +298,32 @@ function MemberRow({
       </div>
     </button>
   )
+
+  // Thread participant row: Leave (self) / Remove (creator on others). This
+  // replaces the server-scoped Role/Kick menu — a thread has no roles, and
+  // eviction is thread-participation, not a server kick.
+  if (threadContext) {
+    const isSelf = mem.userId === threadContext.viewerUserId
+    if (!isSelf && !threadContext.isCreator) return button
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger render={button} />
+        <ContextMenuContent className="w-48">
+          <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">{mem.name}</div>
+          {isSelf ? (
+            <ContextMenuItem onClick={() => threadContext.onLeave(mem.userId)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
+              <LogOut className="size-4" /> Leave thread
+            </ContextMenuItem>
+          ) : (
+            <ContextMenuItem onClick={() => threadContext.onRemove(mem.userId)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
+              <UserMinus className="size-4" /> Remove {mem.name}
+            </ContextMenuItem>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+    )
+  }
+
   if (!hasMemberMenu(canManage, mem.role)) return button
   return (
     <ContextMenu>

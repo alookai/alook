@@ -26,7 +26,7 @@ import { useCurrentUser } from "@/contexts/community/current-user"
 import { useServer } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
 import { useChannelMembers } from "@/hooks/community/use-channel-members"
-import { useThreadParticipants } from "@/hooks/community/use-thread-participants"
+import { useThreadParticipants, useRemoveThreadParticipant } from "@/hooks/community/use-thread-participants"
 import { useMessages } from "@/hooks/community/use-messages"
 import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
 import { useChannelWatermark } from "@/hooks/community/use-channel-watermark"
@@ -149,6 +149,7 @@ function ChannelView() {
   const channelMembersHook = useChannelMembers(channelId, currentChannelPrivate && !isThread)
   // Thread drawer shows the notify PARTICIPANT set, not the channel audience.
   const threadParticipantsHook = useThreadParticipants(channelId, isThread)
+  const removeThreadParticipantMut = useRemoveThreadParticipant(channelId)
 
   // Members shown in the right-panel Members drawer:
   //   - thread → its notify participants (mapped to the roster shape).
@@ -679,9 +680,21 @@ function ChannelView() {
     // Scoped drawer: local filter (small set). Public: server search.
     onSearchMembers: scopedDrawer ? setMemberQuery : membersHook.searchMembers,
     onAddMember: showManageButton ? () => setManageMembersOpen(true) : undefined,
-    // Thread's manage button opens the participants panel (mute/leave for all,
-    // add for creator) — a neutral "Participants" label, not "Add members".
-    manageLabel: isThread ? "Participants" : "Add members",
+    // Thread drawer: row right-click offers Leave (self) / Remove (creator).
+    threadContext: isThread
+      ? {
+          viewerUserId: currentUser.id,
+          isCreator: currentChannelMeta?.creatorId === currentUser.id,
+          onLeave: (userId: string) =>
+            removeThreadParticipantMut.mutate(userId, {
+              onError: (e) => toastApiError(e, "Failed to leave thread"),
+            }),
+          onRemove: (userId: string) =>
+            removeThreadParticipantMut.mutate(userId, {
+              onError: (e) => toastApiError(e, "Failed to remove participant"),
+            }),
+        }
+      : undefined,
     pinned,
     pinnedLoading,
     searchResults,
@@ -722,7 +735,6 @@ function ChannelView() {
           parentChannelId={currentChannelMeta?.parentChannelId ?? null}
           threadName={currentChannelMeta?.name ?? channelName}
           viewerUserId={currentUser.id}
-          isCreator={currentChannelMeta?.creatorId === currentUser.id}
           onClose={() => setManageMembersOpen(false)}
         />
       )

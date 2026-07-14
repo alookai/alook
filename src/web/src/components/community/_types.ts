@@ -317,3 +317,13 @@ export type OpenProfile = (
   discriminator?: string,
   userId?: string,
 ) => void
+
+// Passed to the Members drawer when it's showing a THREAD's participants — the
+// row right-click menu becomes Leave (self) / Remove (creator on others)
+// instead of the server-scoped Role/Kick menu.
+export type ThreadMemberContext = {
+  viewerUserId: string
+  isCreator: boolean
+  onLeave: (userId: string) => void
+  onRemove: (userId: string) => void
+}

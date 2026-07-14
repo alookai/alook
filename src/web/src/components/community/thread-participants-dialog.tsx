@@ -1,50 +1,44 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Search, X, LogOut } from "lucide-react"
+import { Search } from "lucide-react"
 import { toast } from "sonner"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
 import {
   useThreadParticipants,
   useAddThreadParticipant,
-  useRemoveThreadParticipant,
 } from "@/hooks/community/use-thread-participants"
 import { useChannelMembers } from "@/hooks/community/use-channel-members"
 
 /**
- * Manage a thread's NOTIFY participants: the current participant list (with a
- * leave control on the viewer's own row) plus a picker of parent-channel
- * members not yet participating. Any participant may add; leaving drops your
- * row (a later mention/speak re-adds). The thread creator may also remove
- * others. Read access to the thread is unaffected — this is purely the
- * notification set. Muting is the outer channel-header notification level, not
- * here.
+ * Add participants to a thread — a pure picker of parent-channel members not
+ * yet participating. Any participant may add. The current participant list and
+ * its leave/remove controls live in the Members drawer's row right-click menu
+ * (see `MemberList` `threadContext`), not here. Read access to the thread is
+ * unaffected — participation is purely the notification set; muting is the
+ * outer channel-header notification level.
  */
 export function ThreadParticipantsDialog({
   channelId,
   parentChannelId,
   threadName,
   viewerUserId,
-  isCreator,
   onClose,
 }: {
   channelId: string
   parentChannelId: string | null
   threadName: string
   viewerUserId: string
-  isCreator: boolean
   onClose: () => void
 }) {
-  const { participants, isLoading } = useThreadParticipants(channelId)
-  // Candidate pool for the add picker = the parent channel's audience. Any
-  // participant can add, so fetch whenever there's a parent channel.
+  // Existing participants — only to exclude them from the add list.
+  const { participants } = useThreadParticipants(channelId)
+  // Candidate pool = the parent channel's audience.
   const { members: parentMembers } = useChannelMembers(parentChannelId ?? "", !!parentChannelId)
   const addParticipant = useAddThreadParticipant(channelId)
-  const removeParticipant = useRemoveThreadParticipant(channelId)
   const [query, setQuery] = useState("")
 
   const participantIds = useMemo(() => new Set(participants.map((p) => p.userId)), [participants])
@@ -62,91 +56,43 @@ export function ThreadParticipantsDialog({
       toast(err instanceof Error ? err.message : "Couldn't add participant")
     }
   }
-  const onLeaveOrRemove = async (userId: string) => {
-    try {
-      await removeParticipant.mutateAsync(userId)
-    } catch (err) {
-      toast(err instanceof Error ? err.message : "Couldn't remove participant")
-    }
-  }
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
       <DialogContent className="flex max-h-[80vh] w-full flex-col gap-0 p-0 sm:max-w-md">
         <header className="border-b border-border px-4 py-3">
-          <h2 className="truncate text-sm font-semibold">Participants of /{threadName}</h2>
+          <h2 className="truncate text-sm font-semibold">Add participants to /{threadName}</h2>
           <p className="text-xs text-muted-foreground">
-            These people are notified of new replies. Anyone in the channel can still read the thread.
+            Added people are notified of new replies. Anyone with access can already read the thread.
           </p>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto thin-scrollbar px-2 py-2">
-          {isLoading && participants.length === 0 ? (
-            <div className="space-y-2 px-2">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <Skeleton className="size-8 rounded-full" />
-                  <Skeleton className="h-3 w-32 rounded" />
-                </div>
-              ))}
-            </div>
+          <label className="relative mx-2 mb-2 block">
+            <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search members"
+              className="pl-9"
+            />
+          </label>
+          {addable.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              {query ? "No matches." : "Everyone is already here."}
+            </p>
           ) : (
-            participants.map((p) => {
-              const isSelf = p.userId === viewerUserId
-              return (
-                <div key={p.userId} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/40">
-                  <Avatar label={p.avatar || p.name || ""} seed={p.userId} size={32} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{p.name ?? "Unknown"}</div>
-                  </div>
-                  {(isSelf || isCreator) && (
-                    <button
-                      onClick={() => onLeaveOrRemove(p.userId)}
-                      disabled={removeParticipant.isPending}
-                      className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed"
-                      aria-label={isSelf ? "Leave thread" : `Remove ${p.name ?? "participant"}`}
-                      title={isSelf ? "Leave thread" : "Remove participant"}
-                    >
-                      {isSelf ? <LogOut className="size-4" /> : <X className="size-4" />}
-                    </button>
-                  )}
-                </div>
-              )
-            })
+            addable.map((m) => (
+              <div key={m.userId} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/40">
+                <Avatar label={m.avatar || m.name || ""} seed={m.userId} size={32} />
+                <div className="min-w-0 flex-1 truncate text-sm font-medium">{m.name ?? "Unknown"}</div>
+                <Button size="sm" disabled={addParticipant.isPending} onClick={() => onAdd(m.userId)}>
+                  Add
+                </Button>
+              </div>
+            ))
           )}
         </div>
-
-        {parentChannelId && (
-          <footer className="border-t border-border px-4 py-3">
-            <div className="mb-2 text-xs font-medium text-muted-foreground">Add from channel</div>
-            <label className="relative block">
-              <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search channel members"
-                className="pl-9"
-              />
-            </label>
-            <div className="mt-2 max-h-48 overflow-y-auto thin-scrollbar">
-              {addable.length === 0 ? (
-                <p className="py-4 text-center text-sm text-muted-foreground">
-                  {query ? "No matches." : "Everyone in the channel is already here."}
-                </p>
-              ) : (
-                addable.map((m) => (
-                  <div key={m.userId} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/40">
-                    <Avatar label={m.avatar || m.name || ""} seed={m.userId} size={32} />
-                    <div className="min-w-0 flex-1 truncate text-sm font-medium">{m.name ?? "Unknown"}</div>
-                    <Button size="sm" disabled={addParticipant.isPending} onClick={() => onAdd(m.userId)}>
-                      Add
-                    </Button>
-                  </div>
-                ))
-              )}
-            </div>
-          </footer>
-        )}
       </DialogContent>
     </Dialog>
   )
