@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Avatar } from "./avatar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { hasStatus } from "./status-presets"
-import type { Member, Role, OpenProfile, ThreadMemberContext } from "./_types"
+import type { Member, Role, OpenProfile, MemberManageContext } from "./_types"
 import { canManageServer } from "./_types"
 
 const SETTABLE_ROLES: Role[] = ["admin", "member"]
@@ -88,7 +88,7 @@ export function MemberList({
   onLoadMore,
   onSearch,
   onAddMember,
-  threadContext,
+  manageContext,
   myRole,
   onOpenProfile,
   onSetRole,
@@ -101,11 +101,11 @@ export function MemberList({
   onLoadMore?: () => void
   onSearch?: (q: string) => void
   onAddMember?: () => void
-  // When set, rows are THREAD participants: the right-click menu offers
-  // "Leave thread" on the viewer's own row and "Remove" on others (creator
-  // only), instead of the server-scoped Role/Kick menu. Presence of this prop
-  // switches the row menu to thread semantics.
-  threadContext?: ThreadMemberContext
+  // When set, rows are a private channel/post roster or a thread's participants:
+  // the right-click menu offers "Leave" on the viewer's own row and "Remove" on
+  // other explicit members (creator only), instead of the server-scoped
+  // Role/Kick menu. Presence of this prop switches the row menu.
+  manageContext?: MemberManageContext
   myRole?: Role
   onOpenProfile?: OpenProfile
   onSetRole?: (name: string, role: Role) => void
@@ -232,7 +232,7 @@ export function MemberList({
                         onOpenProfile={onOpenProfile}
                         onSetRole={onSetRole}
                         onKick={setKickTarget}
-                        threadContext={threadContext}
+                        manageContext={manageContext}
                       />
                     )}
                   </div>
@@ -265,7 +265,7 @@ function MemberRow({
   onOpenProfile,
   onSetRole,
   onKick,
-  threadContext,
+  manageContext,
 }: {
   mem: Member
   canManage: boolean
@@ -277,7 +277,7 @@ function MemberRow({
   onOpenProfile?: OpenProfile
   onSetRole?: (name: string, role: Role) => void
   onKick: (name: string) => void
-  threadContext?: ThreadMemberContext
+  manageContext?: MemberManageContext
 }) {
   const button = (
     <button
@@ -299,23 +299,35 @@ function MemberRow({
     </button>
   )
 
-  // Thread participant row: Leave (self) / Remove (creator on others). This
-  // replaces the server-scoped Role/Kick menu — a thread has no roles, and
-  // eviction is thread-participation, not a server kick.
-  if (threadContext) {
-    const isSelf = mem.userId === threadContext.viewerUserId
-    if (!isSelf && !threadContext.isCreator) return button
+  // Private channel/post roster or thread participant row: Leave (self) /
+  // Remove (unit creator on other explicit members). Replaces the server-scoped
+  // Role/Kick menu — eviction here is unit membership/participation, not a
+  // server kick. Remove is creator-only (admins have no content privilege); the
+  // creator's own row is locked (no Leave, never removable).
+  if (manageContext) {
+    const isSelf = mem.userId === manageContext.viewerUserId
+    // Self may leave unless they're the creator (owners keep the unit).
+    const canLeave = isSelf && !mem.isCreator
+    // Creator may remove other EXPLICIT members, but never the creator row.
+    // `source` is undefined for thread participants (all real rows) → treat as
+    // removable; for channel/post only explicit rows are removable.
+    const canRemove =
+      !isSelf &&
+      manageContext.viewerIsCreator &&
+      !mem.isCreator &&
+      (mem.source === undefined || mem.source === "explicit")
+    if (!canLeave && !canRemove) return button
     return (
       <ContextMenu>
         <ContextMenuTrigger render={button} />
         <ContextMenuContent className="w-48">
           <div className="truncate px-2 py-1 text-xs font-semibold text-muted-foreground">{mem.name}</div>
-          {isSelf ? (
-            <ContextMenuItem onClick={() => threadContext.onLeave(mem.userId)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
-              <LogOut className="size-4" /> Leave thread
+          {canLeave ? (
+            <ContextMenuItem onClick={() => manageContext.onLeave(mem.userId)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
+              <LogOut className="size-4" /> Leave
             </ContextMenuItem>
           ) : (
-            <ContextMenuItem onClick={() => threadContext.onRemove(mem.userId)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
+            <ContextMenuItem onClick={() => manageContext.onRemove(mem.userId)} className="text-destructive data-highlighted:bg-destructive/10 data-highlighted:text-destructive">
               <UserMinus className="size-4" /> Remove {mem.name}
             </ContextMenuItem>
           )}

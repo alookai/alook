@@ -11,8 +11,7 @@ import { Composer, ComposerSkeleton, type SendAttachment } from "@/components/co
 import { ForumView, ForumViewSkeleton } from "@/components/community/forum-view"
 import { CommunityPanelSheet } from "@/components/community/community-panel-sheet"
 import { ThreadOpener } from "@/components/community/thread-opener"
-import { ChannelMembersDialog } from "@/components/community/channel-members-dialog"
-import { ThreadParticipantsDialog } from "@/components/community/thread-participants-dialog"
+import { AddMembersDialog } from "@/components/community/add-members-dialog"
 import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
 import type { MentionType } from "@alook/shared"
@@ -25,8 +24,8 @@ import {
 import { useCurrentUser } from "@/contexts/community/current-user"
 import { useServer } from "@/hooks/community/use-servers"
 import { useServerMembers } from "@/hooks/community/use-server-members"
-import { useChannelMembers } from "@/hooks/community/use-channel-members"
-import { useThreadParticipants, useRemoveThreadParticipant } from "@/hooks/community/use-thread-participants"
+import { useChannelMembers, useAddableMembers, useAddChannelMember, useRemoveChannelMember } from "@/hooks/community/use-channel-members"
+import { useThreadParticipants, useAddThreadParticipant, useRemoveThreadParticipant } from "@/hooks/community/use-thread-participants"
 import { useMessages } from "@/hooks/community/use-messages"
 import { useChannelReadStateSnapshot } from "@/hooks/community/use-channel-read-state"
 import { useChannelWatermark } from "@/hooks/community/use-channel-watermark"
@@ -150,6 +149,15 @@ function ChannelView() {
   // Thread drawer shows the notify PARTICIPANT set, not the channel audience.
   const threadParticipantsHook = useThreadParticipants(channelId, isThread)
   const removeThreadParticipantMut = useRemoveThreadParticipant(channelId)
+  const addThreadParticipantMut = useAddThreadParticipant(channelId)
+  // Channel/post add-picker source + mutations (add: any member; remove/leave).
+  const addableChannelMembers = useAddableMembers(channelId, currentChannelPrivate && !isThread)
+  const addChannelMemberMut = useAddChannelMember(channelId)
+  const removeChannelMemberMut = useRemoveChannelMember(channelId)
+  // Thread add-picker source = the parent channel's roster (minus current
+  // participants + self, computed at dialog build). Enabled only for threads.
+  const threadParentId = isThread ? (currentChannelMeta?.parentChannelId ?? null) : null
+  const parentChannelMembersHook = useChannelMembers(threadParentId ?? "", !!threadParentId)
 
   // Members shown in the right-panel Members drawer:
   //   - thread → its notify participants (mapped to the roster shape).
@@ -161,6 +169,7 @@ function ChannelView() {
     const withPresence = (m: {
       userId: string; name: string; discriminator?: string; avatar: string
       statusEmoji?: string | null; statusText?: string | null
+      isCreator?: boolean; source?: "explicit" | "inherited" | "admin"
     }) => {
       const liveStatus = userStatuses.get(m.userId)
       return {
@@ -177,12 +186,15 @@ function ChannelView() {
             : ("offline" as const),
         statusEmoji: liveStatus ? liveStatus.emoji : (m.statusEmoji ?? null),
         statusText: liveStatus ? liveStatus.text : (m.statusText ?? ""),
+        isCreator: m.isCreator,
+        source: m.source,
       }
     }
     const matches = (name: string, disc?: string | null) =>
       !q || name.toLowerCase().includes(q) || (disc ?? "").toLowerCase().includes(q)
 
     if (isThread) {
+      const threadCreatorId = currentChannelMeta?.creatorId
       return threadParticipantsHook.participants
         .filter((p) => matches(p.name ?? "", p.discriminator))
         .map((p) => withPresence({
@@ -190,6 +202,9 @@ function ChannelView() {
           name: p.name ?? "Unknown",
           discriminator: p.discriminator ?? undefined,
           avatar: p.avatar,
+          // Thread rows are all real participants (removable); the thread
+          // creator's row is locked.
+          isCreator: p.userId === threadCreatorId,
         }))
     }
     if (!currentChannelPrivate) return members
@@ -199,6 +214,7 @@ function ChannelView() {
   }, [
     isThread,
     threadParticipantsHook.participants,
+    currentChannelMeta,
     currentChannelPrivate,
     members,
     channelMembersHook.members,
@@ -655,12 +671,18 @@ function ChannelView() {
   }
 
   const myRole = members.find((m) => m.userId === currentUser.id)?.role
+  // The unit's creator (thread/channel/post) — drives the manage-context
+  // creator rules. For a thread the id lives on `currentChannelMeta`; for a
+  // top-level channel/post it's on the channel row in the server tree.
+  const unitCreatorId = isChildChannel
+    ? currentChannelMeta?.creatorId
+    : channelInServer?.creatorId
+  const viewerIsUnitCreator = !!unitCreatorId && unitCreatorId === currentUser.id
   // The drawer's manage affordance:
-  //   - thread → opens the PARTICIPANTS dialog (mute/leave for everyone; add for
-  //     the creator). Shown to any participant, i.e. whenever it's a thread.
-  //   - private channel/post → opens the members dialog. ANY current member may
-  //     add (server enforces); if the drawer shows the private audience the
-  //     viewer is necessarily a member.
+  //   - thread → add participants (any participant); rows right-click to
+  //     leave/remove.
+  //   - private channel/post → add members (any member); rows right-click to
+  //     leave (self) / remove (creator).
   //   - FORUM → NO manage button: its membership is the DERIVED union of its
   //     posts (read-only). Add people to individual posts, not the forum.
   // Public channels: no manage button.
@@ -668,6 +690,22 @@ function ChannelView() {
   // Whether the drawer is on a scoped (participant/audience) source vs the
   // paginated server roster.
   const scopedDrawer = isThread || currentChannelPrivate
+  // Row right-click Leave/Remove context — private channel/post + thread only.
+  // Remove is creator-only on every unit; the wired mutation differs by unit.
+  const manageContext = scopedDrawer && !isForum
+    ? {
+        viewerUserId: currentUser.id,
+        viewerIsCreator: viewerIsUnitCreator,
+        onLeave: (userId: string) =>
+          (isThread ? removeThreadParticipantMut : removeChannelMemberMut).mutate(userId, {
+            onError: (e) => toastApiError(e, "Failed to leave"),
+          }),
+        onRemove: (userId: string) =>
+          (isThread ? removeThreadParticipantMut : removeChannelMemberMut).mutate(userId, {
+            onError: (e) => toastApiError(e, "Failed to remove"),
+          }),
+      }
+    : undefined
   const panelProps = {
     onOpenThread: enterThread,
     members: panelMembers,
@@ -680,21 +718,7 @@ function ChannelView() {
     // Scoped drawer: local filter (small set). Public: server search.
     onSearchMembers: scopedDrawer ? setMemberQuery : membersHook.searchMembers,
     onAddMember: showManageButton ? () => setManageMembersOpen(true) : undefined,
-    // Thread drawer: row right-click offers Leave (self) / Remove (creator).
-    threadContext: isThread
-      ? {
-          viewerUserId: currentUser.id,
-          isCreator: currentChannelMeta?.creatorId === currentUser.id,
-          onLeave: (userId: string) =>
-            removeThreadParticipantMut.mutate(userId, {
-              onError: (e) => toastApiError(e, "Failed to leave thread"),
-            }),
-          onRemove: (userId: string) =>
-            removeThreadParticipantMut.mutate(userId, {
-              onError: (e) => toastApiError(e, "Failed to remove participant"),
-            }),
-        }
-      : undefined,
+    manageContext,
     pinned,
     pinnedLoading,
     searchResults,
@@ -721,29 +745,44 @@ function ChannelView() {
     },
   }
 
-  // Manage dialog, mounted when the drawer's manage button fires:
-  //   - thread → the PARTICIPANTS dialog (mute/leave for all, add for creator).
-  //   - private channel/post → the members dialog (roster on the post's own id;
-  //     a forum post is its own access unit, so target `channelId` directly, not
-  //     the forum).
+  // Add-members dialog (shared), mounted when the drawer's Add button fires.
+  //   - thread → candidates = parent-channel members not yet participating;
+  //     onAdd = add thread participant.
+  //   - private channel/post → candidates = server members not in the unit;
+  //     onAdd = add channel member (targets `channelId` directly — a forum post
+  //     is its own access unit).
+  // The current-member list + leave/remove live in the drawer row right-click
+  // menu (`manageContext`), not here.
   const manageMembersDialog = (() => {
     if (!manageMembersOpen) return null
     if (isThread) {
+      const participantIds = new Set(threadParticipantsHook.participants.map((p) => p.userId))
+      const candidates = parentChannelMembersHook.members
+        .filter((m) => !participantIds.has(m.userId) && m.userId !== currentUser.id)
+        .map((m) => ({ userId: m.userId, name: m.name ?? null, avatar: m.avatar }))
       return (
-        <ThreadParticipantsDialog
-          channelId={channelId}
-          parentChannelId={currentChannelMeta?.parentChannelId ?? null}
-          threadName={currentChannelMeta?.name ?? channelName}
-          viewerUserId={currentUser.id}
+        <AddMembersDialog
+          title={`Add participants to /${currentChannelMeta?.name ?? channelName}`}
+          subtitle="Added people are notified of new replies. Anyone with access can already read the thread."
+          candidates={candidates}
+          addPending={addThreadParticipantMut.isPending}
+          onAdd={async (userId) => { await addThreadParticipantMut.mutateAsync(userId) }}
           onClose={() => setManageMembersOpen(false)}
         />
       )
     }
+    const candidates = addableChannelMembers.members.map((m) => ({
+      userId: m.userId,
+      name: m.name ?? null,
+      avatar: m.avatar,
+    }))
     return (
-      <ChannelMembersDialog
-        channelId={channelId}
-        channelName={channelName}
-        serverId={serverId}
+      <AddMembersDialog
+        title={`Add members to /${channelName}`}
+        subtitle="Added members can see and post in this channel."
+        candidates={candidates}
+        addPending={addChannelMemberMut.isPending}
+        onAdd={async (userId) => { await addChannelMemberMut.mutateAsync(userId) }}
         onClose={() => setManageMembersOpen(false)}
       />
     )

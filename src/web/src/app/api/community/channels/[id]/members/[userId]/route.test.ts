@@ -93,7 +93,7 @@ describe("DELETE /channels/[id]/members/[userId]", () => {
     expect(mockDeleteChannelMember).not.toHaveBeenCalled()
   })
 
-  it("rejects a non-manager (403)", async () => {
+  it("rejects a non-creator removing someone else (403)", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
       ...managerCtx("other"),
       isChannelMember: true,
@@ -101,5 +101,31 @@ describe("DELETE /channels/[id]/members/[userId]", () => {
     })
     const res = await DELETE(req(), ctx)
     expect(res.status).toBe(403)
+  })
+
+  it("self-leave: a non-creator member may remove themselves (204)", async () => {
+    // Caller u1 (not the creator), removing their OWN row u1.
+    mockResolveChannelAccessContext.mockResolvedValue({
+      ...managerCtx("other"), // creator is someone else → isCreator false
+      isChannelMember: true,
+      role: "member",
+    })
+    const res = await DELETE(
+      new NextRequest("http://localhost/api/community/channels/c1/members/u1", { method: "DELETE" }),
+      { params: { id: "c1", userId: "u1" } } as any,
+    )
+    expect(res.status).toBe(204)
+    expect(mockDeleteChannelMember).toHaveBeenCalledWith(expect.anything(), "c1", "u1")
+  })
+
+  it("creator cannot self-leave their own channel (400)", async () => {
+    // Caller u1 is the creator; trying to leave own channel.
+    mockResolveChannelAccessContext.mockResolvedValue(managerCtx("u1"))
+    const res = await DELETE(
+      new NextRequest("http://localhost/api/community/channels/c1/members/u1", { method: "DELETE" }),
+      { params: { id: "c1", userId: "u1" } } as any,
+    )
+    expect(res.status).toBe(400)
+    expect(mockDeleteChannelMember).not.toHaveBeenCalled()
   })
 })

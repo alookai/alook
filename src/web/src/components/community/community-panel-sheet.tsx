@@ -3,7 +3,7 @@
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { useSheetResize, SheetResizeHandle } from "@/components/ui/sheet-resize-handle"
 import { RightPanelContent } from "./right-panel"
-import type { RightPanel, Member, Role, Msg, Thread, OpenProfile, ThreadMemberContext } from "./_types"
+import type { RightPanel, Member, Role, Msg, Thread, OpenProfile, MemberManageContext } from "./_types"
 
 // Sheet-based right panel for the community channel UI.
 // Renders the channel's threads / pinned / members / search panel as a non-modal Sheet:
@@ -20,7 +20,7 @@ export function CommunityPanelSheet({
   onLoadMoreMembers,
   onSearchMembers,
   onAddMember,
-  threadContext,
+  manageContext,
   pinned,
   pinnedLoading,
   searchResults,
@@ -45,7 +45,7 @@ export function CommunityPanelSheet({
   onLoadMoreMembers?: () => void
   onSearchMembers?: (q: string) => void
   onAddMember?: () => void
-  threadContext?: ThreadMemberContext
+  manageContext?: MemberManageContext
   pinned: Msg[]
   pinnedLoading?: boolean
   searchResults: Msg[]
@@ -85,7 +85,7 @@ export function CommunityPanelSheet({
           onLoadMoreMembers={onLoadMoreMembers}
           onSearchMembers={onSearchMembers}
           onAddMember={onAddMember}
-          threadContext={threadContext}
+          manageContext={manageContext}
           pinned={pinned}
           pinnedLoading={pinnedLoading}
           searchResults={searchResults}
