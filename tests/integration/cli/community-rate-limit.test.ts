@@ -75,31 +75,45 @@ afterAll(() => {
 })
 
 describe("community message rate limit — DO-backed", () => {
-  it("allows the first 30 sends inside one window, then returns 429 with Retry-After", async () => {
-    const results: number[] = []
-    for (let i = 0; i < 31; i++) {
-      const res = await sessionRequest(
-        `/api/community/channels/${channelId}/messages`,
-        cookie,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: `rate-limit-e2e ${i}` }),
-        },
-      )
-      results.push(res.status)
-      if (i === 30) {
-        // The 31st request must be blocked, not fail-open. The Retry-After
-        // header is set by writeError() when the DO returns { allowed: false }.
-        const retryAfter = res.headers.get("retry-after")
-        expect(retryAfter).toBeTruthy()
-        expect(Number(retryAfter)).toBeGreaterThan(0)
-      }
+  it("accepts up to the per-window max, then returns 429 with Retry-After", async () => {
+    // Policy: community:msgSend = 30 sends / 10s fixed window (see
+    // `RATE_LIMITS` in src/shared/src/lib/rate-limits.ts). Fire the whole
+    // burst CONCURRENTLY so every request provably lands inside one window —
+    // a sequential loop can take >10s on a slow runner, letting the fixed
+    // window reset mid-loop so the counter never reaches the ceiling and no
+    // 429 is ever emitted (the old flake). The DO counter is
+    // strongly-consistent, so concurrency still yields a deterministic split.
+    const MAX = 30
+    const responses = await Promise.all(
+      Array.from({ length: MAX + 1 }, (_, i) =>
+        sessionRequest(
+          `/api/community/channels/${channelId}/messages`,
+          cookie,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: `rate-limit-e2e ${i}` }),
+          },
+        ),
+      ),
+    )
+
+    const accepted = responses.filter((r) => r.status === 201).length
+    const rejected = responses.filter((r) => r.status === 429)
+
+    // Exactly the ceiling is accepted; the overflow is blocked (not fail-open).
+    // If `accepted` < 30, the counter started with stale state from a previous
+    // run — reset with `pnpm db:reset`.
+    expect(accepted).toBe(MAX)
+    expect(rejected).toHaveLength(1)
+
+    // Every 429 carries a positive Retry-After (set by writeError() when the
+    // DO returns { allowed: false }). Asserted per-response so a fail-open
+    // (429 without the header) is caught regardless of ordering.
+    for (const res of rejected) {
+      const retryAfter = res.headers.get("retry-after")
+      expect(retryAfter).toBeTruthy()
+      expect(Number(retryAfter)).toBeGreaterThan(0)
     }
-    // First 30 accepted (201). If any of them 429, the counter started with
-    // stale state from a previous run — reset with `pnpm db:reset`.
-    const accepted = results.slice(0, 30).filter((s) => s === 201).length
-    expect(accepted).toBe(30)
-    expect(results[30]).toBe(429)
   }, 30_000)
 })
