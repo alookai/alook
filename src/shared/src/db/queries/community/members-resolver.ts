@@ -1,7 +1,6 @@
 import { eq } from "drizzle-orm";
 import {
   communityChannel,
-  communityCategory,
   communityServerMember,
 } from "../../community-schema";
 import type { Database } from "../../index";
@@ -80,6 +79,8 @@ export async function resolveScopeMembers(
     .select({
       id: communityChannel.id,
       serverId: communityChannel.serverId,
+      type: communityChannel.type,
+      creatorId: communityChannel.creatorId,
       parentChannelId: communityChannel.parentChannelId,
     })
     .from(communityChannel)
@@ -87,7 +88,7 @@ export async function resolveScopeMembers(
     .limit(1);
   if (target.length === 0) return [];
   const serverId = target[0]!.serverId;
-  const anchorId = target[0]!.parentChannelId ?? target[0]!.id;
+  const type = target[0]!.type;
 
   // Server roles for every resolved user — scoped to this server up front.
   const roleRows = await db
@@ -99,19 +100,41 @@ export async function resolveScopeMembers(
 
   const isPrivate = await isChannelPrivate(db, scopeId);
 
-  // For a private anchor, "explicit" = the added channel members ∪ the anchor
-  // creator. Everyone else in the set is an admin/owner.
+  // "explicit" = the added members ∪ the unit's own creator, per the
+  // nested-membership roster rules:
+  //   - forum_post → the post's OWN members ∪ post creator (no forum climb).
+  //   - forum      → the union of its posts' explicit members ∪ post creators ∪
+  //                  forum creator (derived).
+  //   - thread/channel → the (climbed) anchor's members ∪ anchor creator.
+  // For a PRIVATE unit every resolved user is now `explicit` (admins are no
+  // longer auto-included — the audience is exactly members ∪ creator). For a
+  // PUBLIC unit the audience is all server members, tagged admin/inherited.
   const explicit = new Set<string>();
   if (isPrivate) {
-    for (const id of await listChannelMemberUserIds(db, anchorId)) explicit.add(id);
-    const anchor = await db
-      .select({ creatorId: communityChannel.creatorId })
-      .from(communityChannel)
-      .leftJoin(communityCategory, eq(communityCategory.id, communityChannel.categoryId))
-      .where(eq(communityChannel.id, anchorId))
-      .limit(1);
-    const creatorId = anchor[0]?.creatorId;
-    if (creatorId) explicit.add(creatorId);
+    if (type === "forum") {
+      if (target[0]!.creatorId) explicit.add(target[0]!.creatorId);
+      const posts = await db
+        .select({ id: communityChannel.id, creatorId: communityChannel.creatorId })
+        .from(communityChannel)
+        .where(eq(communityChannel.parentChannelId, scopeId));
+      for (const p of posts) {
+        for (const id of await listChannelMemberUserIds(db, p.id)) explicit.add(id);
+        if (p.creatorId) explicit.add(p.creatorId);
+      }
+    } else {
+      const rosterAnchorId =
+        type === "forum_post" ? target[0]!.id : (target[0]!.parentChannelId ?? target[0]!.id);
+      for (const id of await listChannelMemberUserIds(db, rosterAnchorId)) explicit.add(id);
+      const rosterCreatorId =
+        type === "forum_post"
+          ? target[0]!.creatorId
+          : (await db
+              .select({ creatorId: communityChannel.creatorId })
+              .from(communityChannel)
+              .where(eq(communityChannel.id, rosterAnchorId))
+              .limit(1))[0]?.creatorId;
+      if (rosterCreatorId) explicit.add(rosterCreatorId);
+    }
   }
 
   return userIds.map((userId) => {

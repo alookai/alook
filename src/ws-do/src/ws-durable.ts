@@ -1046,16 +1046,21 @@ export class WebSocketDurableObject extends DurableObject<Env> {
           log.warn("fanOutTyping: sender not a channel member", { senderUserId, channelId: targetId })
           return
         }
-        // Private-category channels (and their threads) fan out only to the
-        // channel audience — never leak "X is typing" to non-members. Also
-        // re-gates the sender: a server member who isn't in the private
-        // channel won't appear in its own audience, so they broadcast to
-        // nobody. Public/uncategorized channels stay server-wide. The
-        // public/private split lives in the shared member resolver.
-        recipientUserIds = await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
-          scope: "channel",
-          scopeId: targetId,
-        })
+        // Recipient set (nested-membership model):
+        //   - THREAD → the thread's participant NOTIFY set (muted=0). Typing in
+        //     a thread reaches only its participants, not the whole parent
+        //     channel (decision 6). Admins are never auto-participants.
+        //   - channel / post / forum → the access audience (public/private split
+        //     + post-own / forum-union) via the shared resolver. Never leaks
+        //     "X is typing" to non-members.
+        const channelType = await queries.communityChannel.getChannelType(db, targetId)
+        recipientUserIds =
+          channelType === "thread"
+            ? await queries.communityThread.listThreadParticipantUserIds(db, targetId)
+            : await queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
+                scope: "channel",
+                scopeId: targetId,
+              })
       }
     }
 

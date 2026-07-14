@@ -8,10 +8,13 @@ import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess } from "@/lib/community/permissions"
 
 /**
- * Remove a member from a private-category channel. Only creator/admins
- * (canManage) may remove, and the channel creator can never be removed (they
- * always retain access). The removed user gets a CHANNEL_MEMBER_REMOVE so
- * their sidebar drops the channel + evicts its caches.
+ * Remove a member from a private access unit (channel or forum post).
+ *   - Self-leave: any member may remove THEMSELVES (drop their own access).
+ *   - Remove others: CREATOR only (add is open to members, but evicting someone
+ *     else is the creator's call; admins have no content privilege here).
+ *   - The creator can never be removed OR self-leave (they own the unit).
+ * The removed user gets a CHANNEL_MEMBER_REMOVE so their sidebar drops the
+ * channel + evicts its caches.
  */
 export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const channelId = ctx.params?.id
@@ -21,12 +24,15 @@ export const DELETE = withAuth(async (_req: NextRequest, ctx) => {
   const db = getDb(ctx.env.DB)
   const access = await requireChannelAccess(db, channelId, ctx.userId)
   if (!access.ok) return writeError(access.error, access.status)
-  if (!access.value.canManage) return writeError("forbidden", 403)
 
   const channel = access.value.channel
   if (channel.creatorId === targetUserId) {
+    // Covers both "creator can't be removed" and "creator can't leave".
     return writeError("can't remove the channel creator", 400)
   }
+  // Self-leave is always allowed; removing anyone else is creator-only.
+  const isSelf = targetUserId === ctx.userId
+  if (!isSelf && !access.value.isCreator) return writeError("forbidden", 403)
 
   const removed = await queries.communityChannel.deleteChannelMember(db, channelId, targetUserId)
   if (!removed) return writeError("member not found", 404)

@@ -95,6 +95,17 @@ describe("GET /api/community/servers/[id]/members/search", () => {
     expect(body.members[1]).toMatchObject({ statusEmoji: null, statusText: "" })
   })
 
+  it("never emits isBot/ownerUserId (no bot gating on search — byte-identical)", async () => {
+    // Even if a row carried bot columns, search passes them through as humans.
+    mockSearchMembers.mockResolvedValue([
+      { ...buildRow(1, "Botty"), userId: "own_bot", userIsBot: true, userOwnerUserId: "u1" },
+    ])
+    const res = await GET(getReq("?q=Bot"), ctx)
+    const body = await res.json() as { members: Array<{ isBot?: boolean; ownerUserId?: string }> }
+    expect(body.members[0].isBot).toBeUndefined()
+    expect(body.members[0].ownerUserId).toBeUndefined()
+  })
+
   it("rejects empty q with 400", async () => {
     const res = await GET(getReq(""), ctx)
     expect(res.status).toBe(400)

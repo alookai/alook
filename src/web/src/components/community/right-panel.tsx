@@ -8,13 +8,14 @@ import { PanelShell } from "./panel-shell"
 import { MemberList } from "./member-list"
 import { Message } from "./message"
 import { formatRelativeTime } from "./format-time"
-import type { RightPanel, Member, Role, Msg, RenderMsg, Thread, OpenProfile } from "./_types"
+import type { RightPanel, Member, Role, Msg, RenderMsg, Thread, OpenProfile, MemberManageContext } from "./_types"
 
 // Right-panel content router — members / pinned / search / threads. Data via props.
 // Always wraps the active section in PanelShell — the surrounding Sheet provides the
 // outer frame and its own close button, so we don't need a panel-level close affordance.
 export function RightPanelContent({
   kind, members, membersLoading, membersLoadingMore, membersHasMore, onLoadMoreMembers, onSearchMembers,
+  onAddMember, manageContext,
   pinned, pinnedLoading, searchResults, searchQuery,
   threads, threadsLoading, showSearchInput = true, onOpenThread, onOpenProfile,
   onSetRole, onKickMember, myRole, onJumpToMessage, onSearch,
@@ -26,6 +27,8 @@ export function RightPanelContent({
   membersHasMore?: boolean
   onLoadMoreMembers?: () => void
   onSearchMembers?: (q: string) => void
+  onAddMember?: () => void
+  manageContext?: MemberManageContext
   pinned: Msg[]
   pinnedLoading?: boolean
   searchResults: Msg[]
@@ -51,6 +54,8 @@ export function RightPanelContent({
           loadingMore={membersLoadingMore}
           onLoadMore={onLoadMoreMembers}
           onSearch={onSearchMembers}
+          onAddMember={onAddMember}
+          manageContext={manageContext}
           myRole={myRole}
           onOpenProfile={onOpenProfile}
           onSetRole={onSetRole}

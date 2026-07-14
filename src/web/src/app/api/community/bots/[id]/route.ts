@@ -25,6 +25,22 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   const before = await queries.communityBot.getBotOwnedBy(db, id, ctx.userId)
   if (!before) return writeError("bot not found", 404)
 
+  const nameChanged = body.name !== undefined && body.name !== before.name
+  const descriptionChanged =
+    body.description !== undefined && body.description !== before.description
+  // Will we push bot:updated to the daemon? (Iff name/description changed —
+  // image-only is display-only and doesn't affect the system prompt.) If so,
+  // resolve the owner handle BEFORE mutating the row: the frame shape must stay
+  // consistent with bot:added, and if the owner can't be resolved (soft-delete,
+  // integrity bug) we must fail WITHOUT having already written — otherwise a
+  // retry sees `before === updated`, computes no change, and never pushes,
+  // leaving the daemon's running system prompt permanently stale.
+  const willPush = (nameChanged || descriptionChanged) && !!before.machineId
+  const owner = willPush ? await queries.user.getUserPublic(db, before.ownerUserId) : null
+  if (willPush && !owner) {
+    return writeError("bot owner not resolvable — refusing to push a bot update with unknown ownership", 500)
+  }
+
   const updated = await queries.communityBot.updateBot(db, id, ctx.userId, {
     name: body.name,
     description: body.description,
@@ -32,21 +48,7 @@ export const PATCH = withAuth(async (req: NextRequest, ctx) => {
   })
   if (!updated) return writeError("bot not found", 404)
 
-  const nameChanged = body.name !== undefined && body.name !== before.name
-  const descriptionChanged =
-    body.description !== undefined && body.description !== before.description
-  // Emit bot:updated to the daemon iff name or description changed. Image-only
-  // is display-only and does not affect the daemon's system-prompt assembly.
-  if ((nameChanged || descriptionChanged) && before.machineId) {
-    // Ownership is immutable post-creation, but bot:updated's frame shape
-    // must stay consistent with bot:added — resolve the (unchanged) owner
-    // handle fresh rather than adding a second frame type. If the owner
-    // row can't be resolved (soft-delete, integrity bug), fail the PATCH
-    // rather than push empty owner fields — the daemon's truthy gate would
-    // otherwise silently drop the "owned by" privacy paragraph from the
-    // running system prompt on next spawn.
-    const owner = await queries.user.getUserPublic(db, before.ownerUserId)
-    if (!owner) return writeError("bot owner not resolvable — refusing to push a bot update with unknown ownership", 500)
+  if (willPush && owner && before.machineId) {
     await pushBotEventToMachine(ctx.env, before.machineId, {
       type: "bot:updated",
       botId: id,

@@ -49,11 +49,12 @@ function req() {
 
 function managerCtx() {
   return {
-    channel: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
+    channel: { id: "c1", serverId: "s1", type: "text", parentChannelId: null, parentMessageId: null, creatorId: "u1" },
     anchor: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: "u1" },
     role: "member",
     isPrivate: true,
     isChannelMember: true,
+    isCreator: true,
   }
 }
 
@@ -77,14 +78,21 @@ describe("GET /channels/[id]/addable-members", () => {
     expect(ids).toEqual(["u3"]) // u1 = creator, u2 = already member
   })
 
-  it("rejects a non-manager (403)", async () => {
+  it("allows a plain member (not just creator) to load the picker", async () => {
     mockResolveChannelAccessContext.mockResolvedValue({
       ...managerCtx(),
-      channel: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: "other" },
+      channel: { id: "c1", serverId: "s1", type: "text", parentChannelId: null, parentMessageId: null, creatorId: "other" },
       anchor: { id: "c1", serverId: "s1", parentChannelId: null, creatorId: "other" },
       role: "member",
       isChannelMember: true,
+      isCreator: false,
     })
+    const res = await GET(req(), ctx)
+    expect(res.status).toBe(200)
+  })
+
+  it("rejects a non-member outsider (403 from the access gate)", async () => {
+    mockResolveChannelAccessContext.mockResolvedValue(null)
     const res = await GET(req(), ctx)
     expect(res.status).toBe(403)
   })

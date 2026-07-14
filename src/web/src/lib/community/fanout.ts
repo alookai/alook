@@ -41,11 +41,22 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
 }
 
 /**
- * Resolves the recipient set for a channel event. The public/private split
- * (and thread/post parent-climbing) lives in the shared member resolver — this
- * is a thin delegate so fan-out, the WS DO, and any future surface all agree.
+ * Resolves the recipient set for a channel event.
+ *
+ * - THREAD (`type="thread"`) → the thread's NOTIFY set (participants with
+ *   `muted=0`). A thread is the notification dimension: message events reach
+ *   only its participants, NOT the whole parent channel (and NOT admins, who
+ *   are never auto-participants). Nested-membership model.
+ * - channel / post / forum → the access audience via the shared resolver
+ *   (public/private split + post-own-roster / forum-union).
+ *
+ * The split lives here so fan-out and bot-wake use the same recipient set.
  */
 async function getChannelRecipientUserIds(db: Database, channelId: string): Promise<string[]> {
+  const rows = await queries.communityChannel.getChannelType(db, channelId)
+  if (rows === "thread") {
+    return queries.communityThread.listThreadParticipantUserIds(db, channelId)
+  }
   return queries.communityMembersResolver.resolveScopeMemberUserIds(db, {
     scope: "channel",
     scopeId: channelId,

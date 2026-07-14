@@ -25,11 +25,15 @@ vi.mock("@alook/shared", async () => {
       },
       communityChannel: {
         getChannel: (...a: unknown[]) => mockGetChannel(...a),
+        getChannelType: (...a: unknown[]) => mockGetChannelType(...a),
         isChannelPrivate: (...a: unknown[]) => mockIsChannelPrivate(...a),
         getPrivateChannelAudienceUserIds: (...a: unknown[]) => mockGetPrivateChannelAudienceUserIds(...a),
       },
       communityMembersResolver: {
         resolveScopeMemberUserIds: (...a: unknown[]) => mockResolveScopeMemberUserIds(...a),
+      },
+      communityThread: {
+        listThreadParticipantUserIds: (...a: unknown[]) => mockListThreadParticipantUserIds(...a),
       },
       communityDm: {
         getDM: (...a: unknown[]) => mockGetDM(...a),
@@ -64,6 +68,9 @@ const mockGetDM = vi.fn()
 const mockGetCoMemberUserIds = vi.fn()
 const mockGetFriendUserIds = vi.fn()
 const mockResolveScopeMemberUserIds = vi.fn(() => [] as string[])
+// Default: non-thread channel → fan-out uses the shared resolver path.
+const mockGetChannelType = vi.fn(() => "text" as string | null)
+const mockListThreadParticipantUserIds = vi.fn(() => [] as string[])
 
 import {
   fanOutToServerMembers,
@@ -79,6 +86,10 @@ describe("fanOutToServerMembers", () => {
     vi.clearAllMocks()
     mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
     mockBroadcastToUser.mockResolvedValue(undefined)
+    // Default to a non-thread channel so fan-out uses the shared resolver path;
+    // the thread test overrides this. (clearAllMocks resets call history, not
+    // the resolved-value impl, so re-assert the default each test.)
+    mockGetChannelType.mockResolvedValue("text")
   })
 
   it("resolves recipients via listMemberUserIds (not listMembers) and skips excludeUserId", async () => {
@@ -136,6 +147,22 @@ describe("fanOutToServerMembers", () => {
     expect(mockListMembers).not.toHaveBeenCalled()
     expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
   })
+
+  it("fanOutToChannel routes a THREAD to its participant set (not the channel audience)", async () => {
+    mockGetChannelType.mockResolvedValue("thread")
+    mockListThreadParticipantUserIds.mockResolvedValue(["u1", "u2"])
+
+    await fanOutToChannel("t1", {
+      type: WS_EVENTS.MESSAGE_CREATE,
+      channelId: "t1",
+      message: {} as never,
+    } as never)
+
+    expect(mockListThreadParticipantUserIds).toHaveBeenCalledWith(expect.anything(), "t1")
+    // Thread fan-out must NOT fall back to the channel-audience resolver.
+    expect(mockResolveScopeMemberUserIds).not.toHaveBeenCalled()
+    expect(mockBroadcastToUser).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe("fanOutStatusUpdate", () => {
@@ -143,6 +170,10 @@ describe("fanOutStatusUpdate", () => {
     vi.clearAllMocks()
     mockGetCloudflareContext.mockImplementation(() => ({ env: { DB: {} } }))
     mockBroadcastToUser.mockResolvedValue(undefined)
+    // Default to a non-thread channel so fan-out uses the shared resolver path;
+    // the thread test overrides this. (clearAllMocks resets call history, not
+    // the resolved-value impl, so re-assert the default each test.)
+    mockGetChannelType.mockResolvedValue("text")
   })
 
   it("broadcasts to the deduped union of co-members and friends", async () => {

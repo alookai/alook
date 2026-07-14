@@ -63,6 +63,7 @@ export type ChannelAccess = {
   anchor: ChannelAccessContext["anchor"]
   member: { role: string | null }
   canManage: boolean
+  isCreator: boolean
   isPrivate: boolean
 }
 
@@ -71,12 +72,16 @@ export type ChannelAccess = {
  * (target + anchor + category privacy + member role + channel-member flag),
  * then applies the rule:
  *   - not a server member → 403
- *   - admin/owner → access + canManage
  *   - public/uncategorized → access; canManage only for admins
- *   - private → access iff creator or added member; canManage iff admin or
- *     anchor creator
+ *   - private → access iff creator or added member (admins have NO implicit
+ *     content access); canManage iff admin (who can see it) or the unit creator
  * Threads inherit their parent anchor's audience (the context query climbs
- * `parentChannelId`), so thread member rows never exist.
+ * `parentChannelId`); a forum post is its own access unit (roster on the post).
+ *
+ * Because access now requires membership/creator even for admins, an admin who
+ * isn't in a private channel gets a 403 here — so `canManage` for an admin is
+ * only reachable once they can see the channel. Out-of-channel admin management
+ * lives on admin-gated routes / the future Browse Channels surface, not here.
  */
 export async function requireChannelAccess(
   db: Database,
@@ -87,13 +92,16 @@ export async function requireChannelAccess(
   if (!ctx) return err(403, "forbidden")
 
   const isAdmin = canManageServer(ctx.role)
-  const isCreator = ctx.anchor.creatorId === userId
+  // `ctx.isCreator` is the roster-anchor creator (a post's OWN creator, else the
+  // channel/thread anchor's) — NOT `ctx.anchor.creatorId`, which for a post is
+  // the forum's creator.
+  const isCreator = ctx.isCreator
 
-  // Visibility: public → any server member; private → the shared
-  // canSeePrivateChannel rule (admin | creator | member). Manage: admin
-  // anywhere, plus the creator of a private channel.
+  // Visibility: public → any server member; private → creator or added member
+  // (canSeePrivateChannel; admins are NOT auto-granted). Manage: admin (who
+  // passed the access gate) or the unit creator.
   const hasAccess = ctx.isPrivate
-    ? canSeePrivateChannel({ role: ctx.role, isCreator, isChannelMember: ctx.isChannelMember })
+    ? canSeePrivateChannel({ isCreator, isChannelMember: ctx.isChannelMember })
     : true
   const canManage = isAdmin || (ctx.isPrivate && isCreator)
 
@@ -103,6 +111,7 @@ export async function requireChannelAccess(
     anchor: ctx.anchor,
     member: { role: ctx.role },
     canManage,
+    isCreator,
     isPrivate: ctx.isPrivate,
   })
 }

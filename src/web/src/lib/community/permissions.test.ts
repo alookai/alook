@@ -51,13 +51,16 @@ function ctxRow(over: Partial<{
     isPrivate = false,
     isChannelMember = false,
   } = over
-  const channel = { id: channelId, serverId, parentChannelId, creatorId }
+  const channel = { id: channelId, serverId, type: "text", parentChannelId, parentMessageId: null, creatorId }
   return {
     channel,
     anchor: parentChannelId ? { id: parentChannelId, serverId, parentChannelId: null, creatorId } : channel,
     role,
     isPrivate,
     isChannelMember,
+    // resolveChannelAccessContext now returns the roster-anchor creator flag;
+    // the caller in these tests is always "u1".
+    isCreator: creatorId === "u1",
   }
 }
 
@@ -174,9 +177,17 @@ describe("requireChannelAccess", () => {
     expect(res).toEqual({ ok: false, status: 403, error: "forbidden" })
   })
 
-  it("private channel: admin always has access + canManage", async () => {
+  it("private channel: admin NOT a member/creator is forbidden (no content privilege)", async () => {
     resolveChannelAccessContext.mockResolvedValue(
       ctxRow({ role: "owner", isPrivate: true, creatorId: "other", isChannelMember: false }),
+    )
+    const res = await requireChannelAccess(db, "c1", "u1")
+    expect(res).toEqual({ ok: false, status: 403, error: "forbidden" })
+  })
+
+  it("private channel: admin who IS a member has access + canManage", async () => {
+    resolveChannelAccessContext.mockResolvedValue(
+      ctxRow({ role: "owner", isPrivate: true, creatorId: "other", isChannelMember: true }),
     )
     const res = await requireChannelAccess(db, "c1", "u1")
     expect(res.ok).toBe(true)

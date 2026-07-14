@@ -8,7 +8,7 @@ import {
 } from "@alook/shared"
 import { requireServerMember } from "@/lib/community/permissions"
 import { parseBoundedInt, parseMemberCursor, buildMemberPaginatedResponse } from "@/lib/community/messages"
-import { avatarInitial } from "@/lib/community/avatar"
+import { mapMemberForApi } from "@/lib/community/member-payload"
 
 export const GET = withAuth(async (req, ctx) => {
   const serverId = ctx.params?.id
@@ -39,28 +39,13 @@ export const GET = withAuth(async (req, ctx) => {
   // client has no joinedAt field and shouldn't gain one.
   const envelope = buildMemberPaginatedResponse(page.members, page.hasMore)
 
-  // Owner-scoped isBot/ownerUserId projection:
-  //   - The caller sees `isBot: true` + `ownerUserId` ONLY on rows they own.
-  //   - Other bots (owned by other users) appear as normal humans — no
-  //     isBot/ownerUserId fields at all.
-  // This is the load-bearing pass-as-human projection at the member-list layer.
-  const members = envelope.members.map((r) => {
-    const display = r.nickname ?? r.userName ?? ""
-    const isOwnBot = r.userIsBot === true && r.userOwnerUserId === ctx.userId
-    return {
-      id: r.id,
-      userId: r.userId,
-      name: display,
-      discriminator: r.discriminator ?? undefined,
-      avatar: r.userImage ?? avatarInitial(display),
-      status: (r.userId === ctx.userId ? "online" : "offline") as "online" | "offline",
-      sub: "",
-      role: r.role ?? "member",
-      statusEmoji: r.statusEmoji ?? null,
-      statusText: r.statusText ?? "",
-      ...(isOwnBot ? { isBot: true as const, ownerUserId: r.userOwnerUserId! } : {}),
-    }
-  })
+  // Owner-scoped isBot/ownerUserId projection (via the shared mapper's
+  // `botGating` opt): the caller sees `isBot`/`ownerUserId` ONLY on rows they
+  // own; other bots appear as normal humans. This is the load-bearing
+  // pass-as-human projection at the member-list layer.
+  const members = envelope.members.map((r) =>
+    mapMemberForApi(r, ctx.userId, { botGating: true }),
+  )
 
   return writeJSON({ members, hasMore: envelope.hasMore, cursor: envelope.cursor, limit, total })
 })
