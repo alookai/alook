@@ -207,6 +207,25 @@ describe("WsControlChannel — wake/stop acks", () => {
   });
 });
 
+describe("WsControlChannel — agent activity reports", () => {
+  it("sends agent_activity when open", async () => {
+    const { ch, sockets } = makeChannel();
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.connect();
+    sockets[0].emit("open");
+    await ch.reportAgentActivity({ agentId: "a1", state: "running" });
+    expect(sockets[0].frames().some((f) => f.type === "agent_activity" && f.agentId === "a1" && f.state === "running")).toBe(true);
+  });
+
+  it("no-ops (does not throw) when the socket isn't open", async () => {
+    const { ch, sockets } = makeChannel();
+    ch.onResync(() => ({ ready: { runtimeReport: [], runningAgents: [] }, sessions: [] }));
+    ch.connect();
+    await expect(ch.reportAgentActivity({ agentId: "a1", state: "idle" })).resolves.toBeUndefined();
+    expect(sockets[0].frames().some((f) => f.type === "agent_activity")).toBe(false);
+  });
+});
+
 describe("WsControlChannel — HTTP 401s are non-terminal", () => {
   it("keeps reconnecting after 3+ consecutive 401 upgrade failures — no self-kill", async () => {
     const sockets: FakeSocket[] = [];

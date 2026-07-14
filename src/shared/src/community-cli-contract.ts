@@ -417,6 +417,9 @@ export type HostCommand =
     /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
     discriminator: string;
     description?: string;
+    /** The owning user's name + discriminator — pairs into the owner's global handle. Required — see BotAddedFrame. */
+    ownerName: string;
+    ownerDiscriminator: string;
   }
   | {
     type: "bot:updated";
@@ -425,6 +428,9 @@ export type HostCommand =
     /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
     discriminator: string;
     description?: string;
+    /** The owning user's name + discriminator — pairs into the owner's global handle. Required — see BotUpdatedFrame. */
+    ownerName: string;
+    ownerDiscriminator: string;
   }
   | {
     type: "bot:removed";
@@ -464,6 +470,13 @@ export interface HostReady {
   osRelease?: string;
   daemonVersion?: string;
 }
+
+/**
+ * Derived activity state for a bot, reported daemon → server. NOT a raw
+ * passthrough of `AgentProcessManager`'s internal FSM status — see
+ * `deriveActivity` in `src/daemon/src/manager/managerRuntime.ts`.
+ */
+export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
 
 /**
  * `session.error` frame — daemon → server. Currently used by the daemon's
@@ -522,6 +535,11 @@ export interface HostControlChannel {
    * on the machine summary so the web card renders it inline.
    */
   reportSessionError?(frame: SessionErrorFrame): Promise<void>;
+  /**
+   * Report a bot's derived activity state after it changes. Optional so the
+   * local mock channel can omit it.
+   */
+  reportAgentActivity?(info: { agentId: AgentId; state: AgentActivityState }): Promise<void>;
   /**
    * Register a resync provider invoked on every (re)connect: it returns the
    * host's current `ready` snapshot + live agent sessions, which the channel

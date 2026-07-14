@@ -3,7 +3,7 @@ import { unified } from "unified"
 import remarkParse from "remark-parse"
 import type { Root, PhrasingContent } from "mdast"
 import { chatSyntaxPlugin } from "./chat-syntax-plugin"
-import type { MentionNode, ChannelRefNode } from "./chat-syntax-plugin"
+import type { MentionNode, ChannelRefNode, ServerRefNode } from "./chat-syntax-plugin"
 
 function parse(md: string): Root {
   const processor = unified().use(remarkParse).use(chatSyntaxPlugin)
@@ -107,6 +107,42 @@ describe("chatSyntaxPlugin — channelRef", () => {
   })
 })
 
+describe("chatSyntaxPlugin — serverRef", () => {
+  it("wraps a bare /server preceded by a space or at start-of-string", () => {
+    expect(paragraphChildren(parse("check /studio"))[1]).toMatchObject({ type: "serverRef", value: "/studio" })
+    expect(paragraphChildren(parse("/studio"))[0]).toMatchObject({ type: "serverRef", value: "/studio" })
+  })
+
+  it("does not double-match the first segment of a /server/channel ref", () => {
+    const children = paragraphChildren(parse("see /studio/general"))
+    expect(children.map((c) => c.type)).toEqual(["text", "channelRef"])
+    expect(children.some((c) => c.type === "serverRef")).toBe(false)
+  })
+
+  it("leaves text/studio (no leading space) untouched", () => {
+    const children = paragraphChildren(parse("text/studio"))
+    expect(children).toHaveLength(1)
+    expect(children[0]).toMatchObject({ type: "text", value: "text/studio" })
+  })
+
+  it("still wraps a bare ref followed by punctuation", () => {
+    const children = paragraphChildren(parse("see /studio."))
+    expect(children.map((c) => c.type)).toEqual(["text", "serverRef", "text"])
+    expect(children[1]).toMatchObject({ value: "/studio" })
+  })
+
+  it("leaves a server-ref-shaped path inside inline code literal", () => {
+    const children = paragraphChildren(parse("`/studio`"))
+    expect(children.map((c) => c.type)).toEqual(["inlineCode"])
+  })
+
+  it("does not match the invite URL's first segment", () => {
+    const bare = paragraphChildren(parse("join /community/invite/abc123XYZ"))
+    expect(bare).toHaveLength(1)
+    expect(bare.some((c) => c.type === "serverRef")).toBe(false)
+  })
+})
+
 describe("chatSyntaxPlugin — mixed", () => {
   it("handles a mix of mention, channelRef, and unrelated formatting in one message", () => {
     const children = paragraphChildren(parse("Here's the **setup**: `pnpm install` ping @Gus in /studio/dev"))
@@ -117,5 +153,13 @@ describe("chatSyntaxPlugin — mixed", () => {
     expect(mention).toMatchObject({ value: "@Gus" })
     const channelRef = children.find((c): c is ChannelRefNode => c.type === "channelRef")
     expect(channelRef).toMatchObject({ value: "/studio/dev" })
+  })
+
+  it("handles a mention and a bare serverRef together", () => {
+    const children = paragraphChildren(parse("ping @Gus, see /studio for context"))
+    const mention = children.find((c): c is MentionNode => c.type === "mention")
+    expect(mention).toMatchObject({ value: "@Gus" })
+    const serverRef = children.find((c): c is ServerRefNode => c.type === "serverRef")
+    expect(serverRef).toMatchObject({ value: "/studio" })
   })
 })

@@ -8,7 +8,7 @@ import { parseRef } from "@alook/shared"
  * whatever servers/channels the client already has loaded.
  */
 type ChannelRefDirectoryChannel = { id: string; name: string }
-type ChannelRefDirectoryServer = {
+export type ChannelRefDirectoryServer = {
   id: string
   name: string
   channels: ChannelRefDirectoryChannel[]
@@ -67,4 +67,26 @@ export function resolveChannelRefBase(
     channel,
     ...(parsed.threadRootSeq !== undefined ? { threadRootSeq: parsed.threadRootSeq } : {}),
   }
+}
+
+/**
+ * Resolve a bare `/server` ref (one segment, no channel — `parseRef` throws
+ * on this shape since it requires `/<server>/<channel>`) against the
+ * already-fetched directory. Id-then-exact-name lookup, same precedence and
+ * duplicate-name simplification as `resolveChannelRefBase` — see that
+ * function's doc comment.
+ */
+export function resolveServerRefBase(
+  directory: ChannelRefDirectory,
+  ref: string,
+): ChannelRefDirectoryServer | null {
+  if (!ref.startsWith("/")) return null
+  const body = ref.slice(1)
+  if (!body || body.includes("/")) return null
+
+  return (
+    directory.find((s) => s.id === body) ??
+    directory.find((s) => s.name === body) ??
+    null
+  )
 }

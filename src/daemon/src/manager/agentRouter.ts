@@ -230,6 +230,20 @@ export class AgentRouter {
     this.scheduleReadyFrameResend();
   }
 
+  /**
+   * Drop an agent from the running set because the daemon itself decided to
+   * stop it — idle hibernation or stall-recovery termination — WITHOUT a
+   * server-sent `agent:stop`. Keeps `runningAgents` on `ready` frames aligned
+   * with what's really live, so the server's `reconcileBotActivityFromRunningAgents`
+   * safety net can clear stale "still running" pills on reconnect. Idempotent
+   * for unknown ids.
+   */
+  markLocallyStopped(agentId: string): void {
+    if (!this.running.delete(agentId)) return;
+    this.log.info("agent removed from running set (local stop)", { agentId });
+    this.scheduleReadyFrameResend();
+  }
+
   private scheduleReadyFrameResend(): void {
     if (this.pendingResend) return;
     this.pendingResend = true;

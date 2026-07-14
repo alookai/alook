@@ -474,6 +474,182 @@ describe("AgentProcessManager — session race conditions", () => {
   });
 });
 
+describe("AgentProcessManager — onAgentActivity (derived activity reporting)", () => {
+  it("fires exactly once per real derived transition — the turn_end→idle transition fires once, not re-fired while the FSM stays running until hibernation", async () => {
+    vi.useFakeTimers();
+    try {
+      let currentTime = 0;
+      const persistentDriver = {
+        ...fakeDriver("codex"),
+        lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+        supportsStdinNotification: true,
+        busyDeliveryMode: "direct",
+      } as Driver;
+      const session = fakeSession();
+      const factory: SessionFactory = () => session;
+      const onAgentActivity = vi.fn();
+      const mgr = new AgentProcessManager({
+        driverFor: () => persistentDriver,
+        baseContextFor: () => ({
+          workingDirectory: "/tmp",
+          agentId: "a1",
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: factory,
+        onAgentActivity,
+        now: () => currentTime,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50,
+      });
+      mgr.register("a1");
+      mgr.deliver("a1", { seq: 1, text: "hello" }); // idle -> starting
+      session.startResolver?.();
+      await Promise.resolve();
+      session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // spawned -> running
+      session.fire("runtime_event", { kind: "turn_end" }); // running,turnActive=false -> derived idle
+
+      mgr.start();
+      currentTime = 100; // past idleTimeoutMs — FSM flips running->stopping via hibernation
+      await vi.advanceTimersByTimeAsync(10);
+
+      // turn_end's derived "idle" already fired once; the later hibernation
+      // stop flips the raw FSM status to "stopping" — a real derived
+      // transition too — but must NOT re-fire a second "idle".
+      expect(onAgentActivity.mock.calls.map((c) => c[0])).toEqual([
+        { agentId: "a1", state: "starting" },
+        { agentId: "a1", state: "running" },
+        { agentId: "a1", state: "idle" },
+        { agentId: "a1", state: "stopping" },
+      ]);
+      expect(onAgentActivity.mock.calls.filter((c) => c[0].state === "idle")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("full cycle on a persistent agent — wake, spawned, turn_end, re-wake, turn_end — fires the right derived state at each step", async () => {
+    const persistentDriver = {
+      ...fakeDriver("codex"),
+      lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+      supportsStdinNotification: true,
+      busyDeliveryMode: "direct",
+    } as Driver;
+    const session = fakeSession();
+    const factory: SessionFactory = () => session;
+    const onAgentActivity = vi.fn();
+    const mgr = new AgentProcessManager({
+      driverFor: () => persistentDriver,
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: factory,
+      onAgentActivity,
+    });
+    mgr.register("a1");
+    mgr.deliver("a1", { seq: 1, text: "hello" }); // idle -> starting
+    session.startResolver?.();
+    await Promise.resolve();
+    session.fire("runtime_event", { kind: "session_init", sessionId: "s1" }); // -> running
+    session.fire("runtime_event", { kind: "turn_end" }); // -> idle (derived)
+
+    mgr.deliver("a1", { seq: 2, text: "second turn" }); // re-wake: running,turnActive=false -> running
+    session.fire("runtime_event", { kind: "turn_end" }); // -> idle again
+
+    expect(onAgentActivity.mock.calls.map((c) => c[0])).toEqual([
+      { agentId: "a1", state: "starting" },
+      { agentId: "a1", state: "running" },
+      { agentId: "a1", state: "idle" },
+      { agentId: "a1", state: "running" },
+      { agentId: "a1", state: "idle" },
+    ]);
+  });
+
+  it("a tick that stalls/hibernates two different agents at once fires onAgentActivity for both", async () => {
+    vi.useFakeTimers();
+    try {
+      let currentTime = 0;
+      const persistentDriver = {
+        ...fakeDriver("codex"),
+        lifecycle: { kind: "persistent", start: "immediate", exit: "natural", inFlightWake: "queue" } as never,
+        supportsStdinNotification: true,
+        busyDeliveryMode: "direct",
+      } as Driver;
+      const sessionA = fakeSession();
+      const sessionB = fakeSession();
+      const factory: SessionFactory = ({ agentId }) => (agentId === "a1" ? sessionA : sessionB);
+      const onAgentActivity = vi.fn();
+      const mgr = new AgentProcessManager({
+        driverFor: () => persistentDriver,
+        baseContextFor: (agentId: string) => ({
+          workingDirectory: "/tmp",
+          agentId,
+          standingPrompt: "",
+          config: {} as LaunchContext["config"],
+          credentialProxy: {} as LaunchContext["credentialProxy"],
+        }),
+        sessionFactory: factory,
+        onAgentActivity,
+        now: () => currentTime,
+        tickIntervalMs: 5,
+        idleTimeoutMs: 50,
+      });
+      mgr.register("a1");
+      mgr.register("b1");
+      mgr.deliver("a1", { seq: 1, text: "hello" });
+      mgr.deliver("b1", { seq: 1, text: "hello" });
+      sessionA.startResolver?.();
+      sessionB.startResolver?.();
+      await Promise.resolve();
+      sessionA.fire("runtime_event", { kind: "session_init", sessionId: "sa" });
+      sessionA.fire("runtime_event", { kind: "turn_end" });
+      sessionB.fire("runtime_event", { kind: "session_init", sessionId: "sb" });
+      sessionB.fire("runtime_event", { kind: "turn_end" });
+      onAgentActivity.mockClear();
+
+      mgr.start();
+      currentTime = 100; // both past idleTimeoutMs
+      await vi.advanceTimersByTimeAsync(10);
+
+      // Hibernation flips both agents' FSM status to "stopping" in the SAME
+      // tick — the derived value changes for both (idle -> stopping), so a
+      // single dispatch must fire onAgentActivity for each independently.
+      expect(onAgentActivity.mock.calls.map((c) => c[0])).toEqual(
+        expect.arrayContaining([
+          { agentId: "a1", state: "stopping" },
+          { agentId: "b1", state: "stopping" },
+        ]),
+      );
+      expect(onAgentActivity).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("register alone (no wake) never fires onAgentActivity", () => {
+    const onAgentActivity = vi.fn();
+    const mgr = new AgentProcessManager({
+      driverFor: () => fakeDriver("codex"),
+      baseContextFor: () => ({
+        workingDirectory: "/tmp",
+        agentId: "a1",
+        standingPrompt: "",
+        config: {} as LaunchContext["config"],
+        credentialProxy: {} as LaunchContext["credentialProxy"],
+      }),
+      sessionFactory: () => fakeSession(),
+      onAgentActivity,
+    });
+    mgr.register("a1");
+    expect(onAgentActivity).not.toHaveBeenCalled();
+  });
+});
+
 // A driver in the shape of PiDriver — declares `createSession` instead of a
 // usable `spawn`, mirroring the real "in-process SDK" contract.
 function fakeSdkDriver(id: string): { driver: Driver & { createSession: NonNullable<Driver["createSession"]> }; createSession: ReturnType<typeof vi.fn> } {

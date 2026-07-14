@@ -291,7 +291,16 @@ export async function getBotWakeContext(db: Database, botUserId: string): Promis
 export async function listBotsForMachine(
   db: Database,
   machineId: string
-): Promise<Array<{ id: string; name: string; discriminator: string; description: string }>> {
+): Promise<
+  Array<{
+    id: string;
+    name: string;
+    discriminator: string;
+    description: string;
+    ownerName: string;
+    ownerDiscriminator: string;
+  }>
+> {
   // Guard against orphaned bots: if a future flow soft-deletes an owner user
   // without cascading their bots, don't hand them to the daemon for warmup.
   const owner = aliasedTable(user, "owner");
@@ -301,6 +310,8 @@ export async function listBotsForMachine(
       name: user.name,
       discriminator: user.discriminator,
       description: communityUserProfile.aboutMe,
+      ownerName: owner.name,
+      ownerDiscriminator: owner.discriminator,
     })
     .from(user)
     .innerJoin(communityBotBinding, eq(communityBotBinding.userId, user.id))
@@ -322,6 +333,8 @@ export async function listBotsForMachine(
     name: r.name,
     discriminator: r.discriminator,
     description: r.description ?? "",
+    ownerName: r.ownerName,
+    ownerDiscriminator: r.ownerDiscriminator,
   }));
 }
 

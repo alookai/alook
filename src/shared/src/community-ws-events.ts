@@ -441,6 +441,9 @@ export type BotAddedFrame = {
   /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
   discriminator: string
   description?: string
+  /** The owning user's name + discriminator — pairs into the owner's global handle. */
+  ownerName: string
+  ownerDiscriminator: string
 }
 
 export type BotUpdatedFrame = {
@@ -450,6 +453,9 @@ export type BotUpdatedFrame = {
   /** 4-digit tag (`computeDiscriminator`) — pairs with `name` for the bot's global handle. */
   discriminator: string
   description?: string
+  /** The owning user's name + discriminator — pairs into the owner's global handle. */
+  ownerName: string
+  ownerDiscriminator: string
 }
 
 export type BotRemovedFrame = {

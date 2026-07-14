@@ -928,6 +928,18 @@ export const SessionErrorFrameSchema = z.object({
 });
 export type SessionErrorFrame = z.infer<typeof SessionErrorFrameSchema>;
 
+/**
+ * `agent_activity` frame — daemon → server. Reports a bot's derived activity
+ * state (see `AgentActivityState`/`deriveActivity` in
+ * `src/daemon/src/manager/managerRuntime.ts`).
+ */
+export const AgentActivityMessageSchema = z.object({
+  type: z.literal("agent_activity"),
+  agentId: z.string(),
+  state: z.enum(["idle", "starting", "running", "stopping"]),
+});
+export type AgentActivityMessage = z.infer<typeof AgentActivityMessageSchema>;
+
 export const CommunityPairTokenResponseSchema = z.object({
   tokenId: z.string(),
   expiresAt: z.string(),

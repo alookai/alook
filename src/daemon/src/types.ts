@@ -181,6 +181,13 @@ export interface LaunchConfig {
    * collide.
    */
   agentHandle?: string;
+  /**
+   * The global handle (`@name#0042`) of the human user who owns this bot.
+   * Sourced from the daemon's `botsById` cache (see `createDaemon.ts`), not
+   * server-pushed via `RuntimeConfig` — ownership is immutable post-creation,
+   * so it never needs the wake path's live-config precedence.
+   */
+  ownerHandle?: string;
 }
 
 export interface RuntimeContext {

@@ -50,6 +50,7 @@ export type {
   SessionErrorFrame,
   HostControlChannel,
   AgentSessionReport,
+  AgentActivityState,
   WebSocketLike,
   WebSocketFactory,
   AdminApi,

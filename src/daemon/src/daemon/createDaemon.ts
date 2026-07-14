@@ -138,10 +138,20 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   //
   // Note: `cmk_`-rotation-implies-re-pair is documented as an assumption;
   // runtime code doesn't handle rotation.
-  const botsById = new Map<string, { name: string; discriminator: string; description?: string }>();
+  const botsById = new Map<
+    string,
+    { name: string; discriminator: string; description?: string; ownerName?: string; ownerDiscriminator?: string }
+  >();
 
   async function listMyBotsHttp(): Promise<
-    Array<{ id: string; name: string; discriminator: string; description?: string }>
+    Array<{
+      id: string;
+      name: string;
+      discriminator: string;
+      description?: string;
+      ownerName?: string;
+      ownerDiscriminator?: string;
+    }>
   > {
     const res = await fetch(`${opts.serverUrl}/api/community/daemon/bots`, {
       method: "GET",
@@ -149,7 +159,14 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
     });
     if (!res.ok) throw new Error(`listMyBots ${res.status}`);
     const json = (await res.json()) as {
-      bots?: Array<{ id: string; name: string; discriminator: string; description?: string }>;
+      bots?: Array<{
+        id: string;
+        name: string;
+        discriminator: string;
+        description?: string;
+        ownerName?: string;
+        ownerDiscriminator?: string;
+      }>;
     };
     return json.bots ?? [];
   }
@@ -163,7 +180,13 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         // Server snapshot wins — reconcile the cache.
         botsById.clear();
         for (const b of bots) {
-          botsById.set(b.id, { name: b.name, discriminator: b.discriminator, description: b.description });
+          botsById.set(b.id, {
+            name: b.name,
+            discriminator: b.discriminator,
+            description: b.description,
+            ownerName: b.ownerName,
+            ownerDiscriminator: b.ownerDiscriminator,
+          });
         }
         log.info("cold-start bot-cache warmup succeeded", { bots: bots.length, attempt });
         return;
@@ -252,12 +275,24 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
   function handleBotFrame(cmd: HostCommand): void {
     switch (cmd.type) {
       case "bot:added":
-        botsById.set(cmd.botId, { name: cmd.name, discriminator: cmd.discriminator, description: cmd.description });
+        botsById.set(cmd.botId, {
+          name: cmd.name,
+          discriminator: cmd.discriminator,
+          description: cmd.description,
+          ownerName: cmd.ownerName,
+          ownerDiscriminator: cmd.ownerDiscriminator,
+        });
         log.debug("bot:added", { botId: cmd.botId, name: cmd.name });
         break;
       case "bot:updated": {
         const prev = botsById.get(cmd.botId);
-        botsById.set(cmd.botId, { name: cmd.name, discriminator: cmd.discriminator, description: cmd.description });
+        botsById.set(cmd.botId, {
+          name: cmd.name,
+          discriminator: cmd.discriminator,
+          description: cmd.description,
+          ownerName: cmd.ownerName,
+          ownerDiscriminator: cmd.ownerDiscriminator,
+        });
         // If a subprocess is running for this bot AND name/description changed,
         // stop it so the next wake trigger spawns a fresh subprocess with the
         // new system prompt. Rename is effective on next spawn, not mid-flight.
@@ -324,11 +359,20 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
             ? { agentHandle: `@${formatHandle(botMeta.name, botMeta.discriminator)}` }
             : {}),
           ...(botMeta?.description ? { description: botMeta.description } : {}),
+          ...(botMeta?.ownerName && botMeta?.ownerDiscriminator
+            ? { ownerHandle: `@${formatHandle(botMeta.ownerName, botMeta.ownerDiscriminator)}` }
+            : {}),
         } as LaunchContext["config"],
       } as Omit<LaunchContext, "prompt" | "standingPrompt"> & { config?: LaunchContext["config"] };
     },
     tickIntervalMs: opts.tickIntervalMs ?? 2000,
     onAgentSession: (info) => void channel.reportAgentSession(info),
+    onAgentActivity: (info) => void channel.reportAgentActivity?.(info),
+    // Idle hibernation / stall-recovery stops the subprocess without a
+    // server-sent agent:stop; keep AgentRouter.running aligned so the next
+    // `ready` frame's `runningAgents` reflects what's actually live and the
+    // server's reconciler safety net can flip stale pills to idle.
+    onAgentLocallyStopped: (info) => router?.markLocallyStopped(info.agentId),
     // Only the "pi" runtime declares `Driver.createSession` today (in-process
     // SDK, no child process) — this is only ever consulted for that case.
     sdkDriverDepsFor: (ctx) => createPiSdkDriverDeps(ctx),
@@ -358,7 +402,13 @@ export async function createDaemon(opts: CreateDaemonOptions): Promise<RunningDa
         try {
           const bots = await listMyBotsHttp();
           for (const b of bots) {
-            botsById.set(b.id, { name: b.name, discriminator: b.discriminator, description: b.description });
+            botsById.set(b.id, {
+              name: b.name,
+              discriminator: b.discriminator,
+              description: b.description,
+              ownerName: b.ownerName,
+              ownerDiscriminator: b.ownerDiscriminator,
+            });
           }
         } catch {
           // Fall through — still treat as unknown below.

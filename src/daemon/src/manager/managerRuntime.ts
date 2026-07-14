@@ -18,12 +18,21 @@ import {
   type ManagerEffect,
   type AgentRuntimeCaps,
   type AgentMsg,
+  type AgentState,
 } from "./managerPolicy.js";
 import type { Driver, LaunchContext, SdkDriverDeps } from "../types.js";
 import type { RuntimeConfig } from "../runtimeConfig.js";
 import { createChildProcessRuntimeSession, type ChildProcessRuntimeSession } from "../runtime/runtimeSession.js";
 import { SdkManagedSession } from "../runtime/sdkManagedSession.js";
 import { createLogger, type Logger } from "../logger.js";
+
+/**
+ * Derived activity state reported up the control plane — NOT a raw passthrough
+ * of `AgentState.status` (see `deriveActivity` below). Mirrors
+ * `@alook/shared`'s `AgentActivityState`, inlined here since this is
+ * daemon-internal.
+ */
+export type AgentActivityState = "idle" | "starting" | "running" | "stopping";
 
 /** Minimal shape the executor needs from a runtime session. */
 export interface ManagedSession {
@@ -83,6 +92,19 @@ export interface ManagerRuntimeOpts {
    * `reportAgentSession` so the server can correlate + resume.
    */
   onAgentSession?: (info: { agentId: string; sessionId: string; launchId: string }) => void;
+  /**
+   * Notified whenever an agent's DERIVED activity (per `deriveActivity`)
+   * changes — not on every raw FSM transition. See the Design Overview in
+   * plans/community-bot-status-telemetry.md.
+   */
+  onAgentActivity?: (info: { agentId: string; state: AgentActivityState }) => void;
+  /**
+   * Notified when the daemon itself terminates an agent (idle hibernation or
+   * stall-recovery) — NOT for server-sent `agent:stop`, which the router
+   * already tracks. Wired in `createDaemon` to `AgentRouter.markLocallyStopped`
+   * so `ready.runningAgents` stays aligned with what's actually live.
+   */
+  onAgentLocallyStopped?: (info: { agentId: string; reason: "stop" | "terminate_stalled" }) => void;
   /**
    * Optional context-timeline recorder. When provided, the manager logs each
    * spawn as a "running" row, fills in the session id on session_init, and closes
@@ -167,6 +189,8 @@ export class AgentProcessManager {
       | "credentialProxy"
       | "sdkDriverDepsFor"
       | "onAgentSession"
+      | "onAgentActivity"
+      | "onAgentLocallyStopped"
       | "timeline"
       | "wakePromptFooter"
       | "onRuntimeSpawnFailed"
@@ -181,6 +205,8 @@ export class AgentProcessManager {
       | "credentialProxy"
       | "sdkDriverDepsFor"
       | "onAgentSession"
+      | "onAgentActivity"
+      | "onAgentLocallyStopped"
       | "timeline"
       | "wakePromptFooter"
       | "onRuntimeSpawnFailed"
@@ -271,9 +297,37 @@ export class AgentProcessManager {
   /* --------------------------------------------------------------- */
 
   private dispatch(event: ManagerEvent): void {
+    const before = this.deriveActivitySnapshot(this.state);
     const { state, effects } = reduceManager(this.state, event);
     this.state = state;
     for (const effect of effects) this.applyEffect(effect);
+    if (this.opts.onAgentActivity) {
+      const after = this.deriveActivitySnapshot(this.state);
+      for (const [agentId, activity] of Object.entries(after)) {
+        // Skip a brand-new agent appearing this dispatch (register) — only
+        // report real transitions of an already-known agent.
+        if (agentId in before && before[agentId] !== activity) {
+          this.opts.onAgentActivity({ agentId, state: activity });
+        }
+      }
+    }
+  }
+
+  private deriveActivitySnapshot(state: ManagerState): Record<string, AgentActivityState> {
+    const snapshot: Record<string, AgentActivityState> = {};
+    for (const [agentId, agent] of Object.entries(state.agents)) snapshot[agentId] = this.deriveActivity(agent);
+    return snapshot;
+  }
+
+  /**
+   * `AgentState.status` alone doesn't mean "actively working" — a persistent
+   * agent stays `"running"` (turnActive=false) for up to `idleTimeoutMs` after
+   * a turn ends, before the tick loop finally stops it. Report "idle" the
+   * moment the turn ends instead of waiting for that hibernation timeout.
+   */
+  private deriveActivity(agent: AgentState): AgentActivityState {
+    if (agent.status === "running" && !agent.turnActive) return "idle";
+    return agent.status;
   }
 
   private withFooter(text: string): string {
@@ -301,6 +355,7 @@ export class AgentProcessManager {
         const spawnState = this.activeSpawnState.get(effect.agentId);
         if (spawnState) spawnState.suppressExitLog = true;
         this.logSessionEnded(effect.agentId, effect.type === "stop" ? "stopped" : "terminate_stalled");
+        this.opts.onAgentLocallyStopped?.({ agentId: effect.agentId, reason: effect.type });
         break;
       }
       case "gated_hold":

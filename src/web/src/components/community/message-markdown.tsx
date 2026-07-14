@@ -1,6 +1,7 @@
 import type React from "react"
 import { Spoiler, MentionPill } from "./inline-marks"
 import { ChannelRefPill } from "./channel-ref-pill"
+import { ServerRefPill } from "./server-ref-pill"
 
 // Match `/community/invite/<token>` — with or without an origin.
 // - token allows [A-Za-z0-9_-] (nanoid alphabet) and length 6..64 (short + old
@@ -36,13 +37,14 @@ export const MD_ALLOWED_TAGS = {
   spoiler: [],
   mention: ["data-everyone", "data-tag"],
   channelref: [],
+  serverref: [],
 }
-// `spoiler` is deliberately excluded — unlike `mention`/`channelref` (leaf
-// nodes whose content is always plain tag text), a spoiler must keep its
+// `spoiler` is deliberately excluded — unlike `mention`/`channelref`/`serverref`
+// (leaf nodes whose content is always plain tag text), a spoiler must keep its
 // nested markdown children (e.g. `||**bold**||`). Handing it to Streamdown's
 // `literalTagContent` flattens all descendants into one text node, stripping
 // the nested `<strong>`/`<em>` — see message-body.test.tsx's regression case.
-export const MD_LITERAL_TAGS = ["mention", "channelref"]
+export const MD_LITERAL_TAGS = ["mention", "channelref", "serverref"]
 
 // A mention pill's rendered text is always `@name` (produced by
 // `chat-syntax-plugin.ts`'s `mentionReplacer`, which already drops the
@@ -59,11 +61,12 @@ export const MD_COMPONENTS = {
   mention: ({ children, ...rest }: Record<string, unknown> & { children?: React.ReactNode }) => (
     <MentionPill everyone={rest["data-everyone"] === "1"}>{children}</MentionPill>
   ),
-  // `channelref` is fully self-sufficient via hooks (resolves via
-  // `useChannelRefDirectory`, navigates via `useRouter`) — unlike `mention`,
-  // it needs no closure injected by `buildMdComponents`, so the same static
-  // entry is reused there too (see the spread below).
+  // `channelref`/`serverref` are fully self-sufficient via hooks (resolve via
+  // `useChannelRefDirectory`, navigate via `useRouter`) — unlike `mention`,
+  // they need no closure injected by `buildMdComponents`, so the same static
+  // entries are reused there too (see the spread below).
   channelref: ChannelRefPill,
+  serverref: ServerRefPill,
 } as Record<string, React.ComponentType<Record<string, unknown> & { children?: React.ReactNode }>>
 
 // Same as `MD_COMPONENTS`, but the `mention` pill opens the profile card on

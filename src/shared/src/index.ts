@@ -252,6 +252,7 @@ export {
   CommunityDaemonEnrollAgentResponseSchema,
   HostReadyMessageSchema,
   SessionErrorFrameSchema,
+  AgentActivityMessageSchema,
   COMMUNITY_RUNTIME_ID_MAX,
   COMMUNITY_RUNTIME_VERSION_MAX,
   COMMUNITY_RUNTIME_LIST_MAX,
@@ -326,6 +327,7 @@ export type {
   CommunityDaemonEnrollAgentResponse,
   HostReadyMessage,
   SessionErrorFrame,
+  AgentActivityMessage,
   CommunityBotCreateRequest,
   CommunityBotPatchRequest,
   CommunityBotAddToServerRequest,
@@ -387,6 +389,7 @@ export type {
   HostControlChannel,
   AgentSessionReport,
   ParsedRef as CommunityCliParsedRef,
+  AgentActivityState,
 } from "./community-cli-contract";
 export { DM_SERVER, parseRef, formatRef, parseSeq, formatSeq } from "./community-cli-contract";
 
@@ -402,6 +405,13 @@ export { RUNTIME_CONFIG_VERSION, makeRuntimeConfig } from "./runtime-config";
 export { sendWakeToMachine, buildUnreadWakeCommand, dispatchOneUnreadWake } from "./community/wake-dispatch";
 export type { DispatchOneWakeResult } from "./community/wake-dispatch";
 export type { WakePayload, BuildUnreadWakeResult } from "./community/wake-dispatch";
+
+export {
+  BOT_ACTIVITY_PRESETS,
+  RUNNING_PRESETS,
+  pickBotActivityPreset,
+} from "./community/bot-activity-presets";
+export type { BotActivityPreset } from "./community/bot-activity-presets";
 
 export type { CommunityMachineSummary, CommunityMachineRuntime } from "./community-ws-events";
 export type {
@@ -443,6 +453,7 @@ export type {
   CommunityDmNewMessage,
   CommunityDmTyping,
   CommunityPresenceUpdate,
+  CommunityStatusUpdate,
   CommunityMentionCreate,
   CommunityMachineCreated,
   CommunityMachineStatus,

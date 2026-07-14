@@ -63,6 +63,16 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     image: body.image ?? null,
   })
 
+  // The bot's owner is the authenticated caller — resolve their handle to
+  // carry in the bot:added push so the daemon can tell the agent who owns it.
+  // The owner MUST resolve: if getUserPublic can't find the authenticated
+  // caller we've hit an integrity bug (auth accepted a user id that no longer
+  // has a row), and pushing a bot:added with empty owner fields would
+  // silently strip the "You are owned by …" privacy paragraph from the
+  // agent's system prompt.
+  const owner = await queries.user.getUserPublic(db, ctx.userId)
+  if (!owner) return writeError("owner not resolvable — retry after re-authenticating", 500)
+
   // Audit — no serverId context (bot is created out-of-server). Queryable
   // via idx_audit_log_actor_created.
   logAudit(db, {
@@ -86,6 +96,8 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     name: created.name,
     discriminator: created.discriminator,
     description: created.description || undefined,
+    ownerName: owner.name,
+    ownerDiscriminator: owner.discriminator,
   })
 
   return writeJSON(
