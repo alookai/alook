@@ -155,7 +155,7 @@ function messagingSection(): string {
     "",
     "- Send a reply — two options depending on length:",
     `  - Short: \`${CLI} message send --target <ref> --text "brief reply"\``,
-    `  - Long&Complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file /path/to/msg.md\``,
+    `  - Long&Complicated: write body to a tmp file, then \`${CLI} message send --target <ref> --file ./temp_msg.md\``,
     "- Address your reply to where the message came from.",
     "",
     "### Channel refs & addressing",

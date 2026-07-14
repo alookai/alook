@@ -259,7 +259,7 @@ function MemberRow({
       className="flex w-full items-center gap-3 rounded-md px-2 py-2 select-none hover:bg-accent"
     >
       <Avatar label={mem.avatar} seed={mem.userId} size={32} presence={mem.status} dim={mem.status === "offline"} />
-      <div className="min-w-0 flex-1 text-left">
+      <div className="min-w-0 flex-1 space-y-0.5 text-left">
         <div className={`truncate text-sm leading-tight ${mem.status === "offline" ? "text-muted-foreground" : ""}`}>
           {mem.name}
           {showDiscriminator && mem.discriminator && (

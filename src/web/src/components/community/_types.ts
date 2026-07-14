@@ -232,11 +232,6 @@ export type Profile = {
   // member/friend match could be resolved (e.g. a stale mention). See
   // `resolveProfilePresence` in shell-frame.tsx.
   presence?: Presence
-  // Custom status (emoji + short term), e.g. "🎧 Vibing". Both undefined/null
-  // means "no status set" — use `hasStatus()` from status-presets.ts, not a
-  // truthiness check on either field alone.
-  statusEmoji?: string | null
-  statusText?: string | null
 }
 
 // ── Settings rows ──────────────────────────────────────────────────────────

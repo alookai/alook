@@ -64,7 +64,13 @@ export default function CommunityPreview() {
   // An open thread takes over the message area like a channel.
   const [openThreadId, setOpenThreadId] = useState<string | null>(null)
   const [mobileZone, setMobileZone] = useState<MobileZone>("messages")
-  const [profile, setProfile] = useState<{ data: Profile; x: number; y: number } | null>(null)
+  const [profile, setProfile] = useState<{
+    data: Profile
+    x: number
+    y: number
+    initialStatusEmoji: string | null
+    initialStatusText: string | null
+  } | null>(null)
   // demo state — preview-local; the live app replaces these handlers with API mutations + WS
   const [messages, setMessages] = useState<Msg[]>(MESSAGES)
   const [pinned, setPinned] = useState<Msg[]>(PINNED)
@@ -138,14 +144,15 @@ export default function CommunityPreview() {
       about: member && "sub" in member && member.sub ? member.sub : "No bio yet.",
       mutual: 1,
     }
-    // Merge presence onto the FINAL data regardless of source (curated
-    // PROFILES lookup or the fallback literal above) — both mock arrays
-    // already carry real mixed online/offline values, so this is what
-    // makes the online/offline manual QA cases testable without two live
-    // logged-in sessions (see plans/profile-card.md).
-    data = { ...data, presence: member?.status, statusEmoji: member?.statusEmoji ?? data.statusEmoji, statusText: member?.statusText ?? data.statusText }
-    if (name === "Gener") data = { ...data, about: myAboutMe, statusEmoji: myStatus.emoji, statusText: myStatus.text }
-    setProfile({ data, x: e.clientX, y: e.clientY })
+    data = { ...data, presence: member?.status }
+    if (name === "Gener") data = { ...data, about: myAboutMe }
+    // Seed the status pill from the member row (or the local self-status for
+    // Gener). In the live app the card subscribes to `useCommunityWsStore`;
+    // in this preview scaffold no WS store is running, so the seed is what
+    // the card actually renders.
+    const initialStatusEmoji = name === "Gener" ? myStatus.emoji : (member?.statusEmoji ?? null)
+    const initialStatusText = name === "Gener" ? myStatus.text : (member?.statusText ?? null)
+    setProfile({ data, x: e.clientX, y: e.clientY, initialStatusEmoji, initialStatusText })
   }
   const profileProps = { onOpenProfile: openProfile }
   let msgSeq = messages.length
@@ -584,7 +591,7 @@ export default function CommunityPreview() {
             {...profileProps}
           />
         )}
-        {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.userId === "u_gener"} onUpdateStatus={(emoji, text) => { setMyStatus({ emoji, text }); setProfile((p) => p ? { ...p, data: { ...p.data, statusEmoji: emoji, statusText: text } } : p) }} />}
+        {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.userId === "u_gener"} onUpdateStatus={(emoji, text) => { setMyStatus({ emoji, text }); setProfile((p) => p ? { ...p, initialStatusEmoji: emoji, initialStatusText: text } : p) }} initialStatusEmoji={profile.initialStatusEmoji} initialStatusText={profile.initialStatusText} />}
         {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
         {dialogs}
       </Shell>
@@ -621,7 +628,7 @@ export default function CommunityPreview() {
           {...profileProps}
         />
       )}
-      {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.userId === "u_gener"} onUpdateStatus={(emoji, text) => { setMyStatus({ emoji, text }); setProfile((p) => p ? { ...p, data: { ...p.data, statusEmoji: emoji, statusText: text } } : p) }} />}
+      {profile && <ProfileCard key={`${profile.data.userId ?? profile.data.name}:${profile.x}:${profile.y}`} data={profile.data} x={profile.x} y={profile.y} bp={bp} onClose={() => setProfile(null)} onMessage={profileMessage} isSelf={profile.data.userId === "u_gener"} onUpdateStatus={(emoji, text) => { setMyStatus({ emoji, text }); setProfile((p) => p ? { ...p, initialStatusEmoji: emoji, initialStatusText: text } : p) }} initialStatusEmoji={profile.initialStatusEmoji} initialStatusText={profile.initialStatusText} />}
       {preview && <ImageLightbox src={preview} onClose={() => setPreview(null)} />}
       {dialogs}
     </Shell>
