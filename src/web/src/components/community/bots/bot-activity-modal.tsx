@@ -113,7 +113,7 @@ export function BotActivityModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="flex h-[72vh] max-h-[680px] w-full max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+        className="flex h-[72vh] max-h-170 w-full max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
       >
         <header className="flex shrink-0 items-center gap-3 border-b border-border/40 px-4 py-3">
           <AgentAvatar name={bot?.name ?? ""} avatarUrl={bot?.image ?? null} size={32} />
@@ -181,7 +181,7 @@ export function BotActivityModal({
 
 function DayDivider({ label }: { label: string }) {
   return (
-    <div className="sticky top-0 z-10 border-b border-border/40 bg-background/95 px-4 py-1 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <div className="sticky top-0 z-10 border-b border-border/40 bg-background/95 px-4 py-1 backdrop-blur supports-backdrop-filter:bg-background/80">
       <span className="font-mono text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         {label}
       </span>

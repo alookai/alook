@@ -99,7 +99,7 @@ function RowBody({
   const hiddenChars = truncated ? Math.max(0, chars - countCodepoints(shownText)) : 0
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <div className="whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed text-muted-foreground">
+      <div className="whitespace-pre-wrap wrap-break-word font-mono text-[12.5px] leading-relaxed text-muted-foreground">
         {shownText}
       </div>
       {canExpand && !expanded ? (
