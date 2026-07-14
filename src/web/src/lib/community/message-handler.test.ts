@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 
 const mockCreateMessage = vi.fn()
 const mockGetMessage = vi.fn()
+const mockGetMessageInScope = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockCreateAttachment = vi.fn()
 const mockListMembers = vi.fn()
@@ -21,6 +22,7 @@ vi.mock("@alook/shared", async () => {
       communityMessage: {
         createMessage: (...a: unknown[]) => mockCreateMessage(...a),
         getMessage: (...a: unknown[]) => mockGetMessage(...a),
+        getMessageInScope: (...a: unknown[]) => mockGetMessageInScope(...a),
       },
       communityAttachment: {
         createAttachment: (...a: unknown[]) => mockCreateAttachment(...a),
@@ -497,6 +499,32 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
       userIds: ["cara_1"],
       kind: "mention",
     })
+  })
+
+  it("thread: a direct REPLY under @everyone still enrolls the replied-to user", async () => {
+    // Regression guard: @everyone catches Cara into mentionTargets, and the
+    // 'mention beats reply' dedup strips her from replyTargets. She must still
+    // be enrolled as a participant because the author directly replied to her.
+    mockGetPrivateChannelAudienceUserIds.mockResolvedValue(["author_1", "cara_1"])
+    mockGetMessageInScope.mockResolvedValue({
+      id: "parent_msg", authorId: "cara_1", authorName: "Cara", content: "prior",
+    })
+    mockGetMessage.mockResolvedValue(
+      messageRow({ content: "@everyone see above", channelId: "t1", mentionType: "everyone", replyToId: "parent_msg" }),
+    )
+
+    await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "srv_1" },
+      body: { content: "@everyone see above", mentionType: "everyone", replyToId: "parent_msg" },
+    })
+
+    // Author (spoke) + Cara (enrolled via the reply, despite @everyone dedup).
+    expect(mockAddThreadParticipants).toHaveBeenCalledWith({}, "t1", [
+      { userId: "author_1", source: "spoke" },
+      { userId: "cara_1", source: "mention" },
+    ])
   })
 
   it("public channel: mention of any server member is kept, no roster row", async () => {

@@ -346,6 +346,13 @@ export async function createCommunityMessage(params: {
     }
   }
 
+  // Snapshot the (audience-filtered) reply targets for thread enrollment BEFORE
+  // the mention-row dedup below strips them. A direct reply always enrolls the
+  // replied-to user as a participant — even when a co-occurring `@everyone`
+  // also caught them (in which case they'd otherwise vanish from `replyTargets`
+  // AND be absent from `explicitMentionTargets`).
+  const replyParticipants = new Set(replyTargets)
+
   // Mention beats reply — never double-count the same user.
   for (const id of mentionTargets) replyTargets.delete(id)
 
@@ -364,8 +371,9 @@ export async function createCommunityMessage(params: {
     // Only EXPLICIT `@user` mentions + reply targets enroll as participants. A
     // mass `@everyone`/`@here` is in `mentionTargets` (so everyone is notified
     // once) but NOT in `explicitMentionTargets`, so it doesn't permanently
-    // subscribe the whole channel/server to the thread.
-    for (const id of [...explicitMentionTargets, ...replyTargets]) {
+    // subscribe the whole channel/server to the thread. `replyParticipants` is
+    // the pre-dedup snapshot so a reply still enrolls even under `@everyone`.
+    for (const id of new Set([...explicitMentionTargets, ...replyParticipants])) {
       if (id !== authorId) rows.push({ userId: id, source: "mention" })
     }
     // One bulk insert (author + mentioned) instead of N+1 sequential inserts.
