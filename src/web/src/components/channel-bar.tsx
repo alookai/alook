@@ -20,7 +20,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useChannel } from "@/contexts/channel-context";
 import { cn } from "@/lib/utils";
-import { onEnterSubmit } from "@/lib/ime";
+import { isImeConfirming } from "@/lib/ime";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -366,7 +366,11 @@ function CreateInput({
         ref={ref}
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        onKeyDown={onEnterSubmit(handleSubmit, { onEscape: onCancel })}
+        onKeyDown={(e) => {
+          if (isImeConfirming(e)) return;
+          if (e.key === "Enter") { e.preventDefault(); handleSubmit(); }
+          else if (e.key === "Escape") onCancel();
+        }}
         onBlur={() => { if (!savedRef.current) onCancel(); }}
         disabled={loading}
         placeholder="name..."
@@ -417,7 +421,11 @@ function RenameInput({
       ref={ref}
       value={value}
       onChange={(e) => setValue(e.target.value)}
-      onKeyDown={onEnterSubmit(handleSubmit, { onEscape: onCancel })}
+      onKeyDown={(e) => {
+        if (isImeConfirming(e)) return;
+        if (e.key === "Enter") { e.preventDefault(); handleSubmit(); }
+        else if (e.key === "Escape") onCancel();
+      }}
       onBlur={() => { if (readyRef.current && !savedRef.current) onCancel(); }}
       disabled={loading}
       className="h-5 w-24 px-2 rounded-md text-[11px] bg-transparent border border-input focus:border-ring focus:ring-2 focus:ring-ring/50 outline-none shrink-0 disabled:opacity-50"
