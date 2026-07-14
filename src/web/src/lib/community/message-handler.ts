@@ -23,6 +23,24 @@ export type MessageTarget =
   }
   | { kind: "dm"; dmId: string; otherUserId: string }
 
+export function isDmTarget<T extends { kind: string }>(target: T): target is Extract<T, { kind: "dm" }>
+export function isDmTarget(kind: string): boolean
+export function isDmTarget(target: { kind: string } | string): boolean {
+  return (typeof target === "string" ? target : target.kind) === "dm"
+}
+
+export function isThreadTarget<T extends { kind: string }>(target: T): target is Extract<T, { kind: "thread" }>
+export function isThreadTarget(kind: string): boolean
+export function isThreadTarget(target: { kind: string } | string): boolean {
+  return (typeof target === "string" ? target : target.kind) === "thread"
+}
+
+export function isChannelTarget<T extends { kind: string }>(target: T): target is Extract<T, { kind: "channel" }>
+export function isChannelTarget(kind: string): boolean
+export function isChannelTarget(target: { kind: string } | string): boolean {
+  return (typeof target === "string" ? target : target.kind) === "channel"
+}
+
 type IncomingAttachment = {
   url: string
   filename: string
@@ -180,15 +198,15 @@ export async function createCommunityMessage(params: {
   const replyToId =
     typeof body.replyToId === "string" ? body.replyToId : undefined
   const mentionType: MentionType | undefined =
-    target.kind !== "dm" && isMentionType(body.mentionType)
+    !isDmTarget(target) && isMentionType(body.mentionType)
       ? body.mentionType
       : undefined
 
   const baseMessageData = {
     authorId,
     content,
-    channelId: target.kind === "dm" ? undefined : target.channelId,
-    dmConversationId: target.kind === "dm" ? target.dmId : undefined,
+    channelId: isDmTarget(target) ? undefined : target.channelId,
+    dmConversationId: isDmTarget(target) ? target.dmId : undefined,
     replyToId,
     mentionType,
     ...(messageType !== undefined ? { type: messageType } : {}),
@@ -242,7 +260,7 @@ export async function createCommunityMessage(params: {
   const author = await queries.user.getUserInternal(db, authorId)
   if (author?.isBot === true) {
     logAudit(db, {
-      serverId: target.kind === "dm" ? null : target.serverId,
+      serverId: isDmTarget(target) ? null : target.serverId,
       actorId: authorId,
       action: COMMUNITY_AUDIT_ACTIONS.MESSAGE_AUTHORED_AS_BOT,
       targetType: "message",
@@ -250,7 +268,7 @@ export async function createCommunityMessage(params: {
       changes: JSON.stringify({
         botId: authorId,
         target: target.kind,
-        targetId: target.kind === "dm" ? target.dmId : target.channelId,
+        targetId: isDmTarget(target) ? target.dmId : target.channelId,
         messageId: row.id,
         source: source ?? "web",
       }),
@@ -266,7 +284,7 @@ export async function createCommunityMessage(params: {
   const replyTargets = new Set<string>()
   if (!skipMentions && row.replyToId) {
     // single-id path — see `dm/[id]/messages/route.ts` / `channels/[id]/messages/route.ts` for the batched N-id path
-    const scope = target.kind === "dm" ? { dmConversationId: target.dmId } : { channelId: target.channelId }
+    const scope = isDmTarget(target) ? { dmConversationId: target.dmId } : { channelId: target.channelId }
     const replyMsg = await queries.communityMessage.getMessageInScope(db, row.replyToId, scope)
     if (replyMsg) {
       replyMap.set(replyMsg.id, {
@@ -297,7 +315,7 @@ export async function createCommunityMessage(params: {
   // subscribe the whole channel/server to every future reply (that would defeat
   // the notification dimension). See the thread-participation block below.
   const explicitMentionTargets = new Set<string>()
-  if (!skipMentions && target.kind !== "dm") {
+  if (!skipMentions && !isDmTarget(target)) {
     // Resolve the audience up front when private; `null` = public (no clamp).
     // PERF (accepted): `isChannelPrivate` and `getPrivateChannelAudienceUserIds`
     // each climb `parentChannelId` for a thread — two parent lookups per message
@@ -364,7 +382,7 @@ export async function createCommunityMessage(params: {
   //     already scoped to the parent-channel audience by the block above.
   // Admins are NOT auto-added — only real participation joins the set. System /
   // card messages (`skipMentions`) don't add the author.
-  if (target.kind === "thread" && !skipMentions) {
+  if (isThreadTarget(target) && !skipMentions) {
     const rows: { userId: string; source: "spoke" | "mention" }[] = [
       { userId: authorId, source: "spoke" },
     ]
@@ -441,7 +459,7 @@ export async function createCommunityMessage(params: {
     if (liveMentions.length > 0 || liveReplies.length > 0) {
       const authorName = row.authorName
       const channelIdForBroadcast =
-        target.kind === "dm" ? undefined : target.channelId
+        isDmTarget(target) ? undefined : target.channelId
       for (const userId of [...liveMentions, ...liveReplies]) {
         broadcastToUser(userId, {
           type: WS_EVENTS.MENTION_CREATE,
@@ -453,7 +471,7 @@ export async function createCommunityMessage(params: {
       }
     }
 
-    if (target.kind === "dm") {
+    if (isDmTarget(target)) {
       fanOutToDM(
         target.dmId,
         {
@@ -480,7 +498,7 @@ export async function createCommunityMessage(params: {
         { excludeUserId: fanoutExclude, wakeMessageRow },
       ).catch(() => { })
 
-      if (target.kind === "thread") {
+      if (isThreadTarget(target)) {
         const updated = await queries.communityChannel.getChannel(
           db,
           target.channelId,

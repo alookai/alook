@@ -3,6 +3,7 @@ import { queries, CommunityAgentResolveRequestSchema } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAgentRunnerAuth } from "@/lib/middleware/community-agent-runner-auth"
 import { resolveTargetForMember, resolveErrorResponse } from "@/lib/community/resolve-ref"
+import { isDmTarget } from "@/lib/community/message-handler"
 import { requireChannelMember, requireDMParticipant } from "@/lib/community/permissions"
 
 /**
@@ -39,9 +40,9 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   if ("error" in resolved) return resolveErrorResponse(resolved)
 
   const scopeTarget =
-    resolved.kind === "dm" ? { dmConversationId: resolved.dmConversationId } : { channelId: resolved.channelId }
+    isDmTarget(resolved) ? { dmConversationId: resolved.dmConversationId } : { channelId: resolved.channelId }
 
-  if (resolved.kind === "dm") {
+  if (isDmTarget(resolved)) {
     const gate = await requireDMParticipant(db, resolved.dmConversationId, ctx.botUserId)
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status })
   } else {

@@ -13,7 +13,7 @@ import { Avatar } from "./avatar"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { hasStatus } from "./status-presets"
 import type { Member, Role, OpenProfile, MemberManageContext } from "./_types"
-import { canManageServer } from "./_types"
+import { canManageServer, isServerOwner, ROLES, isPresenceOnline, isPresenceOffline } from "./_types"
 
 const SETTABLE_ROLES: Role[] = ["admin", "member"]
 
@@ -32,11 +32,11 @@ function capitalize(s: string): string {
 }
 
 function groupMembers(members: Member[]): { label: string; list: Member[] }[] {
-  const owner = members.filter((m) => m.role === "owner")
-  const admin = members.filter((m) => m.role === "admin")
-  const rest = members.filter((m) => m.role === "member")
-  const online = rest.filter((m) => m.status === "online")
-  const offline = rest.filter((m) => m.status === "offline")
+  const owner = members.filter((m) => isServerOwner(m.role))
+  const admin = members.filter((m) => m.role === ROLES.ADMIN)
+  const rest = members.filter((m) => m.role === ROLES.MEMBER)
+  const online = rest.filter((m) => isPresenceOnline(m.status))
+  const offline = rest.filter((m) => isPresenceOffline(m.status))
   return [
     { label: "Owner", list: owner },
     { label: "Admin", list: admin },
@@ -284,9 +284,9 @@ function MemberRow({
       onClick={(e) => onOpenProfile?.(mem.name, e, undefined, mem.userId)}
       className="flex w-full items-center gap-3 rounded-md px-2 py-2 select-none hover:bg-accent"
     >
-      <Avatar label={mem.avatar} seed={mem.userId} size={32} presence={mem.status} dim={mem.status === "offline"} />
+      <Avatar label={mem.avatar} seed={mem.userId} size={32} presence={mem.status} dim={isPresenceOffline(mem.status)} />
       <div className="min-w-0 flex-1 space-y-0.5 text-left">
-        <div className={`truncate text-sm leading-tight ${mem.status === "offline" ? "text-muted-foreground" : ""}`}>
+        <div className={`truncate text-sm leading-tight ${isPresenceOffline(mem.status) ? "text-muted-foreground" : ""}`}>
           {mem.name}
           {showDiscriminator && mem.discriminator && (
             <span className="text-muted-foreground">#{mem.discriminator}</span>

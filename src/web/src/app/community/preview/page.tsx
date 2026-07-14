@@ -18,6 +18,7 @@
 import { useMemo, useState } from "react"
 import type React from "react"
 import { toast } from "sonner"
+import { isForum as isForumType, isServerOwner } from "@alook/shared"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 
@@ -31,6 +32,8 @@ import {
 import type { RightPanel, MobileZone, View, SettingsSection, Msg, PendingRequest, BlockedUser, ForumPost, Profile, Thread, Role, DM, Member } from "@/components/community/_types"
 import { useBreakpoint } from "@/hooks/use-mobile"
 import { useChannelTree } from "@/components/community/use-channel-tree"
+import { avatarInitial } from "@/lib/community/avatar"
+import { displayName } from "@/lib/community/display-name"
 import { ProfileCard } from "@/components/community/profile-card"
 import { ImageLightbox } from "@/components/community/image-lightbox"
 import { UserSettings } from "@/components/community/edit-profile-dialog"
@@ -139,7 +142,7 @@ export default function CommunityPreview() {
     let data: Profile = PROFILES[name] ?? {
       name,
       userId: member?.userId ?? member?.id,
-      avatar: member?.avatar ?? name.charAt(0).toUpperCase(),
+      avatar: member?.avatar ?? avatarInitial(name),
       role: "member",
       about: member && "sub" in member && member.sub ? member.sub : "No bio yet.",
       mutual: 1,
@@ -160,10 +163,10 @@ export default function CommunityPreview() {
   // message from profile card — find or create a DM, append the message, and navigate
   const profileMessage = (userId: string, text: string) => {
     const source = memberList.find((m) => m.userId === userId) ?? friendList.find((f) => f.userId === userId)
-    const name = source?.name ?? userId
+    const name = displayName(source)
     let target = dmList.find((d) => d.userId === userId)
     if (!target) {
-      target = { id: `dm_${userId}`, userId, name, avatar: name.charAt(0).toUpperCase(), status: "online" as const, preview: text.slice(0, 40) }
+      target = { id: `dm_${userId}`, userId, name, avatar: avatarInitial(name), status: "online" as const, preview: text.slice(0, 40) }
       setDmList((prev) => [target!, ...prev])
     }
     const dmId = target.id
@@ -193,7 +196,7 @@ export default function CommunityPreview() {
 
   // the active channel object (for forum detection) and the open thread/post.
   const activeChannelObj = Object.values(channelTree.order).flat().find((ch) => ch.id === activeChannel)
-  const isForum = activeChannelObj?.type === "forum"
+  const isForum = isForumType(activeChannelObj?.type)
   const allThreads = [...threads, ...Object.values(forumPosts).flat()]
   const openThread = allThreads.find((t) => t.id === openThreadId) ?? null
   const dm = dmList.find((d) => d.id === activeDm) ?? null
@@ -343,7 +346,7 @@ export default function CommunityPreview() {
     toast(`${name} is now ${role}`)
   }
   const kickMember = (name: string) => {
-    setMemberList((prev) => prev.filter((m) => m.name !== name || m.role === "owner"))
+    setMemberList((prev) => prev.filter((m) => m.name !== name || isServerOwner(m.role)))
     toast(`${name} kicked`)
   }
   const memberActions = { onSetRole: setMemberRole, onKickMember: kickMember }
@@ -354,7 +357,7 @@ export default function CommunityPreview() {
     onReject: (id: string) => setPending((p) => p.filter((r) => r.id !== id)),
     onCancelRequest: (id: string) => setPending((p) => p.filter((r) => r.id !== id)),
     onUnblock: (id: string) => { setBlocked((b) => b.filter((u) => u.id !== id)); toast("User unblocked") },
-    onSendRequest: (username: string) => { setPending((p) => [...p, { id: `pr_${username}`, userId: `u_${username}`, name: username, avatar: username.charAt(0).toUpperCase(), kind: "outgoing" }]); toast(`Friend request sent to ${username}`) },
+    onSendRequest: (username: string) => { setPending((p) => [...p, { id: `pr_${username}`, userId: `u_${username}`, name: username, avatar: avatarInitial(username), kind: "outgoing" }]); toast(`Friend request sent to ${username}`) },
     onRemoveFriend: (id: string) => { setFriendList((p) => p.filter((f) => f.id !== id)); toast("Friend removed") },
     onBlock: (id: string) => { const f = friendList.find((x) => x.id === id); setFriendList((p) => p.filter((x) => x.id !== id)); if (f) setBlocked((b) => [...b, { id: f.id, name: f.name, avatar: f.avatar }]); toast("User blocked") },
   }

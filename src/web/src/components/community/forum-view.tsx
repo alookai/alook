@@ -5,6 +5,7 @@ import { MessagesSquare, ListChevronsUpDown, Plus, Tags, X, Check } from "lucide
 import { Button } from "@/components/ui/button"
 import { formatRelativeTime } from "./format-time"
 import { Badge } from "@/components/ui/badge"
+import { onEnterSubmit } from "@/lib/ime"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
@@ -90,7 +91,7 @@ export function ForumView({
               <Input
                 value={newTag}
                 onChange={(e) => setNewTag(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") addTag() }}
+                onKeyDown={onEnterSubmit(addTag)}
                 placeholder="new-tag"
                 className="h-6 w-28 px-2 text-xs"
               />

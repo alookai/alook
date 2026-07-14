@@ -12,6 +12,7 @@ import { useDms } from "@/hooks/community/use-dms"
 import { useFriends, useFriendsPresence } from "@/hooks/community/use-friends"
 import { communityKeys } from "@/lib/query-keys"
 import { useCommunityWsStore, useOnlineUserIds } from "@/stores/community/ws"
+import { resolveRowPresence } from "@/lib/community/presence"
 
 // DM-side layout. The DM subtree has no server settings, no channel sidebar,
 // and no `[serverId]` param — everything is scoped to the current user.
@@ -26,9 +27,7 @@ export default function MeLayout({ children }: { children: ReactNode }) {
     () =>
       rawDms.map((d) => ({
         ...d,
-        status: onlineUserIds.has(d.userId)
-          ? ("online" as const)
-          : ("offline" as const),
+        status: resolveRowPresence(d, onlineUserIds),
       })),
     [rawDms, onlineUserIds],
   )

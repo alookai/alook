@@ -5,6 +5,7 @@ import { EntityIcon } from "./entity-icon"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { onEnterSubmit } from "@/lib/ime"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import type { ChannelType } from "@alook/shared"
@@ -76,7 +77,7 @@ export function CreateChannelDialog({ category, initial, onClose, onCreate }: {
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") submit() }}
+                onKeyDown={onEnterSubmit(submit)}
                 placeholder="new-channel"
                 className="h-10 pl-9"
               />

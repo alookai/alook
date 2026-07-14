@@ -4,6 +4,7 @@ import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useSession } from "@/lib/auth-client"
 import { CommunityShell } from "./community-shell"
+import { avatarInitial } from "@/lib/community/avatar"
 
 export default function CommunityLayout({
   children,
@@ -25,7 +26,7 @@ export default function CommunityLayout({
     id: session.user.id,
     name: session.user.name,
     email: session.user.email,
-    avatar: session.user.image || session.user.name.charAt(0).toUpperCase(),
+    avatar: session.user.image || avatarInitial(session.user.name),
   }
 
   return <CommunityShell currentUser={currentUser}>{children}</CommunityShell>

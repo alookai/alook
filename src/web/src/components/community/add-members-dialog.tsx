@@ -7,6 +7,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Avatar } from "./avatar"
+import { displayName } from "@/lib/community/display-name"
 
 export type AddableCandidate = {
   userId: string
@@ -80,7 +81,7 @@ export function AddMembersDialog({
             filtered.map((m) => (
               <div key={m.userId} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/40">
                 <Avatar label={m.avatar || m.name || ""} seed={m.userId} size={32} />
-                <div className="min-w-0 flex-1 truncate text-sm font-medium">{m.name ?? "Unknown"}</div>
+                <div className="min-w-0 flex-1 truncate text-sm font-medium">{displayName(m)}</div>
                 <Button size="sm" disabled={addPending} onClick={() => add(m.userId)}>
                   Add
                 </Button>

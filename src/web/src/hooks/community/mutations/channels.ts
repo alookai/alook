@@ -17,7 +17,7 @@ import type { ChannelType } from "@alook/shared"
 
 export type CreateChannelArgs = {
   serverId: string
-  categoryId: string
+  categoryId: string | null
   name: string
   type: ChannelType
 }

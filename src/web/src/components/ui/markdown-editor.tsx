@@ -7,6 +7,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Mention from "@tiptap/extension-mention";
 import { Markdown } from "@tiptap/markdown";
 import { cn } from "@/lib/utils";
+import { isImeConfirming } from "@/lib/ime";
 import { isEmptyHtml, toAlookAddress } from "@alook/shared";
 import type { Agent } from "@alook/shared";
 import { createPortal } from "react-dom";
@@ -149,6 +150,7 @@ function useMentionSuggestion(agents: Agent[] | undefined) {
                 return true;
               }
               if (event.key === "Enter") {
+                if (isImeConfirming(event)) return false;
                 event.preventDefault();
                 const agent = cur.items[cur.selectedIndex];
                 if (agent && cur.command) cur.command({ id: agent.id, label: agent.name });

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { onEnterSubmit } from "@/lib/ime";
 import {
   Select,
   SelectTrigger,
@@ -22,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { RuntimeSelect } from "@/components/runtime-select";
 import { ProviderLogo } from "@/components/provider-logo";
-import { isValidHandle } from "@alook/shared";
+import { isValidHandle, isPublic, isPrivate } from "@alook/shared";
 import type { AgentRuntime as Runtime } from "@alook/shared";
 import { cn } from "@/lib/utils";
 import { InfoIcon, XIcon, Dices, ChevronDown } from "lucide-react";
@@ -435,12 +436,7 @@ export function AllowedSendersTab({ agentId }: { agentId: string }) {
         <Input
           value={newEmail}
           onChange={(e) => setNewEmail(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              handleAdd();
-            }
-          }}
+          onKeyDown={onEnterSubmit(handleAdd)}
           placeholder="user@example.com"
           type="email"
           className="flex-1"
@@ -564,7 +560,7 @@ export function AgentAccessTab({
     try {
       await updateAgentApi(agentId, { visibility: newVisibility }, workspaceId);
       toast.success(
-        newVisibility === "public"
+        isPublic(newVisibility)
           ? "Agent is now public"
           : "Agent is now private"
       );
@@ -651,7 +647,7 @@ export function AgentAccessTab({
           <div>
             <h3 className="text-sm font-medium">Visibility</h3>
             <p className="text-xs text-muted-foreground mt-1">
-              {visibility === "public"
+              {isPublic(visibility)
                 ? "All workspace members can use this agent"
                 : "Only authorized members can use this agent"}
             </p>
@@ -660,12 +656,12 @@ export function AgentAccessTab({
             <span className="text-xs text-muted-foreground">
               {savingVisibility
                 ? "Saving…"
-                : visibility === "public"
+                : isPublic(visibility)
                   ? "Public"
                   : "Private"}
             </span>
             <Switch
-              checked={visibility === "public"}
+              checked={isPublic(visibility)}
               onCheckedChange={(checked) =>
                 handleVisibilityChange(checked ? "public" : "private")
               }
@@ -675,7 +671,7 @@ export function AgentAccessTab({
         </div>
       </div>
 
-      {visibility === "private" && (
+      {isPrivate(visibility) && (
         <div className="space-y-3">
           <h3 className="text-sm font-medium">Authorized Members</h3>
           {error && <p className="text-xs text-destructive">{error}</p>}

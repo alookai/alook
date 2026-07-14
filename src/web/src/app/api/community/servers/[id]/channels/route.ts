@@ -74,7 +74,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   try {
     row = await queries.communityChannel.createChannel(db, {
       serverId,
-      categoryId: body.categoryId,
+      categoryId: body.categoryId || null,
       name,
       type: body.type,
       topic: body.topic,

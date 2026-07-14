@@ -5,6 +5,7 @@ import {
 } from "../../community-schema";
 import type { Database } from "../../index";
 import type { CommunityRole } from "../../../utils/community-roles";
+import { canManageServer, isForum, isForumPost } from "../../../utils/community-roles";
 import {
   getPrivateChannelAudienceUserIds,
   isChannelPrivate,
@@ -111,7 +112,7 @@ export async function resolveScopeMembers(
   // PUBLIC unit the audience is all server members, tagged admin/inherited.
   const explicit = new Set<string>();
   if (isPrivate) {
-    if (type === "forum") {
+    if (isForum(type)) {
       if (target[0]!.creatorId) explicit.add(target[0]!.creatorId);
       const posts = await db
         .select({ id: communityChannel.id, creatorId: communityChannel.creatorId })
@@ -123,10 +124,10 @@ export async function resolveScopeMembers(
       }
     } else {
       const rosterAnchorId =
-        type === "forum_post" ? target[0]!.id : (target[0]!.parentChannelId ?? target[0]!.id);
+        isForumPost(type) ? target[0]!.id : (target[0]!.parentChannelId ?? target[0]!.id);
       for (const id of await listChannelMemberUserIds(db, rosterAnchorId)) explicit.add(id);
       const rosterCreatorId =
-        type === "forum_post"
+        isForumPost(type)
           ? target[0]!.creatorId
           : (await db
               .select({ creatorId: communityChannel.creatorId })
@@ -141,7 +142,7 @@ export async function resolveScopeMembers(
     const role = roleByUser.get(userId) ?? "member";
     let source: MemberSource;
     if (!isPrivate) {
-      source = role === "owner" || role === "admin" ? "admin" : "inherited";
+      source = canManageServer(role) ? "admin" : "inherited";
     } else if (explicit.has(userId)) {
       source = "explicit";
     } else {

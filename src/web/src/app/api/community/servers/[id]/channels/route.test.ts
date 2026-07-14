@@ -88,6 +88,16 @@ describe("POST /servers/[id]/channels", () => {
     expect(mockFanOutToChannel).not.toHaveBeenCalled()
   })
 
+  it("coerces an empty-string categoryId to null on a top-level create", async () => {
+    mockGetMember.mockResolvedValue({ id: "m1", role: "admin" })
+    const res = await POST(req({ name: "chan", categoryId: "" }), ctx)
+    expect(res.status).toBe(201)
+    expect(mockCreateChannel).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ categoryId: null }),
+    )
+  })
+
   it("rejects a plain member creating in a public category (403)", async () => {
     mockGetMember.mockResolvedValue({ id: "m1", role: "member" })
     mockGetCategory.mockResolvedValue({ id: "cat1", serverId: "s1", private: 0 })

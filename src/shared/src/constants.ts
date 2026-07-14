@@ -88,12 +88,14 @@ export type MessageRoleType = (typeof MessageRole)[keyof typeof MessageRole];
 // Timing constants
 export const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS) || 3_000;
 export const OFFLINE_THRESHOLD_MS = Number(process.env.OFFLINE_THRESHOLD_MS) || 30_000;
-// Heartbeat must be strictly less than the offline threshold — the DO alarm
-// refreshes last_seen_at every HEARTBEAT_MS, and the row is only offline once
-// no refresh has landed in OFFLINE_THRESHOLD_MS. A 2× ratio absorbs one missed
-// beat without flapping the chip to offline.
+// Invariant: heartbeat MUST be strictly less than the offline threshold — the
+// DO alarm refreshes last_seen_at every HEARTBEAT_MS, and a machine is only
+// flipped offline once no refresh has landed in OFFLINE_THRESHOLD_MS. Deriving
+// the threshold as a multiple of the heartbeat keeps the invariant enforced in
+// code (rather than two hand-tuned magic numbers that can drift apart). The 3×
+// ratio absorbs two missed beats before flapping the chip to offline.
 export const COMMUNITY_MACHINE_HEARTBEAT_MS = 30_000;
-export const COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS = 90_000;
+export const COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS = 3 * COMMUNITY_MACHINE_HEARTBEAT_MS;
 export const COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS = 15 * 60_000;
 export const EVENT_POLL_INTERVAL_MS = Number(process.env.EVENT_POLL_INTERVAL_MS) || 2_000;
 export const AGENT_HANDLE_MIN_LENGTH = 4;

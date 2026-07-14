@@ -2,7 +2,7 @@ import { NextRequest } from "next/server"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
 import { getDb } from "@/lib/db"
-import { queries, WS_EVENTS } from "@alook/shared"
+import { queries, WS_EVENTS, isForum, isForumPost, isThread } from "@alook/shared"
 import { broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
 import { requireChannelAccess } from "@/lib/community/permissions"
@@ -42,7 +42,7 @@ export const GET = withAuth(async (_req: NextRequest, ctx) => {
   // roster, so both agree. Mirrors the `rosterCreatorId` split in
   // `resolveChannelAccessContext`.
   const rosterCreatorId =
-    access.value.channel.type === "forum_post"
+    isForumPost(access.value.channel.type)
       ? access.value.channel.creatorId
       : anchor.creatorId
 
@@ -83,13 +83,13 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
   // Threads are notify-only (roster lives on the participant table); a thread
   // has a `parentMessageId`. A forum post also has a `parentChannelId` but NO
   // `parentMessageId` and IS its own access unit, so it's allowed.
-  if (channel.type === "thread" || channel.parentMessageId) {
+  if (isThread(channel.type) || channel.parentMessageId) {
     return writeError("threads inherit their parent channel's members", 400)
   }
   // A FORUM's membership is DERIVED from its posts (the union) — it has no roster
   // of its own, so a member row on the forum would never be read. Reject: add
   // people to individual posts, not the forum.
-  if (channel.type === "forum") {
+  if (isForum(channel.type)) {
     return writeError("forum membership is derived from its posts — add members to a post", 400)
   }
   // `isPrivate` from requireChannelAccess reflects the (climbed) category — for

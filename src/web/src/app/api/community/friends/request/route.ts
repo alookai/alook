@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { queries, WS_EVENTS, isUniqueConstraintError, parseNameAndTag } from "@alook/shared"
+import { queries, WS_EVENTS, isUniqueConstraintError, parseNameAndTag, isBlocked } from "@alook/shared"
 import { getDb } from "@/lib/db"
 import { withAuth } from "@/lib/middleware/auth"
 import { writeJSON, writeError } from "@/lib/middleware/helpers"
@@ -162,7 +162,7 @@ export const POST = withAuth(async (req: NextRequest, ctx) => {
     return writeJSON(result.friendship, 201)
   } catch (err: unknown) {
     if (err instanceof Error) {
-      if (err.message === "blocked") return writeError("blocked", 403)
+      if (isBlocked(err.message)) return writeError("blocked", 403)
       if (err.message === "already friends") return writeError("already friends", 409)
     }
     if (isUniqueConstraintError(err)) {

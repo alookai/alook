@@ -18,6 +18,7 @@ import {
   userAvatarUrl,
   botAvatarUrl,
 } from "./storage"
+import { isChannelTarget, isDmTarget } from "./message-handler"
 
 type UploadOk = {
   ok: true
@@ -232,7 +233,7 @@ export async function runAttachmentUpload(
   const id = ctx.params?.id
   if (!id) {
     const label =
-      kind === "channel" ? "channel id" : kind === "dm" ? "dm id" : "id"
+      isChannelTarget(kind) ? "channel id" : isDmTarget(kind) ? "dm id" : "id"
     return writeError(`missing ${label}`, 400)
   }
 

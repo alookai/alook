@@ -14,10 +14,12 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
+import { avatarInitial } from "@/lib/community/avatar"
 import { Field } from "./field"
 import { SlugHint } from "./slug-hint"
 import { previewSlug } from "@/lib/community/slug-preview"
 import type { SettingsSection, Member, Role, InviteRow, AuditEntry, OpenProfile } from "./_types"
+import { isServerOwner } from "./_types"
 
 const SETTABLE_ROLES: Role[] = ["admin", "member"]
 
@@ -150,7 +152,7 @@ function SettingsOverview({ serverName, serverDescription, serverIcon, onUploadI
           {serverIcon ? (
             <img src={serverIcon} alt="Server icon" className="size-20 rounded-2xl object-cover" />
           ) : (
-            <div className="grid size-20 place-items-center rounded-2xl bg-primary text-2xl font-semibold text-primary-foreground">{name.charAt(0)}</div>
+            <div className="grid size-20 place-items-center rounded-2xl bg-primary text-2xl font-semibold text-primary-foreground">{avatarInitial(name)}</div>
           )}
           <div>
             <div className="text-sm font-medium">Server icon</div>
@@ -284,7 +286,7 @@ function SettingsMembers({ members, loading, loadingMore, hasMore, total, onLoad
                     <div className="truncate text-[15px] font-medium">{m.name}</div>
                     <div className="text-xs text-muted-foreground">{capitalize(m.role)}</div>
                   </div>
-                  {m.role === "owner" ? (
+                  {isServerOwner(m.role) ? (
                     <Badge variant="secondary" className="gap-1"><Shield className="size-3.5" /> Owner</Badge>
                   ) : (
                     <DropdownMenu>

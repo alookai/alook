@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, Bot as BotIcon, Monitor, MoreVertical, Plus } from "lucide-react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
+import { isPresenceOnline } from "@alook/shared"
+import { machineName as resolveMachineName } from "@/lib/community/machine-name"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
@@ -78,7 +80,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
   const machineName = (id: string): string => {
     const m = machines.find((x) => x.id === id)
     if (!m) return "Unknown machine"
-    return m.displayName?.trim() || m.hostname?.trim() || "Unnamed machine"
+    return resolveMachineName(m)
   }
 
   // Group bots by their bound machine, ordered to match the Machines page
@@ -188,7 +190,7 @@ export function BotList({ onBack }: { onBack?: () => void } = {}) {
 
         <div className="flex flex-col gap-6">
           {groups.map(({ machineId, machine, bots: machineBots }) => {
-            const machineOnline = machine?.status === "online"
+            const machineOnline = isPresenceOnline(machine?.status)
             return (
               <div
                 key={machineId}

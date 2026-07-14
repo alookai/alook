@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { trackTeamMemberInvited } from "@/lib/analytics";
+import { displayName } from "@/lib/community/display-name";
 
 function getInviteLink(token: string) {
   return `${window.location.origin}/invite/${token}`;
@@ -198,14 +199,12 @@ export function MembersTab() {
         <div className="space-y-2">
           {members.map((member) => {
             const isSelf = member.user_id === currentUserId;
-            const initials = member.name
-              ? member.name
-                  .split(" ")
-                  .map((n) => n[0])
-                  .join("")
-                  .slice(0, 2)
-                  .toUpperCase()
-              : member.email.slice(0, 2).toUpperCase();
+            const initials = displayName(member)
+              .split(" ")
+              .map((n) => n[0])
+              .join("")
+              .slice(0, 2)
+              .toUpperCase();
 
             return (
               <div
@@ -224,7 +223,7 @@ export function MembersTab() {
                 {/* Name / email */}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate leading-tight">
-                    {member.name || member.email}
+                    {displayName(member)}
                     {isSelf && (
                       <span className="ml-2 text-xs text-muted-foreground font-normal">(you)</span>
                     )}

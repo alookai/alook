@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { apiFetch } from "@/lib/api/client"
+import { avatarInitial } from "@/lib/community/avatar"
 import { communityKeys } from "@/lib/query-keys"
 import { useServers } from "@/hooks/community/use-servers"
 import { useJoinServer } from "@/hooks/community/mutations/servers"
@@ -89,7 +90,7 @@ export function CommunityInviteCard({ token }: { token: string }) {
         />
       ) : (
         <div className="grid size-12 shrink-0 place-items-center rounded-lg bg-primary text-lg font-semibold text-primary-foreground">
-          {data.serverName.charAt(0).toUpperCase()}
+          {avatarInitial(data.serverName)}
         </div>
       )}
       <div className="min-w-0 flex-1">

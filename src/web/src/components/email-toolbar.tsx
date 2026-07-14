@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useReducer } from "react";
 import type { Editor } from "@tiptap/react";
 import { cn } from "@/lib/utils";
+import { onEnterSubmit } from "@/lib/ime";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import {
@@ -298,9 +299,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
               ref={inputRef}
               value={displayText}
               onChange={(e) => setDisplayText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleDialogSubmit();
-              }}
+              onKeyDown={onEnterSubmit(handleDialogSubmit)}
               placeholder="Display text"
             />
           )}
@@ -309,9 +308,7 @@ export function EmailToolbar({ editor }: EmailToolbarProps) {
               ref={dialogMode === "image" || !selectionEmpty ? inputRef : undefined}
               value={urlValue}
               onChange={(e) => { setUrlValue(e.target.value); setUrlError(""); }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleDialogSubmit();
-              }}
+              onKeyDown={onEnterSubmit(handleDialogSubmit)}
               placeholder={dialogMode === "link" ? "https://example.com" : "https://example.com/image.png"}
               type="url"
               aria-invalid={Boolean(urlError)}

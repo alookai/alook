@@ -73,7 +73,35 @@ vi.mock("./audit", async () => {
   }
 })
 
-import { createCommunityMessage } from "./message-handler"
+import {
+  createCommunityMessage,
+  isDmTarget,
+  isThreadTarget,
+  isChannelTarget,
+  type MessageTarget,
+} from "./message-handler"
+
+describe("message-target predicates", () => {
+  const channel: MessageTarget = { kind: "channel", channelId: "c1", serverId: "s1" }
+  const thread: MessageTarget = { kind: "thread", channelId: "t1", parentChannelId: "c1", serverId: "s1" }
+  const dm: MessageTarget = { kind: "dm", dmId: "d1", otherUserId: "u1" }
+
+  it("isChannelTarget", () => {
+    expect(isChannelTarget(channel)).toBe(true)
+    expect(isChannelTarget(thread)).toBe(false)
+    expect(isChannelTarget(dm)).toBe(false)
+  })
+  it("isThreadTarget", () => {
+    expect(isThreadTarget(thread)).toBe(true)
+    expect(isThreadTarget(channel)).toBe(false)
+    expect(isThreadTarget(dm)).toBe(false)
+  })
+  it("isDmTarget", () => {
+    expect(isDmTarget(dm)).toBe(true)
+    expect(isDmTarget(channel)).toBe(false)
+    expect(isDmTarget(thread)).toBe(false)
+  })
+})
 
 function messageRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {

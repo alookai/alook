@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db"
 import { withAgentRunnerAuth } from "@/lib/middleware/community-agent-runner-auth"
 import { fanOutToServerMembers, broadcastToUserSafe } from "@/lib/community/fanout"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "@/lib/community/audit"
+import { memberDisplay } from "@/lib/community/member-payload"
 
 /**
  * POST /api/community/agent/joinServer — `alook server join --invite <link>`.
@@ -78,7 +79,7 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     member: {
       id: result.member.id,
       userId: result.member.userId,
-      name: result.member.nickname ?? result.member.userName,
+      name: memberDisplay(result.member.nickname, result.member.userName),
       discriminator: result.member.discriminator ?? undefined,
       avatar: result.member.userImage ?? undefined,
       role: result.member.role ?? ROLES.MEMBER,

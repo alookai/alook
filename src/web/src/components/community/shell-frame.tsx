@@ -22,8 +22,10 @@ import { ProfileCard } from "./profile-card"
 import { ImageLightbox } from "./image-lightbox"
 import { ImageCropDialog } from "./image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
-import type { MobileZone, Presence, Profile, View } from "./_types"
+import type { MobileZone, Profile, View } from "./_types"
 import { resolveProfileTarget } from "./profile-lookup"
+import { resolveProfilePresence } from "@/lib/community/presence"
+import { avatarInitial } from "@/lib/community/avatar"
 import { signOut } from "@/lib/auth-client"
 import { clearPersistedCache } from "@/lib/query-persister"
 import { useCommunityStore } from "@/stores/community"
@@ -51,27 +53,6 @@ import {
   useSendDmMessage,
   useUploadUserAvatar,
 } from "@/hooks/community/mutations"
-
-/**
- * Resolves the live online/offline presence for a `ProfileCard` target.
- *
- * `member.status` / `friend.status` are NOT live presence — both API routes
- * hardcode them at fetch time (see plans/profile-card.md's "Presence
- * resolution" note). Real presence only exists by overlaying
- * `useOnlineUserIds()` on top of the raw row, same as every other call site
- * that renders a member/friend row.
- *
- * Pure function (no React) so it's unit-testable without a render harness.
- */
-export function resolveProfilePresence(
-  isSelf: boolean,
-  targetUserId: string | undefined,
-  onlineUserIds: ReadonlySet<string>,
-): Presence | undefined {
-  if (isSelf) return "online"
-  if (!targetUserId) return undefined
-  return onlineUserIds.has(targetUserId) ? "online" : "offline"
-}
 
 /**
  * Shared community shell — ServerRail on the left, sidebar column with the
@@ -333,7 +314,7 @@ export function ShellFrame({
           name: currentUser.name,
           userId: currentUser.id,
           discriminator: currentUser.discriminator,
-          avatar: currentUser.avatar || currentUser.name.charAt(0).toUpperCase(),
+          avatar: currentUser.avatar || avatarInitial(currentUser.name),
           role: "You",
           about: currentUser.aboutMe ?? "",
           mutual: 0,
@@ -360,7 +341,7 @@ export function ShellFrame({
         name,
         userId,
         // discriminator is undefined until the /profile fetch below hydrates it.
-        avatar: member?.avatar ?? name.charAt(0).toUpperCase(),
+        avatar: member?.avatar ?? avatarInitial(name),
         role: displayRole,
         about,
         mutual: 0,

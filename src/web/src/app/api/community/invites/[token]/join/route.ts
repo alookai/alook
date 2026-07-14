@@ -5,6 +5,7 @@ import { queries, ROLES, WS_EVENTS, isUniqueConstraintError } from "@alook/share
 import type { CommunityMemberJoin } from "@alook/shared"
 import { fanOutToServerMembers } from "@/lib/community/fanout"
 import { logAudit } from "@/lib/community/audit"
+import { memberDisplay } from "@/lib/community/member-payload"
 
 export const POST = withAuth(async (_req, ctx) => {
   const token = ctx.params?.token
@@ -40,7 +41,7 @@ export const POST = withAuth(async (_req, ctx) => {
     member: {
       id: result.member.id,
       userId: result.member.userId,
-      name: result.member.nickname ?? result.member.userName,
+      name: memberDisplay(result.member.nickname, result.member.userName),
       discriminator: result.member.discriminator ?? undefined,
       avatar: result.member.userImage ?? undefined,
       role: result.member.role ?? ROLES.MEMBER,

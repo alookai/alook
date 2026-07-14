@@ -156,7 +156,7 @@ export type ForumPost = Thread & {
 // ── Members / friends / DMs ──────────────────────────────────────────────────
 export type Role = CommunityRole
 
-export { canManageServer } from "@alook/shared"
+export { canManageServer, isServerOwner, ROLES, isPresenceOnline, isPresenceOffline } from "@alook/shared"
 
 export type Member = {
   id: string

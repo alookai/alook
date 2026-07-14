@@ -13,7 +13,7 @@
  */
 
 import { getCloudflareContext } from "@opennextjs/cloudflare"
-import { queries, createLogger, WS_EVENTS } from "@alook/shared"
+import { queries, createLogger, WS_EVENTS, isThread } from "@alook/shared"
 import type { CommunityWsEvent, Database } from "@alook/shared"
 import { getDb } from "../db"
 import { broadcastToUser } from "../broadcast"
@@ -54,7 +54,7 @@ async function getServerMemberUserIds(db: Database, serverId: string): Promise<s
  */
 async function getChannelRecipientUserIds(db: Database, channelId: string): Promise<string[]> {
   const rows = await queries.communityChannel.getChannelType(db, channelId)
-  if (rows === "thread") {
+  if (isThread(rows)) {
     return queries.communityThread.listThreadParticipantUserIds(db, channelId)
   }
   return queries.communityMembersResolver.resolveScopeMemberUserIds(db, {

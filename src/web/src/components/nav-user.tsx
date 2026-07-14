@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LogOut, User } from "lucide-react";
+import { displayName } from "@/lib/community/display-name";
+import { avatarInitial } from "@/lib/community/avatar";
 
 export function NavUser() {
   const { data: session, isPending } = useSession();
@@ -32,7 +34,7 @@ export function NavUser() {
   if (!mounted || isPending || !user)
     return <Skeleton className="size-10 rounded-xl" />;
 
-  const firstLetter = (user.name || "?").charAt(0).toUpperCase();
+  const firstLetter = avatarInitial(displayName(user));
 
   return (
     <DropdownMenu>
@@ -61,7 +63,7 @@ export function NavUser() {
               </div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">
-                  {user.name}
+                  {displayName(user)}
                 </span>
                 <span className="truncate text-xs text-muted-foreground">
                   {user.email}

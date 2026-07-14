@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 import { Monitor, MoreVertical } from "lucide-react"
 import type { CommunityMachineSummary } from "@alook/shared"
+import { isPresenceOnline } from "@alook/shared"
 import { Card } from "@/components/ui/card"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import {
@@ -12,6 +13,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu"
 import { timeAgo } from "@/lib/time"
+import { machineName } from "@/lib/community/machine-name"
 import { MachineRuntimes } from "./machine-runtimes"
 
 export function MachineCard({
@@ -23,7 +25,7 @@ export function MachineCard({
   onDelete: () => void
   onReconnect: () => void
 }) {
-  const isOnline = machine.status === "online"
+  const isOnline = isPresenceOnline(machine.status)
   const lastSeenLabel = useMemo(
     () => (machine.lastSeenAt ? `Last seen · ${timeAgo(machine.lastSeenAt)}` : "Never seen"),
     [machine.lastSeenAt]
@@ -38,7 +40,7 @@ export function MachineCard({
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
               <span className="text-[15px] font-medium text-foreground">
-                {machine.hostname || "Unnamed machine"}
+                {machineName(machine)}
               </span>
               <span
                 className={[

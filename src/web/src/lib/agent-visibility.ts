@@ -1,3 +1,5 @@
+import { isPublic } from "@alook/shared";
+
 interface AgentRow {
   id: string;
   visibility: string;
@@ -18,6 +20,6 @@ export function filterVisibleAgents<T extends AgentRow>(
     agentAccessList.filter((a) => a.userId === userId).map((a) => a.agentId),
   );
   return allAgents.filter(
-    (a) => a.visibility === "public" || a.ownerId === userId || accessSet.has(a.id),
+    (a) => isPublic(a.visibility) || a.ownerId === userId || accessSet.has(a.id),
   );
 }

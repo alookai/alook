@@ -20,7 +20,7 @@ const MESSAGE_GROUP_WINDOW_MS = 7 * 60 * 1000
 // used — just not re-nested into a cluster array afterward.
 export type FlatItem =
   | { kind: "date-divider"; label: string; key: string }
-  | { kind: "new-divider"; key: string }
+  | { kind: "new-divider"; key: string; dateLabel?: string }
   | { kind: "message"; m: RenderMsg; key: string }
 
 // Flatten a message array into one row per divider/message. Exported for
@@ -34,11 +34,16 @@ export function flattenMessageItems(messages: Msg[], newDividerBefore: string | 
     const prevDate = prev ? dateKey(prev.createdAt) : ""
     const curDate = dateKey(m.createdAt)
     const showDateDivider = !!(curDate && curDate !== prevDate)
-    if (showDateDivider) {
-      items.push({ kind: "date-divider", label: formatDateLabel(m.createdAt!), key: `date:${m.id}` })
-    }
-    if (m.id === newDividerBefore) {
-      items.push({ kind: "new-divider", key: "new-divider" })
+    const isNewDivider = m.id === newDividerBefore
+    if (showDateDivider && isNewDivider) {
+      items.push({ kind: "new-divider", key: "new-divider", dateLabel: formatDateLabel(m.createdAt!) })
+    } else {
+      if (showDateDivider) {
+        items.push({ kind: "date-divider", label: formatDateLabel(m.createdAt!), key: `date:${m.id}` })
+      }
+      if (isNewDivider) {
+        items.push({ kind: "new-divider", key: "new-divider" })
+      }
     }
     const grouped = !!(prev && m.type === "chat" && !m.replyTo && !showDateDivider && prev.authorName === m.authorName
       && prev.createdAt && m.createdAt && (new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime()) < MESSAGE_GROUP_WINDOW_MS)
@@ -90,7 +95,7 @@ function estimateAttachmentsHeight(m: Msg): number {
 // Exported for direct unit testing (see message-list.test.ts).
 export function estimateRowHeight(item: FlatItem): number {
   if (item.kind === "date-divider") return DATE_DIVIDER_ESTIMATE_PX
-  if (item.kind === "new-divider") return NEW_DIVIDER_ESTIMATE_PX
+  if (item.kind === "new-divider") return item.dateLabel ? DATE_DIVIDER_ESTIMATE_PX : NEW_DIVIDER_ESTIMATE_PX
   const m = item.m
   let height = MESSAGE_BASE_ESTIMATE_PX + estimateTextHeight(m.content) + estimateAttachmentsHeight(m)
   if (m.embeds?.length) height += EMBED_ESTIMATE_PX * m.embeds.length

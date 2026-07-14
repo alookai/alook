@@ -511,7 +511,7 @@ export type { PromptAgent, PromptMention, ParseResult } from "./utils/prompt-par
 export { MENTION_TOKEN_RE, stripMentionTokens } from "./utils/mention-token";
 export { isValidToken, isValidEmail } from "./utils/validation";
 export { escapeLikePattern } from "./utils/sql-like";
-export { isOnline, formatStatus } from "./utils/status";
+export { isOnline, formatStatus, isPresenceOnline, isPresenceOffline } from "./utils/status";
 export { isUniqueConstraintError } from "./utils/db-errors";
 export { generateWorkspaceSlug } from "./utils/slug";
 export { truncateTitle } from "./utils/title";
@@ -521,11 +521,23 @@ export {
   canSeePrivateChannel,
   isAssignableRole,
   isChannelType,
+  isForum,
+  isForumPost,
+  isThread,
   ROLES,
   ASSIGNABLE_ROLES,
   CHANNEL_TYPES,
 } from "./utils/community-roles";
-export type { CommunityRole, ChannelType, AssignableRole } from "./utils/community-roles";
+export type { CommunityRole, ChannelType, StoredChannelType, AssignableRole } from "./utils/community-roles";
+export {
+  isAccepted,
+  isPending,
+  isBlocked,
+  FRIENDSHIP_STATUS,
+} from "./utils/friendship";
+export type { FriendshipStatus } from "./utils/friendship";
+export { isPublic, isPrivate } from "./utils/visibility";
+export type { AgentVisibility } from "./utils/visibility";
 export { extractMentionedUserIds, MENTION_TYPES, isMentionType } from "./utils/community-mentions";
 export type { MentionCandidate, MentionType } from "./utils/community-mentions";
 export { semverGte } from "./semver";

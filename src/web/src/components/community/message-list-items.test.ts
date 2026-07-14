@@ -51,6 +51,48 @@ describe("flattenMessageItems", () => {
     expect(items.map((i) => i.kind)).toEqual(["date-divider", "message", "new-divider", "message"])
   })
 
+  it("emits a same-day new-divider with no dateLabel (no merge)", () => {
+    const items = flattenMessageItems(
+      [
+        msg({ id: "m1", createdAt: "2026-01-01T10:00:00.000Z" }),
+        msg({ id: "m2", createdAt: "2026-01-01T10:01:00.000Z" }),
+      ],
+      "m2",
+    )
+    const newDivider = items.find((i) => i.kind === "new-divider")!
+    expect(newDivider.dateLabel).toBeUndefined()
+  })
+
+  it("merges into ONE new-divider carrying a dateLabel when the unread anchor is the first message of a new day", () => {
+    const items = flattenMessageItems(
+      [
+        msg({ id: "m1", createdAt: "2026-01-01T12:00:00.000Z" }),
+        msg({ id: "m2", createdAt: "2026-01-02T12:00:00.000Z" }),
+      ],
+      "m2",
+    )
+    // No separate date-divider precedes the merged row — just message, then
+    // the single new-divider carrying the day's label, then the message.
+    expect(items.map((i) => i.kind)).toEqual(["date-divider", "message", "new-divider", "message"])
+    const dividers = items.filter((i) => i.kind === "date-divider")
+    expect(dividers).toHaveLength(1)
+    const newDivider = items.find((i) => i.kind === "new-divider")!
+    expect(typeof newDivider.dateLabel).toBe("string")
+    expect(newDivider.dateLabel!.length).toBeGreaterThan(0)
+  })
+
+  it("emits a plain date-divider (no new-divider) when there is no unread anchor", () => {
+    const items = flattenMessageItems(
+      [
+        msg({ id: "m1", createdAt: "2026-01-01T12:00:00.000Z" }),
+        msg({ id: "m2", createdAt: "2026-01-02T12:00:00.000Z" }),
+      ],
+      undefined,
+    )
+    expect(items.some((i) => i.kind === "new-divider")).toBe(false)
+    expect(items.filter((i) => i.kind === "date-divider")).toHaveLength(2)
+  })
+
   it("marks a message 'grouped' when it's a same-author chat reply within the grouping window on the same day", () => {
     const items = flattenMessageItems(
       [
@@ -161,6 +203,26 @@ describe("estimateRowHeight", () => {
     const newDivider = items.find((i) => i.kind === "new-divider")!
     const message = items.find((i) => i.kind === "message")!
     expect(estimateRowHeight(newDivider)).toBeLessThan(estimateRowHeight(message))
+  })
+
+  it("estimates a merged new-divider (with dateLabel) taller than a bare one, matching the date-divider height", () => {
+    const merged = flattenMessageItems(
+      [
+        msg({ id: "m1", createdAt: "2026-01-01T12:00:00.000Z" }),
+        msg({ id: "m2", createdAt: "2026-01-02T12:00:00.000Z" }),
+      ],
+      "m2",
+    ).find((i) => i.kind === "new-divider")!
+    const bare = flattenMessageItems(
+      [
+        msg({ id: "m1", createdAt: "2026-01-01T10:00:00.000Z" }),
+        msg({ id: "m2", createdAt: "2026-01-01T10:01:00.000Z" }),
+      ],
+      "m2",
+    ).find((i) => i.kind === "new-divider")!
+    const dateDivider = flattenMessageItems([msg({ id: "m1" })], undefined).find((i) => i.kind === "date-divider")!
+    expect(estimateRowHeight(merged)).toBeGreaterThan(estimateRowHeight(bare))
+    expect(estimateRowHeight(merged)).toBe(estimateRowHeight(dateDivider))
   })
 
   it("scales up with longer text content", () => {

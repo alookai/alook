@@ -3,6 +3,8 @@
 import { useState } from "react"
 import { Users, Pin, Search, MessagesSquare } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { onEnterSubmit } from "@/lib/ime"
+import { avatarInitial } from "@/lib/community/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PanelShell } from "./panel-shell"
 import { MemberList } from "./member-list"
@@ -78,7 +80,7 @@ export function RightPanelContent({
               className="flex w-full gap-2 rounded-md px-2 py-2 text-left hover:bg-accent"
             >
               <div className="size-6 shrink-0 rounded-full bg-muted grid place-items-center text-xs font-medium">
-                {m.authorAvatar ?? m.authorName?.charAt(0) ?? "?"}
+                {m.authorAvatar ?? avatarInitial(m.authorName ?? "")}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
@@ -178,7 +180,7 @@ function SearchPanel({ searchResults, initialQuery, showSearchInput, onOpenProfi
             placeholder="Search messages"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") submit() }}
+            onKeyDown={onEnterSubmit(submit)}
           />
         </div>
       )}

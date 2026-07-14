@@ -4,16 +4,18 @@ import { useState, useEffect, useMemo, useRef } from "react"
 import type React from "react"
 import { Users, MessagesSquare, ChevronLeft, Check, X, AtSign, UserMinus, Ban, UserPlus, Search } from "lucide-react"
 import { apiFetch, toastApiError } from "@/lib/api/client"
+import { isImeConfirming } from "@/lib/ime"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem, ContextMenuSeparator } from "@/components/ui/context-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Avatar } from "./avatar"
+import { avatarInitial } from "@/lib/community/avatar"
 import { EmptyState } from "./empty-state"
 import { hasStatus } from "./status-presets"
 import type { Friend, PendingRequest, BlockedUser, OpenProfile } from "./_types"
-import { isSelfBotFriendship } from "@alook/shared"
+import { isSelfBotFriendship, isPresenceOffline } from "@alook/shared"
 
 function FriendSection({ title, count, emptyLabel, children }: {
   title: string
@@ -101,9 +103,9 @@ export function FriendsPage({
             />
           }
         >
-          <Avatar label={f.avatar} seed={f.userId} size={32} presence={f.status} dim={f.status === "offline"} />
+          <Avatar label={f.avatar} seed={f.userId} size={32} presence={f.status} dim={isPresenceOffline(f.status)} />
           <div className="min-w-0 flex-1">
-            <div className={`truncate text-sm font-medium ${f.status === "offline" ? "text-muted-foreground" : ""}`}>
+            <div className={`truncate text-sm font-medium ${isPresenceOffline(f.status) ? "text-muted-foreground" : ""}`}>
               {f.name}
               {f.discriminator && (
                 <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">
@@ -202,7 +204,7 @@ export function FriendsPage({
                     placeholder="Search by username"
                     value={addValue}
                     onChange={(e) => setAddValue(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && addValue.trim()) sendRequest(addValue.trim()) }}
+                    onKeyDown={(e) => { if (isImeConfirming(e)) return; if (e.key === "Enter" && addValue.trim()) sendRequest(addValue.trim()) }}
                   />
                 </div>
                 <Button
@@ -223,7 +225,7 @@ export function FriendsPage({
                       onClick={() => sendRequest(u.name)}
                       className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-accent"
                     >
-                      <Avatar label={u.image ?? u.name.charAt(0).toUpperCase()} seed={u.id} size={28} />
+                      <Avatar label={u.image ?? avatarInitial(u.name)} seed={u.id} size={28} />
                       <span className="flex-1 min-w-0 truncate text-sm font-medium">
                         {u.name}
                         <span className="ml-1 text-xs font-normal tracking-wide text-muted-foreground">

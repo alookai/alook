@@ -1,6 +1,7 @@
 import type React from "react"
 import { Avatar as UiAvatar, AvatarImage, AvatarFallback, AvatarBadge } from "@/components/ui/avatar"
 import { AvatarRenderer, parseAvatarUrl, configFromName } from "@/components/avatar"
+import { avatarInitial } from "@/lib/community/avatar"
 import type { Presence } from "./_types"
 
 const STATUS_COLOR: Record<Presence, string> = {
@@ -56,7 +57,7 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
         <>
           <AvatarImage src={imageUrl} alt={safeLabel} />
           <AvatarFallback className="font-medium" style={{ fontSize: size * 0.4 }}>
-            {safeLabel.charAt(0).toUpperCase()}
+            {avatarInitial(safeLabel)}
           </AvatarFallback>
         </>
       ) : avatarConfig ? (
@@ -74,7 +75,7 @@ export function Avatar({ label, seed, src, size = 40, dim = false, presence, rin
         </span>
       ) : (
         <AvatarFallback className="font-medium" style={{ fontSize: size * 0.4 }}>
-          {safeLabel.charAt(0).toUpperCase()}
+          {avatarInitial(safeLabel)}
         </AvatarFallback>
       )}
       {presence && (

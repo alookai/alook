@@ -1,12 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { Lock } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
+import { onEnterSubmit } from "@/lib/ime"
 import { Field } from "./field"
+import { PrivateCategoryRow } from "./private-category-row"
 
 // Create Category dialog — name + private toggle (defaults to public). In a
 // private category any member can create a channel, but each channel is visible
@@ -36,24 +36,13 @@ export function CreateCategoryDialog({ onClose, onCreate, canTogglePrivate = tru
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") submit() }}
+              onKeyDown={onEnterSubmit(submit)}
               placeholder="e.g. text channels"
               autoFocus
             />
           </Field>
           {canTogglePrivate && (
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2">
-                <Lock className="size-4 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1 text-sm font-medium">Private category</div>
-                <Switch checked={isPrivate} onCheckedChange={setIsPrivate} />
-              </label>
-              <p className="text-right text-xs text-muted-foreground">
-                {isPrivate
-                  ? "Members create their own channels here, visible only to invited members."
-                  : "Channels here are admin-managed and visible to everyone."}
-              </p>
-            </div>
+            <PrivateCategoryRow isPrivate={isPrivate} onToggle={setIsPrivate} />
           )}
         </div>
         <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-4 py-3">

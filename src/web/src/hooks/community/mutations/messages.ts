@@ -14,6 +14,7 @@ import type { Msg, Attachment } from "@/components/community/_types"
 import type { MessagesPage } from "@/hooks/community/use-messages"
 import type { PinsResponse } from "@/hooks/community/use-channel-panels"
 import type { MentionType } from "@alook/shared"
+import { isBlocked } from "@alook/shared"
 
 /**
  * Message-scoped mutation hooks — the split of the God-context's
@@ -301,7 +302,7 @@ export function useSendDmMessage() {
       // scrub the optimistic row and show a scoped toast rather than leaving a
       // `failed: true` bubble in place. Mirrors the old context's `onBlocked`
       // branch at contexts/community/context.tsx:1021-1027.
-      if (err instanceof ApiError && err.status === 403 && err.message === "blocked") {
+      if (err instanceof ApiError && err.status === 403 && isBlocked(err.message)) {
         queryClient.setQueryData<PageCache>(ctx.key as ReturnType<typeof communityKeys.dmMessages>, (c) =>
           removeById(c, ctx.tempId),
         )

@@ -2,6 +2,7 @@ import { eq, and, or, isNull, inArray } from "drizzle-orm";
 import { communityFriendship, communityUserProfile } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
+import { isAccepted, isBlocked as isBlockedStatus } from "../../../utils/friendship";
 
 // Re-export from the client-safe constants module so existing
 // `queries.communityFriendship.isSelfBotFriendship` call-sites keep working
@@ -61,10 +62,10 @@ export async function sendRequest(
   const existing = await findExisting(db, data.requesterId, data.addresseeId);
 
   if (existing) {
-    if (existing.status === "blocked") {
+    if (isBlockedStatus(existing.status)) {
       throw new Error("blocked");
     }
-    if (existing.status === "accepted") {
+    if (isAccepted(existing.status)) {
       throw new Error("already friends");
     }
     // status === "pending"
@@ -168,7 +169,7 @@ export async function block(
 
   let removedFriendshipId: string | null = null;
   if (existing) {
-    if (existing.status === "blocked") {
+    if (isBlockedStatus(existing.status)) {
       // Already blocked — keep it idempotent; just refresh `updatedAt` so
       // anyone re-issuing the block sees a current timestamp.
       const rows = await db
@@ -186,7 +187,7 @@ export async function block(
       .where(eq(communityFriendship.id, existing.id));
     // Tell the route whether to broadcast friend.remove — only if we just
     // tore down a real friendship, not a pending request.
-    if (existing.status === "accepted") {
+    if (isAccepted(existing.status)) {
       removedFriendshipId = existing.id;
     }
   }
@@ -454,8 +455,8 @@ export async function createAcceptedFriendship(
 ): Promise<typeof communityFriendship.$inferSelect | null> {
   const existing = await findExisting(db, data.requesterId, data.addresseeId);
   if (existing) {
-    if (existing.status === "accepted") return existing;
-    if (existing.status === "blocked") return null;
+    if (isAccepted(existing.status)) return existing;
+    if (isBlockedStatus(existing.status)) return null;
     // pending — promote to accepted
     const rows = await db
       .update(communityFriendship)

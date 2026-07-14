@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db"
 import { createAuth } from "@/lib/auth"
 import { bindCacheKV } from "@/lib/cache"
 import { requireChannelMember, requireDMParticipant } from "@/lib/community/permissions"
+import { isChannelTarget, isThreadTarget, isDmTarget } from "@/lib/community/message-handler"
 
 // Reject any segment that could smuggle traversal or escape the bucket.
 function isSafeSegment(s: string): boolean {
@@ -46,11 +47,11 @@ export const GET = async (
 
   // Authorize by resource kind. Each branch loads the parent resource and
   // verifies membership/participation BEFORE serving any bytes.
-  if (kind === "channel" || kind === "thread") {
+  if (isChannelTarget(kind) || isThreadTarget(kind)) {
     if (!id) return writeError("not found", 404)
     const check = await requireChannelMember(db, id, userId)
     if (!check.ok) return writeError(check.error, check.status)
-  } else if (kind === "dm") {
+  } else if (isDmTarget(kind)) {
     if (!id) return writeError("not found", 404)
     // Block check is inherited from `requireDMParticipant` — do not re-inline.
     const check = await requireDMParticipant(db, id, userId)

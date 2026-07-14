@@ -1,6 +1,7 @@
 import { eq, and, desc, or, exists, inArray } from "drizzle-orm";
 import { agent, agentAccess } from "../schema";
 import type { Database } from "../index";
+import { isPublic } from "../../utils/visibility";
 
 export async function getAgent(db: Database, id: string, workspaceId: string, userId?: string) {
   const rows = await db
@@ -9,7 +10,7 @@ export async function getAgent(db: Database, id: string, workspaceId: string, us
     .where(and(eq(agent.id, id), eq(agent.workspaceId, workspaceId)));
   const row = rows[0] ?? null;
   if (!row || !userId) return row;
-  if (row.visibility === "public" || row.ownerId === userId) return row;
+  if (isPublic(row.visibility) || row.ownerId === userId) return row;
   const access = await db
     .select({ id: agentAccess.id })
     .from(agentAccess)

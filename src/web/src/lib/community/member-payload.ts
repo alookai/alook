@@ -44,12 +44,19 @@ export type MappedMember = {
 // owner-scoped `isBot`/`ownerUserId` projection. The search route never emitted
 // bot fields (and doesn't select the columns), so it passes `botGating: false`
 // to stay byte-identical.
+export function memberDisplay(
+  nickname: string | null | undefined,
+  userName: string | null | undefined,
+): string {
+  return nickname ?? userName ?? ""
+}
+
 export function mapMemberForApi(
   row: MemberRow,
   viewerUserId: string,
   opts?: { botGating?: boolean; isCreator?: boolean; source?: string },
 ): MappedMember {
-  const display = row.nickname ?? row.userName ?? ""
+  const display = memberDisplay(row.nickname, row.userName)
   const isOwnBot =
     !!opts?.botGating &&
     row.userIsBot === true &&

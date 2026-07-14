@@ -12,6 +12,7 @@ import { communityUserProfile } from "../../community-schema";
 import type { Database } from "../../index";
 import { BOT_ACTIVITY_PRESETS, RUNNING_PRESETS } from "../../../community/bot-activity-presets";
 import { COMMUNITY_MACHINE_PAIR_TOKEN_TTL_MS } from "../../../constants";
+import { isPresenceOnline } from "../../../utils/status";
 import type {
   CommunityMachineRuntime,
   CommunityMachineSummary,
@@ -1009,7 +1010,7 @@ export async function isBotOnline(db: Database, botUserId: string): Promise<bool
       ),
     )
     .limit(1);
-  return rows.length > 0 && rows[0]!.status === "online";
+  return rows.length > 0 && isPresenceOnline(rows[0]!.status);
 }
 
 /**

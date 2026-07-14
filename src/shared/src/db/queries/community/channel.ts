@@ -8,7 +8,7 @@ import {
 } from "../../community-schema";
 import type { Database } from "../../index";
 import { createLogger } from "../../../logger";
-import { canManageServer, canSeePrivateChannel } from "../../../utils/community-roles";
+import { canManageServer, canSeePrivateChannel, isForum, isForumPost } from "../../../utils/community-roles";
 
 // Module-level logger — one tag per shared query module.
 const log = createLogger({ service: "community-queries" });
@@ -76,7 +76,7 @@ export async function createChannel(
     .insert(communityChannel)
     .values({
       serverId: data.serverId,
-      categoryId: data.categoryId ?? null,
+      categoryId: data.categoryId || null,
       name: data.name,
       type: data.type ?? "text",
       topic: data.topic ?? "",
@@ -149,7 +149,7 @@ export async function getChannelForMember(db: Database, channelId: string, userI
   // post/channel, parent for a thread) and its creator. For a post the roster
   // creator is the post's own (already in `channelRow`, no extra query); the
   // roster member-row lookup targets `rosterAnchorId`.
-  const isPost = channelRow.type === "forum_post";
+  const isPost = isForumPost(channelRow.type);
   const privacyAnchorId = channelRow.parentChannelId ?? channelRow.id;
   const rosterAnchorId = isPost ? channelRow.id : privacyAnchorId;
 
@@ -173,10 +173,10 @@ export async function getChannelForMember(db: Database, channelId: string, userI
     // child post); everything else checks a row on the roster anchor. NOTE:
     // admins have NO content privilege for private units — no role short-circuit
     // here; an admin must be the creator or an explicit member to see it.
-    const isForum = channelRow.type === "forum";
+    const channelIsForum = isForum(channelRow.type);
     const isMember = isCreator
       ? false
-      : isForum
+      : channelIsForum
         ? await isMemberOfAnyChildPost(db, channelRow.id, userId)
         : await isChannelMember(db, rosterAnchorId, userId);
     if (!canSeePrivateChannel({ isCreator, isChannelMember: isMember })) {
@@ -676,7 +676,7 @@ export async function getPrivateChannelAudienceUserIds(
   //   - thread     → climbs to the parent channel's audience (a thread never
   //     narrows access).
   //   - text channel → its own explicit members ∪ its own creator.
-  if (type === "forum") {
+  if (isForum(type)) {
     // Derived union = every post's own members ∪ every post's creator ∪ the
     // forum creator. Computed in a fixed number of queries (list posts, then one
     // `inArray` over their member rows) — NOT a per-post recursion (that was an
@@ -700,9 +700,9 @@ export async function getPrivateChannelAudienceUserIds(
 
   // post → roster on self; thread/channel → climb to the anchor.
   const rosterAnchorId =
-    type === "forum_post" ? target[0]!.id : (target[0]!.parentChannelId ?? target[0]!.id);
+    isForumPost(type) ? target[0]!.id : (target[0]!.parentChannelId ?? target[0]!.id);
   const rosterCreatorId =
-    type === "forum_post"
+    isForumPost(type)
       ? target[0]!.creatorId
       : (await db
           .select({ creatorId: communityChannel.creatorId })
@@ -810,7 +810,7 @@ async function resolveVisibleChannelIdSet(
   const byId = new Map(rows.map((r) => [r.id, r]));
   const postsByForum = new Map<string, typeof rows>();
   for (const r of rows) {
-    if (r.type === "forum_post" && r.parentChannelId) {
+    if (isForumPost(r.type) && r.parentChannelId) {
       const list = postsByForum.get(r.parentChannelId) ?? [];
       list.push(r);
       postsByForum.set(r.parentChannelId, list);
@@ -827,7 +827,7 @@ async function resolveVisibleChannelIdSet(
       visible.add(r.id);
       continue;
     }
-    if (r.type === "forum") {
+    if (isForum(r.type)) {
       const posts = postsByForum.get(r.id) ?? [];
       if (posts.some((p) => p.creatorId === userId || memberChannelIds.has(p.id))) {
         visible.add(r.id);
@@ -842,7 +842,7 @@ async function resolveVisibleChannelIdSet(
     if (r.parentChannelId == null) continue;
     const parent = byId.get(r.parentChannelId);
     if (!parent) continue;
-    if (r.type === "forum_post") {
+    if (isForumPost(r.type)) {
       // Public forum → post public; private forum → creator or own member row.
       if (!isPrivate(parent) || r.creatorId === userId || memberChannelIds.has(r.id)) {
         visible.add(r.id);
@@ -956,7 +956,7 @@ export async function resolveChannelAccessContext(
   //   - forum post → privacy climbs to the forum (its category), but the ROSTER
   //     (member rows + creator) is the post's OWN id.
   //   - thread / top-level channel → privacy anchor == roster anchor.
-  const isPost = channel.type === "forum_post";
+  const isPost = isForumPost(channel.type);
   const rosterAnchorId = isPost ? channel.id : anchorId;
   const rosterCreatorId = isPost ? channel.creatorId : anchor.creatorId;
 
@@ -972,10 +972,10 @@ export async function resolveChannelAccessContext(
 
   // A FORUM's access is derived from its posts (member of any child post);
   // everything else checks a member row on the roster anchor.
-  const isForum = channel.type === "forum";
+  const channelIsForum = isForum(channel.type);
   const memberFlag =
     categoryPrivate === 1
-      ? isForum
+      ? channelIsForum
         ? await isMemberOfAnyChildPost(db, channel.id, userId)
         : await isChannelMember(db, rosterAnchorId, userId)
       : false;

@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { ChevronLeft, Monitor } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import type { CommunityMachineSummary } from "@alook/shared"
+import { isPresenceOnline } from "@alook/shared"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -44,7 +45,7 @@ export function MachineList({ onBack }: { onBack?: () => void } = {}) {
     const justConnected = machines.find(
       (m) =>
         m.lastSeenAt &&
-        m.status === "online" &&
+        isPresenceOnline(m.status) &&
         pendingMachineTokenId === pendingTokenId
     )
     if (justConnected && !connectedHostname) {

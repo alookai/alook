@@ -7,6 +7,7 @@ import { useMemo } from "react"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useUiHandlers } from "@/stores/community"
 import { useOnlineUserIds, useCommunityWsStore } from "@/stores/community/ws"
+import { resolveRowPresence } from "@/lib/community/presence"
 import {
   useSendFriendRequest,
   useAcceptFriendRequest,
@@ -32,9 +33,7 @@ export default function MeFriendsPage() {
         const liveStatus = userStatuses.get(f.userId ?? f.id)
         return {
           ...f,
-          status: onlineUserIds.has(f.userId ?? f.id)
-            ? ("online" as const)
-            : ("offline" as const),
+          status: resolveRowPresence(f, onlineUserIds),
           statusEmoji: liveStatus ? liveStatus.emoji : f.statusEmoji,
           statusText: liveStatus ? liveStatus.text : f.statusText,
         }

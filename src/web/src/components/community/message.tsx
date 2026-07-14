@@ -15,6 +15,8 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { NumberTicker } from "@/components/ui/number-ticker"
 import { MessageContextItems, MessageDropdownItems, hasMessageMenu } from "./message-menu"
 import { formatMessageTime } from "./format-time"
+import { avatarInitial } from "@/lib/community/avatar"
+import { displayName } from "@/lib/community/display-name"
 import type { RenderMsg, OpenProfile } from "./_types"
 
 // Fallback ratio for an attachment image with no known dimensions
@@ -195,7 +197,7 @@ export function Message({
                         {embed.author.iconUrl ? (
                           <img src={embed.author.iconUrl} alt="" className="size-5 rounded-full" />
                         ) : (
-                          <span className="grid size-5 place-items-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground">{embed.author.name.charAt(0)}</span>
+                          <span className="grid size-5 place-items-center rounded-full bg-muted text-[9px] font-semibold text-muted-foreground">{avatarInitial(embed.author.name)}</span>
                         )}
                         {embed.author.url ? (
                           <a href={embed.author.url} target="_blank" rel="noopener noreferrer" className="text-xs font-medium hover:underline">{embed.author.name}</a>
@@ -247,7 +249,7 @@ export function Message({
             <div className="mt-2 flex flex-wrap gap-1">
               {m.reactions.map((r, i) => {
                 const names = r.userIds?.length
-                  ? r.userIds.map((id) => resolveUserName?.(id) ?? id).join(", ")
+                  ? r.userIds.map((id) => resolveUserName?.(id) ?? displayName(null)).join(", ")
                   : undefined
                 const chip = (
                   <button

@@ -1,11 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { Lock } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { onEnterSubmit } from "@/lib/ime"
 import { Field } from "./field"
+import { PrivateCategoryRow } from "./private-category-row"
 
 // Category settings dialog — rename only. Privacy (public/private) is fixed at
 // creation and can't be changed here: flipping it would silently widen/tighten
@@ -35,22 +36,12 @@ export function CategorySettingsDialog({ name, isPrivate, onClose, onSave }: {
             <Input
               value={nameDraft}
               onChange={(e) => setNameDraft(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") save() }}
+              onKeyDown={onEnterSubmit(save)}
               placeholder="e.g. text channels"
               autoFocus
             />
           </Field>
-          {isPrivate && (
-            <div className="flex items-center gap-3 rounded-md border border-border bg-card px-3 py-2">
-              <Lock className="size-4 shrink-0 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">Private category</div>
-                <div className="text-xs text-muted-foreground">
-                  Members create their own channels here, visible only to invited members. Privacy can&apos;t be changed after creation.
-                </div>
-              </div>
-            </div>
-          )}
+          {isPrivate && <PrivateCategoryRow isPrivate locked />}
         </div>
         <DialogFooter className="mx-0 mb-0 flex-row items-center justify-end gap-2 rounded-b-xl border-t border-border bg-card px-4 py-3">
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>

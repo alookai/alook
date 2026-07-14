@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import { toastApiError } from "@/lib/api/client"
+import { isPresenceOnline } from "@alook/shared"
+import { machineName } from "@/lib/community/machine-name"
 import {
   Sheet,
   SheetBody,
@@ -41,15 +43,6 @@ const INITIAL_AVATAR: AvatarConfig = {
 
 function randomBotName(): string {
   return uniqueNamesGenerator({ dictionaries: [names], length: 1, style: "capital" })
-}
-
-function machineLabel(m: {
-  displayName?: string | null
-  hostname?: string | null
-  id: string
-}): string {
-  const name = m.displayName?.trim() || m.hostname?.trim()
-  return name || "Unnamed machine"
 }
 
 export function CreateBotSheet({
@@ -196,7 +189,7 @@ export function CreateBotSheet({
             ) : (
               <div className="flex flex-col gap-2" role="radiogroup" aria-label="Machine">
                 {machines.map((m) => {
-                  const online = m.status === "online"
+                  const online = isPresenceOnline(m.status)
                   const selected = machineId === m.id
                   return (
                     <label
@@ -216,7 +209,7 @@ export function CreateBotSheet({
                         onChange={() => selectMachine(m.id)}
                         className="accent-primary size-3.5"
                       />
-                      <span className="text-sm">{machineLabel(m)}</span>
+                      <span className="text-sm">{machineName(m)}</span>
                       <span
                         className={cn(
                           "ml-auto inline-flex items-center gap-1 text-xs",

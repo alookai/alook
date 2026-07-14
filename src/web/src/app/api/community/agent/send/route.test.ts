@@ -61,7 +61,8 @@ vi.mock("@alook/shared", async () => {
 })
 
 const mockCreateCommunityMessage = vi.fn()
-vi.mock("@/lib/community/message-handler", () => ({
+vi.mock("@/lib/community/message-handler", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/community/message-handler")>()),
   createCommunityMessage: (...a: unknown[]) => mockCreateCommunityMessage(...a),
 }))
 

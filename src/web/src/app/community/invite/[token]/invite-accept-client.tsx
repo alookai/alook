@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { avatarInitial } from "@/lib/community/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
@@ -102,7 +103,7 @@ export function InviteAcceptClient({ token }: { token: string }) {
             <img src={info.serverIcon} alt={info.serverName} className="size-20 rounded-full object-cover" />
           ) : (
             <span className="text-3xl font-semibold text-muted-foreground">
-              {info?.serverName.charAt(0).toUpperCase() ?? "?"}
+              {info ? avatarInitial(info.serverName) : "?"}
             </span>
           )}
         </div>

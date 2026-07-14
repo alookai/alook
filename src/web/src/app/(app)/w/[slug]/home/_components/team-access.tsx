@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { useWorkspace } from "@/contexts/workspace-context";
 import { ArrowUpRight } from "lucide-react";
 import type { WorkspaceOverview } from "@/lib/api";
+import { displayName } from "@/lib/community/display-name";
+import { avatarInitial } from "@/lib/community/avatar";
 
 interface TeamAccessProps {
   overview: WorkspaceOverview;
@@ -49,12 +51,12 @@ export function TeamAccess({ overview }: TeamAccessProps) {
                 />
               ) : (
                 <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-medium">
-                  {(m.name || m.email).charAt(0).toUpperCase()}
+                  {avatarInitial(displayName(m))}
                 </div>
               )}
               <div className="flex-1 min-w-0">
                 <span className="text-sm font-medium truncate block">
-                  {m.name || m.email}
+                  {displayName(m)}
                 </span>
                 {m.name && (
                   <span className="text-xs text-muted-foreground truncate block">

@@ -16,6 +16,8 @@ import {
   useUiHandlers,
 } from "@/stores/community"
 import { useOnlineUserIds, useCommunityWsStore } from "@/stores/community/ws"
+import { resolveRowPresence } from "@/lib/community/presence"
+import { makeUserNameResolver } from "@/lib/community/display-name"
 import { useDms } from "@/hooks/community/use-dms"
 import { useFriends } from "@/hooks/community/use-friends"
 import { useDmMessages } from "@/hooks/community/use-messages"
@@ -65,9 +67,7 @@ function DmView() {
         const liveStatus = userStatuses.get(f.userId ?? f.id)
         return {
           ...f,
-          status: onlineUserIds.has(f.userId ?? f.id)
-            ? ("online" as const)
-            : ("offline" as const),
+          status: resolveRowPresence(f, onlineUserIds),
           statusEmoji: liveStatus ? liveStatus.emoji : f.statusEmoji,
           statusText: liveStatus ? liveStatus.text : f.statusText,
         }
@@ -198,9 +198,7 @@ function DmView() {
     if (!raw) return null
     return {
       ...raw,
-      status: onlineUserIds.has(raw.userId)
-        ? ("online" as const)
-        : ("offline" as const),
+      status: resolveRowPresence(raw, onlineUserIds),
     }
   }, [dms, dmId, onlineUserIds])
 
@@ -208,10 +206,7 @@ function DmView() {
     uiHandlers.openProfile?.(name, e, discriminator, userId)
   }
 
-  const resolveUserName = useCallback((userId: string) => {
-    const f = friends.find((x) => x.userId === userId)
-    return f?.name ?? userId
-  }, [friends])
+  const resolveUserName = useMemo(() => makeUserNameResolver(friends), [friends])
 
   const messageActions = useMemo(() => ({
     onToggleReaction: (id: string, emoji: string) =>
@@ -334,9 +329,9 @@ function DmView() {
             // In a DM there are only two participants — if the typing id
             // matches the DM's counterpart, use their DM display name.
             // Fall back to friends list (adds names for friend-typers in
-            // group DMs when we add them) and finally to the raw id.
+            // group DMs when we add them) and finally to "Unknown member".
             if (dm && id === dm.userId) return dm.name
-            return friends.find((f) => f.userId === id)?.name ?? id
+            return resolveUserName(id)
           })}
           onOpenThread={() => { }}
           onToggleReaction={dmBlocked ? undefined : messageActions.onToggleReaction}

@@ -360,7 +360,7 @@ export function MessageList({
                       }}
                     >
                       {item.kind === "date-divider" && <DateDivider label={item.label} />}
-                      {item.kind === "new-divider" && <NewDivider />}
+                      {item.kind === "new-divider" && <NewDivider dateLabel={item.dateLabel} />}
                       {item.kind === "message" && (
                         // `data-msg-id` anchors the IntersectionObserver in
                         // `useChannelWatermark` — every currently-rendered

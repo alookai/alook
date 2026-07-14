@@ -4,7 +4,9 @@ import { useEffect, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Bell, BellOff, Pin, Users, MessagesSquare, ChevronLeft, Check, Pencil, MoreHorizontal } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { avatarInitial } from "@/lib/community/avatar"
 import { Input } from "@/components/ui/input"
+import { onEnterSubmit } from "@/lib/ime"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -172,7 +174,7 @@ export function ServerCrumb({ id, name, icon, size = 5, className = "" }: { id: 
       aria-label={name}
       title={name}
     >
-      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : name.charAt(0).toUpperCase()}
+      {icon ? <img src={icon} alt="" className="size-full object-cover" /> : avatarInitial(name)}
     </span>
   )
 }
@@ -245,7 +247,7 @@ function BreadcrumbRename({ label, onRename }: { label: string; onRename: (name:
                 <Input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") save() }}
+                  onKeyDown={onEnterSubmit(save)}
                   placeholder="thread-name"
                   className="h-10"
                   autoFocus

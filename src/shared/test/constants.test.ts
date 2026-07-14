@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import {
   POLL_INTERVAL_MS, OFFLINE_THRESHOLD_MS, EVENT_POLL_INTERVAL_MS, AGENT_HANDLE_MIN_LENGTH,
+  COMMUNITY_MACHINE_HEARTBEAT_MS, COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS,
   TaskStatus, TERMINAL_TASK_STATUSES, isTerminalTaskStatus,
   IssueStatus, ACTIVE_ISSUE_STATUSES, TERMINAL_ISSUE_STATUSES, isTerminalIssueStatus,
   MeetingStatus, TERMINAL_MEETING_STATUSES,
@@ -10,6 +11,14 @@ describe("constants", () => {
   it("OFFLINE_THRESHOLD_MS is 30s", () => expect(OFFLINE_THRESHOLD_MS).toBe(30_000))
   it("AGENT_HANDLE_MIN_LENGTH is 4", () => expect(AGENT_HANDLE_MIN_LENGTH).toBe(4))
   it("EVENT_POLL < POLL_INTERVAL", () => expect(EVENT_POLL_INTERVAL_MS).toBeLessThan(POLL_INTERVAL_MS))
+  // Derived-pair invariant: the DO alarm re-arms on the heartbeat cadence and
+  // only flips a machine offline after the offline threshold elapses, so the
+  // heartbeat MUST be strictly less than the offline threshold or machines
+  // flap offline at the heartbeat boundary.
+  it("machine heartbeat < machine offline threshold", () =>
+    expect(COMMUNITY_MACHINE_HEARTBEAT_MS).toBeLessThan(COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS))
+  it("machine offline threshold is derived as 3× heartbeat", () =>
+    expect(COMMUNITY_MACHINE_OFFLINE_THRESHOLD_MS).toBe(3 * COMMUNITY_MACHINE_HEARTBEAT_MS))
 })
 
 describe("TaskStatus", () => {

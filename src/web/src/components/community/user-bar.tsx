@@ -5,6 +5,11 @@ import { Inbox, Settings } from "lucide-react"
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover"
 import { Avatar } from "./avatar"
 import type { OpenProfile } from "./_types"
+import { resolveProfilePresence } from "@/lib/community/presence"
+
+// UserBar always renders the signed-in viewer, so presence resolves through
+// the self → online branch and never consults an online set.
+const EMPTY_ONLINE_SET: ReadonlySet<string> = new Set()
 
 export function UserBar({ user, onOpenProfile, onEditProfile, inbox, hasUnread }: {
   user: { id: string; name: string; avatar: string }
@@ -32,7 +37,7 @@ function Inner({ user, onOpenProfile, onEditProfile, inbox, hasUnread }: {
   return (
     <div className="flex flex-1 items-center gap-2">
       <button onClick={(e) => onOpenProfile?.(user.name, e)} className="shrink-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
-        <Avatar label={user.avatar} seed={user.id} size={28} presence="online" ringColor="var(--muted)" />
+        <Avatar label={user.avatar} seed={user.id} size={28} presence={resolveProfilePresence(true, user.id, EMPTY_ONLINE_SET)} ringColor="var(--muted)" />
       </button>
       <button onClick={(e) => onOpenProfile?.(user.name, e)} className="min-w-0 flex-1 text-left rounded focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
         <div className="truncate text-sm font-medium leading-tight">{user.name}</div>

@@ -15,6 +15,10 @@ import { AddMembersDialog } from "@/components/community/add-members-dialog"
 import type { RightPanel, Msg, OpenProfile, Role } from "@/components/community/_types"
 import { canManageServer } from "@/components/community/_types"
 import type { MentionType } from "@alook/shared"
+import { isForum as isForumType } from "@alook/shared"
+import { resolveRowPresence } from "@/lib/community/presence"
+import { makeUserNameResolver, displayName } from "@/lib/community/display-name"
+import { avatarInitial } from "@/lib/community/avatar"
 import {
   useCommunityStore,
   useCurrentChannelId,
@@ -102,9 +106,7 @@ function ChannelView() {
         const liveStatus = userStatuses.get(m.userId)
         return {
           ...m,
-          status: m.userId === currentUser.id || onlineUserIds.has(m.userId)
-            ? ("online" as const)
-            : ("offline" as const),
+          status: resolveRowPresence(m, onlineUserIds, currentUser.id),
           statusEmoji: liveStatus ? liveStatus.emoji : m.statusEmoji,
           statusText: liveStatus ? liveStatus.text : m.statusText,
         }
@@ -118,7 +120,7 @@ function ChannelView() {
     const allChannels = currentServer?.categories?.flatMap((c) => c.channels) ?? []
     return allChannels.find((ch) => ch.id === channelId) ?? null
   }, [currentServer, channelId])
-  const isForum = channelInServer?.type === "forum"
+  const isForum = isForumType(channelInServer?.type)
   const isChildChannel = !channelInServer && !!currentServer?.categories
   // A thread is a child channel rooted on a message (`parentMessageId`). Forum
   // posts are child channels too but have no `parentMessageId`. Threads are the
@@ -180,10 +182,7 @@ function ChannelView() {
         avatar: m.avatar,
         sub: "",
         role: "member" as const,
-        status:
-          m.userId === currentUser.id || onlineUserIds.has(m.userId)
-            ? ("online" as const)
-            : ("offline" as const),
+        status: resolveRowPresence(m, onlineUserIds, currentUser.id),
         statusEmoji: liveStatus ? liveStatus.emoji : (m.statusEmoji ?? null),
         statusText: liveStatus ? liveStatus.text : (m.statusText ?? ""),
         isCreator: m.isCreator,
@@ -199,7 +198,7 @@ function ChannelView() {
         .filter((p) => matches(p.name ?? "", p.discriminator))
         .map((p) => withPresence({
           userId: p.userId,
-          name: p.name ?? "Unknown",
+          name: displayName(p),
           discriminator: p.discriminator ?? undefined,
           avatar: p.avatar,
           // Thread rows are all real participants (removable); the thread
@@ -249,7 +248,7 @@ function ChannelView() {
         const liveStatus = userStatuses.get(m.userId)
         return {
           ...m,
-          status: onlineUserIds.has(m.userId) ? ("online" as const) : ("offline" as const),
+          status: resolveRowPresence(m, onlineUserIds, currentUser.id),
           statusEmoji: liveStatus ? liveStatus.emoji : m.statusEmoji,
           statusText: liveStatus ? liveStatus.text : m.statusText,
         }
@@ -511,7 +510,7 @@ function ChannelView() {
         id: r.message.id,
         type: "chat" as const,
         authorName: r.author.name,
-        authorAvatar: r.author.image ?? r.author.name.charAt(0).toUpperCase(),
+        authorAvatar: r.author.image ?? avatarInitial(r.author.name),
         content: r.message.content,
         createdAt: r.message.createdAt,
       })))
@@ -636,10 +635,7 @@ function ChannelView() {
 
   const threadActions = { ...messageActions, onCreateThread: undefined }
 
-  const resolveUserName = useCallback((userId: string) => {
-    const m = members.find((x) => x.userId === userId)
-    return m?.name ?? userId
-  }, [members])
+  const resolveUserName = useMemo(() => makeUserNameResolver(members), [members])
 
   // ── Send messages ───────────────────────────────────────────────────────
   const sendMessage = async (markdown: string, attachments?: SendAttachment[], mentionType?: MentionType) => {
@@ -867,7 +863,7 @@ function ChannelView() {
       <>
         <ChannelHeader
           channel={parentName}
-          forum={parentChannel?.type === "forum"}
+          forum={isForumType(parentChannel?.type)}
           rightPanel={rightPanel}
           onToggle={togglePanel}
           onBack={bp === "mobile" ? () => router.back() : undefined}
@@ -894,7 +890,7 @@ function ChannelView() {
             messages={messages}
             loading={messagesLoading}
             pinnedIds={pinnedIds}
-            typingUsers={typingUsers.map((id) => members.find((m) => m.userId === id)?.name ?? id)}
+            typingUsers={typingUsers.map((id) => resolveUserName(id))}
             onOpenThread={() => { }}
             {...threadActions}
             onOpenProfile={openProfile}
@@ -1015,7 +1011,7 @@ function ChannelView() {
           loading={messagesLoading}
           pinnedIds={pinnedIds}
           newDividerBefore={newDividerBefore}
-          typingUsers={typingUsers.map((id) => members.find((m) => m.userId === id)?.name ?? id)}
+          typingUsers={typingUsers.map((id) => resolveUserName(id))}
           onOpenThread={enterThread}
           {...messageActions}
           onOpenProfile={openProfile}

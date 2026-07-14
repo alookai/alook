@@ -6,17 +6,40 @@ describe("generateGradient", () => {
     expect(generateGradient("Gener")).toBe(generateGradient("Gener"))
   })
 
+  const hueRegex = /oklch\(0\.\d+ 0\.\d+ (\d+(?:\.\d+)?)\)/g
+  const huesOf = (css: string) => [...css.matchAll(hueRegex)].map((m) => Number(m[1]))
+
   it("stays within the documented warm band (60-80) for both hues", () => {
-    const hueRegex = /oklch\(0\.\d+ 0\.\d+ (\d+(?:\.\d+)?)\)/g
     for (const name of ["Gener", "Gus", "Lindsay", "a", "some really long name here"]) {
-      const css = generateGradient(name)
-      const hues = [...css.matchAll(hueRegex)].map((m) => Number(m[1]))
+      const hues = huesOf(generateGradient(name))
       expect(hues).toHaveLength(2)
       for (const hue of hues) {
         expect(hue).toBeGreaterThanOrEqual(60)
         expect(hue).toBeLessThanOrEqual(80)
       }
     }
+  })
+
+  it("keeps chroma desaturated (<= 0.09) per DESIGN.md", () => {
+    const chromaRegex = /oklch\(0\.\d+ (0\.\d+) \d/g
+    for (const name of ["Gener", "Gus", "Lindsay", "a", "some really long name here"]) {
+      const chromas = [...generateGradient(name).matchAll(chromaRegex)].map((m) => Number(m[1]))
+      expect(chromas).toHaveLength(2)
+      for (const c of chromas) expect(c).toBeLessThanOrEqual(0.09)
+    }
+  })
+
+  it("de-quantizes hue2 — spans more than the old 3 values across seeds", () => {
+    const seeds = Array.from({ length: 200 }, (_, i) => `usr_${i}_${(i * 31) % 97}`)
+    const hue2s = new Set(seeds.map((s) => huesOf(generateGradient(s))[1]))
+    expect(hue2s.size).toBeGreaterThan(3)
+  })
+
+  it("gives two different seeds different gradients (hue2 varies independently)", () => {
+    const a = huesOf(generateGradient("usr_seed_one"))[1]
+    const b = huesOf(generateGradient("usr_seed_two"))[1]
+    const c = huesOf(generateGradient("usr_seed_three"))[1]
+    expect(new Set([a, b, c]).size).toBeGreaterThan(1)
   })
 
   it("varies across different names", () => {

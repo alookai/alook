@@ -18,6 +18,7 @@ import { ImageCropDialog } from "@/components/community/image-crop-dialog"
 import { validateIconSourceFile } from "@/lib/community/image-crop"
 import type { MobileZone, SettingsSection } from "@/components/community/_types"
 import { canManageServer, type ChannelType } from "@alook/shared"
+import { resolveRowPresence } from "@/lib/community/presence"
 import {
   useCommunityStore,
   useCurrentChannelId,
@@ -75,9 +76,7 @@ export default function ServerLayout({ children }: { children: ReactNode }) {
         const liveStatus = userStatuses.get(m.userId)
         return {
           ...m,
-          status: (m.userId === currentUser.id || onlineUserIds.has(m.userId)
-            ? "online"
-            : "offline") as "online" | "offline",
+          status: resolveRowPresence(m, onlineUserIds, currentUser.id),
           statusEmoji: liveStatus ? liveStatus.emoji : m.statusEmoji,
           statusText: liveStatus ? liveStatus.text : m.statusText,
         }
