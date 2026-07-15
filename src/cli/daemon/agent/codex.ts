@@ -12,6 +12,7 @@ import type {
   EncodeOpts,
 } from "../types.js";
 import { killProcessTree } from "../kill-tree.js";
+import { quoteWinArg, quoteWinArgs } from "./win-quote.js";
 
 interface JsonRpcMessage {
   jsonrpc: "2.0";
@@ -258,11 +259,16 @@ export class CodexBackend implements AgentBackend {
   }
 
   execute(prompt: string, options: ExecOptions): AgentSession {
-    const proc = spawn(this.cliPath, ["app-server", "--listen", "stdio://", "--config", "sandbox_mode=danger-full-access"], {
+    const isWin = process.platform === "win32";
+    const rawArgs = ["app-server", "--listen", "stdio://", "--config", "sandbox_mode=danger-full-access"];
+    const spawnCmd = isWin ? quoteWinArg(this.cliPath) : this.cliPath;
+    const spawnArgs = isWin ? quoteWinArgs(rawArgs) : rawArgs;
+
+    const proc = spawn(spawnCmd, spawnArgs, {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, ...options.env },
-      shell: process.platform === "win32",
+      shell: isWin,
       windowsHide: true,
       // POSIX: own process group (pgid === pid) so the session-runner can reap
       // the CLI *and* its spawned workers via a group kill. No unref() — we keep

@@ -10,6 +10,7 @@ import type {
   BusyDeliveryMode,
 } from "../types.js";
 import { killProcessTree } from "../kill-tree.js";
+import { quoteWinArg, quoteWinArgs } from "./win-quote.js";
 
 export class OpenCodeBackend implements AgentBackend {
   name = "opencode";
@@ -137,11 +138,18 @@ export class OpenCodeBackend implements AgentBackend {
     // User prompt as positional argument (no flag)
     args.push(prompt);
 
-    const proc = spawn(this.cliPath, args, {
+    // spawn({ shell: true }) on Windows joins args with spaces without quoting
+    // — see win-quote.ts. Pre-quote so args with spaces (workspace paths under
+    // C:\Users\<name with space>\.alook\...) survive cmd.exe parsing.
+    const isWin = process.platform === "win32";
+    const spawnCmd = isWin ? quoteWinArg(this.cliPath) : this.cliPath;
+    const spawnArgs = isWin ? quoteWinArgs(args) : args;
+
+    const proc = spawn(spawnCmd, spawnArgs, {
       cwd: options.cwd,
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, ...options.env, OPENCODE_PERMISSION: '{"*":"allow"}' },
-      shell: process.platform === "win32",
+      shell: isWin,
       windowsHide: true,
       // POSIX: own process group (pgid === pid) so the session-runner can reap
       // the CLI *and* its tool subprocesses via a group kill. No unref() — we

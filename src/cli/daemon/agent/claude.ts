@@ -12,6 +12,7 @@ import type {
   EncodeOpts,
 } from "../types.js";
 import { killProcessTree } from "../kill-tree.js";
+import { quoteWinArg, quoteWinArgs } from "./win-quote.js";
 
 export class ClaudeBackend implements AgentBackend {
   name = "claude";
@@ -176,11 +177,15 @@ export class ClaudeBackend implements AgentBackend {
       args.push("--resume", options.resumeSessionId);
     }
 
-    const proc = spawn(this.cliPath, args, {
+    const isWin = process.platform === "win32";
+    const spawnCmd = isWin ? quoteWinArg(this.cliPath) : this.cliPath;
+    const spawnArgs = isWin ? quoteWinArgs(args) : args;
+
+    const proc = spawn(spawnCmd, spawnArgs, {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, ...options.env },
-      shell: process.platform === "win32",
+      shell: isWin,
       windowsHide: true,
       // POSIX: own process group (pgid === pid) so the session-runner can reap
       // the CLI *and* its tool/MCP subprocesses via a group kill. No unref() —
