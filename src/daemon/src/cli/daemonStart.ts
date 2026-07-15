@@ -28,7 +28,7 @@ function readDaemonVersion(): string {
   }
 }
 
-const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge"];
+const CAPABILITIES = ["send", "read", "mentions", "tasks", "reactions", "server", "channels", "knowledge", "attach"];
 
 function resolveDefaultBaseDir(): string {
   const root = process.env.ALOOK_PROJECT_ROOT || path.join(homedir(), ".alook");

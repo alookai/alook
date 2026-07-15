@@ -39,6 +39,24 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
   const hasMore = rows.length > max
   const page = hasMore ? rows.slice(0, max) : rows
 
-  const messages = await queries.communityAgentInbox.toAgentMessages(db, page, ctx.botUserId)
+  // Batch-fetch attachments in one query (plan §Inbox projection). Pending
+  // rows (message_id = NULL) never match this inArray, so agent-uploaded
+  // pending rows are naturally excluded from the inbox.
+  const messageIds = page.map((r) => r.id)
+  const attachmentRows = await queries.communityAttachment.listByMessageIds(db, messageIds)
+  const attachmentsByMessageId = new Map<string, Array<{ id: string; filename: string; contentType: string | null; size: number | null }>>()
+  for (const a of attachmentRows) {
+    if (!a.messageId) continue
+    const list = attachmentsByMessageId.get(a.messageId) ?? []
+    list.push({ id: a.id, filename: a.filename, contentType: a.contentType, size: a.size })
+    attachmentsByMessageId.set(a.messageId, list)
+  }
+
+  const messages = await queries.communityAgentInbox.toAgentMessages(
+    db,
+    page,
+    ctx.botUserId,
+    attachmentsByMessageId,
+  )
   return NextResponse.json({ messages, hasMore })
 })

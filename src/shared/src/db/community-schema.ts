@@ -367,22 +367,40 @@ export const communityReaction = sqliteTable(
 );
 
 // 14. community_attachment
+//
+// `messageId` is nullable — pending rows created by the agent
+// `attachment upload` command exist before the send that links them. The
+// human-composer path always writes with `messageId` set at insert time (see
+// message-handler.ts). `position` is stamped 0-indexed at link time in the
+// caller-specified order; NULL on pending rows.
 export const communityAttachment = sqliteTable(
   "community_attachment",
   {
     id: text("id").primaryKey().$defaultFn(() => nanoid()),
-    messageId: text("message_id")
-      .notNull()
-      .references(() => communityMessage.id, { onDelete: "cascade" }),
+    messageId: text("message_id").references(() => communityMessage.id, {
+      onDelete: "cascade",
+    }),
+    uploaderId: text("uploader_id").notNull(),
+    kind: text("kind").notNull(), // "channel" | "dm" — threads flatten to "channel"
+    targetId: text("target_id").notNull(),
+    r2Key: text("r2_key").notNull(),
     filename: text("filename").notNull(),
-    url: text("url").notNull(),
     contentType: text("content_type"),
     size: integer("size"),
     width: integer("width"),
     height: integer("height"),
+    position: integer("position"),
     createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
   },
-  (t) => [index("idx_attachment_message").on(t.messageId)]
+  (t) => [
+    // (message_id, position) matches ORDER BY position on the read path.
+    // Drizzle can't express a partial index for the pending lookup here, so
+    // migration 0059 also creates
+    //   idx_attachment_pending_uploader (uploader_id, kind, target_id)
+    //     WHERE message_id IS NULL
+    // which the send-time validation query uses.
+    index("idx_attachment_message").on(t.messageId, t.position),
+  ]
 );
 
 // 15. community_pin

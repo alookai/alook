@@ -46,6 +46,7 @@ vi.mock("@alook/shared", async () => {
         getMessageByChannelAndSeq: (...a: unknown[]) => mockGetMessageByChannelAndSeq(...a),
       },
       communityAgentInbox: { toAgentMessage: (...a: unknown[]) => mockToAgentMessage(...a) },
+      communityAttachment: { listByMessageIds: async () => [] },
     },
   }
 })

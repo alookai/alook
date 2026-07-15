@@ -6,11 +6,13 @@ import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   WS_EVENTS,
 } from "@alook/shared"
+import { nanoid } from "nanoid"
 import type { MentionType } from "@alook/shared"
 import type { Database } from "@alook/shared"
 import { fanOutToChannel, fanOutToDM } from "./fanout"
 import { broadcastToUser } from "../broadcast"
 import { mapMessageForWs } from "./message-payload"
+import { mediaUrlFromKey } from "./storage"
 import { logAudit, COMMUNITY_AUDIT_ACTIONS } from "./audit"
 
 export type MessageTarget =
@@ -42,12 +44,26 @@ export function isChannelTarget(target: { kind: string } | string): boolean {
 }
 
 type IncomingAttachment = {
+  /**
+   * Full routable URL as returned by the human upload response
+   * (`/api/community/media/<key>`). The handler strips the `MEDIA_URL_PREFIX`
+   * to derive the stored `r2Key`. Kept on the wire (rather than switching
+   * clients to a raw key) so the human-composer POST shape stays unchanged.
+   */
   url: string
   filename: string
   contentType: string
   size: number
   width?: number
   height?: number
+}
+
+const MEDIA_URL_PREFIX = "/api/community/media/"
+
+function r2KeyFromUrl(url: string): string | null {
+  if (!url.startsWith(MEDIA_URL_PREFIX)) return null
+  const rest = url.slice(MEDIA_URL_PREFIX.length)
+  return rest.length > 0 ? rest : null
 }
 
 export type IncomingMessageBody = {
@@ -65,6 +81,14 @@ type CreatedAttachment = {
   size: number | null
   width?: number | null
   height?: number | null
+}
+
+function attachmentKindFromTarget(target: MessageTarget): "channel" | "dm" {
+  return target.kind === "dm" ? "dm" : "channel"
+}
+
+function attachmentTargetId(target: MessageTarget): string {
+  return target.kind === "dm" ? target.dmId : target.channelId
 }
 
 type FullMessageRow = NonNullable<
@@ -143,6 +167,16 @@ export async function createCommunityMessage(params: {
    */
   includeAuthorInFanout?: boolean
   /**
+   * Agent-attachment path: pending attachment ids the caller has already
+   * validated against (uploader, kind, target). When present, the handler
+   * pre-mints the message id, reserves the pending rows in a single
+   * atomic UPDATE, then inserts the message — compensating unreserves on
+   * every failure path so no message row is ever committed with a partial
+   * attachment set. Mutually exclusive with `body.attachments`, which is the
+   * human-composer path.
+   */
+  attachmentIds?: string[]
+  /**
    * Do NOT run any WS side effect inline. Instead, on success, return a
    * `broadcast` thunk on the OK result the caller can invoke once its own
    * follow-up writes have committed. Used by the DM-card producers, which
@@ -163,6 +197,7 @@ export async function createCommunityMessage(params: {
     skipWake,
     includeAuthorInFanout,
     deferBroadcast,
+    attachmentIds,
   } = params
 
   const content = typeof body.content === "string" ? body.content : ""
@@ -191,7 +226,12 @@ export async function createCommunityMessage(params: {
   // A message needs either text content OR at least one attachment. Empty
   // both means the client wired something wrong — but a bare
   // attachments-only send is a legitimate flow (drop an image, hit Enter).
-  if (content.trim().length === 0 && (!incomingAttachments || incomingAttachments.length === 0)) {
+  // Agent-attachment path uses `attachmentIds` (pending rows reserved by
+  // reservation-first flow), NOT `body.attachments`; both count as
+  // "attachment present" for this guard.
+  const hasAgentAttachments = Array.isArray(attachmentIds) && attachmentIds.length > 0
+  const hasHumanAttachments = !!incomingAttachments && incomingAttachments.length > 0
+  if (content.trim().length === 0 && !hasHumanAttachments && !hasAgentAttachments) {
     return { ok: false, status: 400, error: "content or attachments required" }
   }
 
@@ -202,7 +242,16 @@ export async function createCommunityMessage(params: {
       ? body.mentionType
       : undefined
 
-  const baseMessageData = {
+  const baseMessageData: {
+    id?: string;
+    authorId: string;
+    content: string;
+    channelId: string | undefined;
+    dmConversationId: string | undefined;
+    replyToId: string | undefined;
+    mentionType: MentionType | undefined;
+    type?: string;
+  } = {
     authorId,
     content,
     channelId: isDmTarget(target) ? undefined : target.channelId,
@@ -211,37 +260,126 @@ export async function createCommunityMessage(params: {
     mentionType,
     ...(messageType !== undefined ? { type: messageType } : {}),
   }
+
+  // Agent-attachment path (plan §Send). Pre-mint the message id BEFORE
+  // reserving pending attachments so the reservation UPDATE can point at it.
+  // Reservation-first guards against unsafe rollback of
+  // `insertMessageRow`'s side effects (scope counter bump, `lastMessageAt`,
+  // author read-state watermark, mention/fanout).
+  const useAttachmentReservation =
+    attachmentIds !== undefined && attachmentIds.length > 0
+  const preMintedId = useAttachmentReservation ? nanoid() : undefined
+  const reservedAttachmentIds: string[] = []
+
+  if (useAttachmentReservation) {
+    const reserved = await queries.communityAttachment.reserveAttachmentsForMessage(db, {
+      ids: attachmentIds!,
+      messageId: preMintedId!,
+    })
+    if (reserved.length !== attachmentIds!.length) {
+      // Partial-overlap race (S1={A,B}, S2={B,C}). Unreserve whatever THIS
+      // caller uniquely grabbed so rows aren't stuck with a message_id
+      // pointing at a message that will never exist.
+      await queries.communityAttachment.unreserveAttachments(db, {
+        ids: reserved,
+        messageId: preMintedId!,
+      })
+      return {
+        ok: false,
+        status: 400,
+        error: "attachment not found or not attachable to this target",
+      }
+    }
+    reservedAttachmentIds.push(...reserved)
+    if (preMintedId) baseMessageData.id = preMintedId
+  }
+
   // `createMessage`'s overloads key off whether the `expectedSeq` property
   // is present at all, not just its runtime value — a `number | undefined`
   // typed property doesn't cleanly resolve against either overload, so the
   // pass-through branches explicitly instead of spreading `expectedSeq` in.
-  const created =
-    expectedSeq !== undefined
-      ? await queries.communityMessage.createMessage(db, { ...baseMessageData, expectedSeq })
-      : await queries.communityMessage.createMessage(db, baseMessageData)
+  let created: Awaited<ReturnType<typeof queries.communityMessage.createMessage>>
+  try {
+    created =
+      expectedSeq !== undefined
+        ? await queries.communityMessage.createMessage(db, { ...baseMessageData, expectedSeq })
+        : await queries.communityMessage.createMessage(db, baseMessageData)
+  } catch (err) {
+    // D1 transient failure / batch error / FK violation: unreserve so the
+    // pending rows aren't leaked. `unreserveAttachments` is scoped by
+    // `messageId = preMintedId`, so it only touches rows we reserved.
+    if (useAttachmentReservation) {
+      await queries.communityAttachment.unreserveAttachments(db, {
+        ids: reservedAttachmentIds,
+        messageId: preMintedId!,
+      })
+    }
+    throw err
+  }
 
   // Lost the CAS race (plans/fix-agent-send-race-condition.md) — zero rows
   // were written anywhere (no message, no channel/DM bump, no read-state
-  // watermark). Return immediately, before attachments/mentions/fan-out/audit.
+  // watermark). Unreserve any attachments we grabbed BEFORE returning so
+  // the bot can retry with the same ids.
   if (created === null) {
+    if (useAttachmentReservation) {
+      await queries.communityAttachment.unreserveAttachments(db, {
+        ids: reservedAttachmentIds,
+        messageId: preMintedId!,
+      })
+    }
     return { ok: false, status: 409, error: "seq_conflict" }
   }
 
-  const attachments: CreatedAttachment[] = incomingAttachments?.length
-    ? await Promise.all(
-      incomingAttachments.map((att) =>
-        queries.communityAttachment.createAttachment(db, {
+  // Human-composer path: insert attachment rows now that the message exists.
+  // Agent path: rows were already reserved and pointed at `created.id` via
+  // the pre-minted id, so no additional INSERT is needed here.
+  let attachments: CreatedAttachment[] = []
+  if (useAttachmentReservation) {
+    const rows = await queries.communityAttachment.listByMessageIds(db, [created.id])
+    attachments = rows.map((r) => ({
+      id: r.id,
+      filename: r.filename,
+      url: mediaUrlFromKey(r.r2Key),
+      contentType: r.contentType,
+      size: r.size,
+      width: r.width,
+      height: r.height,
+    }))
+  } else if (incomingAttachments?.length) {
+    const kind = attachmentKindFromTarget(target)
+    const targetId = attachmentTargetId(target)
+    attachments = await Promise.all(
+      incomingAttachments.map(async (att, idx) => {
+        const r2Key = r2KeyFromUrl(att.url)
+        if (!r2Key) {
+          throw new Error(`attachment url outside /api/community/media/: ${att.url}`)
+        }
+        const row = await queries.communityAttachment.createAttachment(db, {
           messageId: created.id,
+          uploaderId: authorId,
+          kind,
+          targetId,
+          r2Key,
           filename: att.filename,
-          url: att.url,
+          position: idx,
           contentType: att.contentType,
           size: att.size,
           width: att.width,
           height: att.height,
-        }),
-      ),
+        })
+        return {
+          id: row.id,
+          filename: row.filename,
+          url: mediaUrlFromKey(row.r2Key),
+          contentType: row.contentType,
+          size: row.size,
+          width: row.width,
+          height: row.height,
+        }
+      }),
     )
-    : []
+  }
 
   const row = await queries.communityMessage.getMessage(db, created.id)
   if (!row) {

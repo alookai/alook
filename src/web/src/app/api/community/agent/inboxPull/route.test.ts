@@ -11,6 +11,7 @@ const mockGetUserInternal = vi.fn()
 const mockGetBotBinding = vi.fn()
 const mockListUnreadMessagesForAgent = vi.fn()
 const mockToAgentMessages = vi.fn()
+const mockListByMessageIds = vi.fn()
 
 vi.mock("@alook/shared", async () => {
   const actual = await vi.importActual<typeof import("@alook/shared")>("@alook/shared")
@@ -24,6 +25,9 @@ vi.mock("@alook/shared", async () => {
       communityAgentInbox: {
         listUnreadMessagesForAgent: (...a: unknown[]) => mockListUnreadMessagesForAgent(...a),
         toAgentMessages: (...a: unknown[]) => mockToAgentMessages(...a),
+      },
+      communityAttachment: {
+        listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
       },
     },
   }
@@ -46,6 +50,7 @@ describe("POST /api/community/agent/inboxPull", () => {
     mockGetUserInternal.mockResolvedValue({ isBot: true, deletedAt: null })
     mockGetBotBinding.mockResolvedValue({ machineId: "m_1", runtime: "claude" })
     mockToAgentMessages.mockImplementation((_db: unknown, rows: unknown[]) => Promise.resolve(rows))
+    mockListByMessageIds.mockResolvedValue([])
   })
 
   it("401 without Authorization", async () => {

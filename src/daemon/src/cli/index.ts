@@ -63,6 +63,46 @@ function agentId(opts: Record<string, unknown>): string {
 /* Commands                                                            */
 /* ------------------------------------------------------------------ */
 
+const CLIENT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const CLIENT_ALLOWED_MIME_PREFIXES: readonly string[] = [
+  "image/",
+  "video/",
+  "audio/",
+  "text/",
+  "application/pdf",
+  "application/json",
+  "application/zip",
+  "application/octet-stream",
+];
+
+function mimeAllowed(contentType: string): boolean {
+  if (!contentType) return false;
+  return CLIENT_ALLOWED_MIME_PREFIXES.some((entry) =>
+    entry.endsWith("/") ? contentType.startsWith(entry) : contentType === entry,
+  );
+}
+
+/**
+ * Guess a content-type from a filename extension. Kept trivial — the server
+ * re-validates with its own MIME allowlist. Falls back to
+ * `application/octet-stream` so an unknown extension still uploads.
+ */
+function contentTypeFromFilename(filename: string): string {
+  const ext = filename.slice(filename.lastIndexOf(".") + 1).toLowerCase();
+  switch (ext) {
+    case "png": return "image/png";
+    case "jpg": case "jpeg": return "image/jpeg";
+    case "gif": return "image/gif";
+    case "webp": return "image/webp";
+    case "svg": return "image/svg+xml";
+    case "pdf": return "application/pdf";
+    case "txt": case "md": case "log": return "text/plain";
+    case "json": return "application/json";
+    case "zip": return "application/zip";
+    default: return "application/octet-stream";
+  }
+}
+
 async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   const api = getApi();
   const agent = agentId(opts);
@@ -79,11 +119,22 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
   } else if (typeof textFlag === "string") {
     text = textFlag;
   }
-  if (!text) {
-    throw new CliError("message send: --text <text> or --file <path> is required");
+
+  // `--attachment` may repeat. Commander wires this via `.option(..., collect, [])`
+  // below; treat a missing flag as an empty list.
+  const attachmentIds = Array.isArray(opts.attachment) ? (opts.attachment as string[]) : [];
+
+  const hasText = typeof text === "string" && text.trim().length > 0;
+  if (!hasText && attachmentIds.length === 0) {
+    throw new CliError("message send: --text <text>, --file <path>, or --attachment <id> is required");
   }
 
-  const res = await api.send({ agentId: agent, channel, content: { text } });
+  const res = await api.send({
+    agentId: agent,
+    channel,
+    content: { text: text ?? "" },
+    attachments: attachmentIds.length > 0 ? attachmentIds : undefined,
+  });
   if (res.state === "blocked") {
     throw new CliError(
       `channel not aligned: ${res.unreadCount} unread message(s) in ${channel} (latest #${res.latestSeq}). ` +
@@ -91,6 +142,74 @@ async function cmdMessageSend(opts: Record<string, unknown>): Promise<unknown> {
     );
   }
   return { sent: `${res.message.channel}${res.message.seq}` };
+}
+
+async function cmdAttachmentUpload(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const agent = agentId(opts);
+  const target = opts.target as string;
+  const filePath = opts.file as string;
+  if (!target) throw new CliError("message attachment upload: --target <ref> is required");
+  if (!filePath) throw new CliError("message attachment upload: --file <path> is required");
+
+  const fs = await import("fs/promises");
+  let bytes: Buffer;
+  try {
+    bytes = await fs.readFile(filePath);
+  } catch (err) {
+    throw new CliError(`message attachment upload: cannot read file: ${(err as Error).message}`);
+  }
+  if (bytes.byteLength > CLIENT_MAX_ATTACHMENT_BYTES) {
+    throw new CliError(
+      `message attachment upload: file too large — ${bytes.byteLength} bytes, max ${CLIENT_MAX_ATTACHMENT_BYTES}`,
+    );
+  }
+  const pathMod = await import("path");
+  const filename = pathMod.basename(filePath);
+  const contentType = contentTypeFromFilename(filename);
+  if (!mimeAllowed(contentType)) {
+    throw new CliError(`message attachment upload: content type not allowed: ${contentType}`);
+  }
+
+  const result = await api.attachmentUpload({
+    agentId: agent,
+    target,
+    file: { data: new Uint8Array(bytes), filename, contentType },
+  });
+  return result;
+}
+
+async function cmdAttachmentDownload(opts: Record<string, unknown>): Promise<unknown> {
+  const api = getApi();
+  const agent = agentId(opts);
+  const id = opts.id as string;
+  if (!id) throw new CliError("message attachment download: --id <id> is required");
+
+  const outFlag = opts.out as string | undefined;
+  const os = await import("os");
+  const pathMod = await import("path");
+  const destPath = outFlag ?? pathMod.join(os.tmpdir(), "alook-attachments", agent, id, "file");
+
+  const result = await api.attachmentDownload({ agentId: agent, id, destPath });
+  if (!outFlag) {
+    const fs = await import("fs/promises");
+    const destDir = pathMod.dirname(destPath);
+    // The server-supplied filename is untrusted: another user's attachment
+    // could be named `../../etc/foo`. `path.basename` collapses any path
+    // separators / traversal segments so the rename target stays inside
+    // `destDir`.
+    const safeName = pathMod.basename(result.filename) || "file";
+    const renamed = pathMod.join(destDir, safeName);
+    if (renamed !== destPath) {
+      try {
+        await fs.rename(destPath, renamed);
+        return { ...result, path: renamed };
+      } catch {
+        return { ...result, path: destPath };
+      }
+    }
+  }
+  return result;
 }
 
 async function cmdInboxPull(opts: Record<string, unknown>): Promise<unknown> {
@@ -190,12 +309,49 @@ function buildProgram(): Command {
     .option("--target <ref>", "destination (path-style ref, e.g. /demo-workspace/general)")
     .option("--text <text>", "inline message body (short messages)")
     .option("--file <path>", "read message body from a file (long messages)")
+    .option(
+      "-a, --attachment <id>",
+      "attach an uploaded file by id (repeatable — order = message order)",
+      (v, prev: string[] = []) => [...prev, v],
+      [] as string[],
+    )
     .exitOverride()
     .configureOutput({ writeOut: () => {}, writeErr: () => {} })
     .action(async function (this: Command) {
       const localOpts = this.opts();
       const globalOpts = program.opts();
       const result = await cmdMessageSend({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
+  const attachment = message.command("attachment").description("attachment operations").exitOverride();
+  attachment.configureOutput({ writeOut: () => {}, writeErr: () => {} });
+
+  attachment
+    .command("upload")
+    .description("upload a local file as a pending attachment for a future send")
+    .option("--target <ref>", "destination (channel, DM, or thread ref)")
+    .option("--file <path>", "local file to upload")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      const globalOpts = program.opts();
+      const result = await cmdAttachmentUpload({ ...globalOpts, ...localOpts });
+      printEnvelope({ success: result });
+    });
+
+  attachment
+    .command("download")
+    .description("download an attachment by id to disk")
+    .option("--id <id>", "attachment id (from inbox pull / send response)")
+    .option("--out <path>", "explicit output path (default: /tmp/alook-attachments/<agent>/<id>/<filename>)")
+    .exitOverride()
+    .configureOutput({ writeOut: () => {}, writeErr: () => {} })
+    .action(async function (this: Command) {
+      const localOpts = this.opts();
+      const globalOpts = program.opts();
+      const result = await cmdAttachmentDownload({ ...globalOpts, ...localOpts });
       printEnvelope({ success: result });
     });
 

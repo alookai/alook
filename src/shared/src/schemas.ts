@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { IssueStatus, TASK_TYPES } from "./constants";
-import { MAX_MESSAGE_CONTENT_LENGTH } from "./constants/community";
+import { MAX_ATTACHMENTS_PER_MESSAGE, MAX_MESSAGE_CONTENT_LENGTH } from "./constants/community";
 
 // ---------------------------------------------------------------------------
 // Task status
@@ -1058,8 +1058,10 @@ export type CommunityBotAddToServerRequest = z.infer<
 // via `withAgentRunnerAuth`, never a client-supplied field (see plan §2/§7).
 // ---------------------------------------------------------------------------
 
+// `text` is relaxed to `default("")` so bots can send an attachment-only
+// message. The top-level refinement below enforces "text OR attachments".
 const CommunityAgentMessageContentSchema = z
-  .object({ text: z.string().min(1).max(MAX_MESSAGE_CONTENT_LENGTH) })
+  .object({ text: z.string().max(MAX_MESSAGE_CONTENT_LENGTH).default("") })
   .catchall(z.unknown());
 
 const CommunityAgentSeqSchema = z.number().int().min(0);
@@ -1071,12 +1073,40 @@ export const CommunityAgentCursorSchema = z.object({
 });
 export type CommunityAgentCursor = z.infer<typeof CommunityAgentCursorSchema>;
 
-export const CommunityAgentSendRequestSchema = z.object({
-  channel: z.string().min(1),
-  content: CommunityAgentMessageContentSchema,
-  seenUpToSeq: CommunityAgentSeqSchema.optional(),
-});
+export const CommunityAgentSendRequestSchema = z
+  .object({
+    channel: z.string().min(1),
+    content: CommunityAgentMessageContentSchema,
+    attachments: z
+      .array(z.string().min(1))
+      .max(MAX_ATTACHMENTS_PER_MESSAGE)
+      .default([]),
+    seenUpToSeq: CommunityAgentSeqSchema.optional(),
+  })
+  .refine(
+    (d) => d.content.text.trim().length > 0 || d.attachments.length > 0,
+    { message: "message must have text or attachments" }
+  );
 export type CommunityAgentSendRequest = z.infer<typeof CommunityAgentSendRequestSchema>;
+
+// Response body for POST /api/community/agent/attachmentUpload. Bots see
+// filename+contentType+size and nothing else — no url, no r2 key, no path.
+export const CommunityAgentAttachmentUploadResponseSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  contentType: z.string(),
+  size: z.number(),
+});
+export type CommunityAgentAttachmentUploadResponse = z.infer<
+  typeof CommunityAgentAttachmentUploadResponseSchema
+>;
+
+export const CommunityAgentAttachmentDownloadRequestSchema = z.object({
+  id: z.string().min(1),
+});
+export type CommunityAgentAttachmentDownloadRequest = z.infer<
+  typeof CommunityAgentAttachmentDownloadRequestSchema
+>;
 
 export const CommunityAgentInboxPullRequestSchema = z.object({
   max: z.number().int().min(1).max(200).optional(),

@@ -18,7 +18,12 @@
  * path is real.
  */
 import * as fs from "fs";
+import * as path from "path";
 import type {
+  AgentAttachmentDownloadResult,
+  AgentAttachmentUploadResult,
+  AttachmentDownloadRequest,
+  AttachmentUploadRequest,
   ServerApi,
   InboxPullRequest,
   InboxPullResponse,
@@ -90,6 +95,64 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     return json;
   }
 
+  async function callUpload(req: AttachmentUploadRequest): Promise<AgentAttachmentUploadResult> {
+    const form = new FormData();
+    // The Blob's `type` becomes `File.type` on the server after multipart parsing;
+    // without it, the server's MIME allowlist rejects every upload with 400.
+    const blobType = req.file.contentType ?? "application/octet-stream";
+    const bytes =
+      req.file.data instanceof Uint8Array
+        ? new Blob([new Uint8Array(req.file.data)], { type: blobType })
+        : req.file.data;
+    form.append("file", bytes as Blob, req.file.filename);
+    const url = `${base}/api/attachmentUpload?target=${encodeURIComponent(req.target)}`;
+    const res = await fetchImpl(url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${config.voucher}` },
+      body: form,
+    });
+    const json = (await res.json()) as AgentAttachmentUploadResult & { error?: string; code?: string };
+    if (!res.ok) {
+      const e = new Error(json?.error ?? `proxy api/attachmentUpload failed (${res.status})`);
+      (e as { code?: string }).code = json?.code;
+      throw e;
+    }
+    return json;
+  }
+
+  async function callDownload(req: AttachmentDownloadRequest): Promise<AgentAttachmentDownloadResult> {
+    const res = await fetchImpl(`${base}/api/attachmentDownload`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${config.voucher}`,
+      },
+      body: JSON.stringify({ id: req.id }),
+    });
+    if (!res.ok) {
+      // Error responses ARE JSON. Streaming success responses are binary.
+      const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      const e = new Error(body?.error ?? `proxy api/attachmentDownload failed (${res.status})`);
+      (e as { code?: string }).code = body?.code;
+      throw e;
+    }
+    const encoded = res.headers.get("x-alook-filename");
+    const filename = encoded ? decodeURIComponent(encoded) : path.basename(req.destPath);
+    const contentType = res.headers.get("content-type") || "application/octet-stream";
+    const size = Number(res.headers.get("content-length") ?? "0");
+    const buf = Buffer.from(await res.arrayBuffer());
+    fs.mkdirSync(path.dirname(req.destPath), { recursive: true });
+    const tmp = `${req.destPath}.tmp`;
+    try {
+      fs.writeFileSync(tmp, buf);
+      fs.renameSync(tmp, req.destPath);
+    } catch (err) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* best-effort */ }
+      throw err;
+    }
+    return { path: req.destPath, filename, contentType, size: size || buf.byteLength };
+  }
+
   return {
     listServers: (r: { agentId: AgentId }) => call<{ servers: Server[] }>("listServers", r),
     listChannels: (r: ListChannelsRequest) => call<{ channels: ChannelListItem[] }>("listChannels", r),
@@ -101,5 +164,7 @@ export function createProxyServerApi(config: ProxyServerApiConfig): ServerApi {
     resolve: (r: ResolveRequest) => call<{ message: Message }>("resolve", r),
     listMembers: (r: { agentId: AgentId; server: string }) => call<{ members: ServerMember[] }>("listMembers", r),
     joinServer: (r: { agentId: AgentId; invite: string }) => call<{ server: Server }>("joinServer", r),
+    attachmentUpload: callUpload,
+    attachmentDownload: callDownload,
   };
 }

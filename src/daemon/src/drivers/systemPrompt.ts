@@ -118,7 +118,13 @@ function cliCommandsSection(): string {
     "### Messaging",
     "",
     `1. \`${CLI} inbox pull\` — fetch unread messages.`,
-    `2. \`${CLI} message send\` — send a message to a channel, DM, or thread.`,
+    `2. \`${CLI} message send\` — send a message to a channel, DM, or thread. ` +
+      `Attach files with \`--attachment <id>\` (repeatable, order matters).`,
+    `3. \`${CLI} message attachment upload --target <ref> --file <path>\` — upload a local file; ` +
+      `returns an id. Feed that id into \`message send --attachment <id>\`. ` +
+      `The id is stable across the pending→persisted lifecycle.`,
+    `4. \`${CLI} message attachment download --id <id> [--out <path>]\` — download an attachment ` +
+      `id from any message you have access to (or your own pending uploads).`,
     "",
     "### Servers",
     "",

@@ -269,6 +269,8 @@ export {
   CommunityAgentListChannelsRequestSchema,
   CommunityAgentListMembersRequestSchema,
   CommunityAgentJoinServerRequestSchema,
+  CommunityAgentAttachmentUploadResponseSchema,
+  CommunityAgentAttachmentDownloadRequestSchema,
   BotAuditEventSchema,
   BotAuditEventKindSchema,
   AuditLogCliInvocationPayloadSchema,

@@ -81,6 +81,27 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
       : { kind: "channel", channelId: channel.id, serverId: channel.serverId }
   }
 
+  // Attachments (plan agent-attachment-pipeline.md §Send). Validate every
+  // pending id belongs to this bot, kind, and target BEFORE reservation —
+  // the (uploader_id, kind, target_id) tuple is a single indexed lookup.
+  // Any mismatch returns the same generic 400, no leakage of which id failed.
+  const attachmentKind: "channel" | "dm" = target.kind === "dm" ? "dm" : "channel"
+  const attachmentTargetId = target.kind === "dm" ? target.dmId : target.channelId
+  if (body.attachments.length > 0) {
+    const rows = await queries.communityAttachment.findPendingAttachmentsForBot(db, {
+      ids: body.attachments,
+      uploaderId: ctx.botUserId,
+      kind: attachmentKind,
+      targetId: attachmentTargetId,
+    })
+    if (rows.length !== body.attachments.length) {
+      return NextResponse.json(
+        { error: "attachment not found or not attachable to this target" },
+        { status: 400 },
+      )
+    }
+  }
+
   // `expectedSeq: latestSeq` reuses the exact snapshot the alignment gate
   // above already fetched — no new query. If another agent's `send` wins
   // the race between that snapshot and this claim, `createCommunityMessage`
@@ -95,6 +116,7 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     body: { content: body.content.text },
     source: "cli",
     expectedSeq: latestSeq,
+    attachmentIds: body.attachments.length > 0 ? body.attachments : undefined,
   })
   if (!result.ok) {
     if (result.status === 409) {
@@ -109,6 +131,22 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     return NextResponse.json({ error: result.error }, { status: result.status })
   }
 
-  const message = await queries.communityAgentInbox.toAgentMessage(db, result.row, ctx.botUserId)
+  // `createCommunityMessage` already fetched the reserved attachments via
+  // listByMessageIds (ordered by `position`, which we stamped 0..N-1 in
+  // caller order at reservation time). Project directly off `result.attachments`
+  // instead of re-issuing the same query.
+  const orderedAttachments = (result.attachments ?? []).map((a) => ({
+    id: a.id,
+    filename: a.filename,
+    contentType: a.contentType,
+    size: a.size,
+  }))
+
+  const message = await queries.communityAgentInbox.toAgentMessage(
+    db,
+    result.row,
+    ctx.botUserId,
+    orderedAttachments,
+  )
   return NextResponse.json({ state: "sent", message })
 })

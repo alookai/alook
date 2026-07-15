@@ -55,6 +55,19 @@ export const POST = withAgentRunnerAuth(async (req: NextRequest, ctx) => {
     return NextResponse.json({ error: `no message with seq #${body.seq} in ${body.channel}` }, { status: 404 })
   }
 
-  const message = await queries.communityAgentInbox.toAgentMessage(db, row, ctx.botUserId)
+  const attachmentRows = await queries.communityAttachment.listByMessageIds(db, [row.id])
+  const attachments = attachmentRows.map((a) => ({
+    id: a.id,
+    filename: a.filename,
+    contentType: a.contentType,
+    size: a.size,
+  }))
+
+  const message = await queries.communityAgentInbox.toAgentMessage(
+    db,
+    row,
+    ctx.botUserId,
+    attachments,
+  )
   return NextResponse.json({ message })
 })

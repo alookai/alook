@@ -89,7 +89,7 @@ describe("GET /api/community/messages/[id]", () => {
     })
     mockGetChannelForMember.mockResolvedValue({ id: "c1", serverId: "s1" })
     mockListByMessageIds.mockResolvedValue([
-      { messageId: "m1", filename: "photo.png", url: "https://cdn/1", contentType: "image/png", size: 12345 },
+      { messageId: "m1", filename: "photo.png", r2Key: "channel/c1/uuid/photo.png", contentType: "image/png", size: 12345 },
     ])
     mockListReactionsByMessageIds.mockResolvedValue([
       { messageId: "m1", emoji: "👍", userId: "u1" },
@@ -101,9 +101,10 @@ describe("GET /api/community/messages/[id]", () => {
     expect(body.id).toBe("m1")
     expect(body.content).toBe("hello")
     expect(body.authorName).toBe("Alice")
-    // Attachments came through the mapper (grouped shape).
+    // Attachments came through the mapper (grouped shape) — url is now
+    // derived from r2Key via the shared helper.
     expect(body.attachments).toEqual([
-      { kind: "image", name: "photo.png", url: "https://cdn/1" },
+      { kind: "image", name: "photo.png", url: "/api/community/media/channel/c1/uuid/photo.png" },
     ])
     // Reactions came through with `me: true` since userId matches.
     expect(body.reactions).toEqual([

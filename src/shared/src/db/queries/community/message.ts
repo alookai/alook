@@ -93,6 +93,14 @@ function safeParseEmbeds(raw: string | null, messageId: string): unknown | undef
 }
 
 export type CreateMessageData = {
+  /**
+   * Optional pre-minted id — the agent-attachment path (plan
+   * agent-attachment-pipeline.md §Send) pre-mints this in application code so
+   * `reserveAttachmentsForMessage` can point at it BEFORE the message row is
+   * inserted. When absent, the schema's `$defaultFn` fires nanoid at insert
+   * time, matching the existing human-composer behavior.
+   */
+  id?: string;
   authorId: string;
   content: string;
   channelId?: string;
@@ -166,6 +174,10 @@ async function insertMessageRow(db: Database, data: CreateMessageData, seq: numb
   const insertMsg = db
     .insert(communityMessage)
     .values({
+      // Drizzle's `$defaultFn` on `communityMessage.id` only fires when the
+      // field is absent from `.values(...)`; passing `id` explicitly when the
+      // caller supplies one keeps the pre-minted path a one-line difference.
+      ...(data.id !== undefined ? { id: data.id } : {}),
       authorId: data.authorId,
       content: data.content,
       channelId: data.channelId ?? null,

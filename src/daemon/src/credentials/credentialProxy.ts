@@ -233,6 +233,11 @@ function parseBearer(authHeader: string | undefined): string | null {
 export type CapabilityResolver = (method: string, pathname: string) => Capability | undefined;
 
 export const DEFAULT_CAPABILITY_RESOLVER: CapabilityResolver = (_method, pathname) => {
+  // Match `/attachmentUpload` and `/attachmentDownload` (pre-rewrite pathname
+  // — the credential proxy inspects the client's `/api/...` path here). Both
+  // endpoints share the `"attach"` capability so a voucher can be scoped to
+  // attach-only without granting `send`/`read`.
+  if (pathname.includes("/attachment")) return "attach";
   if (pathname.includes("/send")) return "send";
   if (pathname.includes("/history") || pathname.includes("/search") || pathname.includes("/inbox"))
     return "read";
@@ -318,7 +323,12 @@ export async function startCredentialProxy(
     }
 
     const reg = verdict.reg;
-    const isInboxPull = onPull && pathname.endsWith("/inboxPull");
+    // Tightened from `.endsWith("/inboxPull")` — the attachment-download
+    // endpoint returns raw binary, and a loose match here would try to JSON-
+    // parse it as an inbox response. Only the exact `/api/inboxPull` path
+    // (pre-rewrite; matches the daemon's CLI callers, see `rewriteAgentPath`)
+    // should trigger the timeline recorder callback.
+    const isInboxPull = onPull && pathname === "/api/inboxPull";
 
     if (onProxyRequest) {
       try {

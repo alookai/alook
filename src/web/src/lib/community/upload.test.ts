@@ -76,23 +76,38 @@ function fakeFile(name: string, type: string, size: number) {
 describe("handleAttachmentUpload", () => {
   beforeEach(() => vi.clearAllMocks())
 
+  const USER_TAG = { uploader: "user" as const, uploaderUserId: "u1" }
+
   it("uploads an in-allowlist file under the size cap", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("hi.png", "image/png", 10)
-    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1")
+    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
     expect(res.ok).toBe(true)
     if (!res.ok) return
-    expect(res.key).toMatch(/^channel\/c1\/[0-9a-f-]+\/hi\.png$/)
-    expect(res.url).toBe(`/api/community/media/${res.key}`)
+    expect(res.r2Key).toMatch(/^channel\/c1\/[0-9a-f-]+\/hi\.png$/)
     expect(res.contentType).toBe("image/png")
     expect(res.size).toBe(10)
     expect(put).toHaveBeenCalledOnce()
+    const [, , options] = put.mock.calls[0]
+    expect(options.customMetadata).toMatchObject({ uploader: "user" })
+  })
+
+  it("stamps customMetadata.uploader=bot + bot_user_id when the caller is a bot", async () => {
+    const put = vi.fn().mockResolvedValue(undefined)
+    const file = fakeFile("hi.png", "image/png", 10)
+    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", {
+      uploader: "bot",
+      uploaderUserId: "bot_ada",
+    })
+    expect(res.ok).toBe(true)
+    const [, , options] = put.mock.calls[0]
+    expect(options.customMetadata).toEqual({ uploader: "bot", bot_user_id: "bot_ada" })
   })
 
   it("passes a known-length File body to R2", async () => {
     const put = vi.fn().mockResolvedValue(undefined)
     const file = fakeFile("hi.png", "image/png", 10)
-    await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1")
+    await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
     expect(put).toHaveBeenCalledOnce()
     const [, body] = put.mock.calls[0]
     expect(body).toBe(file)
@@ -103,7 +118,7 @@ describe("handleAttachmentUpload", () => {
 
   it("rejects when no file part is present (400)", async () => {
     const put = vi.fn()
-    const res = await handleAttachmentUpload(reqWithFile(null), envWithR2(put), "channel", "c1")
+    const res = await handleAttachmentUpload(reqWithFile(null), envWithR2(put), "channel", "c1", USER_TAG)
     expect(res.ok).toBe(false)
     if (res.ok) return
     expect(res.response.status).toBe(400)
@@ -113,7 +128,7 @@ describe("handleAttachmentUpload", () => {
   it("rejects oversize files with 413", async () => {
     const put = vi.fn()
     const file = fakeFile("big.png", "image/png", MAX_ATTACHMENT_SIZE_BYTES + 1)
-    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1")
+    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
     expect(res.ok).toBe(false)
     if (res.ok) return
     expect(res.response.status).toBe(413)
@@ -123,7 +138,7 @@ describe("handleAttachmentUpload", () => {
   it("rejects disallowed MIME types with 400", async () => {
     const put = vi.fn()
     const file = fakeFile("evil.exe", "application/x-msdownload", 2)
-    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1")
+    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
     expect(res.ok).toBe(false)
     if (res.ok) return
     expect(res.response.status).toBe(400)
@@ -140,10 +155,22 @@ describe("handleAttachmentUpload", () => {
     ]
     for (const { type, name } of cases) {
       const f = fakeFile(name, type, 1)
-      const res = await handleAttachmentUpload(reqWithFile(f), envWithR2(put), "dm", "d1")
+      const res = await handleAttachmentUpload(reqWithFile(f), envWithR2(put), "dm", "d1", USER_TAG)
       expect(res.ok).toBe(true)
     }
     expect(put).toHaveBeenCalledTimes(cases.length)
+  })
+
+  it("sanitizes traversal + slash characters out of the R2 key", async () => {
+    const put = vi.fn().mockResolvedValue(undefined)
+    const file = fakeFile("../evil/../name.png", "image/png", 4)
+    const res = await handleAttachmentUpload(reqWithFile(file), envWithR2(put), "channel", "c1", USER_TAG)
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    // No `..`, no `/` beyond the three fixed structural separators.
+    const trailing = res.r2Key.replace(/^channel\/c1\/[0-9a-f-]+\//, "")
+    expect(trailing).not.toContain("..")
+    expect(trailing).not.toContain("/")
   })
 })
 

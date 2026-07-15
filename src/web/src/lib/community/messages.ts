@@ -1,4 +1,5 @@
 import { DEFAULT_MESSAGE_PAGE_SIZE, MAX_MESSAGE_PAGE_SIZE } from "@alook/shared"
+import { mediaUrlFromKey } from "./storage"
 
 // Format file sizes for display
 function formatBytes(bytes: number): string {
@@ -120,17 +121,20 @@ export function buildMemberPaginatedResponse<T extends { joinedAt: string; id: s
   return { members, hasMore, cursor }
 }
 
-// Group raw attachment rows by messageId into display format
+// Group raw attachment rows by messageId into display format. Attachments
+// with `messageId = null` (pending, not yet linked to a message) are skipped —
+// the read paths never surface them.
 export function groupAttachments(
-  attachments: Array<{ messageId: string; filename: string; url: string; contentType: string | null; size: number | null; width?: number | null; height?: number | null }>
+  attachments: Array<{ messageId: string | null; filename: string; r2Key: string; contentType: string | null; size: number | null; width?: number | null; height?: number | null }>
 ): Record<string, Array<{ kind: "image" | "file"; name: string; url: string; size?: string; width?: number; height?: number }>> {
   const map: Record<string, Array<{ kind: "image" | "file"; name: string; url: string; size?: string; width?: number; height?: number }>> = {}
   for (const a of attachments) {
+    if (!a.messageId) continue
     const kind = a.contentType?.startsWith("image/") ? "image" : "file"
     const entry = {
       kind,
       name: a.filename,
-      url: a.url,
+      url: mediaUrlFromKey(a.r2Key),
       ...(kind === "file" && a.size ? { size: formatBytes(a.size) } : {}),
       ...(kind === "image" ? { width: a.width ?? undefined, height: a.height ?? undefined } : {}),
     } as { kind: "image" | "file"; name: string; url: string; size?: string; width?: number; height?: number }

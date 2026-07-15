@@ -21,7 +21,15 @@ import {
 } from "../../community-schema";
 import { user } from "../../schema";
 import type { Database } from "../../index";
-import { formatRef, formatSeq, DM_SERVER, type Message, type Seq, type ChannelRef } from "../../../community-cli-contract";
+import {
+  formatRef,
+  formatSeq,
+  DM_SERVER,
+  type AgentAttachmentRef,
+  type Message,
+  type Seq,
+  type ChannelRef,
+} from "../../../community-cli-contract";
 import { formatHandle } from "../../../lib/discriminator";
 
 type RawAgentMessage = {
@@ -172,7 +180,8 @@ function scopeRefKey(scope: { channelId: string | null; dmConversationId: string
 export async function toAgentMessages(
   db: Database,
   rows: RawAgentMessage[],
-  viewerId: string
+  viewerId: string,
+  attachmentsByMessageId?: Map<string, AgentAttachmentRef[]>
 ): Promise<Message[]> {
   if (rows.length === 0) return [];
 
@@ -190,11 +199,14 @@ export async function toAgentMessages(
     const channel = scope?.ref ?? `/unknown/${scopeRefKey(r)}`;
     const author = userById.get(r.authorId);
     const sender = author ? formatHandle(author.name, author.discriminator) : r.authorId;
+    // Absent (not empty array) when a message has no attachments — smaller
+    // wire payload; documented invariant in the plan.
+    const atts = attachmentsByMessageId?.get(r.id);
     return {
       seq: formatSeq(r.seq),
       channel,
       sender: `@${sender}`,
-      content: { text: r.content },
+      content: atts && atts.length > 0 ? { text: r.content, attachments: atts } : { text: r.content },
       time: r.createdAt,
     };
   });
@@ -293,8 +305,14 @@ async function getServerName(db: Database, serverId: string): Promise<string | n
 }
 
 /** Single-row convenience wrapper around `toAgentMessages`. */
-export async function toAgentMessage(db: Database, row: RawAgentMessage, viewerId: string): Promise<Message> {
-  const [msg] = await toAgentMessages(db, [row], viewerId);
+export async function toAgentMessage(
+  db: Database,
+  row: RawAgentMessage,
+  viewerId: string,
+  attachments?: AgentAttachmentRef[]
+): Promise<Message> {
+  const map = attachments && attachments.length > 0 ? new Map([[row.id, attachments]]) : undefined;
+  const [msg] = await toAgentMessages(db, [row], viewerId, map);
   return msg!;
 }
 

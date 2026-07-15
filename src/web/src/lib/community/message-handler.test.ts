@@ -5,6 +5,9 @@ const mockGetMessage = vi.fn()
 const mockGetMessageInScope = vi.fn()
 const mockGetUserInternal = vi.fn()
 const mockCreateAttachment = vi.fn()
+const mockReserveAttachmentsForMessage = vi.fn()
+const mockUnreserveAttachments = vi.fn()
+const mockListByMessageIds = vi.fn()
 const mockListMembers = vi.fn()
 const mockListMemberUserIds = vi.fn()
 const mockCreateMentions = vi.fn()
@@ -26,6 +29,9 @@ vi.mock("@alook/shared", async () => {
       },
       communityAttachment: {
         createAttachment: (...a: unknown[]) => mockCreateAttachment(...a),
+        reserveAttachmentsForMessage: (...a: unknown[]) => mockReserveAttachmentsForMessage(...a),
+        unreserveAttachments: (...a: unknown[]) => mockUnreserveAttachments(...a),
+        listByMessageIds: (...a: unknown[]) => mockListByMessageIds(...a),
       },
       communityMember: {
         listMembers: (...a: unknown[]) => mockListMembers(...a),
@@ -303,7 +309,7 @@ describe("createCommunityMessage — attachment width/height reach the live WS b
     mockCreateAttachment.mockResolvedValue({
       id: "att_1",
       filename: "photo.png",
-      url: "/media/photo.png",
+      r2Key: "channel/c1/uuid/photo.png",
       contentType: "image/png",
       size: 1000,
       width: 1920,
@@ -318,12 +324,12 @@ describe("createCommunityMessage — attachment width/height reach the live WS b
       body: {
         content: "hello",
         attachments: [
-          { url: "/media/photo.png", filename: "photo.png", contentType: "image/png", size: 1000, width: 1920, height: 1080 },
+          { url: "/api/community/media/channel/c1/uuid/photo.png", filename: "photo.png", contentType: "image/png", size: 1000, width: 1920, height: 1080 },
         ],
       },
     })
 
-    expect(mockCreateAttachment).toHaveBeenCalledWith({}, expect.objectContaining({ width: 1920, height: 1080 }))
+    expect(mockCreateAttachment).toHaveBeenCalledWith({}, expect.objectContaining({ width: 1920, height: 1080, r2Key: "channel/c1/uuid/photo.png" }))
     expect(mockFanOutToChannel).toHaveBeenCalledTimes(1)
     const [, event] = mockFanOutToChannel.mock.calls[0]!
     expect(event.message.attachments).toEqual([
@@ -572,5 +578,143 @@ describe("createCommunityMessage — private-channel mention scoping (no auto-ad
       userIds: ["bob_1"],
       kind: "mention",
     })
+  })
+})
+
+describe("createCommunityMessage — attachment reservation-first flow (agent path)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetUserInternal.mockResolvedValue({ id: "author_1", isBot: true, deletedAt: null })
+    mockFanOutToChannel.mockResolvedValue(undefined)
+    mockBroadcastToUser.mockResolvedValue(undefined)
+    mockGetMessage.mockResolvedValue(messageRow())
+    mockListByMessageIds.mockResolvedValue([])
+  })
+
+  it("reservation-mismatch → unreserve, no message insert, generic 400", async () => {
+    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"]) // only 1 of 2 reserved
+
+    const res = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hi" },
+      attachmentIds: ["att_1", "att_2"],
+    })
+
+    expect(res.ok).toBe(false)
+    if (res.ok) return
+    expect(res.status).toBe(400)
+    expect(res.error).toBe("attachment not found or not attachable to this target")
+    expect(mockUnreserveAttachments).toHaveBeenCalledWith({}, expect.objectContaining({ ids: ["att_1"] }))
+    expect(mockCreateMessage).not.toHaveBeenCalled()
+    expect(mockFanOutToChannel).not.toHaveBeenCalled()
+  })
+
+  it("thrown insertMessageRow error → unreserve, then re-throw", async () => {
+    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1", "att_2"])
+    mockCreateMessage.mockRejectedValue(new Error("d1_transient"))
+
+    await expect(
+      createCommunityMessage({
+        db: {} as never,
+        authorId: "author_1",
+        target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+        body: { content: "hi" },
+        attachmentIds: ["att_1", "att_2"],
+      }),
+    ).rejects.toThrow("d1_transient")
+
+    expect(mockUnreserveAttachments).toHaveBeenCalledTimes(1)
+    expect(mockUnreserveAttachments.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ ids: ["att_1", "att_2"] }),
+    )
+  })
+
+  it("expectedSeq CAS-null → unreserve and return seq_conflict", async () => {
+    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"])
+    mockCreateMessage.mockResolvedValue(null) // CAS-null (returned, not thrown)
+
+    const res = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hi" },
+      attachmentIds: ["att_1"],
+      expectedSeq: 5,
+    })
+
+    expect(res.ok).toBe(false)
+    if (res.ok) return
+    expect(res.status).toBe(409)
+    expect(res.error).toBe("seq_conflict")
+    expect(mockUnreserveAttachments).toHaveBeenCalledWith({}, expect.objectContaining({ ids: ["att_1"] }))
+  })
+
+  it("attachment-only bot send (empty text) is NOT rejected by the empty-body guard", async () => {
+    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"])
+    mockCreateMessage.mockResolvedValue({ id: "msg_preminted" })
+    mockListByMessageIds.mockResolvedValue([
+      {
+        id: "att_1",
+        filename: "photo.png",
+        r2Key: "channel/c1/uuid/photo.png",
+        contentType: "image/png",
+        size: 100,
+        width: null,
+        height: null,
+        messageId: "msg_preminted",
+        position: 0,
+      },
+    ])
+
+    const res = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "" }, // <- attachment-only send
+      attachmentIds: ["att_1"],
+    })
+
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(mockCreateMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it("happy path — reserved rows are projected as CreatedAttachment via listByMessageIds", async () => {
+    mockReserveAttachmentsForMessage.mockResolvedValue(["att_1"])
+    mockCreateMessage.mockResolvedValue({ id: "msg_preminted" })
+    mockListByMessageIds.mockResolvedValue([
+      {
+        id: "att_1",
+        filename: "photo.png",
+        r2Key: "channel/c1/uuid/photo.png",
+        contentType: "image/png",
+        size: 100,
+        width: null,
+        height: null,
+        messageId: "msg_preminted",
+        position: 0,
+      },
+    ])
+
+    const res = await createCommunityMessage({
+      db: {} as never,
+      authorId: "author_1",
+      target: { kind: "channel", channelId: "c1", serverId: "srv_1" },
+      body: { content: "hi" },
+      attachmentIds: ["att_1"],
+    })
+
+    expect(res.ok).toBe(true)
+    if (!res.ok) return
+    expect(res.attachments).toEqual([
+      expect.objectContaining({
+        id: "att_1",
+        filename: "photo.png",
+        url: "/api/community/media/channel/c1/uuid/photo.png",
+      }),
+    ])
+    expect(mockUnreserveAttachments).not.toHaveBeenCalled()
   })
 })

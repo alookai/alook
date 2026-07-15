@@ -56,6 +56,10 @@ vi.mock("@alook/shared", async () => {
         toAgentMessage: (...a: unknown[]) => mockToAgentMessage(...a),
       },
       communityReadState: { getReadState: (...a: unknown[]) => mockGetReadState(...a) },
+      communityAttachment: {
+        findPendingAttachmentsForBot: async () => [],
+        listByMessageIds: async () => [],
+      },
     },
   }
 })

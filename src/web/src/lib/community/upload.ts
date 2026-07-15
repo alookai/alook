@@ -15,6 +15,7 @@ import {
   buildServerIconKey,
   buildUserAvatarKey,
   buildBotAvatarKey,
+  mediaUrlFromKey,
   userAvatarUrl,
   botAvatarUrl,
 } from "./storage"
@@ -34,7 +35,31 @@ type UploadErr = { ok: false; response: NextResponse }
 
 export type UploadResult = UploadOk | UploadErr
 
+/**
+ * Slim result for the shared attachment-upload primitive. `runAttachmentUpload`
+ * and the new agent-upload route both build wire responses from this — the
+ * legacy `UploadResult` shape is preserved by callers that wrap it.
+ */
+type AttachmentUploadOk = {
+  ok: true
+  r2Key: string
+  filename: string
+  contentType: string
+  size: number
+}
+export type AttachmentUploadResult = AttachmentUploadOk | UploadErr
+
 type AttachmentKind = "channel" | "dm" | "thread"
+
+/**
+ * Provenance tag stamped as R2 `customMetadata`. Human uploads set
+ * `uploader: "user"`; agent uploads set `uploader: "bot"` so a future orphan-
+ * GC cron can filter cheaply on bot-authored blobs.
+ */
+export type UploaderTag = {
+  uploader: "user" | "bot"
+  uploaderUserId: string
+}
 
 function mimeAllowed(contentType: string, allowed: readonly string[]): boolean {
   if (!contentType) return false
@@ -72,7 +97,8 @@ export async function handleAttachmentUpload(
   env: Env,
   kind: AttachmentKind,
   targetId: string,
-): Promise<UploadResult> {
+  uploaderTag: UploaderTag,
+): Promise<AttachmentUploadResult> {
   const fileOrErr = await readFile(req)
   if ("ok" in fileOrErr && fileOrErr.ok === false) return fileOrErr
   const file = fileOrErr as File
@@ -95,13 +121,15 @@ export async function handleAttachmentUpload(
 
   await env.COMMUNITY_MEDIA.put(key, file, {
     httpMetadata: { contentType: file.type },
+    customMetadata: {
+      uploader: uploaderTag.uploader,
+      bot_user_id: uploaderTag.uploader === "bot" ? uploaderTag.uploaderUserId : "",
+    },
   })
 
   return {
     ok: true,
-    id: fileId,
-    key,
-    url: `/api/community/media/${key}`,
+    r2Key: key,
     filename: file.name,
     contentType: file.type,
     size: file.size,
@@ -241,11 +269,17 @@ export async function runAttachmentUpload(
   const auth = await permissionCheck(db, id, ctx.userId)
   if (!auth.ok) return writeError(auth.error, auth.status)
 
-  const result = await handleAttachmentUpload(req, ctx.env, kind, id)
+  const result = await handleAttachmentUpload(req, ctx.env, kind, id, {
+    uploader: "user",
+    uploaderUserId: ctx.userId,
+  })
   if (!result.ok) return result.response
 
+  // Human web client tracks attachments in-memory until send, so no id is
+  // returned here — parity with the pre-refactor shape. `url` is derived
+  // from the stored key via the shared helper.
   return writeJSON({
-    url: result.url,
+    url: mediaUrlFromKey(result.r2Key),
     filename: result.filename,
     contentType: result.contentType,
     size: result.size,

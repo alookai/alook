@@ -153,11 +153,49 @@ export type Target =
  *   - `time`    — ISO-8601 timestamp.
  * No `id`, no `type`.
  */
+/**
+ * Read-side attachment ref surfaced by inbox pull / send response / resolve.
+ * Bots only ever see id + friendly metadata; the routable URL, R2 key, and
+ * per-uploader scope are server-only. `contentType` is `string | null` here
+ * (matches legacy rows whose stored content_type was null); the write-side
+ * upload/download response coerces to `"application/octet-stream"` so bots
+ * have a non-null contract for their own writes.
+ */
+export interface AgentAttachmentRef {
+  id: string;
+  filename: string;
+  contentType: string | null;
+  size: number | null;
+}
+
 export interface MessageContent {
   text: string;
-  /** Future: attachments, embeds, etc. — added without breaking `text`. */
+  /** Populated only on the read side (`inboxPull`, `send` response, `resolve`). */
+  attachments?: AgentAttachmentRef[];
+  /** Future: embeds, etc. — added without breaking `text`. */
   [extra: string]: unknown;
 }
+
+/** Local file to upload, as read by the daemon before hitting the wire. */
+export type FileHandle = {
+  data: Blob | Uint8Array;
+  filename: string;
+  contentType?: string;
+};
+
+export type AgentAttachmentUploadResult = {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+};
+
+export type AgentAttachmentDownloadResult = {
+  path: string;
+  filename: string;
+  contentType: string;
+  size: number;
+};
 
 export interface Message {
   /** Per-channel sequence in display form, e.g. "#12". */
@@ -243,6 +281,11 @@ export interface SendRequest {
   channel: ChannelRef;
   content: MessageContent;
   /**
+   * Attachment ids returned by prior `attachmentUpload` calls. Order matters —
+   * position on the resulting message is stamped left-to-right (0-indexed).
+   */
+  attachments?: string[];
+  /**
    * Last seq the agent had seen for this channel — the CHANNEL ALIGNMENT signal.
    * If the server has newer messages the agent hasn't seen, the send is BLOCKED
    * (see below): the agent must `inboxPull`/`read` to align, then resend. There
@@ -250,6 +293,23 @@ export interface SendRequest {
    * can't render it moot.
    */
   seenUpToSeq?: Seq;
+}
+
+/**
+ * Upload a local file as a pending attachment for a future `send`. The returned
+ * id is the same one that surfaces on the sent message (id continuity across
+ * pending → persisted lifecycle).
+ */
+export interface AttachmentUploadRequest {
+  agentId: AgentId;
+  target: ChannelRef;
+  file: FileHandle;
+}
+
+export interface AttachmentDownloadRequest {
+  agentId: AgentId;
+  id: string;
+  destPath: string;
 }
 
 /**
@@ -351,6 +411,12 @@ export interface ServerApi {
 
   /** Join a server via an invite link/token. Throws on any rejection — see plan's I/O contract. */
   joinServer(req: { agentId: AgentId; invite: string }): Promise<{ server: Server }>;
+
+  /** Upload a local file as a pending attachment scoped to `target`. */
+  attachmentUpload(req: AttachmentUploadRequest): Promise<AgentAttachmentUploadResult>;
+
+  /** Download an attachment by id, writing to `destPath` (atomic temp-then-rename). */
+  attachmentDownload(req: AttachmentDownloadRequest): Promise<AgentAttachmentDownloadResult>;
 }
 
 /* ------------------------------------------------------------------ */
