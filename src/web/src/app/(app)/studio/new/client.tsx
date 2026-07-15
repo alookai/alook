@@ -53,6 +53,8 @@ export function StudioOnboardingClient({
   const isTauriDesktop = isTauri() && isDesktop();
   const onlineRuntimes = runtimes.filter((r) => r.status === "online");
   const hasOnlineRuntime = onlineRuntimes.length > 0;
+  const computerConnected =
+    hasOnlineRuntime || (machineRegistered && daemonOnline) || isTauriDesktop;
 
   useEffect(() => {
     listRuntimes(workspaceId)
@@ -210,6 +212,50 @@ export function StudioOnboardingClient({
   };
 
   const handleCreate = async () => {
+    // Pre-flight diagnostics — surface exactly which gate is blocking instead of
+    // silently disabling the button. Helps pin down the "Computer connected but
+    // Launch disabled" state that doesn't reproduce locally.
+    if (!scenarioId) {
+      toast.error("Pick a focus area first");
+      return;
+    }
+    if (members.length === 0) {
+      toast.error("Add at least one team member");
+      return;
+    }
+    if (!computerConnected) {
+      toast.error("Connect a computer first — no runtime is online yet");
+      return;
+    }
+
+    let readyMembers = members;
+    if (members.some((m) => !m.runtimeId)) {
+      // A member has no runtime assigned while the machine reads as connected —
+      // the exact divergence we're chasing. Try to self-heal by re-fetching the
+      // runtime list, then report precisely if it's still empty.
+      const fresh = await listRuntimes(workspaceId).catch(() => [] as Runtime[]);
+      setRuntimes(fresh);
+      const freshOnline = fresh.filter((r) => r.status === "online");
+      const firstOnline = freshOnline[0]?.id;
+      if (!firstOnline) {
+        console.warn("[studio/new] Launch blocked — no online runtime to assign", {
+          workspaceId,
+          machineRegistered,
+          daemonOnline,
+          hasOnlineRuntime,
+          fetched: fresh.length,
+          online: freshOnline.length,
+          runtimes: fresh.map((r) => ({ id: r.id, provider: r.provider, status: r.status })),
+        });
+        toast.error(
+          `No online runtime to assign — machine reads connected but runtime list is ${fresh.length === 0 ? "empty" : "all offline"} (online: ${freshOnline.length}, fetched: ${fresh.length}, registered: ${machineRegistered}, daemonOnline: ${daemonOnline})`,
+        );
+        return;
+      }
+      readyMembers = members.map((m) => (m.runtimeId ? m : { ...m, runtimeId: firstOnline }));
+      setMembers(readyMembers);
+    }
+
     setCreating(true);
     try {
       const res = await fetch("/api/studios", {
@@ -221,7 +267,7 @@ export function StudioOnboardingClient({
         body: JSON.stringify({
           name: undefined,
           scenario: scenarioId,
-          members: members.map((m) => ({
+          members: readyMembers.map((m) => ({
             name: m.name,
             role: m.role,
             runtime_id: m.runtimeId,
@@ -235,8 +281,9 @@ export function StudioOnboardingClient({
       });
 
       if (!res.ok) {
-        const errBody = (await res.json()) as { error?: string };
-        throw new Error(errBody.error || "Failed to create company");
+        const errBody = (await res.json()) as { error?: string; details?: string[] };
+        const detail = errBody.details?.length ? `: ${errBody.details.join(", ")}` : "";
+        throw new Error(`${errBody.error || "Failed to create company"}${detail}`);
       }
 
       const data = (await res.json()) as { workspace: { slug: string }; leader_agent_id: string };
@@ -259,12 +306,6 @@ export function StudioOnboardingClient({
       setCreating(false);
     }
   };
-
-  const canCreate =
-    scenarioId &&
-    members.length > 0 &&
-    members.every((m) => m.runtimeId) &&
-    (hasOnlineRuntime || (machineRegistered && daemonOnline) || isTauriDesktop);
 
   if (!scenarioId) {
     return (
@@ -389,8 +430,7 @@ export function StudioOnboardingClient({
             {/* Connect Machine — hidden in Tauri desktop (the app IS the computer) */}
             {!isTauriDesktop && (
               <div className="space-y-3">
-                <h2 className="text-base font-semibold tracking-tight">Connect a computer</h2>
-                {(hasOnlineRuntime || (machineRegistered && daemonOnline)) ? (
+                {computerConnected ? (
                   <p className="text-xs text-emerald-600 flex items-center gap-1">
                     <CheckCircle2 className="size-3" /> Computer connected
                   </p>
@@ -416,7 +456,7 @@ export function StudioOnboardingClient({
             {/* Create */}
             <Button
               onClick={handleCreate}
-              disabled={!canCreate || creating}
+              disabled={creating || !computerConnected}
               className="w-full"
               size="lg"
             >
