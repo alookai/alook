@@ -10,6 +10,9 @@
   "ignoreDependencies": [
     "citty"
   ],
+  "ignoreBinaries": [
+    "taskkill"
+  ],
   "vitest": {
     "entry": ["**/*.test.ts"]
   },

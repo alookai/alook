@@ -11,7 +11,11 @@
     "bun-types"
   ],
   "ignoreBinaries": [
-    "predev"
+    "predev",
+    "printf",
+    "pbcopy",
+    "xclip",
+    "taskkill"
   ],
   "vitest": {
     "entry": ["test/**/*.test.ts"]
